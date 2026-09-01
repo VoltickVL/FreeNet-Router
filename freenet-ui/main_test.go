@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDetectCountry(t *testing.T) {
@@ -56,8 +58,37 @@ func TestSameOrigin(t *testing.T) {
 	}
 }
 
+func TestLoopbackListenAddr(t *testing.T) {
+	if got := loopbackListenAddr("192.168.50.1:1001"); got != "127.0.0.1:1001" {
+		t.Fatalf("loopbackListenAddr()=%q", got)
+	}
+	for _, addr := range []string{"127.0.0.1:1001", "0.0.0.0:1001", "[::]:1001"} {
+		if got := loopbackListenAddr(addr); got != "" {
+			t.Fatalf("loopbackListenAddr(%q)=%q want empty", addr, got)
+		}
+	}
+}
+
+func TestRunCommandDoesNotHangOnInheritedOutputPipe(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+
+	started := time.Now()
+	out, err := runCommand(ctx, "/bin/sh", "-c", "(sleep 5; echo late) & echo done")
+	elapsed := time.Since(started)
+	if err != nil {
+		t.Fatalf("runCommand error: %v", err)
+	}
+	if elapsed >= 4*time.Second {
+		t.Fatalf("runCommand waited for descendant output pipe: %s", elapsed)
+	}
+	if len(out) == 0 {
+		t.Fatal("expected direct command output")
+	}
+}
+
 func TestStatusJSONDoesNotExposeSecrets(t *testing.T) {
-	s := statusResponse{Version: "0.1.0", CountryCode: "de", Country: "Германия", City: "Frankfurt", Endpoint: "1.2.3.4:443"}
+	s := statusResponse{Version: "0.2.1", CountryCode: "de", Country: "Германия", City: "Frankfurt", Endpoint: "1.2.3.4:443"}
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
