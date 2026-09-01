@@ -6,7 +6,6 @@ on:
       - 'README.md'
       - 'VERSION'
       - 'install.sh'
-      - 'setup.sh'
       - 'config/**'
       - 'scripts/**'
       - 'freenet-ui/**'
@@ -38,34 +37,34 @@ jobs:
       - name: Shell syntax
         run: |
           sh -n install.sh
-          sh -n setup.sh
           sh -n scripts/vpn
           sh -n scripts/blanc_xkeen_update_outbounds.sh
           sh -n deploy/S99freenet-ui
 
       - name: Installer contract
         run: |
-          grep -q 'raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/setup.sh' install.sh
-          grep -q 'CRON_TOUCHED' install.sh
-          grep -q 'xkeen.*-ug' install.sh
-          grep -q 'blanc_xkeen_update_outbounds' install.sh
-          grep -q 'crontab "$CRON_BEFORE"' install.sh
-          grep -q 'REPO="VoltickVL/FreeNet-Router"' setup.sh
-          grep -q 'releases/latest/download' setup.sh
-          grep -q 'SHA256SUMS' setup.sh
-          grep -q '# BEGIN FREENET' setup.sh
-          grep -q 'CONFIG_DIR="/opt/etc/freenet"' setup.sh
-          grep -q 'CONFIG_FILE="$CONFIG_DIR/freenet.conf"' setup.sh
-          grep -q '/opt/etc/xray/blanc_subscription.url' setup.sh
-          grep -q 'ROLLBACK:' setup.sh
-          grep -q 'nslookup' setup.sh
+          grep -q 'REPO="VoltickVL/FreeNet-Router"' install.sh
+          grep -q 'releases/latest/download' install.sh
+          grep -q 'SHA256SUMS' install.sh
+          grep -q 'bootstrap_ip' install.sh
+          grep -q '77.88.8.8 8.8.8.8' install.sh
+          grep -q 'normalize_legacy_cron' install.sh
+          grep -q '# BEGIN FREENET' install.sh
+          grep -q 'abort_signal' install.sh
+          grep -q 'ROLLBACK:' install.sh
+          grep -q 'CONFIG_DIR="/opt/etc/freenet"' install.sh
+          grep -q '/opt/etc/xray/blanc_subscription.url' install.sh
+          grep -q 'snapshot_xray' install.sh
+          grep -q 'LAN-only listener' install.sh
+          ! grep -q 'setup.sh' install.sh
+          grep -q 'cp install.sh dist/freenet' .github/workflows/release.yml
           grep -q '^v0\.' VERSION
 
       - name: Secret surface guard
         run: |
           ! grep -Rni --exclude='*_test.go' -E \
             'vless://[0-9A-Fa-f-]{36}@|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
-            install.sh setup.sh scripts config freenet-ui deploy README.md
+            install.sh scripts config freenet-ui deploy README.md
 
       - name: Cross-build direct router binaries
         run: |
