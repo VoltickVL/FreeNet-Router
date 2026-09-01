@@ -1,0 +1,74 @@
+#!/bin/sh
+
+FILTER_FILE="/opt/etc/xray/blanc_profile_filter.regex"
+
+if [ -d "/opt/etc/xray/configs" ]; then
+CONFIG_DIR="/opt/etc/xray/configs"
+elif [ -d "/opkg/etc/xray/configs" ]; then
+CONFIG_DIR="/opkg/etc/xray/configs"
+else
+CONFIG_DIR="/opt/etc/xray/configs"
+fi
+
+OUT_FILE="$CONFIG_DIR/04_outbounds.json"
+
+case "${1:-}" in
+de)
+FILTER='Frankfurt|Frankfurt am Main|Germany|Deutschland|Германия|Франкфурт'
+NAME="Germany / Frankfurt / Extra"
+;;
+pl)
+FILTER='Warsaw|Warszawa|Poland|Polska|Польша|Варшава'
+NAME="Poland / Warsaw / Extra"
+;;
+fi)
+FILTER='Helsinki|Finland|Suomi|Финляндия|Хельсинки'
+NAME="Finland / Helsinki / Extra"
+;;
+nl)
+FILTER='Amsterdam|Netherlands|Nederland|Holland|Нидерланды|Голландия|Амстердам'
+NAME="Netherlands / Amsterdam / Extra"
+;;
+current|status)
+echo "===== CURRENT FILTER ====="
+if [ -f "$FILTER_FILE" ]; then
+cat "$FILTER_FILE"
+else
+echo "no filter file"
+fi
+echo
+echo "===== CURRENT OUTBOUND ====="
+if [ -f "$OUT_FILE" ]; then
+grep '"address"' "$OUT_FILE" 2>/dev/null | head -n 1
+grep '"port"' "$OUT_FILE" 2>/dev/null | head -n 1
+else
+echo "outbound file not found: $OUT_FILE"
+fi
+exit 0
+;;
+reload|update)
+FORCE=1 /opt/bin/blanc_xkeen_update_outbounds.sh
+exit $?
+;;
+*)
+echo "Usage:"
+echo "  vpn de       Germany / Frankfurt / Extra"
+echo "  vpn pl       Poland / Warsaw / Extra"
+echo "  vpn fi       Finland / Helsinki / Extra"
+echo "  vpn nl       Netherlands / Amsterdam / Extra"
+echo "  vpn current  show current filter and endpoint"
+echo "  vpn status   same as current"
+echo "  vpn reload   update current selected Extra profile"
+echo "  vpn update   same as reload"
+exit 1
+;;
+esac
+
+echo "$FILTER" > "$FILTER_FILE"
+
+echo "[vpn] selected: $NAME"
+echo "[vpn] filter saved:"
+cat "$FILTER_FILE"
+echo
+
+FORCE=1 /opt/bin/blanc_xkeen_update_outbounds.sh
