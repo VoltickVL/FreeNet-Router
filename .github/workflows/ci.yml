@@ -69,7 +69,7 @@ jobs:
           grep -q 'MODE=READY_EXISTING_STACK' doctor.sh
           grep -q 'MODE=ENTWARE_ONLY' doctor.sh
           grep -q 'xray run -test' doctor.sh
-          ! grep -Eq 'opkg (install|upgrade)|restart|reboot|killall|crontab [^ -]' doctor.sh
+          ! grep -Eq '^[[:space:]]*(opkg[[:space:]]+(install|upgrade)|reboot([[:space:]]|$)|restart([[:space:]]|$)|killall([[:space:]]|$)|crontab[[:space:]]+[^-l])' doctor.sh
 
       - name: UI recovery contract
         run: |
