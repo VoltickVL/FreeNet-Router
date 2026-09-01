@@ -20,7 +20,7 @@ cleanup() {
 }
 trap cleanup 0 1 2 15
 
-for tool in curl awk crontab mktemp nslookup; do
+for tool in curl awk cmp crontab mktemp nslookup; do
     command -v "$tool" >/dev/null 2>&1 || fail "не найдена обязательная команда: $tool"
 done
 
