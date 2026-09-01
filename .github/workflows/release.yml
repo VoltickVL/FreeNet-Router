@@ -42,16 +42,23 @@ jobs:
       - name: Shell syntax
         run: |
           sh -n install.sh
-          sh -n setup.sh
           sh -n scripts/vpn
           sh -n scripts/blanc_xkeen_update_outbounds.sh
           sh -n deploy/S99freenet-ui
+
+      - name: Installer contract
+        run: |
+          grep -q 'REPO="VoltickVL/FreeNet-Router"' install.sh
+          grep -q 'bootstrap_ip' install.sh
+          grep -q 'normalize_legacy_cron' install.sh
+          grep -q 'abort_signal' install.sh
+          ! grep -q 'setup.sh' install.sh
 
       - name: Secret surface guard
         run: |
           ! grep -Rni --exclude='*_test.go' -E \
             'vless://[0-9A-Fa-f-]{36}@|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
-            install.sh setup.sh scripts config freenet-ui deploy README.md
+            install.sh scripts config freenet-ui deploy README.md
 
       - name: Build direct router assets
         run: |
@@ -74,7 +81,7 @@ jobs:
 
           cp scripts/vpn dist/vpn
           cp scripts/blanc_xkeen_update_outbounds.sh dist/blanc_xkeen_update_outbounds.sh
-          cp setup.sh dist/freenet
+          cp install.sh dist/freenet
           cp config/freenet.conf.example dist/freenet.conf.example
 
           chmod 755 \
