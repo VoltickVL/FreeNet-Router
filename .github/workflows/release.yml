@@ -41,6 +41,7 @@ jobs:
 
       - name: Shell syntax
         run: |
+          sh -n install.sh
           sh -n setup.sh
           sh -n scripts/vpn
           sh -n scripts/blanc_xkeen_update_outbounds.sh
@@ -50,7 +51,7 @@ jobs:
         run: |
           ! grep -Rni --exclude='*_test.go' -E \
             'vless://[0-9A-Fa-f-]{36}@|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
-            setup.sh scripts config freenet-ui deploy README.md
+            install.sh setup.sh scripts config freenet-ui deploy README.md
 
       - name: Build direct router assets
         run: |
