@@ -2,7 +2,51 @@
 
 FreeNet Router — переносимый слой управления VPN для Keenetic/Netcraze + Entware + XKeen/Xray.
 
-Цель проекта: после базовой установки Entware и XKeen не собирать VPN-схему вручную из SSH-команд. FreeNet устанавливает локальную веб-панель, выбор страны VPN, безопасное обновление endpoint из подписки и управляемую автоматизацию cron.
+Цель проекта: после подготовки USB/Entware не собирать VPN-схему вручную из SSH-команд. FreeNet должен довести роутер до рабочего VPN через один installer/browser wizard, а затем управлять VPN, подпиской, автоматизацией, обновлениями, backup/rollback и безопасным удалённым доступом.
+
+Полный план развития: **GitHub Issue #5 — ROADMAP: FreeNet Router — от Entware до готового VPN через один мастер**.
+
+## Текущий стабильный слой v0.2.2
+
+Сейчас FreeNet умеет безопасно устанавливаться **поверх уже работающего Entware + XKeen + Xray**:
+
+- direct release binaries ARM64/MIPSLE/MIPS;
+- SHA-256 verification до mutation;
+- timestamped backup + rollback;
+- сохранение локальной VPN subscription URL;
+- безопасная миграция собственного cron;
+- FreeNet UI;
+- выбор VPN-профиля;
+- hardened endpoint updater;
+- проверка Xray runtime и `dns-out`;
+- запрет wildcard bind для FreeNet UI;
+- loopback listener для CrazeDNS proxy;
+- recovery UI после разрыва HTTP-соединения во время restart Xray/XKeen;
+- read-only `doctor.sh` для HOME/WORK preflight.
+
+## Перед установкой: FreeNet Doctor
+
+На новом или рабочем роутере сначала выполните read-only preflight:
+
+```sh
+curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | sh
+```
+
+`doctor.sh` **ничего не устанавливает и не меняет**. Он проверяет Entware, архитектуру, инструменты, XKeen/Xray, Xray configs, процессы, порты, валидность Xray и возвращает режим:
+
+```text
+MODE=READY_EXISTING_STACK
+```
+
+— можно ставить текущий FreeNet поверх существующего XKeen/Xray.
+
+```text
+MODE=ENTWARE_ONLY
+```
+
+— Entware есть, но XKeen/Xray ещё нет. Для этого состояния разрабатывается P1 bootstrap из Roadmap #5; current installer не делает blind mutation.
+
+Подробный порядок на рабочий роутер: [`docs/WORK-TOMORROW-RU.md`](docs/WORK-TOMORROW-RU.md).
 
 ## Быстрая установка
 
@@ -12,118 +56,75 @@ FreeNet Router — переносимый слой управления VPN дл
 exec /opt/usr/bin/sh
 ```
 
-После этого FreeNet устанавливается **одной командой**. Основной вариант специально не зависит от локального DNS роутера: адрес `raw.githubusercontent.com` разрешается через внешний DNS и передаётся в `curl --resolve`.
+Если доступен отдельный Entware SSH, можно войти сразу, например:
 
 ```sh
-H=raw.githubusercontent.com; IP="$(nslookup "$H" 77.88.8.8 2>/dev/null | awk '/^Name:/{s=1;next} s&&/^Address [0-9]+:/{if($3~/^[0-9]+\./){print $3;exit}}')"; [ -n "$IP" ] && curl -fLsS --resolve "$H:443:$IP" "https://$H/VoltickVL/FreeNet-Router/main/install.sh" | /opt/usr/bin/sh
+ssh -p 222 root@<LAN-IP>
 ```
 
-Если локальный DNS роутера заведомо исправен, можно использовать короткий вариант:
+После `MODE=READY_EXISTING_STACK` FreeNet устанавливается одной командой:
 
 ```sh
 curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/install.sh | /opt/usr/bin/sh
 ```
 
-`install.sh` — единственный installer/manager FreeNet. Он не скачивает второй setup-скрипт. Тот же файл после установки становится `/opt/bin/freenet`.
+Если router-local DNS не работает, используйте bootstrap DNS + `curl --resolve`:
 
-После установки доступны:
+```sh
+H=raw.githubusercontent.com; IP="$(nslookup "$H" 77.88.8.8 2>/dev/null | awk '/^Name:/{s=1;next} s&&/^Address [0-9]+:/{if($3~/^[0-9]+\./){print $3;exit}}')"; [ -n "$IP" ] && curl -fLsS --resolve "$H:443:$IP" "https://$H/VoltickVL/FreeNet-Router/main/install.sh" | /opt/usr/bin/sh
+```
+
+`install.sh` — единственный installer/manager FreeNet. После установки тот же файл находится в `/opt/bin/freenet`.
+
+## После установки
+
+CLI:
 
 ```sh
 freenet
 ```
 
-и веб-панель:
+Web UI:
 
 ```text
 http://<LAN-IP-роутера>:1001/
 ```
 
-Установщик сам определяет LAN IPv4 интерфейса `br0`; конкретный домашний IP в код не зашит.
+FreeNet определяет LAN IPv4 интерфейса `br0`; конкретный домашний IP в installer не зашит.
 
 ## Что делает installer
 
 Перед первой mutation `install.sh`:
 
 1. проверяет Entware, XKeen/Xray и обязательные инструменты;
-2. определяет архитектуру роутера;
-3. скачивает GitHub Release assets через внешний bootstrap DNS (`77.88.8.8`, fallback `8.8.8.8`) и `curl --resolve`;
-4. вручную следует HTTPS redirect до release asset, поэтому не зависит от router-local DNS на каждом redirect-host;
-5. проверяет `SHA256SUMS` для каждого устанавливаемого файла;
-6. создаёт timestamped backup текущих FreeNet-файлов, subscription URL и crontab;
+2. определяет архитектуру;
+3. скачивает GitHub Release assets через bootstrap DNS (`77.88.8.8`, fallback `8.8.8.8`) и `curl --resolve`;
+4. следует HTTPS redirect до release asset без зависимости от router-local DNS;
+5. проверяет `SHA256SUMS` каждого устанавливаемого файла;
+6. создаёт timestamped backup FreeNet-файлов, subscription URL и crontab;
 7. сохраняет контрольные SHA Xray `02/03/04/05`;
-8. только после этого меняет файлы и cron.
+8. только после этого меняет FreeNet-файлы и собственный cron-блок.
 
 Если установка, runtime acceptance или проверка SHA завершается ошибкой, installer возвращает свои файлы и crontab из backup. После начала mutation `SIGINT`/`Ctrl-C`, `SIGHUP` и `SIGTERM` также запускают rollback.
 
-## Что умеет FreeNet
+## Что умеет FreeNet UI
 
-- локальная web UI без Python, Node.js, PHP и nginx;
-- отдельный статический бинарник `freenet-ui`;
-- ручной выбор VPN-профиля:
-  - Германия / Frankfurt / Extra;
-  - Польша / Warsaw / Extra;
-  - Финляндия / Helsinki / Extra;
-  - Нидерланды / Amsterdam / Extra;
-- отображение текущего endpoint;
-- статус Xray, XKeen UI, `dns-out` и updater lock;
-- кнопка обновления текущего endpoint из VPN-подписки;
-- защита от параллельных операций;
-- snapshot + rollback при неуспешном переключении страны;
-- автоматическое обновление endpoint/IP по cron;
-- отдельное расписание `xkeen -ug`;
-- изменение расписаний и порта через `freenet configure`;
-- timestamped backup перед установкой/обновлением;
-- SHA-256 проверка release assets до mutation;
-- прямые release binaries, без ZIP-архивов GitHub Actions.
+Текущая UI-версия:
 
-## Поддерживаемые архитектуры
+- показывает текущую страну/город и endpoint;
+- показывает Xray, XKeen UI, `dns-out`, updater state;
+- переключает Германия / Frankfurt / Extra;
+- Польша / Warsaw / Extra;
+- Финляндия / Helsinki / Extra;
+- Нидерланды / Amsterdam / Extra;
+- обновляет текущий endpoint из subscription;
+- блокирует параллельные операции;
+- восстанавливает UI state по `/api/status`, даже если браузерный POST оборвался во время restart VPN;
+- работает локально на LAN и на loopback для CrazeDNS proxy, не используя wildcard `0.0.0.0:1001`.
 
-Release собирает отдельные статические binaries:
-
-- `arm64-v8a`;
-- `mips32le`;
-- `mips32`.
-
-Архитектура определяется через `opkg print-architecture`.
-
-## Что должно быть на роутере заранее
-
-FreeNet v0.2.0 пока является control/update layer поверх уже работающего XKeen/Xray. Перед установкой должны существовать:
-
-- Entware в `/opt`;
-- `opkg`;
-- `/opt/sbin/xkeen`;
-- `/opt/sbin/xray`;
-- `/opt/etc/xray/configs`;
-- рабочий Xray config;
-- `04_outbounds.json` с единственным `vless-reality` и единственным `dns-out` для hardened updater.
-
-Полный bootstrap «чистый Keenetic → Entware → XKeen/Xray → FreeNet» будет отдельным слоем после проверки v0.2.0 на нескольких роутерах. Текущий installer сознательно не делает догадок о Split DNS, firewall и routing нового устройства.
-
-## Локальные файлы после установки
-
-```text
-/opt/sbin/freenet-ui
-/opt/etc/init.d/S99freenet-ui
-/opt/bin/freenet
-/opt/bin/vpn
-/opt/bin/blanc_xkeen_update_outbounds.sh
-/opt/etc/freenet/freenet.conf
-/opt/etc/xray/blanc_subscription.url
-/opt/etc/xray/blanc_profile_filter.regex
-```
-
-`/opt/etc/xray/blanc_subscription.url` хранится только на конкретном роутере и не входит в репозиторий или Release.
+Следующий provider layer будет получать **все доступные Extra profiles динамически**, а не ограничиваться четырьмя hardcoded кнопками.
 
 ## Команды
-
-Без аргументов открывается локальное меню:
-
-```sh
-freenet
-```
-
-Прямые команды:
 
 ```sh
 freenet install
@@ -144,9 +145,9 @@ vpn current
 vpn update
 ```
 
-## Настройки
+## Автоматизация
 
-Несекретные локальные настройки находятся в:
+Локальные несекретные настройки:
 
 ```text
 /opt/etc/freenet/freenet.conf
@@ -170,23 +171,38 @@ FreeNet управляет только собственным cron-блоком
 # END FREENET
 ```
 
-При первой установке существующие одиночные строки `/opt/sbin/xkeen -ug` и `/opt/bin/blanc_xkeen_update_outbounds.sh` мигрируются внутрь этого блока. Остальные cron-задачи сохраняются. Миграция выполняется только после backup и входит в общий rollback installer-а.
+Существующие одиночные строки `/opt/sbin/xkeen -ug` и `/opt/bin/blanc_xkeen_update_outbounds.sh` мигрируются внутрь этого блока после backup. Остальные cron-задачи сохраняются.
+
+## Локальные файлы
+
+```text
+/opt/sbin/freenet-ui
+/opt/etc/init.d/S99freenet-ui
+/opt/bin/freenet
+/opt/bin/vpn
+/opt/bin/blanc_xkeen_update_outbounds.sh
+/opt/etc/freenet/freenet.conf
+/opt/etc/xray/blanc_subscription.url
+/opt/etc/xray/blanc_profile_filter.regex
+```
+
+Subscription URL хранится только на конкретном роутере и не входит в repo/release.
 
 ## Безопасность
 
-Публичный репозиторий не содержит:
+Публичный репозиторий не должен содержать:
 
 - URL/токен VPN-подписки;
 - VLESS UUID;
 - Reality public/private keys;
 - shortId;
 - credential-bearing `04_outbounds.json`;
-- пароли роутера;
-- историю частных runtime-диагностик.
+- пароли роутера/FreeNet;
+- частные runtime dumps.
 
-Web UI принимает только фиксированный allowlist действий `de`, `pl`, `fi`, `nl`, `update`. Произвольной shell-команды через HTTP нет.
+Web UI принимает только фиксированные действия. Произвольного shell execution через HTTP нет.
 
-Init-файл привязывает UI к LAN IPv4 роутера, а не к wildcard `0.0.0.0`.
+План безопасности из Roadmap #5: опциональный пароль FreeNet, hash-only storage, sessions, rate limit, `freenet reset-password`, CrazeDNS warning и LAN-only Entware SSH `root:222`.
 
 ## Надёжность updater
 
@@ -195,27 +211,24 @@ Init-файл привязывает UI к LAN IPv4 роутера, а не к w
 - сериализует запуски через lock;
 - использует уникальный temp dir;
 - умеет bootstrap DNS через внешний DNS + `curl --resolve`;
-- меняет только объект `vless-reality`;
+- меняет только `vless-reality`;
 - сохраняет `direct`, `dns-out` и остальные non-VLESS outbounds;
 - валидирует candidate полным `xray run -test` до live replace;
 - применяет файл атомарно;
 - не перезапускает Xray при семантически неизменившемся config;
 - делает rolling backup;
-- пытается автоматически восстановить предыдущий outbound при failed restart/validation;
-- не печатает UUID/PBK/SID/URL подписки в штатный лог.
+- пытается восстановить предыдущий outbound при failed restart/validation;
+- не печатает UUID/PBK/SID/URL subscription в штатный лог.
 
-## Releases
+## Upstream / reference
 
-Файл `VERSION` определяет версию релиза. Изменение `VERSION` в `main` запускает release pipeline, который:
+FreeNet не копирует целиком сторонние инструкции и не хранит чужие секреты. Для развития bootstrap используются публичные upstream/reference:
 
-1. выполняет Go tests/vet и shell syntax checks;
-2. проверяет installer contract и публичную поверхность на известные секреты/частные endpoint;
-3. собирает binaries под ARM64/MIPSLE/MIPS;
-4. копирует тот же `install.sh` в release как установленный manager `freenet`;
-5. формирует `SHA256SUMS`;
-6. публикует прямые assets в GitHub Release.
+- XKeen — upstream installer/release;
+- XKeen UI — upstream release/UI;
+- BlancVPN — официальный пользовательский flow и provider semantics.
 
-Installer скачивает `releases/latest/download/*` и сверяет SHA-256 до изменения live-файлов.
+BlancVPN будет первым fully-supported provider preset; Generic VLESS/Reality предусмотрен архитектурой Roadmap #5.
 
 ## Обновление
 
@@ -225,8 +238,10 @@ Installer скачивает `releases/latest/download/*` и сверяет SHA-
 freenet update
 ```
 
-или повторно выполните ту же одну bootstrap-команду из раздела «Быстрая установка».
+или повторно выполните bootstrap-команду установки.
 
-## Граница ответственности v0.2.0
+## Граница ответственности v0.2.2
 
-FreeNet v0.2.0 не переписывает произвольно Split DNS, firewall или routing. После установки дополнительно проверяется, что контрольные SHA Xray `02_dns.json`, `03_inbounds.json`, `04_outbounds.json` и `05_routing.json` не изменились.
+v0.2.2 пока **не устанавливает XKeen/Xray на Entware-only роутер** и не переписывает произвольно Split DNS/firewall/routing. Это сознательная граница до P1 clean-room bootstrap.
+
+После установки проверяется, что контрольные SHA Xray `02_dns.json`, `03_inbounds.json`, `04_outbounds.json` и `05_routing.json` installer-ом не изменились.
