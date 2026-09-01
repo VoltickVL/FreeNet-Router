@@ -57,7 +57,7 @@ jobs:
       - name: Secret surface guard
         run: |
           ! grep -Rni --exclude='*_test.go' -E \
-            'vless://|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
+            'vless://[0-9A-Fa-f-]{36}@|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
             setup.sh scripts config freenet-ui deploy README.md
 
       - name: Cross-build direct router binaries
