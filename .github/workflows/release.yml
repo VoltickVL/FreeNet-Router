@@ -1,0 +1,115 @@
+name: FreeNet Router Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - VERSION
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: freenet-ui/go.mod
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION="$(tr -d '\r\n' < VERSION)"
+          case "$VERSION" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Invalid VERSION: $VERSION" >&2; exit 1 ;;
+          esac
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Tests
+        working-directory: freenet-ui
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Shell syntax
+        run: |
+          sh -n setup.sh
+          sh -n scripts/vpn
+          sh -n scripts/blanc_xkeen_update_outbounds.sh
+          sh -n deploy/S99freenet-ui
+
+      - name: Secret surface guard
+        run: |
+          ! grep -Rni --exclude='*_test.go' -E \
+            'vless://|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
+            setup.sh scripts config freenet-ui deploy README.md
+
+      - name: Build direct router assets
+        run: |
+          mkdir -p dist
+          (
+            cd freenet-ui
+            CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+              go build -trimpath -ldflags='-s -w' -o ../dist/freenet-ui-arm64-v8a .
+          )
+          (
+            cd freenet-ui
+            CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat \
+              go build -trimpath -ldflags='-s -w' -o ../dist/freenet-ui-mips32le .
+          )
+          (
+            cd freenet-ui
+            CGO_ENABLED=0 GOOS=linux GOARCH=mips GOMIPS=softfloat \
+              go build -trimpath -ldflags='-s -w' -o ../dist/freenet-ui-mips32 .
+          )
+
+          cp scripts/vpn dist/vpn
+          cp scripts/blanc_xkeen_update_outbounds.sh dist/blanc_xkeen_update_outbounds.sh
+          cp setup.sh dist/freenet
+          cp config/freenet.conf.example dist/freenet.conf.example
+
+          chmod 755 \
+            dist/freenet-ui-arm64-v8a \
+            dist/freenet-ui-mips32le \
+            dist/freenet-ui-mips32 \
+            dist/vpn \
+            dist/blanc_xkeen_update_outbounds.sh \
+            dist/freenet
+
+          (
+            cd dist
+            sha256sum \
+              freenet-ui-arm64-v8a \
+              freenet-ui-mips32le \
+              freenet-ui-mips32 \
+              vpn \
+              blanc_xkeen_update_outbounds.sh \
+              freenet \
+              freenet.conf.example \
+              > SHA256SUMS
+          )
+
+          file dist/freenet-ui-*
+          cat dist/SHA256SUMS
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists; VERSION must be bumped." >&2
+            exit 1
+          fi
+          gh release create "$VERSION" dist/* \
+            --target "$GITHUB_SHA" \
+            --title "FreeNet Router $VERSION" \
+            --generate-notes
