@@ -23,7 +23,7 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+const version = "0.2.1"
 
 const (
 	defaultListen     = "192.168.50.1:1001"
@@ -135,7 +135,6 @@ func main() {
 	})
 
 	srv := &http.Server{
-		Addr:              cfg.Listen,
 		Handler:           securityHeaders(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -143,10 +142,47 @@ func main() {
 		IdleTimeout:       30 * time.Second,
 	}
 
-	log.Printf("FreeNet UI %s listening on http://%s", version, cfg.Listen)
-	if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+	lanListener, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		log.Fatalf("cannot listen on %s: %v", cfg.Listen, err)
+	}
+	listeners := []net.Listener{lanListener}
+
+	if loopbackAddr := loopbackListenAddr(cfg.Listen); loopbackAddr != "" {
+		loopbackListener, err := net.Listen("tcp", loopbackAddr)
+		if err != nil {
+			_ = lanListener.Close()
+			log.Fatalf("cannot listen on %s: %v", loopbackAddr, err)
+		}
+		listeners = append(listeners, loopbackListener)
+	}
+
+	errCh := make(chan error, len(listeners))
+	for _, listener := range listeners {
+		ln := listener
+		log.Printf("FreeNet UI %s listening on http://%s", version, ln.Addr().String())
+		go func() {
+			errCh <- srv.Serve(ln)
+		}()
+	}
+
+	if err := <-errCh; !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
+}
+
+func loopbackListenAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || port == "" {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return ""
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return ""
+	}
+	return net.JoinHostPort("127.0.0.1", port)
 }
 
 func securityHeaders(next http.Handler) http.Handler {
@@ -224,6 +260,17 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, code, result)
 }
 
+func runCommand(ctx context.Context, path string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = append(os.Environ(), "PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin")
+	cmd.WaitDelay = 2 * time.Second
+	output, err := cmd.CombinedOutput()
+	if errors.Is(err, exec.ErrWaitDelay) && ctx.Err() == nil {
+		err = nil
+	}
+	return output, err
+}
+
 func (a *app) runAction(action string) actionResult {
 	started := time.Now()
 	result := actionResult{Action: action, StartedAt: started.Format(time.RFC3339)}
@@ -248,9 +295,7 @@ func (a *app) runAction(action string) actionResult {
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, a.cfg.VPNPath, action)
-	cmd.Env = append(os.Environ(), "PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin")
-	output, cmdErr := cmd.CombinedOutput()
+	output, cmdErr := runCommand(ctx, a.cfg.VPNPath, action)
 	safeOutput := sanitizeOutput(string(output))
 
 	if ctx.Err() == context.DeadlineExceeded {
@@ -368,9 +413,7 @@ func (a *app) restoreSnapshot(s snapshot) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, a.cfg.XKeenPath, "-restart")
-	cmd.Env = append(os.Environ(), "PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := runCommand(ctx, a.cfg.XKeenPath, "-restart"); err != nil {
 		return fmt.Errorf("restart XKeen: %v (%s)", err, sanitizeOutput(string(out)))
 	}
 	time.Sleep(4 * time.Second)
