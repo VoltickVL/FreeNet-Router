@@ -17,12 +17,12 @@
   <section class="hero">
     <div class="eyebrow">Текущий VPN</div>
     <div class="country"><div id="heroFlag" class="flag">🌐</div><div><h1 id="profile">Определяем профиль...</h1><p id="city">—</p></div></div>
-    <div class="endpoint"><span class="eyebrow">Endpoint</span><strong id="endpoint">—</strong></div>
+    <div class="endpoint"><span class="eyebrow">Сервер</span><strong id="endpoint">—</strong></div>
     <div class="status-grid">
-      <div class="stat"><b id="xrayState">Xray</b><span>VPN runtime</span></div>
-      <div class="stat"><b id="xkeenState">XKeen UI</b><span>Local control</span></div>
-      <div class="stat"><b id="dnsState">dns-out</b><span>Split DNS outbound</span></div>
-      <div class="stat"><b id="updaterState">Updater</b><span>Subscription refresh</span></div>
+      <div class="stat"><b id="xrayState">Xray</b><span>VPN-движок</span></div>
+      <div class="stat"><b id="xkeenState">XKeen UI</b><span>Локальная панель</span></div>
+      <div class="stat"><b id="dnsState">dns-out</b><span>Раздельный DNS</span></div>
+      <div class="stat"><b id="updaterState">Обновление</b><span>VPN-подписка</span></div>
     </div>
   </section>
 
@@ -42,14 +42,97 @@
 </div>
 <script>
 const flags={de:'🇩🇪',pl:'🇵🇱',fi:'🇫🇮',nl:'🇳🇱'};
-let busy=false;
-function setBusy(v){busy=v;document.querySelectorAll('button').forEach(b=>b.disabled=v)}
+let localPending=false;
+let requestedAction='';
+let actionStartedAt=0;
+let baselineEndedAt='';
+let lastStatus=null;
+
+const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function buttonsBusy(serverBusy){document.querySelectorAll('button').forEach(b=>b.disabled=localPending||serverBusy)}
 function notice(text,type=''){const n=document.getElementById('notice');n.textContent=text;n.className='notice show '+type}
 function clearNotice(){document.getElementById('notice').className='notice'}
-async function loadStatus(){try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.getElementById('profile').textContent=s.profile_label||'Неизвестный профиль';document.getElementById('city').textContent=s.country?(s.country+' · Extra'):'Фильтр не распознан';document.getElementById('heroFlag').textContent=flags[s.country_code]||'🌐';document.getElementById('endpoint').textContent=s.endpoint||'—';document.getElementById('xrayState').textContent=s.xray_online?'● Xray Online':'● Xray Offline';document.getElementById('xkeenState').textContent=s.xkeen_ui_online?'● XKeen UI Online':'● XKeen UI Offline';document.getElementById('dnsState').textContent=s.dns_out_present?'● dns-out OK':'● dns-out Missing';document.getElementById('updaterState').textContent=s.updater_busy?'● Updater Busy':'● Updater Ready';const dot=document.getElementById('topDot');dot.className='dot '+(s.xray_online&&s.dns_out_present?'ok':'bad');document.getElementById('topStatus').textContent=s.xray_online&&s.dns_out_present?'Online':'Attention';document.getElementById('version').textContent='FreeNet UI '+s.version;document.querySelectorAll('.country-btn').forEach(b=>b.classList.toggle('active',b.dataset.action===s.country_code));if(!busy)setBusy(!!s.busy);const host=location.hostname;document.getElementById('xkeenLink').href='http://'+host+':1000/'}catch(e){document.getElementById('topDot').className='dot bad';document.getElementById('topStatus').textContent='Offline'}}
-async function act(action){if(busy)return;clearNotice();setBusy(true);notice(action==='update'?'Обновляем текущий сервер…':'Переключаем VPN…');try{const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});const j=await r.json();if(!r.ok||!j.success){notice(j.error||'Операция завершилась ошибкой','bad')}else{notice(j.message||'Готово','ok')}}catch(e){notice('Нет связи с FreeNet UI','bad')}finally{setBusy(false);await loadStatus()}}
+function actionFinishedByStatus(s){
+  if(!localPending||s.busy||s.updater_busy)return false;
+  const last=s.last_action||{};
+  if(last.action===requestedAction&&last.ended_at&&last.ended_at!==baselineEndedAt)return true;
+  if(requestedAction!=='update'&&s.country_code===requestedAction&&Date.now()-actionStartedAt>1500)return true;
+  return false;
+}
+function finishFromStatus(s){
+  const last=s.last_action||{};
+  if(last.action===requestedAction&&last.ended_at&&last.ended_at!==baselineEndedAt){
+    if(last.success)notice(last.message||'Операция завершена','ok');
+    else notice(last.error||'Операция завершилась ошибкой','bad');
+  }else if(requestedAction!=='update'&&s.country_code===requestedAction){
+    notice('VPN переключён. Состояние подтверждено панелью.','ok');
+  }else{
+    notice('Операция завершена.','ok');
+  }
+  localPending=false;requestedAction='';actionStartedAt=0;baselineEndedAt='';
+}
+async function loadStatus(){
+  try{
+    const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('status '+r.status);
+    const s=await r.json();lastStatus=s;
+    document.getElementById('profile').textContent=s.country?(s.country+' · '+(s.city||'')):'Неизвестный профиль';
+    document.getElementById('city').textContent=s.country?(s.country+' · Extra'):'Фильтр не распознан';
+    document.getElementById('heroFlag').textContent=flags[s.country_code]||'🌐';
+    document.getElementById('endpoint').textContent=s.endpoint||'—';
+    document.getElementById('xrayState').textContent=s.xray_online?'● Xray работает':'● Xray выключен';
+    document.getElementById('xkeenState').textContent=s.xkeen_ui_online?'● XKeen UI работает':'● XKeen UI выключен';
+    document.getElementById('dnsState').textContent=s.dns_out_present?'● dns-out OK':'● dns-out отсутствует';
+    document.getElementById('updaterState').textContent=s.updater_busy?'● Обновление идёт':'● Обновление готово';
+    const healthy=s.xray_online&&s.dns_out_present;
+    const dot=document.getElementById('topDot');dot.className='dot '+(healthy?'ok':'bad');
+    document.getElementById('topStatus').textContent=healthy?'Работает':'Требует внимания';
+    document.getElementById('version').textContent='FreeNet UI '+s.version;
+    document.querySelectorAll('.country-btn').forEach(b=>b.classList.toggle('active',b.dataset.action===s.country_code));
+    if(actionFinishedByStatus(s))finishFromStatus(s);
+    buttonsBusy(!!s.busy||!!s.updater_busy);
+    const host=location.hostname;document.getElementById('xkeenLink').href='http://'+host+':1000/';
+    return s;
+  }catch(e){
+    document.getElementById('topDot').className='dot bad';
+    document.getElementById('topStatus').textContent='Нет связи';
+    buttonsBusy(false);
+    return null;
+  }
+}
+async function act(action){
+  if(localPending||(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))return;
+  clearNotice();
+  localPending=true;requestedAction=action;actionStartedAt=Date.now();baselineEndedAt=(lastStatus&&lastStatus.last_action&&lastStatus.last_action.ended_at)||'';
+  buttonsBusy(true);
+  notice(action==='update'?'Обновляем текущий сервер…':'Переключаем VPN…');
+
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),12000);
+  try{
+    const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action}),signal:controller.signal});
+    const j=await r.json();
+    if(!r.ok||!j.success){notice(j.error||'Операция завершилась ошибкой','bad');localPending=false;requestedAction=''}
+    else{notice(j.message||'Готово','ok');localPending=false;requestedAction=''}
+  }catch(e){
+    notice('Соединение прервалось во время перезапуска VPN. Проверяем фактическое состояние…');
+  }finally{
+    clearTimeout(timer);
+  }
+
+  for(let i=0;i<45&&localPending;i++){
+    await sleep(1000);
+    await loadStatus();
+  }
+  if(localPending){
+    localPending=false;requestedAction='';
+    buttonsBusy(false);
+    notice('VPN мог переключиться, но подтверждение операции не получено. Обновите страницу или проверьте статус.','bad');
+  }else{
+    await loadStatus();
+  }
+}
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>act(b.dataset.action)));
-loadStatus();setInterval(loadStatus,5000);
+loadStatus();setInterval(loadStatus,2000);
 </script>
 </body>
 </html>
