@@ -47,7 +47,7 @@ jobs:
         run: |
           grep -q 'raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/setup.sh' install.sh
           grep -q 'CRON_TOUCHED' install.sh
-          grep -q '/opt/sbin/xkeen' install.sh
+          grep -q 'xkeen.*-ug' install.sh
           grep -q 'blanc_xkeen_update_outbounds' install.sh
           grep -q 'crontab "$CRON_BEFORE"' install.sh
           grep -q 'REPO="VoltickVL/FreeNet-Router"' setup.sh
