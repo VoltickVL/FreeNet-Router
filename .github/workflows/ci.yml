@@ -30,6 +30,18 @@ jobs:
           go-version: '1.23.x'
           cache-dependency-path: freenet-ui/go.mod
 
+      - name: Stamp UI version from VERSION
+        run: |
+          VERSION="$(tr -d '\r\n' < VERSION)"
+          case "$VERSION" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "Invalid VERSION: $VERSION" >&2; exit 1 ;;
+          esac
+          UI_VERSION="${VERSION#v}"
+          sed -i "s/^const version = \".*\"$/const version = \"$UI_VERSION\"/" freenet-ui/main.go
+          grep -Fq "const version = \"$UI_VERSION\"" freenet-ui/main.go
+          echo "FreeNet UI version: $UI_VERSION"
+
       - name: Go tests
         working-directory: freenet-ui
         run: |
@@ -62,6 +74,7 @@ jobs:
           ! grep -q 'setup.sh' install.sh
           grep -q 'cp install.sh dist/freenet' .github/workflows/release.yml
           grep -q '^v0\.' VERSION
+          grep -q 'Stamp UI version from VERSION' .github/workflows/release.yml
 
       - name: Doctor contract
         run: |
