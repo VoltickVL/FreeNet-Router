@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>FreeNet</title>
+<style>
+:root{color-scheme:dark;--bg:#090c12;--panel:#121722;--panel2:#171e2b;--line:#283244;--text:#f3f6fb;--muted:#8f9bad;--ok:#46d58c;--warn:#f2b84b;--bad:#ff6b6b;--accent:#5b8cff;--accent2:#76a0ff;--shadow:0 24px 60px rgba(0,0,0,.34)}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -20%,#1b2948 0,#0b1019 35%,var(--bg) 70%);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);min-height:100vh;padding:24px}.wrap{width:min(760px,100%);margin:0 auto}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}.brand{font-size:28px;font-weight:800;letter-spacing:-.03em}.brand span{color:var(--accent2)}.chip{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 4px rgba(255,255,255,.04)}.dot.ok{background:var(--ok);box-shadow:0 0 16px rgba(70,213,140,.65)}.dot.bad{background:var(--bad)}.hero{background:linear-gradient(180deg,rgba(23,30,43,.98),rgba(17,22,32,.98));border:1px solid var(--line);border-radius:24px;padding:24px;box-shadow:var(--shadow)}.eyebrow{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.14em;font-weight:700}.country{display:flex;align-items:center;gap:14px;margin-top:12px}.flag{font-size:44px;line-height:1}.country h1{font-size:30px;margin:0;letter-spacing:-.035em}.country p{margin:4px 0 0;color:var(--muted);font-size:15px}.endpoint{margin-top:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border-radius:16px;background:#0d121b;border:1px solid #202a3a}.endpoint strong{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px}.status-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}.stat{background:#0d121b;border:1px solid #202a3a;border-radius:15px;padding:12px}.stat b{display:block;font-size:13px}.stat span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.section{margin-top:18px;background:rgba(18,23,34,.9);border:1px solid var(--line);border-radius:22px;padding:18px}.section h2{font-size:15px;margin:0 0 13px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.btn{appearance:none;border:1px solid #2b374b;background:#131a26;color:var(--text);border-radius:16px;padding:15px 16px;font-size:15px;font-weight:700;cursor:pointer;text-align:left;display:flex;align-items:center;justify-content:space-between;transition:.15s ease}.btn:hover{border-color:#4b648c;transform:translateY(-1px)}.btn.active{border-color:var(--accent);background:linear-gradient(180deg,#1b2d52,#16243e);box-shadow:inset 0 0 0 1px rgba(91,140,255,.2)}.btn:disabled{opacity:.45;cursor:wait;transform:none}.btn .left{display:flex;align-items:center;gap:10px}.btn .smallflag{font-size:24px}.btn .sub{display:block;color:var(--muted);font-size:11px;font-weight:600;margin-top:2px}.update{width:100%;margin-top:10px;text-align:center;justify-content:center;background:linear-gradient(180deg,#477df6,#3264d7);border-color:#5b8cff}.notice{display:none;margin-top:12px;padding:12px 14px;border-radius:14px;font-size:13px;line-height:1.4;border:1px solid #2c3a50;background:#101722;color:var(--muted)}.notice.show{display:block}.notice.ok{border-color:rgba(70,213,140,.35);color:#bdf4d5}.notice.bad{border-color:rgba(255,107,107,.35);color:#ffc5c5}.footer{display:flex;justify-content:space-between;gap:12px;margin-top:14px;color:var(--muted);font-size:11px}.footer a{color:var(--muted);text-decoration:none}.footer a:hover{color:var(--text)}
+@media(max-width:760px){.status-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){body{padding:14px}.brand{font-size:24px}.hero{padding:18px;border-radius:20px}.country h1{font-size:24px}.flag{font-size:38px}.status-grid{grid-template-columns:1fr}.grid{grid-template-columns:1fr}.endpoint{align-items:flex-start;flex-direction:column}.footer{flex-direction:column}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div class="brand">Free<span>Net</span></div><div class="chip"><span id="topDot" class="dot"></span><span id="topStatus">Загрузка...</span></div></div>
+  <section class="hero">
+    <div class="eyebrow">Текущий VPN</div>
+    <div class="country"><div id="heroFlag" class="flag">🌐</div><div><h1 id="profile">Определяем профиль...</h1><p id="city">—</p></div></div>
+    <div class="endpoint"><span class="eyebrow">Endpoint</span><strong id="endpoint">—</strong></div>
+    <div class="status-grid">
+      <div class="stat"><b id="xrayState">Xray</b><span>VPN runtime</span></div>
+      <div class="stat"><b id="xkeenState">XKeen UI</b><span>Local control</span></div>
+      <div class="stat"><b id="dnsState">dns-out</b><span>Split DNS outbound</span></div>
+      <div class="stat"><b id="updaterState">Updater</b><span>Subscription refresh</span></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2>Выбрать страну</h2>
+    <div class="grid">
+      <button class="btn country-btn" data-action="de"><span class="left"><span class="smallflag">🇩🇪</span><span>Германия<span class="sub">Frankfurt · Extra</span></span></span><span>›</span></button>
+      <button class="btn country-btn" data-action="pl"><span class="left"><span class="smallflag">🇵🇱</span><span>Польша<span class="sub">Warsaw · Extra</span></span></span><span>›</span></button>
+      <button class="btn country-btn" data-action="fi"><span class="left"><span class="smallflag">🇫🇮</span><span>Финляндия<span class="sub">Helsinki · Extra</span></span></span><span>›</span></button>
+      <button class="btn country-btn" data-action="nl"><span class="left"><span class="smallflag">🇳🇱</span><span>Нидерланды<span class="sub">Amsterdam · Extra</span></span></span><span>›</span></button>
+    </div>
+    <button id="updateBtn" class="btn update" data-action="update">Обновить текущий сервер</button>
+    <div id="notice" class="notice"></div>
+  </section>
+
+  <div class="footer"><span id="version">FreeNet UI</span><a id="xkeenLink" href="#" target="_blank" rel="noopener">Открыть XKeen UI ↗</a></div>
+</div>
+<script>
+const flags={de:'🇩🇪',pl:'🇵🇱',fi:'🇫🇮',nl:'🇳🇱'};
+let busy=false;
+function setBusy(v){busy=v;document.querySelectorAll('button').forEach(b=>b.disabled=v)}
+function notice(text,type=''){const n=document.getElementById('notice');n.textContent=text;n.className='notice show '+type}
+function clearNotice(){document.getElementById('notice').className='notice'}
+async function loadStatus(){try{const r=await fetch('/api/status',{cache:'no-store'});const s=await r.json();document.getElementById('profile').textContent=s.profile_label||'Неизвестный профиль';document.getElementById('city').textContent=s.country?(s.country+' · Extra'):'Фильтр не распознан';document.getElementById('heroFlag').textContent=flags[s.country_code]||'🌐';document.getElementById('endpoint').textContent=s.endpoint||'—';document.getElementById('xrayState').textContent=s.xray_online?'● Xray Online':'● Xray Offline';document.getElementById('xkeenState').textContent=s.xkeen_ui_online?'● XKeen UI Online':'● XKeen UI Offline';document.getElementById('dnsState').textContent=s.dns_out_present?'● dns-out OK':'● dns-out Missing';document.getElementById('updaterState').textContent=s.updater_busy?'● Updater Busy':'● Updater Ready';const dot=document.getElementById('topDot');dot.className='dot '+(s.xray_online&&s.dns_out_present?'ok':'bad');document.getElementById('topStatus').textContent=s.xray_online&&s.dns_out_present?'Online':'Attention';document.getElementById('version').textContent='FreeNet UI '+s.version;document.querySelectorAll('.country-btn').forEach(b=>b.classList.toggle('active',b.dataset.action===s.country_code));if(!busy)setBusy(!!s.busy);const host=location.hostname;document.getElementById('xkeenLink').href='http://'+host+':1000/'}catch(e){document.getElementById('topDot').className='dot bad';document.getElementById('topStatus').textContent='Offline'}}
+async function act(action){if(busy)return;clearNotice();setBusy(true);notice(action==='update'?'Обновляем текущий сервер…':'Переключаем VPN…');try{const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});const j=await r.json();if(!r.ok||!j.success){notice(j.error||'Операция завершилась ошибкой','bad')}else{notice(j.message||'Готово','ok')}}catch(e){notice('Нет связи с FreeNet UI','bad')}finally{setBusy(false);await loadStatus()}}
+document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>act(b.dataset.action)));
+loadStatus();setInterval(loadStatus,5000);
+</script>
+</body>
+</html>
