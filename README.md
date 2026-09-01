@@ -6,11 +6,13 @@ FreeNet Router — переносимый надстроечный слой дл
 
 ## Быстрая установка
 
-После публикации первого GitHub Release установка или переустановка выполняется одной командой:
+Установка или переустановка выполняется одной командой:
 
 ```sh
-curl -Ls https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/setup.sh | sh -s -- install
+curl -Ls https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/install.sh | sh
 ```
+
+`install.sh` — bootstrap-обёртка первого запуска. Она безопасно мигрирует старые ручные cron-задания FreeNet в управляемый блок, скачивает основной `setup.sh` и при ошибке возвращает исходный crontab. На чистом роутере мигрировать нечего — установка идёт тем же путём.
 
 После установки доступно локальное меню:
 
@@ -50,7 +52,7 @@ http://<LAN-IP-роутера>:1001/
 
 ## Поддерживаемые архитектуры
 
-Первый релиз собирает отдельные статические binaries:
+Релиз собирает отдельные статические binaries:
 
 - `arm64-v8a`;
 - `mips32le`;
@@ -60,7 +62,7 @@ http://<LAN-IP-роутера>:1001/
 
 ## Что должно быть на роутере заранее
 
-Версия `v0.1.0` сознательно не переустанавливает и не переписывает базовый XKeen/Xray runtime. Перед установкой должны уже существовать:
+Версия `v0.1.1` сознательно не переустанавливает и не переписывает базовый XKeen/Xray runtime. Перед установкой должны уже существовать:
 
 - Entware в `/opt`;
 - `opkg`;
@@ -134,7 +136,7 @@ FreeNet управляет только собственным cron-блоком
 # END FREENET
 ```
 
-Чужие cron-задания установщик не удаляет.
+При первом bootstrap старые одиночные строки `/opt/sbin/xkeen -ug` и `/opt/bin/blanc_xkeen_update_outbounds.sh` удаляются из legacy-части crontab и заменяются управляемым блоком. Остальные cron-задания сохраняются. Исходный crontab восстанавливается автоматически, если bootstrap завершается ошибкой.
 
 ## Безопасность
 
@@ -188,12 +190,12 @@ Installer всегда скачивает `releases/latest/download/*` и све
 freenet update
 ```
 
-или повторно той же одной командой:
+Для полной повторной bootstrap-установки можно снова выполнить ту же одну команду:
 
 ```sh
-curl -Ls https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/setup.sh | sh -s -- update
+curl -Ls https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/install.sh | sh
 ```
 
-## Граница ответственности v0.1.0
+## Граница ответственности v0.1.1
 
-FreeNet v0.1.0 — control/update layer поверх уже работающего XKeen/Xray. Он не переписывает произвольно Split DNS, firewall или routing. Следующий этап проекта — перенос validated DNS/routing-профиля в отдельный безопасный bootstrap/configuration layer для новых роутеров.
+FreeNet v0.1.1 — control/update layer поверх уже работающего XKeen/Xray. Он не переписывает произвольно Split DNS, firewall или routing. Следующий этап проекта — перенос validated DNS/routing-профиля в отдельный безопасный bootstrap/configuration layer для новых роутеров.
