@@ -6,6 +6,8 @@ on:
       - 'README.md'
       - 'VERSION'
       - 'install.sh'
+      - 'doctor.sh'
+      - 'docs/**'
       - 'config/**'
       - 'scripts/**'
       - 'freenet-ui/**'
@@ -37,6 +39,7 @@ jobs:
       - name: Shell syntax
         run: |
           sh -n install.sh
+          sh -n doctor.sh
           sh -n scripts/vpn
           sh -n scripts/blanc_xkeen_update_outbounds.sh
           sh -n deploy/S99freenet-ui
@@ -60,11 +63,26 @@ jobs:
           grep -q 'cp install.sh dist/freenet' .github/workflows/release.yml
           grep -q '^v0\.' VERSION
 
+      - name: Doctor contract
+        run: |
+          grep -q 'MUTATION=NONE' doctor.sh
+          grep -q 'MODE=READY_EXISTING_STACK' doctor.sh
+          grep -q 'MODE=ENTWARE_ONLY' doctor.sh
+          grep -q 'xray run -test' doctor.sh
+          ! grep -Eq 'opkg (install|upgrade)|restart|reboot|killall|crontab [^ -]' doctor.sh
+
+      - name: UI recovery contract
+        run: |
+          grep -q 'AbortController' freenet-ui/web/index.html
+          grep -q 'actionFinishedByStatus' freenet-ui/web/index.html
+          grep -q 'Соединение прервалось во время перезапуска VPN' freenet-ui/web/index.html
+          grep -q 'setInterval(loadStatus,2000)' freenet-ui/web/index.html
+
       - name: Secret surface guard
         run: |
           ! grep -Rni --exclude='*_test.go' -E \
             'vless://[0-9A-Fa-f-]{36}@|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
-            install.sh scripts config freenet-ui deploy README.md
+            install.sh doctor.sh scripts config freenet-ui deploy README.md docs
 
       - name: Cross-build direct router binaries
         run: |
