@@ -62,7 +62,9 @@ if grep -Fq 'setup.sh' "$BOOT"; then fail 'uncontrolled upstream setup.sh forbid
 grep -Fq 'cp bootstrap.sh dist/bootstrap.sh' "$RELEASE" || fail 'bootstrap.sh release asset missing'
 grep -Fq 'cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh' "$RELEASE" || fail 'migration helper release asset missing'
 grep -Fq 'cp scripts/apply_network_profile.sh dist/apply_network_profile.sh' "$RELEASE" || fail 'network helper release asset missing'
+grep -Fq 'cp scripts/apply_provider_profile.sh dist/apply_provider_profile.sh' "$RELEASE" || fail 'provider helper release asset missing'
 grep -Eq '^[[:space:]]+bootstrap\.sh[[:space:]]+\\$' "$RELEASE" || fail 'bootstrap.sh SHA256SUMS coverage missing'
 grep -Eq '^[[:space:]]+apply_network_profile\.sh[[:space:]]+\\$' "$RELEASE" || fail 'network helper SHA256SUMS coverage missing'
+grep -Eq '^[[:space:]]+apply_provider_profile\.sh[[:space:]]+\\$' "$RELEASE" || fail 'provider helper SHA256SUMS coverage missing'
 
 echo 'product bootstrap contract PASS'
