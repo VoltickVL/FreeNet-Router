@@ -6,9 +6,9 @@
 <title>FreeNet</title>
 <style>
 :root{color-scheme:dark;--bg:#090c12;--panel:#121722;--panel2:#171e2b;--line:#283244;--text:#f3f6fb;--muted:#8f9bad;--ok:#46d58c;--warn:#f2b84b;--bad:#ff6b6b;--accent:#5b8cff;--accent2:#76a0ff;--shadow:0 24px 60px rgba(0,0,0,.34)}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -20%,#1b2948 0,#0b1019 35%,var(--bg) 70%);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);min-height:100vh;padding:24px}.wrap{width:min(760px,100%);margin:0 auto}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}.brand{font-size:28px;font-weight:800;letter-spacing:-.03em}.brand span{color:var(--accent2)}.chip{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 4px rgba(255,255,255,.04)}.dot.ok{background:var(--ok);box-shadow:0 0 16px rgba(70,213,140,.65)}.dot.bad{background:var(--bad)}.hero{background:linear-gradient(180deg,rgba(23,30,43,.98),rgba(17,22,32,.98));border:1px solid var(--line);border-radius:24px;padding:24px;box-shadow:var(--shadow)}.eyebrow{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.14em;font-weight:700}.country{display:flex;align-items:center;gap:14px;margin-top:12px}.flag{font-size:44px;line-height:1}.country h1{font-size:30px;margin:0;letter-spacing:-.035em}.country p{margin:4px 0 0;color:var(--muted);font-size:15px}.endpoint{margin-top:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border-radius:16px;background:#0d121b;border:1px solid #202a3a}.endpoint strong{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px}.status-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}.stat{background:#0d121b;border:1px solid #202a3a;border-radius:15px;padding:12px}.stat b{display:block;font-size:13px}.stat span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.section{margin-top:18px;background:rgba(18,23,34,.9);border:1px solid var(--line);border-radius:22px;padding:18px}.section h2{font-size:15px;margin:0 0 13px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.field{background:#0d121b;border:1px solid #202a3a;border-radius:16px;padding:12px}.field label{display:block;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}.field select,.field input{width:100%;appearance:none;border:1px solid #2b374b;background:#131a26;color:var(--text);border-radius:12px;padding:11px 12px;font-size:14px;outline:none}.field select:focus,.field input:focus{border-color:var(--accent)}.field input::placeholder{color:#667389}.value{font-size:14px;font-weight:700;min-height:20px;display:flex;align-items:center}.hint{margin-top:10px;color:var(--muted);font-size:12px;line-height:1.45}.btn{appearance:none;border:1px solid #2b374b;background:#131a26;color:var(--text);border-radius:16px;padding:15px 16px;font-size:15px;font-weight:700;cursor:pointer;text-align:left;display:flex;align-items:center;justify-content:space-between;transition:.15s ease}.btn:hover{border-color:#4b648c;transform:translateY(-1px)}.btn.active{border-color:var(--accent);background:linear-gradient(180deg,#1b2d52,#16243e);box-shadow:inset 0 0 0 1px rgba(91,140,255,.2)}.btn:disabled{opacity:.45;cursor:wait;transform:none}.btn .left{display:flex;align-items:center;gap:10px}.btn .smallflag{font-size:24px}.btn .sub{display:block;color:var(--muted);font-size:11px;font-weight:600;margin-top:2px}.update,.save{width:100%;margin-top:10px;text-align:center;justify-content:center;background:linear-gradient(180deg,#477df6,#3264d7);border-color:#5b8cff}.save{background:linear-gradient(180deg,#263b67,#1d3159)}.notice{display:none;margin-top:12px;padding:12px 14px;border-radius:14px;font-size:13px;line-height:1.4;border:1px solid #2c3a50;background:#101722;color:var(--muted)}.notice.show{display:block}.notice.ok{border-color:rgba(70,213,140,.35);color:#bdf4d5}.notice.bad{border-color:rgba(255,107,107,.35);color:#ffc5c5}.notice.plan{white-space:pre-line}.profiles{display:none;margin-top:12px;border:1px solid #273247;border-radius:16px;overflow:hidden;background:#0d121b}.profiles.show{display:block}.profiles-head{display:flex;justify-content:space-between;gap:12px;padding:11px 13px;border-bottom:1px solid #202a3a;color:var(--muted);font-size:12px}.profile-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 13px;border-bottom:1px solid #1b2432}.profile-row:last-child{border-bottom:0}.profile-row strong{display:block;font-size:13px;line-height:1.35}.profile-row span{display:block;color:var(--muted);font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:nowrap}.profiles-error{padding:12px 13px;color:#ffc5c5;font-size:12px}.footer{display:flex;justify-content:space-between;gap:12px;margin-top:14px;color:var(--muted);font-size:11px}.footer a{color:var(--muted);text-decoration:none}.footer a:hover{color:var(--text)}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 50% -20%,#1b2948 0,#0b1019 35%,var(--bg) 70%);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--text);min-height:100vh;padding:24px}.wrap{width:min(760px,100%);margin:0 auto}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px}.brand{font-size:28px;font-weight:800;letter-spacing:-.03em}.brand span{color:var(--accent2)}.chip{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:13px}.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 4px rgba(255,255,255,.04)}.dot.ok{background:var(--ok);box-shadow:0 0 16px rgba(70,213,140,.65)}.dot.bad{background:var(--bad)}.hero{background:linear-gradient(180deg,rgba(23,30,43,.98),rgba(17,22,32,.98));border:1px solid var(--line);border-radius:24px;padding:24px;box-shadow:var(--shadow)}.eyebrow{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.14em;font-weight:700}.country{display:flex;align-items:center;gap:14px;margin-top:12px}.flag{font-size:44px;line-height:1}.country h1{font-size:30px;margin:0;letter-spacing:-.035em}.country p{margin:4px 0 0;color:var(--muted);font-size:15px}.endpoint{margin-top:20px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border-radius:16px;background:#0d121b;border:1px solid #202a3a}.endpoint strong{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px}.status-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}.stat{background:#0d121b;border:1px solid #202a3a;border-radius:15px;padding:12px}.stat b{display:block;font-size:13px}.stat span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.section{margin-top:18px;background:rgba(18,23,34,.9);border:1px solid var(--line);border-radius:22px;padding:18px}.section h2{font-size:15px;margin:0 0 13px}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.form-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.field{background:#0d121b;border:1px solid #202a3a;border-radius:16px;padding:12px}.field label{display:block;color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}.field select,.field input{width:100%;appearance:none;border:1px solid #2b374b;background:#131a26;color:var(--text);border-radius:12px;padding:11px 12px;font-size:14px;outline:none}.field select:focus,.field input:focus{border-color:var(--accent)}.field input::placeholder{color:#667389}.value{font-size:14px;font-weight:700;min-height:20px;display:flex;align-items:center}.hint{margin-top:10px;color:var(--muted);font-size:12px;line-height:1.45}.btn{appearance:none;border:1px solid #2b374b;background:#131a26;color:var(--text);border-radius:16px;padding:15px 16px;font-size:15px;font-weight:700;cursor:pointer;text-align:left;display:flex;align-items:center;justify-content:space-between;transition:.15s ease}.btn:hover{border-color:#4b648c;transform:translateY(-1px)}.btn.active{border-color:var(--accent);background:linear-gradient(180deg,#1b2d52,#16243e);box-shadow:inset 0 0 0 1px rgba(91,140,255,.2)}.btn:disabled{opacity:.45;cursor:wait;transform:none}.btn .left{display:flex;align-items:center;gap:10px}.btn .smallflag{font-size:24px}.btn .sub{display:block;color:var(--muted);font-size:11px;font-weight:600;margin-top:2px}.update,.save{width:100%;margin-top:10px;text-align:center;justify-content:center;background:linear-gradient(180deg,#477df6,#3264d7);border-color:#5b8cff}.save{background:linear-gradient(180deg,#263b67,#1d3159)}.notice{display:none;margin-top:12px;padding:12px 14px;border-radius:14px;font-size:13px;line-height:1.4;border:1px solid #2c3a50;background:#101722;color:var(--muted)}.notice.show{display:block}.notice.ok{border-color:rgba(70,213,140,.35);color:#bdf4d5}.notice.bad{border-color:rgba(255,107,107,.35);color:#ffc5c5}.notice.plan{white-space:pre-line}.profiles{display:none;margin-top:12px;border:1px solid #273247;border-radius:16px;overflow:hidden;background:#0d121b}.profiles.show{display:block}.profiles-head{display:flex;justify-content:space-between;gap:12px;padding:11px 13px;border-bottom:1px solid #202a3a;color:var(--muted);font-size:12px}.profile-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 13px;border-bottom:1px solid #1b2432}.profile-row:last-child{border-bottom:0}.profile-row.selected{background:#14213b;box-shadow:inset 3px 0 0 var(--accent)}.profile-main{min-width:0;flex:1}.profile-row strong{display:block;font-size:13px;line-height:1.35}.profile-row span{display:block;color:var(--muted);font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:nowrap}.profile-pick{appearance:none;border:1px solid #354660;background:#172236;color:var(--text);border-radius:10px;padding:8px 11px;font-size:12px;font-weight:700;cursor:pointer}.profile-pick.active{border-color:var(--accent);background:#213b6b}.profiles-error{padding:12px 13px;color:#ffc5c5;font-size:12px}.footer{display:flex;justify-content:space-between;gap:12px;margin-top:14px;color:var(--muted);font-size:11px}.footer a{color:var(--muted);text-decoration:none}.footer a:hover{color:var(--text)}
 @media(max-width:760px){.status-grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:620px){body{padding:14px}.brand{font-size:24px}.hero{padding:18px;border-radius:20px}.country h1{font-size:24px}.flag{font-size:38px}.status-grid{grid-template-columns:1fr}.grid,.form-grid{grid-template-columns:1fr}.endpoint{align-items:flex-start;flex-direction:column}.profile-row{align-items:flex-start;flex-direction:column;gap:5px}.footer{flex-direction:column}}
+@media(max-width:620px){body{padding:14px}.brand{font-size:24px}.hero{padding:18px;border-radius:20px}.country h1{font-size:24px}.flag{font-size:38px}.status-grid{grid-template-columns:1fr}.grid,.form-grid{grid-template-columns:1fr}.endpoint{align-items:flex-start;flex-direction:column}.profile-row{align-items:flex-start;flex-direction:column;gap:8px}.profile-pick{width:100%}.footer{flex-direction:column}}
 </style>
 </head>
 <body>
@@ -29,14 +29,8 @@
   <section class="section">
     <h2>VPN-провайдер / подписка</h2>
     <div class="form-grid">
-      <div class="field">
-        <label>VPN-провайдер</label>
-        <div class="value">BlancVPN</div>
-      </div>
-      <div class="field">
-        <label>Подписка</label>
-        <div id="subscriptionState" class="value">Проверяем…</div>
-      </div>
+      <div class="field"><label>VPN-провайдер</label><div class="value">BlancVPN</div></div>
+      <div class="field"><label>Подписка</label><div id="subscriptionState" class="value">Проверяем…</div></div>
     </div>
     <div class="field" style="margin-top:10px">
       <label for="subscriptionInput">Новая ключ-ссылка</label>
@@ -47,6 +41,9 @@
     <button id="refreshProfilesBtn" class="btn save">Обновить список Extra-профилей</button>
     <div id="subscriptionNotice" class="notice"></div>
     <div id="profilesList" class="profiles"></div>
+    <div id="providerPlan" class="notice plan"></div>
+    <button id="applyProviderBtn" class="btn update" disabled>Применить выбранный VPN-профиль</button>
+    <div id="providerNotice" class="notice"></div>
   </section>
 
   <section class="section">
@@ -54,23 +51,11 @@
     <div class="form-grid">
       <div class="field">
         <label for="ispSelect">Интернет-провайдер</label>
-        <select id="ispSelect">
-          <option value="auto">Авто</option>
-          <option value="vladlink">Владлинк</option>
-          <option value="alliancetelecom">АльянсТелеком</option>
-          <option value="rostelecom">Ростелеком</option>
-          <option value="podryad">Подряд</option>
-          <option value="custom">Свой</option>
-        </select>
+        <select id="ispSelect"><option value="auto">Авто</option><option value="vladlink">Владлинк</option><option value="alliancetelecom">АльянсТелеком</option><option value="rostelecom">Ростелеком</option><option value="podryad">Подряд</option><option value="custom">Свой</option></select>
       </div>
       <div class="field">
         <label for="dnsModeSelect">Режим DNS</label>
-        <select id="dnsModeSelect">
-          <option value="auto">Авто</option>
-          <option value="firmware">Штатный DNS роутера</option>
-          <option value="xkeen">XKeen/Xray DNS</option>
-          <option value="custom">Свой</option>
-        </select>
+        <select id="dnsModeSelect"><option value="auto">Авто</option><option value="firmware">Штатный DNS роутера</option><option value="xkeen">XKeen/Xray DNS</option><option value="custom">Свой</option></select>
       </div>
     </div>
     <div id="networkHint" class="hint">Загружаем сетевой профиль…</div>
@@ -82,7 +67,7 @@
   </section>
 
   <section class="section">
-    <h2>Выбрать страну</h2>
+    <h2>Быстрое переключение страны</h2>
     <div class="grid">
       <button class="btn country-btn" data-action="de"><span class="left"><span class="smallflag">🇩🇪</span><span>Германия<span class="sub">Frankfurt · Extra</span></span></span><span>›</span></button>
       <button class="btn country-btn" data-action="pl"><span class="left"><span class="smallflag">🇵🇱</span><span>Польша<span class="sub">Warsaw · Extra</span></span></span><span>›</span></button>
@@ -98,27 +83,22 @@
 <script>
 const flags={de:'🇩🇪',pl:'🇵🇱',fi:'🇫🇮',nl:'🇳🇱'};
 const dnsLabels={auto:'Авто',firmware:'Штатный DNS роутера',xkeen:'XKeen/Xray DNS',custom:'Свой'};
-let localPending=false;
-let requestedAction='';
-let actionStartedAt=0;
-let baselineEndedAt='';
-let lastStatus=null;
-let networkDirty=false;
-let networkPlanReady=false;
-let networkApplying=false;
-let lastNetworkPlan=null;
+let localPending=false,requestedAction='',actionStartedAt=0,baselineEndedAt='',lastStatus=null;
+let networkDirty=false,networkPlanReady=false,networkApplying=false,lastNetworkPlan=null;
+let selectedProviderID='',selectedProviderName='',providerPlanReady=false,providerApplying=false;
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+function planClass(id){return id==='networkPlan'||id==='providerPlan'?' plan':''}
 function buttonsBusy(serverBusy){
-  const busy=localPending||networkApplying||serverBusy;
+  const busy=localPending||networkApplying||providerApplying||serverBusy;
   document.querySelectorAll('button').forEach(b=>b.disabled=busy);
-  const plan=document.getElementById('planNetworkBtn');
-  const apply=document.getElementById('applyNetworkBtn');
+  const plan=document.getElementById('planNetworkBtn'),apply=document.getElementById('applyNetworkBtn'),providerApply=document.getElementById('applyProviderBtn');
   if(plan)plan.disabled=busy||networkDirty;
   if(apply)apply.disabled=busy||networkDirty||!networkPlanReady;
+  if(providerApply)providerApply.disabled=busy||!selectedProviderID||!providerPlanReady;
 }
-function showBox(id,text,type=''){const n=document.getElementById(id);n.textContent=text;n.className='notice show '+type+(id==='networkPlan'?' plan':'')}
-function hideBox(id){document.getElementById(id).className='notice'+(id==='networkPlan'?' plan':'')}
+function showBox(id,text,type=''){const n=document.getElementById(id);n.textContent=text;n.className='notice show '+type+planClass(id)}
+function hideBox(id){document.getElementById(id).className='notice'+planClass(id)}
 function notice(text,type=''){showBox('notice',text,type)}
 function clearNotice(){hideBox('notice')}
 function actionFinishedByStatus(s){
@@ -130,223 +110,102 @@ function actionFinishedByStatus(s){
 }
 function finishFromStatus(s){
   const last=s.last_action||{};
-  if(last.action===requestedAction&&last.ended_at&&last.ended_at!==baselineEndedAt){
-    if(last.success)notice(last.message||'Операция завершена','ok');
-    else notice(last.error||'Операция завершилась ошибкой','bad');
-  }else if(requestedAction!=='update'&&s.country_code===requestedAction){
-    notice('VPN переключён. Состояние подтверждено панелью.','ok');
-  }else{
-    notice('Операция завершена.','ok');
-  }
+  if(last.action===requestedAction&&last.ended_at&&last.ended_at!==baselineEndedAt){if(last.success)notice(last.message||'Операция завершена','ok');else notice(last.error||'Операция завершилась ошибкой','bad')}
+  else if(requestedAction!=='update'&&s.country_code===requestedAction)notice('VPN переключён. Состояние подтверждено панелью.','ok');
+  else notice('Операция завершена.','ok');
   localPending=false;requestedAction='';actionStartedAt=0;baselineEndedAt='';
 }
 function updateNetworkHint(s){
-  const selected=document.getElementById('dnsModeSelect').value;
-  const recommended=s&&s.recommended_dns_mode?s.recommended_dns_mode:'auto';
-  const chosen=selected==='auto'?recommended:selected;
-  const isp=s&&s.isp_label?s.isp_label:'Авто';
+  const selected=document.getElementById('dnsModeSelect').value,recommended=s&&s.recommended_dns_mode?s.recommended_dns_mode:'auto',chosen=selected==='auto'?recommended:selected,isp=s&&s.isp_label?s.isp_label:'Авто';
   document.getElementById('networkHint').textContent='Профиль: '+isp+'. Рекомендованный DNS: '+(dnsLabels[recommended]||recommended)+'. Выбранный режим: '+(dnsLabels[chosen]||chosen)+'. Сначала сохраните выбор, затем проверьте expected delta и только после этого применяйте.';
 }
 function formatNetworkPlan(p){
-  const state=p.supported?'ГОТОВ К APPLY':'APPLY ЗАБЛОКИРОВАН';
-  const lines=[
-    state,
-    'ISP: '+(p.isp||'—')+' · DNS: '+(dnsLabels[p.effective_dns_mode]||p.effective_dns_mode||'—'),
-    'Runtime: :53='+((p.port53_owner)||'—')+' · proxy_dns='+(p.proxy_dns||'—')+' · Xray GID='+(p.xray_gid||'—'),
-    'dns-out: '+(p.dns_out_present?'есть':'нет')+' · VLESS: '+(p.vless_profile_present?'есть':'нет'),
-    'Причина: '+(p.reason||'—'),
-    'Изменения: '+(p.expected_delta||'—')
-  ];
-  if(p.expected_no_delta)lines.push('Не меняется: '+p.expected_no_delta);
-  if(Array.isArray(p.extra_profiles))lines.push('Extra-профили в подписке: '+p.extra_profiles.length);
-  if(p.profiles_error)lines.push('Extra discovery: '+p.profiles_error);
-  return lines.join('\n');
+  const lines=[p.supported?'ГОТОВ К APPLY':'APPLY ЗАБЛОКИРОВАН','ISP: '+(p.isp||'—')+' · DNS: '+(dnsLabels[p.effective_dns_mode]||p.effective_dns_mode||'—'),'Runtime: :53='+(p.port53_owner||'—')+' · proxy_dns='+(p.proxy_dns||'—')+' · Xray GID='+(p.xray_gid||'—'),'dns-out: '+(p.dns_out_present?'есть':'нет')+' · VLESS: '+(p.vless_profile_present?'есть':'нет'),'Причина: '+(p.reason||'—'),'Изменения: '+(p.expected_delta||'—')];
+  if(p.expected_no_delta)lines.push('Не меняется: '+p.expected_no_delta);if(Array.isArray(p.extra_profiles))lines.push('Extra-профили в подписке: '+p.extra_profiles.length);if(p.profiles_error)lines.push('Extra discovery: '+p.profiles_error);return lines.join('\n');
 }
-function formatProfileEndpoint(p){
-  const address=String(p.address||'');
-  const host=address.includes(':')?'['+address+']':address;
-  return host+':'+String(p.port||'');
+function formatProviderPlan(p){
+  if(!p)return 'VPN-профиль не выбран.';
+  if(p.error)return 'План VPN-профиля недоступен: '+p.error;
+  const lines=[p.candidate_xray_valid&&p.mutation==='NONE'?'VPN-КАНДИДАТ ПРОВЕРЕН':'VPN-КАНДИДАТ ЗАБЛОКИРОВАН','Профиль: '+(p.profile_name||selectedProviderName||'—'),'Endpoint: '+(p.endpoint||'—'),'Текущий outbound: '+(p.current_outbound||'—')+' · Xray: '+(p.xray_running?'работает':'не запущен'),'Изменения: '+(p.expected_delta||'—')];
+  if(p.expected_no_delta)lines.push('Не меняется: '+p.expected_no_delta);return lines.join('\n');
 }
+function formatProfileEndpoint(p){const address=String(p.address||''),host=address.includes(':')?'['+address+']':address;return host+':'+String(p.port||'')}
 function renderExtraProfiles(plan){
-  const box=document.getElementById('profilesList');
-  box.textContent='';
-  const profiles=plan&&Array.isArray(plan.extra_profiles)?plan.extra_profiles:[];
-  if(!profiles.length){
-    if(plan&&plan.profiles_error){
-      const err=document.createElement('div');err.className='profiles-error';err.textContent='Не удалось обновить Extra-профили: '+plan.profiles_error;box.appendChild(err);box.className='profiles show';
-    }else{
-      box.className='profiles';
-    }
-    return;
-  }
-  const head=document.createElement('div');head.className='profiles-head';
-  const title=document.createElement('strong');title.textContent='Доступные Extra-профили';
-  const count=document.createElement('span');count.textContent=String(profiles.length);
-  head.appendChild(title);head.appendChild(count);box.appendChild(head);
+  const box=document.getElementById('profilesList');box.textContent='';const profiles=plan&&Array.isArray(plan.extra_profiles)?plan.extra_profiles:[];
+  if(!profiles.length){if(plan&&plan.profiles_error){const err=document.createElement('div');err.className='profiles-error';err.textContent='Не удалось обновить Extra-профили: '+plan.profiles_error;box.appendChild(err);box.className='profiles show'}else box.className='profiles';return}
+  const head=document.createElement('div');head.className='profiles-head';const title=document.createElement('strong');title.textContent='Доступные Extra-профили';const count=document.createElement('span');count.textContent=String(profiles.length);head.appendChild(title);head.appendChild(count);box.appendChild(head);
   profiles.forEach(p=>{
-    const row=document.createElement('div');row.className='profile-row';
-    const name=document.createElement('strong');name.textContent=p.name||'Extra profile';
-    const endpoint=document.createElement('span');endpoint.textContent=formatProfileEndpoint(p);
-    row.appendChild(name);row.appendChild(endpoint);box.appendChild(row);
-  });
-  box.className='profiles show';
+    const row=document.createElement('div');row.className='profile-row'+(p.id===selectedProviderID?' selected':'');
+    const main=document.createElement('div');main.className='profile-main';const name=document.createElement('strong');name.textContent=p.name||'Extra profile';const endpoint=document.createElement('span');endpoint.textContent=formatProfileEndpoint(p);main.appendChild(name);main.appendChild(endpoint);
+    const pick=document.createElement('button');pick.type='button';pick.className='profile-pick'+(p.id===selectedProviderID?' active':'');pick.textContent=p.id===selectedProviderID?'Выбран':'Выбрать';pick.addEventListener('click',()=>selectProviderProfile(p));
+    row.appendChild(main);row.appendChild(pick);box.appendChild(row);
+  });box.className='profiles show';
 }
 async function loadStatus(){
   try{
-    const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('status '+r.status);
-    const s=await r.json();lastStatus=s;
-    document.getElementById('profile').textContent=s.country?(s.country+' · '+(s.city||'')):'Неизвестный профиль';
-    document.getElementById('city').textContent=s.country?(s.country+' · Extra'):'Фильтр не распознан';
-    document.getElementById('heroFlag').textContent=flags[s.country_code]||'🌐';
-    document.getElementById('endpoint').textContent=s.endpoint||'—';
-    document.getElementById('xrayState').textContent=s.xray_online?'● Xray работает':'● Xray выключен';
-    document.getElementById('xkeenState').textContent=s.xkeen_ui_online?'● XKeen UI работает':'● XKeen UI выключен';
-    document.getElementById('dnsState').textContent=s.dns_out_present?'● dns-out OK':'● dns-out отсутствует';
-    document.getElementById('updaterState').textContent=s.updater_busy?'● Обновление идёт':'● Обновление готово';
-    document.getElementById('subscriptionState').textContent=s.subscription_configured?'● Настроена':'● Не настроена';
-    const healthy=s.xray_online&&s.dns_out_present;
-    const dot=document.getElementById('topDot');dot.className='dot '+(healthy?'ok':'bad');
-    document.getElementById('topStatus').textContent=healthy?'Работает':'Требует внимания';
-    document.getElementById('version').textContent='FreeNet UI '+s.version;
-    document.querySelectorAll('.country-btn').forEach(b=>b.classList.toggle('active',b.dataset.action===s.country_code));
-    if(!networkDirty){
-      document.getElementById('ispSelect').value=s.isp||'auto';
-      document.getElementById('dnsModeSelect').value=s.dns_mode||'auto';
-    }
-    updateNetworkHint(s);
-    if(actionFinishedByStatus(s))finishFromStatus(s);
-    buttonsBusy(!!s.busy||!!s.updater_busy);
-    const host=location.hostname;document.getElementById('xkeenLink').href='http://'+host+':1000/';
-    return s;
-  }catch(e){
-    document.getElementById('topDot').className='dot bad';
-    document.getElementById('topStatus').textContent='Нет связи';
-    buttonsBusy(false);
-    return null;
-  }
+    const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('status '+r.status);const s=await r.json();lastStatus=s;
+    document.getElementById('profile').textContent=s.country?(s.country+' · '+(s.city||'')):'Неизвестный профиль';document.getElementById('city').textContent=s.country?(s.country+' · Extra'):'Фильтр не распознан';document.getElementById('heroFlag').textContent=flags[s.country_code]||'🌐';document.getElementById('endpoint').textContent=s.endpoint||'—';
+    document.getElementById('xrayState').textContent=s.xray_online?'● Xray работает':'● Xray выключен';document.getElementById('xkeenState').textContent=s.xkeen_ui_online?'● XKeen UI работает':'● XKeen UI выключен';document.getElementById('dnsState').textContent=s.dns_out_present?'● dns-out OK':'● dns-out отсутствует';document.getElementById('updaterState').textContent=s.updater_busy?'● Обновление идёт':'● Обновление готово';document.getElementById('subscriptionState').textContent=s.subscription_configured?'● Настроена':'● Не настроена';
+    const healthy=s.xray_online&&s.dns_out_present,dot=document.getElementById('topDot');dot.className='dot '+(healthy?'ok':'bad');document.getElementById('topStatus').textContent=healthy?'Работает':'Требует внимания';document.getElementById('version').textContent='FreeNet UI '+s.version;document.querySelectorAll('.country-btn').forEach(b=>b.classList.toggle('active',b.dataset.action===s.country_code));
+    if(!networkDirty){document.getElementById('ispSelect').value=s.isp||'auto';document.getElementById('dnsModeSelect').value=s.dns_mode||'auto'}updateNetworkHint(s);if(actionFinishedByStatus(s))finishFromStatus(s);buttonsBusy(!!s.busy||!!s.updater_busy);document.getElementById('xkeenLink').href='http://'+location.hostname+':1000/';return s;
+  }catch(e){document.getElementById('topDot').className='dot bad';document.getElementById('topStatus').textContent='Нет связи';buttonsBusy(false);return null}
 }
+function resetProviderSelection(){selectedProviderID='';selectedProviderName='';providerPlanReady=false;hideBox('providerPlan');hideBox('providerNotice')}
 async function saveSubscription(){
-  hideBox('subscriptionNotice');
-  const input=document.getElementById('subscriptionInput');
-  const url=input.value.trim();
-  if(!url){showBox('subscriptionNotice','Вставьте новую HTTPS ключ-ссылку','bad');return}
-  try{
-    const r=await fetch('/api/subscription',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
-    const j=await r.json();
-    if(!r.ok||!j.success){showBox('subscriptionNotice',j.error||'Не удалось сохранить подписку','bad');return}
-    input.value='';
-    showBox('subscriptionNotice',j.message||'Подписка сохранена','ok');
-    await loadStatus();
-    await loadNetworkPlan();
-  }catch(e){
-    showBox('subscriptionNotice','Не удалось сохранить подписку: нет связи с FreeNet','bad');
-  }
+  hideBox('subscriptionNotice');const input=document.getElementById('subscriptionInput'),url=input.value.trim();if(!url){showBox('subscriptionNotice','Вставьте новую HTTPS ключ-ссылку','bad');return}
+  try{const r=await fetch('/api/subscription',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});const j=await r.json();if(!r.ok||!j.success){showBox('subscriptionNotice',j.error||'Не удалось сохранить подписку','bad');return}input.value='';resetProviderSelection();showBox('subscriptionNotice',j.message||'Подписка сохранена','ok');await loadStatus();await loadNetworkPlan('')}
+  catch(e){showBox('subscriptionNotice','Не удалось сохранить подписку: нет связи с FreeNet','bad')}
 }
+async function selectProviderProfile(p){selectedProviderID=p.id||'';selectedProviderName=p.name||'Extra profile';providerPlanReady=false;hideBox('providerNotice');showBox('providerPlan','Проверяем выбранный VPN-профиль и Xray candidate…');await loadNetworkPlan(selectedProviderID)}
+async function refreshProfiles(){resetProviderSelection();await loadNetworkPlan('')}
 async function saveNetworkProfile(){
-  hideBox('networkNotice');hideBox('networkPlan');
-  const isp=document.getElementById('ispSelect').value;
-  const dns_mode=document.getElementById('dnsModeSelect').value;
-  try{
-    const r=await fetch('/api/network-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({isp,dns_mode})});
-    const j=await r.json();
-    if(!r.ok||!j.success){showBox('networkNotice',j.error||'Не удалось сохранить профиль','bad');return}
-    networkDirty=false;networkPlanReady=false;lastNetworkPlan=null;
-    showBox('networkNotice',j.message||'Профиль сохранён','ok');
-    await loadStatus();
-    await loadNetworkPlan();
-  }catch(e){
-    showBox('networkNotice','Не удалось сохранить профиль: нет связи с FreeNet','bad');
-  }
+  hideBox('networkNotice');hideBox('networkPlan');const isp=document.getElementById('ispSelect').value,dns_mode=document.getElementById('dnsModeSelect').value;
+  try{const r=await fetch('/api/network-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({isp,dns_mode})});const j=await r.json();if(!r.ok||!j.success){showBox('networkNotice',j.error||'Не удалось сохранить профиль','bad');return}networkDirty=false;networkPlanReady=false;lastNetworkPlan=null;showBox('networkNotice',j.message||'Профиль сохранён','ok');await loadStatus();await loadNetworkPlan(selectedProviderID)}catch(e){showBox('networkNotice','Не удалось сохранить профиль: нет связи с FreeNet','bad')}
 }
-async function loadNetworkPlan(){
-  hideBox('networkNotice');
-  networkPlanReady=false;lastNetworkPlan=null;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)));
+async function loadNetworkPlan(profileID=selectedProviderID){
+  hideBox('networkNotice');networkPlanReady=false;lastNetworkPlan=null;providerPlanReady=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)));
   try{
-    const r=await fetch('/api/network-profile/plan',{cache:'no-store'});
-    const j=await r.json();
-    if(!r.ok||!j.success){showBox('networkPlan',j.error||'Не удалось получить сетевой план','bad');renderExtraProfiles(j);return}
-    lastNetworkPlan=j;
-    networkPlanReady=!!j.supported;
-    showBox('networkPlan',formatNetworkPlan(j),j.supported?'ok':'');
-    renderExtraProfiles(j);
-  }catch(e){
-    showBox('networkPlan','Не удалось получить сетевой план: нет связи с FreeNet','bad');
-    renderExtraProfiles(null);
-  }finally{
-    buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)));
-  }
+    const suffix=profileID?'?provider_profile_id='+encodeURIComponent(profileID):'',r=await fetch('/api/network-profile/plan'+suffix,{cache:'no-store'}),j=await r.json();
+    if(!r.ok||!j.success){showBox('networkPlan',j.error||'Не удалось получить сетевой план','bad');renderExtraProfiles(j);if(profileID)showBox('providerPlan','Не удалось проверить выбранный VPN-профиль','bad');return}
+    lastNetworkPlan=j;networkPlanReady=!!j.supported;showBox('networkPlan',formatNetworkPlan(j),j.supported?'ok':'');renderExtraProfiles(j);
+    if(profileID){const pp=j.provider_plan;providerPlanReady=!!(pp&&pp.success&&pp.candidate_xray_valid&&pp.mutation==='NONE'&&!pp.error);showBox('providerPlan',formatProviderPlan(pp),providerPlanReady?'ok':'bad')}
+    else hideBox('providerPlan');
+  }catch(e){showBox('networkPlan','Не удалось получить сетевой план: нет связи с FreeNet','bad');renderExtraProfiles(null);if(profileID)showBox('providerPlan','Нет связи при проверке VPN-профиля','bad')}
+  finally{buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
+}
+async function applyProviderProfile(){
+  if(!selectedProviderID||!providerPlanReady||providerApplying)return;const pp=lastNetworkPlan&&lastNetworkPlan.provider_plan,delta=pp&&pp.expected_delta?pp.expected_delta:'установить выбранный VLESS-Reality профиль';
+  if(!window.confirm('Применить выбранный VPN-профиль?\n\n'+selectedProviderName+'\n'+delta+'\n\nПеред mutation FreeNet ещё раз проверит fresh subscription и candidate Xray config.'))return;
+  providerApplying=true;buttonsBusy(true);showBox('providerNotice','Применяем VPN-профиль. Не повторяйте операцию, если соединение кратко прервётся…');
+  try{
+    const r=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'provider',profile_id:selectedProviderID,confirm:true})}),j=await r.json();
+    if(!r.ok||!j.success){const parts=[j.error||'VPN-профиль не применён'];if(j.primary_error)parts.push('PRIMARY ERROR: '+j.primary_error);if(j.rollback_state)parts.push('ROLLBACK: '+j.rollback_state);showBox('providerNotice',parts.join('\n'),'bad');return}
+    showBox('providerNotice',(j.message||'VPN-профиль применён')+' Rollback: '+(j.rollback_state||'NOT_NEEDED'),'ok');await loadStatus();await loadNetworkPlan(selectedProviderID);
+  }catch(e){showBox('providerNotice','Связь с FreeNet прервалась во время provider apply. Не повторяйте вслепую; сначала обновите фактический статус.','bad')}
+  finally{providerApplying=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
 }
 async function applyNetworkProfile(){
-  if(networkDirty||!networkPlanReady||networkApplying)return;
-  const isp=document.getElementById('ispSelect').value;
-  const dns_mode=document.getElementById('dnsModeSelect').value;
-  const delta=(lastNetworkPlan&&lastNetworkPlan.expected_delta)||'сетевой профиль';
+  if(networkDirty||!networkPlanReady||networkApplying)return;const isp=document.getElementById('ispSelect').value,dns_mode=document.getElementById('dnsModeSelect').value,delta=(lastNetworkPlan&&lastNetworkPlan.expected_delta)||'сетевой профиль';
   if(!window.confirm('Применить подтверждённый сетевой профиль?\n\n'+delta+'\n\nПри ошибке FreeNet использует transactional rollback.'))return;
-  networkApplying=true;buttonsBusy(true);hideBox('networkNotice');
-  showBox('networkNotice','Применяем сетевой профиль. Не закрывайте страницу…');
-  try{
-    const r=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({isp,dns_mode,confirm:true})});
-    const j=await r.json();
-    if(!r.ok||!j.success){
-      const parts=[j.error||'Сетевой профиль не применён'];
-      if(j.primary_error)parts.push('PRIMARY ERROR: '+j.primary_error);
-      if(j.rollback_state)parts.push('ROLLBACK: '+j.rollback_state);
-      showBox('networkNotice',parts.join('\n'),'bad');
-      return;
-    }
-    showBox('networkNotice',(j.message||'Сетевой профиль применён')+' Rollback: '+(j.rollback_state||'NOT_NEEDED'),'ok');
-    lastNetworkPlan=j.plan||null;
-    networkPlanReady=!!(lastNetworkPlan&&lastNetworkPlan.supported);
-    if(lastNetworkPlan)showBox('networkPlan',formatNetworkPlan(lastNetworkPlan),'ok');
-    await loadStatus();
-    await loadNetworkPlan();
-  }catch(e){
-    showBox('networkNotice','Связь с FreeNet прервалась во время apply. Не повторяйте операцию вслепую; сначала проверьте фактический статус.','bad');
-  }finally{
-    networkApplying=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)));
-  }
+  networkApplying=true;buttonsBusy(true);hideBox('networkNotice');showBox('networkNotice','Применяем сетевой профиль. Не закрывайте страницу…');
+  try{const r=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'network',isp,dns_mode,confirm:true})}),j=await r.json();if(!r.ok||!j.success){const parts=[j.error||'Сетевой профиль не применён'];if(j.primary_error)parts.push('PRIMARY ERROR: '+j.primary_error);if(j.rollback_state)parts.push('ROLLBACK: '+j.rollback_state);showBox('networkNotice',parts.join('\n'),'bad');return}showBox('networkNotice',(j.message||'Сетевой профиль применён')+' Rollback: '+(j.rollback_state||'NOT_NEEDED'),'ok');lastNetworkPlan=j.plan||null;networkPlanReady=!!(lastNetworkPlan&&lastNetworkPlan.supported);if(lastNetworkPlan)showBox('networkPlan',formatNetworkPlan(lastNetworkPlan),'ok');await loadStatus();await loadNetworkPlan(selectedProviderID)}catch(e){showBox('networkNotice','Связь с FreeNet прервалась во время apply. Не повторяйте операцию вслепую; сначала проверьте фактический статус.','bad')}finally{networkApplying=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
 }
 async function act(action){
-  if(localPending||(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))return;
-  clearNotice();
-  localPending=true;requestedAction=action;actionStartedAt=Date.now();baselineEndedAt=(lastStatus&&lastStatus.last_action&&lastStatus.last_action.ended_at)||'';
-  buttonsBusy(true);
-  notice(action==='update'?'Обновляем текущий сервер…':'Переключаем VPN…');
-
-  const controller=new AbortController();
-  const timer=setTimeout(()=>controller.abort(),12000);
-  try{
-    const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action}),signal:controller.signal});
-    const j=await r.json();
-    if(!r.ok||!j.success){notice(j.error||'Операция завершилась ошибкой','bad');localPending=false;requestedAction=''}
-    else{notice(j.message||'Готово','ok');localPending=false;requestedAction=''}
-  }catch(e){
-    notice('Соединение прервалось во время перезапуска VPN. Проверяем фактическое состояние…');
-  }finally{
-    clearTimeout(timer);
-  }
-
-  for(let i=0;i<45&&localPending;i++){
-    await sleep(1000);
-    await loadStatus();
-  }
-  if(localPending){
-    localPending=false;requestedAction='';
-    buttonsBusy(false);
-    notice('VPN мог переключиться, но подтверждение операции не получено. Обновите страницу или проверьте статус.','bad');
-  }else{
-    await loadStatus();
-  }
+  if(localPending||(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))return;clearNotice();localPending=true;requestedAction=action;actionStartedAt=Date.now();baselineEndedAt=(lastStatus&&lastStatus.last_action&&lastStatus.last_action.ended_at)||'';buttonsBusy(true);notice(action==='update'?'Обновляем текущий сервер…':'Переключаем VPN…');
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
+  try{const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action}),signal:controller.signal}),j=await r.json();if(!r.ok||!j.success){notice(j.error||'Операция завершилась ошибкой','bad');localPending=false;requestedAction=''}else{notice(j.message||'Готово','ok');localPending=false;requestedAction=''}}catch(e){notice('Соединение прервалось во время перезапуска VPN. Проверяем фактическое состояние…')}finally{clearTimeout(timer)}
+  for(let i=0;i<45&&localPending;i++){await sleep(1000);await loadStatus()}if(localPending){localPending=false;requestedAction='';buttonsBusy(false);notice('VPN мог переключиться, но подтверждение операции не получено. Обновите страницу или проверьте статус.','bad')}else await loadStatus();
 }
 document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click',()=>act(b.dataset.action)));
 document.getElementById('saveSubscriptionBtn').addEventListener('click',saveSubscription);
-document.getElementById('refreshProfilesBtn').addEventListener('click',loadNetworkPlan);
+document.getElementById('refreshProfilesBtn').addEventListener('click',refreshProfiles);
+document.getElementById('applyProviderBtn').addEventListener('click',applyProviderProfile);
 document.getElementById('ispSelect').addEventListener('change',()=>{networkDirty=true;networkPlanReady=false;hideBox('networkPlan');updateNetworkHint(lastStatus);buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))});
 document.getElementById('dnsModeSelect').addEventListener('change',()=>{networkDirty=true;networkPlanReady=false;hideBox('networkPlan');updateNetworkHint(lastStatus);buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))});
 document.getElementById('saveNetworkBtn').addEventListener('click',saveNetworkProfile);
-document.getElementById('planNetworkBtn').addEventListener('click',loadNetworkPlan);
+document.getElementById('planNetworkBtn').addEventListener('click',()=>loadNetworkPlan(selectedProviderID));
 document.getElementById('applyNetworkBtn').addEventListener('click',applyNetworkProfile);
-loadStatus().then(()=>loadNetworkPlan());setInterval(loadStatus,2000);
+loadStatus().then(()=>loadNetworkPlan(''));setInterval(loadStatus,2000);
 </script>
 </body>
 </html>
