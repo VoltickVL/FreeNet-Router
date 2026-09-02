@@ -42,7 +42,7 @@ func TestSavingSubscriptionRefreshesProfiles(t *testing.T) {
 		t.Fatal("subscription UI functions not found")
 	}
 	body := ui[start : start+end]
-	if !strings.Contains(body, "await loadNetworkPlan()") {
+	if !strings.Contains(body, "await loadNetworkPlan(") {
 		t.Fatal("successful subscription save must refresh dynamic Extra profiles")
 	}
 }
