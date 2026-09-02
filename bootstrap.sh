@@ -15,6 +15,7 @@ PIN_FILE="$CONFIG_DIR/upstream-pins.env"
 BOOTSTRAP_LIB="$ROOT/lib/freenet/bootstrap_entware.sh"
 MIGRATE_LIB="$ROOT/lib/freenet/migrate_split_dns.sh"
 NETWORK_LIB="$ROOT/lib/freenet/apply_network_profile.sh"
+PROVIDER_LIB="$ROOT/lib/freenet/apply_provider_profile.sh"
 FREENET_BIN="$ROOT/sbin/freenet-ui"
 FREENET_INIT="$ROOT/etc/init.d/S99freenet-ui"
 FREENET_MANAGER="$ROOT/bin/freenet"
@@ -184,7 +185,7 @@ download_release_assets() {
     UI_ASSET="freenet-ui-$ARCH"
     for NAME in \
         bootstrap_entware.sh upstream-pins.env \
-        migrate_split_dns.sh apply_network_profile.sh \
+        migrate_split_dns.sh apply_network_profile.sh apply_provider_profile.sh \
         "$UI_ASSET" vpn blanc_xkeen_update_outbounds.sh \
         freenet freenet.conf.example
     do
@@ -194,6 +195,7 @@ download_release_assets() {
         "$TMP_DIR/bootstrap_entware.sh" \
         "$TMP_DIR/migrate_split_dns.sh" \
         "$TMP_DIR/apply_network_profile.sh" \
+        "$TMP_DIR/apply_provider_profile.sh" \
         "$TMP_DIR/$UI_ASSET" "$TMP_DIR/vpn" \
         "$TMP_DIR/blanc_xkeen_update_outbounds.sh" "$TMP_DIR/freenet"
     ok 'release SHA-256 verification'
@@ -284,6 +286,7 @@ backup_app() {
     backup_one "$BOOTSTRAP_LIB" bootstrap-lib || return 1
     backup_one "$MIGRATE_LIB" migrate-lib || return 1
     backup_one "$NETWORK_LIB" network-lib || return 1
+    backup_one "$PROVIDER_LIB" provider-lib || return 1
     crontab -l > "$BACKUP_DIR/crontab.before" 2>/dev/null || : > "$BACKUP_DIR/crontab.before"
     snapshot_xray "$BACKUP_DIR/xray-hashes.before" || return 1
 }
@@ -308,6 +311,7 @@ rollback_app() {
     restore_one "$BOOTSTRAP_LIB" bootstrap-lib || RB=1
     restore_one "$MIGRATE_LIB" migrate-lib || RB=1
     restore_one "$NETWORK_LIB" network-lib || RB=1
+    restore_one "$PROVIDER_LIB" provider-lib || RB=1
     crontab "$BACKUP_DIR/crontab.before" >/dev/null 2>&1 || RB=1
 
     if [ "$UI_WAS_RUNNING" = 1 ] && [ -x "$FREENET_INIT" ]; then
@@ -448,6 +452,10 @@ install_app() {
     cp "$TMP_DIR/apply_network_profile.sh" "$NETWORK_LIB.tmp.$$" || return 1
     chmod 755 "$NETWORK_LIB.tmp.$$" || return 1
     mv -f "$NETWORK_LIB.tmp.$$" "$NETWORK_LIB" || return 1
+
+    cp "$TMP_DIR/apply_provider_profile.sh" "$PROVIDER_LIB.tmp.$$" || return 1
+    chmod 755 "$PROVIDER_LIB.tmp.$$" || return 1
+    mv -f "$PROVIDER_LIB.tmp.$$" "$PROVIDER_LIB" || return 1
 
     write_config_if_missing || return 1
     write_ui_init || return 1

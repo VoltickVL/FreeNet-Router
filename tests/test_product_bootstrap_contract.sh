@@ -27,14 +27,18 @@ if grep -Eq '04_outbounds\.json.*(cp|mv)|02_dns\.json.*(cp|mv)|05_routing\.json.
     fail 'setup-first app phase must not directly mutate Xray network configs'
 fi
 
-# Transactional network helpers are installed as separate later browser actions.
+# Transactional network/provider helpers are installed as separate later browser actions.
 grep -Fq 'MIGRATE_LIB="$ROOT/lib/freenet/migrate_split_dns.sh"' "$BOOT" || fail 'split-DNS helper path missing'
 grep -Fq 'NETWORK_LIB="$ROOT/lib/freenet/apply_network_profile.sh"' "$BOOT" || fail 'network profile helper path missing'
+grep -Fq 'PROVIDER_LIB="$ROOT/lib/freenet/apply_provider_profile.sh"' "$BOOT" || fail 'provider profile helper path missing'
 grep -Fq 'download_asset "$NAME"' "$BOOT" || fail 'verified helper download path missing'
 grep -Fq 'cp "$TMP_DIR/migrate_split_dns.sh" "$MIGRATE_LIB.tmp.$$"' "$BOOT" || fail 'split-DNS helper install missing'
 grep -Fq 'cp "$TMP_DIR/apply_network_profile.sh" "$NETWORK_LIB.tmp.$$"' "$BOOT" || fail 'network profile helper install missing'
+grep -Fq 'cp "$TMP_DIR/apply_provider_profile.sh" "$PROVIDER_LIB.tmp.$$"' "$BOOT" || fail 'provider profile helper install missing'
 grep -Fq 'backup_one "$NETWORK_LIB" network-lib' "$BOOT" || fail 'network helper backup missing'
 grep -Fq 'restore_one "$NETWORK_LIB" network-lib' "$BOOT" || fail 'network helper rollback missing'
+grep -Fq 'backup_one "$PROVIDER_LIB" provider-lib' "$BOOT" || fail 'provider helper backup missing'
+grep -Fq 'restore_one "$PROVIDER_LIB" provider-lib' "$BOOT" || fail 'provider helper rollback missing'
 
 # Fresh installs remain safe until browser setup is completed.
 grep -Fq 'SETUP_COMPLETE=no' "$CONF" || fail 'fresh config must be setup-incomplete'
@@ -62,7 +66,9 @@ if grep -Fq 'setup.sh' "$BOOT"; then fail 'uncontrolled upstream setup.sh forbid
 grep -Fq 'cp bootstrap.sh dist/bootstrap.sh' "$RELEASE" || fail 'bootstrap.sh release asset missing'
 grep -Fq 'cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh' "$RELEASE" || fail 'migration helper release asset missing'
 grep -Fq 'cp scripts/apply_network_profile.sh dist/apply_network_profile.sh' "$RELEASE" || fail 'network helper release asset missing'
+grep -Fq 'cp scripts/apply_provider_profile.sh dist/apply_provider_profile.sh' "$RELEASE" || fail 'provider helper release asset missing'
 grep -Eq '^[[:space:]]+bootstrap\.sh[[:space:]]+\\$' "$RELEASE" || fail 'bootstrap.sh SHA256SUMS coverage missing'
 grep -Eq '^[[:space:]]+apply_network_profile\.sh[[:space:]]+\\$' "$RELEASE" || fail 'network helper SHA256SUMS coverage missing'
+grep -Eq '^[[:space:]]+apply_provider_profile\.sh[[:space:]]+\\$' "$RELEASE" || fail 'provider helper SHA256SUMS coverage missing'
 
 echo 'product bootstrap contract PASS'
