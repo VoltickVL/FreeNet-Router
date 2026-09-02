@@ -341,6 +341,24 @@ fail_app() {
     exit 1
 }
 
+set_config_value() {
+    KEY="$1"
+    VALUE="$2"
+    TMP="$CONFIG_FILE.new.$$"
+    awk -v key="$KEY" -v value="$VALUE" '
+        BEGIN { found=0 }
+        $0 ~ "^" key "=" {
+            print key "=" value
+            found=1
+            next
+        }
+        { print }
+        END { if (!found) print key "=" value }
+    ' "$CONFIG_FILE" > "$TMP" || return 1
+    chmod 600 "$TMP" 2>/dev/null || true
+    mv -f "$TMP" "$CONFIG_FILE"
+}
+
 write_config_if_missing() {
     mkdir -p "$CONFIG_DIR" || return 1
     if [ ! -f "$CONFIG_FILE" ]; then
@@ -354,6 +372,15 @@ write_config_if_missing() {
     if ! grep -q '^SETUP_COMPLETE=' "$CONFIG_FILE" 2>/dev/null; then
         printf '%s\n' 'SETUP_COMPLETE=no' >> "$CONFIG_FILE" || return 1
     fi
+
+    # Пользователь не выбирает тип установки вручную. Он определяется до mutation:
+    # готовый XKeen/Xray сохраняется, а ENTWARE_ONLY получает pinned core FreeNet.
+    case "$CORE_MODE" in
+        READY_EXISTING_STACK) INSTALL_SCENARIO=existing_stack ;;
+        ENTWARE_ONLY) INSTALL_SCENARIO=fresh_entware ;;
+        *) return 1 ;;
+    esac
+    set_config_value INSTALL_SCENARIO "$INSTALL_SCENARIO" || return 1
 }
 
 config_value() {
@@ -524,12 +551,14 @@ validate_app || fail_app 'FreeNet Control Center app acceptance failed'
 MUTATED=0
 
 SETUP_COMPLETE="$(config_value SETUP_COMPLETE no)"
+INSTALL_SCENARIO="$(config_value INSTALL_SCENARIO unknown)"
 SUB_STATE=no; [ -s "$SUB_FILE" ] && SUB_STATE=yes
 DNS_STATE=no; has_dns_out && DNS_STATE=yes
 
 info 'FreeNet Control Center is ready.'
 say "PANEL=http://$LAN_IP:$UI_PORT/"
 say "CORE_MODE=$CORE_MODE"
+say "INSTALL_SCENARIO=$INSTALL_SCENARIO"
 say "SETUP_COMPLETE=$SETUP_COMPLETE"
 say "SUBSCRIPTION_CONFIGURED=$SUB_STATE"
 say "DNS_OUT_PRESENT=$DNS_STATE"
