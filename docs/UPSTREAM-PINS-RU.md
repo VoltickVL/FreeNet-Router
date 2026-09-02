@@ -1,6 +1,6 @@
 # Политика pinned upstream для FreeNet Router
 
-FreeNet Router не должен строить bootstrap на непроверенном `latest`. Для компонентов, которые устанавливаются из сторонних GitHub-репозиториев, версия и SHA-256 должны быть заранее зафиксированы в `config/upstream-pins.env`.
+FreeNet Router не должен строить bootstrap на непроверенном `latest`. Для компонентов, которые устанавливаются из сторонних GitHub-репозиториев, версия и SHA-256 заранее фиксируются в `config/upstream-pins.env`.
 
 ## Текущие pinned upstream
 
@@ -9,7 +9,17 @@ FreeNet Router не должен строить bootstrap на непровер�
 - Репозиторий: `jameszeroX/XKeen`
 - Версия: `2.0`
 - Asset: `xkeen.tar.gz`
-- SHA-256: хранится в `config/upstream-pins.env`
+- SHA-256: хранится в `config/upstream-pins.env`.
+
+### Xray
+
+- Репозиторий: `XTLS/Xray-core`
+- Версия: `v26.7.28`
+- Причина pin: это exact known-working версия, уже подтверждённая на текущих HOME/WORK routers.
+- Отдельные official Linux assets + SHA-256 зафиксированы для `arm64-v8a`, `mips32le`, `mips32`.
+- FreeNet не выполняет live lookup `latest` при bootstrap.
+
+Важно: GitHub metadata помечает этот upstream release как prerelease. FreeNet не трактует его как «последний стабильный вообще»; это воспроизводимый known-working compatibility pin. Смена Xray version — только отдельным проверенным PR.
 
 ### XKeen UI
 
@@ -25,10 +35,21 @@ FreeNet Router не должен строить bootstrap на непровер�
 4. Переход на новую upstream-версию делается отдельным PR после проверки release metadata и digest.
 5. Нельзя автоматически заменять pin на `latest` во время установки на роутере.
 6. URL подписки, UUID, Reality keys, пароли и другие секреты в manifest не попадают.
+7. Полный существующий XKeen/Xray stack не перестраивается bootstrap-ом: для него используется migration/update path.
+8. Частично установленный stack (`XKeen` без `Xray` или наоборот) = `NEEDS_REVIEW`, без автоматической mutation.
+9. Глобальный `opkg upgrade` запрещён; dependency provisioning только targeted.
 
-## Xray
+## Bootstrap staging
 
-На текущем этапе P1 Xray остаётся компонентом, которым управляет XKeen. FreeNet ещё не фиксирует отдельный Xray binary release в этом manifest. Это отдельный будущий scope: сначала нужно выбрать стабильную политику совместимости XKeen/Xray и подтвердить её на clean-room роутере.
+`scripts/bootstrap_entware.sh` сначала классифицирует router:
+
+- `NO_ENTWARE`;
+- `UNSUPPORTED_ARCH`;
+- `ENTWARE_ONLY`;
+- `READY_EXISTING_STACK`;
+- `NEEDS_REVIEW`.
+
+На текущем первом P1 slice команды `plan` и `fetch` не устанавливают ничего в `/opt`: `fetch` только скачивает exact pinned XKeen/Xray/XKeen UI assets во временный staging и проверяет SHA-256. Permanent apply/rollback добавляется отдельным следующим slice и не должен смешиваться с неподтверждённым runtime поведением.
 
 ## Обновление pin
 
