@@ -1,149 +1,236 @@
 # FreeNet Router
 
-FreeNet Router — переносимый слой управления VPN для Keenetic/Netcraze + Entware + XKeen/Xray.
+FreeNet Router — переносимый слой управления VPN для Keenetic/Netcraze с Entware, XKeen и Xray.
 
-Цель проекта: после подготовки USB/Entware не собирать VPN-схему вручную из SSH-команд. FreeNet должен довести роутер до рабочего VPN через один installer/browser wizard, а затем управлять VPN, подпиской, автоматизацией, обновлениями, backup/rollback и безопасным удалённым доступом.
+Цель проекта: после ручной подготовки USB + Entware не собирать VPN-схему вручную из SSH-команд. Пользователь запускает один bootstrap, затем завершает настройку в браузере. FreeNet проверяет окружение, устанавливает или сохраняет XKeen/Xray/XKeen UI, ставит собственный Control Center, безопасно применяет VPN-профиль и ISP/DNS, а финальный шаг включает автозапуск только после полного acceptance.
 
 Полный план развития: **GitHub Issue #5 — ROADMAP: FreeNet Router — от Entware до готового VPN через один мастер**.
 
-## Текущий стабильный слой v0.2.2
+## Текущий release: v0.2.6
 
-Сейчас FreeNet умеет безопасно устанавливаться **поверх уже работающего Entware + XKeen + Xray**:
-
-- direct release binaries ARM64/MIPSLE/MIPS;
-- SHA-256 verification до mutation;
-- timestamped backup + rollback;
-- сохранение локальной VPN subscription URL;
-- безопасная миграция собственного cron;
-- FreeNet UI;
-- выбор VPN-профиля;
-- hardened endpoint updater;
-- проверка Xray runtime и `dns-out`;
-- запрет wildcard bind для FreeNet UI;
-- loopback listener для CrazeDNS proxy;
-- recovery UI после разрыва HTTP-соединения во время restart Xray/XKeen;
-- read-only `doctor.sh` для HOME/WORK preflight.
-
-## Перед установкой: FreeNet Doctor
-
-На новом или рабочем роутере сначала выполните read-only preflight:
-
-```sh
-curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | sh
-```
-
-`doctor.sh` **ничего не устанавливает и не меняет**. Он проверяет Entware, архитектуру, инструменты, XKeen/Xray, Xray configs, процессы, порты, валидность Xray и возвращает режим:
+`v0.2.6` — первый release-кандидат для полного clean-room сценария:
 
 ```text
-MODE=READY_EXISTING_STACK
+USB + Entware/OPKG
+        ↓
+read-only doctor
+        ↓
+один bootstrap.sh
+        ↓
+XKeen + Xray + XKeen UI + FreeNet
+        ↓
+Browser Setup
+        ↓
+subscription → Extra VPN → ISP/DNS
+        ↓
+Проверить готовность → Завершить настройку
+        ↓
+reboot/autostart acceptance
 ```
 
-— можно ставить текущий FreeNet поверх существующего XKeen/Xray.
+Что уже реализовано в `v0.2.6`:
+
+- ARM64 / MIPS32LE / MIPS32 release-бинарники и `SHA256SUMS`;
+- pinned XKeen `2.0`, Xray `v26.7.28`, XKeen UI `v1.1.3`;
+- классификация `ENTWARE_ONLY`, `READY_EXISTING_STACK`, `NEEDS_REVIEW`, `NO_ENTWARE`, `UNSUPPORTED_ARCH`;
+- targeted установка недостающих Entware dependencies без глобального `opkg upgrade`;
+- transactional установка core stack для чистого `ENTWARE_ONLY`;
+- сохранение полного существующего XKeen/Xray stack без перестройки;
+- STOP на частичном/непонятном stack вместо догадок;
+- backup + rollback core и FreeNet app-фазы;
+- одна точка входа `bootstrap.sh`;
+- локальный FreeNet Control Center на LAN-порту `1001`;
+- безопасное хранение subscription key-link только на роутере;
+- fresh discovery всех активных BlancVPN `Extra` профилей;
+- проверка Xray-кандидата до применения VPN-профиля;
+- transactional применение выбранного `vless-reality`;
+- ISP/DNS `plan → подтверждение → apply`;
+- clean-router сценарий Ростелеком с transactional Split DNS;
+- финальный `plan → apply`: `SETUP_COMPLETE=yes`, `xkeen -auto on`, управляемый cron и rollback config/cron/autostart;
+- русские пользовательские статусы основной ошибки и отката;
+- запрет слепого повтора операции после потери связи.
+
+Важно: **код и release готовы, но clean-room runtime acceptance на новом Keenetic Giga ещё не закрыт**. CI и GitHub Release не заменяют проверку реального роутера после reboot.
+
+## Базовые правила безопасности
+
+FreeNet придерживается следующих ограничений:
+
+- сначала read-only факты, потом mutation;
+- release/upstream assets проверяются по SHA-256 до установки;
+- subscription URL, UUID, Reality keys и пароли не выводятся в GitHub/API/UI;
+- существующий полный XKeen/Xray stack сохраняется;
+- частичный stack = STOP/`NEEDS_REVIEW`;
+- нет глобального `opkg upgrade`;
+- FreeNet UI не открывается wildcard-bind на WAN;
+- ISP/DNS/VPN изменения выполняются только через allowlisted операции с предварительным plan;
+- PRIMARY ERROR и состояние rollback не смешиваются;
+- public health не считается доказательством корректного rollback;
+- при неизвестном состоянии после ошибки нельзя повторять mutation вслепую.
+
+## Перед установкой: read-only FreeNet Doctor
+
+На новом или существующем роутере сначала выполните read-only preflight:
+
+```sh
+curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | /opt/usr/bin/sh
+```
+
+`doctor.sh` ничего не устанавливает и не меняет. Он проверяет Entware, архитектуру, инструменты, XKeen/Xray, Xray configs, процессы, порты и валидность Xray.
+
+Возможные режимы:
 
 ```text
 MODE=ENTWARE_ONLY
 ```
 
-— Entware есть, но XKeen/Xray ещё нет. Для этого состояния разрабатывается P1 bootstrap из Roadmap #5; current installer не делает blind mutation.
+Entware готов, XKeen/Xray ещё нет. Это штатный вход для нового clean-room роутера; `bootstrap.sh` умеет установить pinned core stack автоматически.
 
-Подробный порядок на рабочий роутер: [`docs/WORK-TOMORROW-RU.md`](docs/WORK-TOMORROW-RU.md).
+```text
+MODE=READY_EXISTING_STACK
+```
 
-## Быстрая установка
+Полный существующий XKeen/Xray stack найден. `bootstrap.sh` сохраняет его и устанавливает FreeNet поверх существующего core.
 
-Сначала перейдите из Keenetic/Netcraze CLI в Entware shell:
+```text
+MODE=NEEDS_REVIEW
+```
+
+Найден частичный или противоречивый stack. Установка должна остановиться — не достраивайте его вручную вперемешку с FreeNet.
+
+Также возможны `NO_ENTWARE` и `UNSUPPORTED_ARCH`.
+
+## Быстрый старт
+
+### 1. Подготовьте USB + Entware
+
+Используйте официальную инструкцию для конкретной модели Keenetic/Netcraze и её архитектуры. После установки Entware должен существовать `/opt`, а `opkg` должен работать.
+
+### 2. Войдите в Entware shell
+
+Из штатного SSH/CLI роутера:
 
 ```sh
 exec /opt/usr/bin/sh
 ```
 
-Если доступен отдельный Entware SSH, можно войти сразу, например:
+Если настроен отдельный Entware SSH, можно войти непосредственно в него.
+
+### 3. Выполните read-only doctor
 
 ```sh
-ssh -p 222 root@<LAN-IP>
+curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | /opt/usr/bin/sh
 ```
 
-После `MODE=READY_EXISTING_STACK` FreeNet устанавливается одной командой:
+Продолжайте только для ожидаемого `ENTWARE_ONLY` или подтверждённого `READY_EXISTING_STACK`.
+
+### 4. Запустите FreeNet bootstrap
+
+Для обычной установки текущего опубликованного release:
 
 ```sh
-curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/install.sh | /opt/usr/bin/sh
+curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh | /opt/usr/bin/sh
 ```
 
-Если router-local DNS не работает, используйте bootstrap DNS + `curl --resolve`:
+Для **clean-room acceptance v0.2.6** release и все внутренние assets должны быть закреплены на одной версии:
 
 ```sh
-H=raw.githubusercontent.com; IP="$(nslookup "$H" 77.88.8.8 2>/dev/null | awk '/^Name:/{s=1;next} s&&/^Address [0-9]+:/{if($3~/^[0-9]+\./){print $3;exit}}')"; [ -n "$IP" ] && curl -fLsS --resolve "$H:443:$IP" "https://$H/VoltickVL/FreeNet-Router/main/install.sh" | /opt/usr/bin/sh
+RELEASE=v0.2.6
+curl -fLsS "https://github.com/VoltickVL/FreeNet-Router/releases/download/$RELEASE/bootstrap.sh" | FREENET_RELEASE_BASE="https://github.com/VoltickVL/FreeNet-Router/releases/download/$RELEASE" /opt/usr/bin/sh
 ```
 
-`install.sh` — единственный installer/manager FreeNet. После установки тот же файл находится в `/opt/bin/freenet`.
+Это исключает случайный переход на более новый `latest` во время контрольного clean-room теста.
 
-## После установки
+`bootstrap.sh` сам:
 
-CLI:
+1. проверяет Entware и архитектуру;
+2. скачивает `SHA256SUMS` и release assets;
+3. проверяет SHA-256;
+4. выполняет read-only core plan;
+5. для `ENTWARE_ONLY` ставит pinned XKeen/Xray/XKeen UI transactionally;
+6. для `READY_EXISTING_STACK` сохраняет существующий core;
+7. делает backup FreeNet app-файлов и cron;
+8. ставит FreeNet UI/manager и transactional helpers;
+9. проверяет, что app-фаза не переписала Xray JSON;
+10. запускает FreeNet UI и печатает `PANEL=http://<LAN-IP>:1001/`.
 
-```sh
-freenet
-```
+## Browser Setup
 
-Web UI:
+Откройте адрес, который напечатал bootstrap:
 
 ```text
 http://<LAN-IP-роутера>:1001/
 ```
 
-FreeNet определяет LAN IPv4 интерфейса `br0`; конкретный домашний IP в installer не зашит.
+Для BlancVPN текущий штатный сценарий:
 
-## Что делает installer
+1. вставить HTTPS key-link subscription и сохранить;
+2. обновить список `Extra` профилей;
+3. выбрать нужный профиль;
+4. дождаться проверки Xray-кандидата;
+5. явно применить выбранный VPN-профиль;
+6. выбрать фактический интернет-провайдер и DNS mode;
+7. сохранить сетевой профиль;
+8. нажать **«Проверить план и состояние»**;
+9. применить ISP/DNS только если plan разрешает mutation;
+10. нажать **«Проверить готовность»**;
+11. убедиться, что subscription, preferred profile, `vless-reality`, `dns-out`, Xray и ISP/DNS приняты;
+12. нажать **«Завершить настройку»**.
 
-Перед первой mutation `install.sh`:
+Финальный apply:
 
-1. проверяет Entware, XKeen/Xray и обязательные инструменты;
-2. определяет архитектуру;
-3. скачивает GitHub Release assets через bootstrap DNS (`77.88.8.8`, fallback `8.8.8.8`) и `curl --resolve`;
-4. следует HTTPS redirect до release asset без зависимости от router-local DNS;
-5. проверяет `SHA256SUMS` каждого устанавливаемого файла;
-6. создаёт timestamped backup FreeNet-файлов, subscription URL и crontab;
-7. сохраняет контрольные SHA Xray `02/03/04/05`;
-8. только после этого меняет FreeNet-файлы и собственный cron-блок.
+- повторяет fresh read-only plan;
+- включает XKeen autostart только штатной командой `xkeen -auto on`;
+- пишет `SETUP_COMPLETE=yes`;
+- пересобирает только управляемый блок `# BEGIN FREENET ... # END FREENET`;
+- сохраняет чужие cron-задачи;
+- при ошибке возвращает FreeNet config, cron и исходное состояние XKeen autostart.
 
-Если установка, runtime acceptance или проверка SHA завершается ошибкой, installer возвращает свои файлы и crontab из backup. После начала mutation `SIGINT`/`Ctrl-C`, `SIGHUP` и `SIGTERM` также запускают rollback.
+### ISP presets
 
-## Что умеет FreeNet UI
+UI содержит отдельные ISP preset IDs. На текущем этапе автоматический clean-router runtime apply подтверждён для **Ростелеком**. Владлинк / АльянсТелеком / Подряд остаются отдельными профилями, но автоматическая mutation для них должна быть заблокирована до собственного runtime acceptance.
 
-Текущая UI-версия:
+Если UI сообщает, что preset не поддержан или plan не готов, это нормальный safety gate — не обходите его ручным редактированием Xray.
 
-- показывает текущую страну/город и endpoint;
-- показывает Xray, XKeen UI, `dns-out`, updater state;
-- переключает Германия / Frankfurt / Extra;
-- Польша / Warsaw / Extra;
-- Финляндия / Helsinki / Extra;
-- Нидерланды / Amsterdam / Extra;
-- обновляет текущий endpoint из subscription;
-- блокирует параллельные операции;
-- восстанавливает UI state по `/api/status`, даже если браузерный POST оборвался во время restart VPN;
-- работает локально на LAN и на loopback для CrazeDNS proxy, не используя wildcard `0.0.0.0:1001`.
+## Что проверять после завершения мастера
 
-Следующий provider layer будет получать **все доступные Extra profiles динамически**, а не ограничиваться четырьмя hardcoded кнопками.
+Наличие зелёной страницы ещё не означает полный acceptance. Для clean-room нужно подтвердить:
 
-## Команды
+- `SETUP_COMPLETE=yes`;
+- XKeen autostart `on`;
+- Xray config validation PASS;
+- Xray process работает;
+- `dns-out` присутствует;
+- ровно один выбранный `vless-reality` активен;
+- ISP/DNS соответствует выбранному preset;
+- FreeNet UI/API доступны на LAN;
+- выбранный VPN endpoint фактически используется;
+- внешний IP соответствует ожидаемому VPN-региону;
+- DNS test не показывает непредусмотренную утечку;
+- после **реального reboot** XKeen/Xray/FreeNet поднимаются автоматически;
+- после reboot VPN/DNS остаются рабочими.
 
-```sh
-freenet install
-freenet update
-freenet status
-freenet configure
-freenet uninstall
-```
+До reboot acceptance чистая установка не считается полностью принятой.
 
-VPN helper:
+## FreeNet UI
 
-```sh
-vpn de
-vpn pl
-vpn fi
-vpn nl
-vpn current
-vpn update
-```
+В `v0.2.6` Control Center умеет:
+
+- показывать текущий VPN-профиль и endpoint;
+- показывать Xray, XKeen UI, `dns-out`, updater state;
+- безопасно хранить/заменять subscription key-link;
+- динамически показывать все активные BlancVPN `Extra` профили;
+- проверять VPN-кандидат до apply;
+- transactional применять выбранный VPN-профиль;
+- сохранять ISP/DNS выбор;
+- получать read-only expected delta;
+- применять поддержанный ISP/DNS preset через подтверждённую операцию;
+- выполнять финальную проверку готовности;
+- завершать setup transactionally;
+- показывать основную ошибку и состояние отката раздельно;
+- восстанавливать статус после разрыва HTTP во время VPN restart.
+
+Legacy быстрые кнопки стран пока сохраняются; дальнейшая дорожная карта — latency/stability, preferred/fallback, automatic failover, routing UI, automation/system/backup и auth.
 
 ## Автоматизация
 
@@ -153,17 +240,7 @@ vpn update
 /opt/etc/freenet/freenet.conf
 ```
 
-По умолчанию:
-
-```sh
-UI_PORT=1001
-AUTO_ENDPOINT_UPDATE=yes
-AUTO_ENDPOINT_CRON='50 6 * * *'
-AUTO_XKEEN_GEODATA=yes
-AUTO_XKEEN_GEODATA_CRON='30 6 * * *'
-```
-
-FreeNet управляет только собственным cron-блоком:
+FreeNet управляет только своим cron-блоком:
 
 ```text
 # BEGIN FREENET
@@ -171,9 +248,9 @@ FreeNet управляет только собственным cron-блоком
 # END FREENET
 ```
 
-Существующие одиночные строки `/opt/sbin/xkeen -ug` и `/opt/bin/blanc_xkeen_update_outbounds.sh` мигрируются внутрь этого блока после backup. Остальные cron-задачи сохраняются.
+На setup-first установке endpoint refresh не должен активироваться до полного acceptance. Финальный completion helper сохраняет это ограничение и активирует только разрешённую настройками автоматизацию.
 
-## Локальные файлы
+## Основные локальные файлы
 
 ```text
 /opt/sbin/freenet-ui
@@ -181,67 +258,46 @@ FreeNet управляет только собственным cron-блоком
 /opt/bin/freenet
 /opt/bin/vpn
 /opt/bin/blanc_xkeen_update_outbounds.sh
+/opt/lib/freenet/bootstrap_entware.sh
+/opt/lib/freenet/migrate_split_dns.sh
+/opt/lib/freenet/apply_network_profile.sh
+/opt/lib/freenet/apply_provider_profile.sh
+/opt/lib/freenet/finalize_setup.sh
 /opt/etc/freenet/freenet.conf
-/opt/etc/xray/blanc_subscription.url
-/opt/etc/xray/blanc_profile_filter.regex
+/opt/etc/freenet/upstream-pins.env
 ```
 
-Subscription URL хранится только на конкретном роутере и не входит в repo/release.
+Subscription key-link хранится локально отдельно и не должен попадать в GitHub, документацию или диагностические ответы.
 
-## Безопасность
+## Recovery / rollback
 
-Публичный репозиторий не должен содержать:
+- Core bootstrap и FreeNet app-фаза имеют отдельные backup/rollback границы.
+- Provider apply откатывает изменяемые provider-файлы при post-apply ошибке.
+- Split DNS migration откатывает Xray config при post-apply ошибке.
+- Finalize apply откатывает FreeNet config, cron и XKeen autostart.
+- `rollback FAILED/UNKNOWN` означает STOP: не повторяйте mutation до фактической проверки runtime.
 
-- URL/токен VPN-подписки;
-- VLESS UUID;
-- Reality public/private keys;
-- shortId;
-- credential-bearing `04_outbounds.json`;
-- пароли роутера/FreeNet;
-- частные runtime dumps.
+Подробно: [`docs/RECOVERY-RU.md`](docs/RECOVERY-RU.md).
 
-Web UI принимает только фиксированные действия. Произвольного shell execution через HTTP нет.
+## Документация
 
-План безопасности из Roadmap #5: опциональный пароль FreeNet, hash-only storage, sessions, rate limit, `freenet reset-password`, CrazeDNS warning и LAN-only Entware SSH `root:222`.
+- [`docs/INSTALL-FROM-SCRATCH-RU.md`](docs/INSTALL-FROM-SCRATCH-RU.md) — clean-room установка USB/Entware → FreeNet;
+- [`docs/ARCHITECTURE-RU.md`](docs/ARCHITECTURE-RU.md) — границы владения Entware/XKeen/Xray/FreeNet;
+- [`docs/providers/BLANCVPN-RU.md`](docs/providers/BLANCVPN-RU.md) — слой BlancVPN без секретов;
+- [`docs/RECOVERY-RU.md`](docs/RECOVERY-RU.md) — recovery/rollback;
+- [`docs/UPSTREAM-PINS-RU.md`](docs/UPSTREAM-PINS-RU.md) — pinned upstream policy;
+- GitHub Issue #5 — актуальная дорожная карта;
+- GitHub Issue #7 — русскоязычный журнал исполнения.
 
-## Надёжность updater
+## Clean-room правило
 
-`blanc_xkeen_update_outbounds.sh`:
+Новый Keenetic Giga для acceptance должен начинать с собственного USB/Entware состояния. Нельзя:
 
-- сериализует запуски через lock;
-- использует уникальный temp dir;
-- умеет bootstrap DNS через внешний DNS + `curl --resolve`;
-- меняет только `vless-reality`;
-- сохраняет `direct`, `dns-out` и остальные non-VLESS outbounds;
-- валидирует candidate полным `xray run -test` до live replace;
-- применяет файл атомарно;
-- не перезапускает Xray при семантически неизменившемся config;
-- делает rolling backup;
-- пытается восстановить предыдущий outbound при failed restart/validation;
-- не печатает UUID/PBK/SID/URL subscription в штатный лог.
+- копировать HOME `/opt`;
+- копировать HOME `04_outbounds.json`;
+- переносить HOME secrets через GitHub/чат;
+- вручную достраивать компоненты после `NEEDS_REVIEW`;
+- обходить заблокированный ISP/DNS plan;
+- считать CI или открывшуюся страницу доказательством reboot/autostart acceptance.
 
-## Upstream / reference
-
-FreeNet не копирует целиком сторонние инструкции и не хранит чужие секреты. Для развития bootstrap используются публичные upstream/reference:
-
-- XKeen — upstream installer/release;
-- XKeen UI — upstream release/UI;
-- BlancVPN — официальный пользовательский flow и provider semantics.
-
-BlancVPN будет первым fully-supported provider preset; Generic VLESS/Reality предусмотрен архитектурой Roadmap #5.
-
-## Обновление
-
-После выхода новой версии:
-
-```sh
-freenet update
-```
-
-или повторно выполните bootstrap-команду установки.
-
-## Граница ответственности v0.2.2
-
-v0.2.2 пока **не устанавливает XKeen/Xray на Entware-only роутер** и не переписывает произвольно Split DNS/firewall/routing. Это сознательная граница до P1 clean-room bootstrap.
-
-После установки проверяется, что контрольные SHA Xray `02_dns.json`, `03_inbounds.json`, `04_outbounds.json` и `05_routing.json` installer-ом не изменились.
+Любой недостающий prerequisite или ошибочный автоматический шаг фиксируется как дефект продукта/документации, а не компенсируется ручным «допиливанием» роутера.
