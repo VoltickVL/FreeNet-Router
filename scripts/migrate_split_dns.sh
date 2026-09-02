@@ -12,9 +12,7 @@ XRAY_ASSET_DIR="/opt/etc/xray/dat"
 BACKUP_ROOT="/opt/backups"
 TMP_DIR=""
 BACKUP_DIR=""
-APPLIED=0
 
-say() { printf '%s\n' "$*"; }
 info() { printf '[FreeNet DNS] %s\n' "$*"; }
 err() { printf '[FreeNet DNS] ERROR: %s\n' "$*" >&2; }
 
@@ -130,7 +128,7 @@ if [ "${1:-}" = "--build-only" ]; then
     exit 0
 fi
 
-for C in jq cp mv grep awk sed mktemp sha256sum netstat pidof; do
+for C in jq cp mv grep awk sed mktemp sha256sum netstat pidof cmp; do
     need_cmd "$C"
 done
 
@@ -188,18 +186,24 @@ build_candidate "$CONFIG_DIR" "$CANDIDATE_DIR" || {
     exit 1
 }
 
+NON_VLESS_BEFORE="$(jq -cS '[.outbounds[]? | select(.tag != "vless-reality" and .tag != "dns-out")]' "$OUTBOUND_FILE" | sha256sum | awk '{print $1}')" || {
+    err "не удалось вычислить fingerprint non-VLESS outbounds"
+    exit 1
+}
+NON_VLESS_CANDIDATE="$(jq -cS '[.outbounds[]? | select(.tag != "vless-reality" and .tag != "dns-out")]' "$CANDIDATE_DIR/04_outbounds.json" | sha256sum | awk '{print $1}')" || {
+    err "не удалось вычислить candidate fingerprint non-VLESS outbounds"
+    exit 1
+}
+[ "$NON_VLESS_BEFORE" = "$NON_VLESS_CANDIDATE" ] || {
+    err "candidate неожиданно меняет существующие non-VLESS outbounds"
+    exit 1
+}
+
 XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CANDIDATE_DIR" > "$TMP_DIR/xray-candidate.log" 2>&1 || {
     tail -n 40 "$TMP_DIR/xray-candidate.log" >&2 2>/dev/null
     err "candidate Xray config не прошёл validation; live state не изменён"
     exit 1
 }
-
-if jq -S . "$DNS_FILE" 2>/dev/null | cmp - "$CANDIDATE_DIR/02_dns.json" >/dev/null 2>&1 \
-   && jq -S . "$OUTBOUND_FILE" 2>/dev/null | cmp - "$CANDIDATE_DIR/04_outbounds.json" >/dev/null 2>&1 \
-   && jq -S . "$ROUTING_FILE" 2>/dev/null | cmp - "$CANDIDATE_DIR/05_routing.json" >/dev/null 2>&1; then
-    info "Split DNS candidate семантически совпадает с live state."
-    exit 0
-fi
 
 STAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="$BACKUP_ROOT/freenet-dns-migrate-$STAMP"
@@ -216,8 +220,11 @@ sha256sum "$BACKUP_DIR"/*.json > "$BACKUP_DIR/SHA256SUMS.before" 2>/dev/null || 
 rollback_live() {
     RB_OK=1
     for NAME in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do
-        cp -p "$BACKUP_DIR/$NAME" "$CONFIG_DIR/$NAME.rollback.$$" 2>/dev/null || RB_OK=0
-        [ "$RB_OK" = "1" ] && mv -f "$CONFIG_DIR/$NAME.rollback.$$" "$CONFIG_DIR/$NAME" 2>/dev/null || RB_OK=0
+        if cp -p "$BACKUP_DIR/$NAME" "$CONFIG_DIR/$NAME.rollback.$$" 2>/dev/null; then
+            mv -f "$CONFIG_DIR/$NAME.rollback.$$" "$CONFIG_DIR/$NAME" 2>/dev/null || RB_OK=0
+        else
+            RB_OK=0
+        fi
     done
 
     "$XKEEN_BIN" -restart > "$TMP_DIR/xkeen-rollback.log" 2>&1 || RB_OK=0
@@ -247,7 +254,6 @@ for NAME in 02_dns.json 04_outbounds.json 05_routing.json; do
 done
 
 mv -f "$CONFIG_DIR/02_dns.json.freenet.$$" "$DNS_FILE" || fail_after_apply "не удалось применить 02_dns.json"
-APPLIED=1
 mv -f "$CONFIG_DIR/04_outbounds.json.freenet.$$" "$OUTBOUND_FILE" || fail_after_apply "не удалось применить 04_outbounds.json"
 mv -f "$CONFIG_DIR/05_routing.json.freenet.$$" "$ROUTING_FILE" || fail_after_apply "не удалось применить 05_routing.json"
 
@@ -262,7 +268,9 @@ jq -e '.dns.tag == "dns-vless" and ([.dns.servers[]?.tag] | index("dns-direct") 
 
 grep -Eq '^[[:space:]]*proxy_dns="?on"?[[:space:]]*$' "$XKEEN_INIT" || fail_after_apply "XKeen proxy_dns изменился после apply"
 
-APPLIED=0
+NON_VLESS_AFTER="$(jq -cS '[.outbounds[]? | select(.tag != "vless-reality" and .tag != "dns-out")]' "$OUTBOUND_FILE" | sha256sum | awk '{print $1}')" || fail_after_apply "не удалось проверить non-VLESS outbounds после apply"
+[ "$NON_VLESS_BEFORE" = "$NON_VLESS_AFTER" ] || fail_after_apply "существующие non-VLESS outbounds изменились после apply"
+
 info "Split DNS migration: SUCCESS"
 info "Xray validation: PASS"
 info "dns-out/non-VLESS preservation: PASS"
