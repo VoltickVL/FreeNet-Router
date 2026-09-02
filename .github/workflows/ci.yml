@@ -84,6 +84,27 @@ jobs:
           grep -q 'xray run -test' doctor.sh
           ! grep -Eq '^[[:space:]]*(opkg[[:space:]]+(install|upgrade)|reboot([[:space:]]|$)|restart([[:space:]]|$)|killall([[:space:]]|$)|crontab[[:space:]]+[^-l])' doctor.sh
 
+      - name: Upstream pin contract
+        run: |
+          set -eu
+          . ./config/upstream-pins.env
+          test "$PIN_POLICY_VERSION" = "1"
+          test "$XKEEN_REPO" = "jameszeroX/XKeen"
+          test "$XKEEN_VERSION" = "2.0"
+          test "$XKEEN_ASSET" = "xkeen.tar.gz"
+          test "$XKEEN_UI_REPO" = "zxc-rv/XKeen-UI"
+          test "$XKEEN_UI_VERSION" = "v1.1.3"
+          for V in \
+            XKEEN_SHA256 \
+            XKEEN_UI_ARM64_SHA256 \
+            XKEEN_UI_MIPS32LE_SHA256 \
+            XKEEN_UI_MIPS32_SHA256
+          do
+            eval "VALUE=\${$V}"
+            printf '%s' "$VALUE" | grep -Eq '^[0-9a-f]{64}$'
+          done
+          ! grep -Ei 'releases/(latest|download/latest)|/latest/download' config/upstream-pins.env docs/UPSTREAM-PINS-RU.md
+
       - name: UI recovery contract
         run: |
           grep -q 'AbortController' freenet-ui/web/index.html
