@@ -12,6 +12,7 @@ XRAY_ASSET_DIR="/opt/etc/xray/dat"
 BACKUP_ROOT="/opt/backups"
 TMP_DIR=""
 BACKUP_DIR=""
+MODE=""
 
 info() { printf '[FreeNet DNS] %s\n' "$*"; }
 err() { printf '[FreeNet DNS] ERROR: %s\n' "$*" >&2; }
@@ -40,16 +41,14 @@ make_tmp() {
     fi
 }
 
-build_candidate() {
+build_legacy_candidate() {
     SRC="$1"
     DST="$2"
 
     mkdir -p "$DST" || return 1
-
     [ -f "$SRC/03_inbounds.json" ] || return 1
     [ -f "$SRC/04_outbounds.json" ] || return 1
     [ -f "$SRC/05_routing.json" ] || return 1
-
     jq -e . "$SRC/04_outbounds.json" >/dev/null 2>&1 || return 1
     jq -e . "$SRC/05_routing.json" >/dev/null 2>&1 || return 1
 
@@ -111,7 +110,24 @@ build_candidate() {
     jq -e '(.routing.rules[0].inboundTag | index("dns-vless")) != null and .routing.rules[0].outboundTag == "vless-reality"' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
     jq -e '(.routing.rules[1].inboundTag | index("dns-direct")) != null and .routing.rules[1].outboundTag == "direct"' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
     jq -e '.routing.rules[2].port == 53 and .routing.rules[2].outboundTag == "dns-out"' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
+    return 0
+}
 
+build_repair_candidate() {
+    SRC="$1"
+    DST="$2"
+    mkdir -p "$DST" || return 1
+    for NAME in 02_dns.json 03_inbounds.json 05_routing.json; do
+        cp -p "$SRC/$NAME" "$DST/$NAME" || return 1
+    done
+    jq '
+      if any(.outbounds[]?; .tag == "dns-out") then
+        .
+      else
+        .outbounds += [{"protocol":"dns","tag":"dns-out"}]
+      end
+    ' "$SRC/04_outbounds.json" > "$DST/04_outbounds.json" || return 1
+    jq -e 'any(.outbounds[]?; .tag == "dns-out" and .protocol == "dns")' "$DST/04_outbounds.json" >/dev/null 2>&1 || return 1
     return 0
 }
 
@@ -121,7 +137,7 @@ if [ "${1:-}" = "--build-only" ]; then
         exit 1
     }
     need_cmd jq
-    build_candidate "$2" "$3" || {
+    build_legacy_candidate "$2" "$3" || {
         err "не удалось построить candidate Split DNS"
         exit 1
     }
@@ -142,25 +158,29 @@ for F in "$DNS_FILE" "$INBOUND_FILE" "$OUTBOUND_FILE" "$ROUTING_FILE"; do
     [ -f "$F" ] || { err "не найден обязательный Xray config: $F"; exit 1; }
 done
 
-if jq -e '.dns.tag == "dns-vless" and ([.dns.servers[]?.tag] | index("dns-direct") != null)' "$DNS_FILE" >/dev/null 2>&1 \
-   && jq -e 'any(.outbounds[]?; .tag == "dns-out" and .protocol == "dns")' "$OUTBOUND_FILE" >/dev/null 2>&1 \
-   && jq -e 'any(.routing.rules[]?; .outboundTag == "dns-out")' "$ROUTING_FILE" >/dev/null 2>&1; then
+HAS_DNS=0
+HAS_ROUTE=0
+HAS_OUT=0
+jq -e '.dns.tag == "dns-vless" and ([.dns.servers[]?.tag] | index("dns-direct") != null)' "$DNS_FILE" >/dev/null 2>&1 && HAS_DNS=1
+jq -e 'any(.routing.rules[]?; .outboundTag == "dns-out")' "$ROUTING_FILE" >/dev/null 2>&1 && HAS_ROUTE=1
+jq -e 'any(.outbounds[]?; .tag == "dns-out" and .protocol == "dns")' "$OUTBOUND_FILE" >/dev/null 2>&1 && HAS_OUT=1
+
+if [ "$HAS_DNS:$HAS_ROUTE:$HAS_OUT" = "1:1:1" ]; then
     info "Split DNS baseline уже присутствует; migration не требуется."
     exit 0
 fi
 
-if ! grep -Eq '^[[:space:]]*proxy_dns="?on"?[[:space:]]*$' "$XKEEN_INIT"; then
-    err "XKeen proxy_dns не включён; автоматическая миграция legacy state остановлена до отдельного preflight"
-    exit 1
-fi
+case "$HAS_DNS:$HAS_ROUTE:$HAS_OUT" in
+    0:0:0) MODE="legacy" ;;
+    1:1:0) MODE="repair-dns-out" ;;
+    *)
+        err "обнаружен частичный/неизвестный Split DNS state ($HAS_DNS:$HAS_ROUTE:$HAS_OUT); автоматическая mutation запрещена"
+        exit 1
+        ;;
+esac
 
-PORT53="$(netstat -lnp 2>/dev/null | grep ':53[[:space:]]' || true)"
-if printf '%s\n' "$PORT53" | grep -q '/xray'; then
-    err "порт 53 уже занят Xray; legacy migration не применяется вслепую"
-    exit 1
-fi
-if ! printf '%s\n' "$PORT53" | grep -q '/ndnproxy'; then
-    err "не подтверждён firmware DNS owner ndnproxy на порту 53"
+if ! grep -Eq '^[[:space:]]*proxy_dns="?on"?[[:space:]]*$' "$XKEEN_INIT"; then
+    err "XKeen proxy_dns не включён; migration остановлена до отдельного preflight"
     exit 1
 fi
 
@@ -172,6 +192,18 @@ XGID="$(awk '/^Gid:/ {print $2; exit}' "/proc/$XPID/status" 2>/dev/null)"
     exit 1
 }
 
+if [ "$MODE" = "legacy" ]; then
+    PORT53="$(netstat -lnp 2>/dev/null | grep ':53[[:space:]]' || true)"
+    if printf '%s\n' "$PORT53" | grep -q '/xray'; then
+        err "порт 53 уже занят Xray; legacy migration не применяется вслепую"
+        exit 1
+    fi
+    if ! printf '%s\n' "$PORT53" | grep -q '/ndnproxy'; then
+        err "не подтверждён firmware DNS owner ndnproxy на порту 53"
+        exit 1
+    fi
+fi
+
 make_tmp
 CANDIDATE_DIR="$TMP_DIR/candidate"
 mkdir -p "$CANDIDATE_DIR" || { err "не удалось создать candidate dir"; exit 1; }
@@ -181,10 +213,17 @@ for F in "$CONFIG_DIR"/*; do
     cp -p "$F" "$CANDIDATE_DIR/" || { err "не удалось собрать candidate confdir"; exit 1; }
 done
 
-build_candidate "$CONFIG_DIR" "$CANDIDATE_DIR" || {
-    err "не удалось построить Split DNS candidate"
-    exit 1
-}
+if [ "$MODE" = "legacy" ]; then
+    build_legacy_candidate "$CONFIG_DIR" "$CANDIDATE_DIR" || {
+        err "не удалось построить Split DNS candidate"
+        exit 1
+    }
+else
+    build_repair_candidate "$CONFIG_DIR" "$CANDIDATE_DIR" || {
+        err "не удалось построить dns-out repair candidate"
+        exit 1
+    }
+fi
 
 NON_VLESS_BEFORE="$(jq -cS '[.outbounds[]? | select(.tag != "vless-reality" and .tag != "dns-out")]' "$OUTBOUND_FILE" | sha256sum | awk '{print $1}')" || {
     err "не удалось вычислить fingerprint non-VLESS outbounds"
@@ -230,7 +269,6 @@ rollback_live() {
     "$XKEEN_BIN" -restart > "$TMP_DIR/xkeen-rollback.log" 2>&1 || RB_OK=0
     pidof xray >/dev/null 2>&1 || RB_OK=0
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$TMP_DIR/xray-rollback.log" 2>&1 || RB_OK=0
-
     [ "$RB_OK" = "1" ]
 }
 
@@ -259,21 +297,24 @@ mv -f "$CONFIG_DIR/05_routing.json.freenet.$$" "$ROUTING_FILE" || fail_after_app
 
 "$XKEEN_BIN" -restart > "$TMP_DIR/xkeen-restart.log" 2>&1 || fail_after_apply "xkeen -restart завершился ошибкой"
 pidof xray >/dev/null 2>&1 || fail_after_apply "Xray не запущен после migration restart"
-
 XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$TMP_DIR/xray-live.log" 2>&1 || fail_after_apply "live Xray config не проходит validation после apply"
 
 jq -e 'any(.outbounds[]?; .tag == "dns-out" and .protocol == "dns")' "$OUTBOUND_FILE" >/dev/null 2>&1 || fail_after_apply "dns-out отсутствует после apply"
-jq -e 'any(.routing.rules[]?; .outboundTag == "dns-out")' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply "dns-out routing rule отсутствует после apply"
-jq -e '.dns.tag == "dns-vless" and ([.dns.servers[]?.tag] | index("dns-direct") != null)' "$DNS_FILE" >/dev/null 2>&1 || fail_after_apply "Split DNS config отсутствует после apply"
-
 grep -Eq '^[[:space:]]*proxy_dns="?on"?[[:space:]]*$' "$XKEEN_INIT" || fail_after_apply "XKeen proxy_dns изменился после apply"
+
+if [ "$MODE" = "legacy" ]; then
+    jq -e 'any(.routing.rules[]?; .outboundTag == "dns-out")' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply "dns-out routing rule отсутствует после apply"
+    jq -e '.dns.tag == "dns-vless" and ([.dns.servers[]?.tag] | index("dns-direct") != null)' "$DNS_FILE" >/dev/null 2>&1 || fail_after_apply "Split DNS config отсутствует после apply"
+fi
 
 NON_VLESS_AFTER="$(jq -cS '[.outbounds[]? | select(.tag != "vless-reality" and .tag != "dns-out")]' "$OUTBOUND_FILE" | sha256sum | awk '{print $1}')" || fail_after_apply "не удалось проверить non-VLESS outbounds после apply"
 [ "$NON_VLESS_BEFORE" = "$NON_VLESS_AFTER" ] || fail_after_apply "существующие non-VLESS outbounds изменились после apply"
 
-info "Split DNS migration: SUCCESS"
+info "Split DNS operation: SUCCESS ($MODE)"
 info "Xray validation: PASS"
 info "dns-out/non-VLESS preservation: PASS"
 info "Backup: $BACKUP_DIR"
-info "Firmware DNS owner ndnproxy оставлен на порту 53; отдельный Xray listener :53 не создавался."
+if [ "$MODE" = "legacy" ]; then
+    info "Firmware DNS owner ndnproxy оставлен на порту 53; отдельный Xray listener :53 не создавался."
+fi
 exit 0
