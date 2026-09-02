@@ -28,6 +28,7 @@ OUT="$TROOT/etc/xray/configs/04_outbounds.json"
 INIT="$TROOT/etc/init.d/S05xkeen"
 CRON_BIN="$TMP/fake-crontab"
 CRON_STORE="$TMP/crontab.store"
+CRON_FAIL_MARKER="$TMP/crontab.fail.once"
 STATE="$TMP/state"
 mkdir -p "$TROOT/etc/freenet" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$TROOT/etc/init.d" "$TROOT/sbin" "$TROOT/lib/freenet" "$TROOT/bin"
 
@@ -101,7 +102,10 @@ if [ "${1:-}" = -l ]; then
     cat "$FREENET_TEST_CRON_STORE" 2>/dev/null || true
     exit 0
 fi
-[ "${FREENET_TEST_CRON_FAIL:-no}" = yes ] && exit 1
+if [ "${FREENET_TEST_CRON_FAIL:-no}" = yes ] && [ ! -e "$FREENET_TEST_CRON_FAIL_MARKER" ]; then
+    : > "$FREENET_TEST_CRON_FAIL_MARKER"
+    exit 1
+fi
 cp "$1" "$FREENET_TEST_CRON_STORE"
 EOF
 chmod 755 "$CRON_BIN"
@@ -121,6 +125,7 @@ run_finalize() {
     FREENET_FINALIZE_TEST_STATE="$STATE" \
     FREENET_TEST_CRON_STORE="$CRON_STORE" \
     FREENET_TEST_CRON_FAIL="${FREENET_TEST_CRON_FAIL:-no}" \
+    FREENET_TEST_CRON_FAIL_MARKER="$CRON_FAIL_MARKER" \
     sh "$SCRIPT" "$@"
 }
 
@@ -145,13 +150,14 @@ if grep -q '^[^#].*/opt/bin/blanc_xkeen_update_outbounds.sh' "$CRON_STORE"; then
     fail 'endpoint refresh must remain disabled while AUTO_ENDPOINT_UPDATE=no'
 fi
 
-# Simulate a post-autostart cron write failure. The helper must restore config,
-# cron, and the original XKeen autostart state.
+# Simulate one post-autostart cron write failure. The helper must restore config,
+# cron, and the original XKeen autostart state; the rollback cron write is allowed.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
 sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
 cat > "$CRON_STORE" <<'EOF'
 17 3 * * * /opt/bin/original-task
 EOF
+rm -f "$CRON_FAIL_MARKER"
 cp "$CONF" "$TMP/conf.before"
 cp "$CRON_STORE" "$TMP/cron.before"
 
