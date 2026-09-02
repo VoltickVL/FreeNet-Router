@@ -16,7 +16,7 @@ LOG_FILE="/opt/var/log/blanc_xkeen_update.log"
 
 UI_PORT=1001
 AUTO_ENDPOINT_UPDATE=yes
-AUTO_ENDPOINT_CRON="50 6 * * *"
+AUTO_ENDPOINT_CRON="*/15 * * * *"
 AUTO_XKEEN_GEODATA=yes
 AUTO_XKEEN_GEODATA_CRON="30 6 * * *"
 
@@ -133,7 +133,7 @@ confirm() {
 load_config() {
     UI_PORT=1001
     AUTO_ENDPOINT_UPDATE=yes
-    AUTO_ENDPOINT_CRON="50 6 * * *"
+    AUTO_ENDPOINT_CRON="*/15 * * * *"
     AUTO_XKEEN_GEODATA=yes
     AUTO_XKEEN_GEODATA_CRON="30 6 * * *"
 
@@ -323,12 +323,26 @@ download_release() {
     download_asset SHA256SUMS "$TMP_DIR/SHA256SUMS" no
 
     UI_ASSET="freenet-ui-$ARCH"
-    for NAME in "$UI_ASSET" vpn blanc_xkeen_update_outbounds.sh freenet freenet.conf.example; do
+    for NAME in "$UI_ASSET" vpn blanc_xkeen_update_outbounds.sh migrate_split_dns.sh freenet freenet.conf.example; do
         download_asset "$NAME" "$TMP_DIR/$NAME" yes
     done
 
-    chmod 755 "$TMP_DIR/$UI_ASSET" "$TMP_DIR/vpn" "$TMP_DIR/blanc_xkeen_update_outbounds.sh" "$TMP_DIR/freenet"
+    chmod 755 "$TMP_DIR/$UI_ASSET" "$TMP_DIR/vpn" "$TMP_DIR/blanc_xkeen_update_outbounds.sh" "$TMP_DIR/migrate_split_dns.sh" "$TMP_DIR/freenet"
     ok "SHA-256 всех release assets"
+}
+
+migrate_split_dns_baseline() {
+    info "Проверяю Split DNS/Xray baseline до установки FreeNet..."
+    if "$TMP_DIR/migrate_split_dns.sh"; then
+        ok "Split DNS baseline"
+        return 0
+    fi
+
+    RC=$?
+    if [ "$RC" -eq 2 ]; then
+        fail "Split DNS migration завершилась с ROLLBACK FAILED/UNKNOWN; дальнейшая установка запрещена"
+    fi
+    fail "Split DNS migration не прошла; FreeNet app-файлы не изменялись"
 }
 
 backup_one() {
@@ -505,13 +519,13 @@ start_ui() {
 validate_xray_unchanged() {
     snapshot_xray "$TMP_DIR/xray-hashes.after" || fail "не удалось проверить SHA Xray после установки"
     if ! cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.after" >/dev/null 2>&1; then
-        say "[FreeNet] Xray SHA до операции:"
+        say "[FreeNet] Xray SHA до app-этапа:"
         cat "$BACKUP_DIR/xray-hashes.before"
-        say "[FreeNet] Xray SHA после операции:"
+        say "[FreeNet] Xray SHA после app-этапа:"
         cat "$TMP_DIR/xray-hashes.after"
-        fail "обнаружено неожиданное изменение Xray config"
+        fail "обнаружено неожиданное изменение Xray config после завершённой DNS migration"
     fi
-    ok "Xray config не изменён installer-ом"
+    ok "Xray config не изменён app-этапом installer-а"
 }
 
 validate_runtime() {
@@ -545,6 +559,11 @@ install_or_update() {
     ensure_runtime
     load_config
     download_release
+
+    # Infrastructure/runtime migration is a separate transactional phase.
+    # It completes (or rolls back) before FreeNet app files or cron are mutated.
+    migrate_split_dns_baseline
+
     backup_current
 
     info "Устанавливаю FreeNet..."
@@ -568,8 +587,8 @@ install_or_update() {
     info "FreeNet установлен/обновлён успешно."
     say "Панель: http://$LAN_IP:$UI_PORT/"
     say "Меню: freenet"
-    say "Backup: $BACKUP_DIR"
-    say "Xray routing/DNS installer не переписывал."
+    say "Backup app: $BACKUP_DIR"
+    say "Split DNS baseline проверен/мигрирован отдельной transactional-фазой до app mutation."
 }
 
 show_status() {
@@ -652,7 +671,7 @@ configure_menu() {
                 if [ "$AUTO_ENDPOINT_UPDATE" = "yes" ]; then AUTO_ENDPOINT_UPDATE=no; else AUTO_ENDPOINT_UPDATE=yes; fi
                 ;;
             3)
-                printf 'Cron (5 полей, например 50 6 * * *): ' > /dev/tty
+                printf 'Cron (5 полей, например */15 * * * *): ' > /dev/tty
                 read_tty
                 [ -n "$REPLY" ] && AUTO_ENDPOINT_CRON="$REPLY"
                 ;;
