@@ -53,14 +53,16 @@ echo "$OUT" | grep -Fq 'ARCH=arm64-v8a' || fail 'ARM64 mapping failed'
 echo "$OUT" | grep -Fq 'Xray-linux-arm64-v8a.zip' || fail 'ARM64 Xray asset mapping failed'
 echo "$OUT" | grep -Fq 'MUTATION=NONE' || fail 'plan must be read-only'
 
-# Complete existing stack is preserved.
+# Complete existing stack + configs is preserved.
 printf '#!/bin/sh\n' > "$R1/sbin/xkeen"
 printf '#!/bin/sh\n' > "$R1/sbin/xray"
 chmod +x "$R1/sbin/xkeen" "$R1/sbin/xray"
+mkdir -p "$R1/etc/xray/configs"
+printf '{}\n' > "$R1/etc/xray/configs/01_log.json"
 OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
 echo "$OUT" | grep -Fq 'MODE=READY_EXISTING_STACK' || fail 'complete stack must be preserved'
 
-# Partial stack must stop instead of guessing.
+# Partial stack/config must stop instead of guessing.
 rm -f "$R1/sbin/xray"
 OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
 echo "$OUT" | grep -Fq 'MODE=NEEDS_REVIEW' || fail 'partial stack must classify NEEDS_REVIEW'
@@ -77,9 +79,24 @@ make_root "$R3"
 OUT="$(run_plan "$R3" 'riscv64 100')"
 echo "$OUT" | grep -Fq 'MODE=UNSUPPORTED_ARCH' || fail 'unsupported architecture must stop'
 
-# This slice is staging-only: there must be no permanent install/apply commands.
-if grep -E '(^|[[:space:]])(mv|cp)[[:space:]].*(/opt|\$ROOT)/(sbin|etc)|xkeen[[:space:]]+-restart|crontab[[:space:]]' "$BOOT" >/dev/null; then
-    fail 'staging slice unexpectedly contains permanent runtime mutation'
+# Permanent apply is gated and transactional.
+grep -Fq 'apply requires MODE=ENTWARE_ONLY' "$BOOT" || fail 'apply is not gated to clean Entware-only state'
+grep -Fq 'opkg_cmd update' "$BOOT" || fail 'targeted dependency refresh missing'
+grep -Fq 'opkg_cmd install $PACKAGES' "$BOOT" || fail 'targeted dependency install missing'
+grep -Fq "PACKAGES='ca-bundle curl jq libc libssp librt libpthread ip-full iptables ipset coreutils-uname coreutils-nohup unzip'" "$BOOT" || fail 'dependency allowlist changed unexpectedly'
+grep -Fq "printf '0\\n' | /opt/sbin/xkeen -io" "$BOOT" || fail 'pinned XKeen offline registration contract missing'
+grep -Fq '/opt/sbin/xkeen -auto off' "$BOOT" || fail 'pre-setup autostart must remain off'
+grep -Fq '/opt/sbin/xkeen -dns off' "$BOOT" || fail 'pre-setup proxy DNS must remain off'
+grep -Fq 'run -test -confdir' "$BOOT" || fail 'Xray validation missing'
+grep -Fq 'ROLLBACK: restoring pre-bootstrap core stack' "$BOOT" || fail 'rollback path missing'
+grep -Fq 'ROLLBACK ERROR: FAILED/UNKNOWN' "$BOOT" || fail 'rollback failure state missing'
+grep -Fq 'CORE_APPLY=SUCCESS' "$BOOT" || fail 'success marker missing'
+grep -Fq 'XKEEN_AUTOSTART=off' "$BOOT" || fail 'bootstrap state must require setup wizard before XKeen autostart'
+grep -Fq 'PROXY_DNS=off' "$BOOT" || fail 'bootstrap state must require setup wizard before DNS policy'
+
+# Core bootstrap never receives VPN credentials/provider data.
+if grep -Ei 'subscription.*url=|uuid=|publicKey|shortId|vless://' "$BOOT" >/dev/null; then
+    fail 'core bootstrap contains credential/provider material'
 fi
 
 echo 'bootstrap contract PASS'
