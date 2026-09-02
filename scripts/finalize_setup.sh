@@ -190,6 +190,7 @@ managed_cron_ok() {
 evaluate() {
     READY=yes
     REASON='ready to finalize'
+    INSTALL_SCENARIO="$(config_value INSTALL_SCENARIO unknown)"
     SETUP_COMPLETE="$(config_value SETUP_COMPLETE no)"
     AUTOSTART="$(autostart_state)"
     AUTO_ENDPOINT_UPDATE="$(config_value AUTO_ENDPOINT_UPDATE no)"
@@ -218,6 +219,7 @@ print_plan() {
     say '========== FreeNet Setup Completion Plan =========='
     say "READY=$READY"
     say "REASON=$REASON"
+    say "INSTALL_SCENARIO=$INSTALL_SCENARIO"
     say "SETUP_COMPLETE=$SETUP_COMPLETE"
     say "SUBSCRIPTION_CONFIGURED=$SUBSCRIPTION_CONFIGURED"
     say "PREFERRED_PROFILE_SET=$PREFERRED_PROFILE_SET"
@@ -237,7 +239,7 @@ print_plan() {
     else
         say 'EXPECTED_DELTA=NONE until all provider/network/runtime acceptance gates pass'
     fi
-    say 'EXPECTED_NO_DELTA=no subscription secret/VLESS credential rewrite; no ISP/DNS/routing mutation; no raw shell command surface'
+    say 'EXPECTED_NO_DELTA=current XKeen/Xray/XKeen UI core is not reinstalled; no subscription secret/VLESS credential rewrite; no ISP/DNS/routing mutation; no raw shell command surface'
     say 'MUTATION=NONE'
     say '========== END =========='
     [ "$READY" = yes ]
