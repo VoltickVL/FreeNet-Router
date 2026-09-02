@@ -52,13 +52,19 @@ jobs:
           sh -n install.sh
           sh -n scripts/vpn
           sh -n scripts/blanc_xkeen_update_outbounds.sh
+          sh -n scripts/migrate_split_dns.sh
+          sh -n tests/test_split_dns_migration.sh
           sh -n deploy/S99freenet-ui
+
+      - name: Split DNS migration candidate test
+        run: sh tests/test_split_dns_migration.sh
 
       - name: Installer contract
         run: |
           grep -q 'REPO="VoltickVL/FreeNet-Router"' install.sh
           grep -q 'bootstrap_ip' install.sh
           grep -q 'normalize_legacy_cron' install.sh
+          grep -q 'migrate_split_dns.sh' install.sh
           grep -q 'abort_signal' install.sh
           ! grep -q 'setup.sh' install.sh
           grep -q 'Stamp UI version from VERSION' .github/workflows/release.yml
@@ -67,7 +73,7 @@ jobs:
         run: |
           ! grep -Rni --exclude='*_test.go' -E \
             'vless://[0-9A-Fa-f-]{36}@|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
-            install.sh scripts config freenet-ui deploy README.md
+            install.sh scripts tests config freenet-ui deploy README.md docs
 
       - name: Build direct router assets
         run: |
@@ -90,6 +96,7 @@ jobs:
 
           cp scripts/vpn dist/vpn
           cp scripts/blanc_xkeen_update_outbounds.sh dist/blanc_xkeen_update_outbounds.sh
+          cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh
           cp install.sh dist/freenet
           cp config/freenet.conf.example dist/freenet.conf.example
 
@@ -99,6 +106,7 @@ jobs:
             dist/freenet-ui-mips32 \
             dist/vpn \
             dist/blanc_xkeen_update_outbounds.sh \
+            dist/migrate_split_dns.sh \
             dist/freenet
 
           (
@@ -109,6 +117,7 @@ jobs:
               freenet-ui-mips32 \
               vpn \
               blanc_xkeen_update_outbounds.sh \
+              migrate_split_dns.sh \
               freenet \
               freenet.conf.example \
               > SHA256SUMS
