@@ -70,14 +70,23 @@ build_split_candidate() {
     for NAME in 03_inbounds.json 04_outbounds.json 05_routing.json; do [ -f "$SRC/$NAME" ] || return 1; jq -e . "$SRC/$NAME" >/dev/null 2>&1 || return 1; done
 
     if [ -f "$SRC/02_dns.json" ] && jq -e '.dns and ([.dns.servers[]?.tag] | index("dns-direct") != null) and ([.dns.servers[]?.tag] | index("dns-vless") != null)' "$SRC/02_dns.json" >/dev/null 2>&1; then
-        cp -p "$SRC/02_dns.json" "$DST/02_dns.json" || return 1
+        jq '
+          .dns.servers = [
+            .dns.servers[]?
+            | if (type == "object" and .tag == "dns-vless") then
+                (.address = "https://8.8.8.8/dns-query" | del(.port))
+              else
+                .
+              end
+          ]
+        ' "$SRC/02_dns.json" > "$DST/02_dns.json" || return 1
     else
         DIRECT_DOMAINS="$(jq -c '[.routing.rules[]? | select(.outboundTag == "direct") | .domain[]?] | unique' "$SRC/05_routing.json" 2>/dev/null)" || return 1
         [ -n "$DIRECT_DOMAINS" ] || DIRECT_DOMAINS='[]'
         jq -n --argjson domains "$DIRECT_DOMAINS" '
           {dns:{tag:"dns-vless",servers:[
             {address:"77.88.8.8",port:53,domains:$domains,skipFallback:true,tag:"dns-direct"},
-            {address:"8.8.8.8",port:53,tag:"dns-vless"}
+            {address:"https://8.8.8.8/dns-query",tag:"dns-vless"}
           ],queryStrategy:"UseIPv4"}}
         ' > "$DST/02_dns.json" || return 1
     fi
@@ -102,6 +111,7 @@ build_split_candidate() {
         ])' "$SRC/05_routing.json" > "$DST/05_routing.json" || return 1
 
     jq -e '.dns.tag == "dns-vless" and ([.dns.servers[]?.tag] | index("dns-direct") != null) and ([.dns.servers[]?.tag] | index("dns-vless") != null)' "$DST/02_dns.json" >/dev/null 2>&1 || return 1
+    jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) == 1' "$DST/02_dns.json" >/dev/null 2>&1 || return 1
     jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | length) == 1' "$DST/04_outbounds.json" >/dev/null 2>&1 || return 1
     jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-vless")) != null and .outboundTag == "vless-reality")] | length) == 1' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
     jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-direct")) != null and .outboundTag == "direct")] | length) == 1' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
@@ -201,6 +211,7 @@ restart_xkeen "$TMP_DIR/xkeen-restart.log" || fail_after_apply 'XKeen init resta
 pidof xray >/dev/null 2>&1 || fail_after_apply 'Xray не запущен после migration restart'
 XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$TMP_DIR/xray-live.log" 2>&1 || fail_after_apply 'live Xray config не проходит validation после apply'
 
+jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) == 1' "$DNS_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-vless DoH transport отсутствует после apply'
 jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | length) == 1' "$OUTBOUND_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-out отсутствует после apply'
 jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-vless")) != null and .outboundTag == "vless-reality")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-vless не направлен через vless-reality'
 jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-direct")) != null and .outboundTag == "direct")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-direct не направлен через direct'
@@ -216,6 +227,7 @@ INBOUND_AFTER="$(jq -cS . "$INBOUND_FILE" | sha256sum | awk '{print $1}')"
 
 info "Split DNS operation: SUCCESS ($MODE)"
 info 'Xray validation: PASS'
+info 'dns-vless transport: routed DoH/443 via vless-reality'
 info 'dns-out/VLESS/non-VLESS/inbounds preservation: PASS'
 info "Backup: $BACKUP_DIR"
 exit 0

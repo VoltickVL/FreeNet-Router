@@ -6,7 +6,9 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 SRC="$TMP/src"
 DST="$TMP/dst"
 DST2="$TMP/dst2"
-mkdir -p "$SRC" "$DST" "$DST2"
+LEGACY="$TMP/legacy"
+LEGACY_DST="$TMP/legacy-dst"
+mkdir -p "$SRC" "$DST" "$DST2" "$LEGACY" "$LEGACY_DST"
 
 cat > "$SRC/02_dns.json" <<'EOF'
 {}
@@ -47,8 +49,8 @@ EOF
 sh scripts/migrate_split_dns.sh --build-only "$SRC" "$DST"
 
 jq -e '.dns.tag == "dns-vless"' "$DST/02_dns.json" >/dev/null
-jq -e '([.dns.servers[] | select(.tag == "dns-direct") | .domains[]] | index("domain:example.ru")) != null' "$DST/02_dns.json" >/dev/null
-jq -e '([.dns.servers[]?.tag] | index("dns-vless")) != null' "$DST/02_dns.json" >/dev/null
+jq -e '([.dns.servers[] | select(.tag == "dns-direct" and .address == "77.88.8.8" and .port == 53) | .domains[]] | index("domain:example.ru")) != null' "$DST/02_dns.json" >/dev/null
+jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) == 1' "$DST/02_dns.json" >/dev/null
 jq -e 'any(.outbounds[]; .tag == "vless-reality")' "$DST/04_outbounds.json" >/dev/null
 jq -e 'any(.outbounds[]; .tag == "direct")' "$DST/04_outbounds.json" >/dev/null
 jq -e 'any(.outbounds[]; .tag == "block")' "$DST/04_outbounds.json" >/dev/null
@@ -65,5 +67,27 @@ for F in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do
   jq -S . "$DST2/$F" > "$TMP/b"
   cmp "$TMP/a" "$TMP/b"
 done
+
+cp "$SRC/03_inbounds.json" "$LEGACY/03_inbounds.json"
+cp "$SRC/04_outbounds.json" "$LEGACY/04_outbounds.json"
+cp "$SRC/05_routing.json" "$LEGACY/05_routing.json"
+cat > "$LEGACY/02_dns.json" <<'EOF'
+{
+  "dns": {
+    "tag":"dns-vless",
+    "servers":[
+      {"address":"77.88.8.8","port":53,"domains":["domain:example.ru"],"skipFallback":true,"tag":"dns-direct","clientIP":"192.0.2.10"},
+      {"address":"8.8.8.8","port":53,"tag":"dns-vless","skipFallback":false}
+    ],
+    "queryStrategy":"UseIPv4"
+  }
+}
+EOF
+
+DIRECT_BEFORE="$(jq -cS '[.dns.servers[] | select(.tag == "dns-direct")]' "$LEGACY/02_dns.json")"
+sh scripts/migrate_split_dns.sh --build-only "$LEGACY" "$LEGACY_DST"
+DIRECT_AFTER="$(jq -cS '[.dns.servers[] | select(.tag == "dns-direct")]' "$LEGACY_DST/02_dns.json")"
+[ "$DIRECT_BEFORE" = "$DIRECT_AFTER" ]
+jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not) and .skipFallback == false)] | length) == 1' "$LEGACY_DST/02_dns.json" >/dev/null
 
 echo "split DNS migration candidate test: PASS"
