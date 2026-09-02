@@ -101,6 +101,48 @@ func TestNetworkProfileDefaultsAndIndependentISPRecords(t *testing.T) {
 	}
 }
 
+func TestSubscriptionURLValidationAndStorage(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "xray", "blanc_subscription.url")
+	secret := "https://example.com/sub?token=SECRET_TEST_VALUE"
+	if err := writeSubscriptionURL(p, secret); err != nil {
+		t.Fatal(err)
+	}
+	if !subscriptionConfigured(p) {
+		t.Fatal("subscription should be configured")
+	}
+	info, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("subscription mode=%o want 600", got)
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(b)) != secret {
+		t.Fatal("stored subscription differs")
+	}
+	for _, invalid := range []string{"", "http://example.com/sub", "https://", "https://user:pass@example.com/sub", "https://example.com/a b"} {
+		if validateSubscriptionURL(invalid) == nil {
+			t.Fatalf("invalid URL accepted: %q", invalid)
+		}
+	}
+}
+
+func TestSubscriptionResponseNeverContainsURL(t *testing.T) {
+	b, err := json.Marshal(subscriptionResponse{Success: true, Configured: true, Message: "Подписка настроена"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+	if strings.Contains(text, "http://") || strings.Contains(text, "https://") || strings.Contains(text, "SECRET_TEST_VALUE") {
+		t.Fatalf("subscription response exposes URL material: %s", text)
+	}
+}
+
 func TestSameOrigin(t *testing.T) {
 	r := httptest.NewRequest("POST", "http://192.168.50.1:1001/api/action", nil)
 	r.Host = "192.168.50.1:1001"
@@ -144,15 +186,15 @@ func TestRunCommandDoesNotHangOnInheritedOutputPipe(t *testing.T) {
 }
 
 func TestStatusJSONDoesNotExposeSecrets(t *testing.T) {
-	s := statusResponse{Version: "0.2.1", CountryCode: "de", Country: "Германия", City: "Frankfurt", Endpoint: "1.2.3.4:443", ISP: "vladlink", DNSMode: "xkeen"}
+	s := statusResponse{Version: "0.2.1", CountryCode: "de", Country: "Германия", City: "Frankfurt", Endpoint: "1.2.3.4:443", ISP: "vladlink", DNSMode: "xkeen", SubscriptionConfigured: true}
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(b)
-	for _, forbidden := range []string{"uuid", "publicKey", "shortId", "subscription"} {
+	for _, forbidden := range []string{"uuid", "publicKey", "shortId", "subscription_url", "vless://"} {
 		if containsInsensitive(text, forbidden) {
-			t.Fatalf("status JSON contains forbidden key %q", forbidden)
+			t.Fatalf("status JSON contains forbidden key/material %q", forbidden)
 		}
 	}
 }
