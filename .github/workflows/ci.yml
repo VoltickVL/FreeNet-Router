@@ -55,11 +55,16 @@ jobs:
           sh -n doctor.sh
           sh -n scripts/vpn
           sh -n scripts/blanc_xkeen_update_outbounds.sh
+          sh -n scripts/migrate_split_dns.sh
           sh -n tests/test_vpn_contract.sh
+          sh -n tests/test_split_dns_migration.sh
           sh -n deploy/S99freenet-ui
 
       - name: VPN transactional switch test
         run: sh tests/test_vpn_contract.sh
+
+      - name: Split DNS migration candidate test
+        run: sh tests/test_split_dns_migration.sh
 
       - name: VPN updater contract
         run: |
@@ -71,6 +76,18 @@ jobs:
           grep -q 'ROLLBACK: restoring previous 04_outbounds.json and profile filter' scripts/blanc_xkeen_update_outbounds.sh
           grep -q "Cache-Control: no-cache" scripts/blanc_xkeen_update_outbounds.sh
           ! grep -Fq 'echo "$FILTER" > "$FILTER_FILE"' scripts/vpn
+
+      - name: Split DNS migration contract
+        run: |
+          grep -q -- '--build-only' scripts/migrate_split_dns.sh
+          grep -q 'proxy_dns' scripts/migrate_split_dns.sh
+          grep -q 'ndnproxy' scripts/migrate_split_dns.sh
+          grep -q 'dns-vless' scripts/migrate_split_dns.sh
+          grep -q 'dns-direct' scripts/migrate_split_dns.sh
+          grep -q 'dns-out' scripts/migrate_split_dns.sh
+          grep -q 'candidate Xray config' scripts/migrate_split_dns.sh
+          grep -q 'ROLLBACK ERROR: FAILED/UNKNOWN' scripts/migrate_split_dns.sh
+          ! grep -q '"listen"[[:space:]]*:[[:space:]]*"0\.0\.0\.0"' scripts/migrate_split_dns.sh
 
       - name: Installer contract
         run: |
@@ -86,9 +103,11 @@ jobs:
           grep -q 'CONFIG_DIR="/opt/etc/freenet"' install.sh
           grep -q '/opt/etc/xray/blanc_subscription.url' install.sh
           grep -q 'snapshot_xray' install.sh
+          grep -q 'migrate_split_dns.sh' install.sh
           grep -q 'LAN-only listener' install.sh
           ! grep -q 'setup.sh' install.sh
           grep -q 'cp install.sh dist/freenet' .github/workflows/release.yml
+          grep -q 'cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh' .github/workflows/release.yml
           grep -q '^v0\.' VERSION
           grep -q 'Stamp UI version from VERSION' .github/workflows/release.yml
 
