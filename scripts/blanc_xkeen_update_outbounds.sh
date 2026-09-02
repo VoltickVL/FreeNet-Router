@@ -1,18 +1,22 @@
 #!/opt/usr/bin/sh
 
-SUB_FILE="/opt/etc/xray/blanc_subscription.url"
-FILTER_FILE="/opt/etc/xray/blanc_profile_filter.regex"
-CONFIG_DIR="/opt/etc/xray/configs"
-ASSET_DIR="/opt/etc/xray/dat"
+SUB_FILE="${FREENET_SUB_FILE:-/opt/etc/xray/blanc_subscription.url}"
+FILTER_FILE="${FREENET_FILTER_FILE:-/opt/etc/xray/blanc_profile_filter.regex}"
+CONFIG_DIR="${FREENET_CONFIG_DIR:-/opt/etc/xray/configs}"
+ASSET_DIR="${FREENET_ASSET_DIR:-/opt/etc/xray/dat}"
 OUT_FILE="$CONFIG_DIR/04_outbounds.json"
 BACKUP_FILE="$CONFIG_DIR/04_outbounds.json.bak"
-LOCK_DIR="/tmp/blanc_xkeen_update.lock"
+LOCK_DIR="${FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock}"
 LOG_PREFIX="[blanc-xkeen]"
 BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
 BOOTSTRAP_DNS_SECONDARY="8.8.8.8"
+ACTION_REASON="${FREENET_ACTION_REASON:-refresh}"
+FILTER_OVERRIDE="${FREENET_FILTER_OVERRIDE:-}"
+PROFILE_LABEL="${FREENET_PROFILE_LABEL:-}"
 
 LOCK_HELD=0
 TMP_DIR=""
+FILTER_BEFORE_EXISTS=no
 
 log() {
     echo "$LOG_PREFIX $*"
@@ -77,6 +81,11 @@ show_extra_profiles() {
 }
 
 restart_xkeen() {
+    if [ -n "${FREENET_XKEEN_BIN:-}" ]; then
+        "$FREENET_XKEEN_BIN" -restart
+        return $?
+    fi
+
     if [ -x /opt/sbin/xkeen ]; then
         /opt/sbin/xkeen -restart
         return $?
@@ -90,13 +99,48 @@ restart_xkeen() {
     return 1
 }
 
-rollback_outbound() {
-    log "ROLLBACK: restoring previous 04_outbounds.json"
+snapshot_filter() {
+    FILTER_BEFORE_EXISTS=no
+    if [ -f "$FILTER_FILE" ]; then
+        cp -p "$FILTER_FILE" "$FILTER_BEFORE" \
+            || fail "cannot snapshot current profile filter"
+        FILTER_BEFORE_EXISTS=yes
+    fi
+}
+
+restore_filter() {
+    if [ "$FILTER_BEFORE_EXISTS" = yes ]; then
+        cp -p "$FILTER_BEFORE" "$FILTER_FILE.restore.$$" 2>/dev/null \
+            || return 1
+        mv -f "$FILTER_FILE.restore.$$" "$FILTER_FILE" 2>/dev/null \
+            || return 1
+    else
+        rm -f "$FILTER_FILE" 2>/dev/null || return 1
+    fi
+    return 0
+}
+
+persist_filter() {
+    [ -n "$FILTER_OVERRIDE" ] || return 0
+
+    FILTER_DIR="$(dirname "$FILTER_FILE")"
+    mkdir -p "$FILTER_DIR" 2>/dev/null || return 1
+
+    printf '%s\n' "$FILTER" > "$FILTER_FILE.new.$$" \
+        || return 1
+    chmod 644 "$FILTER_FILE.new.$$" 2>/dev/null || true
+    mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" \
+        || return 1
+    return 0
+}
+
+rollback_state() {
+    log "ROLLBACK: restoring previous 04_outbounds.json and profile filter"
 
     ROLLBACK_STAGE="$CONFIG_DIR/.04_outbounds.json.rollback.$$"
 
     cp -p "$BACKUP_FILE" "$ROLLBACK_STAGE" 2>/dev/null || {
-        log "ROLLBACK ERROR: cannot stage backup"
+        log "ROLLBACK ERROR: cannot stage outbound backup"
         return 1
     }
 
@@ -106,11 +150,16 @@ rollback_outbound() {
         return 1
     }
 
+    if ! restore_filter; then
+        log "ROLLBACK ERROR: cannot restore profile filter"
+        return 1
+    fi
+
     restart_xkeen
     sleep 5
 
     if pidof xray >/dev/null 2>&1; then
-        log "ROLLBACK: Xray restored"
+        log "ROLLBACK: Xray/filter restored"
         return 0
     fi
 
@@ -122,6 +171,8 @@ fetch_subscription() {
     : > "$RAW_FILE"
 
     if curl -4 -fsSL \
+        -H 'Cache-Control: no-cache' \
+        -H 'Pragma: no-cache' \
         --dns-servers "$BOOTSTRAP_DNS_PRIMARY,$BOOTSTRAP_DNS_SECONDARY" \
         --connect-timeout 20 \
         --max-time 60 \
@@ -146,6 +197,8 @@ fetch_subscription() {
         : > "$RAW_FILE"
 
         if curl -4 -fsSL \
+            -H 'Cache-Control: no-cache' \
+            -H 'Pragma: no-cache' \
             --resolve "$SUB_HOST:$SUB_PORT:$BOOTSTRAP_IP" \
             --connect-timeout 20 \
             --max-time 60 \
@@ -159,6 +212,11 @@ fetch_subscription() {
 
     return 1
 }
+
+case "$ACTION_REASON" in
+    refresh|switch|rotate|failover) ;;
+    *) fail "unsupported action reason: $ACTION_REASON" ;;
+esac
 
 acquire_lock
 
@@ -178,6 +236,7 @@ TMP_DIR="$(mktemp -d /tmp/blanc_xkeen_update.XXXXXX 2>/dev/null)"
 
 RAW_FILE="$TMP_DIR/sub_raw.txt"
 DECODED_FILE="$TMP_DIR/sub_decoded.txt"
+MATCHES_FILE="$TMP_DIR/matching_vless.txt"
 VLESS_FILE="$TMP_DIR/selected_vless.txt"
 VLESS_OBJECT="$TMP_DIR/vless_object.json"
 NEW_FILE="$TMP_DIR/04_outbounds.json"
@@ -188,6 +247,9 @@ NEW_NORMALIZED="$TMP_DIR/new_normalized.json"
 CURL_ERR="$TMP_DIR/curl.err"
 TEST_CONF="$TMP_DIR/conf"
 XRAY_TEST_LOG="$TMP_DIR/xray-test.log"
+FILTER_BEFORE="$TMP_DIR/filter.before"
+
+snapshot_filter
 
 SUB_URL="$(tr -d '\r\n' < "$SUB_FILE")"
 
@@ -195,11 +257,9 @@ SUB_URL="$(tr -d '\r\n' < "$SUB_FILE")"
 
 case "$SUB_URL" in
     https://*)
-        SUB_SCHEME="https"
         DEFAULT_PORT="443"
         ;;
     http://*)
-        SUB_SCHEME="http"
         DEFAULT_PORT="80"
         ;;
     *)
@@ -237,6 +297,7 @@ if ! jq -e '
     fail "live 04_outbounds.json must contain exactly one vless-reality and one dns-out"
 fi
 
+log "action reason: $ACTION_REASON"
 log "fetching subscription..."
 
 fetch_subscription \
@@ -261,7 +322,9 @@ mv "$DECODED_FILE.clean" "$DECODED_FILE" \
 grep -q '^vless://' "$DECODED_FILE" \
     || fail "no vless profiles found in subscription"
 
-if [ -f "$FILTER_FILE" ] && [ -s "$FILTER_FILE" ]; then
+if [ -n "$FILTER_OVERRIDE" ]; then
+    FILTER="$FILTER_OVERRIDE"
+elif [ -f "$FILTER_FILE" ] && [ -s "$FILTER_FILE" ]; then
     FILTER="$(tr -d '\r\n' < "$FILTER_FILE")"
 else
     FILTER="Warsaw|Warszawa|Poland|Polska|Варшава|Польша"
@@ -269,13 +332,21 @@ fi
 
 [ -n "$FILTER" ] || fail "empty profile filter"
 
-log "using filter: $FILTER"
+log "using requested filter"
+[ -n "$PROFILE_LABEL" ] && log "requested profile: $PROFILE_LABEL"
 
 grep '^vless://' "$DECODED_FILE" \
     | grep -i 'Extra' \
     | grep -vi 'Expired' \
-    | grep -Ei "$FILTER" \
-    | head -n 1 > "$VLESS_FILE"
+    | grep -Ei "$FILTER" > "$MATCHES_FILE" || true
+
+MATCH_COUNT="$(wc -l < "$MATCHES_FILE" | tr -d '[:space:]')"
+case "$MATCH_COUNT" in
+    ''|*[!0-9]*) MATCH_COUNT=0 ;;
+esac
+log "matching Extra candidates: $MATCH_COUNT"
+
+head -n 1 "$MATCHES_FILE" > "$VLESS_FILE"
 
 if [ ! -s "$VLESS_FILE" ]; then
     log "ERROR: requested Extra profile not found"
@@ -420,6 +491,9 @@ jq -n \
     }' > "$VLESS_OBJECT" \
     || fail "cannot generate VLESS outbound object"
 
+PROFILE_FP="$(sha256sum "$VLESS_OBJECT" | awk '{print substr($1,1,12)}')"
+log "candidate fingerprint: $PROFILE_FP"
+
 jq --slurpfile replacement "$VLESS_OBJECT" '
     .outbounds |= map(
         if .tag == "vless-reality"
@@ -477,12 +551,21 @@ jq -S . "$OUT_FILE" > "$OLD_NORMALIZED" \
 jq -S . "$NEW_FILE" > "$NEW_NORMALIZED" \
     || fail "cannot normalize candidate outbound"
 
+FILTER_CHANGED=no
+if [ -n "$FILTER_OVERRIDE" ]; then
+    CURRENT_FILTER="$(tr -d '\r\n' < "$FILTER_FILE" 2>/dev/null || true)"
+    [ "$CURRENT_FILTER" = "$FILTER" ] || FILTER_CHANGED=yes
+fi
+
 if cmp "$OLD_NORMALIZED" "$NEW_NORMALIZED" >/dev/null 2>&1; then
+    if [ "$FILTER_CHANGED" = yes ]; then
+        persist_filter || fail "cannot commit validated profile filter"
+        log "profile filter committed after successful validation"
+    fi
 
     log "endpoint/config unchanged: $NEW_IP:$NEW_PORT"
     log "04_outbounds.json unchanged"
     log "no restart"
-
     exit 0
 fi
 
@@ -511,11 +594,22 @@ if ! XRAY_LOCATION_ASSET="$ASSET_DIR" \
 
     log "ERROR: live Xray validation failed after atomic replace"
 
-    if rollback_outbound; then
+    if rollback_state; then
         exit 1
     fi
 
     exit 2
+fi
+
+if [ -n "$FILTER_OVERRIDE" ]; then
+    if ! persist_filter; then
+        log "ERROR: cannot commit validated profile filter"
+        if rollback_state; then
+            exit 1
+        fi
+        exit 2
+    fi
+    log "profile filter committed after successful outbound validation"
 fi
 
 if [ "$OLD_IP" = "$NEW_IP" ] && [ "$OLD_PORT" = "$NEW_PORT" ]; then
@@ -534,7 +628,7 @@ if ! pidof xray >/dev/null 2>&1; then
 
     log "ERROR: Xray did not return after restart"
 
-    if rollback_outbound; then
+    if rollback_state; then
         exit 1
     fi
 
@@ -547,7 +641,7 @@ if ! XRAY_LOCATION_ASSET="$ASSET_DIR" \
 
     log "ERROR: live Xray validation failed after restart"
 
-    if rollback_outbound; then
+    if rollback_state; then
         exit 1
     fi
 
