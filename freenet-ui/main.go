@@ -189,6 +189,8 @@ func main() {
 	mux.HandleFunc("GET /api/status", a.handleStatus)
 	mux.HandleFunc("GET /api/network-profile", a.handleNetworkProfileGet)
 	mux.HandleFunc("POST /api/network-profile", a.handleNetworkProfilePost)
+	mux.HandleFunc("GET /api/network-profile/plan", a.handleNetworkProfilePlan)
+	mux.HandleFunc("POST /api/network-profile/apply", a.handleNetworkProfileApply)
 	mux.HandleFunc("GET /api/subscription", a.handleSubscriptionGet)
 	mux.HandleFunc("POST /api/subscription", a.handleSubscriptionPost)
 	mux.HandleFunc("POST /api/action", a.handleAction)
