@@ -447,8 +447,8 @@ plan() {
         say 'EXPECTED_DELTA=keep DHCP DNS as router IP; keep/restore Xray local DNS backend :53 for Keenetic ndnproxy; ensure one dns-out; route dns-direct and dns-vless upstream directly without VLESS; set proxy_dns=off; preserve VLESS credentials, subscription and non-DNS routing'
         say 'EXPECTED_NO_DELTA=no VPN credential rewrite; no subscription secret change; no non-DNS routing change; no Keenetic NDM redirect rewrite'
     elif [ "$SUPPORTED" = yes ] && [ "$EFFECTIVE_DNS" = xkeen ]; then
-        say 'EXPECTED_DELTA=keep Xray local DNS backend :53; ensure one dns-out; route dns-direct directly and dns-vless through vless-reality; set proxy_dns=on; preserve Keenetic NDM redirect and non-DNS routing'
-        say 'EXPECTED_NO_DELTA=no VLESS credential rewrite; no subscription secret change; no Keenetic NDM redirect rewrite'
+        say 'EXPECTED_DELTA=keep Xray local DNS backend :53; ensure one dns-out; route dns-direct directly and dns-vless through vless-reality; keep proxy_dns=off so Keenetic/ndnproxy remains the only client DNS interception path; preserve Keenetic NDM redirect and non-DNS routing'
+        say 'EXPECTED_NO_DELTA=no VLESS credential rewrite; no subscription secret change; no Keenetic NDM redirect rewrite; no XKeen DNS interception'
     else
         say 'EXPECTED_DELTA=NONE until a supported DNS mode is selected'
     fi
@@ -731,14 +731,14 @@ preflight_split() {
 }
 
 prepare_split_runtime() {
+    set_proxy_dns_state off || return 1
     if [ "$XRAY_WAS_RUNNING" = no ]; then
         xkeen_runtime start "/tmp/freenet-network-xkeen-start.$$.log" || return 1
         wait_for_xray yes || return 1
     fi
     PID="$(xray_pid)"; [ -n "$PID" ] || return 1
     [ "$(xray_gid "$PID")" = 11111 ] || return 1
-    if [ "$PROXY_DNS_INITIAL" = off ]; then set_proxy_dns_state on || return 1; fi
-    [ "$(proxy_dns_state)" = on ]
+    [ "$(proxy_dns_state)" = off ]
 }
 
 accept_split() {
@@ -746,7 +746,7 @@ accept_split() {
     has_dns_out || return 1
     [ "$(dns_routing_mode)" = split ] || return 1
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" >/tmp/freenet-network-xray.$$.log 2>&1 || return 1
-    [ "$(proxy_dns_state)" = on ] || return 1
+    [ "$(proxy_dns_state)" = off ] || return 1
     PID="$(xray_pid)"; [ -n "$PID" ] || return 1
     [ "$(xray_gid "$PID")" = 11111 ] || return 1
     [ "$(firmware_dns_path)" = "$PATH_EXPECTED" ] || return 1
@@ -792,7 +792,7 @@ apply_split() {
     case "$CLIENT_ACCEPTANCE" in REQUIRED) say '[FreeNet Network] RESULT=ROUTER_SIDE_PASS' ;; *) say '[FreeNet Network] RESULT=SUCCESS' ;; esac
     say '[FreeNet Network] EFFECTIVE_DNS_MODE=xkeen'
     say '[FreeNet Network] DNS_OUT=YES'
-    say '[FreeNet Network] PROXY_DNS=on'
+    say '[FreeNet Network] PROXY_DNS=off'
     say '[FreeNet Network] XRAY_RUNNING=yes'
     say "[FreeNet Network] PORT53_OWNER=$(port53_owner)"
     say "[FreeNet Network] FIRMWARE_DNS_PATH=$ACCEPTED_DNS_PATH"

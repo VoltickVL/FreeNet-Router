@@ -137,7 +137,7 @@ resolve_xkeen_init || { err 'init XKeen не найден: S99xkeen/S05xkeen'; e
 [ -d "$XRAY_ASSET_DIR" ] || { err "Xray asset dir не найден: $XRAY_ASSET_DIR"; exit 1; }
 for F in "$DNS_FILE" "$INBOUND_FILE" "$OUTBOUND_FILE" "$ROUTING_FILE"; do [ -f "$F" ] || { err "не найден обязательный Xray config: $F"; exit 1; }; jq -e . "$F" >/dev/null 2>&1 || { err "невалидный JSON: $F"; exit 1; }; done
 
-grep -Eq '^[[:space:]]*proxy_dns="?on"?[[:space:]]*$' "$XKEEN_INIT" || { err 'XKeen proxy_dns не включён; migration остановлена до отдельного preflight'; exit 1; }
+grep -Eq '^[[:space:]]*proxy_dns="?off"?[[:space:]]*$' "$XKEEN_INIT" || { err 'XKeen proxy_dns должен оставаться off; migration остановлена до безопасного preflight'; exit 1; }
 XPID="$(pidof xray 2>/dev/null | awk '{print $1}')"
 [ -n "$XPID" ] || { err 'Xray process не запущен'; exit 1; }
 XGID="$(awk '/^Gid:/ {print $2; exit}' "/proc/$XPID/status" 2>/dev/null)"
@@ -216,7 +216,7 @@ jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | len
 jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-vless")) != null and .outboundTag == "vless-reality")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-vless не направлен через vless-reality'
 jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-direct")) != null and .outboundTag == "direct")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-direct не направлен через direct'
 jq -e '([.routing.rules[]? | select((((.port // "") | tostring) == "53") and .outboundTag == "dns-out")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-out routing rule отсутствует после apply'
-grep -Eq '^[[:space:]]*proxy_dns="?on"?[[:space:]]*$' "$XKEEN_INIT" || fail_after_apply 'XKeen proxy_dns изменился после apply'
+grep -Eq '^[[:space:]]*proxy_dns="?off"?[[:space:]]*$' "$XKEEN_INIT" || fail_after_apply 'XKeen proxy_dns перестал быть off после apply'
 
 VLESS_AFTER="$(jq -cS '[.outbounds[]? | select(.tag == "vless-reality")]' "$OUTBOUND_FILE" | sha256sum | awk '{print $1}')" || fail_after_apply 'не удалось проверить VLESS после apply'
 [ "$VLESS_BEFORE" = "$VLESS_AFTER" ] || fail_after_apply 'VLESS credentials изменились после apply'
@@ -227,6 +227,7 @@ INBOUND_AFTER="$(jq -cS . "$INBOUND_FILE" | sha256sum | awk '{print $1}')"
 
 info "Split DNS operation: SUCCESS ($MODE)"
 info 'Xray validation: PASS'
+info 'XKeen proxy_dns: off; Keenetic/ndnproxy DNS path preserved'
 info 'dns-vless transport: routed DoH/443 via vless-reality'
 info 'dns-out/VLESS/non-VLESS/inbounds preservation: PASS'
 info "Backup: $BACKUP_DIR"
