@@ -53,11 +53,16 @@ jobs:
           sh -n scripts/vpn
           sh -n scripts/blanc_xkeen_update_outbounds.sh
           sh -n scripts/migrate_split_dns.sh
+          sh -n scripts/bootstrap_entware.sh
           sh -n tests/test_split_dns_migration.sh
+          sh -n tests/test_bootstrap_contract.sh
           sh -n deploy/S99freenet-ui
 
       - name: Split DNS migration candidate test
         run: sh tests/test_split_dns_migration.sh
+
+      - name: Entware bootstrap contract test
+        run: sh tests/test_bootstrap_contract.sh
 
       - name: Installer contract
         run: |
@@ -67,6 +72,8 @@ jobs:
           grep -q 'migrate_split_dns.sh' install.sh
           grep -q 'abort_signal' install.sh
           ! grep -q 'setup.sh' install.sh
+          grep -q 'cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh' .github/workflows/release.yml
+          grep -q 'cp config/upstream-pins.env dist/upstream-pins.env' .github/workflows/release.yml
           grep -q 'Stamp UI version from VERSION' .github/workflows/release.yml
 
       - name: Secret surface guard
@@ -97,6 +104,8 @@ jobs:
           cp scripts/vpn dist/vpn
           cp scripts/blanc_xkeen_update_outbounds.sh dist/blanc_xkeen_update_outbounds.sh
           cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh
+          cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh
+          cp config/upstream-pins.env dist/upstream-pins.env
           cp install.sh dist/freenet
           cp config/freenet.conf.example dist/freenet.conf.example
 
@@ -107,6 +116,7 @@ jobs:
             dist/vpn \
             dist/blanc_xkeen_update_outbounds.sh \
             dist/migrate_split_dns.sh \
+            dist/bootstrap_entware.sh \
             dist/freenet
 
           (
@@ -118,6 +128,8 @@ jobs:
               vpn \
               blanc_xkeen_update_outbounds.sh \
               migrate_split_dns.sh \
+              bootstrap_entware.sh \
+              upstream-pins.env \
               freenet \
               freenet.conf.example \
               > SHA256SUMS
