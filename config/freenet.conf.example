@@ -3,6 +3,8 @@
 # URL подписки хранится отдельно и в этот файл не записывается.
 
 UI_PORT=1001
+ISP_ID=auto
+DNS_MODE=auto
 AUTO_ENDPOINT_UPDATE=yes
 AUTO_ENDPOINT_CRON='*/15 * * * *'
 AUTO_XKEEN_GEODATA=yes
