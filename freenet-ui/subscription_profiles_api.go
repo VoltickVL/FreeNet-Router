@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -44,12 +45,7 @@ func (a *app) handleSubscriptionProfiles(w http.ResponseWriter, _ *http.Request)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	cmd := execCommandContext(ctx, profilesHelperPath())
-	cmd.Env = append(os.Environ(),
-		"PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin",
-		"FREENET_SUB_FILE="+a.cfg.SubPath,
-	)
-	output, err := cmd.Output()
+	output, err := runProfilesHelper(ctx, profilesHelperPath(), a.cfg.SubPath)
 	if ctx.Err() == context.DeadlineExceeded {
 		writeJSON(w, http.StatusGatewayTimeout, subscriptionProfilesResponse{Success: false, Error: "profile discovery timed out"})
 		return
@@ -67,33 +63,13 @@ func (a *app) handleSubscriptionProfiles(w http.ResponseWriter, _ *http.Request)
 	writeJSON(w, http.StatusOK, subscriptionProfilesResponse{Success: true, Count: len(profiles), Profiles: profiles})
 }
 
-var execCommandContext = func(ctx context.Context, path string, args ...string) commandRunner {
-	return osCommand{ctx: ctx, path: path, args: args}
-}
-
-type commandRunner interface {
-	Output() ([]byte, error)
-	SetEnv([]string)
-}
-
-// osCommand is a tiny wrapper kept injectable for tests without widening the HTTP command surface.
-type osCommand struct {
-	ctx  context.Context
-	path string
-	args []string
-	Env  []string
-}
-
-func (c osCommand) Output() ([]byte, error) {
-	cmd := newExecCmd(c.ctx, c.path, c.args...)
-	cmd.Env = c.Env
+func runProfilesHelper(ctx context.Context, helperPath, subPath string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, helperPath)
+	cmd.Env = append(os.Environ(),
+		"PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin",
+		"FREENET_SUB_FILE="+subPath,
+	)
 	return cmd.Output()
-}
-
-func (c osCommand) SetEnv(env []string) { c.Env = env }
-
-var newExecCmd = func(ctx context.Context, path string, args ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, path, args...)
 }
 
 func parseSubscriptionProfiles(data []byte) ([]subscriptionProfile, error) {
