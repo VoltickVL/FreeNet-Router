@@ -16,8 +16,16 @@ func TestSetupFinalizeUIContract(t *testing.T) {
 		`id="applyFinalizeBtn"`,
 		`id="setupFinalizePlan"`,
 		`id="setupFinalizeNotice"`,
+		`id="installScenario"`,
+		`id="setupState"`,
+		`id="installScenarioHint"`,
+		"Сценарий установки",
+		"Действующий роутер",
+		"Новая установка",
+		"XKeen/Xray сохранены",
 		"Проверить готовность",
 		"Завершить настройку",
+		"renderInstallScenario",
 		"loadSetupFinalizePlan",
 		"applySetupFinalize",
 		"setup_finalize=1",
@@ -45,6 +53,20 @@ func TestSetupFinalizeApplyIsLocallyGatedByFreshPlan(t *testing.T) {
 	}
 	if !strings.Contains(ui, "resetSetupFinalizePlan()") {
 		t.Fatal("изменения provider/ISP/DNS должны инвалидировать старый финальный план")
+	}
+}
+
+func TestInstallScenarioIsInformationalOnly(t *testing.T) {
+	data, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+	if strings.Contains(ui, `name="install_scenario"`) || strings.Contains(ui, `id="installScenarioSelect"`) {
+		t.Fatal("сценарий установки не должен выбираться пользователем")
+	}
+	if !strings.Contains(ui, "p.install_scenario==='existing_stack'") || !strings.Contains(ui, "p.install_scenario==='fresh_entware'") {
+		t.Fatal("UI должен отображать только автоматически определённые сценарии")
 	}
 }
 

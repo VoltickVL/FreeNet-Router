@@ -13,7 +13,7 @@ for NEEDLE in \
     '# BEGIN FREENET' \
     'AUTO_ENDPOINT_UPDATE' \
     'ROLLBACK ERROR/STATE: rollback success' \
-    'EXPECTED_NO_DELTA=no subscription secret/VLESS credential rewrite'
+    'EXPECTED_NO_DELTA=current XKeen/Xray/XKeen UI core is not reinstalled'
 do
     grep -Fq "$NEEDLE" "$SCRIPT" || fail "missing contract: $NEEDLE"
 done
@@ -34,6 +34,7 @@ mkdir -p "$TROOT/etc/freenet" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$
 
 cat > "$CONF" <<'EOF'
 UI_PORT=1001
+INSTALL_SCENARIO=existing_stack
 SETUP_COMPLETE=no
 ISP_ID=rostelecom
 DNS_MODE=firmware
@@ -131,6 +132,7 @@ run_finalize() {
 
 run_finalize plan > "$TMP/plan.out"
 grep -Fq 'READY=yes' "$TMP/plan.out" || fail 'accepted setup should be ready'
+grep -Fq 'INSTALL_SCENARIO=existing_stack' "$TMP/plan.out" || fail 'plan must expose existing-stack scenario'
 grep -Fq 'XKEEN_AUTOSTART=off' "$TMP/plan.out" || fail 'plan must expose autostart off'
 grep -Fq 'enable XKeen autostart through xkeen -auto on' "$TMP/plan.out" || fail 'plan must disclose autostart delta'
 grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must be read-only'
@@ -142,6 +144,7 @@ if ! run_finalize apply > "$TMP/apply.out" 2>&1; then
     fail 'finalize apply should succeed'
 fi
 grep -Fq '[FreeNet Setup Finalize] RESULT=SUCCESS' "$TMP/apply.out" || fail 'success marker missing'
+grep -qx 'INSTALL_SCENARIO=existing_stack' "$CONF" || fail 'install scenario changed unexpectedly'
 grep -qx 'SETUP_COMPLETE=yes' "$CONF" || fail 'setup complete not committed'
 grep -Fq 'start_auto="on"' "$INIT" || fail 'XKeen autostart not enabled'
 grep -qx '# BEGIN FREENET' "$CRON_STORE" || fail 'managed cron block missing'
@@ -150,8 +153,8 @@ if grep -q '^[^#].*/opt/bin/blanc_xkeen_update_outbounds.sh' "$CRON_STORE"; then
     fail 'endpoint refresh must remain disabled while AUTO_ENDPOINT_UPDATE=no'
 fi
 
-# Simulate one post-autostart cron write failure. The helper must restore config,
-# cron, and the original XKeen autostart state; the rollback cron write is allowed.
+# Имитируем однократную ошибку записи cron после изменения автозапуска.
+# Helper обязан вернуть config, cron и исходный режим автозапуска XKeen.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
 sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
 cat > "$CRON_STORE" <<'EOF'

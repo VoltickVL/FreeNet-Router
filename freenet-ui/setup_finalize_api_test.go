@@ -59,6 +59,7 @@ case "${1:-}" in
     cat <<EOF
 READY=$READY
 REASON=$REASON
+INSTALL_SCENARIO=existing_stack
 SETUP_COMPLETE=$SETUP
 SUBSCRIPTION_CONFIGURED=yes
 PREFERRED_PROFILE_SET=yes
@@ -95,6 +96,7 @@ esac
 func TestParseSetupFinalizePlanUsesAllowlist(t *testing.T) {
 	plan, err := parseSetupFinalizePlan(`READY=yes
 REASON=ready
+INSTALL_SCENARIO=existing_stack
 SETUP_COMPLETE=no
 SUBSCRIPTION_CONFIGURED=yes
 PREFERRED_PROFILE_SET=yes
@@ -115,12 +117,39 @@ UUID=should-not-surface
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plan.Success || !plan.Ready || plan.SetupComplete || plan.XKeenAutostart != "off" {
+	if !plan.Success || !plan.Ready || plan.SetupComplete || plan.XKeenAutostart != "off" || plan.InstallScenario != "existing_stack" {
 		t.Fatalf("неожиданный финальный план: %+v", plan)
 	}
 	b, _ := json.Marshal(plan)
 	if strings.Contains(string(b), "example.invalid") || strings.Contains(string(b), "should-not-surface") {
 		t.Fatalf("неизвестные/секретные поля попали в API: %s", b)
+	}
+}
+
+func TestParseSetupFinalizePlanNormalizesUnknownInstallScenario(t *testing.T) {
+	plan, err := parseSetupFinalizePlan(`READY=no
+REASON=not ready
+INSTALL_SCENARIO=manual_override
+SETUP_COMPLETE=no
+SUBSCRIPTION_CONFIGURED=no
+PREFERRED_PROFILE_SET=no
+NETWORK_SUPPORTED=no
+XRAY_RUNNING=yes
+XRAY_VALID=yes
+DNS_OUT=no
+VLESS_PROFILE=no
+XKEEN_AUTOSTART=off
+AUTO_ENDPOINT_UPDATE=no
+AUTO_ENDPOINT_CRON=*/15 * * * *
+EXPECTED_DELTA=NONE
+EXPECTED_NO_DELTA=core unchanged
+MUTATION=NONE
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.InstallScenario != "unknown" {
+		t.Fatalf("неизвестный сценарий должен нормализоваться в unknown, получено %q", plan.InstallScenario)
 	}
 }
 
@@ -137,7 +166,7 @@ func TestSetupFinalizePlanIsAttachedToReadOnlyNetworkPlan(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.SetupFinalizePlan == nil || !got.SetupFinalizePlan.Ready || got.SetupFinalizePlan.Mutation != "NONE" {
+	if got.SetupFinalizePlan == nil || !got.SetupFinalizePlan.Ready || got.SetupFinalizePlan.Mutation != "NONE" || got.SetupFinalizePlan.InstallScenario != "existing_stack" {
 		t.Fatalf("финальный read-only план не приложен: %+v", got.SetupFinalizePlan)
 	}
 }
@@ -176,7 +205,7 @@ func TestSetupFinalizeApplyRunsFreshPlanAndConfirmsAcceptance(t *testing.T) {
 	if !got.Success || !got.Applied || got.Operation != "finalize" || got.RollbackState != "NOT_NEEDED" {
 		t.Fatalf("неожиданный ответ finalize: %+v", got)
 	}
-	if got.SetupFinalizePlan == nil || !got.SetupFinalizePlan.SetupComplete || got.SetupFinalizePlan.XKeenAutostart != "on" {
+	if got.SetupFinalizePlan == nil || !got.SetupFinalizePlan.SetupComplete || got.SetupFinalizePlan.XKeenAutostart != "on" || got.SetupFinalizePlan.InstallScenario != "existing_stack" {
 		t.Fatalf("post-acceptance не подтверждён: %+v", got.SetupFinalizePlan)
 	}
 	if _, err := os.Stat(state); err != nil {

@@ -15,6 +15,7 @@ type setupFinalizePlanResponse struct {
 	Success                bool   `json:"success"`
 	Ready                  bool   `json:"ready"`
 	Reason                 string `json:"reason,omitempty"`
+	InstallScenario        string `json:"install_scenario,omitempty"`
 	SetupComplete          bool   `json:"setup_complete"`
 	SubscriptionConfigured bool   `json:"subscription_configured"`
 	PreferredProfileSet    bool   `json:"preferred_profile_set"`
@@ -67,7 +68,7 @@ func parseSetupFinalizePlan(output string) (setupFinalizePlanResponse, error) {
 			continue
 		}
 		switch key {
-		case "READY", "REASON", "SETUP_COMPLETE", "SUBSCRIPTION_CONFIGURED", "PREFERRED_PROFILE_SET", "NETWORK_SUPPORTED", "XRAY_RUNNING", "XRAY_VALID", "DNS_OUT", "VLESS_PROFILE", "XKEEN_AUTOSTART", "AUTO_ENDPOINT_UPDATE", "AUTO_ENDPOINT_CRON", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
+		case "READY", "REASON", "INSTALL_SCENARIO", "SETUP_COMPLETE", "SUBSCRIPTION_CONFIGURED", "PREFERRED_PROFILE_SET", "NETWORK_SUPPORTED", "XRAY_RUNNING", "XRAY_VALID", "DNS_OUT", "VLESS_PROFILE", "XKEEN_AUTOSTART", "AUTO_ENDPOINT_UPDATE", "AUTO_ENDPOINT_CRON", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
 			values[key] = strings.TrimSpace(value)
 		}
 	}
@@ -77,10 +78,15 @@ func parseSetupFinalizePlan(output string) (setupFinalizePlanResponse, error) {
 	if values["MUTATION"] != "NONE" {
 		return setupFinalizePlanResponse{}, errors.New("final setup plan unexpectedly reports mutation")
 	}
+	installScenario := values["INSTALL_SCENARIO"]
+	if installScenario != "existing_stack" && installScenario != "fresh_entware" {
+		installScenario = "unknown"
+	}
 	return setupFinalizePlanResponse{
 		Success:                true,
 		Ready:                  values["READY"] == "yes",
 		Reason:                 values["REASON"],
+		InstallScenario:        installScenario,
 		SetupComplete:          values["SETUP_COMPLETE"] == "yes",
 		SubscriptionConfigured: values["SUBSCRIPTION_CONFIGURED"] == "yes",
 		PreferredProfileSet:    values["PREFERRED_PROFILE_SET"] == "yes",
