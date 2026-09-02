@@ -334,11 +334,65 @@ dns_routing_mode() {
     fi
 }
 
+dns_query_attempt() {
+    LAN_IP="$1"
+    if [ "$TEST_MODE" = yes ]; then
+        RESULT="$(test_state_value DNS_QUERY_OK yes)"
+        case "$RESULT" in
+            yes)
+                printf '%s\n' 'TEST_DNS_QUERY=PASS'
+                return 0
+                ;;
+            fail-once)
+                printf '%s\n' 'TEST_DNS_QUERY=FAIL_ONCE'
+                test_state_set DNS_QUERY_OK yes || return 1
+                return 1
+                ;;
+            no)
+                printf '%s\n' 'TEST_DNS_QUERY=FAIL'
+                return 1
+                ;;
+            *)
+                printf 'TEST_DNS_QUERY=INVALID:%s\n' "$RESULT"
+                return 1
+                ;;
+        esac
+    fi
+    nslookup example.com "$LAN_IP"
+}
+
 dns_query_ok() {
-    if [ "$TEST_MODE" = yes ]; then [ "$(test_state_value DNS_QUERY_OK yes)" = yes ]; return; fi
-    LAN_IP="$(ip -4 addr show br0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\)\/.*/\1/p' | head -n 1)"
-    [ -n "$LAN_IP" ] || return 1
-    nslookup example.com "$LAN_IP" >/tmp/freenet-network-dns-query.$$.log 2>&1
+    LOG="/tmp/freenet-network-dns-query.$$.log"
+    : > "$LOG" || return 1
+
+    if [ "$TEST_MODE" = yes ]; then
+        LAN_IP=192.0.2.1
+    else
+        LAN_IP="$(ip -4 addr show br0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\)\/.*/\1/p' | head -n 1)"
+        if [ -z "$LAN_IP" ]; then
+            printf '%s\n' 'DNS_READINESS=FAIL' 'DNS_REASON=LAN_IP_MISSING' 'DNS_ATTEMPTS_USED=0' >> "$LOG"
+            return 1
+        fi
+    fi
+
+    ATTEMPT=1
+    MAX_ATTEMPTS=5
+    while [ "$ATTEMPT" -le "$MAX_ATTEMPTS" ]; do
+        printf 'DNS_ATTEMPT=%s/%s\n' "$ATTEMPT" "$MAX_ATTEMPTS" >> "$LOG"
+        if dns_query_attempt "$LAN_IP" >> "$LOG" 2>&1; then
+            printf '%s\n' 'DNS_ATTEMPT_RESULT=PASS' >> "$LOG"
+            printf 'DNS_READINESS=PASS\nDNS_ATTEMPTS_USED=%s\n' "$ATTEMPT" >> "$LOG"
+            return 0
+        fi
+        printf '%s\n' 'DNS_ATTEMPT_RESULT=FAIL' >> "$LOG"
+        if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+            [ "$TEST_MODE" = yes ] || sleep 2
+        fi
+        ATTEMPT=$((ATTEMPT + 1))
+    done
+
+    printf 'DNS_READINESS=FAIL\nDNS_ATTEMPTS_USED=%s\n' "$MAX_ATTEMPTS" >> "$LOG"
+    return 1
 }
 
 runtime_facts() {
