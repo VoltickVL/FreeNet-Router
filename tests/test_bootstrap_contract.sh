@@ -39,9 +39,15 @@ EOF
     chmod +x "$R/bin/opkg"
 }
 
+run_plan() {
+    R="$1"
+    A="$2"
+    FREENET_ROOT="$R" FREENET_PIN_FILE="$PINS" FREENET_ARCH_RAW="$A" sh "$BOOT" plan
+}
+
 R1="$TMP/entware"
 make_root "$R1"
-OUT="$(FREENET_ROOT="$R1" FREENET_PIN_FILE="$PINS" FREENET_ARCH_RAW='aarch64-3.10 150' "$BOOT" plan)"
+OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
 echo "$OUT" | grep -Fq 'MODE=ENTWARE_ONLY' || fail 'clean Entware must classify ENTWARE_ONLY'
 echo "$OUT" | grep -Fq 'ARCH=arm64-v8a' || fail 'ARM64 mapping failed'
 echo "$OUT" | grep -Fq 'Xray-linux-arm64-v8a.zip' || fail 'ARM64 Xray asset mapping failed'
@@ -51,24 +57,24 @@ echo "$OUT" | grep -Fq 'MUTATION=NONE' || fail 'plan must be read-only'
 printf '#!/bin/sh\n' > "$R1/sbin/xkeen"
 printf '#!/bin/sh\n' > "$R1/sbin/xray"
 chmod +x "$R1/sbin/xkeen" "$R1/sbin/xray"
-OUT="$(FREENET_ROOT="$R1" FREENET_PIN_FILE="$PINS" FREENET_ARCH_RAW='aarch64-3.10 150' "$BOOT" plan)"
+OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
 echo "$OUT" | grep -Fq 'MODE=READY_EXISTING_STACK' || fail 'complete stack must be preserved'
 
 # Partial stack must stop instead of guessing.
 rm -f "$R1/sbin/xray"
-OUT="$(FREENET_ROOT="$R1" FREENET_PIN_FILE="$PINS" FREENET_ARCH_RAW='aarch64-3.10 150' "$BOOT" plan)"
+OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
 echo "$OUT" | grep -Fq 'MODE=NEEDS_REVIEW' || fail 'partial stack must classify NEEDS_REVIEW'
 
 # Architecture mappings are explicit.
 R2="$TMP/mipsle"
 make_root "$R2"
-OUT="$(FREENET_ROOT="$R2" FREENET_PIN_FILE="$PINS" FREENET_ARCH_RAW='mipsel-3.4 100' "$BOOT" plan)"
+OUT="$(run_plan "$R2" 'mipsel-3.4 100')"
 echo "$OUT" | grep -Fq 'ARCH=mips32le' || fail 'MIPSLE mapping failed'
 echo "$OUT" | grep -Fq 'Xray-linux-mips32le.zip' || fail 'MIPSLE Xray mapping failed'
 
 R3="$TMP/unsupported"
 make_root "$R3"
-OUT="$(FREENET_ROOT="$R3" FREENET_PIN_FILE="$PINS" FREENET_ARCH_RAW='riscv64 100' "$BOOT" plan)"
+OUT="$(run_plan "$R3" 'riscv64 100')"
 echo "$OUT" | grep -Fq 'MODE=UNSUPPORTED_ARCH' || fail 'unsupported architecture must stop'
 
 # This slice is staging-only: there must be no permanent install/apply commands.
