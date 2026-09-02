@@ -107,22 +107,22 @@ func TestNetworkApplyRequiresExplicitConfirmationAndSavedProfileMatch(t *testing
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
 	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
 
-	for name, payload, wantCode := range map[string]struct {
+	for name, tc := range map[string]struct {
 		payload string
 		code    int
 	}{
-		"no-confirm": {`{"isp":"rostelecom","dns_mode":"firmware","confirm":false}`, http.StatusBadRequest},
+		"no-confirm":    {`{"isp":"rostelecom","dns_mode":"firmware","confirm":false}`, http.StatusBadRequest},
 		"stale-profile": {`{"isp":"vladlink","dns_mode":"xkeen","confirm":true}`, http.StatusConflict},
 	} {
 		t.Run(name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload.payload))
+			r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(tc.payload))
 			r.Host = "192.168.50.1:1001"
 			r.Header.Set("Origin", "http://192.168.50.1:1001")
 			r.Header.Set("Content-Type", "application/json")
 			w := httptest.NewRecorder()
 			a.handleNetworkProfileApply(w, r)
-			if w.Code != wantCode.code {
-				t.Fatalf("status=%d want=%d body=%s", w.Code, wantCode.code, w.Body.String())
+			if w.Code != tc.code {
+				t.Fatalf("status=%d want=%d body=%s", w.Code, tc.code, w.Body.String())
 			}
 		})
 	}
