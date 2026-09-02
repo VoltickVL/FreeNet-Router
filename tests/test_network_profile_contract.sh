@@ -141,7 +141,7 @@ run_network() {
     FREENET_MIGRATE_SCRIPT="$TROOT/lib/freenet/migrate_split_dns.sh" \
     FREENET_NETWORK_TEST_MODE=yes \
     FREENET_NETWORK_TEST_STATE="$STATE" \
-    "$SCRIPT" "$@"
+    sh "$SCRIPT" "$@"
 }
 
 run_network plan > "$TMP/plan.out"
