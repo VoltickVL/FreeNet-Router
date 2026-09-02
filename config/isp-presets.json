@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "presets": [
+    {
+      "id": "auto",
+      "name": "Авто",
+      "dns_policy": "detect-preserve",
+      "youtube_route": "detect",
+      "runtime_status": "safe-default"
+    },
+    {
+      "id": "vladlink",
+      "name": "Владлинк",
+      "dns_policy": "preserve-until-home-verified",
+      "youtube_route": "direct",
+      "runtime_status": "home-runtime-known-cleanroom-pending"
+    },
+    {
+      "id": "alliancetelecom",
+      "name": "АльянсТелеком",
+      "dns_policy": "preserve-until-home-verified",
+      "youtube_route": "direct",
+      "runtime_status": "separate-preset-runtime-acceptance-pending"
+    },
+    {
+      "id": "rostelecom",
+      "name": "Ростелеком",
+      "dns_policy": "firmware-ndnproxy-xkeen-proxy-dns",
+      "youtube_route": "vpn",
+      "runtime_status": "work-runtime-verified"
+    },
+    {
+      "id": "podryad",
+      "name": "Подряд",
+      "dns_policy": "firmware-ndnproxy-xkeen-proxy-dns",
+      "youtube_route": "vpn",
+      "runtime_status": "separate-preset-runtime-acceptance-pending"
+    },
+    {
+      "id": "custom",
+      "name": "Свой",
+      "dns_policy": "custom",
+      "youtube_route": "custom",
+      "runtime_status": "expert"
+    }
+  ]
+}
