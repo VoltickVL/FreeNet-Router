@@ -4,14 +4,17 @@
 # plan = read-only runtime facts + expected delta.
 # apply = only a verified preset may call the transactional Split-DNS engine.
 
-CONFIG_FILE="${FREENET_CONFIG_FILE:-/opt/etc/freenet/freenet.conf}"
-MIGRATE_SCRIPT="${FREENET_MIGRATE_SCRIPT:-/opt/lib/freenet/migrate_split_dns.sh}"
-CONFIG_DIR="/opt/etc/xray/configs"
+ROOT="${FREENET_ROOT:-/opt}"
+CONFIG_FILE="${FREENET_CONFIG_FILE:-$ROOT/etc/freenet/freenet.conf}"
+MIGRATE_SCRIPT="${FREENET_MIGRATE_SCRIPT:-$ROOT/lib/freenet/migrate_split_dns.sh}"
+CONFIG_DIR="${FREENET_CONFIG_DIR:-$ROOT/etc/xray/configs}"
 OUT_FILE="$CONFIG_DIR/04_outbounds.json"
-XKEEN_BIN="/opt/sbin/xkeen"
-XRAY_BIN="/opt/sbin/xray"
-XRAY_ASSET_DIR="/opt/etc/xray/dat"
+XKEEN_BIN="${FREENET_XKEEN_BIN:-$ROOT/sbin/xkeen}"
+XRAY_BIN="${FREENET_XRAY_BIN:-$ROOT/sbin/xray}"
+XRAY_ASSET_DIR="${FREENET_XRAY_ASSET_DIR:-$ROOT/etc/xray/dat}"
 MODE="${1:-plan}"
+TEST_MODE="${FREENET_NETWORK_TEST_MODE:-no}"
+TEST_STATE="${FREENET_NETWORK_TEST_STATE:-}"
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Network] ERROR: %s\n' "$*" >&2; }
@@ -24,10 +27,64 @@ config_value() {
 }
 
 xkeen_init() {
-    for F in /opt/etc/init.d/S99xkeen /opt/etc/init.d/S05xkeen; do
+    for F in "$ROOT/etc/init.d/S99xkeen" "$ROOT/etc/init.d/S05xkeen"; do
         [ -f "$F" ] && { printf '%s\n' "$F"; return 0; }
     done
     return 1
+}
+
+test_state_value() {
+    KEY="$1"
+    DEFAULT="$2"
+    if [ "$TEST_MODE" = yes ] && [ -n "$TEST_STATE" ] && [ -f "$TEST_STATE" ]; then
+        VALUE="$(sed -n "s/^${KEY}=//p" "$TEST_STATE" 2>/dev/null | tail -n 1)"
+        [ -n "$VALUE" ] && { printf '%s\n' "$VALUE"; return 0; }
+    fi
+    printf '%s\n' "$DEFAULT"
+}
+
+port53_lines() {
+    if [ "$TEST_MODE" = yes ]; then
+        case "$(test_state_value PORT53_OWNER none)" in
+            ndnproxy) printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 800/ndnproxy' ;;
+            xray) printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 900/xray' ;;
+            other) printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 700/other' ;;
+            *) : ;;
+        esac
+        return 0
+    fi
+    netstat -lnp 2>/dev/null | grep ':53[[:space:]]' || true
+}
+
+xray_pid() {
+    if [ "$TEST_MODE" = yes ]; then
+        [ "$(test_state_value XRAY_RUNNING no)" = yes ] && printf '%s\n' 4242
+        return 0
+    fi
+    pidof xray 2>/dev/null | awk '{print $1}'
+}
+
+xray_gid() {
+    PID="$1"
+    if [ "$TEST_MODE" = yes ]; then
+        test_state_value XRAY_GID unknown
+        return 0
+    fi
+    [ -n "$PID" ] || { printf '%s\n' unknown; return 0; }
+    VALUE="$(awk '/^Gid:/ {print $2; exit}' "/proc/$PID/status" 2>/dev/null)"
+    [ -n "$VALUE" ] && printf '%s\n' "$VALUE" || printf '%s\n' unknown
+}
+
+proxy_dns_state() {
+    INIT="$(xkeen_init 2>/dev/null || true)"
+    [ -n "$INIT" ] || { printf '%s\n' unknown; return 0; }
+    if grep -Eq '^[[:space:]]*proxy_dns="?on"?[[:space:]]*$' "$INIT"; then
+        printf '%s\n' on
+    elif grep -Eq '^[[:space:]]*proxy_dns="?off"?[[:space:]]*$' "$INIT"; then
+        printf '%s\n' off
+    else
+        printf '%s\n' unknown
+    fi
 }
 
 has_dns_out() {
@@ -42,17 +99,10 @@ has_vless() {
 
 runtime_facts() {
     XINIT="$(xkeen_init 2>/dev/null || true)"
-    PROXY_DNS=unknown
-    if [ -n "$XINIT" ]; then
-        if grep -Eq '^[[:space:]]*proxy_dns="?on"?[[:space:]]*$' "$XINIT"; then
-            PROXY_DNS=on
-        elif grep -Eq '^[[:space:]]*proxy_dns="?off"?[[:space:]]*$' "$XINIT"; then
-            PROXY_DNS=off
-        fi
-    fi
+    PROXY_DNS="$(proxy_dns_state)"
 
     PORT53_OWNER=none
-    PORT53="$(netstat -lnp 2>/dev/null | grep ':53[[:space:]]' || true)"
+    PORT53="$(port53_lines)"
     if printf '%s\n' "$PORT53" | grep -q '/ndnproxy'; then
         PORT53_OWNER=ndnproxy
     elif printf '%s\n' "$PORT53" | grep -q '/xray'; then
@@ -61,11 +111,12 @@ runtime_facts() {
         PORT53_OWNER=other
     fi
 
+    XRAY_RUNNING=no
     XRAY_GID=unknown
-    XPID="$(pidof xray 2>/dev/null | awk '{print $1}')"
+    XPID="$(xray_pid)"
     if [ -n "$XPID" ]; then
-        XRAY_GID="$(awk '/^Gid:/ {print $2; exit}' "/proc/$XPID/status" 2>/dev/null)"
-        [ -n "$XRAY_GID" ] || XRAY_GID=unknown
+        XRAY_RUNNING=yes
+        XRAY_GID="$(xray_gid "$XPID")"
     fi
 
     DNS_OUT=no; has_dns_out && DNS_OUT=yes
@@ -74,6 +125,7 @@ runtime_facts() {
     say "XKEEN_INIT=${XINIT:-missing}"
     say "PROXY_DNS=$PROXY_DNS"
     say "PORT53_OWNER=$PORT53_OWNER"
+    say "XRAY_RUNNING=$XRAY_RUNNING"
     say "XRAY_GID=$XRAY_GID"
     say "DNS_OUT=$DNS_OUT"
     say "VLESS_PROFILE=$VLESS"
@@ -92,7 +144,7 @@ resolve_profile() {
                 REASON='Ростелеком preset сейчас верифицирован только для firmware ndnproxy + XKeen proxy_dns topology'
             else
                 SUPPORTED=yes
-                REASON='verified WORK preset'
+                REASON='verified WORK preset + controlled clean-router activation'
             fi
             ;;
         podryad)
@@ -136,7 +188,11 @@ plan() {
     runtime_facts
 
     if [ "$ISP_ID" = rostelecom ] && [ "$SUPPORTED" = yes ]; then
-        say 'EXPECTED_DELTA=preserve firmware ndnproxy :53; preserve existing VLESS/non-DNS routing; add/repair Xray built-in split DNS + dns-out + DNS routing rules; restart XKeen; validate; rollback on failure'
+        DELTA='preserve firmware ndnproxy :53; preserve existing VLESS/non-DNS routing; add/repair Xray built-in split DNS + dns-out + DNS routing rules'
+        [ "$PROXY_DNS" = off ] && DELTA="$DELTA; enable XKeen DNS interception via xkeen -dns on"
+        [ "$XRAY_RUNNING" = no ] && DELTA="$DELTA; start XKeen/Xray before transactional DNS migration"
+        DELTA="$DELTA; restart/validate; restore original proxy_dns/run-state if migration fails"
+        say "EXPECTED_DELTA=$DELTA"
         say 'EXPECTED_NO_DELTA=no new Xray listener :53; no VLESS credential rewrite; no subscription secret change'
     else
         say 'EXPECTED_DELTA=NONE until preset runtime acceptance'
@@ -146,9 +202,15 @@ plan() {
 }
 
 preflight_rostelecom() {
-    for C in jq netstat pidof awk grep sed; do
+    for C in jq awk grep sed; do
         command -v "$C" >/dev/null 2>&1 || { err "missing command: $C"; return 1; }
     done
+    if [ "$TEST_MODE" != yes ]; then
+        for C in netstat pidof; do
+            command -v "$C" >/dev/null 2>&1 || { err "missing command: $C"; return 1; }
+        done
+    fi
+
     [ -x "$XKEEN_BIN" ] || { err 'XKeen missing'; return 1; }
     [ -x "$XRAY_BIN" ] || { err 'Xray missing'; return 1; }
     [ -x "$MIGRATE_SCRIPT" ] || { err 'transactional DNS migration engine missing'; return 1; }
@@ -158,12 +220,13 @@ preflight_rostelecom() {
 
     XINIT="$(xkeen_init 2>/dev/null || true)"
     [ -n "$XINIT" ] || { err 'XKeen init script missing'; return 1; }
-    grep -Eq '^[[:space:]]*proxy_dns="?on"?[[:space:]]*$' "$XINIT" || {
-        err 'Rostelecom preset requires XKeen proxy_dns=on; changing this switch is a separate controlled action'
-        return 1
-    }
+    PROXY_DNS_INITIAL="$(proxy_dns_state)"
+    case "$PROXY_DNS_INITIAL" in
+        on|off) : ;;
+        *) err 'cannot determine XKeen proxy_dns state'; return 1 ;;
+    esac
 
-    PORT53="$(netstat -lnp 2>/dev/null | grep ':53[[:space:]]' || true)"
+    PORT53="$(port53_lines)"
     printf '%s\n' "$PORT53" | grep -q '/ndnproxy' || {
         err 'Rostelecom preset requires confirmed firmware ndnproxy owner on :53'
         return 1
@@ -173,11 +236,93 @@ preflight_rostelecom() {
         return 1
     fi
 
-    XPID="$(pidof xray 2>/dev/null | awk '{print $1}')"
-    [ -n "$XPID" ] || { err 'Xray process not running'; return 1; }
-    XGID="$(awk '/^Gid:/ {print $2; exit}' "/proc/$XPID/status" 2>/dev/null)"
-    [ "$XGID" = 11111 ] || { err "Xray GID is $XGID, expected 11111"; return 1; }
+    XRAY_WAS_RUNNING=no
+    XPID="$(xray_pid)"
+    if [ -n "$XPID" ]; then
+        XRAY_WAS_RUNNING=yes
+        XGID="$(xray_gid "$XPID")"
+        [ "$XGID" = 11111 ] || { err "Xray GID is $XGID, expected 11111"; return 1; }
+    fi
+    return 0
+}
 
+wait_for_xray() {
+    WANT="$1"
+    N=0
+    while [ "$N" -lt 12 ]; do
+        PID="$(xray_pid)"
+        if [ "$WANT" = yes ] && [ -n "$PID" ]; then
+            return 0
+        fi
+        if [ "$WANT" = no ] && [ -z "$PID" ]; then
+            return 0
+        fi
+        [ "$TEST_MODE" = yes ] || sleep 1
+        N=$((N + 1))
+    done
+    return 1
+}
+
+restore_rostelecom_runtime() {
+    RB_OK=1
+
+    if [ "$PROXY_DNS_INITIAL" = off ]; then
+        "$XKEEN_BIN" -dns off >/tmp/freenet-network-dns-rollback.$$.log 2>&1 || RB_OK=0
+        [ "$(proxy_dns_state)" = off ] || RB_OK=0
+    fi
+
+    if [ "$XRAY_WAS_RUNNING" = yes ]; then
+        "$XKEEN_BIN" -restart >/tmp/freenet-network-runtime-rollback.$$.log 2>&1 || RB_OK=0
+        wait_for_xray yes || RB_OK=0
+        PID="$(xray_pid)"
+        [ -n "$PID" ] || RB_OK=0
+        [ "$(xray_gid "$PID")" = 11111 ] || RB_OK=0
+    else
+        "$XKEEN_BIN" -stop >/tmp/freenet-network-runtime-rollback.$$.log 2>&1 || RB_OK=0
+        wait_for_xray no || RB_OK=0
+    fi
+
+    [ "$RB_OK" = 1 ]
+}
+
+fail_before_migration() {
+    PRIMARY="$1"
+    err "PRIMARY ERROR: $PRIMARY"
+    if restore_rostelecom_runtime; then
+        err 'ROLLBACK ERROR/STATE: rollback success/no live apply'
+        return 1
+    fi
+    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
+    return 2
+}
+
+prepare_rostelecom_runtime() {
+    if [ "$XRAY_WAS_RUNNING" = no ]; then
+        "$XKEEN_BIN" -start >/tmp/freenet-network-xkeen-start.$$.log 2>&1 || return 1
+        wait_for_xray yes || return 1
+    fi
+
+    PID="$(xray_pid)"
+    [ -n "$PID" ] || return 1
+    [ "$(xray_gid "$PID")" = 11111 ] || return 1
+
+    if [ "$PROXY_DNS_INITIAL" = off ]; then
+        "$XKEEN_BIN" -dns on >/tmp/freenet-network-dns-enable.$$.log 2>&1 || return 1
+        [ "$(proxy_dns_state)" = on ] || return 1
+    fi
+    return 0
+}
+
+accept_rostelecom_success() {
+    has_dns_out || return 1
+    XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" >/tmp/freenet-network-xray.$$.log 2>&1 || return 1
+    [ "$(proxy_dns_state)" = on ] || return 1
+    PID="$(xray_pid)"
+    [ -n "$PID" ] || return 1
+    [ "$(xray_gid "$PID")" = 11111 ] || return 1
+    PORT53="$(port53_lines)"
+    printf '%s\n' "$PORT53" | grep -q '/ndnproxy' || return 1
+    printf '%s\n' "$PORT53" | grep -q '/xray' && return 1
     return 0
 }
 
@@ -193,30 +338,43 @@ apply_profile() {
         rostelecom:firmware)
             preflight_rostelecom || return 1
             say '[FreeNet Network] APPLY=rostelecom/firmware'
+            say "[FreeNet Network] INITIAL_PROXY_DNS=$PROXY_DNS_INITIAL"
+            say "[FreeNet Network] INITIAL_XRAY_RUNNING=$XRAY_WAS_RUNNING"
+
+            if ! prepare_rostelecom_runtime; then
+                fail_before_migration 'cannot prepare XKeen/Xray for transactional DNS migration'
+                return $?
+            fi
+
             "$MIGRATE_SCRIPT"
             RC=$?
             case "$RC" in
                 0)
-                    has_dns_out || { err 'dns-out missing after migration success'; return 2; }
-                    XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" >/tmp/freenet-network-xray.$$.log 2>&1 || {
-                        tail -n 30 /tmp/freenet-network-xray.$$.log 2>/dev/null || true
-                        rm -f /tmp/freenet-network-xray.$$.log 2>/dev/null
-                        err 'post-apply Xray validation failed; migration rollback state must be inspected'
+                    if ! accept_rostelecom_success; then
+                        err 'PRIMARY ERROR: post-apply Rostelecom runtime acceptance failed'
+                        err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN; migration reported success, stop before any retry'
                         return 2
-                    }
-                    rm -f /tmp/freenet-network-xray.$$.log 2>/dev/null
+                    fi
+                    rm -f /tmp/freenet-network-xray.$$.log 2>/dev/null || true
                     say '[FreeNet Network] RESULT=SUCCESS'
                     say '[FreeNet Network] DNS_OUT=YES'
+                    say '[FreeNet Network] PROXY_DNS=on'
+                    say '[FreeNet Network] XRAY_RUNNING=yes'
                     say '[FreeNet Network] PORT53_OWNER=ndnproxy-preserved'
                     return 0
                     ;;
                 2)
-                    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN from DNS migration engine'
+                    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN from DNS migration engine; no further mutation performed'
                     return 2
                     ;;
                 *)
-                    err 'PRIMARY ERROR: DNS migration failed and reported rollback success/no live apply'
-                    return 1
+                    err 'PRIMARY ERROR: DNS migration failed'
+                    if restore_rostelecom_runtime; then
+                        err 'ROLLBACK ERROR/STATE: rollback success/no live apply'
+                        return 1
+                    fi
+                    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
+                    return 2
                     ;;
             esac
             ;;
