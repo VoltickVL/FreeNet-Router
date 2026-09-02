@@ -33,6 +33,7 @@ const (
 	defaultXKeenPath  = "/opt/sbin/xkeen"
 	defaultLockPath   = "/tmp/blanc_xkeen_update.lock"
 	defaultConfigPath = "/opt/etc/freenet/freenet.conf"
+	defaultSubPath    = "/opt/etc/xray/blanc_subscription.url"
 )
 
 //go:embed web/index.html
@@ -46,6 +47,7 @@ type config struct {
 	XKeenPath  string
 	LockPath   string
 	ConfigPath string
+	SubPath    string
 	Timeout    time.Duration
 }
 
@@ -57,22 +59,23 @@ type app struct {
 }
 
 type statusResponse struct {
-	Version            string       `json:"version"`
-	CountryCode        string       `json:"country_code"`
-	Country            string       `json:"country"`
-	City               string       `json:"city"`
-	ProfileLabel       string       `json:"profile_label"`
-	Endpoint           string       `json:"endpoint"`
-	XrayOnline         bool         `json:"xray_online"`
-	XKeenUI            bool         `json:"xkeen_ui_online"`
-	DNSOut             bool         `json:"dns_out_present"`
-	ISP                string       `json:"isp"`
-	ISPLabel           string       `json:"isp_label"`
-	DNSMode            string       `json:"dns_mode"`
-	RecommendedDNSMode string       `json:"recommended_dns_mode"`
-	Busy               bool         `json:"busy"`
-	UpdaterBusy        bool         `json:"updater_busy"`
-	Last               actionResult `json:"last_action"`
+	Version                string       `json:"version"`
+	CountryCode            string       `json:"country_code"`
+	Country                string       `json:"country"`
+	City                   string       `json:"city"`
+	ProfileLabel           string       `json:"profile_label"`
+	Endpoint               string       `json:"endpoint"`
+	XrayOnline             bool         `json:"xray_online"`
+	XKeenUI                bool         `json:"xkeen_ui_online"`
+	DNSOut                 bool         `json:"dns_out_present"`
+	ISP                    string       `json:"isp"`
+	ISPLabel               string       `json:"isp_label"`
+	DNSMode                string       `json:"dns_mode"`
+	RecommendedDNSMode     string       `json:"recommended_dns_mode"`
+	SubscriptionConfigured bool         `json:"subscription_configured"`
+	Busy                   bool         `json:"busy"`
+	UpdaterBusy            bool         `json:"updater_busy"`
+	Last                   actionResult `json:"last_action"`
 }
 
 type actionRequest struct {
@@ -94,16 +97,27 @@ type networkProfileRequest struct {
 }
 
 type networkProfileResponse struct {
-	Success            bool   `json:"success"`
-	ISP                string `json:"isp"`
-	ISPLabel           string `json:"isp_label"`
-	DNSMode            string `json:"dns_mode"`
-	DNSModeLabel       string `json:"dns_mode_label"`
-	RecommendedDNSMode string `json:"recommended_dns_mode"`
+	Success             bool   `json:"success"`
+	ISP                 string `json:"isp"`
+	ISPLabel            string `json:"isp_label"`
+	DNSMode             string `json:"dns_mode"`
+	DNSModeLabel        string `json:"dns_mode_label"`
+	RecommendedDNSMode  string `json:"recommended_dns_mode"`
 	RecommendedDNSLabel string `json:"recommended_dns_label"`
-	Applied            bool   `json:"applied"`
-	Message            string `json:"message,omitempty"`
-	Error              string `json:"error,omitempty"`
+	Applied             bool   `json:"applied"`
+	Message             string `json:"message,omitempty"`
+	Error               string `json:"error,omitempty"`
+}
+
+type subscriptionRequest struct {
+	URL string `json:"url"`
+}
+
+type subscriptionResponse struct {
+	Success    bool   `json:"success"`
+	Configured bool   `json:"configured"`
+	Message    string `json:"message,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 type xrayConfig struct {
@@ -164,6 +178,7 @@ func main() {
 	flag.StringVar(&cfg.XKeenPath, "xkeen", defaultXKeenPath, "XKeen executable path")
 	flag.StringVar(&cfg.LockPath, "updater-lock", defaultLockPath, "updater lock path")
 	flag.StringVar(&cfg.ConfigPath, "config", defaultConfigPath, "FreeNet local config path")
+	flag.StringVar(&cfg.SubPath, "subscription", defaultSubPath, "BlancVPN subscription URL path")
 	flag.DurationVar(&cfg.Timeout, "action-timeout", 95*time.Second, "action timeout")
 	flag.Parse()
 
@@ -174,6 +189,8 @@ func main() {
 	mux.HandleFunc("GET /api/status", a.handleStatus)
 	mux.HandleFunc("GET /api/network-profile", a.handleNetworkProfileGet)
 	mux.HandleFunc("POST /api/network-profile", a.handleNetworkProfilePost)
+	mux.HandleFunc("GET /api/subscription", a.handleSubscriptionGet)
+	mux.HandleFunc("POST /api/subscription", a.handleSubscriptionPost)
 	mux.HandleFunc("POST /api/action", a.handleAction)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -296,6 +313,36 @@ func (a *app) handleNetworkProfilePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a.networkProfileView(true, "Профиль сохранён. Xray не изменялся."))
+}
+
+func (a *app) handleSubscriptionGet(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, subscriptionResponse{Success: true, Configured: subscriptionConfigured(a.cfg.SubPath)})
+}
+
+func (a *app) handleSubscriptionPost(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeJSON(w, http.StatusForbidden, subscriptionResponse{Success: false, Error: "cross-origin request rejected"})
+		return
+	}
+	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
+		writeJSON(w, http.StatusUnsupportedMediaType, subscriptionResponse{Success: false, Error: "application/json required"})
+		return
+	}
+
+	body := http.MaxBytesReader(w, r.Body, 8192)
+	defer body.Close()
+	dec := json.NewDecoder(body)
+	dec.DisallowUnknownFields()
+	var req subscriptionRequest
+	if err := dec.Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, subscriptionResponse{Success: false, Error: "invalid request"})
+		return
+	}
+	if err := writeSubscriptionURL(a.cfg.SubPath, req.URL); err != nil {
+		writeJSON(w, http.StatusBadRequest, subscriptionResponse{Success: false, Configured: subscriptionConfigured(a.cfg.SubPath), Error: "invalid subscription URL"})
+		return
+	}
+	writeJSON(w, http.StatusOK, subscriptionResponse{Success: true, Configured: true, Message: "Подписка сохранена локально. Секрет не отображается."})
 }
 
 func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
@@ -548,22 +595,23 @@ func (a *app) status() statusResponse {
 	_, lockErr := os.Stat(a.cfg.LockPath)
 
 	return statusResponse{
-		Version:            version,
-		CountryCode:        code,
-		Country:            p.Country,
-		City:               p.City,
-		ProfileLabel:       p.Label,
-		Endpoint:           endpoint,
-		XrayOnline:         processRunning("xray"),
-		XKeenUI:            processRunning("xkeen-ui"),
-		DNSOut:             dnsOut,
-		ISP:                isp,
-		ISPLabel:           ispMeta.Label,
-		DNSMode:            dnsMode,
-		RecommendedDNSMode: ispMeta.RecommendedDNSMode,
-		Busy:               busy,
-		UpdaterBusy:        lockErr == nil,
-		Last:               last,
+		Version:                version,
+		CountryCode:            code,
+		Country:                p.Country,
+		City:                   p.City,
+		ProfileLabel:           p.Label,
+		Endpoint:               endpoint,
+		XrayOnline:             processRunning("xray"),
+		XKeenUI:                processRunning("xkeen-ui"),
+		DNSOut:                 dnsOut,
+		ISP:                    isp,
+		ISPLabel:               ispMeta.Label,
+		DNSMode:                dnsMode,
+		RecommendedDNSMode:     ispMeta.RecommendedDNSMode,
+		SubscriptionConfigured: subscriptionConfigured(a.cfg.SubPath),
+		Busy:                   busy,
+		UpdaterBusy:            lockErr == nil,
+		Last:                   last,
 	}
 }
 
@@ -660,6 +708,34 @@ func writeNetworkProfileConfig(path, isp, dnsMode string) error {
 	}
 	content := strings.Join(lines, "\n") + "\n"
 	return atomicWrite(path, []byte(content), 0600)
+}
+
+func validateSubscriptionURL(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > 4096 || strings.ContainsAny(raw, " \t\r\n") {
+		return errors.New("invalid subscription URL")
+	}
+	u, err := url.ParseRequestURI(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return errors.New("invalid subscription URL")
+	}
+	return nil
+}
+
+func writeSubscriptionURL(path, raw string) error {
+	raw = strings.TrimSpace(raw)
+	if err := validateSubscriptionURL(raw); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	return atomicWrite(path, []byte(raw+"\n"), 0600)
+}
+
+func subscriptionConfigured(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0
 }
 
 func detectCountry(path string) string {
