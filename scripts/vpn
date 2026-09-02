@@ -1,8 +1,11 @@
 #!/bin/sh
 
-FILTER_FILE="/opt/etc/xray/blanc_profile_filter.regex"
+FILTER_FILE="${FREENET_FILTER_FILE:-/opt/etc/xray/blanc_profile_filter.regex}"
+UPDATER_BIN="${FREENET_UPDATER_BIN:-/opt/bin/blanc_xkeen_update_outbounds.sh}"
 
-if [ -d "/opt/etc/xray/configs" ]; then
+if [ -n "${FREENET_CONFIG_DIR:-}" ]; then
+CONFIG_DIR="$FREENET_CONFIG_DIR"
+elif [ -d "/opt/etc/xray/configs" ]; then
 CONFIG_DIR="/opt/etc/xray/configs"
 elif [ -d "/opkg/etc/xray/configs" ]; then
 CONFIG_DIR="/opkg/etc/xray/configs"
@@ -46,8 +49,8 @@ echo "outbound file not found: $OUT_FILE"
 fi
 exit 0
 ;;
-reload|update)
-FORCE=1 /opt/bin/blanc_xkeen_update_outbounds.sh
+reload|update|refresh)
+FREENET_ACTION_REASON=refresh "$UPDATER_BIN"
 exit $?
 ;;
 *)
@@ -58,17 +61,23 @@ echo "  vpn fi       Finland / Helsinki / Extra"
 echo "  vpn nl       Netherlands / Amsterdam / Extra"
 echo "  vpn current  show current filter and endpoint"
 echo "  vpn status   same as current"
-echo "  vpn reload   update current selected Extra profile"
+echo "  vpn reload   refresh current selected Extra profile"
 echo "  vpn update   same as reload"
+echo "  vpn refresh  same as reload"
 exit 1
 ;;
 esac
 
-echo "$FILTER" > "$FILTER_FILE"
+[ -x "$UPDATER_BIN" ] || {
+echo "[vpn] updater not found: $UPDATER_BIN" >&2
+exit 1
+}
 
-echo "[vpn] selected: $NAME"
-echo "[vpn] filter saved:"
-cat "$FILTER_FILE"
+echo "[vpn] requested: $NAME"
+echo "[vpn] filter will be committed only after successful validation/apply"
 echo
 
-FORCE=1 /opt/bin/blanc_xkeen_update_outbounds.sh
+FREENET_FILTER_OVERRIDE="$FILTER" \
+FREENET_PROFILE_LABEL="$NAME" \
+FREENET_ACTION_REASON=switch \
+"$UPDATER_BIN"
