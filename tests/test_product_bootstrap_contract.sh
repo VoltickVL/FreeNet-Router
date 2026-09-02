@@ -51,6 +51,6 @@ if grep -Fq 'setup.sh' "$BOOT"; then fail 'uncontrolled upstream setup.sh forbid
 
 # Release must carry the entrypoint and cover it with SHA256SUMS.
 grep -Fq 'cp bootstrap.sh dist/bootstrap.sh' "$RELEASE" || fail 'bootstrap.sh release asset missing'
-grep -Fq 'bootstrap.sh \\' "$RELEASE" || fail 'bootstrap.sh SHA256SUMS coverage missing'
+grep -Eq '^[[:space:]]+bootstrap\.sh[[:space:]]+\\$' "$RELEASE" || fail 'bootstrap.sh SHA256SUMS coverage missing'
 
 echo 'product bootstrap contract PASS'
