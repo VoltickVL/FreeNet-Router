@@ -72,6 +72,8 @@ type statusResponse struct {
 	ISPLabel               string       `json:"isp_label"`
 	DNSMode                string       `json:"dns_mode"`
 	RecommendedDNSMode     string       `json:"recommended_dns_mode"`
+	InstallScenario        string       `json:"install_scenario"`
+	SetupComplete          bool         `json:"setup_complete"`
 	SubscriptionConfigured bool         `json:"subscription_configured"`
 	Busy                   bool         `json:"busy"`
 	UpdaterBusy            bool         `json:"updater_busy"`
@@ -587,6 +589,7 @@ func (a *app) status() statusResponse {
 	p := profiles[code]
 	endpoint, dnsOut := readOutbound(a.cfg.OutPath)
 	isp, dnsMode := readNetworkProfileConfig(a.cfg.ConfigPath)
+	installScenario, setupComplete := readSetupState(a.cfg.ConfigPath)
 	ispMeta := ispProfiles[isp]
 
 	a.mu.RLock()
@@ -610,6 +613,8 @@ func (a *app) status() statusResponse {
 		ISPLabel:               ispMeta.Label,
 		DNSMode:                dnsMode,
 		RecommendedDNSMode:     ispMeta.RecommendedDNSMode,
+		InstallScenario:        installScenario,
+		SetupComplete:          setupComplete,
 		SubscriptionConfigured: subscriptionConfigured(a.cfg.SubPath),
 		Busy:                   busy,
 		UpdaterBusy:            lockErr == nil,
@@ -669,6 +674,35 @@ func readNetworkProfileConfig(path string) (string, string) {
 		dnsMode = "auto"
 	}
 	return isp, dnsMode
+}
+
+func readSetupState(path string) (string, bool) {
+	installScenario := "unknown"
+	setupComplete := false
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return installScenario, setupComplete
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		value = strings.Trim(strings.TrimSpace(value), "'\"")
+		switch strings.TrimSpace(key) {
+		case "INSTALL_SCENARIO":
+			if value == "existing_stack" || value == "fresh_entware" {
+				installScenario = value
+			}
+		case "SETUP_COMPLETE":
+			setupComplete = value == "yes"
+		}
+	}
+	return installScenario, setupComplete
 }
 
 func writeNetworkProfileConfig(path, isp, dnsMode string) error {
