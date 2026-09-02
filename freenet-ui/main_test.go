@@ -78,19 +78,15 @@ func TestNetworkProfileDefaultsAndIndependentISPRecords(t *testing.T) {
 		t.Fatalf("defaults isp=%q dns=%q", isp, dnsMode)
 	}
 
-	want := map[string]string{
-		"vladlink":        "xkeen",
-		"alliancetelecom": "xkeen",
-		"rostelecom":      "firmware",
-		"podryad":         "firmware",
-	}
-	for id, mode := range want {
+	// Безопасная продуктовая рекомендация одинакова для любого ISP:
+	// штатный DNS Keenetic. Split DNS остаётся только явным выбором пользователя.
+	for _, id := range []string{"auto", "vladlink", "alliancetelecom", "rostelecom", "podryad", "custom"} {
 		meta, ok := ispProfiles[id]
 		if !ok {
 			t.Fatalf("missing ISP record %q", id)
 		}
-		if meta.RecommendedDNSMode != mode {
-			t.Fatalf("ISP %q mode=%q want %q", id, meta.RecommendedDNSMode, mode)
+		if meta.RecommendedDNSMode != "firmware" {
+			t.Fatalf("ISP %q mode=%q want firmware", id, meta.RecommendedDNSMode)
 		}
 	}
 	if ispProfiles["vladlink"].Label == ispProfiles["alliancetelecom"].Label {
@@ -98,6 +94,12 @@ func TestNetworkProfileDefaultsAndIndependentISPRecords(t *testing.T) {
 	}
 	if ispProfiles["rostelecom"].Label == ispProfiles["podryad"].Label {
 		t.Fatal("Rostelecom and Podryad must remain separate records")
+	}
+	if dnsModes["auto"] != "Авто (штатный DNS)" {
+		t.Fatalf("auto DNS label=%q", dnsModes["auto"])
+	}
+	if dnsModes["xkeen"] != "Split DNS через VPN (XKeen/Xray)" {
+		t.Fatalf("xkeen DNS label=%q", dnsModes["xkeen"])
 	}
 }
 
