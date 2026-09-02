@@ -137,9 +137,9 @@ if ! run_finalize apply > "$TMP/apply.out" 2>&1; then
     fail 'finalize apply should succeed'
 fi
 grep -Fq '[FreeNet Setup Finalize] RESULT=SUCCESS' "$TMP/apply.out" || fail 'success marker missing'
-grep -Fq '^SETUP_COMPLETE=yes$' "$CONF" || fail 'setup complete not committed'
+grep -qx 'SETUP_COMPLETE=yes' "$CONF" || fail 'setup complete not committed'
 grep -Fq 'start_auto="on"' "$INIT" || fail 'XKeen autostart not enabled'
-grep -Fq '^# BEGIN FREENET$' "$CRON_STORE" || fail 'managed cron block missing'
+grep -qx '# BEGIN FREENET' "$CRON_STORE" || fail 'managed cron block missing'
 grep -Fq '/opt/sbin/xkeen -ug' "$CRON_STORE" || fail 'geodata schedule missing'
 if grep -q '^[^#].*/opt/bin/blanc_xkeen_update_outbounds.sh' "$CRON_STORE"; then
     fail 'endpoint refresh must remain disabled while AUTO_ENDPOINT_UPDATE=no'
