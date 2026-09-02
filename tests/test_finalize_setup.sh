@@ -119,6 +119,7 @@ run_finalize() {
     FREENET_FINALIZE_TEST_MODE=yes \
     FREENET_FINALIZE_TEST_STATE="$STATE" \
     FREENET_TEST_CRON_STORE="$CRON_STORE" \
+    FREENET_TEST_CRON_FAIL="${FREENET_TEST_CRON_FAIL:-no}" \
     sh "$SCRIPT" "$@"
 }
 
@@ -128,9 +129,12 @@ grep -Fq 'XKEEN_AUTOSTART=off' "$TMP/plan.out" || fail 'plan must expose autosta
 grep -Fq 'enable XKeen autostart through xkeen -auto on' "$TMP/plan.out" || fail 'plan must disclose autostart delta'
 grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must be read-only'
 
-env FREENET_TEST_CRON_FAIL=no sh -c 'FREENET_ROOT="$1" FREENET_CONFIG_FILE="$2" FREENET_SUB_FILE="$3" FREENET_PROFILE_FILE="$4" FREENET_XRAY_CONFIG_DIR="$5" FREENET_XRAY_ASSET_DIR="$6" FREENET_XKEEN_BIN="$7" FREENET_XRAY_BIN="$8" FREENET_NETWORK_HELPER="$9" FREENET_CRONTAB_BIN="${10}" FREENET_FINALIZE_TEST_MODE=yes FREENET_FINALIZE_TEST_STATE="${11}" FREENET_TEST_CRON_STORE="${12}" sh "${13}" apply' sh \
-    "$TROOT" "$CONF" "$SUB" "$PROFILE" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$TROOT/sbin/xkeen" "$TROOT/sbin/xray" "$TROOT/lib/freenet/apply_network_profile.sh" "$TMP/crontab" "$STATE" "$CRON_STORE" "$SCRIPT" \
-    > "$TMP/apply.out" 2>&1 || fail 'finalize apply should succeed'
+FREENET_TEST_CRON_FAIL=no
+export FREENET_TEST_CRON_FAIL
+if ! run_finalize apply > "$TMP/apply.out" 2>&1; then
+    cat "$TMP/apply.out" >&2
+    fail 'finalize apply should succeed'
+fi
 grep -Fq '[FreeNet Setup Finalize] RESULT=SUCCESS' "$TMP/apply.out" || fail 'success marker missing'
 grep -Fq '^SETUP_COMPLETE=yes$' "$CONF" || fail 'setup complete not committed'
 grep -Fq 'start_auto="on"' "$INIT" || fail 'XKeen autostart not enabled'
@@ -150,12 +154,15 @@ EOF
 cp "$CONF" "$TMP/conf.before"
 cp "$CRON_STORE" "$TMP/cron.before"
 
-if env FREENET_TEST_CRON_FAIL=yes sh -c 'FREENET_ROOT="$1" FREENET_CONFIG_FILE="$2" FREENET_SUB_FILE="$3" FREENET_PROFILE_FILE="$4" FREENET_XRAY_CONFIG_DIR="$5" FREENET_XRAY_ASSET_DIR="$6" FREENET_XKEEN_BIN="$7" FREENET_XRAY_BIN="$8" FREENET_NETWORK_HELPER="$9" FREENET_CRONTAB_BIN="${10}" FREENET_FINALIZE_TEST_MODE=yes FREENET_FINALIZE_TEST_STATE="${11}" FREENET_TEST_CRON_STORE="${12}" FREENET_TEST_CRON_FAIL=yes sh "${13}" apply' sh \
-    "$TROOT" "$CONF" "$SUB" "$PROFILE" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$TROOT/sbin/xkeen" "$TROOT/sbin/xray" "$TROOT/lib/freenet/apply_network_profile.sh" "$TMP/crontab" "$STATE" "$CRON_STORE" "$SCRIPT" \
-    > "$TMP/fail.out" 2>&1; then
+FREENET_TEST_CRON_FAIL=yes
+export FREENET_TEST_CRON_FAIL
+if run_finalize apply > "$TMP/fail.out" 2>&1; then
     fail 'simulated cron failure unexpectedly succeeded'
 fi
-grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/fail.out" || fail 'rollback success not reported'
+grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/fail.out" || {
+    cat "$TMP/fail.out" >&2
+    fail 'rollback success not reported'
+}
 cmp "$TMP/conf.before" "$CONF" || fail 'config was not restored'
 cmp "$TMP/cron.before" "$CRON_STORE" || fail 'cron was not restored'
 grep -Fq 'start_auto="off"' "$INIT" || fail 'autostart was not restored'
