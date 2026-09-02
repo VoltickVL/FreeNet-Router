@@ -79,19 +79,19 @@ KeeneticOS
 После подготовки USB и Entware войдите в Entware shell:
 
 ```sh
-exec /opt/usr/bin/sh
+exec /opt/bin/sh
 ```
 
 Read-only диагностика:
 
 ```sh
-curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | /opt/usr/bin/sh
+curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | /opt/bin/sh
 ```
 
 Установка из текущего опубликованного release:
 
 ```sh
-curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh | /opt/usr/bin/sh
+curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh | /opt/bin/sh
 ```
 
 После bootstrap адрес FreeNet Control Center выводится в консоль. По умолчанию интерфейс работает в LAN на порту `1001`.

@@ -66,7 +66,7 @@ reboot/autostart acceptance
 Если используется штатный SSH/CLI Keenetic/Netcraze:
 
 ```sh
-exec /opt/usr/bin/sh
+exec /opt/bin/sh
 ```
 
 Если отдельно настроен Entware SSH, можно войти непосредственно в него, например:
@@ -82,7 +82,7 @@ ssh -p 222 root@<LAN-IP>
 До любой FreeNet mutation первая команда должна быть read-only:
 
 ```sh
-curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | /opt/usr/bin/sh
+curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | /opt/bin/sh
 ```
 
 Doctor проверяет Entware, архитектуру, инструменты, XKeen/Xray, процессы, Xray configs и порты. Он не устанавливает пакеты и не меняет конфигурацию.
@@ -114,7 +114,7 @@ Doctor проверяет Entware, архитектуру, инструмент�
 ### Обычная установка текущего release
 
 ```sh
-curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh | /opt/usr/bin/sh
+curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh | /opt/bin/sh
 ```
 
 ### Clean-room acceptance именно v0.2.6
@@ -123,7 +123,7 @@ curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/
 
 ```sh
 RELEASE=v0.2.6
-curl -fLsS "https://github.com/VoltickVL/FreeNet-Router/releases/download/$RELEASE/bootstrap.sh" | FREENET_RELEASE_BASE="https://github.com/VoltickVL/FreeNet-Router/releases/download/$RELEASE" /opt/usr/bin/sh
+curl -fLsS "https://github.com/VoltickVL/FreeNet-Router/releases/download/$RELEASE/bootstrap.sh" | FREENET_RELEASE_BASE="https://github.com/VoltickVL/FreeNet-Router/releases/download/$RELEASE" /opt/bin/sh
 ```
 
 Ожидаемый принцип работы `bootstrap.sh`:
