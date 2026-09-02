@@ -57,11 +57,13 @@ jobs:
           sh -n scripts/bootstrap_entware.sh
           sh -n scripts/apply_network_profile.sh
           sh -n scripts/apply_provider_profile.sh
+          sh -n scripts/finalize_setup.sh
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
           sh -n tests/test_network_profile_contract.sh
           sh -n tests/test_provider_profile_apply.sh
+          sh -n tests/test_finalize_setup.sh
           sh -n deploy/S99freenet-ui
 
       - name: Split DNS migration candidate test
@@ -79,6 +81,9 @@ jobs:
       - name: Provider profile transactional test
         run: sh tests/test_provider_profile_apply.sh
 
+      - name: Browser setup completion contract test
+        run: sh tests/test_finalize_setup.sh
+
       - name: Installer contract
         run: |
           grep -q 'REPO="VoltickVL/FreeNet-Router"' install.sh
@@ -90,6 +95,7 @@ jobs:
           grep -q 'cp bootstrap.sh dist/bootstrap.sh' .github/workflows/release.yml
           grep -q 'cp scripts/apply_network_profile.sh dist/apply_network_profile.sh' .github/workflows/release.yml
           grep -q 'cp scripts/apply_provider_profile.sh dist/apply_provider_profile.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/finalize_setup.sh dist/finalize_setup.sh' .github/workflows/release.yml
           grep -q 'cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh' .github/workflows/release.yml
           grep -q 'cp config/upstream-pins.env dist/upstream-pins.env' .github/workflows/release.yml
           grep -q 'Stamp UI version from VERSION' .github/workflows/release.yml
@@ -125,6 +131,7 @@ jobs:
           cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh
           cp scripts/apply_network_profile.sh dist/apply_network_profile.sh
           cp scripts/apply_provider_profile.sh dist/apply_provider_profile.sh
+          cp scripts/finalize_setup.sh dist/finalize_setup.sh
           cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh
           cp config/upstream-pins.env dist/upstream-pins.env
           cp install.sh dist/freenet
@@ -140,6 +147,7 @@ jobs:
             dist/migrate_split_dns.sh \
             dist/apply_network_profile.sh \
             dist/apply_provider_profile.sh \
+            dist/finalize_setup.sh \
             dist/bootstrap_entware.sh \
             dist/freenet
 
@@ -155,6 +163,7 @@ jobs:
               migrate_split_dns.sh \
               apply_network_profile.sh \
               apply_provider_profile.sh \
+              finalize_setup.sh \
               bootstrap_entware.sh \
               upstream-pins.env \
               freenet \

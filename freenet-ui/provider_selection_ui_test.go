@@ -22,12 +22,12 @@ func TestProviderSelectionUIContract(t *testing.T) {
 		"operation:'provider'",
 		"profile_id:selectedProviderID",
 		"candidate_xray_valid",
-		"PRIMARY ERROR:",
-		"ROLLBACK:",
+		"ОСНОВНАЯ ОШИБКА:",
+		"ОТКАТ:",
 		"Не повторяйте вслепую",
 	} {
 		if !strings.Contains(ui, required) {
-			t.Fatalf("provider selection UI missing %q", required)
+			t.Fatalf("в UI выбора VPN-профиля отсутствует контракт %q", required)
 		}
 	}
 }
@@ -41,7 +41,7 @@ func TestProviderRowsUseTextContentAndExplicitButton(t *testing.T) {
 	start := strings.Index(ui, "function renderExtraProfiles")
 	end := strings.Index(ui[start:], "async function loadStatus")
 	if start < 0 || end < 0 {
-		t.Fatal("dynamic profile renderer not found")
+		t.Fatal("не найден renderer динамических VPN-профилей")
 	}
 	body := ui[start : start+end]
 	for _, required := range []string{
@@ -51,11 +51,11 @@ func TestProviderRowsUseTextContentAndExplicitButton(t *testing.T) {
 		"pick.addEventListener('click'",
 	} {
 		if !strings.Contains(body, required) {
-			t.Fatalf("profile renderer missing safe selection contract %q", required)
+			t.Fatalf("в renderer профилей отсутствует безопасный контракт %q", required)
 		}
 	}
 	if strings.Contains(body, "innerHTML") {
-		t.Fatal("provider-controlled profile data must not use innerHTML")
+		t.Fatal("данные VPN-провайдера нельзя выводить через innerHTML")
 	}
 }
 
@@ -66,9 +66,9 @@ func TestProviderApplyRequiresPlanReadyInUI(t *testing.T) {
 	}
 	ui := string(data)
 	if !strings.Contains(ui, "!selectedProviderID||!providerPlanReady||providerApplying") {
-		t.Fatal("provider apply must be locally gated by selected id and validated plan")
+		t.Fatal("применение VPN-профиля должно требовать выбранный ID и проверенный план")
 	}
 	if !strings.Contains(ui, "pp&&pp.success&&pp.candidate_xray_valid&&pp.mutation==='NONE'") {
-		t.Fatal("provider plan readiness must require validated read-only candidate")
+		t.Fatal("готовность provider plan должна требовать валидный read-only Xray-кандидат")
 	}
 }

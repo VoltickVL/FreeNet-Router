@@ -1,10 +1,10 @@
 #!/bin/sh
 
-# FreeNet Router product entrypoint.
-# Prerequisite: USB + Entware/OPKG already prepared by the user.
-# From there this script installs/preserves the core stack, installs FreeNet
-# Control Center, neutralizes incompatible legacy endpoint cron and hands off
-# all network/provider choices to the browser setup flow.
+# Точка входа продуктовой установки FreeNet Router.
+# Предпосылка: пользователь уже подготовил USB + Entware/OPKG.
+# Дальше этот скрипт устанавливает или сохраняет core stack, ставит FreeNet
+# Control Center, нормализует управляемый cron и передаёт выбор VPN/ISP/DNS
+# браузерному мастеру без скрытых сетевых изменений.
 
 REPO="VoltickVL/FreeNet-Router"
 RELEASE_BASE="${FREENET_RELEASE_BASE:-https://github.com/$REPO/releases/latest/download}"
@@ -16,6 +16,7 @@ BOOTSTRAP_LIB="$ROOT/lib/freenet/bootstrap_entware.sh"
 MIGRATE_LIB="$ROOT/lib/freenet/migrate_split_dns.sh"
 NETWORK_LIB="$ROOT/lib/freenet/apply_network_profile.sh"
 PROVIDER_LIB="$ROOT/lib/freenet/apply_provider_profile.sh"
+FINALIZE_LIB="$ROOT/lib/freenet/finalize_setup.sh"
 FREENET_BIN="$ROOT/sbin/freenet-ui"
 FREENET_INIT="$ROOT/etc/init.d/S99freenet-ui"
 FREENET_MANAGER="$ROOT/bin/freenet"
@@ -185,7 +186,7 @@ download_release_assets() {
     UI_ASSET="freenet-ui-$ARCH"
     for NAME in \
         bootstrap_entware.sh upstream-pins.env \
-        migrate_split_dns.sh apply_network_profile.sh apply_provider_profile.sh \
+        migrate_split_dns.sh apply_network_profile.sh apply_provider_profile.sh finalize_setup.sh \
         "$UI_ASSET" vpn blanc_xkeen_update_outbounds.sh \
         freenet freenet.conf.example
     do
@@ -196,6 +197,7 @@ download_release_assets() {
         "$TMP_DIR/migrate_split_dns.sh" \
         "$TMP_DIR/apply_network_profile.sh" \
         "$TMP_DIR/apply_provider_profile.sh" \
+        "$TMP_DIR/finalize_setup.sh" \
         "$TMP_DIR/$UI_ASSET" "$TMP_DIR/vpn" \
         "$TMP_DIR/blanc_xkeen_update_outbounds.sh" "$TMP_DIR/freenet"
     ok 'release SHA-256 verification'
@@ -287,6 +289,7 @@ backup_app() {
     backup_one "$MIGRATE_LIB" migrate-lib || return 1
     backup_one "$NETWORK_LIB" network-lib || return 1
     backup_one "$PROVIDER_LIB" provider-lib || return 1
+    backup_one "$FINALIZE_LIB" finalize-lib || return 1
     crontab -l > "$BACKUP_DIR/crontab.before" 2>/dev/null || : > "$BACKUP_DIR/crontab.before"
     snapshot_xray "$BACKUP_DIR/xray-hashes.before" || return 1
 }
@@ -312,6 +315,7 @@ rollback_app() {
     restore_one "$MIGRATE_LIB" migrate-lib || RB=1
     restore_one "$NETWORK_LIB" network-lib || RB=1
     restore_one "$PROVIDER_LIB" provider-lib || RB=1
+    restore_one "$FINALIZE_LIB" finalize-lib || RB=1
     crontab "$BACKUP_DIR/crontab.before" >/dev/null 2>&1 || RB=1
 
     if [ "$UI_WAS_RUNNING" = 1 ] && [ -x "$FREENET_INIT" ]; then
@@ -344,9 +348,9 @@ write_config_if_missing() {
         chmod 600 "$CONFIG_FILE" 2>/dev/null || true
     fi
 
-    # A fresh product install is setup-first. Endpoint refresh is not allowed
-    # until the browser has created/accepted a compatible dns-out/provider
-    # state. Existing configs keep their explicit value.
+    # Свежая установка начинается в незавершённом состоянии. Обновление endpoint
+    # запрещено, пока браузерный мастер не создаст и не примет совместимые
+    # provider/dns-out состояния. Существующие явные настройки сохраняются.
     if ! grep -q '^SETUP_COMPLETE=' "$CONFIG_FILE" 2>/dev/null; then
         printf '%s\n' 'SETUP_COMPLETE=no' >> "$CONFIG_FILE" || return 1
     fi
@@ -457,6 +461,10 @@ install_app() {
     chmod 755 "$PROVIDER_LIB.tmp.$$" || return 1
     mv -f "$PROVIDER_LIB.tmp.$$" "$PROVIDER_LIB" || return 1
 
+    cp "$TMP_DIR/finalize_setup.sh" "$FINALIZE_LIB.tmp.$$" || return 1
+    chmod 755 "$FINALIZE_LIB.tmp.$$" || return 1
+    mv -f "$FINALIZE_LIB.tmp.$$" "$FINALIZE_LIB" || return 1
+
     write_config_if_missing || return 1
     write_ui_init || return 1
     apply_safe_cron || return 1
@@ -507,7 +515,7 @@ download_release_assets
 classify_core
 ensure_core
 
-# Core bootstrap/migration is complete before app mutation begins.
+# Core bootstrap/migration завершается до начала изменений FreeNet app-фазы.
 backup_app || { err 'cannot create app/cron backup'; exit 1; }
 MUTATED=1
 install_app || fail_app 'cannot install FreeNet Control Center files/cron safely'

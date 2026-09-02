@@ -16,38 +16,39 @@ const (
 )
 
 type providerPlanResponse struct {
-	Success          bool   `json:"success"`
-	ProfileID        string `json:"profile_id,omitempty"`
-	ProfileName      string `json:"profile_name,omitempty"`
-	Endpoint         string `json:"endpoint,omitempty"`
-	CurrentOutbound  string `json:"current_outbound,omitempty"`
-	XrayRunning      bool   `json:"xray_running"`
-	CandidateValid   bool   `json:"candidate_xray_valid"`
-	ExpectedDelta    string `json:"expected_delta,omitempty"`
-	ExpectedNoDelta  string `json:"expected_no_delta,omitempty"`
-	Mutation         string `json:"mutation,omitempty"`
-	Error            string `json:"error,omitempty"`
+	Success         bool   `json:"success"`
+	ProfileID       string `json:"profile_id,omitempty"`
+	ProfileName     string `json:"profile_name,omitempty"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	CurrentOutbound string `json:"current_outbound,omitempty"`
+	XrayRunning     bool   `json:"xray_running"`
+	CandidateValid  bool   `json:"candidate_xray_valid"`
+	ExpectedDelta   string `json:"expected_delta,omitempty"`
+	ExpectedNoDelta string `json:"expected_no_delta,omitempty"`
+	Mutation        string `json:"mutation,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 type networkPlanResponse struct {
-	Success          bool                  `json:"success"`
-	Supported        bool                  `json:"supported"`
-	ISP              string                `json:"isp"`
-	DNSMode          string                `json:"dns_mode"`
-	EffectiveDNSMode string                `json:"effective_dns_mode"`
-	Reason           string                `json:"reason,omitempty"`
-	ProxyDNS         string                `json:"proxy_dns,omitempty"`
-	Port53Owner      string                `json:"port53_owner,omitempty"`
-	XrayGID          string                `json:"xray_gid,omitempty"`
-	DNSOut           bool                  `json:"dns_out_present"`
-	VLESSProfile     bool                  `json:"vless_profile_present"`
-	ExpectedDelta    string                `json:"expected_delta,omitempty"`
-	ExpectedNoDelta  string                `json:"expected_no_delta,omitempty"`
-	Mutation         string                `json:"mutation,omitempty"`
-	ExtraProfiles    []subscriptionProfile `json:"extra_profiles,omitempty"`
-	ProfilesError    string                `json:"profiles_error,omitempty"`
-	ProviderPlan     *providerPlanResponse `json:"provider_plan,omitempty"`
-	Error            string                `json:"error,omitempty"`
+	Success           bool                       `json:"success"`
+	Supported         bool                       `json:"supported"`
+	ISP               string                     `json:"isp"`
+	DNSMode           string                     `json:"dns_mode"`
+	EffectiveDNSMode  string                     `json:"effective_dns_mode"`
+	Reason            string                     `json:"reason,omitempty"`
+	ProxyDNS          string                     `json:"proxy_dns,omitempty"`
+	Port53Owner       string                     `json:"port53_owner,omitempty"`
+	XrayGID           string                     `json:"xray_gid,omitempty"`
+	DNSOut            bool                       `json:"dns_out_present"`
+	VLESSProfile      bool                       `json:"vless_profile_present"`
+	ExpectedDelta     string                     `json:"expected_delta,omitempty"`
+	ExpectedNoDelta   string                     `json:"expected_no_delta,omitempty"`
+	Mutation          string                     `json:"mutation,omitempty"`
+	ExtraProfiles     []subscriptionProfile      `json:"extra_profiles,omitempty"`
+	ProfilesError     string                     `json:"profiles_error,omitempty"`
+	ProviderPlan      *providerPlanResponse       `json:"provider_plan,omitempty"`
+	SetupFinalizePlan *setupFinalizePlanResponse `json:"setup_finalize_plan,omitempty"`
+	Error             string                     `json:"error,omitempty"`
 }
 
 type networkApplyRequest struct {
@@ -59,18 +60,19 @@ type networkApplyRequest struct {
 }
 
 type networkApplyResponse struct {
-	Success       bool                  `json:"success"`
-	Applied       bool                  `json:"applied"`
-	Operation     string                `json:"operation,omitempty"`
-	ISP           string                `json:"isp,omitempty"`
-	DNSMode       string                `json:"dns_mode,omitempty"`
-	ProfileID     string                `json:"profile_id,omitempty"`
-	Message       string                `json:"message,omitempty"`
-	PrimaryError  string                `json:"primary_error,omitempty"`
-	RollbackState string                `json:"rollback_state,omitempty"`
-	Error         string                `json:"error,omitempty"`
-	Plan          networkPlanResponse   `json:"plan"`
-	ProviderPlan  *providerPlanResponse `json:"provider_plan,omitempty"`
+	Success           bool                       `json:"success"`
+	Applied           bool                       `json:"applied"`
+	Operation         string                     `json:"operation,omitempty"`
+	ISP               string                     `json:"isp,omitempty"`
+	DNSMode           string                     `json:"dns_mode,omitempty"`
+	ProfileID         string                     `json:"profile_id,omitempty"`
+	Message           string                     `json:"message,omitempty"`
+	PrimaryError      string                     `json:"primary_error,omitempty"`
+	RollbackState     string                     `json:"rollback_state,omitempty"`
+	Error             string                     `json:"error,omitempty"`
+	Plan              networkPlanResponse        `json:"plan"`
+	ProviderPlan      *providerPlanResponse       `json:"provider_plan,omitempty"`
+	SetupFinalizePlan *setupFinalizePlanResponse `json:"setup_finalize_plan,omitempty"`
 }
 
 func networkHelperPath() string {
@@ -131,6 +133,15 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 		}
 		plan.ProviderPlan = &providerPlan
 	}
+
+	if r.URL.Query().Get("setup_finalize") == "1" {
+		finalizePlan, finalizeErr := a.runSetupFinalizePlan()
+		if finalizeErr != nil {
+			finalizePlan.Error = finalizeErr.Error()
+		}
+		plan.SetupFinalizePlan = &finalizePlan
+	}
+
 	writeJSON(w, http.StatusOK, plan)
 }
 
@@ -164,6 +175,10 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 	}
 	if operation == "provider" {
 		a.handleProviderProfileApply(w, req)
+		return
+	}
+	if operation == "finalize" {
+		a.handleSetupFinalizeApply(w, req)
 		return
 	}
 	if operation != "network" {
