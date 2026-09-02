@@ -13,21 +13,23 @@ import (
 const defaultNetworkHelperPath = "/opt/lib/freenet/apply_network_profile.sh"
 
 type networkPlanResponse struct {
-	Success          bool   `json:"success"`
-	Supported        bool   `json:"supported"`
-	ISP              string `json:"isp"`
-	DNSMode          string `json:"dns_mode"`
-	EffectiveDNSMode string `json:"effective_dns_mode"`
-	Reason           string `json:"reason,omitempty"`
-	ProxyDNS         string `json:"proxy_dns,omitempty"`
-	Port53Owner      string `json:"port53_owner,omitempty"`
-	XrayGID          string `json:"xray_gid,omitempty"`
-	DNSOut           bool   `json:"dns_out_present"`
-	VLESSProfile     bool   `json:"vless_profile_present"`
-	ExpectedDelta    string `json:"expected_delta,omitempty"`
-	ExpectedNoDelta  string `json:"expected_no_delta,omitempty"`
-	Mutation         string `json:"mutation,omitempty"`
-	Error            string `json:"error,omitempty"`
+	Success          bool                  `json:"success"`
+	Supported        bool                  `json:"supported"`
+	ISP              string                `json:"isp"`
+	DNSMode          string                `json:"dns_mode"`
+	EffectiveDNSMode string                `json:"effective_dns_mode"`
+	Reason           string                `json:"reason,omitempty"`
+	ProxyDNS         string                `json:"proxy_dns,omitempty"`
+	Port53Owner      string                `json:"port53_owner,omitempty"`
+	XrayGID          string                `json:"xray_gid,omitempty"`
+	DNSOut           bool                  `json:"dns_out_present"`
+	VLESSProfile     bool                  `json:"vless_profile_present"`
+	ExpectedDelta    string                `json:"expected_delta,omitempty"`
+	ExpectedNoDelta  string                `json:"expected_no_delta,omitempty"`
+	Mutation         string                `json:"mutation,omitempty"`
+	ExtraProfiles    []subscriptionProfile `json:"extra_profiles,omitempty"`
+	ProfilesError    string                `json:"profiles_error,omitempty"`
+	Error            string                `json:"error,omitempty"`
 }
 
 type networkApplyRequest struct {
@@ -62,6 +64,17 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, _ *http.Request) {
 		plan.Error = err.Error()
 		writeJSON(w, http.StatusServiceUnavailable, plan)
 		return
+	}
+
+	if subscriptionConfigured(a.cfg.SubPath) {
+		ctx, cancel := context.WithTimeout(context.Background(), 32*time.Second)
+		profiles, profileErr := a.discoverSubscriptionProfiles(ctx)
+		cancel()
+		if profileErr != nil {
+			plan.ProfilesError = profileErr.Error()
+		} else {
+			plan.ExtraProfiles = profiles
+		}
 	}
 	writeJSON(w, http.StatusOK, plan)
 }
