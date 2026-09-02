@@ -32,6 +32,7 @@ const (
 	defaultOutPath    = "/opt/etc/xray/configs/04_outbounds.json"
 	defaultXKeenPath  = "/opt/sbin/xkeen"
 	defaultLockPath   = "/tmp/blanc_xkeen_update.lock"
+	defaultConfigPath = "/opt/etc/freenet/freenet.conf"
 )
 
 //go:embed web/index.html
@@ -44,6 +45,7 @@ type config struct {
 	OutPath    string
 	XKeenPath  string
 	LockPath   string
+	ConfigPath string
 	Timeout    time.Duration
 }
 
@@ -55,18 +57,22 @@ type app struct {
 }
 
 type statusResponse struct {
-	Version      string       `json:"version"`
-	CountryCode  string       `json:"country_code"`
-	Country      string       `json:"country"`
-	City         string       `json:"city"`
-	ProfileLabel string       `json:"profile_label"`
-	Endpoint     string       `json:"endpoint"`
-	XrayOnline   bool         `json:"xray_online"`
-	XKeenUI      bool         `json:"xkeen_ui_online"`
-	DNSOut       bool         `json:"dns_out_present"`
-	Busy         bool         `json:"busy"`
-	UpdaterBusy  bool         `json:"updater_busy"`
-	Last         actionResult `json:"last_action"`
+	Version            string       `json:"version"`
+	CountryCode        string       `json:"country_code"`
+	Country            string       `json:"country"`
+	City               string       `json:"city"`
+	ProfileLabel       string       `json:"profile_label"`
+	Endpoint           string       `json:"endpoint"`
+	XrayOnline         bool         `json:"xray_online"`
+	XKeenUI            bool         `json:"xkeen_ui_online"`
+	DNSOut             bool         `json:"dns_out_present"`
+	ISP                string       `json:"isp"`
+	ISPLabel           string       `json:"isp_label"`
+	DNSMode            string       `json:"dns_mode"`
+	RecommendedDNSMode string       `json:"recommended_dns_mode"`
+	Busy               bool         `json:"busy"`
+	UpdaterBusy        bool         `json:"updater_busy"`
+	Last               actionResult `json:"last_action"`
 }
 
 type actionRequest struct {
@@ -80,6 +86,24 @@ type actionResult struct {
 	Error     string `json:"error,omitempty"`
 	StartedAt string `json:"started_at,omitempty"`
 	EndedAt   string `json:"ended_at,omitempty"`
+}
+
+type networkProfileRequest struct {
+	ISP     string `json:"isp"`
+	DNSMode string `json:"dns_mode"`
+}
+
+type networkProfileResponse struct {
+	Success            bool   `json:"success"`
+	ISP                string `json:"isp"`
+	ISPLabel           string `json:"isp_label"`
+	DNSMode            string `json:"dns_mode"`
+	DNSModeLabel       string `json:"dns_mode_label"`
+	RecommendedDNSMode string `json:"recommended_dns_mode"`
+	RecommendedDNSLabel string `json:"recommended_dns_label"`
+	Applied            bool   `json:"applied"`
+	Message            string `json:"message,omitempty"`
+	Error              string `json:"error,omitempty"`
 }
 
 type xrayConfig struct {
@@ -112,6 +136,25 @@ var profiles = map[string]struct {
 	"nl": {Country: "Нидерланды", City: "Amsterdam", Label: "Netherlands · Amsterdam"},
 }
 
+var ispProfiles = map[string]struct {
+	Label              string
+	RecommendedDNSMode string
+}{
+	"auto":            {Label: "Авто", RecommendedDNSMode: "auto"},
+	"vladlink":        {Label: "Владлинк", RecommendedDNSMode: "xkeen"},
+	"alliancetelecom": {Label: "АльянсТелеком", RecommendedDNSMode: "xkeen"},
+	"rostelecom":      {Label: "Ростелеком", RecommendedDNSMode: "firmware"},
+	"podryad":         {Label: "Подряд", RecommendedDNSMode: "firmware"},
+	"custom":          {Label: "Свой", RecommendedDNSMode: "custom"},
+}
+
+var dnsModes = map[string]string{
+	"auto":     "Авто",
+	"firmware": "Штатный DNS роутера",
+	"xkeen":    "XKeen/Xray DNS",
+	"custom":   "Свой",
+}
+
 func main() {
 	cfg := config{}
 	flag.StringVar(&cfg.Listen, "listen", defaultListen, "listen address")
@@ -120,6 +163,7 @@ func main() {
 	flag.StringVar(&cfg.OutPath, "outbound", defaultOutPath, "Xray outbound config path")
 	flag.StringVar(&cfg.XKeenPath, "xkeen", defaultXKeenPath, "XKeen executable path")
 	flag.StringVar(&cfg.LockPath, "updater-lock", defaultLockPath, "updater lock path")
+	flag.StringVar(&cfg.ConfigPath, "config", defaultConfigPath, "FreeNet local config path")
 	flag.DurationVar(&cfg.Timeout, "action-timeout", 95*time.Second, "action timeout")
 	flag.Parse()
 
@@ -128,6 +172,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", a.handleIndex)
 	mux.HandleFunc("GET /api/status", a.handleStatus)
+	mux.HandleFunc("GET /api/network-profile", a.handleNetworkProfileGet)
+	mux.HandleFunc("POST /api/network-profile", a.handleNetworkProfilePost)
 	mux.HandleFunc("POST /api/action", a.handleAction)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -212,6 +258,44 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (a *app) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.status())
+}
+
+func (a *app) handleNetworkProfileGet(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, a.networkProfileView(true, ""))
+}
+
+func (a *app) handleNetworkProfilePost(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeJSON(w, http.StatusForbidden, networkProfileResponse{Success: false, Error: "cross-origin request rejected"})
+		return
+	}
+	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
+		writeJSON(w, http.StatusUnsupportedMediaType, networkProfileResponse{Success: false, Error: "application/json required"})
+		return
+	}
+
+	body := http.MaxBytesReader(w, r.Body, 1024)
+	defer body.Close()
+	dec := json.NewDecoder(body)
+	dec.DisallowUnknownFields()
+	var req networkProfileRequest
+	if err := dec.Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, networkProfileResponse{Success: false, Error: "invalid request"})
+		return
+	}
+	if _, ok := ispProfiles[req.ISP]; !ok {
+		writeJSON(w, http.StatusBadRequest, networkProfileResponse{Success: false, Error: "unsupported ISP"})
+		return
+	}
+	if _, ok := dnsModes[req.DNSMode]; !ok {
+		writeJSON(w, http.StatusBadRequest, networkProfileResponse{Success: false, Error: "unsupported DNS mode"})
+		return
+	}
+	if err := writeNetworkProfileConfig(a.cfg.ConfigPath, req.ISP, req.DNSMode); err != nil {
+		writeJSON(w, http.StatusInternalServerError, networkProfileResponse{Success: false, Error: "cannot save network profile"})
+		return
+	}
+	writeJSON(w, http.StatusOK, a.networkProfileView(true, "Профиль сохранён. Xray не изменялся."))
 }
 
 func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
@@ -453,6 +537,8 @@ func (a *app) status() statusResponse {
 	code := detectCountry(a.cfg.FilterPath)
 	p := profiles[code]
 	endpoint, dnsOut := readOutbound(a.cfg.OutPath)
+	isp, dnsMode := readNetworkProfileConfig(a.cfg.ConfigPath)
+	ispMeta := ispProfiles[isp]
 
 	a.mu.RLock()
 	last := a.last
@@ -462,19 +548,118 @@ func (a *app) status() statusResponse {
 	_, lockErr := os.Stat(a.cfg.LockPath)
 
 	return statusResponse{
-		Version:      version,
-		CountryCode:  code,
-		Country:      p.Country,
-		City:         p.City,
-		ProfileLabel: p.Label,
-		Endpoint:     endpoint,
-		XrayOnline:   processRunning("xray"),
-		XKeenUI:      processRunning("xkeen-ui"),
-		DNSOut:       dnsOut,
-		Busy:         busy,
-		UpdaterBusy:  lockErr == nil,
-		Last:         last,
+		Version:            version,
+		CountryCode:        code,
+		Country:            p.Country,
+		City:               p.City,
+		ProfileLabel:       p.Label,
+		Endpoint:           endpoint,
+		XrayOnline:         processRunning("xray"),
+		XKeenUI:            processRunning("xkeen-ui"),
+		DNSOut:             dnsOut,
+		ISP:                isp,
+		ISPLabel:           ispMeta.Label,
+		DNSMode:            dnsMode,
+		RecommendedDNSMode: ispMeta.RecommendedDNSMode,
+		Busy:               busy,
+		UpdaterBusy:        lockErr == nil,
+		Last:               last,
 	}
+}
+
+func (a *app) networkProfileView(success bool, message string) networkProfileResponse {
+	isp, dnsMode := readNetworkProfileConfig(a.cfg.ConfigPath)
+	meta := ispProfiles[isp]
+	return networkProfileResponse{
+		Success:             success,
+		ISP:                 isp,
+		ISPLabel:            meta.Label,
+		DNSMode:             dnsMode,
+		DNSModeLabel:        dnsModes[dnsMode],
+		RecommendedDNSMode:  meta.RecommendedDNSMode,
+		RecommendedDNSLabel: dnsModes[meta.RecommendedDNSMode],
+		Applied:             false,
+		Message:             message,
+	}
+}
+
+func readNetworkProfileConfig(path string) (string, string) {
+	isp := "auto"
+	dnsMode := "auto"
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return isp, dnsMode
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 {
+			if (value[0] == '\'' && value[len(value)-1] == '\'') || (value[0] == '"' && value[len(value)-1] == '"') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		switch strings.TrimSpace(key) {
+		case "ISP_ID":
+			isp = value
+		case "DNS_MODE":
+			dnsMode = value
+		}
+	}
+	if _, ok := ispProfiles[isp]; !ok {
+		isp = "auto"
+	}
+	if _, ok := dnsModes[dnsMode]; !ok {
+		dnsMode = "auto"
+	}
+	return isp, dnsMode
+}
+
+func writeNetworkProfileConfig(path, isp, dnsMode string) error {
+	if _, ok := ispProfiles[isp]; !ok {
+		return errors.New("unsupported ISP")
+	}
+	if _, ok := dnsModes[dnsMode]; !ok {
+		return errors.New("unsupported DNS mode")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+
+	var lines []string
+	if b, err := os.ReadFile(path); err == nil {
+		lines = strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	seenISP := false
+	seenDNS := false
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "ISP_ID=") {
+			lines[i] = "ISP_ID=" + isp
+			seenISP = true
+		}
+		if strings.HasPrefix(trimmed, "DNS_MODE=") {
+			lines[i] = "DNS_MODE=" + dnsMode
+			seenDNS = true
+		}
+	}
+	if !seenISP {
+		lines = append(lines, "ISP_ID="+isp)
+	}
+	if !seenDNS {
+		lines = append(lines, "DNS_MODE="+dnsMode)
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	return atomicWrite(path, []byte(content), 0600)
 }
 
 func detectCountry(path string) string {
