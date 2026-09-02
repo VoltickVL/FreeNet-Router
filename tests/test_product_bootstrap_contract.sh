@@ -19,6 +19,14 @@ grep -Fq 'bootstrap_entware.sh" apply' "$BOOT" || fail 'нет apply для чи
 grep -Fq 'READY_EXISTING_STACK' "$BOOT" || fail 'нет пути сохранения существующего stack'
 grep -Fq 'NEEDS_REVIEW' "$BOOT" || fail 'нет остановки на частичном stack'
 
+# Сценарий установки определяется bootstrap-ом автоматически и сохраняется только
+# внутри transactional app-фазы; пользователь не может вручную включить rebuild core.
+grep -Fq 'READY_EXISTING_STACK) INSTALL_SCENARIO=existing_stack' "$BOOT" || fail 'нет сценария действующего роутера'
+grep -Fq 'ENTWARE_ONLY) INSTALL_SCENARIO=fresh_entware' "$BOOT" || fail 'нет сценария новой установки'
+grep -Fq 'set_config_value INSTALL_SCENARIO "$INSTALL_SCENARIO"' "$BOOT" || fail 'сценарий установки не сохраняется в локальный config'
+grep -Fq 'backup_one "$CONFIG_FILE" freenet-conf' "$BOOT" || fail 'config со сценарием не покрыт backup'
+grep -Fq 'restore_one "$CONFIG_FILE" freenet-conf' "$BOOT" || fail 'config со сценарием не покрыт rollback'
+
 # Provider/ISP/DNS остаются решениями браузерного мастера; app-фаза сама Xray не переписывает.
 grep -Fq 'XRAY_CONFIG_DELTA=NONE during app phase' "$BOOT" || fail 'нет Xray no-delta acceptance'
 grep -Fq 'snapshot_xray' "$BOOT" || fail 'нет snapshot Xray hash'
