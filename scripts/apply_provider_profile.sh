@@ -28,8 +28,32 @@ cleanup() {
 }
 trap cleanup 0 1 2 15
 
+# POSIX-safe percent decoder. Do not rely on printf '\xHH': dash does not
+# implement that extension, while BusyBox ash does. We need identical profile
+# IDs in CI and on router runtime, including UTF-8 percent-encoded labels.
 url_decode() {
-    printf '%b' "$(printf '%s' "$1" | sed 's/+/ /g; s/%/\\x/g')"
+    printf '%s' "$1" | awk '
+        function hv(c) { return index("0123456789ABCDEF", toupper(c)) - 1 }
+        {
+            for (i = 1; i <= length($0); i++) {
+                c = substr($0, i, 1)
+                if (c == "+") {
+                    printf " "
+                    continue
+                }
+                if (c == "%" && i + 2 <= length($0)) {
+                    a = hv(substr($0, i + 1, 1))
+                    b = hv(substr($0, i + 2, 1))
+                    if (a >= 0 && b >= 0) {
+                        printf "%c", a * 16 + b
+                        i += 2
+                        continue
+                    }
+                }
+                printf "%s", c
+            }
+        }
+    '
 }
 
 get_param() {
