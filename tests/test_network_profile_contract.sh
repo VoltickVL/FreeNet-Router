@@ -33,10 +33,12 @@ grep -Fq 'DNS_READINESS=PASS' "$SCRIPT" || fail 'DNS readiness result marker mis
 grep -Fq 'DNS_ATTEMPTS_USED=' "$SCRIPT" || fail 'DNS readiness attempt diagnostics missing'
 grep -Fq 'fail-once)' "$SCRIPT" || fail 'transient DNS test state missing'
 grep -Fq 'MUTATION=NONE' "$SCRIPT" || fail 'read-only plan marker missing'
+grep -Fq 'keep proxy_dns=off' "$SCRIPT" || fail 'Split plan must keep XKeen DNS interception off'
 grep -Fq 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN' "$SCRIPT" || fail 'rollback unknown state missing'
 grep -Fq 'restart_xkeen()' "$MIGRATE" || fail 'Split DNS migration bounded init restart missing'
 grep -Fq 'run_bounded()' "$MIGRATE" || fail 'Split DNS migration runtime timeout missing'
 grep -Fq 'standard-backend' "$MIGRATE" || fail 'Split migration must support Xray local DNS backend'
+grep -Fq 'proxy_dns должен оставаться off' "$MIGRATE" || fail 'Split migration must require proxy_dns off'
 
 if grep -Eq '\$XKEEN_BIN"[[:space:]]+-(dns|start|stop|restart)' "$SCRIPT" "$MIGRATE"; then
     fail 'interactive XKeen CLI runtime call must not be used'
@@ -222,16 +224,27 @@ jq -e '([.routing.rules[]? | select(((.inboundTag // [])|index("dns-vless"))!=nu
 sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
 run_network plan > "$TMP/split.plan"
 grep -Fq 'PORT53_OWNER=xray' "$TMP/split.plan" || fail 'split plan must keep Xray backend'
+grep -Fq 'keep proxy_dns=off' "$TMP/split.plan" || fail 'split plan must preserve Keenetic DNS path'
 state_set DNS_QUERY_OK fail-once
 FREENET_TEST_MIGRATE_RESULT=success run_network apply > "$TMP/split.apply" 2>&1 || fail 'split apply should survive transient DNS readiness failure'
 grep -Fq '[FreeNet Network] RESULT=ROUTER_SIDE_PASS' "$TMP/split.apply" || fail 'split redirect must require client acceptance'
 grep -Fq 'DNS_ROUTING_MODE=split' "$TMP/split.apply" || fail 'split routing result missing'
+grep -Fq 'PROXY_DNS=off' "$TMP/split.apply" || fail 'split result must report proxy_dns off'
 grep -Fq 'ROLLBACK=NOT_NEEDED' "$TMP/split.apply" || fail 'transient DNS failure must not trigger rollback'
-grep -Fq 'proxy_dns="on"' "$TROOT/etc/init.d/S05xkeen" || fail 'split must set proxy_dns on'
+grep -Fq 'proxy_dns="off"' "$TROOT/etc/init.d/S05xkeen" || fail 'split must keep proxy_dns off'
 grep -Fq 'PORT53_OWNER=xray' "$STATE" || fail 'split must keep Xray backend owner'
 grep -Fq 'DNS_QUERY_OK=yes' "$STATE" || fail 'transient DNS state must advance to success'
 jq -e '([.routing.rules[]? | select(((.inboundTag // [])|index("dns-vless"))!=null and .outboundTag=="vless-reality")] | length)==1' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'split dns-vless route missing'
 jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==1' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'split changed local DNS backend'
+
+# Legacy Split state with proxy_dns=on must be normalized to off without changing the local DNS backend.
+write_legacy_split_state
+sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
+state_set DNS_QUERY_OK yes
+FREENET_TEST_MIGRATE_RESULT=success run_network apply > "$TMP/legacy-split.apply" 2>&1 || fail 'legacy split normalization should succeed'
+grep -Fq 'proxy_dns="off"' "$TROOT/etc/init.d/S05xkeen" || fail 'legacy split normalization must disable XKeen DNS interception'
+grep -Fq 'DNS_ROUTING_MODE=split' "$TMP/legacy-split.apply" || fail 'legacy split normalization must remain split'
+grep -Fq 'PORT53_OWNER=xray' "$STATE" || fail 'legacy split normalization must keep Xray :53 backend'
 
 # Persistent post-apply DNS readiness failure must still fail and restore the standard state.
 sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$TROOT/etc/freenet/freenet.conf"
