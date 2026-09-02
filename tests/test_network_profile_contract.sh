@@ -29,6 +29,9 @@ grep -Fq '"inboundTag":["dns-vless"],"outboundTag":"direct"' "$SCRIPT" || fail '
 grep -Fq '"inboundTag":["dns-direct"],"outboundTag":"direct"' "$SCRIPT" || fail 'standard dns-direct route missing'
 grep -Fq '"port":53,"outboundTag":"dns-out"' "$SCRIPT" || fail 'dns-out route missing'
 grep -Fq 'expected 11111' "$SCRIPT" || fail 'Xray GID acceptance missing'
+grep -Fq 'DNS_READINESS=PASS' "$SCRIPT" || fail 'DNS readiness result marker missing'
+grep -Fq 'DNS_ATTEMPTS_USED=' "$SCRIPT" || fail 'DNS readiness attempt diagnostics missing'
+grep -Fq 'fail-once)' "$SCRIPT" || fail 'transient DNS test state missing'
 grep -Fq 'MUTATION=NONE' "$SCRIPT" || fail 'read-only plan marker missing'
 grep -Fq 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN' "$SCRIPT" || fail 'rollback unknown state missing'
 grep -Fq 'restart_xkeen()' "$MIGRATE" || fail 'Split DNS migration bounded init restart missing'
@@ -215,17 +218,42 @@ grep -Fq 'proxy_dns="off"' "$TROOT/etc/init.d/S05xkeen" || fail 'standard must s
 grep -Fq 'PORT53_OWNER=xray' "$STATE" || fail 'standard must retain Xray backend owner'
 jq -e '([.routing.rules[]? | select(((.inboundTag // [])|index("dns-vless"))!=null and .outboundTag=="vless-reality")] | length)==0' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'standard must remove DNS via VLESS'
 
-# Split conversion from standard: same :53 backend, only dns-vless upstream changes to VLESS.
+# Split conversion from standard: first DNS readiness attempt may fail while Xray/VLESS warms up.
 sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
 run_network plan > "$TMP/split.plan"
 grep -Fq 'PORT53_OWNER=xray' "$TMP/split.plan" || fail 'split plan must keep Xray backend'
-FREENET_TEST_MIGRATE_RESULT=success run_network apply > "$TMP/split.apply" 2>&1 || fail 'split apply should succeed router-side'
+state_set DNS_QUERY_OK fail-once
+FREENET_TEST_MIGRATE_RESULT=success run_network apply > "$TMP/split.apply" 2>&1 || fail 'split apply should survive transient DNS readiness failure'
 grep -Fq '[FreeNet Network] RESULT=ROUTER_SIDE_PASS' "$TMP/split.apply" || fail 'split redirect must require client acceptance'
 grep -Fq 'DNS_ROUTING_MODE=split' "$TMP/split.apply" || fail 'split routing result missing'
+grep -Fq 'ROLLBACK=NOT_NEEDED' "$TMP/split.apply" || fail 'transient DNS failure must not trigger rollback'
 grep -Fq 'proxy_dns="on"' "$TROOT/etc/init.d/S05xkeen" || fail 'split must set proxy_dns on'
 grep -Fq 'PORT53_OWNER=xray' "$STATE" || fail 'split must keep Xray backend owner'
+grep -Fq 'DNS_QUERY_OK=yes' "$STATE" || fail 'transient DNS state must advance to success'
 jq -e '([.routing.rules[]? | select(((.inboundTag // [])|index("dns-vless"))!=null and .outboundTag=="vless-reality")] | length)==1' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'split dns-vless route missing'
 jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==1' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'split changed local DNS backend'
+
+# Persistent post-apply DNS readiness failure must still fail and restore the standard state.
+sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$TROOT/etc/freenet/freenet.conf"
+state_set DNS_QUERY_OK yes
+run_network apply >/dev/null 2>&1 || fail 'reset to standard before persistent DNS failure test failed'
+sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
+cp "$TROOT/etc/xray/configs/02_dns.json" "$TMP/dns-readiness.02.before"
+cp "$TROOT/etc/xray/configs/03_inbounds.json" "$TMP/dns-readiness.03.before"
+cp "$TROOT/etc/xray/configs/04_outbounds.json" "$TMP/dns-readiness.04.before"
+cp "$TROOT/etc/xray/configs/05_routing.json" "$TMP/dns-readiness.05.before"
+cp "$TROOT/etc/init.d/S05xkeen" "$TMP/dns-readiness.init.before"
+state_set DNS_QUERY_OK no
+if FREENET_TEST_MIGRATE_RESULT=success run_network apply > "$TMP/dns-readiness.fail" 2>&1; then fail 'persistent DNS readiness failure unexpectedly succeeded'; fi
+grep -Fq 'PRIMARY ERROR: post-apply Split DNS acceptance failed' "$TMP/dns-readiness.fail" || fail 'persistent DNS readiness primary error missing'
+grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/dns-readiness.fail" || fail 'persistent DNS readiness rollback result missing'
+grep -Fq 'proxy_dns="off"' "$TROOT/etc/init.d/S05xkeen" || fail 'persistent DNS readiness rollback must restore proxy_dns off'
+cmp -s "$TMP/dns-readiness.02.before" "$TROOT/etc/xray/configs/02_dns.json" || fail 'persistent DNS readiness rollback must restore DNS config'
+cmp -s "$TMP/dns-readiness.03.before" "$TROOT/etc/xray/configs/03_inbounds.json" || fail 'persistent DNS readiness rollback must restore inbounds'
+cmp -s "$TMP/dns-readiness.04.before" "$TROOT/etc/xray/configs/04_outbounds.json" || fail 'persistent DNS readiness rollback must restore outbounds'
+cmp -s "$TMP/dns-readiness.05.before" "$TROOT/etc/xray/configs/05_routing.json" || fail 'persistent DNS readiness rollback must restore routing'
+cmp -s "$TMP/dns-readiness.init.before" "$TROOT/etc/init.d/S05xkeen" || fail 'persistent DNS readiness rollback must restore XKeen init'
+state_set DNS_QUERY_OK yes
 
 # Migration failure must restore standard mode and proxy_dns=off.
 sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$TROOT/etc/freenet/freenet.conf"
