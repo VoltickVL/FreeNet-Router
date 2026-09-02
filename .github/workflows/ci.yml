@@ -59,10 +59,12 @@ jobs:
           sh -n scripts/blanc_xkeen_update_outbounds.sh
           sh -n scripts/migrate_split_dns.sh
           sh -n scripts/bootstrap_entware.sh
+          sh -n scripts/apply_network_profile.sh
           sh -n tests/test_vpn_contract.sh
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
+          sh -n tests/test_network_profile_contract.sh
           sh -n deploy/S99freenet-ui
 
       - name: VPN transactional switch test
@@ -76,6 +78,9 @@ jobs:
 
       - name: Product bootstrap contract test
         run: sh tests/test_product_bootstrap_contract.sh
+
+      - name: ISP network profile contract test
+        run: sh tests/test_network_profile_contract.sh
 
       - name: VPN updater contract
         run: |
