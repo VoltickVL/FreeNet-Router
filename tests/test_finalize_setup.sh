@@ -26,7 +26,8 @@ SUB="$TROOT/etc/xray/sub.url"
 PROFILE="$TROOT/etc/freenet/vpn_profile_name"
 OUT="$TROOT/etc/xray/configs/04_outbounds.json"
 INIT="$TROOT/etc/init.d/S05xkeen"
-CRON_STORE="$TMP/crontab"
+CRON_BIN="$TMP/fake-crontab"
+CRON_STORE="$TMP/crontab.store"
 STATE="$TMP/state"
 mkdir -p "$TROOT/etc/freenet" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$TROOT/etc/init.d" "$TROOT/sbin" "$TROOT/lib/freenet" "$TROOT/bin"
 
@@ -94,7 +95,7 @@ MUTATION=NONE
 PLAN
 EOF
 chmod 755 "$TROOT/lib/freenet/apply_network_profile.sh"
-cat > "$TMP/crontab" <<'EOF'
+cat > "$CRON_BIN" <<'EOF'
 #!/bin/sh
 if [ "${1:-}" = -l ]; then
     cat "$FREENET_TEST_CRON_STORE" 2>/dev/null || true
@@ -103,7 +104,7 @@ fi
 [ "${FREENET_TEST_CRON_FAIL:-no}" = yes ] && exit 1
 cp "$1" "$FREENET_TEST_CRON_STORE"
 EOF
-chmod 755 "$TMP/crontab"
+chmod 755 "$CRON_BIN"
 
 run_finalize() {
     FREENET_ROOT="$TROOT" \
@@ -115,7 +116,7 @@ run_finalize() {
     FREENET_XKEEN_BIN="$TROOT/sbin/xkeen" \
     FREENET_XRAY_BIN="$TROOT/sbin/xray" \
     FREENET_NETWORK_HELPER="$TROOT/lib/freenet/apply_network_profile.sh" \
-    FREENET_CRONTAB_BIN="$TMP/crontab" \
+    FREENET_CRONTAB_BIN="$CRON_BIN" \
     FREENET_FINALIZE_TEST_MODE=yes \
     FREENET_FINALIZE_TEST_STATE="$STATE" \
     FREENET_TEST_CRON_STORE="$CRON_STORE" \
