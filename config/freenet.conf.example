@@ -5,7 +5,9 @@
 UI_PORT=1001
 SETUP_COMPLETE=no
 ISP_ID=auto
-DNS_MODE=auto
+# Безопасное значение по умолчанию: DNS обслуживает штатный Keenetic/ndnproxy.
+# Split DNS через XKeen/Xray включается только явным выбором в Browser Setup.
+DNS_MODE=firmware
 # Endpoint cron не включается до browser setup + provider/DNS acceptance.
 AUTO_ENDPOINT_UPDATE=no
 AUTO_ENDPOINT_CRON='*/15 * * * *'
