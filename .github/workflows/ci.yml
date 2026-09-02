@@ -10,6 +10,7 @@ on:
       - 'docs/**'
       - 'config/**'
       - 'scripts/**'
+      - 'tests/**'
       - 'freenet-ui/**'
       - 'deploy/**'
       - '.github/workflows/**'
@@ -54,7 +55,22 @@ jobs:
           sh -n doctor.sh
           sh -n scripts/vpn
           sh -n scripts/blanc_xkeen_update_outbounds.sh
+          sh -n tests/test_vpn_contract.sh
           sh -n deploy/S99freenet-ui
+
+      - name: VPN transactional switch test
+        run: sh tests/test_vpn_contract.sh
+
+      - name: VPN updater contract
+        run: |
+          grep -q 'FREENET_FILTER_OVERRIDE' scripts/vpn
+          grep -q 'FREENET_FILTER_OVERRIDE' scripts/blanc_xkeen_update_outbounds.sh
+          grep -q 'profile filter committed after successful' scripts/blanc_xkeen_update_outbounds.sh
+          grep -q 'matching Extra candidates' scripts/blanc_xkeen_update_outbounds.sh
+          grep -q 'candidate fingerprint' scripts/blanc_xkeen_update_outbounds.sh
+          grep -q 'ROLLBACK: restoring previous 04_outbounds.json and profile filter' scripts/blanc_xkeen_update_outbounds.sh
+          grep -q "Cache-Control: no-cache" scripts/blanc_xkeen_update_outbounds.sh
+          ! grep -Fq 'echo "$FILTER" > "$FILTER_FILE"' scripts/vpn
 
       - name: Installer contract
         run: |
@@ -116,7 +132,7 @@ jobs:
         run: |
           ! grep -Rni --exclude='*_test.go' -E \
             'vless://[0-9A-Fa-f-]{36}@|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
-            install.sh doctor.sh scripts config freenet-ui deploy README.md docs
+            install.sh doctor.sh scripts tests config freenet-ui deploy README.md docs
 
       - name: Cross-build direct router binaries
         run: |
