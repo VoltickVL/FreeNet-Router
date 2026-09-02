@@ -21,7 +21,7 @@ func TestProviderSelectionUIContract(t *testing.T) {
 		"provider_profile_id=",
 		"operation:'provider'",
 		"profile_id:selectedProviderID",
-		"CANDIDATE",
+		"candidate_xray_valid",
 		"PRIMARY ERROR:",
 		"ROLLBACK:",
 		"Не повторяйте вслепую",
