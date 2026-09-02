@@ -14,8 +14,10 @@ sh -n "$MIGRATE"
 grep -Fq 'EFFECTIVE_DNS=firmware' "$SCRIPT" || fail 'safe firmware DNS mode missing'
 grep -Fq 'EFFECTIVE_DNS=xkeen' "$SCRIPT" || fail 'explicit split DNS mode missing'
 grep -Fq "REASON='штатный DNS Keenetic — безопасный режим по умолчанию'" "$SCRIPT" || fail 'safe default reason missing'
-grep -Fq '"$XKEEN_BIN" -dns off' "$SCRIPT" || fail 'controlled standard DNS activation missing'
-grep -Fq '"$XKEEN_BIN" -dns on' "$SCRIPT" || fail 'controlled Split DNS activation missing'
+grep -Fq 'set_proxy_dns_state()' "$SCRIPT" || fail 'non-interactive proxy_dns controller missing'
+grep -Fq 'run_bounded()' "$SCRIPT" || fail 'bounded runtime helper missing'
+grep -Fq 'xkeen_runtime()' "$SCRIPT" || fail 'init-based XKeen runtime helper missing'
+grep -Fq 'xkeen-init.before' "$SCRIPT" || fail 'XKeen init backup missing'
 grep -Fq 'PORT53_OWNER=ndnproxy' "$SCRIPT" || fail 'ndnproxy fact reporting missing'
 grep -Fq 'expected 11111' "$SCRIPT" || fail 'Xray GID acceptance missing'
 grep -Fq 'MUTATION=NONE' "$SCRIPT" || fail 'read-only plan marker missing'
@@ -24,6 +26,13 @@ grep -Fq 'post-apply acceptance штатного DNS не пройден' "$SCRI
 grep -Fq 'post-apply Split DNS acceptance failed' "$SCRIPT" || fail 'split DNS acceptance missing'
 grep -Fq 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN' "$SCRIPT" || fail 'rollback unknown state missing'
 grep -Fq 'RESULT=SUCCESS' "$SCRIPT" || fail 'success marker missing'
+grep -Fq 'restart_xkeen()' "$MIGRATE" || fail 'Split DNS migration bounded init restart missing'
+grep -Fq 'run_bounded()' "$MIGRATE" || fail 'Split DNS migration runtime timeout missing'
+
+# DNS helpers must never call XKeen interactive CLI for DNS/runtime mutation.
+if grep -Eq '\$XKEEN_BIN"[[:space:]]+-(dns|start|stop|restart)' "$SCRIPT" "$MIGRATE"; then
+    fail 'interactive XKeen CLI runtime call must not be used'
+fi
 
 # Existing migration engine must keep supporting both known XKeen init paths.
 grep -Fq '/opt/etc/init.d/S99xkeen /opt/etc/init.d/S05xkeen' "$MIGRATE" || fail 'migration must support S99/S05 XKeen init paths'
@@ -66,40 +75,23 @@ PORT53_OWNER=xray
 XRAY_RUNNING=yes
 XRAY_GID=11111
 DNS_QUERY_OK=yes
+XKEEN_ACTION_RESULT=success
 EOF
 
+state_set() {
+    key="$1"
+    value="$2"
+    tmp="$STATE.tmp.$$"
+    grep -v "^${key}=" "$STATE" > "$tmp" 2>/dev/null || true
+    echo "${key}=${value}" >> "$tmp"
+    mv "$tmp" "$STATE"
+}
+
+# Deliberately interactive-only stub: any invocation is a regression.
 cat > "$TROOT/sbin/xkeen" <<'EOF'
 #!/bin/sh
-set_state() {
-    key="$1"; value="$2"; tmp="${FREENET_NETWORK_TEST_STATE}.tmp.$$"
-    grep -v "^${key}=" "$FREENET_NETWORK_TEST_STATE" > "$tmp" 2>/dev/null || true
-    echo "${key}=${value}" >> "$tmp"
-    mv "$tmp" "$FREENET_NETWORK_TEST_STATE"
-}
-case "${1:-}" in
-    -start|-restart)
-        set_state XRAY_RUNNING yes
-        set_state XRAY_GID 11111
-        ;;
-    -stop)
-        set_state XRAY_RUNNING no
-        ;;
-    -dns)
-        case "${2:-}" in
-            on)
-                sed -i 's/^proxy_dns=.*/proxy_dns="on"/' "$FREENET_ROOT/etc/init.d/S05xkeen"
-                set_state PORT53_OWNER ndnproxy
-                ;;
-            off)
-                sed -i 's/^proxy_dns=.*/proxy_dns="off"/' "$FREENET_ROOT/etc/init.d/S05xkeen"
-                set_state PORT53_OWNER ndnproxy
-                ;;
-            *) exit 1 ;;
-        esac
-        ;;
-    *) exit 1 ;;
-esac
-exit 0
+echo "unexpected XKeen CLI invocation: $*" >> "$FREENET_ROOT/xkeen-cli.called"
+exit 99
 EOF
 chmod 755 "$TROOT/sbin/xkeen"
 
@@ -135,18 +127,34 @@ run_network() {
     FREENET_XKEEN_BIN="$TROOT/sbin/xkeen" \
     FREENET_XRAY_BIN="$TROOT/sbin/xray" \
     FREENET_MIGRATE_SCRIPT="$TROOT/lib/freenet/migrate_split_dns.sh" \
+    FREENET_XKEEN_RUNTIME_TIMEOUT=2 \
     FREENET_NETWORK_TEST_MODE=yes \
     FREENET_NETWORK_TEST_STATE="$STATE" \
     sh "$SCRIPT" "$@"
 }
 
-# auto is now safe standard DNS even for Vladlink. The plan must disclose repair
+# auto is safe standard DNS even for Vladlink. The plan must disclose repair
 # of the exact HOME failure class where Xray owns port 53.
 run_network plan > "$TMP/standard.plan"
 grep -Fq 'EFFECTIVE_DNS_MODE=firmware' "$TMP/standard.plan" || fail 'auto must resolve to firmware DNS'
 grep -Fq 'SUPPORTED=yes' "$TMP/standard.plan" || fail 'standard DNS must be supported'
 grep -Fq 'PORT53_OWNER=xray' "$TMP/standard.plan" || fail 'plan must report broken Xray :53 ownership'
 grep -Fq 'repair legacy Xray :53 ownership' "$TMP/standard.plan" || fail 'plan must disclose Xray :53 repair'
+
+# Regression for the HOME incident: runtime restart times out once after the
+# candidate is staged. Rollback must restore JSON + proxy_dns + legacy owner,
+# and the interactive xkeen CLI must never be invoked.
+state_set XKEEN_ACTION_RESULT timeout-once
+if run_network apply > "$TMP/timeout.fail" 2>&1; then
+    fail 'simulated XKeen restart timeout unexpectedly succeeded'
+fi
+grep -Fq 'PRIMARY ERROR: XKeen init restart' "$TMP/timeout.fail" || fail 'restart timeout primary error missing'
+grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/timeout.fail" || fail 'restart timeout must roll back successfully'
+grep -Fq 'proxy_dns="on"' "$TROOT/etc/init.d/S05xkeen" || fail 'timeout rollback must restore proxy_dns on'
+grep -Fq 'PORT53_OWNER=xray' "$STATE" || fail 'timeout rollback must restore legacy Xray :53 owner'
+jq -e 'any(.inbounds[]?; (((.port // "") | tostring)) == "53")' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'timeout rollback must restore Xray :53 listener'
+jq -e '([.outbounds[]? | select(.tag == "dns-out")] | length) == 0' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'timeout rollback must restore no dns-out'
+[ ! -e "$TROOT/xkeen-cli.called" ] || fail 'interactive XKeen CLI was invoked during timeout/rollback'
 
 run_network apply > "$TMP/standard.apply" 2>&1 || fail 'standard DNS repair should succeed'
 grep -Fq '[FreeNet Network] RESULT=SUCCESS' "$TMP/standard.apply" || fail 'standard success marker missing'
@@ -157,6 +165,7 @@ jq -e 'all(.inbounds[]?; (((.port // "") | tostring)) != "53")' "$TROOT/etc/xray
 jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | length) == 1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'common schema must retain one inert dns-out'
 jq -e 'all(.routing.rules[]?; (.outboundTag // "") != "dns-out" and (((.port // "") | tostring)) != "53")' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'standard mode must remove split-DNS routing rules'
 jq -e 'any(.routing.rules[]?; .outboundTag == "direct" and (.domain | index("example.org") != null))' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'standard mode must preserve non-DNS routing'
+[ ! -e "$TROOT/xkeen-cli.called" ] || fail 'interactive XKeen CLI was invoked during standard apply'
 
 # Explicit Split DNS starts only from a healthy firmware-DNS topology and must
 # keep ndnproxy on :53 while enabling XKeen interception.
@@ -166,13 +175,14 @@ grep -Fq 'EFFECTIVE_DNS_MODE=xkeen' "$TMP/split.plan" || fail 'explicit xkeen mo
 grep -Fq 'preserve Keenetic ndnproxy as owner of :53' "$TMP/split.plan" || fail 'split plan must preserve firmware :53 owner'
 
 FREENET_TEST_MIGRATE_RESULT=success run_network apply > "$TMP/split.apply" 2>&1 || fail 'explicit Split DNS apply should succeed'
-grep -Fq 'proxy_dns="on"' "$TROOT/etc/init.d/S05xkeen" || fail 'split mode must enable proxy_dns through xkeen command'
+grep -Fq 'proxy_dns="on"' "$TROOT/etc/init.d/S05xkeen" || fail 'split mode must enable proxy_dns non-interactively'
 grep -Fq 'PORT53_OWNER=ndnproxy' "$STATE" || fail 'split mode must keep ndnproxy :53 ownership'
 grep -Fq 'EFFECTIVE_DNS_MODE=xkeen' "$TMP/split.apply" || fail 'split result mode missing'
+[ ! -e "$TROOT/xkeen-cli.called" ] || fail 'interactive XKeen CLI was invoked during split apply'
 
 # Split DNS is forbidden if Xray already owns :53. No blind mutation is allowed.
 sed -i 's/^proxy_dns=.*/proxy_dns="off"/' "$TROOT/etc/init.d/S05xkeen"
-sed -i 's/^PORT53_OWNER=.*/PORT53_OWNER=xray/' "$STATE"
+state_set PORT53_OWNER xray
 if run_network apply > "$TMP/xray53.fail" 2>&1; then
     fail 'Split DNS must stop when Xray already owns :53'
 fi
@@ -180,8 +190,8 @@ grep -Fq 'сначала примените штатный DNS для безоп
 grep -Fq 'proxy_dns="off"' "$TROOT/etc/init.d/S05xkeen" || fail 'unsafe split preflight must not mutate proxy_dns'
 
 # Migration failure after runtime preparation must restore proxy_dns/config/runtime.
-sed -i 's/^PORT53_OWNER=.*/PORT53_OWNER=ndnproxy/' "$STATE"
-sed -i 's/^XRAY_RUNNING=.*/XRAY_RUNNING=yes/' "$STATE"
+state_set PORT53_OWNER ndnproxy
+state_set XRAY_RUNNING yes
 cp "$TROOT/etc/xray/configs/04_outbounds.json" "$TMP/out.before"
 if FREENET_TEST_MIGRATE_RESULT=fail run_network apply > "$TMP/migrate.fail" 2>&1; then
     fail 'simulated Split DNS migration failure unexpectedly succeeded'
@@ -189,5 +199,6 @@ fi
 grep -Fq 'ROLLBACK ERROR/STATE: rollback success/no live apply' "$TMP/migrate.fail" || fail 'Split DNS failure must report successful rollback'
 grep -Fq 'proxy_dns="off"' "$TROOT/etc/init.d/S05xkeen" || fail 'rollback must restore proxy_dns off'
 cmp -s "$TMP/out.before" "$TROOT/etc/xray/configs/04_outbounds.json" || fail 'rollback must restore outbound config snapshot'
+[ ! -e "$TROOT/xkeen-cli.called" ] || fail 'interactive XKeen CLI was invoked by DNS controller'
 
 echo 'network profile contract PASS'

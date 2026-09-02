@@ -18,6 +18,7 @@ XKEEN_BIN="${FREENET_XKEEN_BIN:-$ROOT/sbin/xkeen}"
 XRAY_BIN="${FREENET_XRAY_BIN:-$ROOT/sbin/xray}"
 XRAY_ASSET_DIR="${FREENET_XRAY_ASSET_DIR:-$ROOT/etc/xray/dat}"
 BACKUP_ROOT="${FREENET_BACKUP_ROOT:-$ROOT/backups}"
+RUNTIME_TIMEOUT="${FREENET_XKEEN_RUNTIME_TIMEOUT:-75}"
 MODE="${1:-plan}"
 TEST_MODE="${FREENET_NETWORK_TEST_MODE:-no}"
 TEST_STATE="${FREENET_NETWORK_TEST_STATE:-}"
@@ -66,6 +67,16 @@ test_state_value() {
         [ -n "$VALUE" ] && { printf '%s\n' "$VALUE"; return 0; }
     fi
     printf '%s\n' "$DEFAULT"
+}
+
+test_state_set() {
+    KEY="$1"
+    VALUE="$2"
+    [ "$TEST_MODE" = yes ] && [ -n "$TEST_STATE" ] || return 1
+    TMP_STATE="$TEST_STATE.tmp.$$"
+    grep -v "^${KEY}=" "$TEST_STATE" > "$TMP_STATE" 2>/dev/null || true
+    printf '%s=%s\n' "$KEY" "$VALUE" >> "$TMP_STATE" || return 1
+    mv -f "$TMP_STATE" "$TEST_STATE"
 }
 
 port53_lines() {
@@ -123,6 +134,107 @@ proxy_dns_state() {
     else
         printf '%s\n' unknown
     fi
+}
+
+set_proxy_dns_state() {
+    DESIRED="$1"
+    case "$DESIRED" in on|off) : ;; *) return 1 ;; esac
+
+    INIT="$(xkeen_init 2>/dev/null || true)"
+    [ -n "$INIT" ] || return 1
+    [ "$(proxy_dns_state)" = "$DESIRED" ] && return 0
+
+    STAGED="$INIT.freenet.$$"
+    cp -p "$INIT" "$STAGED" || return 1
+    sed -i \
+        -e "s/^[[:space:]]*proxy_dns=\"[a-z]*\"[[:space:]]*$/proxy_dns=\"$DESIRED\"/" \
+        -e "s/^[[:space:]]*proxy_dns=[a-z]*[[:space:]]*$/proxy_dns=\"$DESIRED\"/" \
+        "$STAGED" || { rm -f "$STAGED"; return 1; }
+
+    COUNT="$(grep -Ec '^[[:space:]]*proxy_dns="?(on|off)"?[[:space:]]*$' "$STAGED" 2>/dev/null || true)"
+    [ "$COUNT" = 1 ] || { rm -f "$STAGED"; return 1; }
+    grep -Eq "^[[:space:]]*proxy_dns=\"?$DESIRED\"?[[:space:]]*$" "$STAGED" || { rm -f "$STAGED"; return 1; }
+
+    mv -f "$STAGED" "$INIT" || { rm -f "$STAGED"; return 1; }
+    [ "$(proxy_dns_state)" = "$DESIRED" ]
+}
+
+run_bounded() {
+    LIMIT="$1"
+    LOG_FILE="$2"
+    shift 2
+
+    "$@" > "$LOG_FILE" 2>&1 &
+    CMD_PID=$!
+    ELAPSED=0
+    while kill -0 "$CMD_PID" 2>/dev/null; do
+        if [ "$ELAPSED" -ge "$LIMIT" ]; then
+            err "runtime command timeout after ${LIMIT}s: $*"
+            kill -TERM "$CMD_PID" 2>/dev/null || true
+            sleep 2
+            kill -0 "$CMD_PID" 2>/dev/null && kill -KILL "$CMD_PID" 2>/dev/null || true
+            wait "$CMD_PID" 2>/dev/null || true
+            return 124
+        fi
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+    done
+    wait "$CMD_PID"
+}
+
+test_runtime_action() {
+    ACTION="$1"
+    RESULT="$(test_state_value XKEEN_ACTION_RESULT success)"
+    case "$RESULT" in
+        timeout-once)
+            test_state_set XKEEN_ACTION_RESULT success || return 1
+            return 124
+            ;;
+        fail-once)
+            test_state_set XKEEN_ACTION_RESULT success || return 1
+            return 1
+            ;;
+        timeout) return 124 ;;
+        fail) return 1 ;;
+        success|'') : ;;
+        *) return 1 ;;
+    esac
+
+    case "$ACTION" in
+        start|restart)
+            test_state_set XRAY_RUNNING yes || return 1
+            test_state_set XRAY_GID 11111 || return 1
+            if jq -e 'any(.inbounds[]?; (((.port // "") | tostring)) == "53")' "$INBOUND_FILE" >/dev/null 2>&1; then
+                test_state_set PORT53_OWNER xray || return 1
+            else
+                test_state_set PORT53_OWNER ndnproxy || return 1
+            fi
+            ;;
+        stop)
+            test_state_set XRAY_RUNNING no || return 1
+            test_state_set PORT53_OWNER ndnproxy || return 1
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+xkeen_runtime() {
+    ACTION="$1"
+    LOG_FILE="$2"
+
+    if [ "$TEST_MODE" = yes ]; then
+        test_runtime_action "$ACTION"
+        return
+    fi
+
+    INIT="$(xkeen_init 2>/dev/null || true)"
+    [ -n "$INIT" ] && [ -x "$INIT" ] || return 1
+    case "$ACTION" in
+        start) run_bounded "$RUNTIME_TIMEOUT" "$LOG_FILE" "$INIT" start on ;;
+        restart) run_bounded "$RUNTIME_TIMEOUT" "$LOG_FILE" "$INIT" restart on ;;
+        stop) run_bounded "$RUNTIME_TIMEOUT" "$LOG_FILE" "$INIT" stop ;;
+        *) return 1 ;;
+    esac
 }
 
 has_dns_out() {
@@ -248,6 +360,9 @@ preflight_common() {
         done
     fi
 
+    case "$RUNTIME_TIMEOUT" in ''|*[!0-9]*) err 'некорректный timeout XKeen runtime'; return 1 ;; esac
+    [ "$RUNTIME_TIMEOUT" -gt 0 ] || { err 'timeout XKeen runtime должен быть больше нуля'; return 1; }
+
     [ -x "$XKEEN_BIN" ] || { err 'XKeen не найден'; return 1; }
     [ -x "$XRAY_BIN" ] || { err 'Xray не найден'; return 1; }
     [ -d "$CONFIG_DIR" ] || { err 'каталог Xray config не найден'; return 1; }
@@ -259,6 +374,9 @@ preflight_common() {
 
     XINIT="$(xkeen_init 2>/dev/null || true)"
     [ -n "$XINIT" ] || { err 'init XKeen не найден'; return 1; }
+    [ "$TEST_MODE" = yes ] || [ -x "$XINIT" ] || { err 'init XKeen не исполняемый'; return 1; }
+    PROXY_LINES="$(grep -Ec '^[[:space:]]*proxy_dns="?(on|off)"?[[:space:]]*$' "$XINIT" 2>/dev/null || true)"
+    [ "$PROXY_LINES" = 1 ] || { err "ожидалась ровно одна настройка proxy_dns, найдено: ${PROXY_LINES:-0}"; return 1; }
     PROXY_DNS_INITIAL="$(proxy_dns_state)"
     case "$PROXY_DNS_INITIAL" in on|off) : ;; *) err 'не удалось определить proxy_dns XKeen'; return 1 ;; esac
 
@@ -295,7 +413,10 @@ snapshot_configs() {
     for NAME in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do
         cp -p "$CONFIG_DIR/$NAME" "$BACKUP_DIR/$NAME" || return 1
     done
-    sha256sum "$BACKUP_DIR"/*.json > "$BACKUP_DIR/SHA256SUMS.before" 2>/dev/null || true
+    XINIT="$(xkeen_init 2>/dev/null || true)"
+    [ -n "$XINIT" ] || return 1
+    cp -p "$XINIT" "$BACKUP_DIR/xkeen-init.before" || return 1
+    sha256sum "$BACKUP_DIR"/*.json "$BACKUP_DIR/xkeen-init.before" > "$BACKUP_DIR/SHA256SUMS.before" 2>/dev/null || true
     CONFIG_SNAPSHOT_KIND="$KIND"
 }
 
@@ -306,22 +427,26 @@ restore_configs() {
         cp -p "$BACKUP_DIR/$NAME" "$CONFIG_DIR/$NAME.rollback.$$" 2>/dev/null || RB=1
         [ "$RB" -ne 0 ] || mv -f "$CONFIG_DIR/$NAME.rollback.$$" "$CONFIG_DIR/$NAME" 2>/dev/null || RB=1
     done
+
+    XINIT="$(xkeen_init 2>/dev/null || true)"
+    if [ -z "$XINIT" ] || [ ! -f "$BACKUP_DIR/xkeen-init.before" ]; then
+        RB=1
+    else
+        cp -p "$BACKUP_DIR/xkeen-init.before" "$XINIT.rollback.$$" 2>/dev/null || RB=1
+        [ "$RB" -ne 0 ] || mv -f "$XINIT.rollback.$$" "$XINIT" 2>/dev/null || RB=1
+    fi
     [ "$RB" -eq 0 ]
 }
 
 restore_runtime() {
     RB=0
-    case "$PROXY_DNS_INITIAL" in
-        on) "$XKEEN_BIN" -dns on >/tmp/freenet-network-dns-rollback.$$.log 2>&1 || RB=1 ;;
-        off) "$XKEEN_BIN" -dns off >/tmp/freenet-network-dns-rollback.$$.log 2>&1 || RB=1 ;;
-        *) RB=1 ;;
-    esac
+    [ "$(proxy_dns_state)" = "$PROXY_DNS_INITIAL" ] || RB=1
 
     if [ "$XRAY_WAS_RUNNING" = yes ]; then
-        "$XKEEN_BIN" -restart >/tmp/freenet-network-runtime-rollback.$$.log 2>&1 || RB=1
+        xkeen_runtime restart "/tmp/freenet-network-runtime-rollback.$$.log" || RB=1
         wait_for_xray yes || RB=1
     else
-        "$XKEEN_BIN" -stop >/tmp/freenet-network-runtime-rollback.$$.log 2>&1 || RB=1
+        xkeen_runtime stop "/tmp/freenet-network-runtime-rollback.$$.log" || RB=1
         wait_for_xray no || RB=1
     fi
     [ "$RB" -eq 0 ]
@@ -408,15 +533,16 @@ apply_standard() {
         err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 2
     }
 
-    "$XKEEN_BIN" -dns off >/tmp/freenet-network-dns-off.$$.log 2>&1 || {
-        err 'PRIMARY ERROR: xkeen -dns off завершился ошибкой'
+    set_proxy_dns_state off || {
+        err 'PRIMARY ERROR: не удалось non-interactive установить proxy_dns=off'
         if rollback_all; then err 'ROLLBACK ERROR/STATE: rollback success'; return 1; fi
         err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 2
     }
 
     if [ "$XRAY_WAS_RUNNING" = yes ]; then
-        "$XKEEN_BIN" -restart >/tmp/freenet-network-standard-restart.$$.log 2>&1 || {
-            err 'PRIMARY ERROR: xkeen -restart после выключения DNS завершился ошибкой'
+        xkeen_runtime restart "/tmp/freenet-network-standard-restart.$$.log" || {
+            RC=$?
+            err "PRIMARY ERROR: XKeen init restart после выключения DNS завершился ошибкой/timeout (rc=$RC)"
             if rollback_all; then err 'ROLLBACK ERROR/STATE: rollback success'; return 1; fi
             err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 2
         }
@@ -426,7 +552,7 @@ apply_standard() {
             err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 2
         }
     else
-        "$XKEEN_BIN" -stop >/tmp/freenet-network-standard-stop.$$.log 2>&1 || true
+        xkeen_runtime stop "/tmp/freenet-network-standard-stop.$$.log" || true
     fi
 
     if ! accept_standard; then
@@ -458,7 +584,7 @@ preflight_split() {
 
 prepare_split_runtime() {
     if [ "$XRAY_WAS_RUNNING" = no ]; then
-        "$XKEEN_BIN" -start >/tmp/freenet-network-xkeen-start.$$.log 2>&1 || return 1
+        xkeen_runtime start "/tmp/freenet-network-xkeen-start.$$.log" || return 1
         wait_for_xray yes || return 1
     fi
     PID="$(xray_pid)"
@@ -466,7 +592,7 @@ prepare_split_runtime() {
     [ "$(xray_gid "$PID")" = 11111 ] || return 1
 
     if [ "$PROXY_DNS_INITIAL" = off ]; then
-        "$XKEEN_BIN" -dns on >/tmp/freenet-network-dns-on.$$.log 2>&1 || return 1
+        set_proxy_dns_state on || return 1
         [ "$(proxy_dns_state)" = on ] || return 1
     fi
     [ "$(port53_owner)" = ndnproxy ] || return 1
@@ -495,6 +621,8 @@ apply_split() {
         err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 2
     fi
 
+    FREENET_XKEEN_INIT="$(xkeen_init 2>/dev/null || true)" \
+    FREENET_XKEEN_RUNTIME_TIMEOUT="$RUNTIME_TIMEOUT" \
     "$MIGRATE_SCRIPT"
     RC=$?
     if [ "$RC" -ne 0 ]; then
