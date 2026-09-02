@@ -32,6 +32,7 @@ type providerPlanResponse struct {
 type networkPlanResponse struct {
 	Success           bool                       `json:"success"`
 	Supported         bool                       `json:"supported"`
+	Active            bool                       `json:"active"`
 	ISP               string                     `json:"isp"`
 	DNSMode           string                     `json:"dns_mode"`
 	EffectiveDNSMode  string                     `json:"effective_dns_mode"`
@@ -39,6 +40,7 @@ type networkPlanResponse struct {
 	ProxyDNS          string                     `json:"proxy_dns,omitempty"`
 	Port53Owner       string                     `json:"port53_owner,omitempty"`
 	XrayGID           string                     `json:"xray_gid,omitempty"`
+	DNSRoutingMode    string                     `json:"dns_routing_mode,omitempty"`
 	DNSOut            bool                       `json:"dns_out_present"`
 	VLESSProfile      bool                       `json:"vless_profile_present"`
 	ExpectedDelta     string                     `json:"expected_delta,omitempty"`
@@ -397,6 +399,20 @@ func (a *app) runProviderPlan(profileID string) (providerPlanResponse, error) {
 	return plan, nil
 }
 
+func networkPlanIsActive(supported bool, effectiveDNSMode, proxyDNS, dnsRoutingMode string, dnsOut, vlessProfile bool) bool {
+	if !supported || proxyDNS != "off" || !dnsOut {
+		return false
+	}
+	switch effectiveDNSMode {
+	case "firmware":
+		return dnsRoutingMode == "standard"
+	case "xkeen":
+		return dnsRoutingMode == "split" && vlessProfile
+	default:
+		return false
+	}
+}
+
 func parseNetworkPlan(output string) (networkPlanResponse, error) {
 	values := map[string]string{}
 	for _, raw := range strings.Split(strings.ReplaceAll(output, "\r", ""), "\n") {
@@ -406,7 +422,7 @@ func parseNetworkPlan(output string) (networkPlanResponse, error) {
 			continue
 		}
 		switch key {
-		case "ISP_ID", "DNS_MODE", "EFFECTIVE_DNS_MODE", "SUPPORTED", "REASON", "PROXY_DNS", "PORT53_OWNER", "XRAY_GID", "DNS_OUT", "VLESS_PROFILE", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
+		case "ISP_ID", "DNS_MODE", "EFFECTIVE_DNS_MODE", "SUPPORTED", "REASON", "PROXY_DNS", "PORT53_OWNER", "XRAY_GID", "DNS_ROUTING_MODE", "DNS_OUT", "VLESS_PROFILE", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
 			values[key] = strings.TrimSpace(value)
 		}
 	}
@@ -416,18 +432,26 @@ func parseNetworkPlan(output string) (networkPlanResponse, error) {
 	if values["MUTATION"] != "NONE" {
 		return networkPlanResponse{}, errors.New("network plan unexpectedly reports mutation")
 	}
+	supported := values["SUPPORTED"] == "yes"
+	effectiveDNSMode := values["EFFECTIVE_DNS_MODE"]
+	proxyDNS := values["PROXY_DNS"]
+	dnsRoutingMode := values["DNS_ROUTING_MODE"]
+	dnsOut := values["DNS_OUT"] == "yes"
+	vlessProfile := values["VLESS_PROFILE"] == "yes"
 	return networkPlanResponse{
 		Success:          true,
-		Supported:        values["SUPPORTED"] == "yes",
+		Supported:        supported,
+		Active:           networkPlanIsActive(supported, effectiveDNSMode, proxyDNS, dnsRoutingMode, dnsOut, vlessProfile),
 		ISP:              values["ISP_ID"],
 		DNSMode:          values["DNS_MODE"],
-		EffectiveDNSMode: values["EFFECTIVE_DNS_MODE"],
+		EffectiveDNSMode: effectiveDNSMode,
 		Reason:           values["REASON"],
-		ProxyDNS:         values["PROXY_DNS"],
+		ProxyDNS:         proxyDNS,
 		Port53Owner:      values["PORT53_OWNER"],
 		XrayGID:          values["XRAY_GID"],
-		DNSOut:           values["DNS_OUT"] == "yes",
-		VLESSProfile:     values["VLESS_PROFILE"] == "yes",
+		DNSRoutingMode:   dnsRoutingMode,
+		DNSOut:           dnsOut,
+		VLESSProfile:     vlessProfile,
 		ExpectedDelta:    values["EXPECTED_DELTA"],
 		ExpectedNoDelta:  values["EXPECTED_NO_DELTA"],
 		Mutation:         values["MUTATION"],
