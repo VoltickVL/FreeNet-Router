@@ -2,26 +2,52 @@
 
 ## Цель
 
-FreeNet не должен считать, что у всех Keenetic/Netcraze одинаковая DNS-топология. На известных роутерах Management уже подтверждены как минимум два разных runtime-профиля:
+FreeNet не должен считать, что у всех Keenetic/Netcraze одинаковая DNS-топология. Каждый интернет-провайдер хранится отдельным versioned preset ID. Даже если два оператора сегодня используют одинаковое поведение, будущая правка одного оператора не должна автоматически менять другой.
 
-- HOME/MOM: Владлинк / АльянсТелеком — существующая HOME/MOM DNS-схема должна сохраняться до отдельного подтверждённого migration-профиля.
-- WORK: Ростелеком — firmware `ndnproxy` владеет TCP/UDP `:53`, `/etc/resolv.conf` использует `127.0.0.1`, XKeen `proxy_dns=on`, Xray работает с GID `11111`.
+## Отдельные ISP ID
 
-## UX
-
-В Browser Setup Wizard и FreeNet Control Center должен быть параметр «Интернет-провайдер / DNS-профиль»:
-
-- `auto` — определить безопасный runtime-профиль по фактам текущего роутера;
+- `auto` — определить/рекомендовать без безусловного изменения работающей конфигурации;
 - `vladlink` — Владлинк;
 - `alliancetelecom` — АльянсТелеком;
 - `rostelecom` — Ростелеком;
+- `podryad` — Подряд;
 - `custom` — ручной/экспертный профиль.
 
-Выбор ISP не должен сам по себе менять Xray. Перед применением FreeNet показывает expected delta, делает backup и выполняет полную candidate validation. При ошибке после apply выполняется rollback.
+Source of truth для preset metadata: `config/isp-presets.json`.
 
-## Известный WORK preset
+## Подтверждённая текущая группировка поведения
 
-Для Ростелекома на текущем WORK подтверждено:
+- Владлинк: HOME/MOM. Текущая рабочая схема сохраняется до отдельного clean-room DNS acceptance; YouTube сейчас идёт напрямую.
+- АльянсТелеком: Management ожидает тот же принцип, что Владлинк, но preset самостоятельный.
+- Ростелеком: WORK. Firmware `ndnproxy` владеет TCP/UDP `:53`, `/etc/resolv.conf` использует `127.0.0.1`, XKeen `proxy_dns=on`, Xray GID `11111`; YouTube/часть трафика идёт через VPN.
+- Подряд: Management ожидает тот же принцип, что Ростелеком, но preset самостоятельный и требует отдельного runtime acceptance.
+
+Общие helper-функции генерации/validation допустимы. Общая mutable preset-запись для двух операторов — нет.
+
+## UX
+
+В Browser Setup Wizard и FreeNet Control Center должны быть две связанные, но отдельные настройки:
+
+1. «Интернет-провайдер» — Auto / Владлинк / АльянсТелеком / Ростелеком / Подряд / Свой.
+2. «Режим DNS» — Auto / штатный DNS роутера / XKeen-Xray DNS / Custom.
+
+Выбор ISP или DNS mode сам по себе не должен менять Xray. До apply FreeNet показывает текущий профиль, recommended preset, владельца `:53`, expected delta и rollback plan.
+
+## Transactional apply
+
+1. read-only preflight;
+2. expected delta;
+3. backup;
+4. candidate configs;
+5. полный `xray run -test` до apply;
+6. atomic apply;
+7. restart;
+8. runtime acceptance;
+9. rollback при любой ошибке после mutation.
+
+## Ростелеком / текущий WORK preset
+
+Подтверждено:
 
 - firmware `ndnproxy` остаётся владельцем `:53`;
 - отдельный Xray DNS listener `:53` не создаётся;
@@ -30,14 +56,9 @@ FreeNet не должен считать, что у всех Keenetic/Netcraze �
 - DNS routing добавляется перед существующими non-DNS rules;
 - существующие VLESS credentials и non-DNS routing сохраняются.
 
-## HOME/MOM preset
+## Владлинк / АльянсТелеком
 
-Vladlink/AllianceTelecom нельзя генерировать по догадке. До direct read-only acceptance текущих HOME/MOM DNS facts installer должен либо:
-
-1. сохранить уже работающий HOME/MOM DNS layer без перестройки, либо
-2. остановить clean-room migration с понятным сообщением, если соответствующий validated preset ещё не доступен.
-
-Полный HOME/MOM preset считается готовым только после read-only runtime snapshot + controlled candidate test + functional DNS/VPN acceptance.
+Clean-room DNS-generation нельзя строить по догадке. До direct read-only acceptance HOME/MOM installer либо сохраняет уже работающий DNS layer, либо останавливает clean-room migration понятным сообщением.
 
 ## Security
 
