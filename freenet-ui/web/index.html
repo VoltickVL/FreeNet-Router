@@ -27,6 +27,15 @@
   </section>
 
   <section class="section">
+    <h2>Сценарий установки</h2>
+    <div class="form-grid">
+      <div class="field"><label>Режим</label><div id="installScenario" class="value">Определяем…</div></div>
+      <div class="field"><label>Мастер FreeNet</label><div id="setupState" class="value">Проверяем…</div></div>
+    </div>
+    <div id="installScenarioHint" class="hint">FreeNet сам определяет состояние роутера. Ручного переключателя «новая / существующая установка» нет, чтобы случайно не переустановить рабочий XKeen/Xray.</div>
+  </section>
+
+  <section class="section">
     <h2>VPN-провайдер / подписка</h2>
     <div class="form-grid">
       <div class="field"><label>VPN-провайдер</label><div class="value">BlancVPN</div></div>
@@ -113,7 +122,7 @@ function showBox(id,text,type=''){const n=document.getElementById(id);n.textCont
 function hideBox(id){document.getElementById(id).className='notice'+planClass(id)}
 function notice(text,type=''){showBox('notice',text,type)}
 function clearNotice(){hideBox('notice')}
-function resetSetupFinalizePlan(){setupFinalizePlanReady=false;setupFinalizeComplete=false;lastSetupFinalizePlan=null;hideBox('setupFinalizePlan');hideBox('setupFinalizeNotice')}
+function resetSetupFinalizePlan(){setupFinalizePlanReady=false;setupFinalizeComplete=false;lastSetupFinalizePlan=null;hideBox('setupFinalizePlan');hideBox('setupFinalizeNotice');const state=document.getElementById('setupState');if(state)state.textContent='● Требуется проверка'}
 function actionFinishedByStatus(s){
   if(!localPending||s.busy||s.updater_busy)return false;
   const last=s.last_action||{};
@@ -132,6 +141,21 @@ function updateNetworkHint(s){
   const selected=document.getElementById('dnsModeSelect').value,recommended=s&&s.recommended_dns_mode?s.recommended_dns_mode:'auto',chosen=selected==='auto'?recommended:selected,isp=s&&s.isp_label?s.isp_label:'Авто';
   document.getElementById('networkHint').textContent='Профиль: '+isp+'. Рекомендованный DNS: '+(dnsLabels[recommended]||recommended)+'. Выбранный режим: '+(dnsLabels[chosen]||chosen)+'. Сначала сохраните выбор, затем проверьте план изменений и только после этого применяйте.';
 }
+function renderInstallScenario(p){
+  const scenario=document.getElementById('installScenario'),state=document.getElementById('setupState'),hint=document.getElementById('installScenarioHint');
+  if(!scenario||!state||!hint)return;
+  if(p&&p.install_scenario==='existing_stack'){
+    scenario.textContent='● Действующий роутер';
+    hint.textContent='XKeen/Xray сохранены. FreeNet установил или обновил только свой слой; переустановка рабочего core не выполняется.';
+  }else if(p&&p.install_scenario==='fresh_entware'){
+    scenario.textContent='● Новая установка';
+    hint.textContent='FreeNet автоматически обнаружил Entware-only и установил зафиксированный XKeen/Xray/XKeen UI перед запуском браузерного мастера.';
+  }else{
+    scenario.textContent='● Автоопределение';
+    hint.textContent='Сценарий не записан этой версией bootstrap. Ручного переключателя нет: FreeNet всегда сначала проверяет фактический core и не разрешает blind rebuild.';
+  }
+  state.textContent=p&&p.setup_complete?'● Настройка завершена':'● Требуется настройка';
+}
 function formatNetworkPlan(p){
   const lines=[p.supported?'ГОТОВ К ПРИМЕНЕНИЮ':'ПРИМЕНЕНИЕ ЗАБЛОКИРОВАНО','Провайдер: '+(p.isp||'—')+' · DNS: '+(dnsLabels[p.effective_dns_mode]||p.effective_dns_mode||'—'),'Состояние: :53='+(p.port53_owner||'—')+' · proxy_dns='+(p.proxy_dns||'—')+' · Xray GID='+(p.xray_gid||'—'),'dns-out: '+(p.dns_out_present?'есть':'нет')+' · VLESS: '+(p.vless_profile_present?'есть':'нет'),'Причина: '+(p.reason||'—'),'Изменения: '+(p.expected_delta||'—')];
   if(p.expected_no_delta)lines.push('Не меняется: '+p.expected_no_delta);if(Array.isArray(p.extra_profiles))lines.push('Extra-профили в подписке: '+p.extra_profiles.length);if(p.profiles_error)lines.push('Ошибка получения Extra-профилей: '+p.profiles_error);return lines.join('\n');
@@ -145,8 +169,9 @@ function formatProviderPlan(p){
 function formatSetupFinalizePlan(p){
   if(!p)return 'Финальная проверка не выполнена.';
   if(p.error)return 'Финальная проверка недоступна: '+p.error;
+  const installLabel=p.install_scenario==='existing_stack'?'действующий роутер':(p.install_scenario==='fresh_entware'?'новая установка':'автоопределение');
   const title=p.setup_complete?'НАСТРОЙКА УЖЕ ЗАВЕРШЕНА':(p.ready&&p.mutation==='NONE'?'ГОТОВО К ЗАВЕРШЕНИЮ':'ЗАВЕРШЕНИЕ ЗАБЛОКИРОВАНО');
-  const lines=[title,'Подписка: '+(p.subscription_configured?'готова':'нет')+' · выбранный Extra-профиль: '+(p.preferred_profile_set?'готов':'нет'),'VLESS: '+(p.vless_profile_present?'есть':'нет')+' · dns-out: '+(p.dns_out_present?'есть':'нет'),'Xray: '+(p.xray_running?'работает':'не запущен')+' · конфигурация: '+(p.xray_valid?'валидна':'не прошла проверку'),'Профиль интернет-провайдера/DNS: '+(p.network_supported?'принят':'не принят'),'Автозапуск XKeen: '+(p.xkeen_autostart||'—')+' · автообновление endpoint: '+(p.auto_endpoint_update?'включено':'выключено'),'Причина: '+(p.reason||'—'),'Изменения: '+(p.expected_delta||'—')];
+  const lines=[title,'Сценарий установки: '+installLabel,'Подписка: '+(p.subscription_configured?'готова':'нет')+' · выбранный Extra-профиль: '+(p.preferred_profile_set?'готов':'нет'),'VLESS: '+(p.vless_profile_present?'есть':'нет')+' · dns-out: '+(p.dns_out_present?'есть':'нет'),'Xray: '+(p.xray_running?'работает':'не запущен')+' · конфигурация: '+(p.xray_valid?'валидна':'не прошла проверку'),'Профиль интернет-провайдера/DNS: '+(p.network_supported?'принят':'не принят'),'Автозапуск XKeen: '+(p.xkeen_autostart||'—')+' · автообновление endpoint: '+(p.auto_endpoint_update?'включено':'выключено'),'Причина: '+(p.reason||'—'),'Изменения: '+(p.expected_delta||'—')];
   if(p.expected_no_delta)lines.push('Не меняется: '+p.expected_no_delta);return lines.join('\n');
 }
 function formatProfileEndpoint(p){const address=String(p.address||''),host=address.includes(':')?'['+address+']':address;return host+':'+String(p.port||'')}
@@ -197,9 +222,9 @@ async function loadSetupFinalizePlan(){
   hideBox('setupFinalizeNotice');setupFinalizePlanReady=false;setupFinalizeComplete=false;lastSetupFinalizePlan=null;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)));
   try{
     const r=await fetch('/api/network-profile/plan?setup_finalize=1',{cache:'no-store'}),j=await r.json(),p=j.setup_finalize_plan;
-    if(!r.ok||!j.success||!p||!p.success||p.error){showBox('setupFinalizePlan',(p&&p.error)||j.error||'Не удалось выполнить финальную проверку','bad');return}
-    lastSetupFinalizePlan=p;setupFinalizeComplete=!!p.setup_complete;setupFinalizePlanReady=!!(p.ready&&p.mutation==='NONE'&&!p.setup_complete);showBox('setupFinalizePlan',formatSetupFinalizePlan(p),p.ready?'ok':'bad');
-  }catch(e){showBox('setupFinalizePlan','Не удалось выполнить финальную проверку: нет связи с FreeNet','bad')}
+    if(!r.ok||!j.success||!p||!p.success||p.error){showBox('setupFinalizePlan',(p&&p.error)||j.error||'Не удалось выполнить финальную проверку','bad');renderInstallScenario(null);return}
+    lastSetupFinalizePlan=p;setupFinalizeComplete=!!p.setup_complete;setupFinalizePlanReady=!!(p.ready&&p.mutation==='NONE'&&!p.setup_complete);renderInstallScenario(p);showBox('setupFinalizePlan',formatSetupFinalizePlan(p),p.ready?'ok':'bad');
+  }catch(e){showBox('setupFinalizePlan','Не удалось выполнить финальную проверку: нет связи с FreeNet','bad');renderInstallScenario(null)}
   finally{buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
 }
 async function applyProviderProfile(){
@@ -226,7 +251,7 @@ async function applySetupFinalize(){
   try{
     const r=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'finalize',confirm:true})}),j=await r.json();
     if(!r.ok||!j.success){const parts=[j.error||'Настройка не завершена'];if(j.primary_error)parts.push('ОСНОВНАЯ ОШИБКА: '+j.primary_error);if(j.rollback_state)parts.push('ОТКАТ: '+j.rollback_state);parts.push('Не повторяйте вслепую: сначала снова проверьте готовность.');showBox('setupFinalizeNotice',parts.join('\n'),'bad');return}
-    const p=j.setup_finalize_plan;lastSetupFinalizePlan=p||null;setupFinalizeComplete=!!(p&&p.setup_complete);setupFinalizePlanReady=false;if(p)showBox('setupFinalizePlan',formatSetupFinalizePlan(p),'ok');showBox('setupFinalizeNotice',(j.message||'Настройка завершена')+' Откат: '+(j.rollback_state||'NOT_NEEDED'),'ok');await loadStatus();
+    const p=j.setup_finalize_plan;lastSetupFinalizePlan=p||null;setupFinalizeComplete=!!(p&&p.setup_complete);setupFinalizePlanReady=false;if(p){renderInstallScenario(p);showBox('setupFinalizePlan',formatSetupFinalizePlan(p),'ok')}showBox('setupFinalizeNotice',(j.message||'Настройка завершена')+' Откат: '+(j.rollback_state||'NOT_NEEDED'),'ok');await loadStatus();
   }catch(e){showBox('setupFinalizeNotice','Связь с FreeNet прервалась во время завершения. Не повторяйте вслепую; сначала снова выполните «Проверить готовность».','bad')}
   finally{setupFinalizeApplying=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
 }
@@ -247,7 +272,7 @@ document.getElementById('planNetworkBtn').addEventListener('click',()=>loadNetwo
 document.getElementById('applyNetworkBtn').addEventListener('click',applyNetworkProfile);
 document.getElementById('planFinalizeBtn').addEventListener('click',loadSetupFinalizePlan);
 document.getElementById('applyFinalizeBtn').addEventListener('click',applySetupFinalize);
-loadStatus().then(()=>loadNetworkPlan(''));setInterval(loadStatus,2000);
+loadStatus().then(()=>Promise.all([loadNetworkPlan(''),loadSetupFinalizePlan()]));setInterval(loadStatus,2000);
 </script>
 </body>
 </html>
