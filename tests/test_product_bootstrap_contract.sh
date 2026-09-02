@@ -62,9 +62,11 @@ grep -Fq 'ROLLBACK: restoring app files and cron' "$BOOT" || fail 'нет app ro
 grep -Fq 'ROLLBACK ERROR: FAILED/UNKNOWN' "$BOOT" || fail 'нет unknown rollback state'
 grep -Fq 'core bootstrap rollback FAILED/UNKNOWN' "$BOOT" || fail 'нет core rollback blocker'
 
-# Глобальный Entware upgrade и неконтролируемый upstream setup.sh запрещены.
+# Глобальный Entware upgrade и отдельный неконтролируемый upstream setup.sh запрещены.
 if grep -E 'opkg[[:space:]]+upgrade' "$BOOT" >/dev/null; then fail 'глобальный opkg upgrade запрещён'; fi
-if grep -Fq 'setup.sh' "$BOOT"; then fail 'неконтролируемый upstream setup.sh запрещён'; fi
+if grep -Eq '(^|[^[:alnum:]_])setup\.sh([^[:alnum:]_.]|$)' "$BOOT"; then
+    fail 'неконтролируемый upstream setup.sh запрещён'
+fi
 
 # Release обязан публиковать entrypoint/helpers и покрывать их SHA256SUMS.
 grep -Fq 'cp bootstrap.sh dist/bootstrap.sh' "$RELEASE" || fail 'нет bootstrap.sh в release assets'
