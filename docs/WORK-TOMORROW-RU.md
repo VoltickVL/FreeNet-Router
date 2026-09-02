@@ -13,13 +13,13 @@ ssh -p 222 root@<LAN-IP-роутера>
 Если прямой Entware SSH не настроен, используйте штатный SSH Keenetic/Netcraze и затем:
 
 ```sh
-exec /opt/usr/bin/sh
+exec /opt/bin/sh
 ```
 
 ## 2. Сначала только read-only preflight
 
 ```sh
-curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | sh
+curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | /opt/bin/sh
 ```
 
 `doctor.sh` ничего не устанавливает, не перезапускает и не меняет cron/config/firewall.
@@ -49,7 +49,7 @@ MODE=ENTWARE_ONLY
 Только после `MODE=READY_EXISTING_STACK`:
 
 ```sh
-curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/install.sh | /opt/usr/bin/sh
+curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/install.sh | /opt/bin/sh
 ```
 
 Если router-local DNS не работает, используется bootstrap-вариант с внешним DNS из README.
