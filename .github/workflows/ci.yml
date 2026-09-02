@@ -60,11 +60,13 @@ jobs:
           sh -n scripts/migrate_split_dns.sh
           sh -n scripts/bootstrap_entware.sh
           sh -n scripts/apply_network_profile.sh
+          sh -n scripts/apply_provider_profile.sh
           sh -n tests/test_vpn_contract.sh
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
           sh -n tests/test_network_profile_contract.sh
+          sh -n tests/test_provider_profile_apply.sh
           sh -n deploy/S99freenet-ui
 
       - name: VPN transactional switch test
@@ -81,6 +83,9 @@ jobs:
 
       - name: ISP network profile contract test
         run: sh tests/test_network_profile_contract.sh
+
+      - name: Provider profile transactional test
+        run: sh tests/test_provider_profile_apply.sh
 
       - name: VPN updater contract
         run: |
