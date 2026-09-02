@@ -5,7 +5,7 @@ DNS_FILE="$CONFIG_DIR/02_dns.json"
 INBOUND_FILE="$CONFIG_DIR/03_inbounds.json"
 OUTBOUND_FILE="$CONFIG_DIR/04_outbounds.json"
 ROUTING_FILE="$CONFIG_DIR/05_routing.json"
-XKEEN_INIT="/opt/etc/init.d/S99xkeen"
+XKEEN_INIT="${FREENET_XKEEN_INIT:-}"
 XKEEN_BIN="/opt/sbin/xkeen"
 XRAY_BIN="/opt/sbin/xray"
 XRAY_ASSET_DIR="/opt/etc/xray/dat"
@@ -28,6 +28,19 @@ need_cmd() {
         err "не найдена обязательная команда: $1"
         exit 1
     }
+}
+
+resolve_xkeen_init() {
+    if [ -n "$XKEEN_INIT" ] && [ -f "$XKEEN_INIT" ]; then
+        return 0
+    fi
+    for CANDIDATE in /opt/etc/init.d/S99xkeen /opt/etc/init.d/S05xkeen; do
+        if [ -f "$CANDIDATE" ]; then
+            XKEEN_INIT="$CANDIDATE"
+            return 0
+        fi
+    done
+    return 1
 }
 
 make_tmp() {
@@ -150,7 +163,7 @@ done
 
 [ -x "$XKEEN_BIN" ] || { err "XKeen не найден: $XKEEN_BIN"; exit 1; }
 [ -x "$XRAY_BIN" ] || { err "Xray не найден: $XRAY_BIN"; exit 1; }
-[ -f "$XKEEN_INIT" ] || { err "init XKeen не найден: $XKEEN_INIT"; exit 1; }
+resolve_xkeen_init || { err "init XKeen не найден: S99xkeen/S05xkeen"; exit 1; }
 [ -d "$CONFIG_DIR" ] || { err "Xray config dir не найден: $CONFIG_DIR"; exit 1; }
 [ -d "$XRAY_ASSET_DIR" ] || { err "Xray asset dir не найден: $XRAY_ASSET_DIR"; exit 1; }
 
