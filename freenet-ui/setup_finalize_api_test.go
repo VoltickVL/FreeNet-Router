@@ -146,7 +146,7 @@ func TestSetupFinalizeApplyRequiresExplicitConfirmation(t *testing.T) {
 	_, marker, _ := setupFinalizeFakeHelpers(t)
 	a := &app{cfg: config{Timeout: 5 * time.Second}, sem: make(chan struct{}, 1)}
 	req := httptest.NewRequest(http.MethodPost, "/api/network-profile/apply", strings.NewReader(`{"operation":"finalize","confirm":false}`))
-	req.Body = ioNopCloserString(`{"operation":"finalize","confirm":false}`)
+	req.Body = newBody(`{"operation":"finalize","confirm":false}`)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	a.handleNetworkProfileApply(rr, req)
@@ -162,7 +162,7 @@ func TestSetupFinalizeApplyRunsFreshPlanAndConfirmsAcceptance(t *testing.T) {
 	state, marker, _ := setupFinalizeFakeHelpers(t)
 	a := &app{cfg: config{Timeout: 5 * time.Second}, sem: make(chan struct{}, 1)}
 	req := httptest.NewRequest(http.MethodPost, "/api/network-profile/apply", strings.NewReader(`{"operation":"finalize","confirm":true}`))
-	req.Body = ioNopCloserString(`{"operation":"finalize","confirm":true}`)
+	req.Body = newBody(`{"operation":"finalize","confirm":true}`)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	a.handleNetworkProfileApply(rr, req)
@@ -192,7 +192,7 @@ func TestSetupFinalizeApplyStopsWhenFreshPlanNotReady(t *testing.T) {
 	t.Setenv("FREENET_FINALIZE_TEST_READY", "no")
 	a := &app{cfg: config{Timeout: 5 * time.Second}, sem: make(chan struct{}, 1)}
 	req := httptest.NewRequest(http.MethodPost, "/api/network-profile/apply", strings.NewReader(`{"operation":"finalize","confirm":true}`))
-	req.Body = ioNopCloserString(`{"operation":"finalize","confirm":true}`)
+	req.Body = newBody(`{"operation":"finalize","confirm":true}`)
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
 	a.handleNetworkProfileApply(rr, req)
@@ -204,12 +204,12 @@ func TestSetupFinalizeApplyStopsWhenFreshPlanNotReady(t *testing.T) {
 	}
 }
 
-func ioNopCloserString(s string) *testReadCloser {
-	return &testReadCloser{Reader: strings.NewReader(strings.ReplaceAll(s, `\"`, `"`))}
+func newBody(s string) *stringReadCloser {
+	return &stringReadCloser{Reader: strings.NewReader(strings.ReplaceAll(s, `\"`, `"`))}
 }
 
-type testReadCloser struct {
+type stringReadCloser struct {
 	*strings.Reader
 }
 
-func (r *testReadCloser) Close() error { return nil }
+func (r *stringReadCloser) Close() error { return nil }
