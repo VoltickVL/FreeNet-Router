@@ -27,6 +27,8 @@ BACKUP_DIR=""
 PROXY_DNS_INITIAL="unknown"
 XRAY_WAS_RUNNING="no"
 CONFIG_SNAPSHOT_KIND="none"
+ACCEPTED_FIRMWARE_DNS_PATH="none"
+DNS_QUERY_RESULT="UNKNOWN"
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Network] ERROR: %s\n' "$*" >&2; }
@@ -79,17 +81,109 @@ test_state_set() {
     mv -f "$TMP_STATE" "$TEST_STATE"
 }
 
-port53_lines() {
+listener_lines() {
     if [ "$TEST_MODE" = yes ]; then
         case "$(test_state_value PORT53_OWNER none)" in
-            ndnproxy) printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 800/ndnproxy' ;;
-            xray) printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 900/xray' ;;
-            other) printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 700/other' ;;
-            *) : ;;
+            ndnproxy)
+                printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 800/ndnproxy'
+                printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 800/ndnproxy'
+                ;;
+            xray)
+                printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 900/xray'
+                printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 900/xray'
+                ;;
+            other)
+                printf '%s\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 700/other'
+                printf '%s\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 700/other'
+                ;;
+        esac
+        case "$(test_state_value FIRMWARE_DNS_PATH none)" in
+            redirect:*)
+                PORT="$(test_state_value FIRMWARE_DNS_PATH none)"
+                PORT="${PORT#redirect:}"
+                case "$PORT" in ''|*[!0-9]*) : ;;
+                    *)
+                        printf 'tcp 0 0 0.0.0.0:%s 0.0.0.0:* LISTEN 801/ndnproxy\n' "$PORT"
+                        printf 'udp 0 0 0.0.0.0:%s 0.0.0.0:* 801/ndnproxy\n' "$PORT"
+                        ;;
+                esac
+                ;;
         esac
         return 0
     fi
-    netstat -lnptu 2>/dev/null | grep ':53[[:space:]]' || true
+    netstat -lnptu 2>/dev/null || true
+}
+
+port53_lines() {
+    listener_lines | grep ':53[[:space:]]' || true
+}
+
+ndm_dns_redirect_port() {
+    PROTO="$1"
+    case "$PROTO" in tcp|udp) : ;; *) return 1 ;; esac
+
+    if [ "$TEST_MODE" = yes ]; then
+        PATH_VALUE="$(test_state_value FIRMWARE_DNS_PATH none)"
+        case "$PATH_VALUE" in
+            redirect:*)
+                PORT="${PATH_VALUE#redirect:}"
+                case "$PORT" in ''|*[!0-9]*) return 1 ;; esac
+                printf '%s\n' "$PORT"
+                return 0
+                ;;
+            *) return 1 ;;
+        esac
+    fi
+
+    iptables-save 2>/dev/null | awk -v proto="$PROTO" '
+        $1 == "-A" && $2 ~ /^_NDM_/ {
+            proto_ok = 0
+            dport53 = 0
+            redirect = 0
+            to_port = ""
+            for (i = 1; i <= NF; i++) {
+                if ($i == "-p" && (i + 1) <= NF && $(i + 1) == proto) proto_ok = 1
+                if ($i == "--dport" && (i + 1) <= NF && $(i + 1) == "53") dport53 = 1
+                if ($i == "-j" && (i + 1) <= NF && $(i + 1) == "REDIRECT") redirect = 1
+                if ($i == "--to-ports" && (i + 1) <= NF) to_port = $(i + 1)
+            }
+            if (proto_ok && dport53 && redirect && to_port ~ /^[0-9]+$/) seen[to_port] = 1
+        }
+        END {
+            count = 0
+            chosen = ""
+            for (port in seen) {
+                count++
+                chosen = port
+            }
+            if (count == 1) print chosen
+        }
+    '
+}
+
+ndnproxy_listens_on() {
+    PORT="$1"
+    case "$PORT" in ''|*[!0-9]*) return 1 ;; esac
+    LINES="$(listener_lines | grep ":$PORT[[:space:]]" | grep '/ndnproxy' || true)"
+    printf '%s\n' "$LINES" | grep -q '^tcp' || return 1
+    printf '%s\n' "$LINES" | grep -q '^udp' || return 1
+}
+
+firmware_dns_path() {
+    LINES="$(port53_lines)"
+    if printf '%s\n' "$LINES" | grep -q '/ndnproxy'; then
+        printf '%s\n' direct53
+        return 0
+    fi
+
+    TCP_PORT="$(ndm_dns_redirect_port tcp 2>/dev/null || true)"
+    UDP_PORT="$(ndm_dns_redirect_port udp 2>/dev/null || true)"
+    if [ -n "$TCP_PORT" ] && [ "$TCP_PORT" = "$UDP_PORT" ] && ndnproxy_listens_on "$TCP_PORT"; then
+        printf 'redirect:%s\n' "$TCP_PORT"
+        return 0
+    fi
+
+    printf '%s\n' none
 }
 
 port53_owner() {
@@ -101,7 +195,10 @@ port53_owner() {
     elif [ -n "$LINES" ]; then
         printf '%s\n' other
     else
-        printf '%s\n' none
+        case "$(firmware_dns_path)" in
+            direct53|redirect:*) printf '%s\n' ndnproxy ;;
+            *) printf '%s\n' none ;;
+        esac
     fi
 }
 
@@ -207,12 +304,19 @@ test_runtime_action() {
             if jq -e 'any(.inbounds[]?; (((.port // "") | tostring)) == "53")' "$INBOUND_FILE" >/dev/null 2>&1; then
                 test_state_set PORT53_OWNER xray || return 1
             else
-                test_state_set PORT53_OWNER ndnproxy || return 1
+                case "$(test_state_value FIRMWARE_DNS_PATH direct53)" in
+                    direct53) test_state_set PORT53_OWNER ndnproxy || return 1 ;;
+                    redirect:*) test_state_set PORT53_OWNER none || return 1 ;;
+                    *) test_state_set PORT53_OWNER none || return 1 ;;
+                esac
             fi
             ;;
         stop)
             test_state_set XRAY_RUNNING no || return 1
-            test_state_set PORT53_OWNER ndnproxy || return 1
+            case "$(test_state_value FIRMWARE_DNS_PATH direct53)" in
+                direct53) test_state_set PORT53_OWNER ndnproxy || return 1 ;;
+                *) test_state_set PORT53_OWNER none || return 1 ;;
+            esac
             ;;
         *) return 1 ;;
     esac
@@ -257,10 +361,35 @@ dns_query_ok() {
     nslookup example.com "$LAN_IP" >/tmp/freenet-network-dns-query.$$.log 2>&1
 }
 
+accept_firmware_dns_path() {
+    PATH_VALUE="$(firmware_dns_path)"
+    case "$PATH_VALUE" in
+        direct53|redirect:*) : ;;
+        *) return 1 ;;
+    esac
+    [ "$(port53_owner)" = ndnproxy ] || return 1
+
+    ACCEPTED_FIRMWARE_DNS_PATH="$PATH_VALUE"
+    case "$PATH_VALUE" in
+        direct53)
+            dns_query_ok || return 1
+            DNS_QUERY_RESULT=PASS
+            ;;
+        redirect:*)
+            # NDM REDIRECT с -i br0 обслуживает именно LAN-клиентов. Router-local
+            # nslookup не проходит тот же PREROUTING path, поэтому клиентский DNS
+            # подтверждается отдельным acceptance после успешной транзакции.
+            DNS_QUERY_RESULT=CLIENT_REQUIRED
+            ;;
+    esac
+    return 0
+}
+
 runtime_facts() {
     XINIT="$(xkeen_init 2>/dev/null || true)"
     PROXY_DNS="$(proxy_dns_state)"
     PORT53_OWNER="$(port53_owner)"
+    FIRMWARE_DNS_PATH="$(firmware_dns_path)"
 
     XRAY_RUNNING=no
     XRAY_GID=unknown
@@ -276,6 +405,7 @@ runtime_facts() {
     say "XKEEN_INIT=${XINIT:-missing}"
     say "PROXY_DNS=$PROXY_DNS"
     say "PORT53_OWNER=$PORT53_OWNER"
+    say "FIRMWARE_DNS_PATH=$FIRMWARE_DNS_PATH"
     say "XRAY_RUNNING=$XRAY_RUNNING"
     say "XRAY_GID=$XRAY_GID"
     say "DNS_OUT=$DNS_OUT"
@@ -331,16 +461,16 @@ plan() {
     runtime_facts
 
     if [ "$SUPPORTED" = yes ] && [ "$EFFECTIVE_DNS" = firmware ]; then
-        DELTA='use Keenetic firmware DNS on router port 53; keep DHCP DNS as router IP; disable XKeen DNS interception'
+        DELTA='use Keenetic firmware DNS path for LAN port 53; keep DHCP DNS as router IP; disable XKeen DNS interception'
         [ "$PORT53_OWNER" = xray ] && DELTA="$DELTA; repair legacy Xray :53 ownership by applying the standard-DNS candidate"
         [ "$DNS_OUT" = no ] && DELTA="$DELTA; add inert dns-out object required by the common Xray schema/finalize gate without DNS interception"
         DELTA="$DELTA; preserve VLESS credentials, subscription and non-DNS routing"
         say "EXPECTED_DELTA=$DELTA"
         say 'EXPECTED_NO_DELTA=no VPN credential rewrite; no subscription secret change; no client DNS override outside normal router DHCP'
     elif [ "$SUPPORTED" = yes ] && [ "$EFFECTIVE_DNS" = xkeen ]; then
-        DELTA='preserve Keenetic ndnproxy as owner of :53; enable XKeen DNS interception; add/repair Xray built-in split DNS + dns-out + DNS routing rules'
+        DELTA='preserve Keenetic firmware DNS path; enable XKeen DNS interception; add/repair Xray built-in split DNS + dns-out + DNS routing rules'
         [ "$XRAY_RUNNING" = no ] && DELTA="$DELTA; start XKeen/Xray before transactional Split DNS migration"
-        DELTA="$DELTA; validate DNS and restore original runtime/config if apply fails"
+        DELTA="$DELTA; validate DNS topology and restore original runtime/config if apply fails"
         say "EXPECTED_DELTA=$DELTA"
         say 'EXPECTED_NO_DELTA=no new Xray listener :53; no VLESS credential rewrite; no subscription secret change'
     else
@@ -355,7 +485,7 @@ preflight_common() {
         command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }
     done
     if [ "$TEST_MODE" != yes ]; then
-        for C in netstat pidof ip nslookup; do
+        for C in netstat pidof ip nslookup iptables-save; do
             command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }
         done
     fi
@@ -506,9 +636,7 @@ apply_standard_candidate() {
 
 accept_standard() {
     [ "$(proxy_dns_state)" = off ] || return 1
-    OWNER="$(port53_owner)"
-    [ "$OWNER" = ndnproxy ] || return 1
-    [ "$OWNER" != xray ] || return 1
+    [ "$(port53_owner)" = ndnproxy ] || return 1
     has_dns_out || return 1
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" >/tmp/freenet-network-xray.$$.log 2>&1 || return 1
     if [ "$XRAY_WAS_RUNNING" = yes ]; then
@@ -516,14 +644,14 @@ accept_standard() {
         [ -n "$PID" ] || return 1
         [ "$(xray_gid "$PID")" = 11111 ] || return 1
     fi
-    dns_query_ok || return 1
+    accept_firmware_dns_path || return 1
     return 0
 }
 
 apply_standard() {
     preflight_common || return 1
     OWNER_BEFORE="$(port53_owner)"
-    case "$OWNER_BEFORE" in ndnproxy|xray) : ;; *) err "неизвестный владелец порта 53: $OWNER_BEFORE"; return 1 ;; esac
+    case "$OWNER_BEFORE" in ndnproxy|xray) : ;; *) err "неизвестный владелец DNS path: $OWNER_BEFORE"; return 1 ;; esac
 
     snapshot_configs standard || { err 'не удалось создать backup штатного DNS'; return 1; }
     build_standard_candidate || return 1
@@ -565,7 +693,8 @@ apply_standard() {
     say '[FreeNet Network] EFFECTIVE_DNS_MODE=firmware'
     say '[FreeNet Network] PROXY_DNS=off'
     say '[FreeNet Network] PORT53_OWNER=ndnproxy'
-    say '[FreeNet Network] DNS_QUERY=PASS'
+    say "[FreeNet Network] FIRMWARE_DNS_PATH=$ACCEPTED_FIRMWARE_DNS_PATH"
+    say "[FreeNet Network] DNS_QUERY=$DNS_QUERY_RESULT"
     say '[FreeNet Network] ROLLBACK=NOT_NEEDED'
     return 0
 }
@@ -576,9 +705,13 @@ preflight_split() {
     has_vless || { err 'для Split DNS требуется ровно один vless-reality профиль'; return 1; }
     OWNER="$(port53_owner)"
     [ "$OWNER" = ndnproxy ] || {
-        [ "$OWNER" = xray ] && err 'Xray уже владеет :53; сначала примените штатный DNS для безопасного repair' || err "Split DNS требует штатного владельца :53, сейчас: $OWNER"
+        [ "$OWNER" = xray ] && err 'Xray уже владеет :53; сначала примените штатный DNS для безопасного repair' || err "Split DNS требует штатного Keenetic DNS path, сейчас: $OWNER"
         return 1
     }
+    case "$(firmware_dns_path)" in
+        direct53|redirect:*) : ;;
+        *) err 'Split DNS не видит валидный штатный Keenetic DNS path'; return 1 ;;
+    esac
     return 0
 }
 
@@ -605,10 +738,8 @@ accept_split() {
     PID="$(xray_pid)"
     [ -n "$PID" ] || return 1
     [ "$(xray_gid "$PID")" = 11111 ] || return 1
-    OWNER="$(port53_owner)"
-    [ "$OWNER" = ndnproxy ] || return 1
-    [ "$OWNER" != xray ] || return 1
-    dns_query_ok || return 1
+    [ "$(port53_owner)" = ndnproxy ] || return 1
+    accept_firmware_dns_path || return 1
 }
 
 apply_split() {
@@ -643,7 +774,8 @@ apply_split() {
     say '[FreeNet Network] PROXY_DNS=on'
     say '[FreeNet Network] XRAY_RUNNING=yes'
     say '[FreeNet Network] PORT53_OWNER=ndnproxy-preserved'
-    say '[FreeNet Network] DNS_QUERY=PASS'
+    say "[FreeNet Network] FIRMWARE_DNS_PATH=$ACCEPTED_FIRMWARE_DNS_PATH"
+    say "[FreeNet Network] DNS_QUERY=$DNS_QUERY_RESULT"
     say '[FreeNet Network] ROLLBACK=NOT_NEEDED'
     return 0
 }
