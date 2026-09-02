@@ -10,6 +10,7 @@ XKEEN_BIN="/opt/sbin/xkeen"
 XRAY_BIN="/opt/sbin/xray"
 XRAY_ASSET_DIR="/opt/etc/xray/dat"
 BACKUP_ROOT="/opt/backups"
+RUNTIME_TIMEOUT="${FREENET_XKEEN_RUNTIME_TIMEOUT:-75}"
 TMP_DIR=""
 BACKUP_DIR=""
 MODE=""
@@ -41,6 +42,34 @@ resolve_xkeen_init() {
         fi
     done
     return 1
+}
+
+run_bounded() {
+    LIMIT="$1"
+    LOG_FILE="$2"
+    shift 2
+
+    "$@" > "$LOG_FILE" 2>&1 &
+    CMD_PID=$!
+    ELAPSED=0
+    while kill -0 "$CMD_PID" 2>/dev/null; do
+        if [ "$ELAPSED" -ge "$LIMIT" ]; then
+            err "runtime command timeout after ${LIMIT}s: $*"
+            kill -TERM "$CMD_PID" 2>/dev/null || true
+            sleep 2
+            kill -0 "$CMD_PID" 2>/dev/null && kill -KILL "$CMD_PID" 2>/dev/null || true
+            wait "$CMD_PID" 2>/dev/null || true
+            return 124
+        fi
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+    done
+    wait "$CMD_PID"
+}
+
+restart_xkeen() {
+    [ -n "$XKEEN_INIT" ] && [ -x "$XKEEN_INIT" ] || return 1
+    run_bounded "$RUNTIME_TIMEOUT" "$1" "$XKEEN_INIT" restart on
 }
 
 make_tmp() {
@@ -161,9 +190,13 @@ for C in jq cp mv grep awk sed mktemp sha256sum netstat pidof cmp; do
     need_cmd "$C"
 done
 
+case "$RUNTIME_TIMEOUT" in ''|*[!0-9]*) err "некорректный timeout XKeen runtime"; exit 1 ;; esac
+[ "$RUNTIME_TIMEOUT" -gt 0 ] || { err "timeout XKeen runtime должен быть больше нуля"; exit 1; }
+
 [ -x "$XKEEN_BIN" ] || { err "XKeen не найден: $XKEEN_BIN"; exit 1; }
 [ -x "$XRAY_BIN" ] || { err "Xray не найден: $XRAY_BIN"; exit 1; }
 resolve_xkeen_init || { err "init XKeen не найден: S99xkeen/S05xkeen"; exit 1; }
+[ -x "$XKEEN_INIT" ] || { err "init XKeen не исполняемый: $XKEEN_INIT"; exit 1; }
 [ -d "$CONFIG_DIR" ] || { err "Xray config dir не найден: $CONFIG_DIR"; exit 1; }
 [ -d "$XRAY_ASSET_DIR" ] || { err "Xray asset dir не найден: $XRAY_ASSET_DIR"; exit 1; }
 
@@ -279,7 +312,7 @@ rollback_live() {
         fi
     done
 
-    "$XKEEN_BIN" -restart > "$TMP_DIR/xkeen-rollback.log" 2>&1 || RB_OK=0
+    restart_xkeen "$TMP_DIR/xkeen-rollback.log" || RB_OK=0
     pidof xray >/dev/null 2>&1 || RB_OK=0
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$TMP_DIR/xray-rollback.log" 2>&1 || RB_OK=0
     [ "$RB_OK" = "1" ]
@@ -308,7 +341,7 @@ mv -f "$CONFIG_DIR/02_dns.json.freenet.$$" "$DNS_FILE" || fail_after_apply "не
 mv -f "$CONFIG_DIR/04_outbounds.json.freenet.$$" "$OUTBOUND_FILE" || fail_after_apply "не удалось применить 04_outbounds.json"
 mv -f "$CONFIG_DIR/05_routing.json.freenet.$$" "$ROUTING_FILE" || fail_after_apply "не удалось применить 05_routing.json"
 
-"$XKEEN_BIN" -restart > "$TMP_DIR/xkeen-restart.log" 2>&1 || fail_after_apply "xkeen -restart завершился ошибкой"
+restart_xkeen "$TMP_DIR/xkeen-restart.log" || fail_after_apply "XKeen init restart завершился ошибкой/timeout"
 pidof xray >/dev/null 2>&1 || fail_after_apply "Xray не запущен после migration restart"
 XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$TMP_DIR/xray-live.log" 2>&1 || fail_after_apply "live Xray config не проходит validation после apply"
 
