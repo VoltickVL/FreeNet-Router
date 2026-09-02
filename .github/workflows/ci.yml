@@ -5,6 +5,7 @@ on:
     paths:
       - 'README.md'
       - 'VERSION'
+      - 'bootstrap.sh'
       - 'install.sh'
       - 'doctor.sh'
       - 'docs/**'
@@ -51,6 +52,7 @@ jobs:
 
       - name: Shell syntax
         run: |
+          sh -n bootstrap.sh
           sh -n install.sh
           sh -n doctor.sh
           sh -n scripts/vpn
@@ -60,6 +62,7 @@ jobs:
           sh -n tests/test_vpn_contract.sh
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
+          sh -n tests/test_product_bootstrap_contract.sh
           sh -n deploy/S99freenet-ui
 
       - name: VPN transactional switch test
@@ -70,6 +73,9 @@ jobs:
 
       - name: Entware bootstrap contract test
         run: sh tests/test_bootstrap_contract.sh
+
+      - name: Product bootstrap contract test
+        run: sh tests/test_product_bootstrap_contract.sh
 
       - name: VPN updater contract
         run: |
@@ -111,6 +117,11 @@ jobs:
           grep -q 'migrate_split_dns.sh' install.sh
           grep -q 'LAN-only listener' install.sh
           ! grep -q 'setup.sh' install.sh
+          grep -q 'REPO="VoltickVL/FreeNet-Router"' bootstrap.sh
+          grep -q 'bootstrap_entware.sh" plan' bootstrap.sh
+          grep -q 'bootstrap_entware.sh" apply' bootstrap.sh
+          grep -q 'NEXT=Open the panel' bootstrap.sh
+          grep -q 'cp bootstrap.sh dist/bootstrap.sh' .github/workflows/release.yml
           grep -q 'cp install.sh dist/freenet' .github/workflows/release.yml
           grep -q 'cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh' .github/workflows/release.yml
           grep -q 'cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh' .github/workflows/release.yml
@@ -163,7 +174,7 @@ jobs:
         run: |
           ! grep -Rni --exclude='*_test.go' -E \
             'vless://[0-9A-Fa-f-]{36}@|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
-            install.sh doctor.sh scripts tests config freenet-ui deploy README.md docs
+            bootstrap.sh install.sh doctor.sh scripts tests config freenet-ui deploy README.md docs
 
       - name: Cross-build direct router binaries
         run: |
