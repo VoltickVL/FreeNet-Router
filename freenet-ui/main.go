@@ -369,11 +369,9 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Action != "update" {
-		if _, ok := profiles[req.Action]; !ok {
-			writeJSON(w, http.StatusBadRequest, actionResult{Success: false, Error: "unsupported action"})
-			return
-		}
+	if !supportedAction(req.Action) {
+		writeJSON(w, http.StatusBadRequest, actionResult{Success: false, Error: "unsupported action"})
+		return
 	}
 
 	select {
@@ -395,6 +393,59 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, code, result)
 }
 
+func supportedAction(action string) bool {
+	if action == "update" || action == "rotate" {
+		return true
+	}
+	_, ok := profiles[action]
+	return ok
+}
+
+func rotateBaselineValid(s statusResponse) error {
+	if s.CountryCode == "" {
+		return errors.New("current VPN profile group is unknown")
+	}
+	if s.Endpoint == "" || s.Endpoint == "—" {
+		return errors.New("current VPN endpoint is unavailable")
+	}
+	return nil
+}
+
+func validateActionPostcondition(action string, before, after statusResponse) error {
+	if !after.DNSOut {
+		return errors.New("dns-out missing after operation")
+	}
+
+	switch action {
+	case "update":
+		return nil
+	case "rotate":
+		if err := rotateBaselineValid(after); err != nil {
+			return err
+		}
+		if before.CountryCode != after.CountryCode {
+			return errors.New("rotation changed VPN profile group")
+		}
+		if before.Endpoint == after.Endpoint {
+			return errors.New("rotation did not change VPN endpoint")
+		}
+		return nil
+	default:
+		if after.CountryCode != action {
+			return errors.New("selected profile did not match requested country")
+		}
+		return nil
+	}
+}
+
+func commandExitCode(err error) int {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	return -1
+}
+
 func runCommand(ctx context.Context, path string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Env = append(os.Environ(), "PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin")
@@ -414,6 +465,16 @@ func (a *app) runAction(action string) actionResult {
 		result.Error = "updater is already busy"
 		result.EndedAt = time.Now().Format(time.RFC3339)
 		return result
+	}
+
+	before := statusResponse{}
+	if action == "rotate" {
+		before = a.status()
+		if err := rotateBaselineValid(before); err != nil {
+			result.Error = err.Error()
+			result.EndedAt = time.Now().Format(time.RFC3339)
+			return result
+		}
 	}
 
 	var snap snapshot
@@ -438,6 +499,18 @@ func (a *app) runAction(action string) actionResult {
 	}
 
 	if cmdErr != nil {
+		// `vpn rotate` uses exit 3 as an explicit terminal no-alternative result.
+		// The router-side controller guarantees no mutation in this branch, so
+		// do not manufacture a restart/rollback from the UI layer.
+		if action == "rotate" && commandExitCode(cmdErr) == 3 {
+			result.Error = "another VPN endpoint is not available in the current profile group"
+			if safeOutput != "" {
+				result.Error += "; " + safeOutput
+			}
+			result.EndedAt = time.Now().Format(time.RFC3339)
+			return result
+		}
+
 		if action != "update" {
 			if rbErr := a.restoreSnapshot(snap); rbErr != nil {
 				result.Error = fmt.Sprintf("%v; rollback failed: %v", cmdErr, rbErr)
@@ -459,7 +532,7 @@ func (a *app) runAction(action string) actionResult {
 	if !processRunning("xray") {
 		if action != "update" {
 			if rbErr := a.restoreSnapshot(snap); rbErr != nil {
-				result.Error = "Xray is offline after switch; rollback failed: " + rbErr.Error()
+				result.Error = "Xray is offline after operation; rollback failed: " + rbErr.Error()
 				result.EndedAt = time.Now().Format(time.RFC3339)
 				return result
 			}
@@ -469,38 +542,27 @@ func (a *app) runAction(action string) actionResult {
 		return result
 	}
 
-	if action != "update" {
-		s := a.status()
-		if s.CountryCode != action {
-			if rbErr := a.restoreSnapshot(snap); rbErr != nil {
-				result.Error = "selected profile did not match requested country; rollback failed: " + rbErr.Error()
-				result.EndedAt = time.Now().Format(time.RFC3339)
-				return result
-			}
-			result.Error = "selected profile did not match requested country"
-			result.EndedAt = time.Now().Format(time.RFC3339)
-			return result
-		}
-	}
-
-	s := a.status()
-	if !s.DNSOut {
+	after := a.status()
+	if err := validateActionPostcondition(action, before, after); err != nil {
 		if action != "update" {
 			if rbErr := a.restoreSnapshot(snap); rbErr != nil {
-				result.Error = "dns-out missing after operation; rollback failed: " + rbErr.Error()
+				result.Error = err.Error() + "; rollback failed: " + rbErr.Error()
 				result.EndedAt = time.Now().Format(time.RFC3339)
 				return result
 			}
 		}
-		result.Error = "dns-out missing after operation"
+		result.Error = err.Error()
 		result.EndedAt = time.Now().Format(time.RFC3339)
 		return result
 	}
 
 	result.Success = true
-	if action == "update" {
+	switch action {
+	case "update":
 		result.Message = "Текущий VPN-сервер обновлён"
-	} else {
+	case "rotate":
+		result.Message = "VPN-сервер сменён: " + before.Endpoint + " → " + after.Endpoint
+	default:
 		p := profiles[action]
 		result.Message = p.Country + " · " + p.City + " активирован"
 	}
