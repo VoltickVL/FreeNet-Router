@@ -4,6 +4,15 @@ FILTER_FILE="${FREENET_FILTER_FILE:-/opt/etc/xray/blanc_profile_filter.regex}"
 UPDATER_BIN="${FREENET_UPDATER_BIN:-/opt/bin/blanc_xkeen_update_outbounds.sh}"
 SUB_FILE="${FREENET_SUB_FILE:-/opt/etc/xray/blanc_subscription.url}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
+PIDOF_BIN="${FREENET_PIDOF_BIN:-pidof}"
+XRAY_BIN="${FREENET_XRAY_BIN:-/opt/sbin/xray}"
+ASSET_DIR="${FREENET_ASSET_DIR:-/opt/etc/xray/dat}"
+FAILOVER_PROBES="${FREENET_FAILOVER_PROBES:-3}"
+FAILOVER_DELAY_SEC="${FREENET_FAILOVER_DELAY_SEC:-2}"
+FAILOVER_CONNECT_TIMEOUT="${FREENET_FAILOVER_CONNECT_TIMEOUT:-3}"
+FAILOVER_MAX_TIME="${FREENET_FAILOVER_MAX_TIME:-5}"
+FAILOVER_COOLDOWN_SEC="${FREENET_FAILOVER_COOLDOWN_SEC:-600}"
+FAILOVER_STATE_FILE="${FREENET_FAILOVER_STATE_FILE:-/tmp/freenet-vpn-failover.last}"
 
 if [ -n "${FREENET_CONFIG_DIR:-}" ]; then
 CONFIG_DIR="$FREENET_CONFIG_DIR"
@@ -30,7 +39,120 @@ escape_ere() {
     '
 }
 
+read_current_endpoint() {
+    CURRENT_ADDRESS="$(jq -r '.outbounds[] | select(.tag == "vless-reality") | .settings.vnext[0].address // empty' "$OUT_FILE" 2>/dev/null | head -n 1)"
+    CURRENT_PORT="$(jq -r '.outbounds[] | select(.tag == "vless-reality") | .settings.vnext[0].port // empty' "$OUT_FILE" 2>/dev/null | head -n 1)"
+    [ -n "$CURRENT_ADDRESS" ] && [ -n "$CURRENT_PORT" ]
+}
+
+valid_positive_int() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ "$1" -gt 0 ] 2>/dev/null
+}
+
+valid_nonnegative_int() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    return 0
+}
+
+tcp_probe() {
+    PROBE_ADDRESS="$1"
+    PROBE_PORT="$2"
+    PROBE_LOG="/tmp/freenet-vpn-probe.$$.log"
+    case "$PROBE_ADDRESS" in
+        *:*) PROBE_HOST="[$PROBE_ADDRESS]" ;;
+        *) PROBE_HOST="$PROBE_ADDRESS" ;;
+    esac
+
+    rm -f "$PROBE_LOG" 2>/dev/null || true
+    "$CURL_BIN" --noproxy '*' -k -v -sS \
+        --connect-timeout "$FAILOVER_CONNECT_TIMEOUT" \
+        --max-time "$FAILOVER_MAX_TIME" \
+        -o /dev/null \
+        "https://$PROBE_HOST:$PROBE_PORT/" \
+        >/dev/null 2> "$PROBE_LOG" || true
+
+    if grep -F 'Connected to ' "$PROBE_LOG" >/dev/null 2>&1; then
+        rm -f "$PROBE_LOG" 2>/dev/null || true
+        return 0
+    fi
+    rm -f "$PROBE_LOG" 2>/dev/null || true
+    return 1
+}
+
+failover_baseline_valid() {
+    [ -s "$OUT_FILE" ] || {
+        echo "[vpn] failover suppressed: current outbound is missing" >&2
+        return 1
+    }
+    [ -x "$XRAY_BIN" ] || {
+        echo "[vpn] failover suppressed: Xray binary is missing" >&2
+        return 1
+    }
+    [ -d "$ASSET_DIR" ] || {
+        echo "[vpn] failover suppressed: Xray asset directory is missing" >&2
+        return 1
+    }
+    command -v "$PIDOF_BIN" >/dev/null 2>&1 || [ -x "$PIDOF_BIN" ] || {
+        echo "[vpn] failover suppressed: pidof tool is missing" >&2
+        return 1
+    }
+    "$PIDOF_BIN" xray >/dev/null 2>&1 || {
+        echo "[vpn] failover suppressed: local Xray is offline" >&2
+        return 1
+    }
+    jq -e '
+        ((.outbounds | type) == "array") and
+        (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1) and
+        (([.outbounds[] | select(.tag == "dns-out")] | length) == 1)
+    ' "$OUT_FILE" >/dev/null 2>&1 || {
+        echo "[vpn] failover suppressed: local Xray outbound baseline is invalid" >&2
+        return 1
+    }
+    XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" >/dev/null 2>&1 || {
+        echo "[vpn] failover suppressed: live Xray configuration is invalid" >&2
+        return 1
+    }
+    read_current_endpoint || {
+        echo "[vpn] failover suppressed: current vless-reality endpoint is unavailable" >&2
+        return 1
+    }
+    return 0
+}
+
+cooldown_active() {
+    valid_nonnegative_int "$FAILOVER_COOLDOWN_SEC" || return 1
+    [ "$FAILOVER_COOLDOWN_SEC" -gt 0 ] 2>/dev/null || return 1
+    [ -s "$FAILOVER_STATE_FILE" ] || return 1
+    LAST_FAILOVER="$(tr -d '[:space:]' < "$FAILOVER_STATE_FILE" 2>/dev/null)"
+    case "$LAST_FAILOVER" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    NOW="$(date +%s 2>/dev/null)"
+    case "$NOW" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    AGE=$((NOW - LAST_FAILOVER))
+    [ "$AGE" -ge 0 ] 2>/dev/null && [ "$AGE" -lt "$FAILOVER_COOLDOWN_SEC" ] 2>/dev/null
+}
+
+mark_failover() {
+    NOW="$(date +%s 2>/dev/null)"
+    case "$NOW" in
+        ''|*[!0-9]*) return 0 ;;
+    esac
+    printf '%s\n' "$NOW" > "$FAILOVER_STATE_FILE.tmp.$$" 2>/dev/null || return 0
+    mv -f "$FAILOVER_STATE_FILE.tmp.$$" "$FAILOVER_STATE_FILE" 2>/dev/null || true
+}
+
 rotate_current_endpoint() {
+    ROTATE_MODE="${1:-rotate}"
+    case "$ROTATE_MODE" in rotate|failover) ;; *) return 2 ;; esac
+
     [ -x "$UPDATER_BIN" ] || {
         echo "[vpn] updater not found: $UPDATER_BIN" >&2
         return 1
@@ -47,7 +169,7 @@ rotate_current_endpoint() {
         echo "[vpn] current outbound is missing" >&2
         return 1
     }
-    for tool in jq base64 mktemp grep sed awk; do
+    for tool in jq base64 mktemp grep sed awk cut tr cp; do
         command -v "$tool" >/dev/null 2>&1 || {
             echo "[vpn] required tool not found: $tool" >&2
             return 1
@@ -62,9 +184,7 @@ rotate_current_endpoint() {
     [ -n "$ROTATE_TMP" ] && [ -d "$ROTATE_TMP" ] || return 1
     trap 'rm -rf "$ROTATE_TMP" 2>/dev/null' EXIT HUP INT TERM
 
-    CURRENT_ADDRESS="$(jq -r '.outbounds[] | select(.tag == "vless-reality") | .settings.vnext[0].address // empty' "$OUT_FILE" 2>/dev/null | head -n 1)"
-    CURRENT_PORT="$(jq -r '.outbounds[] | select(.tag == "vless-reality") | .settings.vnext[0].port // empty' "$OUT_FILE" 2>/dev/null | head -n 1)"
-    [ -n "$CURRENT_ADDRESS" ] && [ -n "$CURRENT_PORT" ] || {
+    read_current_endpoint || {
         echo "[vpn] current vless-reality endpoint is unavailable" >&2
         return 1
     }
@@ -133,13 +253,23 @@ rotate_current_endpoint() {
                 continue
                 ;;
         esac
-        if [ "$address" != "$CURRENT_ADDRESS" ] || [ "$port" != "$CURRENT_PORT" ]; then
-            printf '%s\t%s\n' "$address" "$port" > "$ALT_FILE"
-            break
+        if [ "$address" = "$CURRENT_ADDRESS" ] && [ "$port" = "$CURRENT_PORT" ]; then
+            continue
         fi
+        if [ "$ROTATE_MODE" = failover ] && ! tcp_probe "$address" "$port"; then
+            echo "[vpn] failover candidate unreachable: $address:$port" >&2
+            continue
+        fi
+        printf '%s\t%s\n' "$address" "$port" > "$ALT_FILE"
+        break
     done < "$MATCHES_FILE"
 
     if [ ! -s "$ALT_FILE" ]; then
+        if [ "$ROTATE_MODE" = failover ]; then
+            echo "[vpn] failover unavailable: no reachable alternative endpoint in current Extra profile group" >&2
+            echo "[vpn] current endpoint preserved: $CURRENT_ADDRESS:$CURRENT_PORT" >&2
+            return 4
+        fi
         echo "[vpn] rotation unavailable: no alternative endpoint in current Extra profile group" >&2
         echo "[vpn] current endpoint preserved: $CURRENT_ADDRESS:$CURRENT_PORT" >&2
         return 3
@@ -150,17 +280,82 @@ rotate_current_endpoint() {
     ALT_ENDPOINT="$ALT_ADDRESS:$ALT_PORT"
     printf '%s\n' "$ALT_ENDPOINT" | escape_ere > "$TEMP_FILTER"
 
-    echo "[vpn] rotate: current endpoint $CURRENT_ADDRESS:$CURRENT_PORT"
-    echo "[vpn] rotate: selected alternative endpoint $ALT_ENDPOINT"
+    if [ "$ROTATE_MODE" = failover ]; then
+        echo "[vpn] failover: current endpoint $CURRENT_ADDRESS:$CURRENT_PORT confirmed unreachable"
+        echo "[vpn] failover: reachable alternative $ALT_ENDPOINT"
+    else
+        echo "[vpn] rotate: current endpoint $CURRENT_ADDRESS:$CURRENT_PORT"
+        echo "[vpn] rotate: selected alternative endpoint $ALT_ENDPOINT"
+    fi
     echo "[vpn] saved profile group remains unchanged"
 
     FREENET_FILTER_FILE="$TEMP_FILTER" \
-    FREENET_ACTION_REASON=rotate \
+    FREENET_ACTION_REASON="$ROTATE_MODE" \
     "$UPDATER_BIN"
     rc=$?
 
     rm -rf "$ROTATE_TMP" 2>/dev/null
     trap - EXIT HUP INT TERM
+    return "$rc"
+}
+
+failover_current_endpoint() {
+    command -v "$CURL_BIN" >/dev/null 2>&1 || [ -x "$CURL_BIN" ] || {
+        echo "[vpn] failover suppressed: curl tool is missing" >&2
+        return 1
+    }
+    valid_positive_int "$FAILOVER_PROBES" || {
+        echo "[vpn] failover suppressed: invalid probe count" >&2
+        return 1
+    }
+    valid_nonnegative_int "$FAILOVER_DELAY_SEC" || {
+        echo "[vpn] failover suppressed: invalid probe delay" >&2
+        return 1
+    }
+    valid_positive_int "$FAILOVER_CONNECT_TIMEOUT" || {
+        echo "[vpn] failover suppressed: invalid connect timeout" >&2
+        return 1
+    }
+    valid_positive_int "$FAILOVER_MAX_TIME" || {
+        echo "[vpn] failover suppressed: invalid max time" >&2
+        return 1
+    }
+    valid_nonnegative_int "$FAILOVER_COOLDOWN_SEC" || {
+        echo "[vpn] failover suppressed: invalid cooldown" >&2
+        return 1
+    }
+
+    failover_baseline_valid || return 2
+
+    if cooldown_active; then
+        echo "[vpn] failover suppressed by cooldown; current endpoint preserved: $CURRENT_ADDRESS:$CURRENT_PORT"
+        return 0
+    fi
+
+    PROBE_INDEX=1
+    while [ "$PROBE_INDEX" -le "$FAILOVER_PROBES" ]; do
+        if tcp_probe "$CURRENT_ADDRESS" "$CURRENT_PORT"; then
+            if [ "$PROBE_INDEX" -eq 1 ]; then
+                echo "[vpn] failover check: current endpoint reachable; no mutation"
+            else
+                echo "[vpn] failover check: endpoint recovered on probe $PROBE_INDEX/$FAILOVER_PROBES; no mutation"
+            fi
+            return 0
+        fi
+        echo "[vpn] failover probe $PROBE_INDEX/$FAILOVER_PROBES failed for $CURRENT_ADDRESS:$CURRENT_PORT" >&2
+        if [ "$PROBE_INDEX" -lt "$FAILOVER_PROBES" ] && [ "$FAILOVER_DELAY_SEC" -gt 0 ] 2>/dev/null; then
+            sleep "$FAILOVER_DELAY_SEC"
+        fi
+        PROBE_INDEX=$((PROBE_INDEX + 1))
+    done
+
+    echo "[vpn] failover trigger: current endpoint failed all $FAILOVER_PROBES TCP probes" >&2
+    rotate_current_endpoint failover
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        mark_failover
+        echo "[vpn] failover completed transactionally"
+    fi
     return "$rc"
 }
 
@@ -203,7 +398,11 @@ FREENET_ACTION_REASON=refresh "$UPDATER_BIN"
 exit $?
 ;;
 rotate)
-rotate_current_endpoint
+rotate_current_endpoint rotate
+exit $?
+;;
+failover)
+failover_current_endpoint
 exit $?
 ;;
 *)
@@ -218,6 +417,7 @@ echo "  vpn reload   refresh current selected Extra profile"
 echo "  vpn update   same as reload"
 echo "  vpn refresh  same as reload"
 echo "  vpn rotate   select another endpoint in current Extra profile group"
+echo "  vpn failover rotate only after repeated current-endpoint failure and reachable-alternative check"
 exit 1
 ;;
 esac
