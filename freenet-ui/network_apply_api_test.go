@@ -37,17 +37,51 @@ func supportedPlanOutput() string {
 		"DNS_MODE=firmware",
 		"EFFECTIVE_DNS_MODE=firmware",
 		"SUPPORTED=yes",
-		"REASON=verified WORK preset",
-		"PROXY_DNS=on",
+		"REASON=профиль поддерживается",
+		"PROXY_DNS=off",
 		"PORT53_OWNER=ndnproxy",
 		"XRAY_GID=11111",
+		"DNS_ROUTING_MODE=standard",
 		"DNS_OUT=yes",
 		"VLESS_PROFILE=yes",
-		"EXPECTED_DELTA=preserve firmware ndnproxy :53; add/repair split DNS",
+		"EXPECTED_DELTA=проверить и применить выбранный DNS режим",
 		"EXPECTED_NO_DELTA=no VLESS credential rewrite",
 		"MUTATION=NONE",
 		"========== END ==========",
 	}, "\n")
+}
+
+func dynamicPlanHelper(applyTail string) string {
+	return `CONF="$FREENET_CONFIG_FILE"
+ISP="$(sed -n 's/^ISP_ID=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
+DNS="$(sed -n 's/^DNS_MODE=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
+case "$DNS" in
+  auto|firmware) EFFECTIVE=firmware; ROUTING=standard ;;
+  xkeen) EFFECTIVE=xkeen; ROUTING=split ;;
+  custom) EFFECTIVE=custom; ROUTING=unknown ;;
+esac
+if [ "$1" = plan ]; then
+cat <<EOF
+========== FreeNet Network Plan ==========
+ISP_ID=$ISP
+DNS_MODE=$DNS
+EFFECTIVE_DNS_MODE=$EFFECTIVE
+SUPPORTED=yes
+REASON=профиль поддерживается
+PROXY_DNS=off
+PORT53_OWNER=ndnproxy
+XRAY_GID=11111
+DNS_ROUTING_MODE=$ROUTING
+DNS_OUT=yes
+VLESS_PROFILE=yes
+EXPECTED_DELTA=применить выбранный draft
+EXPECTED_NO_DELTA=no VLESS credential rewrite
+MUTATION=NONE
+========== END ==========
+EOF
+exit 0
+fi
+` + applyTail
 }
 
 func TestParseNetworkPlanAllowlistsFieldsAndDropsSecrets(t *testing.T) {
@@ -78,66 +112,57 @@ func TestParseNetworkPlanRejectsUnexpectedMutation(t *testing.T) {
 	}
 }
 
-func TestNetworkPlanHandlerUsesExactAllowlistedHelper(t *testing.T) {
-	helper := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF")
+func TestNetworkPlanUsesDraftWithoutPersistingIt(t *testing.T) {
+	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("exit 0"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
+	before, err := os.ReadFile(a.cfg.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan", nil)
+	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?isp=vladlink&dns_mode=xkeen", nil)
 	w := httptest.NewRecorder()
 	a.handleNetworkProfilePlan(w, r)
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if strings.Contains(w.Body.String(), helper) {
-		t.Fatal("helper path must not be exposed")
-	}
 	var plan networkPlanResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
-	if !plan.Supported || plan.Mutation != "NONE" {
-		t.Fatalf("unexpected plan: %+v", plan)
+	if plan.ISP != "vladlink" || plan.DNSMode != "xkeen" || plan.ActiveISP != "rostelecom" || plan.ActiveDNSMode != "firmware" || plan.Active {
+		t.Fatalf("draft/active state mixed: %+v", plan)
+	}
+	after, err := os.ReadFile(a.cfg.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("read-only plan mutated config\nbefore=%s\nafter=%s", before, after)
 	}
 }
 
-func TestNetworkApplyRequiresExplicitConfirmationAndSavedProfileMatch(t *testing.T) {
+func TestNetworkApplyRequiresConfirmationButNotPreSave(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "applied")
-	helper := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF\nexit 0\nfi\necho applied > \""+marker+"\"\necho '[FreeNet Network] RESULT=SUCCESS'")
+	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("echo \"$ISP/$DNS\" > \""+marker+"\"\necho '[FreeNet Network] RESULT=SUCCESS'\nexit 0"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
 	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
 
-	for name, tc := range map[string]struct {
-		payload string
-		code    int
-	}{
-		"no-confirm":    {`{"isp":"rostelecom","dns_mode":"firmware","confirm":false}`, http.StatusBadRequest},
-		"stale-profile": {`{"isp":"vladlink","dns_mode":"xkeen","confirm":true}`, http.StatusConflict},
-	} {
-		t.Run(name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(tc.payload))
-			r.Host = "192.168.50.1:1001"
-			r.Header.Set("Origin", "http://192.168.50.1:1001")
-			r.Header.Set("Content-Type", "application/json")
-			w := httptest.NewRecorder()
-			a.handleNetworkProfileApply(w, r)
-			if w.Code != tc.code {
-				t.Fatalf("status=%d want=%d body=%s", w.Code, tc.code, w.Body.String())
-			}
-		})
+	noConfirm := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(`{"isp":"vladlink","dns_mode":"xkeen","confirm":false}`))
+	noConfirm.Host = "192.168.50.1:1001"
+	noConfirm.Header.Set("Origin", "http://192.168.50.1:1001")
+	noConfirm.Header.Set("Content-Type", "application/json")
+	noConfirmW := httptest.NewRecorder()
+	a.handleNetworkProfileApply(noConfirmW, noConfirm)
+	if noConfirmW.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", noConfirmW.Code, noConfirmW.Body.String())
 	}
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatal("apply helper ran without a valid confirmed saved profile")
+		t.Fatal("apply helper ran without confirmation")
 	}
-}
 
-func TestNetworkApplyRunsPlanBeforeApplyAndReturnsPostPlan(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "applied")
-	helper := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF\nexit 0\nfi\necho applied > \""+marker+"\"\necho '[FreeNet Network] RESULT=SUCCESS'\nexit 0")
-	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
-
-	payload := `{"isp":"rostelecom","dns_mode":"firmware","confirm":true}`
+	payload := `{"isp":"vladlink","dns_mode":"xkeen","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
@@ -147,24 +172,25 @@ func TestNetworkApplyRunsPlanBeforeApplyAndReturnsPostPlan(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("apply helper did not run: %v", err)
+	if got, err := os.ReadFile(marker); err != nil || strings.TrimSpace(string(got)) != "vladlink/xkeen" {
+		t.Fatalf("helper did not receive exact draft: %q err=%v", got, err)
 	}
-	var resp networkApplyResponse
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatal(err)
-	}
-	if !resp.Success || !resp.Applied || resp.RollbackState != "NOT_NEEDED" || !resp.Plan.Supported {
-		t.Fatalf("unexpected response: %+v", resp)
+	isp, dns := readNetworkProfileConfig(a.cfg.ConfigPath)
+	if isp != "vladlink" || dns != "xkeen" {
+		t.Fatalf("accepted draft not committed: %s/%s", isp, dns)
 	}
 }
 
-func TestNetworkApplyFailureSeparatesPrimaryAndRollbackState(t *testing.T) {
-	helper := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF\nexit 0\nfi\necho '[FreeNet Network] ERROR: PRIMARY ERROR: DNS migration failed and reported rollback success/no live apply' >&2\nexit 1")
+func TestNetworkApplyFailureKeepsPreviousActiveConfig(t *testing.T) {
+	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("echo '[FreeNet Network] ERROR: PRIMARY ERROR: post-apply Split DNS acceptance failed' >&2\necho '[FreeNet Network] ERROR: ROLLBACK ERROR/STATE: rollback success' >&2\nexit 1"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
+	before, err := os.ReadFile(a.cfg.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	payload := `{"isp":"rostelecom","dns_mode":"firmware","confirm":true}`
+	payload := `{"isp":"vladlink","dns_mode":"xkeen","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
@@ -178,7 +204,30 @@ func TestNetworkApplyFailureSeparatesPrimaryAndRollbackState(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.PrimaryError == "" || resp.RollbackState != "SUCCESS_OR_NOT_APPLIED" {
+	if resp.PrimaryError == "" || resp.RollbackState != "SUCCESS" {
 		t.Fatalf("failure not separated: %+v", resp)
+	}
+	after, err := os.ReadFile(a.cfg.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("failed apply changed active config\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
+func TestNetworkPlanHandlerUsesExactAllowlistedHelper(t *testing.T) {
+	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("exit 9"))
+	t.Setenv("FREENET_NETWORK_HELPER", helper)
+	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+
+	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan", nil)
+	w := httptest.NewRecorder()
+	a.handleNetworkProfilePlan(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), helper) {
+		t.Fatal("helper path must not be exposed")
 	}
 }
