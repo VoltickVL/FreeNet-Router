@@ -27,6 +27,9 @@ func TestProviderSelectionUIContract(t *testing.T) {
 		"ОСНОВНАЯ ОШИБКА:",
 		"ОТКАТ:",
 		"Не повторяйте вслепую",
+		"Сейчас активно:",
+		"Выбрано для применения:",
+		"Конкретный профиль из подписки для ручного apply не выбран",
 	} {
 		if !strings.Contains(ui, required) {
 			t.Fatalf("в UI выбора VPN-профиля отсутствует контракт %q", required)
@@ -47,10 +50,11 @@ func TestProviderSelectorUsesTextContent(t *testing.T) {
 	}
 	body := ui[start : start+end]
 	for _, required := range []string{
-		"name.textContent=p.name",
+		"main.textContent=p.name",
 		"endpoint.textContent=formatProfileEndpoint(p)",
-		"option.textContent=",
-		"document.createElement('option')",
+		"option.dataset.profileId=p.id",
+		"document.createElement('button')",
+		"makeCountryMarker(p.country_code)",
 	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("в renderer профилей отсутствует безопасный контракт %q", required)

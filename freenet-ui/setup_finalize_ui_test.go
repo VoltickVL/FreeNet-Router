@@ -22,10 +22,11 @@ func TestSetupFinalizeUIContract(t *testing.T) {
 		`id="installScenario"`,
 		`id="setupState"`,
 		`id="installScenarioHint"`,
-		"Сценарий установки",
+		"Тип установки",
+		"Состояние настройки",
 		"Действующий роутер",
 		"Новая установка",
-		"XKeen/Xray сохранены",
+		"Существующие XKeen/Xray распознаны и сохранены",
 		"Проверить готовность",
 		"Завершить настройку",
 		"renderInstallScenario",
@@ -60,7 +61,7 @@ func TestSetupFinalizeApplyIsLocallyGatedByFreshPlan(t *testing.T) {
 	}
 }
 
-func TestCompletedSetupLeavesWizardMode(t *testing.T) {
+func TestCompletedSetupShowsFactsAndLeavesWizardMode(t *testing.T) {
 	data, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
@@ -69,11 +70,18 @@ func TestCompletedSetupLeavesWizardMode(t *testing.T) {
 	for _, required := range []string{
 		"finalize.hidden=complete",
 		"banner.hidden=!complete",
-		"Настройка завершена. Ниже остаются только обычные эксплуатационные настройки Control Center.",
-		"if(lastStatus&&lastStatus.setup_complete){renderSetupVisibility(lastStatus);return}",
+		"Настройка завершена. Это обычный режим Control Center; повторно проходить мастер не требуется.",
+		"if(lastStatus&&lastStatus.setup_complete){renderInstallScenario(lastStatus);return}",
+		"updateNetworkHint(s);renderInstallScenario(s)",
+		"state.textContent=p&&p.setup_complete?'● Настройка завершена':'● Настройка не завершена'",
 	} {
 		if !strings.Contains(ui, required) {
 			t.Fatalf("completed setup state missing %q", required)
+		}
+	}
+	for _, stale := range []string{`<div id="installScenario" class="value">Определяем…</div>`, `<div id="setupState" class="value">Проверяем…</div>`} {
+		if strings.Contains(ui, stale) {
+			t.Fatalf("completed setup UI still ships stale placeholder %q", stale)
 		}
 	}
 }
