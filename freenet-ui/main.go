@@ -913,10 +913,37 @@ func sameOrigin(r *http.Request) bool {
 		return true
 	}
 	u, err := url.Parse(origin)
-	if err != nil {
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return false
 	}
-	return strings.EqualFold(u.Host, r.Host)
+	if strings.EqualFold(u.Host, r.Host) {
+		return true
+	}
+	if !requestFromLoopback(r) {
+		return false
+	}
+	forwardedHost := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
+	if forwardedHost == "" || !strings.EqualFold(u.Host, forwardedHost) {
+		return false
+	}
+	forwardedProto := strings.ToLower(firstForwardedValue(r.Header.Get("X-Forwarded-Proto")))
+	return forwardedProto == "" || strings.EqualFold(u.Scheme, forwardedProto)
+}
+
+func requestFromLoopback(r *http.Request) bool {
+	host := strings.TrimSpace(r.RemoteAddr)
+	if parsed, _, err := net.SplitHostPort(host); err == nil {
+		host = parsed
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
+func firstForwardedValue(value string) string {
+	if i := strings.IndexByte(value, ','); i >= 0 {
+		value = value[:i]
+	}
+	return strings.TrimSpace(value)
 }
 
 func sanitizeOutput(s string) string {
