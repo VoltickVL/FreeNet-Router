@@ -195,7 +195,7 @@
     if (oldSave) oldSave.hidden = true;
     const firmwareOption = dns.querySelector('option[value="firmware"]');
     if (firmwareOption) firmwareOption.textContent = 'DNS напрямую через роутер';
-    if (window.dnsLabels) window.dnsLabels.firmware = 'DNS напрямую через роутер';
+    dnsLabels.firmware = 'DNS напрямую через роутер';
 
     const planButton = oldPlan.cloneNode(true);
     planButton.textContent = 'Проверить изменения';
@@ -212,83 +212,83 @@
       return q.toString();
     };
 
-    window.renderNetworkControls = function(serverBusy = false) {
-      const state = window.networkState();
+    renderNetworkControls = function(serverBusy = false) {
+      const state = networkState();
       const save = qs('#saveNetworkBtn');
       const planBtn = qs('#planNetworkBtn');
       const applyBtn = qs('#applyNetworkBtn');
       if (save) save.hidden = true;
       if (planBtn) {
         planBtn.hidden = false;
-        planBtn.disabled = serverBusy || window.networkChecking || window.networkApplying;
+        planBtn.disabled = serverBusy || networkChecking || networkApplying;
       }
       if (applyBtn) {
         applyBtn.hidden = state !== 'changes';
-        applyBtn.disabled = serverBusy || state !== 'changes' || window.networkApplying;
+        applyBtn.disabled = serverBusy || state !== 'changes' || networkApplying;
       }
-      if (state === 'active') window.setSummary('networkSummary', 'Выбранный профиль уже активен', 'ok');
-      else if (state === 'changes') window.setSummary('networkSummary', 'Изменения проверены — можно применить');
-      else if (state === 'blocked' || state === 'error') window.setSummary('networkSummary', 'Применение заблокировано', 'bad');
-      else if (state === 'dirty') window.setSummary('networkSummary', 'Изменения ещё не проверены');
-      else if (state === 'checking') window.setSummary('networkSummary', 'Проверяем изменения…');
-      else window.setSummary('networkSummary', 'Проверьте выбранные настройки');
+      if (state === 'active') setSummary('networkSummary', 'Выбранный профиль уже активен', 'ok');
+      else if (state === 'changes') setSummary('networkSummary', 'Изменения проверены — можно применить');
+      else if (state === 'blocked' || state === 'error') setSummary('networkSummary', 'Применение заблокировано', 'bad');
+      else if (state === 'dirty') setSummary('networkSummary', 'Изменения ещё не проверены');
+      else if (state === 'checking') setSummary('networkSummary', 'Проверяем изменения…');
+      else setSummary('networkSummary', 'Проверьте выбранные настройки');
     };
 
-    window.loadNetworkPlan = async function(profileID = window.selectedProviderID) {
-      if (!window.authAuthenticated) return;
-      window.networkChecking = true;
-      window.networkPlanReady = false;
-      window.networkPlanError = false;
-      window.lastNetworkPlan = null;
-      window.providerPlanReady = false;
-      window.showBox('networkPlan', 'Проверяем выбранные настройки без сохранения и без изменений runtime…');
-      window.buttonsBusy(!!(window.lastStatus && (window.lastStatus.busy || window.lastStatus.updater_busy)));
+    loadNetworkPlan = async function(profileID = selectedProviderID) {
+      if (!authAuthenticated) return;
+      networkChecking = true;
+      networkPlanReady = false;
+      networkPlanError = false;
+      lastNetworkPlan = null;
+      providerPlanReady = false;
+      showBox('networkPlan', 'Проверяем выбранные настройки без сохранения и без изменений runtime…');
+      buttonsBusy(!!(lastStatus && (lastStatus.busy || lastStatus.updater_busy)));
       try {
         const r = await fetch('/api/network-profile/plan?' + draftParams(profileID), {cache: 'no-store'});
         if (r.status === 401) {
-          await window.loadAuthStatus();
+          await loadAuthStatus();
           return;
         }
         const j = await r.json();
         if (!r.ok || !j.success) {
-          window.networkPlanError = true;
-          window.showBox('networkPlan', j.error || 'Не удалось проверить изменения', 'bad');
-          window.renderExtraProfiles(j);
-          if (profileID) window.showBox('providerPlan', 'Не удалось проверить выбранный VPN-профиль', 'bad');
+          networkPlanError = true;
+          showBox('networkPlan', j.error || 'Не удалось проверить изменения', 'bad');
+          renderExtraProfiles(j);
+          if (profileID) showBox('providerPlan', 'Не удалось проверить выбранный VPN-профиль', 'bad');
           return;
         }
-        window.networkDirty = false;
-        window.lastNetworkPlan = j;
-        window.networkPlanReady = !!(j.supported && !j.active);
-        window.showBox('networkPlan', window.formatNetworkPlan(j), j.supported ? 'ok' : 'bad');
-        window.renderExtraProfiles(j);
+        networkDirty = false;
+        lastNetworkPlan = j;
+        networkPlanReady = !!(j.supported && !j.active);
+        showBox('networkPlan', formatNetworkPlan(j), j.supported ? 'ok' : 'bad');
+        renderExtraProfiles(j);
         if (profileID) {
           const pp = j.provider_plan;
-          window.providerPlanReady = !!(pp && pp.success && pp.candidate_xray_valid && pp.mutation === 'NONE' && !pp.error);
-          window.showBox('providerPlan', window.formatProviderPlan(pp), window.providerPlanReady ? 'ok' : 'bad');
-          window.setSummary('providerSummary', window.providerPlanReady ? 'VPN-кандидат проверен' : 'VPN-кандидат заблокирован', window.providerPlanReady ? 'ok' : 'bad');
+          providerPlanReady = !!(pp && pp.success && pp.candidate_xray_valid && pp.mutation === 'NONE' && !pp.error);
+          showBox('providerPlan', formatProviderPlan(pp), providerPlanReady ? 'ok' : 'bad');
+          setSummary('providerSummary', providerPlanReady ? 'VPN-кандидат проверен' : 'VPN-кандидат заблокирован', providerPlanReady ? 'ok' : 'bad');
         } else {
-          window.hideBox('providerPlan');
+          hideBox('providerPlan');
         }
       } catch (_) {
-        window.networkPlanError = true;
-        window.showBox('networkPlan', 'Не удалось проверить изменения: нет связи с FreeNet', 'bad');
-        window.renderExtraProfiles(null);
-        if (profileID) window.showBox('providerPlan', 'Нет связи при проверке VPN-профиля', 'bad');
+        networkPlanError = true;
+        showBox('networkPlan', 'Не удалось проверить изменения: нет связи с FreeNet', 'bad');
+        renderExtraProfiles(null);
+        if (profileID) showBox('providerPlan', 'Нет связи при проверке VPN-профиля', 'bad');
       } finally {
-        window.networkChecking = false;
-        window.renderNetworkControls(!!(window.lastStatus && (window.lastStatus.busy || window.lastStatus.updater_busy)));
-        window.buttonsBusy(!!(window.lastStatus && (window.lastStatus.busy || window.lastStatus.updater_busy)));
+        networkChecking = false;
+        renderNetworkControls(!!(lastStatus && (lastStatus.busy || lastStatus.updater_busy)));
+        buttonsBusy(!!(lastStatus && (lastStatus.busy || lastStatus.updater_busy)));
       }
     };
 
     async function applyDraft() {
-      if (window.networkDirty || !window.networkPlanReady || window.networkApplying) return;
-      const delta = (window.lastNetworkPlan && window.lastNetworkPlan.expected_delta) || 'выбранный сетевой профиль';
+      if (networkDirty || !networkPlanReady || networkApplying) return;
+      const delta = (lastNetworkPlan && lastNetworkPlan.expected_delta) || 'выбранный сетевой профиль';
       if (!window.confirm('Применить проверенные настройки?\n\n' + delta + '\n\nFreeNet сначала сделает резервную копию. Активный ISP/DNS будет сохранён только после успешной проверки результата.')) return;
-      window.networkApplying = true;
-      window.buttonsBusy(true);
-      window.showBox('networkNotice', 'Применяем и проверяем сетевые настройки…');
+      networkApplying = true;
+      buttonsBusy(true);
+      showBox('networkNotice', 'Применяем и проверяем сетевые настройки…');
       try {
         const r = await fetch('/api/network-profile/apply', {
           method: 'POST',
@@ -296,7 +296,7 @@
           body: JSON.stringify({operation: 'network', isp: isp.value, dns_mode: dns.value, confirm: true})
         });
         if (r.status === 401) {
-          await window.loadAuthStatus();
+          await loadAuthStatus();
           return;
         }
         const j = await r.json();
@@ -305,43 +305,43 @@
           if (j.primary_error) parts.push('ОСНОВНАЯ ОШИБКА: ' + j.primary_error);
           if (j.rollback_state) parts.push('ОТКАТ: ' + j.rollback_state);
           if (j.rollback_state === 'FAILED/UNKNOWN') parts.push('Дальнейшие изменения остановлены до проверки фактического состояния.');
-          window.showBox('networkNotice', parts.join('\n'), 'bad');
+          showBox('networkNotice', parts.join('\n'), 'bad');
           return;
         }
-        window.networkDirty = false;
-        window.networkPlanReady = false;
-        window.showBox('networkNotice', j.message || 'Сетевые настройки применены и проверены.', 'ok');
-        const s = await window.loadStatus();
+        networkDirty = false;
+        networkPlanReady = false;
+        showBox('networkNotice', j.message || 'Сетевые настройки применены и проверены.', 'ok');
+        const s = await loadStatus();
         if (s) {
           isp.value = s.isp || j.isp || isp.value;
           dns.value = s.dns_mode || j.dns_mode || dns.value;
         }
-        await window.loadNetworkPlan(window.selectedProviderID);
+        await loadNetworkPlan(selectedProviderID);
       } catch (_) {
-        window.networkPlanError = true;
-        window.showBox('networkNotice', 'Связь с FreeNet прервалась во время применения. Не повторяйте операцию вслепую; сначала проверьте фактический статус.', 'bad');
+        networkPlanError = true;
+        showBox('networkNotice', 'Связь с FreeNet прервалась во время применения. Не повторяйте операцию вслепую; сначала проверьте фактический статус.', 'bad');
       } finally {
-        window.networkApplying = false;
-        window.buttonsBusy(!!(window.lastStatus && (window.lastStatus.busy || window.lastStatus.updater_busy)));
+        networkApplying = false;
+        buttonsBusy(!!(lastStatus && (lastStatus.busy || lastStatus.updater_busy)));
       }
     }
 
     const markDraft = () => {
-      window.networkDirty = true;
-      window.networkPlanReady = false;
-      window.networkPlanError = false;
-      window.lastNetworkPlan = null;
-      window.hideBox('networkNotice');
-      window.hideBox('networkPlan');
-      window.resetSetupFinalizePlan();
-      window.renderNetworkControls(!!(window.lastStatus && (window.lastStatus.busy || window.lastStatus.updater_busy)));
+      networkDirty = true;
+      networkPlanReady = false;
+      networkPlanError = false;
+      lastNetworkPlan = null;
+      hideBox('networkNotice');
+      hideBox('networkPlan');
+      resetSetupFinalizePlan();
+      renderNetworkControls(!!(lastStatus && (lastStatus.busy || lastStatus.updater_busy)));
     };
 
-    planButton.addEventListener('click', () => window.loadNetworkPlan(window.selectedProviderID));
+    planButton.addEventListener('click', () => loadNetworkPlan(selectedProviderID));
     applyButton.addEventListener('click', applyDraft);
     isp.addEventListener('change', markDraft);
     dns.addEventListener('change', markDraft);
-    window.renderNetworkControls(false);
+    renderNetworkControls(false);
   }
 
   function mount() {
