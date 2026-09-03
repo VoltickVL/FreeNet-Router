@@ -188,14 +188,19 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", a.handleIndex)
-	mux.HandleFunc("GET /api/status", a.handleStatus)
-	mux.HandleFunc("GET /api/network-profile", a.handleNetworkProfileGet)
-	mux.HandleFunc("POST /api/network-profile", a.handleNetworkProfilePost)
-	mux.HandleFunc("GET /api/network-profile/plan", a.handleNetworkProfilePlan)
-	mux.HandleFunc("POST /api/network-profile/apply", a.handleNetworkProfileApply)
-	mux.HandleFunc("GET /api/subscription", a.handleSubscriptionGet)
-	mux.HandleFunc("POST /api/subscription", a.handleSubscriptionPost)
-	mux.HandleFunc("POST /api/action", a.handleAction)
+	mux.HandleFunc("GET /api/auth/status", a.handleAuthStatus)
+	mux.HandleFunc("POST /api/auth/setup", a.handleAuthSetup)
+	mux.HandleFunc("POST /api/auth/login", a.handleAuthLogin)
+	mux.HandleFunc("POST /api/auth/logout", a.requireAuth(a.handleAuthLogout))
+	mux.HandleFunc("POST /api/auth/logout-all", a.requireAuth(a.handleAuthLogoutAll))
+	mux.HandleFunc("GET /api/status", a.requireAuth(a.handleStatus))
+	mux.HandleFunc("GET /api/network-profile", a.requireAuth(a.handleNetworkProfileGet))
+	mux.HandleFunc("POST /api/network-profile", a.requireAuth(a.handleNetworkProfilePost))
+	mux.HandleFunc("GET /api/network-profile/plan", a.requireAuth(a.handleNetworkProfilePlan))
+	mux.HandleFunc("POST /api/network-profile/apply", a.requireAuth(a.handleNetworkProfileApply))
+	mux.HandleFunc("GET /api/subscription", a.requireAuth(a.handleSubscriptionGet))
+	mux.HandleFunc("POST /api/subscription", a.requireAuth(a.handleSubscriptionPost))
+	mux.HandleFunc("POST /api/action", a.requireAuth(a.handleAction))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, "ok\n")
@@ -499,9 +504,6 @@ func (a *app) runAction(action string) actionResult {
 	}
 
 	if cmdErr != nil {
-		// `vpn rotate` uses exit 3 as an explicit terminal no-alternative result.
-		// The router-side controller guarantees no mutation in this branch, so
-		// do not manufacture a restart/rollback from the UI layer.
 		if action == "rotate" && commandExitCode(cmdErr) == 3 {
 			result.Error = "another VPN endpoint is not available in the current profile group"
 			if safeOutput != "" {
