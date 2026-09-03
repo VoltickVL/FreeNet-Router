@@ -67,6 +67,27 @@ func TestSubscriptionAndNetworkAreSeparatePages(t *testing.T) {
 	}
 }
 
+func TestSystemAndAccessHaveHonestFutureCapabilitySlots(t *testing.T) {
+	data, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+	for _, want := range []string{
+		"Web Update — готовится",
+		"Управление SSH — готовится",
+		"Сменить пароль — готовится",
+		"Пароль Control Center не переиспользуется как SSH credential",
+	} {
+		if !strings.Contains(ui, want) {
+			t.Fatalf("future capability slot missing %q", want)
+		}
+	}
+	if strings.Contains(ui, "raw shell terminal") {
+		t.Fatal("Control Center 2.0 must not introduce a raw shell shortcut")
+	}
+}
+
 func TestPodryadProductDecisionIsVisibleWithoutClaimingRuntimeAcceptance(t *testing.T) {
 	data, err := webFS.ReadFile("web/index.html")
 	if err != nil {
