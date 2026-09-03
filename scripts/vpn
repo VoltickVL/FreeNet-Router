@@ -2,6 +2,8 @@
 
 FILTER_FILE="${FREENET_FILTER_FILE:-/opt/etc/xray/blanc_profile_filter.regex}"
 UPDATER_BIN="${FREENET_UPDATER_BIN:-/opt/bin/blanc_xkeen_update_outbounds.sh}"
+SUB_FILE="${FREENET_SUB_FILE:-/opt/etc/xray/blanc_subscription.url}"
+CURL_BIN="${FREENET_CURL_BIN:-curl}"
 
 if [ -n "${FREENET_CONFIG_DIR:-}" ]; then
 CONFIG_DIR="$FREENET_CONFIG_DIR"
@@ -14,6 +16,153 @@ CONFIG_DIR="/opt/etc/xray/configs"
 fi
 
 OUT_FILE="$CONFIG_DIR/04_outbounds.json"
+
+escape_ere() {
+    awk '
+        BEGIN { ORS="" }
+        {
+            for (i = 1; i <= length($0); i++) {
+                c = substr($0, i, 1)
+                if (c ~ /[][(){}.^$*+?|\\]/) printf "\\%s", c
+                else printf "%s", c
+            }
+        }
+    '
+}
+
+rotate_current_endpoint() {
+    [ -x "$UPDATER_BIN" ] || {
+        echo "[vpn] updater not found: $UPDATER_BIN" >&2
+        return 1
+    }
+    [ -s "$FILTER_FILE" ] || {
+        echo "[vpn] current profile filter is missing" >&2
+        return 1
+    }
+    [ -s "$SUB_FILE" ] || {
+        echo "[vpn] subscription file is missing" >&2
+        return 1
+    }
+    [ -s "$OUT_FILE" ] || {
+        echo "[vpn] current outbound is missing" >&2
+        return 1
+    }
+    for tool in jq base64 mktemp grep sed awk; do
+        command -v "$tool" >/dev/null 2>&1 || {
+            echo "[vpn] required tool not found: $tool" >&2
+            return 1
+        }
+    done
+    command -v "$CURL_BIN" >/dev/null 2>&1 || [ -x "$CURL_BIN" ] || {
+        echo "[vpn] curl tool not found: $CURL_BIN" >&2
+        return 1
+    }
+
+    ROTATE_TMP="$(mktemp -d /tmp/freenet-vpn-rotate.XXXXXX 2>/dev/null)" || return 1
+    [ -n "$ROTATE_TMP" ] && [ -d "$ROTATE_TMP" ] || return 1
+    trap 'rm -rf "$ROTATE_TMP" 2>/dev/null' EXIT HUP INT TERM
+
+    CURRENT_ADDRESS="$(jq -r '.outbounds[] | select(.tag == "vless-reality") | .settings.vnext[0].address // empty' "$OUT_FILE" 2>/dev/null | head -n 1)"
+    CURRENT_PORT="$(jq -r '.outbounds[] | select(.tag == "vless-reality") | .settings.vnext[0].port // empty' "$OUT_FILE" 2>/dev/null | head -n 1)"
+    [ -n "$CURRENT_ADDRESS" ] && [ -n "$CURRENT_PORT" ] || {
+        echo "[vpn] current vless-reality endpoint is unavailable" >&2
+        return 1
+    }
+
+    SUB_URL="$(tr -d '\r\n' < "$SUB_FILE")"
+    [ -n "$SUB_URL" ] || {
+        echo "[vpn] subscription URL is empty" >&2
+        return 1
+    }
+
+    RAW_FILE="$ROTATE_TMP/sub.raw"
+    DECODED_FILE="$ROTATE_TMP/sub.decoded"
+    MATCHES_FILE="$ROTATE_TMP/matches"
+    ALT_FILE="$ROTATE_TMP/alternate"
+    TEMP_FILTER="$ROTATE_TMP/filter.regex"
+
+    if ! "$CURL_BIN" -4 -fsSL \
+        -H 'Cache-Control: no-cache' \
+        -H 'Pragma: no-cache' \
+        --dns-servers '77.88.8.8,8.8.8.8' \
+        --connect-timeout 20 \
+        --max-time 60 \
+        -A 'Mozilla/5.0' \
+        "$SUB_URL" > "$RAW_FILE" 2>/dev/null; then
+        echo "[vpn] rotation subscription fetch failed before mutation" >&2
+        return 1
+    fi
+
+    [ -s "$RAW_FILE" ] || {
+        echo "[vpn] downloaded subscription is empty" >&2
+        return 1
+    }
+
+    if grep -q '^vless://' "$RAW_FILE"; then
+        cp "$RAW_FILE" "$DECODED_FILE" || return 1
+    else
+        base64 -d "$RAW_FILE" > "$DECODED_FILE" 2>/dev/null || {
+            echo "[vpn] cannot decode subscription" >&2
+            return 1
+        }
+    fi
+
+    CURRENT_FILTER="$(tr -d '\r\n' < "$FILTER_FILE")"
+    [ -n "$CURRENT_FILTER" ] || {
+        echo "[vpn] current profile filter is empty" >&2
+        return 1
+    }
+
+    grep '^vless://' "$DECODED_FILE" \
+        | grep -i 'Extra' \
+        | grep -vi 'Expired' \
+        | grep -Ei "$CURRENT_FILTER" > "$MATCHES_FILE" || true
+
+    : > "$ALT_FILE"
+    while IFS= read -r candidate; do
+        [ -n "$candidate" ] || continue
+        body="${candidate#vless://}"
+        rest="${body#*@}"
+        hostport="$(printf '%s\n' "$rest" | sed 's/[?].*$//')"
+        case "$hostport" in
+            *:*)
+                address="${hostport%:*}"
+                port="${hostport##*:}"
+                ;;
+            *)
+                continue
+                ;;
+        esac
+        if [ "$address" != "$CURRENT_ADDRESS" ] || [ "$port" != "$CURRENT_PORT" ]; then
+            printf '%s\t%s\n' "$address" "$port" > "$ALT_FILE"
+            break
+        fi
+    done < "$MATCHES_FILE"
+
+    if [ ! -s "$ALT_FILE" ]; then
+        echo "[vpn] rotation unavailable: no alternative endpoint in current Extra profile group" >&2
+        echo "[vpn] current endpoint preserved: $CURRENT_ADDRESS:$CURRENT_PORT" >&2
+        return 3
+    fi
+
+    ALT_ADDRESS="$(cut -f1 "$ALT_FILE")"
+    ALT_PORT="$(cut -f2 "$ALT_FILE")"
+    ALT_ENDPOINT="$ALT_ADDRESS:$ALT_PORT"
+    printf '%s\n' "$ALT_ENDPOINT" | escape_ere > "$TEMP_FILTER"
+
+    echo "[vpn] rotate: current endpoint $CURRENT_ADDRESS:$CURRENT_PORT"
+    echo "[vpn] rotate: selected alternative endpoint $ALT_ENDPOINT"
+    echo "[vpn] saved profile group remains unchanged"
+
+    FREENET_FILTER_FILE="$TEMP_FILTER" \
+    FREENET_ACTION_REASON=rotate \
+    "$UPDATER_BIN"
+    rc=$?
+
+    rm -rf "$ROTATE_TMP" 2>/dev/null
+    trap - EXIT HUP INT TERM
+    return "$rc"
+}
 
 case "${1:-}" in
 de)
@@ -53,6 +202,10 @@ reload|update|refresh)
 FREENET_ACTION_REASON=refresh "$UPDATER_BIN"
 exit $?
 ;;
+rotate)
+rotate_current_endpoint
+exit $?
+;;
 *)
 echo "Usage:"
 echo "  vpn de       Germany / Frankfurt / Extra"
@@ -64,6 +217,7 @@ echo "  vpn status   same as current"
 echo "  vpn reload   refresh current selected Extra profile"
 echo "  vpn update   same as reload"
 echo "  vpn refresh  same as reload"
+echo "  vpn rotate   select another endpoint in current Extra profile group"
 exit 1
 ;;
 esac
