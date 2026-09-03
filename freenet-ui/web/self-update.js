@@ -3,6 +3,56 @@
   let plan = null;
   let polling = false;
 
+  function mountTypographyReadability() {
+    if (qs('#freenetTypographyReadability')) return;
+    const style = document.createElement('style');
+    style.id = 'freenetTypographyReadability';
+    style.textContent = `
+      :root{--fn-text-body:14px;--fn-text-secondary:12.5px;--fn-text-small:11px}
+      body{font-size:var(--fn-text-body)}
+      .nav-btn{font-size:14px;line-height:1.35}
+      .top-title{font-size:15px}
+      .top-status{font-size:13px;line-height:1.4}
+      .mini-link,.mini-btn{font-size:12px}
+      .page-head h1{font-size:28px}
+      .page-head p{font-size:14px;line-height:1.5}
+      .page-kicker{font-size:11.5px}
+      .card h2{font-size:15.5px}
+      .card-title-lg{font-size:21px!important}
+      .summary-state{font-size:12px;line-height:1.4}
+      .eyebrow{font-size:11px}
+      .country p{font-size:14px}
+      .endpoint strong{font-size:13.5px}
+      .health b{font-size:12.5px}
+      .health span{font-size:11.5px;line-height:1.4}
+      .btn{font-size:13.5px;line-height:1.3}
+      .btn .sub{font-size:11px;line-height:1.35}
+      .field label{font-size:11px}
+      .field input,.field select{font-size:13.5px}
+      .hint{font-size:12.5px;line-height:1.55}
+      .notice{font-size:12.5px;line-height:1.55}
+      .details summary{font-size:12px}
+      .profile-trigger{font-size:13px}
+      .profile-option-main{font-size:12.5px}
+      .profile-option-endpoint{font-size:10.5px}
+      .selected-profile{font-size:12px;line-height:1.5}
+      .selected-profile strong{font-size:13px}
+      .status-pill b{font-size:12px}
+      .status-pill span{font-size:11px;line-height:1.4}
+      .setting-card h3{font-size:13.5px}
+      .setting-card p{font-size:12px;line-height:1.55}
+      .coming{font-size:10px}
+      .setup-banner{font-size:12px;line-height:1.5}
+      .auth-card p{font-size:13px;line-height:1.55}
+      .footer{font-size:11px}
+      @media(max-width:600px){
+        .page-head h1{font-size:25px}
+        .nav-btn{font-size:13.5px}
+        .hint,.notice{font-size:12px}
+      }`;
+    document.head.appendChild(style);
+  }
+
   function mountDashboardStability() {
     const quick = qs('#quickActionsSection');
     const profiles = qs('#profilesList');
@@ -386,6 +436,7 @@
   }
 
   function mount() {
+    mountTypographyReadability();
     mountDashboardStability();
     mountUpdate();
     mountNetworkDraftFlow();
