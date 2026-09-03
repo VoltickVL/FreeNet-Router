@@ -155,7 +155,11 @@ MUTATION=NONE
 
 func TestSetupFinalizePlanIsAttachedToReadOnlyNetworkPlan(t *testing.T) {
 	_, _, _ = setupFinalizeFakeHelpers(t)
-	a := &app{cfg: config{Timeout: 5 * time.Second}, sem: make(chan struct{}, 1)}
+	configPath := filepath.Join(t.TempDir(), "freenet.conf")
+	if err := os.WriteFile(configPath, []byte("ISP_ID=rostelecom\nDNS_MODE=firmware\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{ConfigPath: configPath, Timeout: 5 * time.Second}, sem: make(chan struct{}, 1)}
 	req := httptest.NewRequest(http.MethodGet, "/api/network-profile/plan?setup_finalize=1", nil)
 	rr := httptest.NewRecorder()
 	a.handleNetworkProfilePlan(rr, req)
