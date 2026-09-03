@@ -53,6 +53,10 @@ reload|update|refresh)
 FREENET_ACTION_REASON=refresh "$UPDATER_BIN"
 exit $?
 ;;
+rotate)
+FREENET_ACTION_REASON=rotate "$UPDATER_BIN"
+exit $?
+;;
 *)
 echo "Usage:"
 echo "  vpn de       Germany / Frankfurt / Extra"
@@ -64,6 +68,7 @@ echo "  vpn status   same as current"
 echo "  vpn reload   refresh current selected Extra profile"
 echo "  vpn update   same as reload"
 echo "  vpn refresh  same as reload"
+echo "  vpn rotate   select another endpoint in current Extra profile group"
 exit 1
 ;;
 esac
