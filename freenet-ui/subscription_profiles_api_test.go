@@ -44,6 +44,36 @@ func TestParseSubscriptionBodyReturnsOnlySanitizedActiveExtra(t *testing.T) {
 	}
 }
 
+func TestProfileCountryCodeUsesExplicitASCIIPrefixOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{"NL Amsterdam, Нидерланды, Extra", "nl"},
+		{"DE Франкфурт-на-Майне, Германия, Extra", "de"},
+		{"AE Фуджейра, ОАЭ, Extra", "ae"},
+		{"Frankfurt, Germany, Extra", ""},
+		{"de Frankfurt, Germany, Extra", ""},
+		{"D Frankfurt, Germany, Extra", ""},
+	} {
+		if got := profileCountryCode(tc.name); got != tc.want {
+			t.Fatalf("profileCountryCode(%q)=%q want %q", tc.name, got, tc.want)
+		}
+	}
+
+	p, ok := parseSafeVLESSProfile("vless://X@example.test:443?security=reality#PL%20Warsaw%2C%20Poland%2C%20Extra")
+	if !ok || p.CountryCode != "pl" {
+		t.Fatalf("country metadata missing from sanitized profile: %+v ok=%v", p, ok)
+	}
+	encoded, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"country_code":"pl"`) {
+		t.Fatalf("country metadata missing from JSON: %s", encoded)
+	}
+}
+
 func TestParseSubscriptionBodyAcceptsBase64Subscription(t *testing.T) {
 	encoded := base64.StdEncoding.EncodeToString([]byte(testSubscriptionPlain))
 	profiles, err := parseSubscriptionBody([]byte(encoded))
