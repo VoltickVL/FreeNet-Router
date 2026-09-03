@@ -82,3 +82,19 @@ func TestPodryadProductDecisionIsVisibleWithoutClaimingRuntimeAcceptance(t *test
 		}
 	}
 }
+
+func TestDashboardUsesUserFacingHealthLabels(t *testing.T) {
+	data, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+	for _, want := range []string{"VPN работает", "DNS защищён", "XKeen работает", "FreeNet готов"} {
+		if !strings.Contains(ui, want) {
+			t.Fatalf("dashboard health label missing %q", want)
+		}
+	}
+	if strings.Contains(ui, `<span>dns-out</span>`) {
+		t.Fatal("implementation label dns-out must not be a first-layer Dashboard status")
+	}
+}
