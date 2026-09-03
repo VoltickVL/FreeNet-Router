@@ -93,6 +93,8 @@
       <button class="btn country-btn" data-action="nl"><span class="left"><span class="smallflag">🇳🇱</span><span>Нидерланды<span class="sub">Amsterdam · Extra</span></span></span><span>›</span></button>
     </div>
     <button id="updateBtn" class="btn update" data-action="update">Обновить текущий сервер</button>
+    <button id="rotateBtn" class="btn save" data-action="rotate">Сменить сервер в текущей стране</button>
+    <div class="hint">«Обновить» повторно загружает текущий выбранный профиль. «Сменить сервер» выбирает другой endpoint в той же Extra-группе; если альтернативы нет, FreeNet ничего не меняет.</div>
     <div id="notice" class="notice"></div>
   </section>
 
@@ -138,8 +140,9 @@ function buttonsBusy(serverBusy){
   const busy=localPending||networkApplying||providerApplying||setupFinalizeApplying||serverBusy;
   document.querySelectorAll('button').forEach(b=>b.disabled=busy);
   renderNetworkControls(busy);
-  const providerApply=document.getElementById('applyProviderBtn'),finalizePlan=document.getElementById('planFinalizeBtn'),finalizeApply=document.getElementById('applyFinalizeBtn');
+  const providerApply=document.getElementById('applyProviderBtn'),finalizePlan=document.getElementById('planFinalizeBtn'),finalizeApply=document.getElementById('applyFinalizeBtn'),rotate=document.getElementById('rotateBtn');
   if(providerApply)providerApply.disabled=busy||!selectedProviderID||!providerPlanReady;
+  if(rotate)rotate.disabled=busy||!lastStatus||!lastStatus.country_code||!lastStatus.endpoint||lastStatus.endpoint==='—';
   if(finalizePlan)finalizePlan.disabled=busy;
   if(finalizeApply)finalizeApply.disabled=busy||!setupFinalizePlanReady||setupFinalizeComplete;
 }
@@ -152,13 +155,13 @@ function actionFinishedByStatus(s){
   if(!localPending||s.busy||s.updater_busy)return false;
   const last=s.last_action||{};
   if(last.action===requestedAction&&last.ended_at&&last.ended_at!==baselineEndedAt)return true;
-  if(requestedAction!=='update'&&s.country_code===requestedAction&&Date.now()-actionStartedAt>1500)return true;
+  if(requestedAction!=='update'&&requestedAction!=='rotate'&&s.country_code===requestedAction&&Date.now()-actionStartedAt>1500)return true;
   return false;
 }
 function finishFromStatus(s){
   const last=s.last_action||{};
   if(last.action===requestedAction&&last.ended_at&&last.ended_at!==baselineEndedAt){if(last.success)notice(last.message||'Операция завершена','ok');else notice(last.error||'Операция завершилась ошибкой','bad')}
-  else if(requestedAction!=='update'&&s.country_code===requestedAction)notice('VPN переключён. Состояние подтверждено панелью.','ok');
+  else if(requestedAction!=='update'&&requestedAction!=='rotate'&&s.country_code===requestedAction)notice('VPN переключён. Состояние подтверждено панелью.','ok');
   else notice('Операция завершена.','ok');
   localPending=false;requestedAction='';actionStartedAt=0;baselineEndedAt='';
 }
@@ -282,7 +285,10 @@ async function applySetupFinalize(){
   finally{setupFinalizeApplying=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
 }
 async function act(action){
-  if(localPending||(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))return;clearNotice();localPending=true;requestedAction=action;actionStartedAt=Date.now();baselineEndedAt=(lastStatus&&lastStatus.last_action&&lastStatus.last_action.ended_at)||'';buttonsBusy(true);notice(action==='update'?'Обновляем текущий сервер…':'Переключаем VPN…');
+  if(localPending||(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))return;
+  if(action==='rotate'&&!window.confirm('Сменить VPN-сервер в текущей стране?\n\nFreeNet выберет другой endpoint только в текущей Extra-группе. Если альтернативы нет, конфигурация не изменится.'))return;
+  clearNotice();localPending=true;requestedAction=action;actionStartedAt=Date.now();baselineEndedAt=(lastStatus&&lastStatus.last_action&&lastStatus.last_action.ended_at)||'';buttonsBusy(true);
+  const pendingText=action==='update'?'Обновляем текущий сервер…':(action==='rotate'?'Ищем другой VPN-сервер…':'Переключаем VPN…');notice(pendingText);
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),12000);
   try{const r=await fetch('/api/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action}),signal:controller.signal}),j=await r.json();if(!r.ok||!j.success){notice(j.error||'Операция завершилась ошибкой','bad');localPending=false;requestedAction=''}else{notice(j.message||'Готово','ok');localPending=false;requestedAction=''}}catch(e){notice('Соединение прервалось во время перезапуска VPN. Проверяем фактическое состояние…')}finally{clearTimeout(timer)}
   for(let i=0;i<45&&localPending;i++){await sleep(1000);await loadStatus()}if(localPending){localPending=false;requestedAction='';buttonsBusy(false);notice('VPN мог переключиться, но подтверждение операции не получено. Обновите страницу или проверьте статус.','bad')}else await loadStatus();
