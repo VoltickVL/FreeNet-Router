@@ -27,6 +27,16 @@ grep -Fq 'set_config_value INSTALL_SCENARIO "$INSTALL_SCENARIO"' "$BOOT" || fail
 grep -Fq 'backup_one "$CONFIG_FILE" freenet-conf' "$BOOT" || fail 'config со сценарием не покрыт backup'
 grep -Fq 'restore_one "$CONFIG_FILE" freenet-conf' "$BOOT" || fail 'config со сценарием не покрыт rollback'
 
+# После auth/session foundation install acceptance может использовать только публичные
+# health/auth endpoints. Protected /api/status без session должен оставаться закрытым.
+VALIDATE_BLOCK="$(sed -n '/^validate_app() {/,/^}/p' "$BOOT")"
+printf '%s\n' "$VALIDATE_BLOCK" | grep -Fq '/api/auth/status' || fail 'bootstrap acceptance не проверяет публичный auth status'
+if printf '%s\n' "$VALIDATE_BLOCK" | grep -Fq '/api/status'; then
+    fail 'bootstrap acceptance не должен обращаться к protected /api/status без session'
+fi
+printf '%s\n' "$VALIDATE_BLOCK" | grep -Fq '(.configured | type) == "boolean"' || fail 'нет проверки формы auth status'
+printf '%s\n' "$VALIDATE_BLOCK" | grep -Fq '(.authenticated | type) == "boolean"' || fail 'нет проверки authenticated в auth status'
+
 # Provider/ISP/DNS остаются решениями браузерного мастера; app-фаза сама Xray не переписывает.
 grep -Fq 'XRAY_CONFIG_DELTA=NONE during app phase' "$BOOT" || fail 'нет Xray no-delta acceptance'
 grep -Fq 'snapshot_xray' "$BOOT" || fail 'нет snapshot Xray hash'
