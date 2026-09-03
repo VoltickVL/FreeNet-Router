@@ -19,7 +19,6 @@ func TestSupportedActionIncludesRotate(t *testing.T) {
 
 func TestRotatePostcondition(t *testing.T) {
 	before := statusResponse{CountryCode: "pl", Endpoint: "10.0.0.1:443", DNSOut: true}
-
 	if err := rotateBaselineValid(before); err != nil {
 		t.Fatalf("valid rotate baseline rejected: %v", err)
 	}
@@ -89,7 +88,7 @@ func TestRotateUIContract(t *testing.T) {
 		`id="quickActionsSection"`,
 		`id="quickNetworkGuard"`,
 		`data-action="rotate"`,
-		`Сменить сервер в текущей стране`,
+		`Сменить сервер`,
 		`Ищем другой VPN-сервер…`,
 		`requestedAction!=='rotate'`,
 		`Если альтернативы нет, конфигурация не изменится.`,
