@@ -537,12 +537,13 @@ validate_runtime() {
     }
 
     pidof xray >/dev/null 2>&1 || fail "Xray не работает"
+    jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | length) == 1' /opt/etc/xray/configs/04_outbounds.json >/dev/null 2>&1 || fail "dns-out отсутствует в принятом Xray outbound"
 
     HEALTH="$(curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/healthz" 2>/dev/null)" || fail "healthz FreeNet UI не отвечает"
     [ "$HEALTH" = "ok" ] || fail "неожиданный ответ healthz"
 
-    curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/api/status" -o "$TMP_DIR/status.json" 2>/dev/null || fail "API status FreeNet UI не отвечает"
-    jq -e '.xray_online == true and .dns_out_present == true and (.busy | type == "boolean")' "$TMP_DIR/status.json" >/dev/null 2>&1 || fail "API status не прошёл runtime acceptance"
+    curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/api/auth/status" -o "$TMP_DIR/auth-status.json" 2>/dev/null || fail "auth status FreeNet UI не отвечает"
+    jq -e '(.configured | type == "boolean") and (.authenticated | type == "boolean")' "$TMP_DIR/auth-status.json" >/dev/null 2>&1 || fail "auth status FreeNet UI не прошёл acceptance"
 
     LISTEN="$(netstat -lntp 2>/dev/null | grep "$LAN_IP:$UI_PORT[[:space:]]" | head -n 1)"
     [ -n "$LISTEN" ] || fail "FreeNet UI не слушает $LAN_IP:$UI_PORT"
@@ -551,7 +552,7 @@ validate_runtime() {
         fail "FreeNet UI неожиданно слушает wildcard address"
     fi
 
-    ok "FreeNet UI health/API"
+    ok "FreeNet UI health/auth API"
     ok "LAN-only listener $LAN_IP:$UI_PORT"
 }
 
