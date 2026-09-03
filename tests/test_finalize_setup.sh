@@ -12,6 +12,8 @@ for NEEDLE in \
     'xkeen -auto on' \
     '# BEGIN FREENET' \
     'AUTO_ENDPOINT_UPDATE' \
+    'AUTO_VPN_FAILOVER' \
+    '/opt/bin/vpn failover' \
     'ROLLBACK ERROR/STATE: rollback success' \
     'EXPECTED_NO_DELTA=current XKeen/Xray/XKeen UI core is not reinstalled'
 do
@@ -32,6 +34,7 @@ CRON_FAIL_MARKER="$TMP/crontab.fail.once"
 STATE="$TMP/state"
 mkdir -p "$TROOT/etc/freenet" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$TROOT/etc/init.d" "$TROOT/sbin" "$TROOT/lib/freenet" "$TROOT/bin"
 
+# Legacy config intentionally has no AUTO_VPN_FAILOVER keys.
 cat > "$CONF" <<'EOF'
 UI_PORT=1001
 INSTALL_SCENARIO=existing_stack
@@ -84,6 +87,12 @@ cat > "$TROOT/sbin/xray" <<'EOF'
 exit 0
 EOF
 chmod 755 "$TROOT/sbin/xray"
+cat > "$TROOT/bin/vpn" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = failover ] || exit 2
+exit 0
+EOF
+chmod 755 "$TROOT/bin/vpn"
 cat > "$TROOT/lib/freenet/apply_network_profile.sh" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = plan ] || exit 2
@@ -120,6 +129,7 @@ run_finalize() {
     FREENET_XRAY_ASSET_DIR="$TROOT/etc/xray/dat" \
     FREENET_XKEEN_BIN="$TROOT/sbin/xkeen" \
     FREENET_XRAY_BIN="$TROOT/sbin/xray" \
+    FREENET_VPN_BIN="$TROOT/bin/vpn" \
     FREENET_NETWORK_HELPER="$TROOT/lib/freenet/apply_network_profile.sh" \
     FREENET_CRONTAB_BIN="$CRON_BIN" \
     FREENET_FINALIZE_TEST_MODE=yes \
@@ -130,10 +140,13 @@ run_finalize() {
     sh "$SCRIPT" "$@"
 }
 
+# Legacy config: missing failover key must be treated as disabled.
 run_finalize plan > "$TMP/plan.out"
 grep -Fq 'READY=yes' "$TMP/plan.out" || fail 'accepted setup should be ready'
 grep -Fq 'INSTALL_SCENARIO=existing_stack' "$TMP/plan.out" || fail 'plan must expose existing-stack scenario'
 grep -Fq 'XKEEN_AUTOSTART=off' "$TMP/plan.out" || fail 'plan must expose autostart off'
+grep -Fq 'AUTO_VPN_FAILOVER=no' "$TMP/plan.out" || fail 'legacy config must default failover to disabled'
+grep -Fq 'keep automatic VPN failover disabled' "$TMP/plan.out" || fail 'plan must disclose disabled failover'
 grep -Fq 'enable XKeen autostart through xkeen -auto on' "$TMP/plan.out" || fail 'plan must disclose autostart delta'
 grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must be read-only'
 
@@ -149,14 +162,49 @@ grep -qx 'SETUP_COMPLETE=yes' "$CONF" || fail 'setup complete not committed'
 grep -Fq 'start_auto="on"' "$INIT" || fail 'XKeen autostart not enabled'
 grep -qx '# BEGIN FREENET' "$CRON_STORE" || fail 'managed cron block missing'
 grep -Fq '/opt/sbin/xkeen -ug' "$CRON_STORE" || fail 'geodata schedule missing'
+grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry was not preserved'
 if grep -q '^[^#].*/opt/bin/blanc_xkeen_update_outbounds.sh' "$CRON_STORE"; then
     fail 'endpoint refresh must remain disabled while AUTO_ENDPOINT_UPDATE=no'
 fi
+if grep -q '^[^#].*/opt/bin/vpn[[:space:]]\+failover' "$CRON_STORE"; then
+    fail 'legacy config must not silently enable failover'
+fi
 
-# Имитируем однократную ошибку записи cron после изменения автозапуска.
-# Helper обязан вернуть config, cron и исходный режим автозапуска XKeen.
+# Explicit failover enablement is independent from endpoint refresh.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
 sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
+printf '%s\n' 'AUTO_VPN_FAILOVER=yes' >> "$CONF"
+printf '%s\n' "AUTO_VPN_FAILOVER_CRON='7,22,37,52 * * * *'" >> "$CONF"
+run_finalize plan > "$TMP/failover-plan.out"
+grep -Fq 'AUTO_VPN_FAILOVER=yes' "$TMP/failover-plan.out" || fail 'explicit failover enablement not exposed'
+grep -Fq 'activate configured VPN failover schedule' "$TMP/failover-plan.out" || fail 'failover delta missing'
+if ! run_finalize apply > "$TMP/failover-apply.out" 2>&1; then
+    cat "$TMP/failover-apply.out" >&2
+    fail 'failover-enabled finalize should succeed'
+fi
+grep -Fq '7,22,37,52 * * * * /opt/bin/vpn failover' "$CRON_STORE" || fail 'managed failover cron missing'
+if grep -q '^[^#].*/opt/bin/blanc_xkeen_update_outbounds.sh' "$CRON_STORE"; then
+    fail 'enabling failover must not enable endpoint refresh'
+fi
+grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry lost after failover enablement'
+
+# Disabling failover removes an existing active failover job while preserving foreign jobs.
+sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
+sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
+sed -i 's/^AUTO_VPN_FAILOVER=.*/AUTO_VPN_FAILOVER=no/' "$CONF"
+if ! run_finalize apply > "$TMP/failover-disable.out" 2>&1; then
+    cat "$TMP/failover-disable.out" >&2
+    fail 'failover-disabled finalize should succeed'
+fi
+if grep -q '^[^#].*/opt/bin/vpn[[:space:]]\+failover' "$CRON_STORE"; then
+    fail 'disabled failover cron remains active'
+fi
+grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry lost after failover disablement'
+
+# Simulate one cron-write failure after autostart mutation. Config, cron and autostart must roll back.
+sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
+sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
+sed -i 's/^AUTO_VPN_FAILOVER=.*/AUTO_VPN_FAILOVER=yes/' "$CONF"
 cat > "$CRON_STORE" <<'EOF'
 17 3 * * * /opt/bin/original-task
 EOF

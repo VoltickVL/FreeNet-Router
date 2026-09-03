@@ -11,5 +11,9 @@ DNS_MODE=firmware
 # Endpoint cron не включается до browser setup + provider/DNS acceptance.
 AUTO_ENDPOINT_UPDATE=no
 AUTO_ENDPOINT_CRON='*/15 * * * *'
+# Failover — отдельная automatic mutation policy. Для существующих конфигураций
+# отсутствие этих ключей трактуется как disabled и никогда не включает failover молча.
+AUTO_VPN_FAILOVER=no
+AUTO_VPN_FAILOVER_CRON='*/5 * * * *'
 AUTO_XKEEN_GEODATA=yes
 AUTO_XKEEN_GEODATA_CRON='30 6 * * *'
