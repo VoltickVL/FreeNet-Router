@@ -180,6 +180,8 @@ jobs:
 
       - name: UI recovery contract
         run: |
+          # A VPN restart may interrupt only the HTTP response. The UI must keep polling
+          # factual status instead of declaring an error before postcondition acceptance.
           grep -q 'AbortController' freenet-ui/web/index.html
           grep -q 'actionFinishedByStatus' freenet-ui/web/index.html
           grep -q 'VPN перезапускается. Ответ на запрос ещё не получен' freenet-ui/web/index.html
