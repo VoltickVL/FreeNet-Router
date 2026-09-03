@@ -3,6 +3,47 @@
   let plan = null;
   let polling = false;
 
+  function mountDashboardStability() {
+    const quick = qs('#quickActionsSection');
+    const profiles = qs('#profilesList');
+    const selected = qs('#selectedProfileCard');
+    if (!quick || !profiles) return;
+
+    if (!qs('#freenetDashboardStability')) {
+      const style = document.createElement('style');
+      style.id = 'freenetDashboardStability';
+      style.textContent = `
+        #profilesList.profiles{display:block}
+        #profilesList{min-height:178px}
+        #selectedProfileCard{min-height:78px}
+        @media(min-width:981px){
+          #quickActionsSection{min-height:472px}
+        }
+        @media(max-width:980px){
+          #profilesList{min-height:0}
+          #selectedProfileCard{min-height:0}
+          #quickActionsSection{min-height:0}
+        }`;
+      document.head.appendChild(style);
+    }
+
+    profiles.classList.add('show');
+    if (selected && !selected.querySelector('strong')) {
+      selected.textContent = '';
+      const title = document.createElement('strong');
+      const endpoint = document.createElement('span');
+      const note = document.createElement('span');
+      title.textContent = 'Загружаем Extra-профили…';
+      endpoint.className = 'selected-endpoint';
+      endpoint.textContent = '—';
+      note.className = 'selected-note';
+      note.textContent = 'Текущий VPN и список профилей появятся здесь без изменения размеров Dashboard.';
+      selected.appendChild(title);
+      selected.appendChild(endpoint);
+      selected.appendChild(note);
+    }
+  }
+
   function stateText(state) {
     const labels = {
       IDLE: 'Готово к проверке',
@@ -345,6 +386,7 @@
   }
 
   function mount() {
+    mountDashboardStability();
     mountUpdate();
     mountNetworkDraftFlow();
   }
