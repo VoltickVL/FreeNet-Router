@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 )
@@ -35,6 +36,8 @@ type networkPlanResponse struct {
 	Active            bool                       `json:"active"`
 	ISP               string                     `json:"isp"`
 	DNSMode           string                     `json:"dns_mode"`
+	ActiveISP         string                     `json:"active_isp,omitempty"`
+	ActiveDNSMode     string                     `json:"active_dns_mode,omitempty"`
 	EffectiveDNSMode  string                     `json:"effective_dns_mode"`
 	Reason            string                     `json:"reason,omitempty"`
 	ProxyDNS          string                     `json:"proxy_dns,omitempty"`
@@ -103,8 +106,41 @@ func validProfileID(id string) bool {
 	return true
 }
 
+func validNetworkSelection(isp, dnsMode string) bool {
+	if _, ok := ispProfiles[isp]; !ok {
+		return false
+	}
+	_, ok := dnsModes[dnsMode]
+	return ok
+}
+
+func (a *app) requestedNetworkSelection(r *http.Request) (string, string, string, string, error) {
+	activeISP, activeDNS := readNetworkProfileConfig(a.cfg.ConfigPath)
+	isp := strings.TrimSpace(r.URL.Query().Get("isp"))
+	dnsMode := strings.TrimSpace(r.URL.Query().Get("dns_mode"))
+	if isp == "" {
+		isp = activeISP
+	}
+	if dnsMode == "" {
+		dnsMode = activeDNS
+	}
+	if !validNetworkSelection(isp, dnsMode) {
+		return "", "", activeISP, activeDNS, errors.New("unsupported ISP or DNS mode")
+	}
+	return isp, dnsMode, activeISP, activeDNS, nil
+}
+
 func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
-	plan, err := a.runNetworkPlan()
+	isp, dnsMode, activeISP, activeDNS, selectionErr := a.requestedNetworkSelection(r)
+	if selectionErr != nil {
+		writeJSON(w, http.StatusBadRequest, networkPlanResponse{Success: false, Error: selectionErr.Error()})
+		return
+	}
+
+	plan, err := a.runNetworkPlanFor(isp, dnsMode)
+	plan.ActiveISP = activeISP
+	plan.ActiveDNSMode = activeDNS
+	plan.Active = plan.Active && isp == activeISP && dnsMode == activeDNS
 	if err != nil {
 		plan.Success = false
 		plan.Error = err.Error()
@@ -188,23 +224,8 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if _, ok := ispProfiles[req.ISP]; !ok {
-		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Error: "unsupported ISP"})
-		return
-	}
-	if _, ok := dnsModes[req.DNSMode]; !ok {
-		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Error: "unsupported DNS mode"})
-		return
-	}
-
-	savedISP, savedDNS := readNetworkProfileConfig(a.cfg.ConfigPath)
-	if req.ISP != savedISP || req.DNSMode != savedDNS {
-		writeJSON(w, http.StatusConflict, networkApplyResponse{
-			Success: false,
-			ISP:     savedISP,
-			DNSMode: savedDNS,
-			Error:   "saved network profile changed; review the plan again",
-		})
+	if !validNetworkSelection(req.ISP, req.DNSMode) {
+		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Error: "unsupported ISP or DNS mode"})
 		return
 	}
 
@@ -216,23 +237,31 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	plan, err := a.runNetworkPlan()
+	activeISP, activeDNS := readNetworkProfileConfig(a.cfg.ConfigPath)
+	plan, err := a.runNetworkPlanFor(req.ISP, req.DNSMode)
+	plan.ActiveISP = activeISP
+	plan.ActiveDNSMode = activeDNS
+	plan.Active = plan.Active && req.ISP == activeISP && req.DNSMode == activeDNS
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, networkApplyResponse{Success: false, Operation: "network", ISP: savedISP, DNSMode: savedDNS, Plan: plan, Error: err.Error()})
+		writeJSON(w, http.StatusServiceUnavailable, networkApplyResponse{Success: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode, Plan: plan, Error: err.Error()})
 		return
 	}
 	if !plan.Supported {
-		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Operation: "network", ISP: savedISP, DNSMode: savedDNS, Plan: plan, Error: plan.Reason})
+		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode, Plan: plan, Error: plan.Reason})
 		return
 	}
 	if plan.Mutation != "NONE" {
-		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Operation: "network", ISP: savedISP, DNSMode: savedDNS, Plan: plan, Error: "network plan is not read-only; refusing apply"})
+		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode, Plan: plan, Error: "network plan is not read-only; refusing apply"})
+		return
+	}
+	if plan.Active {
+		writeJSON(w, http.StatusOK, networkApplyResponse{Success: true, Applied: false, Operation: "network", ISP: activeISP, DNSMode: activeDNS, Plan: plan, Message: "Выбранный сетевой профиль уже активен.", RollbackState: "NOT_NEEDED"})
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
-	defer cancel()
-	output, cmdErr := runCommand(ctx, networkHelperPath(), "apply")
+	output, cmdErr := a.runNetworkApplyFor(ctx, req.ISP, req.DNSMode)
+	cancel()
 	safeOutput := sanitizeOutput(string(output))
 	if ctx.Err() == context.DeadlineExceeded {
 		cmdErr = errors.New("network apply timed out")
@@ -246,8 +275,8 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 			Success:       false,
 			Applied:       false,
 			Operation:     "network",
-			ISP:           savedISP,
-			DNSMode:       savedDNS,
+			ISP:           req.ISP,
+			DNSMode:       req.DNSMode,
 			Plan:          plan,
 			PrimaryError:  primary,
 			RollbackState: rollback,
@@ -256,18 +285,41 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	post, postErr := a.runNetworkPlan()
-	if postErr != nil {
+	// Helper success means runtime post-apply acceptance passed. Only now is the
+	// selected profile allowed to become persistent active configuration.
+	if err := writeNetworkProfileConfig(a.cfg.ConfigPath, req.ISP, req.DNSMode); err != nil {
+		rollback := a.rollbackNetworkSelection(activeISP, activeDNS)
 		writeJSON(w, http.StatusBadGateway, networkApplyResponse{
 			Success:       false,
-			Applied:       true,
+			Applied:       false,
 			Operation:     "network",
-			ISP:           savedISP,
-			DNSMode:       savedDNS,
+			ISP:           activeISP,
+			DNSMode:       activeDNS,
 			Plan:          plan,
-			PrimaryError:  "post-apply plan unavailable: " + postErr.Error(),
-			RollbackState: "NOT_REQUESTED_HELPER_REPORTED_SUCCESS",
-			Error:         "network apply completed but UI acceptance could not be read",
+			PrimaryError:  "cannot commit accepted network profile",
+			RollbackState: rollback,
+			Error:         "runtime changed but active profile commit failed",
+		})
+		return
+	}
+
+	post, postErr := a.runNetworkPlan()
+	if postErr != nil || !post.Active {
+		primary := "post-apply active profile acceptance failed"
+		if postErr != nil {
+			primary = "post-apply plan unavailable: " + postErr.Error()
+		}
+		rollback := a.rollbackNetworkSelection(activeISP, activeDNS)
+		writeJSON(w, http.StatusBadGateway, networkApplyResponse{
+			Success:       false,
+			Applied:       false,
+			Operation:     "network",
+			ISP:           activeISP,
+			DNSMode:       activeDNS,
+			Plan:          plan,
+			PrimaryError:  primary,
+			RollbackState: rollback,
+			Error:         "network profile acceptance failed after commit",
 		})
 		return
 	}
@@ -276,9 +328,9 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		Success:       true,
 		Applied:       true,
 		Operation:     "network",
-		ISP:           savedISP,
-		DNSMode:       savedDNS,
-		Message:       "Сетевой профиль применён и проверен.",
+		ISP:           req.ISP,
+		DNSMode:       req.DNSMode,
+		Message:       "Сетевой профиль применён, проверен и сохранён как активный.",
 		RollbackState: "NOT_NEEDED",
 		Plan:          post,
 	})
@@ -362,10 +414,66 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, req networkApply
 	})
 }
 
-func (a *app) runNetworkPlan() (networkPlanResponse, error) {
+func (a *app) createNetworkDraftConfig(isp, dnsMode string) (string, error) {
+	if !validNetworkSelection(isp, dnsMode) {
+		return "", errors.New("unsupported ISP or DNS mode")
+	}
+	current, err := os.ReadFile(a.cfg.ConfigPath)
+	if err != nil {
+		return "", err
+	}
+	f, err := os.CreateTemp("", "freenet-network-draft-*.conf")
+	if err != nil {
+		return "", err
+	}
+	name := f.Name()
+	remove := true
+	defer func() {
+		_ = f.Close()
+		if remove {
+			_ = os.Remove(name)
+		}
+	}()
+	if err := f.Chmod(0600); err != nil {
+		return "", err
+	}
+	if _, err := f.Write(current); err != nil {
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	if err := writeNetworkProfileConfig(name, isp, dnsMode); err != nil {
+		return "", err
+	}
+	remove = false
+	return name, nil
+}
+
+func runNetworkHelperWithConfig(ctx context.Context, configPath string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, networkHelperPath(), args...)
+	cmd.Env = append(os.Environ(),
+		"PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin",
+		"FREENET_CONFIG_FILE="+configPath,
+	)
+	cmd.WaitDelay = 2 * time.Second
+	output, err := cmd.CombinedOutput()
+	if errors.Is(err, exec.ErrWaitDelay) && ctx.Err() == nil {
+		err = nil
+	}
+	return output, err
+}
+
+func (a *app) runNetworkPlanFor(isp, dnsMode string) (networkPlanResponse, error) {
+	draft, err := a.createNetworkDraftConfig(isp, dnsMode)
+	if err != nil {
+		return networkPlanResponse{}, err
+	}
+	defer os.Remove(draft)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	output, err := runCommand(ctx, networkHelperPath(), "plan")
+	output, cmdErr := runNetworkHelperWithConfig(ctx, draft, "plan")
 	if ctx.Err() == context.DeadlineExceeded {
 		return networkPlanResponse{}, errors.New("network plan timed out")
 	}
@@ -373,10 +481,45 @@ func (a *app) runNetworkPlan() (networkPlanResponse, error) {
 	if parseErr != nil {
 		return plan, parseErr
 	}
-	if err != nil {
+	if cmdErr != nil {
 		return plan, errors.New("network plan helper failed")
 	}
 	return plan, nil
+}
+
+func (a *app) runNetworkApplyFor(ctx context.Context, isp, dnsMode string) ([]byte, error) {
+	draft, err := a.createNetworkDraftConfig(isp, dnsMode)
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(draft)
+	return runNetworkHelperWithConfig(ctx, draft, "apply")
+}
+
+func (a *app) rollbackNetworkSelection(isp, dnsMode string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
+	output, err := a.runNetworkApplyFor(ctx, isp, dnsMode)
+	cancel()
+	if err != nil {
+		_ = output
+		return "FAILED/UNKNOWN"
+	}
+	if err := writeNetworkProfileConfig(a.cfg.ConfigPath, isp, dnsMode); err != nil {
+		return "FAILED/UNKNOWN"
+	}
+	post, err := a.runNetworkPlan()
+	if err != nil || !post.Active {
+		return "FAILED/UNKNOWN"
+	}
+	return "SUCCESS"
+}
+
+func (a *app) runNetworkPlan() (networkPlanResponse, error) {
+	isp, dnsMode := readNetworkProfileConfig(a.cfg.ConfigPath)
+	plan, err := a.runNetworkPlanFor(isp, dnsMode)
+	plan.ActiveISP = isp
+	plan.ActiveDNSMode = dnsMode
+	return plan, err
 }
 
 func (a *app) runProviderPlan(profileID string) (providerPlanResponse, error) {
