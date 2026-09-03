@@ -11,6 +11,7 @@ fail() { echo "provider profile test FAIL: $*" >&2; exit 1; }
 
 mkdir -p "$TMP/bin" "$TMP/configs" "$TMP/dat" "$TMP/etc"
 printf '%s\n' 'https://subscription.invalid/private-token' > "$TMP/sub.url"
+printf '%s\n' 'Germany|Frankfurt' > "$TMP/profile.filter"
 cat > "$TMP/sub.fixture" <<'EOF'
 vless://TEST-ID-A@203.0.113.10:443?flow=xtls-rprx-vision&security=reality&type=tcp&fp=firefox&sni=example.test&pbk=TEST-PBK-A&sid=TEST-SID-A&spx=%2F#Frankfurt%2C%20Germany%2C%20Extra
 vless://TEST-ID-B@198.51.100.20:443?flow=xtls-rprx-vision&security=reality&type=tcp&fp=firefox&sni=example.test&pbk=TEST-PBK-B&sid=TEST-SID-B&spx=%2F#Warsaw%2C%20Poland%2C%20Extra
@@ -76,6 +77,7 @@ run_helper() {
     FREENET_CONFIG_DIR="$TMP/configs" \
     FREENET_ASSET_DIR="$TMP/dat" \
     FREENET_PROFILE_FILE="$TMP/etc/vpn_profile_name" \
+    FREENET_FILTER_FILE="$TMP/profile.filter" \
     FREENET_XRAY_BIN="$TMP/bin/xray" \
     FREENET_XKEEN_BIN="$TMP/bin/xkeen" \
     FREENET_CURL_BIN="$TMP/bin/curl" \
@@ -84,9 +86,11 @@ run_helper() {
 
 # plan must be read-only and secret-safe.
 OUT_HASH_BEFORE="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+FILTER_BEFORE="$(cat "$TMP/profile.filter")"
 run_helper plan "$PROFILE_ID" > "$TMP/plan.out" 2> "$TMP/plan.err"
 OUT_HASH_AFTER="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
 [ "$OUT_HASH_BEFORE" = "$OUT_HASH_AFTER" ] || fail 'plan mutated 04_outbounds.json'
+[ "$FILTER_BEFORE" = "$(cat "$TMP/profile.filter")" ] || fail 'plan mutated active profile filter'
 [ ! -e "$TMP/etc/vpn_profile_name" ] || fail 'plan persisted preferred profile'
 grep -Fq "PROFILE_ID=$PROFILE_ID" "$TMP/plan.out" || fail 'plan id missing'
 grep -Fq "PROFILE_NAME=$PROFILE_NAME" "$TMP/plan.out" || fail 'plan name missing'
@@ -97,27 +101,33 @@ if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/plan.out"
     fail 'plan leaked provider/subscription credentials'
 fi
 
-# apply installs exactly one vless-reality and preserves unrelated non-VLESS outbound.
+# apply installs exactly one vless-reality, preserves unrelated outbounds and
+# commits the exact profile selector used by status/Refresh/Rotate.
 run_helper apply "$PROFILE_ID" > "$TMP/apply.out" 2> "$TMP/apply.err"
 grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/apply.out" || fail 'apply success missing'
 grep -Fq '[FreeNet Provider] ROLLBACK=NOT_NEEDED' "$TMP/apply.out" || fail 'rollback status missing'
 jq -e '([.outbounds[] | select(.tag=="vless-reality")] | length)==1' "$TMP/configs/04_outbounds.json" >/dev/null || fail 'vless-reality not installed exactly once'
 jq -e 'any(.outbounds[]; .tag=="direct") and any(.outbounds[]; .tag=="block") and any(.outbounds[]; .tag=="keep-me")' "$TMP/configs/04_outbounds.json" >/dev/null || fail 'non-VLESS outbounds not preserved'
 [ "$(cat "$TMP/etc/vpn_profile_name")" = "$PROFILE_NAME" ] || fail 'safe preferred profile name not persisted'
+[ "$(cat "$TMP/profile.filter")" = "$PROFILE_NAME" ] || fail 'exact active profile filter not committed'
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/apply.out" "$TMP/apply.err"; then
     fail 'apply leaked provider/subscription credentials'
 fi
 
 # A stale/nonexistent id must fail before live mutation.
 HASH_VALID="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+FILTER_VALID="$(cat "$TMP/profile.filter")"
 if run_helper apply 0123456789abcdef > "$TMP/miss.out" 2> "$TMP/miss.err"; then
     fail 'missing profile id unexpectedly succeeded'
 fi
 [ "$HASH_VALID" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'missing id changed live outbound'
+[ "$FILTER_VALID" = "$(cat "$TMP/profile.filter")" ] || fail 'missing id changed active profile filter'
 
-# Simulate running Xray + first restart failure: live files must roll back.
+# Simulate running Xray + first restart failure: outbound, preferred profile and
+# exact active filter must all roll back to the previous accepted state.
 cp "$TMP/configs/04_outbounds.json" "$TMP/configs/04_outbounds.good"
 printf '%s\n' 'OLD SAFE PROFILE' > "$TMP/etc/vpn_profile_name"
+printf '%s\n' 'OLD|FILTER' > "$TMP/profile.filter"
 cat > "$TMP/bin/pidof" <<'EOF'
 #!/bin/sh
 [ "$1" = xray ] && exit 0
@@ -142,6 +152,7 @@ if run_helper apply "$PROFILE_ID" > "$TMP/rb.out" 2> "$TMP/rb.err"; then
 fi
 [ "$ROLLBACK_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'rollback did not restore outbound'
 [ "$(cat "$TMP/etc/vpn_profile_name")" = 'OLD SAFE PROFILE' ] || fail 'rollback did not restore preferred profile'
+[ "$(cat "$TMP/profile.filter")" = 'OLD|FILTER' ] || fail 'rollback did not restore active profile filter'
 grep -Fq 'PRIMARY ERROR:' "$TMP/rb.err" || fail 'primary error not separated'
 grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/rb.err" || fail 'rollback success not reported'
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/rb.out" "$TMP/rb.err"; then

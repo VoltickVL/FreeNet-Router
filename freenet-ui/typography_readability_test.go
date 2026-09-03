@@ -17,8 +17,9 @@ func TestTypographyReadabilityLayer(t *testing.T) {
 		".page-head p{font-size:14px",
 		".hint{font-size:12.5px",
 		".notice{font-size:12.5px",
-		".status-pill span{font-size:11px",
-		".profile-option-main{font-size:12.5px",
+		".status-pill span{font-size:11.5px",
+		".profile-option-main{font-size:13.5px",
+		".profile-option-endpoint{font-size:12.5px",
 		".nav-btn{font-size:14px",
 		"@media(max-width:600px)",
 	} {
