@@ -15,6 +15,8 @@ func TestControlCenter2ShellNavigationContract(t *testing.T) {
 		`class="app" hidden`,
 		`class="sidebar"`,
 		`class="topbar"`,
+		`id="mobileMenuBtn"`,
+		`.sidebar.open`,
 		`data-page="overview"`,
 		`data-page="vpn"`,
 		`data-page="subscription"`,
