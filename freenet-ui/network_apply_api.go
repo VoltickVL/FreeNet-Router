@@ -184,6 +184,9 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) {
+	if a.mutationBlockedBySelfUpdate(w) {
+		return
+	}
 	if !sameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, networkApplyResponse{Success: false, Error: "cross-origin request rejected"})
 		return
@@ -261,9 +264,10 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	output, cmdErr := a.runNetworkApplyFor(ctx, req.ISP, req.DNSMode)
+	timedOut := ctx.Err() == context.DeadlineExceeded
 	cancel()
 	safeOutput := sanitizeOutput(string(output))
-	if ctx.Err() == context.DeadlineExceeded {
+	if timedOut {
 		cmdErr = errors.New("network apply timed out")
 	}
 	if cmdErr != nil {
@@ -480,6 +484,9 @@ func (a *app) runNetworkPlanFor(isp, dnsMode string) (networkPlanResponse, error
 	plan, parseErr := parseNetworkPlan(string(output))
 	if parseErr != nil {
 		return plan, parseErr
+	}
+	if plan.ISP != isp || plan.DNSMode != dnsMode {
+		return plan, errors.New("network helper did not plan the exact requested draft")
 	}
 	if cmdErr != nil {
 		return plan, errors.New("network plan helper failed")
