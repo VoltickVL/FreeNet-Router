@@ -39,7 +39,7 @@ const (
 	defaultUpdateLock     = "/tmp/freenet-self-update.lock"
 )
 
-//go:embed web/index.html
+//go:embed web/index.html web/self-update.js
 var webFS embed.FS
 
 type config struct {
@@ -314,6 +314,16 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/self-update.js" {
+		data, err := webFS.ReadFile("web/self-update.js")
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+		_, _ = w.Write(data)
+		return
+	}
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
@@ -323,8 +333,9 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "UI unavailable", http.StatusInternalServerError)
 		return
 	}
+	html := strings.Replace(string(data), "</body>", "<script src=\"/self-update.js\"></script></body>", 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(data)
+	_, _ = io.WriteString(w, html)
 }
 
 func (a *app) handleStatus(w http.ResponseWriter, _ *http.Request) {
