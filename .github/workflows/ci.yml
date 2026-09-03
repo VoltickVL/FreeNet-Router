@@ -62,6 +62,7 @@ jobs:
           sh -n scripts/apply_network_profile.sh
           sh -n scripts/apply_provider_profile.sh
           sh -n scripts/finalize_setup.sh
+          sh -n scripts/self_update.sh
           sh -n tests/test_vpn_contract.sh
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
@@ -69,6 +70,7 @@ jobs:
           sh -n tests/test_network_profile_contract.sh
           sh -n tests/test_provider_profile_apply.sh
           sh -n tests/test_finalize_setup.sh
+          sh -n tests/test_self_update.sh
           sh -n deploy/S99freenet-ui
 
       - name: VPN transactional switch test
@@ -91,6 +93,9 @@ jobs:
 
       - name: Browser setup completion contract test
         run: sh tests/test_finalize_setup.sh
+
+      - name: Web self update transactional contract
+        run: sh tests/test_self_update.sh
 
       - name: VPN updater contract
         run: |
@@ -136,10 +141,12 @@ jobs:
           grep -q 'bootstrap_entware.sh" plan' bootstrap.sh
           grep -q 'bootstrap_entware.sh" apply' bootstrap.sh
           grep -q 'NEXT=Open the panel' bootstrap.sh
+          grep -q 'self_update.sh' bootstrap.sh
           grep -q 'cp bootstrap.sh dist/bootstrap.sh' .github/workflows/release.yml
           grep -q 'cp install.sh dist/freenet' .github/workflows/release.yml
           grep -q 'cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh' .github/workflows/release.yml
           grep -q 'cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/self_update.sh dist/self_update.sh' .github/workflows/release.yml
           grep -q 'cp config/upstream-pins.env dist/upstream-pins.env' .github/workflows/release.yml
           grep -q '^v0\.' VERSION
           grep -q 'Stamp UI version from VERSION' .github/workflows/release.yml
@@ -187,6 +194,15 @@ jobs:
           ! grep -q 'Соединение прервалось во время перезапуска VPN' freenet-ui/web/index.html
           grep -q 'for(let i=0;i<18&&localPending;i++)' freenet-ui/web/index.html
           grep -q 'setInterval(loadStatus,' freenet-ui/web/index.html
+
+      - name: Web update API contract
+        run: |
+          grep -q 'GET /api/system/update/plan' freenet-ui/main.go
+          grep -q 'POST /api/system/update/apply' freenet-ui/main.go
+          grep -q 'GET /api/system/update/state' freenet-ui/main.go
+          grep -q 'GET /versionz' freenet-ui/main.go
+          grep -q 'FREENET_CURRENT_VERSION=v' freenet-ui/main.go
+          grep -q 'FreeNet update is in progress' freenet-ui/main.go
 
       - name: Secret surface guard
         run: |
