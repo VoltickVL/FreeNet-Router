@@ -58,12 +58,14 @@ jobs:
           sh -n scripts/apply_network_profile.sh
           sh -n scripts/apply_provider_profile.sh
           sh -n scripts/finalize_setup.sh
+          sh -n scripts/self_update.sh
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
           sh -n tests/test_network_profile_contract.sh
           sh -n tests/test_provider_profile_apply.sh
           sh -n tests/test_finalize_setup.sh
+          sh -n tests/test_self_update.sh
           sh -n deploy/S99freenet-ui
 
       - name: Split DNS migration candidate test
@@ -84,6 +86,9 @@ jobs:
       - name: Browser setup completion contract test
         run: sh tests/test_finalize_setup.sh
 
+      - name: Web self update transactional contract
+        run: sh tests/test_self_update.sh
+
       - name: Installer contract
         run: |
           grep -q 'REPO="VoltickVL/FreeNet-Router"' install.sh
@@ -97,6 +102,7 @@ jobs:
           grep -q 'cp scripts/apply_provider_profile.sh dist/apply_provider_profile.sh' .github/workflows/release.yml
           grep -q 'cp scripts/finalize_setup.sh dist/finalize_setup.sh' .github/workflows/release.yml
           grep -q 'cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/self_update.sh dist/self_update.sh' .github/workflows/release.yml
           grep -q 'cp config/upstream-pins.env dist/upstream-pins.env' .github/workflows/release.yml
           grep -q 'Stamp UI version from VERSION' .github/workflows/release.yml
 
@@ -133,6 +139,7 @@ jobs:
           cp scripts/apply_provider_profile.sh dist/apply_provider_profile.sh
           cp scripts/finalize_setup.sh dist/finalize_setup.sh
           cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh
+          cp scripts/self_update.sh dist/self_update.sh
           cp config/upstream-pins.env dist/upstream-pins.env
           cp install.sh dist/freenet
           cp config/freenet.conf.example dist/freenet.conf.example
@@ -149,6 +156,7 @@ jobs:
             dist/apply_provider_profile.sh \
             dist/finalize_setup.sh \
             dist/bootstrap_entware.sh \
+            dist/self_update.sh \
             dist/freenet
 
           (
@@ -165,6 +173,7 @@ jobs:
               apply_provider_profile.sh \
               finalize_setup.sh \
               bootstrap_entware.sh \
+              self_update.sh \
               upstream-pins.env \
               freenet \
               freenet.conf.example \
