@@ -15,7 +15,10 @@ func TestSetupFinalizeUIContract(t *testing.T) {
 		`id="planFinalizeBtn"`,
 		`id="applyFinalizeBtn"`,
 		`id="setupFinalizePlan"`,
+		`id="setupFinalizePlanDetails"`,
 		`id="setupFinalizeNotice"`,
+		`id="finalizeSection"`,
+		`id="setupCompleteBanner"`,
 		`id="installScenario"`,
 		`id="setupState"`,
 		`id="installScenarioHint"`,
@@ -26,6 +29,7 @@ func TestSetupFinalizeUIContract(t *testing.T) {
 		"Проверить готовность",
 		"Завершить настройку",
 		"renderInstallScenario",
+		"renderSetupVisibility",
 		"loadSetupFinalizePlan",
 		"applySetupFinalize",
 		"setup_finalize=1",
@@ -53,6 +57,24 @@ func TestSetupFinalizeApplyIsLocallyGatedByFreshPlan(t *testing.T) {
 	}
 	if !strings.Contains(ui, "resetSetupFinalizePlan()") {
 		t.Fatal("изменения provider/ISP/DNS должны инвалидировать старый финальный план")
+	}
+}
+
+func TestCompletedSetupLeavesWizardMode(t *testing.T) {
+	data, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+	for _, required := range []string{
+		"finalize.hidden=complete",
+		"banner.hidden=!complete",
+		"Настройка завершена. Ниже остаются только обычные эксплуатационные настройки Control Center.",
+		"if(lastStatus&&lastStatus.setup_complete){renderSetupVisibility(lastStatus);return}",
+	} {
+		if !strings.Contains(ui, required) {
+			t.Fatalf("completed setup state missing %q", required)
+		}
 	}
 }
 
