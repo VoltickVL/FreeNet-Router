@@ -12,10 +12,10 @@ func TestControlCenterRuntimeStateUXContract(t *testing.T) {
 	}
 	ui := string(data)
 	for _, required := range []string{
-		"● VPN-туннель работает",
-		"● XKeen работает",
-		"● DNS через VPN готов",
-		"● VPN-профили готовы",
+		"VPN работает",
+		"DNS защищён",
+		"XKeen работает",
+		"FreeNet готов",
 		"VPN перезапускается. Ответ на запрос ещё не получен — подтверждаем итог по фактическому состоянию…",
 		"Сейчас активно:",
 		"Быстрое переключение выше выбирает страну/группу",
@@ -28,6 +28,9 @@ func TestControlCenterRuntimeStateUXContract(t *testing.T) {
 	}
 	if strings.Contains(ui, "Соединение прервалось во время перезапуска VPN. Проверяем фактическое состояние") {
 		t.Fatal("successful VPN restart must not be presented as a connection error before status acceptance")
+	}
+	if strings.Contains(ui, `<span>dns-out</span>`) {
+		t.Fatal("dns-out must not be a first-layer user-facing status label")
 	}
 }
 
