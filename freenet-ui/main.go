@@ -201,7 +201,7 @@ var ispProfiles = map[string]struct {
 
 var dnsModes = map[string]string{
 	"auto":     "Авто",
-	"firmware": "Штатный DNS роутера",
+	"firmware": "DNS напрямую через роутер",
 	"xkeen":    "XKeen/Xray DNS",
 	"custom":   "Свой",
 }
@@ -367,33 +367,10 @@ func (a *app) handleNetworkProfilePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, networkProfileResponse{Success: false, Error: "cross-origin request rejected"})
 		return
 	}
-	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
-		writeJSON(w, http.StatusUnsupportedMediaType, networkProfileResponse{Success: false, Error: "application/json required"})
-		return
-	}
-
-	body := http.MaxBytesReader(w, r.Body, 1024)
-	defer body.Close()
-	dec := json.NewDecoder(body)
-	dec.DisallowUnknownFields()
-	var req networkProfileRequest
-	if err := dec.Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, networkProfileResponse{Success: false, Error: "invalid request"})
-		return
-	}
-	if _, ok := ispProfiles[req.ISP]; !ok {
-		writeJSON(w, http.StatusBadRequest, networkProfileResponse{Success: false, Error: "unsupported ISP"})
-		return
-	}
-	if _, ok := dnsModes[req.DNSMode]; !ok {
-		writeJSON(w, http.StatusBadRequest, networkProfileResponse{Success: false, Error: "unsupported DNS mode"})
-		return
-	}
-	if err := writeNetworkProfileConfig(a.cfg.ConfigPath, req.ISP, req.DNSMode); err != nil {
-		writeJSON(w, http.StatusInternalServerError, networkProfileResponse{Success: false, Error: "cannot save network profile"})
-		return
-	}
-	writeJSON(w, http.StatusOK, a.networkProfileView(true, "Профиль сохранён. Xray не изменялся."))
+	writeJSON(w, http.StatusGone, networkProfileResponse{
+		Success: false,
+		Error:   "предварительное сохранение сетевого профиля отключено; используйте Проверить изменения → Применить",
+	})
 }
 
 func (a *app) handleSubscriptionGet(w http.ResponseWriter, _ *http.Request) {
