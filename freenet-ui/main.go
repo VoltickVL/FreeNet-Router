@@ -39,7 +39,7 @@ const (
 	defaultUpdateLock     = "/tmp/freenet-self-update.lock"
 )
 
-//go:embed web/index.html web/self-update.js
+//go:embed web/index.html web/self-update.js web/vpn-ux-fix.js
 var webFS embed.FS
 
 type config struct {
@@ -314,8 +314,9 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/self-update.js" {
-		data, err := webFS.ReadFile("web/self-update.js")
+	if r.URL.Path == "/self-update.js" || r.URL.Path == "/vpn-ux-fix.js" {
+		assetName := strings.TrimPrefix(r.URL.Path, "/")
+		data, err := webFS.ReadFile("web/" + assetName)
 		if err != nil {
 			http.NotFound(w, r)
 			return
@@ -333,7 +334,8 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "UI unavailable", http.StatusInternalServerError)
 		return
 	}
-	html := strings.Replace(string(data), "</body>", "<script src=\"/self-update.js\"></script></body>", 1)
+	scripts := fmt.Sprintf("<script src=\"/self-update.js?v=v%s\"></script><script src=\"/vpn-ux-fix.js?v=v%s\"></script></body>", version, version)
+	html := strings.Replace(string(data), "</body>", scripts, 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, html)
 }
