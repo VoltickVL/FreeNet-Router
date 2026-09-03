@@ -182,7 +182,8 @@ jobs:
         run: |
           grep -q 'AbortController' freenet-ui/web/index.html
           grep -q 'actionFinishedByStatus' freenet-ui/web/index.html
-          grep -q 'Соединение прервалось во время перезапуска VPN' freenet-ui/web/index.html
+          grep -q 'VPN перезапускается. Ответ на запрос ещё не получен' freenet-ui/web/index.html
+          ! grep -q 'Соединение прервалось во время перезапуска VPN' freenet-ui/web/index.html
           grep -q 'setInterval(loadStatus,2000)' freenet-ui/web/index.html
 
       - name: Secret surface guard
