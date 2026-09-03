@@ -22,7 +22,6 @@ func TestParseNetworkPlanMarksMatchingSplitActive(t *testing.T) {
 		"EXPECTED_NO_DELTA=no XKeen DNS interception",
 		"MUTATION=NONE",
 	}, "\n")
-
 	plan, err := parseNetworkPlan(out)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +50,6 @@ func TestParseNetworkPlanDoesNotMarkMismatchedRuntimeActive(t *testing.T) {
 		"EXPECTED_DELTA=route dns-vless through vless-reality",
 		"MUTATION=NONE",
 	}, "\n")
-
 	plan, err := parseNetworkPlan(out)
 	if err != nil {
 		t.Fatal(err)
@@ -67,7 +65,6 @@ func TestNetworkPlanUIStateContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	ui := string(data)
-
 	for _, required := range []string{
 		"ПРОФИЛЬ УЖЕ АКТИВЕН",
 		"ТРЕБУЮТСЯ ИЗМЕНЕНИЯ",
@@ -113,7 +110,6 @@ func TestNetworkPlanUIKeepsBlindApplyGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	ui := string(data)
-
 	for _, required := range []string{
 		"if(networkDirty||!networkPlanReady||networkApplying)return",
 		"networkPlanReady=!!(j.supported&&!j.active)",
