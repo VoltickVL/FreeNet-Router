@@ -22,10 +22,11 @@ import (
 const maxSubscriptionBytes = 2 * 1024 * 1024
 
 type subscriptionProfile struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Address string `json:"address"`
-	Port    int    `json:"port"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	CountryCode string `json:"country_code,omitempty"`
+	Address     string `json:"address"`
+	Port        int    `json:"port"`
 }
 
 func (a *app) discoverSubscriptionProfiles(ctx context.Context) ([]subscriptionProfile, error) {
@@ -208,11 +209,24 @@ func parseSafeVLESSProfile(line string) (subscriptionProfile, bool) {
 	}
 	sum := sha256.Sum256([]byte(name + "|" + strings.ToLower(address) + "|" + strconv.Itoa(port)))
 	return subscriptionProfile{
-		ID:      hex.EncodeToString(sum[:8]),
-		Name:    name,
-		Address: address,
-		Port:    port,
+		ID:          hex.EncodeToString(sum[:8]),
+		Name:        name,
+		CountryCode: profileCountryCode(name),
+		Address:     address,
+		Port:        port,
 	}, true
+}
+
+func profileCountryCode(name string) string {
+	name = strings.TrimSpace(name)
+	if len(name) < 3 || name[2] != ' ' {
+		return ""
+	}
+	a, b := name[0], name[1]
+	if a < 'A' || a > 'Z' || b < 'A' || b > 'Z' {
+		return ""
+	}
+	return strings.ToLower(name[:2])
 }
 
 func sanitizeProfileName(name string) string {
