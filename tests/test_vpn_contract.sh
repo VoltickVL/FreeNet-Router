@@ -85,7 +85,9 @@ cat > "$UPDATER" <<EOF
 #!/bin/sh
 [ "\${FREENET_ACTION_REASON:-}" = "rotate" ] || exit 50
 [ "\${FREENET_FILTER_FILE:-}" != "$FILTER" ] || exit 51
-grep -Eq '10\\[.\\]0\\[.\\]0\\[.\\]2:443|10\\.0\\.0\\.2:443' "\$FREENET_FILTER_FILE" || exit 52
+selection="\$(cat "\$FREENET_FILTER_FILE")"
+printf '%s\n' 'vless://uuid2@10.0.0.2:443?security=reality#Poland-Warsaw-Extra-2' | grep -Ei "\$selection" >/dev/null || exit 52
+if printf '%s\n' 'vless://uuid1@10.0.0.1:443?security=reality#Poland-Warsaw-Extra-1' | grep -Ei "\$selection" >/dev/null; then exit 53; fi
 printf '%s\n' called > "$UPDATER_CALLED"
 exit 0
 EOF
