@@ -66,3 +66,19 @@ func TestSubscriptionAndNetworkAreSeparatePages(t *testing.T) {
 		t.Fatal("Subscription and Network must each have a dedicated page")
 	}
 }
+
+func TestPodryadProductDecisionIsVisibleWithoutClaimingRuntimeAcceptance(t *testing.T) {
+	data, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+	for _, want := range []string{
+		"Подряд использует подтверждённую Management базовую policy Ростелекома",
+		"отдельный runtime acceptance",
+	} {
+		if !strings.Contains(ui, want) {
+			t.Fatalf("Podryad product decision hint missing %q", want)
+		}
+	}
+}
