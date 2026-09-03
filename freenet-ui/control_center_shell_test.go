@@ -67,6 +67,21 @@ func TestSubscriptionAndNetworkAreSeparatePages(t *testing.T) {
 	if strings.Count(ui, `data-page-view="subscription"`) != 1 || strings.Count(ui, `data-page-view="network"`) != 1 {
 		t.Fatal("Subscription and Network must each have a dedicated page")
 	}
+	overviewStart := strings.Index(ui, `data-page-view="overview"`)
+	overviewEnd := strings.Index(ui, `data-page-view="vpn"`)
+	subscriptionStart := strings.Index(ui, `data-page-view="subscription"`)
+	subscriptionEnd := strings.Index(ui, `data-page-view="network"`)
+	if overviewStart < 0 || overviewEnd < 0 || subscriptionStart < 0 || subscriptionEnd < 0 {
+		t.Fatal("page ranges not found")
+	}
+	overview := ui[overviewStart:overviewEnd]
+	subscription := ui[subscriptionStart:subscriptionEnd]
+	if strings.Contains(overview, `id="subscriptionInput"`) {
+		t.Fatal("subscription key input must not stay on Dashboard")
+	}
+	if !strings.Contains(subscription, `id="subscriptionInput"`) || !strings.Contains(subscription, `id="refreshProfilesBtn"`) {
+		t.Fatal("subscription controls must live on dedicated Subscription page")
+	}
 }
 
 func TestSystemAndAccessHaveHonestFutureCapabilitySlots(t *testing.T) {
