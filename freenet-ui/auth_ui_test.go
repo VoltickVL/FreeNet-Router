@@ -13,7 +13,7 @@ func TestAuthUIContract(t *testing.T) {
 	s := string(b)
 	for _, needle := range []string{
 		`id="authSection"`,
-		`id="controlCenter" hidden`,
+		`id="controlCenter"`,
 		`id="authPassword"`,
 		`id="authPasswordConfirm"`,
 		`id="authSubmitBtn"`,
@@ -29,5 +29,8 @@ func TestAuthUIContract(t *testing.T) {
 		if !strings.Contains(s, needle) {
 			t.Fatalf("auth UI contract missing %q", needle)
 		}
+	}
+	if !strings.Contains(s, `id="controlCenter" class="app" hidden`) {
+		t.Fatal("authenticated app shell must be hidden until login")
 	}
 }

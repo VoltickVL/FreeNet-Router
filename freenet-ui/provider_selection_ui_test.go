@@ -43,8 +43,8 @@ func TestProviderSelectorUsesTextContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	ui := string(data)
-	start := strings.Index(ui, "function renderSelectedProfile")
-	end := strings.Index(ui[start:], "async function loadStatus")
+	start := strings.Index(ui, "function renderProfileOptions")
+	end := strings.Index(ui[start:], "function renderExtraProfiles")
 	if start < 0 || end < 0 {
 		t.Fatal("не найден renderer компактного выбора VPN-профилей")
 	}

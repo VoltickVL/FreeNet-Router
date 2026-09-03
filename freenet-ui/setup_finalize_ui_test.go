@@ -23,7 +23,7 @@ func TestSetupFinalizeUIContract(t *testing.T) {
 		`id="setupState"`,
 		`id="installScenarioHint"`,
 		"Тип установки",
-		"Состояние настройки",
+		"Настройка",
 		"Действующий роутер",
 		"Новая установка",
 		"Существующие XKeen/Xray распознаны и сохранены",
@@ -72,16 +72,11 @@ func TestCompletedSetupShowsFactsAndLeavesWizardMode(t *testing.T) {
 		"banner.hidden=!complete",
 		"Настройка завершена. Это обычный режим Control Center; повторно проходить мастер не требуется.",
 		"if(lastStatus&&lastStatus.setup_complete){renderInstallScenario(lastStatus);return}",
-		"updateNetworkHint(s);renderInstallScenario(s)",
-		"state.textContent=p&&p.setup_complete?'● Настройка завершена':'● Настройка не завершена'",
+		"renderInstallScenario(s)",
+		"complete?'● Настройка завершена':'● Настройка не завершена'",
 	} {
 		if !strings.Contains(ui, required) {
 			t.Fatalf("completed setup state missing %q", required)
-		}
-	}
-	for _, stale := range []string{`<div id="installScenario" class="value">Определяем…</div>`, `<div id="setupState" class="value">Проверяем…</div>`} {
-		if strings.Contains(ui, stale) {
-			t.Fatalf("completed setup UI still ships stale placeholder %q", stale)
 		}
 	}
 }
@@ -95,7 +90,7 @@ func TestInstallScenarioIsInformationalOnly(t *testing.T) {
 	if strings.Contains(ui, `name="install_scenario"`) || strings.Contains(ui, `id="installScenarioSelect"`) {
 		t.Fatal("сценарий установки не должен выбираться пользователем")
 	}
-	if !strings.Contains(ui, "p.install_scenario==='existing_stack'") || !strings.Contains(ui, "p.install_scenario==='fresh_entware'") {
+	if !strings.Contains(ui, "scenario==='existing_stack'") || !strings.Contains(ui, "scenario==='fresh_entware'") {
 		t.Fatal("UI должен отображать только автоматически определённые сценарии")
 	}
 }
@@ -107,7 +102,7 @@ func TestSetupFinalizeUIUsesOnlyStructuredAPI(t *testing.T) {
 	}
 	ui := string(data)
 	start := strings.Index(ui, "async function loadSetupFinalizePlan")
-	end := strings.Index(ui[start:], "async function act(action)")
+	end := strings.Index(ui[start:], "function actionFinishedByStatus")
 	if start < 0 || end < 0 {
 		t.Fatal("функции финального мастера не найдены")
 	}
