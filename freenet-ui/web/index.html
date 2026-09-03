@@ -70,7 +70,7 @@
     <div id="networkHint" class="hint">Загружаем сетевой профиль…</div>
     <button id="saveNetworkBtn" class="btn save">Сохранить профиль</button>
     <button id="planNetworkBtn" class="btn save">Проверить план и состояние</button>
-    <button id="applyNetworkBtn" class="btn update" disabled>Применить сетевой профиль</button>
+    <button id="applyNetworkBtn" class="btn update" disabled>Сначала сохраните и проверьте</button>
     <div id="networkPlan" class="notice plan"></div>
     <div id="networkNotice" class="notice"></div>
   </section>
@@ -102,18 +102,43 @@
 const flags={de:'🇩🇪',pl:'🇵🇱',fi:'🇫🇮',nl:'🇳🇱'};
 const dnsLabels={auto:'Авто',firmware:'Штатный DNS роутера',xkeen:'XKeen/Xray DNS',custom:'Свой'};
 let localPending=false,requestedAction='',actionStartedAt=0,baselineEndedAt='',lastStatus=null;
-let networkDirty=false,networkPlanReady=false,networkApplying=false,lastNetworkPlan=null;
+let networkDirty=false,networkPlanReady=false,networkApplying=false,networkChecking=false,networkPlanError=false,lastNetworkPlan=null;
 let selectedProviderID='',selectedProviderName='',providerPlanReady=false,providerApplying=false;
 let setupFinalizePlanReady=false,setupFinalizeApplying=false,setupFinalizeComplete=false,lastSetupFinalizePlan=null;
 
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function planClass(id){return id==='networkPlan'||id==='providerPlan'||id==='setupFinalizePlan'?' plan':''}
+function networkState(){
+  if(networkChecking)return 'checking';
+  if(networkDirty)return 'dirty';
+  if(lastNetworkPlan){
+    if(lastNetworkPlan.supported&&lastNetworkPlan.active)return 'active';
+    if(lastNetworkPlan.supported&&!lastNetworkPlan.active)return 'changes';
+    return 'blocked';
+  }
+  if(networkPlanError)return 'error';
+  return 'unverified';
+}
+function renderNetworkControls(busy){
+  const plan=document.getElementById('planNetworkBtn'),apply=document.getElementById('applyNetworkBtn'),state=networkState();
+  if(!plan||!apply)return;
+  if(state==='checking')plan.textContent='Проверяем…';
+  else if(state==='active')plan.textContent='Проверить ещё раз';
+  else if(state==='error')plan.textContent='Повторить проверку';
+  else plan.textContent='Проверить план и состояние';
+  plan.disabled=busy||networkChecking||networkDirty;
+
+  if(state==='active')apply.textContent='Профиль уже применён';
+  else if(state==='changes')apply.textContent='Применить сетевой профиль';
+  else if(state==='blocked'||state==='error')apply.textContent='Применение недоступно';
+  else apply.textContent='Сначала сохраните и проверьте';
+  apply.disabled=busy||state!=='changes';
+}
 function buttonsBusy(serverBusy){
   const busy=localPending||networkApplying||providerApplying||setupFinalizeApplying||serverBusy;
   document.querySelectorAll('button').forEach(b=>b.disabled=busy);
-  const plan=document.getElementById('planNetworkBtn'),apply=document.getElementById('applyNetworkBtn'),providerApply=document.getElementById('applyProviderBtn'),finalizePlan=document.getElementById('planFinalizeBtn'),finalizeApply=document.getElementById('applyFinalizeBtn');
-  if(plan)plan.disabled=busy||networkDirty;
-  if(apply)apply.disabled=busy||networkDirty||!networkPlanReady;
+  renderNetworkControls(busy);
+  const providerApply=document.getElementById('applyProviderBtn'),finalizePlan=document.getElementById('planFinalizeBtn'),finalizeApply=document.getElementById('applyFinalizeBtn');
   if(providerApply)providerApply.disabled=busy||!selectedProviderID||!providerPlanReady;
   if(finalizePlan)finalizePlan.disabled=busy;
   if(finalizeApply)finalizeApply.disabled=busy||!setupFinalizePlanReady||setupFinalizeComplete;
@@ -157,7 +182,7 @@ function renderInstallScenario(p){
   state.textContent=p&&p.setup_complete?'● Настройка завершена':'● Требуется настройка';
 }
 function formatNetworkPlan(p){
-  const title=p.active?'ПРОФИЛЬ ПРИМЕНЁН':(p.supported?'ГОТОВ К ПРИМЕНЕНИЮ':'ПРИМЕНЕНИЕ ЗАБЛОКИРОВАНО'),delta=p.active?'не требуются — выбранный профиль уже активен':(p.expected_delta||'—');
+  const title=p.active?'ПРОФИЛЬ УЖЕ АКТИВЕН':(p.supported?'ТРЕБУЮТСЯ ИЗМЕНЕНИЯ':'ПРИМЕНЕНИЕ ЗАБЛОКИРОВАНО'),delta=p.active?'не требуются — выбранный профиль уже активен':(p.expected_delta||'—');
   const lines=[title,'Провайдер: '+(p.isp||'—')+' · DNS: '+(dnsLabels[p.effective_dns_mode]||p.effective_dns_mode||'—'),'Состояние: :53='+(p.port53_owner||'—')+' · proxy_dns='+(p.proxy_dns||'—')+' · Xray GID='+(p.xray_gid||'—'),'DNS routing: '+(p.dns_routing_mode||'—')+' · dns-out: '+(p.dns_out_present?'есть':'нет')+' · VLESS: '+(p.vless_profile_present?'есть':'нет'),'Причина: '+(p.reason||'—'),'Изменения: '+delta];
   if(p.expected_no_delta)lines.push('Не меняется: '+p.expected_no_delta);if(Array.isArray(p.extra_profiles))lines.push('Extra-профили в подписке: '+p.extra_profiles.length);if(p.profiles_error)lines.push('Ошибка получения Extra-профилей: '+p.profiles_error);return lines.join('\n');
 }
@@ -192,7 +217,7 @@ async function loadStatus(){
     const r=await fetch('/api/status',{cache:'no-store'});if(!r.ok)throw new Error('status '+r.status);const s=await r.json();lastStatus=s;
     document.getElementById('profile').textContent=s.country?(s.country+' · '+(s.city||'')):'Неизвестный профиль';document.getElementById('city').textContent=s.country?(s.country+' · Extra'):'Фильтр не распознан';document.getElementById('heroFlag').textContent=flags[s.country_code]||'🌐';document.getElementById('endpoint').textContent=s.endpoint||'—';
     document.getElementById('xrayState').textContent=s.xray_online?'● Xray работает':'● Xray выключен';document.getElementById('xkeenState').textContent=s.xkeen_ui_online?'● XKeen UI работает':'● XKeen UI выключен';document.getElementById('dnsState').textContent=s.dns_out_present?'● dns-out OK':'● dns-out отсутствует';document.getElementById('updaterState').textContent=s.updater_busy?'● Обновление идёт':'● Обновление готово';document.getElementById('subscriptionState').textContent=s.subscription_configured?'● Настроена':'● Не настроена';
-    const healthy=s.xray_online&&s.dns_out_present,dot=document.getElementById('topDot');dot.className='dot '+(healthy?'ok':'bad');document.getElementById('topStatus').textContent=healthy?'Работает':'Требует внимания';document.getElementById('version').textContent='FreeNet UI '+s.version;document.querySelectorAll('.country-btn').forEach(b=>b.classList.toggle('active',b.dataset.action===s.country_code));
+    const healthy=s.xray_online&&s.dns_out_present,dot=document.getElementById('topDot');dot.className='dot '+(healthy?'ok':'bad');document.getElementById('topStatus').textContent=healthy?'VPN и DNS работают':'VPN/DNS требуют внимания';document.getElementById('version').textContent='FreeNet UI '+s.version;document.querySelectorAll('.country-btn').forEach(b=>b.classList.toggle('active',b.dataset.action===s.country_code));
     if(!networkDirty){document.getElementById('ispSelect').value=s.isp||'auto';document.getElementById('dnsModeSelect').value=s.dns_mode||'auto'}updateNetworkHint(s);if(actionFinishedByStatus(s))finishFromStatus(s);buttonsBusy(!!s.busy||!!s.updater_busy);document.getElementById('xkeenLink').href='http://'+location.hostname+':1000/';return s;
   }catch(e){document.getElementById('topDot').className='dot bad';document.getElementById('topStatus').textContent='Нет связи';buttonsBusy(false);return null}
 }
@@ -206,18 +231,18 @@ async function selectProviderProfile(p){selectedProviderID=p.id||'';selectedProv
 async function refreshProfiles(){resetProviderSelection();await loadNetworkPlan('')}
 async function saveNetworkProfile(){
   hideBox('networkNotice');hideBox('networkPlan');const isp=document.getElementById('ispSelect').value,dns_mode=document.getElementById('dnsModeSelect').value;
-  try{const r=await fetch('/api/network-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({isp,dns_mode})});const j=await r.json();if(!r.ok||!j.success){showBox('networkNotice',j.error||'Не удалось сохранить профиль','bad');return}networkDirty=false;networkPlanReady=false;lastNetworkPlan=null;resetSetupFinalizePlan();showBox('networkNotice',j.message||'Профиль сохранён','ok');await loadStatus();await loadNetworkPlan(selectedProviderID)}catch(e){showBox('networkNotice','Не удалось сохранить профиль: нет связи с FreeNet','bad')}
+  try{const r=await fetch('/api/network-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({isp,dns_mode})});const j=await r.json();if(!r.ok||!j.success){showBox('networkNotice',j.error||'Не удалось сохранить профиль','bad');return}networkDirty=false;networkPlanReady=false;networkPlanError=false;lastNetworkPlan=null;resetSetupFinalizePlan();showBox('networkNotice',j.message||'Профиль сохранён','ok');await loadStatus();await loadNetworkPlan(selectedProviderID)}catch(e){networkPlanError=true;showBox('networkNotice','Не удалось сохранить профиль: нет связи с FreeNet','bad');buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
 }
 async function loadNetworkPlan(profileID=selectedProviderID){
-  hideBox('networkNotice');networkPlanReady=false;lastNetworkPlan=null;providerPlanReady=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)));
+  hideBox('networkNotice');networkChecking=true;networkPlanReady=false;networkPlanError=false;lastNetworkPlan=null;providerPlanReady=false;showBox('networkPlan','Проверяем сетевой профиль…');buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)));
   try{
     const suffix=profileID?'?provider_profile_id='+encodeURIComponent(profileID):'',r=await fetch('/api/network-profile/plan'+suffix,{cache:'no-store'}),j=await r.json();
-    if(!r.ok||!j.success){showBox('networkPlan',j.error||'Не удалось получить сетевой план','bad');renderExtraProfiles(j);if(profileID)showBox('providerPlan','Не удалось проверить выбранный VPN-профиль','bad');return}
-    lastNetworkPlan=j;networkPlanReady=!!(j.supported&&!j.active);showBox('networkPlan',formatNetworkPlan(j),j.supported?'ok':'');renderExtraProfiles(j);
+    if(!r.ok||!j.success){networkPlanError=true;showBox('networkPlan',j.error||'Не удалось получить сетевой план','bad');renderExtraProfiles(j);if(profileID)showBox('providerPlan','Не удалось проверить выбранный VPN-профиль','bad');return}
+    lastNetworkPlan=j;networkPlanReady=!!(j.supported&&!j.active);showBox('networkPlan',formatNetworkPlan(j),j.supported?'ok':'bad');renderExtraProfiles(j);
     if(profileID){const pp=j.provider_plan;providerPlanReady=!!(pp&&pp.success&&pp.candidate_xray_valid&&pp.mutation==='NONE'&&!pp.error);showBox('providerPlan',formatProviderPlan(pp),providerPlanReady?'ok':'bad')}
     else hideBox('providerPlan');
-  }catch(e){showBox('networkPlan','Не удалось получить сетевой план: нет связи с FreeNet','bad');renderExtraProfiles(null);if(profileID)showBox('providerPlan','Нет связи при проверке VPN-профиля','bad')}
-  finally{buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
+  }catch(e){networkPlanError=true;showBox('networkPlan','Не удалось получить сетевой план: нет связи с FreeNet','bad');renderExtraProfiles(null);if(profileID)showBox('providerPlan','Нет связи при проверке VPN-профиля','bad')}
+  finally{networkChecking=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
 }
 async function loadSetupFinalizePlan(){
   hideBox('setupFinalizeNotice');setupFinalizePlanReady=false;setupFinalizeComplete=false;lastSetupFinalizePlan=null;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)));
@@ -243,7 +268,7 @@ async function applyNetworkProfile(){
   if(networkDirty||!networkPlanReady||networkApplying)return;const isp=document.getElementById('ispSelect').value,dns_mode=document.getElementById('dnsModeSelect').value,delta=(lastNetworkPlan&&lastNetworkPlan.expected_delta)||'сетевой профиль';
   if(!window.confirm('Применить подтверждённый сетевой профиль?\n\n'+delta+'\n\nПри ошибке FreeNet использует транзакционный откат.'))return;
   networkApplying=true;buttonsBusy(true);hideBox('networkNotice');showBox('networkNotice','Применяем сетевой профиль. Не закрывайте страницу…');
-  try{const r=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'network',isp,dns_mode,confirm:true})}),j=await r.json();if(!r.ok||!j.success){const parts=[j.error||'Сетевой профиль не применён'];if(j.primary_error)parts.push('ОСНОВНАЯ ОШИБКА: '+j.primary_error);if(j.rollback_state)parts.push('ОТКАТ: '+j.rollback_state);showBox('networkNotice',parts.join('\n'),'bad');return}resetSetupFinalizePlan();showBox('networkNotice',(j.message||'Сетевой профиль применён')+' Откат: '+(j.rollback_state||'NOT_NEEDED'),'ok');lastNetworkPlan=j.plan||null;networkPlanReady=!!(lastNetworkPlan&&lastNetworkPlan.supported&&!lastNetworkPlan.active);if(lastNetworkPlan)showBox('networkPlan',formatNetworkPlan(lastNetworkPlan),'ok');await loadStatus();await loadNetworkPlan(selectedProviderID)}catch(e){showBox('networkNotice','Связь с FreeNet прервалась во время применения. Не повторяйте операцию вслепую; сначала проверьте фактический статус.','bad')}finally{networkApplying=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
+  try{const r=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'network',isp,dns_mode,confirm:true})}),j=await r.json();if(!r.ok||!j.success){const parts=[j.error||'Сетевой профиль не применён'];if(j.primary_error)parts.push('ОСНОВНАЯ ОШИБКА: '+j.primary_error);if(j.rollback_state)parts.push('ОТКАТ: '+j.rollback_state);showBox('networkNotice',parts.join('\n'),'bad');return}resetSetupFinalizePlan();showBox('networkNotice',(j.message||'Сетевой профиль применён')+' Откат: '+(j.rollback_state||'NOT_NEEDED'),'ok');lastNetworkPlan=j.plan||null;networkPlanReady=!!(lastNetworkPlan&&lastNetworkPlan.supported&&!lastNetworkPlan.active);networkPlanError=false;if(lastNetworkPlan)showBox('networkPlan',formatNetworkPlan(lastNetworkPlan),'ok');await loadStatus();await loadNetworkPlan(selectedProviderID)}catch(e){networkPlanError=true;showBox('networkNotice','Связь с FreeNet прервалась во время применения. Не повторяйте операцию вслепую; сначала проверьте фактический статус.','bad')}finally{networkApplying=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))}
 }
 async function applySetupFinalize(){
   if(!setupFinalizePlanReady||setupFinalizeApplying||setupFinalizeComplete)return;const delta=(lastSetupFinalizePlan&&lastSetupFinalizePlan.expected_delta)||'завершить настройку и включить автозапуск XKeen';
@@ -266,8 +291,8 @@ document.querySelectorAll('[data-action]').forEach(b=>b.addEventListener('click'
 document.getElementById('saveSubscriptionBtn').addEventListener('click',saveSubscription);
 document.getElementById('refreshProfilesBtn').addEventListener('click',refreshProfiles);
 document.getElementById('applyProviderBtn').addEventListener('click',applyProviderProfile);
-document.getElementById('ispSelect').addEventListener('change',()=>{networkDirty=true;networkPlanReady=false;resetSetupFinalizePlan();hideBox('networkPlan');updateNetworkHint(lastStatus);buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))});
-document.getElementById('dnsModeSelect').addEventListener('change',()=>{networkDirty=true;networkPlanReady=false;resetSetupFinalizePlan();hideBox('networkPlan');updateNetworkHint(lastStatus);buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))});
+document.getElementById('ispSelect').addEventListener('change',()=>{networkDirty=true;networkPlanReady=false;networkPlanError=false;lastNetworkPlan=null;resetSetupFinalizePlan();hideBox('networkPlan');updateNetworkHint(lastStatus);buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))});
+document.getElementById('dnsModeSelect').addEventListener('change',()=>{networkDirty=true;networkPlanReady=false;networkPlanError=false;lastNetworkPlan=null;resetSetupFinalizePlan();hideBox('networkPlan');updateNetworkHint(lastStatus);buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy)))});
 document.getElementById('saveNetworkBtn').addEventListener('click',saveNetworkProfile);
 document.getElementById('planNetworkBtn').addEventListener('click',()=>loadNetworkPlan(selectedProviderID));
 document.getElementById('applyNetworkBtn').addEventListener('click',applyNetworkProfile);

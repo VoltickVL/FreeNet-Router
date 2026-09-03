@@ -61,20 +61,50 @@ func TestParseNetworkPlanDoesNotMarkMismatchedRuntimeActive(t *testing.T) {
 	}
 }
 
-func TestNetworkPlanUIShowsAppliedStateAndPreventsBlindReapply(t *testing.T) {
+func TestNetworkPlanUIStateContract(t *testing.T) {
 	data, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ui := string(data)
+
 	for _, required := range []string{
-		"ПРОФИЛЬ ПРИМЕНЁН",
-		"p.dns_routing_mode",
-		"j.supported&&!j.active",
+		"ПРОФИЛЬ УЖЕ АКТИВЕН",
+		"ТРЕБУЮТСЯ ИЗМЕНЕНИЯ",
+		"ПРИМЕНЕНИЕ ЗАБЛОКИРОВАНО",
+		"Проверяем сетевой профиль…",
+		"Профиль уже применён",
+		"Сначала сохраните и проверьте",
+		"Применение недоступно",
+		"Повторить проверку",
+		"Проверить ещё раз",
+		"VPN и DNS работают",
+		"VPN/DNS требуют внимания",
+		"networkChecking",
+		"networkPlanError",
+		"lastNetworkPlan.supported&&lastNetworkPlan.active",
 		"lastNetworkPlan.supported&&!lastNetworkPlan.active",
 	} {
 		if !strings.Contains(ui, required) {
-			t.Fatalf("network active-state UI contract missing %q", required)
+			t.Fatalf("network UI state contract missing %q", required)
+		}
+	}
+}
+
+func TestNetworkPlanUIKeepsBlindApplyGuard(t *testing.T) {
+	data, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+
+	for _, required := range []string{
+		"if(networkDirty||!networkPlanReady||networkApplying)return",
+		"networkPlanReady=!!(j.supported&&!j.active)",
+		"apply.disabled=busy||state!=='changes'",
+	} {
+		if !strings.Contains(ui, required) {
+			t.Fatalf("blind network apply guard missing %q", required)
 		}
 	}
 }
