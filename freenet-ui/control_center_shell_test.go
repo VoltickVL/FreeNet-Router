@@ -95,6 +95,7 @@ func TestSystemAndAccessHaveHonestFutureCapabilitySlots(t *testing.T) {
 		"Управление SSH — готовится",
 		"Сменить пароль — готовится",
 		"Пароль Control Center не переиспользуется как SSH credential",
+		"Основные действия доступны без SSH",
 	} {
 		if !strings.Contains(ui, want) {
 			t.Fatalf("future capability slot missing %q", want)
