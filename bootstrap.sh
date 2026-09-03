@@ -17,6 +17,7 @@ MIGRATE_LIB="$ROOT/lib/freenet/migrate_split_dns.sh"
 NETWORK_LIB="$ROOT/lib/freenet/apply_network_profile.sh"
 PROVIDER_LIB="$ROOT/lib/freenet/apply_provider_profile.sh"
 FINALIZE_LIB="$ROOT/lib/freenet/finalize_setup.sh"
+SELF_UPDATE_LIB="$ROOT/lib/freenet/self_update.sh"
 FREENET_BIN="$ROOT/sbin/freenet-ui"
 FREENET_INIT="$ROOT/etc/init.d/S99freenet-ui"
 FREENET_MANAGER="$ROOT/bin/freenet"
@@ -186,7 +187,7 @@ download_release_assets() {
     UI_ASSET="freenet-ui-$ARCH"
     for NAME in \
         bootstrap_entware.sh upstream-pins.env \
-        migrate_split_dns.sh apply_network_profile.sh apply_provider_profile.sh finalize_setup.sh \
+        migrate_split_dns.sh apply_network_profile.sh apply_provider_profile.sh finalize_setup.sh self_update.sh \
         "$UI_ASSET" vpn blanc_xkeen_update_outbounds.sh \
         freenet freenet.conf.example
     do
@@ -198,6 +199,7 @@ download_release_assets() {
         "$TMP_DIR/apply_network_profile.sh" \
         "$TMP_DIR/apply_provider_profile.sh" \
         "$TMP_DIR/finalize_setup.sh" \
+        "$TMP_DIR/self_update.sh" \
         "$TMP_DIR/$UI_ASSET" "$TMP_DIR/vpn" \
         "$TMP_DIR/blanc_xkeen_update_outbounds.sh" "$TMP_DIR/freenet"
     ok 'release SHA-256 verification'
@@ -290,6 +292,7 @@ backup_app() {
     backup_one "$NETWORK_LIB" network-lib || return 1
     backup_one "$PROVIDER_LIB" provider-lib || return 1
     backup_one "$FINALIZE_LIB" finalize-lib || return 1
+    backup_one "$SELF_UPDATE_LIB" self-update-lib || return 1
     crontab -l > "$BACKUP_DIR/crontab.before" 2>/dev/null || : > "$BACKUP_DIR/crontab.before"
     snapshot_xray "$BACKUP_DIR/xray-hashes.before" || return 1
 }
@@ -316,6 +319,7 @@ rollback_app() {
     restore_one "$NETWORK_LIB" network-lib || RB=1
     restore_one "$PROVIDER_LIB" provider-lib || RB=1
     restore_one "$FINALIZE_LIB" finalize-lib || RB=1
+    restore_one "$SELF_UPDATE_LIB" self-update-lib || RB=1
     crontab "$BACKUP_DIR/crontab.before" >/dev/null 2>&1 || RB=1
 
     if [ "$UI_WAS_RUNNING" = 1 ] && [ -x "$FREENET_INIT" ]; then
@@ -491,6 +495,10 @@ install_app() {
     cp "$TMP_DIR/finalize_setup.sh" "$FINALIZE_LIB.tmp.$$" || return 1
     chmod 755 "$FINALIZE_LIB.tmp.$$" || return 1
     mv -f "$FINALIZE_LIB.tmp.$$" "$FINALIZE_LIB" || return 1
+
+    cp "$TMP_DIR/self_update.sh" "$SELF_UPDATE_LIB.tmp.$$" || return 1
+    chmod 755 "$SELF_UPDATE_LIB.tmp.$$" || return 1
+    mv -f "$SELF_UPDATE_LIB.tmp.$$" "$SELF_UPDATE_LIB" || return 1
 
     write_config_if_missing || return 1
     write_ui_init || return 1
