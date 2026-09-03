@@ -26,29 +26,35 @@ import (
 const version = "0.2.1"
 
 const (
-	defaultListen     = "192.168.50.1:1001"
-	defaultVPNPath    = "/opt/bin/vpn"
-	defaultFilterPath = "/opt/etc/xray/blanc_profile_filter.regex"
-	defaultOutPath    = "/opt/etc/xray/configs/04_outbounds.json"
-	defaultXKeenPath  = "/opt/sbin/xkeen"
-	defaultLockPath   = "/tmp/blanc_xkeen_update.lock"
-	defaultConfigPath = "/opt/etc/freenet/freenet.conf"
-	defaultSubPath    = "/opt/etc/xray/blanc_subscription.url"
+	defaultListen         = "192.168.50.1:1001"
+	defaultVPNPath        = "/opt/bin/vpn"
+	defaultFilterPath     = "/opt/etc/xray/blanc_profile_filter.regex"
+	defaultOutPath        = "/opt/etc/xray/configs/04_outbounds.json"
+	defaultXKeenPath      = "/opt/sbin/xkeen"
+	defaultLockPath       = "/tmp/blanc_xkeen_update.lock"
+	defaultConfigPath     = "/opt/etc/freenet/freenet.conf"
+	defaultSubPath        = "/opt/etc/xray/blanc_subscription.url"
+	defaultSelfUpdatePath = "/opt/lib/freenet/self_update.sh"
+	defaultUpdateState    = "/opt/var/run/freenet-self-update.state"
+	defaultUpdateLock     = "/tmp/freenet-self-update.lock"
 )
 
 //go:embed web/index.html
 var webFS embed.FS
 
 type config struct {
-	Listen     string
-	VPNPath    string
-	FilterPath string
-	OutPath    string
-	XKeenPath  string
-	LockPath   string
-	ConfigPath string
-	SubPath    string
-	Timeout    time.Duration
+	Listen         string
+	VPNPath        string
+	FilterPath     string
+	OutPath        string
+	XKeenPath      string
+	LockPath       string
+	ConfigPath     string
+	SubPath        string
+	SelfUpdatePath string
+	UpdateState    string
+	UpdateLock     string
+	Timeout        time.Duration
 }
 
 type app struct {
@@ -122,6 +128,35 @@ type subscriptionResponse struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type selfUpdatePlanResponse struct {
+	Success          bool   `json:"success"`
+	Ready            bool   `json:"ready"`
+	CurrentVersion   string `json:"current_version"`
+	LatestVersion    string `json:"latest_version"`
+	TargetTag        string `json:"target_tag"`
+	UpdateAvailable  bool   `json:"update_available"`
+	ManifestVerified bool   `json:"manifest_verified"`
+	ExpectedDelta    string `json:"expected_delta,omitempty"`
+	ExpectedNoDelta  string `json:"expected_no_delta,omitempty"`
+	Details          string `json:"details,omitempty"`
+	Error            string `json:"error,omitempty"`
+}
+
+type selfUpdateApplyRequest struct {
+	TargetTag string `json:"target_tag"`
+}
+
+type selfUpdateStateResponse struct {
+	State          string `json:"state"`
+	FromVersion    string `json:"from_version,omitempty"`
+	TargetVersion  string `json:"target_version,omitempty"`
+	Message        string `json:"message,omitempty"`
+	PrimaryError   string `json:"primary_error,omitempty"`
+	RollbackState  string `json:"rollback_state,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
+	UpdateLockHeld bool   `json:"update_lock_held"`
+}
+
 type xrayConfig struct {
 	Outbounds []struct {
 		Tag      string `json:"tag"`
@@ -181,6 +216,9 @@ func main() {
 	flag.StringVar(&cfg.LockPath, "updater-lock", defaultLockPath, "updater lock path")
 	flag.StringVar(&cfg.ConfigPath, "config", defaultConfigPath, "FreeNet local config path")
 	flag.StringVar(&cfg.SubPath, "subscription", defaultSubPath, "BlancVPN subscription URL path")
+	flag.StringVar(&cfg.SelfUpdatePath, "self-update", defaultSelfUpdatePath, "FreeNet self update helper path")
+	flag.StringVar(&cfg.UpdateState, "update-state", defaultUpdateState, "FreeNet self update state path")
+	flag.StringVar(&cfg.UpdateLock, "update-lock", defaultUpdateLock, "FreeNet self update lock path")
 	flag.DurationVar(&cfg.Timeout, "action-timeout", 95*time.Second, "action timeout")
 	flag.Parse()
 
@@ -201,9 +239,16 @@ func main() {
 	mux.HandleFunc("GET /api/subscription", a.requireAuth(a.handleSubscriptionGet))
 	mux.HandleFunc("POST /api/subscription", a.requireAuth(a.handleSubscriptionPost))
 	mux.HandleFunc("POST /api/action", a.requireAuth(a.handleAction))
+	mux.HandleFunc("GET /api/system/update/plan", a.requireAuth(a.handleSelfUpdatePlan))
+	mux.HandleFunc("POST /api/system/update/apply", a.requireAuth(a.handleSelfUpdateApply))
+	mux.HandleFunc("GET /api/system/update/state", a.requireAuth(a.handleSelfUpdateState))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, "ok\n")
+	})
+	mux.HandleFunc("GET /versionz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, "v"+version+"\n")
 	})
 
 	srv := &http.Server{
@@ -290,7 +335,23 @@ func (a *app) handleNetworkProfileGet(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.networkProfileView(true, ""))
 }
 
+func (a *app) updateLockHeld() bool {
+	_, err := os.Stat(a.cfg.UpdateLock)
+	return err == nil
+}
+
+func (a *app) mutationBlockedBySelfUpdate(w http.ResponseWriter) bool {
+	if !a.updateLockHeld() {
+		return false
+	}
+	writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "FreeNet update is in progress"})
+	return true
+}
+
 func (a *app) handleNetworkProfilePost(w http.ResponseWriter, r *http.Request) {
+	if a.mutationBlockedBySelfUpdate(w) {
+		return
+	}
 	if !sameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, networkProfileResponse{Success: false, Error: "cross-origin request rejected"})
 		return
@@ -329,6 +390,9 @@ func (a *app) handleSubscriptionGet(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *app) handleSubscriptionPost(w http.ResponseWriter, r *http.Request) {
+	if a.mutationBlockedBySelfUpdate(w) {
+		return
+	}
 	if !sameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, subscriptionResponse{Success: false, Error: "cross-origin request rejected"})
 		return
@@ -354,7 +418,160 @@ func (a *app) handleSubscriptionPost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, subscriptionResponse{Success: true, Configured: true, Message: "Подписка сохранена локально. Секрет не отображается."})
 }
 
+func parseKVOutput(s string) map[string]string {
+	out := make(map[string]string)
+	for _, line := range strings.Split(strings.ReplaceAll(s, "\r", ""), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		out[strings.TrimSpace(key)] = strings.TrimSpace(value)
+	}
+	return out
+}
+
+func boolKV(v string) bool { return strings.EqualFold(strings.TrimSpace(v), "yes") }
+
+func (a *app) selfUpdateCommand(args ...string) *exec.Cmd {
+	cmd := exec.Command("/bin/sh", append([]string{a.cfg.SelfUpdatePath}, args...)...)
+	cmd.Env = append(os.Environ(),
+		"PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin",
+		"FREENET_CURRENT_VERSION=v"+version,
+		"FREENET_UPDATE_STATE_FILE="+a.cfg.UpdateState,
+		"FREENET_UPDATE_LOCK_DIR="+a.cfg.UpdateLock,
+	)
+	return cmd
+}
+
+func (a *app) handleSelfUpdatePlan(w http.ResponseWriter, _ *http.Request) {
+	if _, err := os.Stat(a.cfg.SelfUpdatePath); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, selfUpdatePlanResponse{Success: false, Ready: false, CurrentVersion: "v" + version, Error: "self update helper is not installed"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "/bin/sh", a.cfg.SelfUpdatePath, "plan")
+	cmd.Env = a.selfUpdateCommand().Env
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		writeJSON(w, http.StatusGatewayTimeout, selfUpdatePlanResponse{Success: false, Ready: false, CurrentVersion: "v" + version, Error: "update check timed out"})
+		return
+	}
+	kv := parseKVOutput(string(out))
+	resp := selfUpdatePlanResponse{
+		Success:          boolKV(kv["SUCCESS"]),
+		Ready:            boolKV(kv["READY"]),
+		CurrentVersion:   kv["CURRENT_VERSION"],
+		LatestVersion:    kv["LATEST_VERSION"],
+		TargetTag:        kv["TARGET_TAG"],
+		UpdateAvailable:  boolKV(kv["UPDATE_AVAILABLE"]),
+		ManifestVerified: boolKV(kv["MANIFEST_VERIFIED"]),
+		ExpectedDelta:    kv["EXPECTED_DELTA"],
+		ExpectedNoDelta:  kv["EXPECTED_NO_DELTA"],
+		Details:          sanitizeOutput(string(out)),
+		Error:            kv["ERROR"],
+	}
+	if resp.CurrentVersion == "" {
+		resp.CurrentVersion = "v" + version
+	}
+	if err != nil || !resp.Success {
+		if resp.Error == "" {
+			resp.Error = "cannot build update plan"
+		}
+		writeJSON(w, http.StatusBadGateway, resp)
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func validReleaseTag(tag string) bool {
+	parts := strings.Split(strings.TrimPrefix(tag, "v"), ".")
+	if !strings.HasPrefix(tag, "v") || len(parts) != 3 {
+		return false
+	}
+	for _, p := range parts {
+		if p == "" {
+			return false
+		}
+		if _, err := strconv.Atoi(p); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if !sameOrigin(r) {
+		writeJSON(w, http.StatusForbidden, actionResult{Success: false, Error: "cross-origin request rejected"})
+		return
+	}
+	if a.updateLockHeld() {
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "another FreeNet update is already running"})
+		return
+	}
+	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
+		writeJSON(w, http.StatusUnsupportedMediaType, actionResult{Success: false, Error: "application/json required"})
+		return
+	}
+	body := http.MaxBytesReader(w, r.Body, 1024)
+	defer body.Close()
+	dec := json.NewDecoder(body)
+	dec.DisallowUnknownFields()
+	var req selfUpdateApplyRequest
+	if err := dec.Decode(&req); err != nil || !validReleaseTag(req.TargetTag) {
+		writeJSON(w, http.StatusBadRequest, actionResult{Success: false, Error: "invalid target release"})
+		return
+	}
+	if _, err := os.Stat(a.cfg.SelfUpdatePath); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, actionResult{Success: false, Error: "self update helper is not installed"})
+		return
+	}
+	cmd := a.selfUpdateCommand("apply", req.TargetTag)
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, actionResult{Success: false, Error: "cannot start FreeNet update"})
+		return
+	}
+	_ = cmd.Process.Release()
+	writeJSON(w, http.StatusAccepted, actionResult{Success: true, Action: "self-update", Message: "Обновление запущено. FreeNet кратко перезапустится."})
+}
+
+func readStateFile(path string) map[string]string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return map[string]string{}
+	}
+	return parseKVOutput(string(b))
+}
+
+func (a *app) handleSelfUpdateState(w http.ResponseWriter, _ *http.Request) {
+	kv := readStateFile(a.cfg.UpdateState)
+	state := kv["STATE"]
+	if state == "" {
+		state = "IDLE"
+	}
+	writeJSON(w, http.StatusOK, selfUpdateStateResponse{
+		State:          state,
+		FromVersion:    kv["FROM_VERSION"],
+		TargetVersion:  kv["TARGET_VERSION"],
+		Message:        kv["MESSAGE"],
+		PrimaryError:   kv["PRIMARY_ERROR"],
+		RollbackState:  kv["ROLLBACK_STATE"],
+		UpdatedAt:      kv["UPDATED_AT"],
+		UpdateLockHeld: a.updateLockHeld(),
+	})
+}
+
 func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
+	if a.mutationBlockedBySelfUpdate(w) {
+		return
+	}
 	if !sameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, actionResult{Success: false, Error: "cross-origin request rejected"})
 		return
@@ -680,7 +897,7 @@ func (a *app) status() statusResponse {
 		InstallScenario:        installScenario,
 		SetupComplete:          setupComplete,
 		SubscriptionConfigured: subscriptionConfigured(a.cfg.SubPath),
-		Busy:                   busy,
+		Busy:                   busy || a.updateLockHeld(),
 		UpdaterBusy:            lockErr == nil,
 		Last:                   last,
 	}
