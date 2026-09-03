@@ -73,11 +73,10 @@ func TestNetworkPlanUIStateContract(t *testing.T) {
 		"ТРЕБУЮТСЯ ИЗМЕНЕНИЯ",
 		"ПРИМЕНЕНИЕ ЗАБЛОКИРОВАНО",
 		"Проверяем сетевой профиль…",
-		"Профиль уже применён",
-		"Сначала сохраните и проверьте",
-		"Применение недоступно",
-		"Повторить проверку",
-		"Проверить ещё раз",
+		"Профиль активен",
+		"Есть подтверждённые изменения",
+		"Требует внимания",
+		"Есть несохранённые изменения",
 		"VPN и DNS работают",
 		"VPN/DNS требуют внимания",
 		"networkChecking",
@@ -87,6 +86,23 @@ func TestNetworkPlanUIStateContract(t *testing.T) {
 	} {
 		if !strings.Contains(ui, required) {
 			t.Fatalf("network UI state contract missing %q", required)
+		}
+	}
+}
+
+func TestNetworkPlanUIHidesCompletedActions(t *testing.T) {
+	data, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+	for _, required := range []string{
+		"save.hidden=!networkDirty",
+		"plan.hidden=networkDirty||state==='active'",
+		"apply.hidden=state!=='changes'",
+	} {
+		if !strings.Contains(ui, required) {
+			t.Fatalf("state-aware network controls missing %q", required)
 		}
 	}
 }

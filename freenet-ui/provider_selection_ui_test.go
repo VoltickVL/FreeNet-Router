@@ -13,8 +13,10 @@ func TestProviderSelectionUIContract(t *testing.T) {
 	ui := string(data)
 	for _, required := range []string{
 		`id="providerPlan"`,
+		`id="providerPlanDetails"`,
 		`id="applyProviderBtn"`,
 		`id="providerNotice"`,
+		`id="selectedProfileCard"`,
 		"selectedProviderID",
 		"selectProviderProfile",
 		"applyProviderProfile",
@@ -32,23 +34,23 @@ func TestProviderSelectionUIContract(t *testing.T) {
 	}
 }
 
-func TestProviderRowsUseTextContentAndExplicitButton(t *testing.T) {
+func TestProviderSelectorUsesTextContent(t *testing.T) {
 	data, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ui := string(data)
-	start := strings.Index(ui, "function renderExtraProfiles")
+	start := strings.Index(ui, "function renderSelectedProfile")
 	end := strings.Index(ui[start:], "async function loadStatus")
 	if start < 0 || end < 0 {
-		t.Fatal("не найден renderer динамических VPN-профилей")
+		t.Fatal("не найден renderer компактного выбора VPN-профилей")
 	}
 	body := ui[start : start+end]
 	for _, required := range []string{
 		"name.textContent=p.name",
 		"endpoint.textContent=formatProfileEndpoint(p)",
-		"pick.textContent=",
-		"pick.addEventListener('click'",
+		"option.textContent=",
+		"document.createElement('option')",
 	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("в renderer профилей отсутствует безопасный контракт %q", required)
@@ -70,5 +72,8 @@ func TestProviderApplyRequiresPlanReadyInUI(t *testing.T) {
 	}
 	if !strings.Contains(ui, "pp&&pp.success&&pp.candidate_xray_valid&&pp.mutation==='NONE'") {
 		t.Fatal("готовность provider plan должна требовать валидный read-only Xray-кандидат")
+	}
+	if !strings.Contains(ui, "providerApply.hidden=!selectedProviderID||providerApplied") {
+		t.Fatal("после успешного apply кнопка не должна оставаться вечным повторным действием")
 	}
 }
