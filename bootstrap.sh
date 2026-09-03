@@ -510,8 +510,8 @@ validate_app() {
     HEALTH="$(curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/healthz" 2>/dev/null)" || return 1
     [ "$HEALTH" = ok ] || return 1
 
-    curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/api/status" -o "$TMP_DIR/status.json" 2>/dev/null || return 1
-    jq -e '(.version | type) == "string" and (.busy | type) == "boolean" and (.subscription_configured | type) == "boolean"' "$TMP_DIR/status.json" >/dev/null 2>&1 || return 1
+    curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/api/auth/status" -o "$TMP_DIR/auth-status.json" 2>/dev/null || return 1
+    jq -e '(.configured | type) == "boolean" and (.authenticated | type) == "boolean"' "$TMP_DIR/auth-status.json" >/dev/null 2>&1 || return 1
 
     netstat -lntp 2>/dev/null | grep "$LAN_IP:$UI_PORT[[:space:]]" >/dev/null 2>&1 || return 1
     if netstat -lntp 2>/dev/null | grep -E "0\.0\.0\.0:$UI_PORT[[:space:]]|:::$UI_PORT[[:space:]]" >/dev/null 2>&1; then
