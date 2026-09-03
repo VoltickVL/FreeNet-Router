@@ -8,6 +8,7 @@ CONFIG_DIR="${FREENET_CONFIG_DIR:-/opt/etc/xray/configs}"
 ASSET_DIR="${FREENET_ASSET_DIR:-/opt/etc/xray/dat}"
 OUT_FILE="$CONFIG_DIR/04_outbounds.json"
 PROFILE_FILE="${FREENET_PROFILE_FILE:-/opt/etc/freenet/vpn_profile_name}"
+FILTER_FILE="${FREENET_FILTER_FILE:-/opt/etc/xray/blanc_profile_filter.regex}"
 XRAY_BIN="${FREENET_XRAY_BIN:-/opt/sbin/xray}"
 XKEEN_BIN="${FREENET_XKEEN_BIN:-/opt/sbin/xkeen}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
@@ -17,6 +18,7 @@ TMP_DIR=""
 WAS_RUNNING=0
 OUT_BEFORE_EXISTS=no
 PROFILE_BEFORE_EXISTS=no
+FILTER_BEFORE_EXISTS=no
 APPLIED=0
 ROLLBACK_ACTIVE=0
 
@@ -113,6 +115,19 @@ sanitize_name() {
             printf '%s\n' "$NAME_OUT"
             ;;
     esac
+}
+
+escape_ere() {
+    awk '
+        BEGIN { ORS="" }
+        {
+            for (i = 1; i <= length($0); i++) {
+                c = substr($0, i, 1)
+                if (c ~ /[][(){}.^$*+?|\\]/) printf "\\%s", c
+                else printf "%s", c
+            }
+        }
+    '
 }
 
 profile_id() {
@@ -269,6 +284,10 @@ snapshot_state() {
         cp -p "$PROFILE_FILE" "$PROFILE_BEFORE" || return 1
         PROFILE_BEFORE_EXISTS=yes
     fi
+    if [ -f "$FILTER_FILE" ]; then
+        cp -p "$FILTER_FILE" "$FILTER_BEFORE" || return 1
+        FILTER_BEFORE_EXISTS=yes
+    fi
     pidof xray >/dev/null 2>&1 && WAS_RUNNING=1 || WAS_RUNNING=0
 }
 
@@ -295,6 +314,14 @@ rollback_state() {
         [ "$RB" -ne 0 ] || mv -f "$PROFILE_FILE.rollback.$$" "$PROFILE_FILE" 2>/dev/null || RB=1
     else
         rm -f "$PROFILE_FILE" 2>/dev/null || RB=1
+    fi
+
+    if [ "$FILTER_BEFORE_EXISTS" = yes ]; then
+        mkdir -p "$(dirname "$FILTER_FILE")" 2>/dev/null || RB=1
+        cp -p "$FILTER_BEFORE" "$FILTER_FILE.rollback.$$" 2>/dev/null || RB=1
+        [ "$RB" -ne 0 ] || mv -f "$FILTER_FILE.rollback.$$" "$FILTER_FILE" 2>/dev/null || RB=1
+    else
+        rm -f "$FILTER_FILE" 2>/dev/null || RB=1
     fi
 
     if [ "$WAS_RUNNING" -eq 1 ]; then
@@ -357,6 +384,7 @@ XRAY_TEST_LOG="$TMP_DIR/xray-test.log"
 CURL_ERR="$TMP_DIR/curl.err"
 OUT_BEFORE="$TMP_DIR/out.before"
 PROFILE_BEFORE="$TMP_DIR/profile.before"
+FILTER_BEFORE="$TMP_DIR/filter.before"
 
 fetch_subscription || { err 'subscription fetch failed'; exit 1; }
 [ -s "$RAW_FILE" ] || { err 'subscription response is empty'; exit 1; }
@@ -380,7 +408,7 @@ say "ENDPOINT=$SELECTED_ADDRESS:$SELECTED_PORT"
 if [ -f "$OUT_FILE" ]; then say 'CURRENT_OUTBOUND=present'; else say 'CURRENT_OUTBOUND=missing'; fi
 if pidof xray >/dev/null 2>&1; then say 'XRAY_RUNNING=yes'; else say 'XRAY_RUNNING=no'; fi
 say 'CANDIDATE_XRAY_VALID=yes'
-say 'EXPECTED_DELTA=install or replace exactly one vless-reality outbound; preserve existing non-VLESS outbounds; persist safe preferred profile name'
+say 'EXPECTED_DELTA=install or replace exactly one vless-reality outbound; preserve existing non-VLESS outbounds; persist safe preferred profile name and exact active profile filter'
 say 'EXPECTED_NO_DELTA=subscription URL and VLESS/Reality credentials are never printed; ISP/DNS/routing are not changed by this helper'
 say "MUTATION=$( [ "$MODE" = apply ] && printf 'PENDING' || printf 'NONE' )"
 say '========== END =========='
@@ -388,14 +416,18 @@ say '========== END =========='
 [ "$MODE" = plan ] && exit 0
 
 snapshot_state || fail_apply 'cannot snapshot current provider state'
+APPLIED=1
 mkdir -p "$(dirname "$PROFILE_FILE")" || fail_apply 'cannot create FreeNet config directory'
+mkdir -p "$(dirname "$FILTER_FILE")" || fail_apply 'cannot create profile filter directory'
 cp "$CANDIDATE_OUT" "$OUT_FILE.new.$$" || fail_apply 'cannot stage outbound candidate'
 chmod 600 "$OUT_FILE.new.$$" 2>/dev/null || true
 mv -f "$OUT_FILE.new.$$" "$OUT_FILE" || fail_apply 'cannot commit outbound candidate'
 printf '%s\n' "$SELECTED_NAME" > "$PROFILE_FILE.new.$$" || fail_apply 'cannot stage preferred profile'
 chmod 600 "$PROFILE_FILE.new.$$" 2>/dev/null || true
 mv -f "$PROFILE_FILE.new.$$" "$PROFILE_FILE" || fail_apply 'cannot commit preferred profile'
-APPLIED=1
+printf '%s\n' "$SELECTED_NAME" | escape_ere > "$FILTER_FILE.new.$$" || fail_apply 'cannot stage exact active profile filter'
+chmod 644 "$FILTER_FILE.new.$$" 2>/dev/null || true
+mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" || fail_apply 'cannot commit exact active profile filter'
 
 restart_if_needed || fail_apply 'Xray/XKeen runtime acceptance failed after provider apply'
 XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
