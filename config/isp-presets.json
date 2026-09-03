@@ -11,30 +11,30 @@
     {
       "id": "vladlink",
       "name": "Владлинк",
-      "dns_policy": "preserve-until-home-verified",
+      "dns_policy": "preserve-until-verified",
       "youtube_route": "direct",
-      "runtime_status": "home-runtime-known-cleanroom-pending"
+      "runtime_status": "runtime-known-cleanroom-pending"
     },
     {
       "id": "alliancetelecom",
       "name": "АльянсТелеком",
-      "dns_policy": "preserve-until-home-verified",
+      "dns_policy": "preserve-until-verified",
       "youtube_route": "direct",
-      "runtime_status": "separate-preset-runtime-acceptance-pending"
+      "runtime_status": "runtime-acceptance-pending"
     },
     {
       "id": "rostelecom",
       "name": "Ростелеком",
       "dns_policy": "firmware-ndnproxy-xkeen-proxy-dns",
       "youtube_route": "vpn",
-      "runtime_status": "work-runtime-verified"
+      "runtime_status": "runtime-verified"
     },
     {
       "id": "podryad",
       "name": "Подряд",
-      "dns_policy": "firmware-ndnproxy-xkeen-proxy-dns",
-      "youtube_route": "vpn",
-      "runtime_status": "separate-preset-runtime-acceptance-pending"
+      "dns_policy": "preserve-until-verified",
+      "youtube_route": "detect",
+      "runtime_status": "runtime-acceptance-pending"
     },
     {
       "id": "custom",
