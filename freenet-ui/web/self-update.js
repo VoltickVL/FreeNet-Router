@@ -114,7 +114,7 @@
       .fn-modal h2{margin:5px 0 0;font-size:24px;letter-spacing:-.03em}
       .fn-modal-close{appearance:none;border:1px solid var(--line);background:#0b1523;color:#cbd7e8;border-radius:10px;width:36px;height:36px;font-size:20px;cursor:pointer}
       .fn-modal-body{margin-top:16px;color:#c4d1e4;font-size:13.5px;line-height:1.62;white-space:pre-line}
-      .fn-modal-meta{margin-top:14px;padding:13px 14px;border:1px solid #243955;border-radius:13px;background:#09131f;color:#aebed4;font-size:12.5px;line-height:1.55;white-space:pre-line}
+      .fn-modal-meta{margin-top:14px;padding:13px 14px;border:1px solid #243955;border-radius:13px;background:#09131f;color:#aebed4;font-size:12.5px;line-height:1.6;white-space:pre-line}
       .fn-modal-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}
       .fn-modal-actions.one{grid-template-columns:1fr}
       .fn-modal-status{display:none;margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid #2b405e;background:#0a1624;font-size:13px;line-height:1.55;white-space:pre-line}
@@ -313,7 +313,7 @@
       if (s) {
         const endpointOK = !expectedEndpoint || s.endpoint === expectedEndpoint;
         const countryOK = !expectedCode || s.country_code === expectedCode;
-        if (endpointOK && countryOK && s.xray_online && s.dns_out_present) return s;
+        if (endpointOK && countryOK && s.xray_online) return s;
       }
       await new Promise(resolve => setTimeout(resolve, 850));
     }
@@ -348,7 +348,7 @@
       }
 
       const s = await waitForVPNState(expectedEndpoint, expectedCode);
-      const accepted = !!(s && s.endpoint === expectedEndpoint && (!expectedCode || s.country_code === expectedCode) && s.xray_online && s.dns_out_present);
+      const accepted = !!(s && s.endpoint === expectedEndpoint && (!expectedCode || s.country_code === expectedCode) && s.xray_online);
       if (!accepted) {
         modalResult('Применение завершено, live-state не подтверждён', `Ожидали: ${expectedEndpoint}${expectedCode ? ` · ${expectedCode.toUpperCase()}` : ''}\nФактически: ${(s && s.endpoint) || 'нет данных'} · ${(s && s.country_code) || 'не определено'}\n\nНе повторяйте операцию вслепую.`, 'bad');
         return;
@@ -385,6 +385,39 @@
     return labels[state] || state || 'Неизвестное состояние';
   }
 
+  function planItems(text) {
+    return String(text || '')
+      .split(';')
+      .map(v => v.trim())
+      .filter(v => v && !/^NONE$/i.test(v));
+  }
+
+  function bulletSection(title, items) {
+    if (!items || !items.length) return '';
+    return `${title}\n${items.map(v => `• ${v}`).join('\n')}`;
+  }
+
+  function updatePlanText(p) {
+    const changed = planItems(p.expected_delta);
+    const unchanged = planItems(p.expected_no_delta);
+    return [
+      p.update_available ? `Версия: ${p.current_version} → ${p.latest_version}` : 'Установлена актуальная версия.',
+      bulletSection('Что изменится:', changed),
+      bulletSection('Что останется без изменений:', unchanged),
+      p.manifest_verified ? 'Проверка целостности: SHA-256 подтверждён.' : 'Проверка целостности: не подтверждена.'
+    ].filter(Boolean).join('\n\n');
+  }
+
+  function uniqueLines(lines) {
+    const seen = new Set();
+    return lines.filter(Boolean).filter(line => {
+      const key = String(line).trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
   function mountUpdate() {
     const grid = qs('[data-page-view="system"] .grid-equal');
     if (!grid || grid.children.length < 2) return;
@@ -399,7 +432,7 @@
         <div class="status-pill"><b>Доступно</b><span id="webUpdateLatest">—</span></div>
         <div class="status-pill"><b>SHA-256</b><span id="webUpdateManifest">—</span></div>
       </div>
-      <p class="hint" style="margin-top:0">FreeNet проверит точный GitHub Release, создаст резервную копию, проверит SHA-256 и staging, обновит только файлы FreeNet, перезапустит Control Center и подтвердит фактическую версию. XKeen/Xray, подписка и сетевые настройки этим действием не изменяются.</p>
+      <p class="hint" style="margin-top:0">FreeNet проверит точный GitHub Release, создаст резервную копию, проверит SHA-256 и подготовленные файлы, обновит только компоненты FreeNet, перезапустит Control Center и подтвердит фактическую версию. XKeen/Xray, подписка, ISP, DNS и routing этим действием не изменяются.</p>
       <div class="action-row">
         <button id="webUpdateCheckBtn" class="btn secondary" type="button">Проверить обновление</button>
         <button id="webUpdateApplyBtn" class="btn primary" type="button" disabled>Обновить</button>
@@ -431,13 +464,8 @@
     qs('#webUpdateCurrent').textContent = p.current_version || '—';
     qs('#webUpdateLatest').textContent = p.latest_version || '—';
     qs('#webUpdateManifest').textContent = p.manifest_verified ? 'проверен' : 'нет';
-    const text = [
-      p.update_available ? `Доступно обновление ${p.current_version} → ${p.latest_version}` : 'Установлена актуальная версия.',
-      p.expected_delta ? `Изменится: ${p.expected_delta}` : '',
-      p.expected_no_delta ? `Не изменится: ${p.expected_no_delta}` : ''
-    ].filter(Boolean).join('\n');
     const box = qs('#webUpdatePlan');
-    box.textContent = text;
+    box.textContent = updatePlanText(p);
     box.className = 'notice show';
     const apply = qs('#webUpdateApplyBtn');
     apply.disabled = !(p.success && p.ready && p.update_available && p.target_tag);
@@ -450,8 +478,8 @@
     openModal({
       kicker: 'Обновление FreeNet',
       title: `${plan.current_version || 'текущая версия'} → ${plan.latest_version || plan.target_tag}`,
-      body: 'FreeNet обновит только собственные файлы. Перед изменением будет создан backup, релиз и SHA-256 будут проверены, затем Control Center кратко перезапустится и автоматически подтвердит целевую версию.',
-      meta: `SHA-256: ${plan.manifest_verified ? 'проверен' : 'не подтверждён'}\nИзменится: ${plan.expected_delta || 'файлы FreeNet'}\nНе изменится: ${plan.expected_no_delta || 'XKeen/Xray, подписка, ISP/DNS/routing'}`,
+      body: 'Перед установкой FreeNet создаст резервную копию и проверит целостность релиза. После установки Control Center кратко перезапустится и сам проверит результат.',
+      meta: updatePlanText(plan),
       confirmText: `Установить ${plan.target_tag}`,
       onConfirm: startUpdate
     });
@@ -470,7 +498,7 @@
       renderPlan(p);
       updateNotice(p.update_available ? `Обновление ${p.target_tag} готово к установке после вашего подтверждения.` : 'Установлена актуальная версия FreeNet.', 'ok');
       if (p.update_available) openUpdateConfirmModal();
-      else openModal({kicker: 'Обновление FreeNet', title: 'Установлена актуальная версия', body: `${p.current_version || 'FreeNet'} уже является последним опубликованным релизом.`, meta: p.manifest_verified ? 'SHA-256 manifest проверен.' : '', closable: true});
+      else openModal({kicker: 'Обновление FreeNet', title: 'Установлена актуальная версия', body: `${p.current_version || 'FreeNet'} уже является последним опубликованным релизом.`, meta: p.manifest_verified ? 'SHA-256: проверен.' : '', closable: true});
     } catch (e) {
       setUpdateSummary('Проверка не удалась', 'bad');
       updateNotice(e.message || 'Ошибка проверки обновления', 'bad');
@@ -486,7 +514,7 @@
     qs('#webUpdateApplyBtn').disabled = true;
     setUpdateSummary('Запускаем обновление…');
     updateNotice('Запускаем безопасное обновление. FreeNet кратко перезапустится.');
-    modalProgress(`Устанавливаем ${plan.target_tag}…`, 'Создаём backup, проверяем staging и применяем обновление. Краткая потеря связи/502 во время перезапуска ожидаема и сама по себе не считается ошибкой.');
+    modalProgress(`Устанавливаем ${plan.target_tag}…`, 'Создаём резервную копию, проверяем подготовленные файлы и устанавливаем обновление. Краткая потеря связи или 502 во время перезапуска ожидаема и сама по себе не считается ошибкой.');
     try {
       const r = await fetch('/api/system/update/apply', {
         method: 'POST',
@@ -519,7 +547,12 @@
     const terminalGood = s.state === 'SUCCESS';
     const terminalBad = s.state === 'FAILED' || s.state === 'ROLLBACK_FAILED';
     setUpdateSummary(stateText(s.state), terminalGood ? 'ok' : terminalBad ? 'bad' : '');
-    const lines = [stateText(s.state), s.message || '', s.primary_error ? `Основная ошибка: ${s.primary_error}` : '', s.rollback_state ? `Откат: ${s.rollback_state}` : ''].filter(Boolean);
+    const lines = uniqueLines([
+      stateText(s.state),
+      s.message || '',
+      s.primary_error ? `Основная ошибка: ${s.primary_error}` : '',
+      s.rollback_state ? `Откат: ${s.rollback_state}` : ''
+    ]);
     updateNotice(lines.join('\n'), terminalGood ? 'ok' : terminalBad ? 'bad' : '');
     if (!qs('#fnModalRoot')?.hidden) modalStatus(lines.join('\n'), terminalGood ? 'ok' : terminalBad ? 'bad' : '');
   }
@@ -529,10 +562,13 @@
     try {
       const r = await fetch('/api/system/update/state', {cache: 'no-store'});
       if (r.status === 401) {
-        setUpdateSummary('FreeNet перезапущен — восстанавливаем интерфейс…');
-        modalStatus('Новая версия запущена. Сессия авторизации будет восстановлена через экран входа.', '');
-        polling = false;
-        await waitForVersion(target);
+        setUpdateSummary('FreeNet перезапущен — требуется вход');
+        updateNotice('Control Center вернулся после перезапуска. Авторизуйтесь; проверка результата продолжится автоматически.');
+        closeModal();
+        if (typeof loadAuthStatus === 'function') {
+          try { await loadAuthStatus(); } catch (_) {}
+        }
+        setTimeout(() => pollState(target), 1400);
         return;
       }
       if (r.ok) {
@@ -545,7 +581,18 @@
         }
         if (state.state === 'FAILED' || state.state === 'ROLLBACK_FAILED') {
           polling = false;
-          modalResult('Обновление не принято', [stateText(state.state), state.message || '', state.primary_error || '', state.rollback_state ? 'Откат: ' + state.rollback_state : ''].filter(Boolean).join('\n'), 'bad');
+          const parts = uniqueLines([
+            state.message || stateText(state.state),
+            state.primary_error ? `Основная ошибка: ${state.primary_error}` : '',
+            state.rollback_state ? `Откат: ${state.rollback_state}` : ''
+          ]);
+          openModal({
+            kicker: 'Обновление FreeNet',
+            title: 'Обновление не применено',
+            body: parts.join('\n'),
+            meta: state.rollback_state === 'SUCCESS' ? 'Предыдущее состояние восстановлено. Повторно запускать обновление до исправления причины не нужно.' : 'Состояние требует проверки перед следующей операцией.',
+            closable: true
+          });
           qs('#webUpdateCheckBtn').disabled = false;
           return;
         }
@@ -558,22 +605,22 @@
   }
 
   async function waitForVersion(target) {
-    modalProgress(`Перезапускаем FreeNet…`, `Ждём, когда Control Center вернётся на версии ${target}. Краткий 502 во время этого этапа ожидаем.`);
+    modalProgress('Подтверждаем новую версию…', `Control Center уже сообщил об успешном обновлении. Проверяем, что браузер видит именно ${target}.`);
     for (let i = 0; i < 90; i++) {
       try {
         const r = await fetch('/versionz', {cache: 'no-store'});
         const v = (await r.text()).trim();
         if (r.ok && v === target) {
-          modalResult('Обновление установлено', `FreeNet ${target} запущен и подтверждён. Интерфейс сейчас обновится автоматически.`, 'ok');
-          updateNotice(`FreeNet ${target} установлен и принят. Перезагружаем интерфейс…`, 'ok');
-          setTimeout(() => location.reload(), 900);
+          modalResult('Обновление установлено', `FreeNet ${target} запущен и подтверждён. Интерфейс обновится автоматически.`, 'ok');
+          updateNotice(`FreeNet ${target} установлен и принят. Обновляем интерфейс…`, 'ok');
+          setTimeout(() => location.reload(), 700);
           return;
         }
       } catch (_) {}
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
-    modalResult('Не удалось подтвердить возвращение интерфейса', `Целевая версия ${target} не была подтверждена браузером за ограниченное время. Не запускайте обновление повторно до проверки фактического состояния.`, 'bad');
-    updateNotice(`Обновление завершалось, но браузер не подтвердил ${target}. Проверьте фактическое состояние перед повторной попыткой.`, 'bad');
+    modalResult('Не удалось подтвердить новую версию', `FreeNet сообщил об успешном обновлении, но браузер не подтвердил ${target} за ограниченное время. Не запускайте обновление повторно до проверки фактического состояния.`, 'bad');
+    updateNotice(`Браузер не подтвердил ${target}. Проверьте фактическое состояние перед повторной попыткой.`, 'bad');
   }
 
   function mountNetworkDraftFlow() {
