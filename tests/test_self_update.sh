@@ -13,6 +13,7 @@ fail() {
 
 make_root() {
     R="$1"
+    TOPOLOGY="${2:-direct}"
     rm -rf "$R"
     mkdir -p \
         "$R/sbin" "$R/bin" "$R/lib/freenet" "$R/etc/freenet" \
@@ -31,7 +32,11 @@ make_root() {
     printf '%s\n' 'OLD_SELF_UPDATE' > "$R/lib/freenet/self_update.sh"
     printf '%s\n' 'UI_PORT=1001' > "$R/etc/freenet/freenet.conf"
     printf '%s\n' 'SUBSCRIPTION_SENTINEL' > "$R/etc/freenet/subscription-sentinel"
-    printf '%s\n' '{"outbounds":[{"tag":"dns-out"}]}' > "$R/etc/xray/configs/04_outbounds.json"
+    case "$TOPOLOGY" in
+        direct) printf '%s\n' '{"outbounds":[{"tag":"vless-reality"},{"tag":"direct"}]}' > "$R/etc/xray/configs/04_outbounds.json" ;;
+        split) printf '%s\n' '{"outbounds":[{"tag":"vless-reality"},{"tag":"dns-out"},{"tag":"direct"}]}' > "$R/etc/xray/configs/04_outbounds.json" ;;
+        *) fail "unknown test topology: $TOPOLOGY" ;;
+    esac
     chmod 755 "$R/sbin/freenet-ui" "$R/bin/freenet" "$R/bin/vpn" "$R/bin/blanc_xkeen_update_outbounds.sh" \
         "$R/lib/freenet/migrate_split_dns.sh" "$R/lib/freenet/apply_network_profile.sh" \
         "$R/lib/freenet/apply_provider_profile.sh" "$R/lib/freenet/finalize_setup.sh" \
@@ -105,8 +110,14 @@ run_apply() {
 
 R="$TMP/root"
 D="$TMP/release"
-make_root "$R"
+make_root "$R" direct
 make_release "$D"
+
+# Web Update must never prescribe Split DNS topology.
+if grep -Fq 'select(.tag == "dns-out")' "$SCRIPT"; then
+    fail 'self update runtime acceptance must not require dns-out'
+fi
+grep -Fq 'does not prescribe DNS topology' "$SCRIPT" || fail 'DNS-topology independence contract missing'
 
 # Read-only plan: newer exact release is READY and persistent files stay unchanged.
 BEFORE_UI="$(cat "$R/sbin/freenet-ui")"
@@ -118,6 +129,8 @@ grep -Fq 'CURRENT_VERSION=v0.2.27' "$TMP/plan.out" || fail 'current version miss
 grep -Fq 'LATEST_VERSION=v0.2.28' "$TMP/plan.out" || fail 'latest version missing'
 grep -Fq 'UPDATE_AVAILABLE=yes' "$TMP/plan.out" || fail 'update availability missing'
 grep -Fq 'MANIFEST_VERIFIED=yes' "$TMP/plan.out" || fail 'manifest verification missing'
+grep -Fq 'обновятся проверенные файлы FreeNet' "$TMP/plan.out" || fail 'Russian expected delta missing'
+grep -Fq 'ISP/DNS/routing' "$TMP/plan.out" || fail 'expected no-delta summary missing'
 grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must be read-only'
 [ "$(cat "$R/sbin/freenet-ui")" = "$BEFORE_UI" ] || fail 'plan mutated live UI'
 [ "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')" = "$BEFORE_XRAY" ] || fail 'plan mutated Xray'
@@ -128,7 +141,7 @@ grep -Fq 'UPDATE_AVAILABLE=no' "$TMP/current.out" || fail 'already-current must 
 grep -Fq 'EXPECTED_DELTA=NONE' "$TMP/current.out" || fail 'already-current delta must be none'
 
 # Checksum mismatch stops before live mutation.
-make_root "$R"
+make_root "$R" direct
 make_release "$D"
 printf '%s\n' 'CORRUPTED' >> "$D/vpn"
 if run_apply "$R" "$D" "" > "$TMP/checksum.out" 2>&1; then
@@ -140,7 +153,7 @@ grep -Fq 'STATE=FAILED' "$R/var/run/update.state" || fail 'checksum failure stat
 grep -Fq 'ROLLBACK_STATE=NOT_NEEDED' "$R/var/run/update.state" || fail 'checksum failure should not need rollback'
 
 # Staging failure also stops before mutation.
-make_root "$R"
+make_root "$R" direct
 make_release "$D"
 if run_apply "$R" "$D" "FREENET_TEST_FAIL_STAGE=staging" > "$TMP/stage.out" 2>&1; then
     fail 'staging failure unexpectedly succeeded'
@@ -148,24 +161,32 @@ fi
 [ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'staging failure mutated UI'
 grep -Fq 'PRIMARY_ERROR=staging validation failed' "$R/var/run/update.state" || fail 'staging primary error missing'
 
-# Successful exact-tag update replaces FreeNet-owned assets only and preserves Xray/config sentinels.
-make_root "$R"
+# Direct-DNS existing stack without dns-out must update successfully and preserve Xray byte-for-byte.
+make_root "$R" direct
 make_release "$D"
 XRAY_BEFORE="$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')"
 CONF_BEFORE="$(sha256sum "$R/etc/freenet/freenet.conf" | awk '{print $1}')"
 SUB_BEFORE="$(sha256sum "$R/etc/freenet/subscription-sentinel" | awk '{print $1}')"
-run_apply "$R" "$D" "" > "$TMP/success.out" 2>&1 || { cat "$TMP/success.out" >&2; fail 'successful apply failed'; }
-grep -Fq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'success state missing'
+run_apply "$R" "$D" "" > "$TMP/success-direct.out" 2>&1 || { cat "$TMP/success-direct.out" >&2; fail 'direct-DNS successful apply failed'; }
+grep -Fq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'direct-DNS success state missing'
 grep -Fq 'TARGET_VERSION=v0.2.28' "$R/var/run/update.state" || fail 'target state missing'
 cmp "$R/sbin/freenet-ui" "$D/freenet-ui-arm64-v8a" >/dev/null || fail 'new UI asset not installed'
 cmp "$R/lib/freenet/self_update.sh" "$D/self_update.sh" >/dev/null || fail 'self updater did not update itself'
-[ "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')" = "$XRAY_BEFORE" ] || fail 'success changed Xray config'
+[ "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')" = "$XRAY_BEFORE" ] || fail 'direct-DNS success changed Xray config'
 [ "$(sha256sum "$R/etc/freenet/freenet.conf" | awk '{print $1}')" = "$CONF_BEFORE" ] || fail 'success changed FreeNet config'
 [ "$(sha256sum "$R/etc/freenet/subscription-sentinel" | awk '{print $1}')" = "$SUB_BEFORE" ] || fail 'success changed subscription sentinel'
 [ ! -e "$R/var/run/update.lock" ] || fail 'success left update lock'
 
+# Split-DNS existing stack must remain equally valid and unchanged.
+make_root "$R" split
+make_release "$D"
+XRAY_SPLIT_BEFORE="$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')"
+run_apply "$R" "$D" "" > "$TMP/success-split.out" 2>&1 || { cat "$TMP/success-split.out" >&2; fail 'split-DNS successful apply failed'; }
+grep -Fq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'split-DNS success state missing'
+[ "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')" = "$XRAY_SPLIT_BEFORE" ] || fail 'split-DNS success changed Xray config'
+
 # Post-replace acceptance failure must restore the exact prior app files.
-make_root "$R"
+make_root "$R" direct
 make_release "$D"
 if run_apply "$R" "$D" "FREENET_TEST_FAIL_STAGE=accept" > "$TMP/rollback.out" 2>&1; then
     fail 'acceptance failure unexpectedly succeeded'
@@ -177,7 +198,7 @@ grep -Fq 'ROLLBACK_STATE=SUCCESS' "$R/var/run/update.state" || fail 'rollback su
 [ ! -e "$R/var/run/update.lock" ] || fail 'successful rollback left update lock'
 
 # ROLLBACK FAILED/UNKNOWN is terminal and deliberately leaves the lock in place.
-make_root "$R"
+make_root "$R" direct
 make_release "$D"
 if run_apply "$R" "$D" "FREENET_TEST_FAIL_STAGE=accept FREENET_TEST_ROLLBACK_FAIL=yes" > "$TMP/rollback-fail.out" 2>&1; then
     fail 'rollback-failed case unexpectedly succeeded'
@@ -191,7 +212,7 @@ grep -Fq 'ROLLBACK_STATE=FAILED_UNKNOWN' "$R/var/run/update.state" || fail 'roll
 rm -rf "$R/var/run/update.lock"
 
 # Invalid/downgrade target is rejected before mutation.
-make_root "$R"
+make_root "$R" direct
 make_release "$D"
 if env \
     FREENET_ROOT="$R" FREENET_CURRENT_VERSION=v0.2.27 FREENET_ARCH=arm64-v8a \
