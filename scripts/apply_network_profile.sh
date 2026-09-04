@@ -371,10 +371,10 @@ plan() {
     say "REASON=$REASON"
     runtime_facts
     if [ "$SUPPORTED" = yes ] && [ "$EFFECTIVE_DNS" = firmware ]; then
-        say 'EXPECTED_DELTA=Keenetic native DNS owns :53; no opkg dns-override; remove only FreeNet DNS inbound/dns-out/DNS routing; restore exact native 02_dns; keep proxy_dns=off; save NDM only after acceptance'
+        say 'EXPECTED_DELTA=Keenetic native DNS owns :53; no opkg dns-override; remove only FreeNet DNS inbound/dns-out/DNS routing; restore exact native 02_dns; normalize proxy_dns=off if required without unnecessary runtime restart; save NDM only after acceptance'
         say 'EXPECTED_NO_DELTA=no VPN credential rewrite; no subscription change; no non-DNS routing/inbound/outbound change; preserve Keenetic DNS profiles/DoT/DoH/client assignments/WAN DNS flags'
     elif [ "$SUPPORTED" = yes ] && [ "$EFFECTIVE_DNS" = xkeen ]; then
-        say 'EXPECTED_DELTA=enable opkg dns-override; Xray owns :53; one dns-out; dns-direct -> direct; dns-vless -> vless-reality; keep proxy_dns=off; save NDM only after acceptance'
+        say 'EXPECTED_DELTA=enable opkg dns-override; Xray owns :53; one dns-out; dns-direct -> direct; dns-vless -> vless-reality; normalize proxy_dns=off after snapshot; save NDM only after acceptance'
         say 'EXPECTED_NO_DELTA=no VPN credential rewrite; no subscription change; no non-DNS routing/inbound/outbound change; preserve Keenetic DNS profiles/DoT/DoH/client assignments/WAN DNS flags'
     else
         say 'EXPECTED_DELTA=NONE until a supported DNS mode is selected'
@@ -440,6 +440,12 @@ rollback_all() {
     return 0
 }
 
+rollback_files_only() {
+    restore_files || return 1
+    [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || return 1
+    return 0
+}
+
 preserve_native_dns_file() {
     mkdir -p "$NATIVE_STATE_DIR" || return 1
     cp -p "$DNS_FILE" "$NATIVE_STATE_DIR/02_dns.native.tmp.$$" || return 1
@@ -489,7 +495,6 @@ apply_candidate_dir() {
 
 apply_split() {
     preflight_common || { fail_not_applied 'Split DNS preflight failed before mutation'; return 1; }
-    [ "$(proxy_dns_state)" = off ] || { fail_not_applied 'Split DNS требует proxy_dns=off'; return 1; }
     [ "$NDM_OVERRIDE_INITIAL" = off ] || { fail_not_applied 'ожидался native Keenetic DNS перед переходом в Split'; return 1; }
     [ "$(port53_owner)" = ndnproxy ] || { fail_not_applied 'native mode должен иметь ndnproxy на :53'; return 1; }
     [ "$(xray_dns_inbound_count)" = 0 ] || { fail_not_applied 'native mode неожиданно содержит Xray :53 inbound'; return 1; }
@@ -501,12 +506,12 @@ apply_split() {
     preserve_native_dns_file || { fail_not_applied 'не удалось сохранить native 02_dns'; return 1; }
     make_tmp || { fail_not_applied 'не удалось создать временный каталог Split DNS'; return 1; }
     build_split_candidate || { fail_not_applied 'candidate Split DNS не прошёл validation'; return 1; }
+    set_proxy_dns_off || { err 'PRIMARY ERROR: proxy_dns не удалось нормализовать в off'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_set_override on || { err 'PRIMARY ERROR: не удалось включить opkg dns-override'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     apply_candidate_dir "$TMP_DIR/split" || { err 'PRIMARY ERROR: не удалось применить Split candidate'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    set_proxy_dns_off || { err 'PRIMARY ERROR: proxy_dns не удалось оставить off'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     xkeen_runtime restart "/tmp/freenet-network-split-restart.$$.log" || { err 'PRIMARY ERROR: XKeen/Xray restart failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     wait_for_xray yes && wait_port53_owner xray || { err 'PRIMARY ERROR: Xray не стал владельцем :53'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    [ "$(ndm_override_state)" = on ] && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic DNS profiles/assignments changed unexpectedly'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_save || { err 'PRIMARY ERROR: NDM save failed after acceptance'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
@@ -520,12 +525,17 @@ apply_split() {
 
 apply_native() {
     preflight_common || { fail_not_applied 'native DNS preflight failed before mutation'; return 1; }
-    [ "$(proxy_dns_state)" = off ] || { fail_not_applied 'native DNS требует proxy_dns=off'; return 1; }
     PRESERVE_BEFORE="$(non_dns_hashes)" || { fail_not_applied 'не удалось снять non-DNS preserve hashes'; return 1; }
 
-    # True native no-op is valid; this path also allows applying only a new ISP id.
+    # A healthy existing native topology may still carry legacy proxy_dns=on in the init file.
+    # Normalize only the persisted init value here; do not restart a working runtime merely to save ISP metadata.
     if [ "$NDM_OVERRIDE_INITIAL" = off ] && [ "$(port53_owner)" = ndnproxy ] && [ "$(xray_dns_inbound_count)" = 0 ] && ! has_dns_out && [ "$(dns_routing_mode)" = native ]; then
         dns_query_ok || { fail_not_applied 'native Keenetic DNS query failed'; return 1; }
+        if [ "$PROXY_DNS_INITIAL" = on ]; then
+            snapshot_configs native-normalize || { fail_not_applied 'не удалось создать backup proxy_dns normalization'; return 1; }
+            set_proxy_dns_off || { err 'PRIMARY ERROR: proxy_dns не удалось нормализовать в off'; rollback_files_only && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            [ "$(proxy_dns_state)" = off ] && dns_query_ok && validate_preserve_hashes "$PRESERVE_BEFORE" && [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: native proxy_dns normalization acceptance failed'; rollback_files_only && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        fi
         say '[FreeNet Network] RESULT=SUCCESS'
         say '[FreeNet Network] EFFECTIVE_DNS_MODE=firmware'
         say '[FreeNet Network] NDM_DNS_OVERRIDE=off'
@@ -535,6 +545,7 @@ apply_native() {
         return 0
     fi
 
+    [ "$PROXY_DNS_INITIAL" = off ] || { fail_not_applied 'partial/unknown DNS topology with proxy_dns=on; STOP'; return 1; }
     [ "$NDM_OVERRIDE_INITIAL" = on ] || { fail_not_applied 'partial/unknown DNS topology: native restore ожидает opkg dns-override=on'; return 1; }
     [ "$(port53_owner)" = xray ] || { fail_not_applied 'Split mode должен иметь Xray на :53'; return 1; }
     [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] || { fail_not_applied 'Split topology неполна; STOP'; return 1; }

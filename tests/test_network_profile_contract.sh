@@ -14,7 +14,8 @@ for marker in \
     '02_dns may be native JSONC/comment-only' \
     'ROLLBACK ERROR/STATE: no live apply' \
     'ROLLBACK ERROR/STATE: FAILED/UNKNOWN' \
-    'TARGETS="127.0.0.1"'; do
+    'TARGETS="127.0.0.1"' \
+    'normalize proxy_dns=off if required without unnecessary runtime restart'; do
     grep -Fq "$marker" "$SCRIPT" || fail "missing contract marker: $marker"
 done
 if grep -Fq "ip -4 addr show br0" "$SCRIPT"; then fail 'DNS acceptance hardcodes br0'; fi
@@ -29,7 +30,7 @@ DNS_MODE=firmware
 EOF
 cat > "$TROOT/etc/init.d/S05xkeen" <<'EOF'
 #!/bin/sh
-proxy_dns="off"
+proxy_dns="on"
 EOF
 chmod 755 "$TROOT/etc/init.d/S05xkeen"
 cat > "$TROOT/etc/xray/configs/02_dns.json" <<'EOF'
@@ -52,7 +53,7 @@ NDM_CONFIG_MARKER=preserved
 XRAY_RUNNING=yes
 XRAY_GID=11111
 DNS_QUERY_OK=yes
-XKEEN_ACTION_RESULT=success
+XKEEN_ACTION_RESULT=fail
 NDM_ACTION_RESULT=success
 NDM_SAVE_RESULT=success
 EOF
@@ -74,9 +75,18 @@ hash_route() { jq -cS '[.routing.rules[]? | select((.outboundTag // "") != "dns-
 H02="$(sha256sum "$TROOT/etc/xray/configs/02_dns.json" | awk '{print $1}')"; HIN="$(hash_in)"; HOUT="$(hash_out)"; HROUTE="$(hash_route)"
 
 run_network plan > "$TMP/native.plan"
-for x in 'EFFECTIVE_DNS_MODE=firmware' 'NDM_DNS_OVERRIDE=off' 'PORT53_OWNER=ndnproxy' 'DNS_OUT=no' 'DNS_ROUTING_MODE=native'; do grep -Fq "$x" "$TMP/native.plan" || fail "native fact missing: $x"; done
-run_network apply > "$TMP/native.apply" 2>&1 || fail 'native no-op failed'
-grep -Fq 'RESULT=SUCCESS' "$TMP/native.apply" || fail 'native no-op result missing'
+for x in 'EFFECTIVE_DNS_MODE=firmware' 'PROXY_DNS=on' 'NDM_DNS_OVERRIDE=off' 'PORT53_OWNER=ndnproxy' 'DNS_OUT=no' 'DNS_ROUTING_MODE=native'; do grep -Fq "$x" "$TMP/native.plan" || fail "native fact missing: $x"; done
+
+# WORK-like existing stack: healthy native DNS may carry legacy proxy_dns=on in init.
+# FreeNet must normalize the persisted init value without restarting a working native runtime.
+run_network apply > "$TMP/native.apply" 2>&1 || { cat "$TMP/native.apply" >&2; fail 'native legacy proxy normalization failed'; }
+grep -Fq 'RESULT=SUCCESS' "$TMP/native.apply" || fail 'native normalization result missing'
+grep -Eq '^proxy_dns="?off"?$' "$TROOT/etc/init.d/S05xkeen" || fail 'native apply did not normalize proxy_dns=off'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'native normalization changed NDM override'
+grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'native normalization changed :53 owner'
+grep -q '^XRAY_RUNNING=yes$' "$STATE" || fail 'native normalization changed Xray runtime'
+# XKEEN_ACTION_RESULT=fail proves the successful native normalization did not invoke restart/start/stop.
+state_set XKEEN_ACTION_RESULT success
 
 # A read-only native acceptance failure must be classified as NOT_APPLIED, not UNKNOWN.
 state_set DNS_QUERY_OK no
@@ -87,10 +97,13 @@ grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'native no-op failure mutated 
 grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'native no-op failure changed :53 owner'
 state_set DNS_QUERY_OK yes
 
+# Direct native -> Split must also accept a legacy on value and normalize it after snapshot.
+sed -i 's/^proxy_dns=.*/proxy_dns="on"/' "$TROOT/etc/init.d/S05xkeen"
 sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
 run_network apply > "$TMP/split.apply" 2>&1 || { cat "$TMP/split.apply" >&2; fail 'native -> split failed'; }
 grep -q '^NDM_DNS_OVERRIDE=on$' "$STATE" || fail 'NDM override not enabled'
 grep -q '^PORT53_OWNER=xray$' "$STATE" || fail 'Xray did not own :53'
+grep -Eq '^proxy_dns="?off"?$' "$TROOT/etc/init.d/S05xkeen" || fail 'split did not normalize proxy_dns=off'
 [ "$(sha256sum "$TROOT/etc/freenet/native-dns/02_dns.native" | awk '{print $1}')" = "$H02" ] || fail 'native 02 snapshot changed'
 jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==1' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'split :53 missing'
 jq -e '([.outbounds[]? | select(.tag=="dns-out" and .protocol=="dns")] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'dns-out missing'
