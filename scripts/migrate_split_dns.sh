@@ -64,11 +64,29 @@ make_tmp() {
     fi
 }
 
+build_ordered_dns_from_routing() {
+    SRC_ROUTING="$1"; DST_DNS="$2"
+    DNS_SERVERS="$(jq -c '[
+        .routing.rules[]?
+        | select((.domain? | type) == "array" and (.domain | length) > 0)
+        | if .outboundTag == "direct" then
+            {address:"77.88.8.8",port:53,domains:.domain,skipFallback:true,finalQuery:true,tag:"dns-direct"}
+          else
+            {address:"https://8.8.8.8/dns-query",domains:.domain,skipFallback:true,finalQuery:true,tag:"dns-vless"}
+          end
+      ] + [{address:"https://8.8.8.8/dns-query",tag:"dns-vless",finalQuery:true}]' "$SRC_ROUTING" 2>/dev/null)" || return 1
+    jq -n --argjson servers "$DNS_SERVERS" '{dns:{tag:"dns-vless",servers:$servers,queryStrategy:"UseIPv4"}}' > "$DST_DNS" || return 1
+}
+
 build_split_candidate() {
     SRC="$1"; DST="$2"
     mkdir -p "$DST" || return 1
     for NAME in 03_inbounds.json 04_outbounds.json 05_routing.json; do [ -f "$SRC/$NAME" ] || return 1; jq -e . "$SRC/$NAME" >/dev/null 2>&1 || return 1; done
 
+    # Existing Split DNS can contain expert/user fields (clientIP, expectedIPs, etc.).
+    # Installer migration must preserve that object and only normalize the VPN resolver
+    # transport. The Control Center's explicit XKeen/Xray Apply is the authority that
+    # rebuilds FreeNet-managed selectors from routing with first-match semantics.
     if [ -f "$SRC/02_dns.json" ] && jq -e '.dns and ([.dns.servers[]?.tag] | index("dns-direct") != null) and ([.dns.servers[]?.tag] | index("dns-vless") != null)' "$SRC/02_dns.json" >/dev/null 2>&1; then
         jq '
           .dns.servers = [
@@ -81,14 +99,7 @@ build_split_candidate() {
           ]
         ' "$SRC/02_dns.json" > "$DST/02_dns.json" || return 1
     else
-        DIRECT_DOMAINS="$(jq -c '[.routing.rules[]? | select(.outboundTag == "direct") | .domain[]?] | unique' "$SRC/05_routing.json" 2>/dev/null)" || return 1
-        [ -n "$DIRECT_DOMAINS" ] || DIRECT_DOMAINS='[]'
-        jq -n --argjson domains "$DIRECT_DOMAINS" '
-          {dns:{tag:"dns-vless",servers:[
-            {address:"77.88.8.8",port:53,domains:$domains,skipFallback:true,tag:"dns-direct"},
-            {address:"https://8.8.8.8/dns-query",tag:"dns-vless"}
-          ],queryStrategy:"UseIPv4"}}
-        ' > "$DST/02_dns.json" || return 1
+        build_ordered_dns_from_routing "$SRC/05_routing.json" "$DST/02_dns.json" || return 1
     fi
 
     cp -p "$SRC/03_inbounds.json" "$DST/03_inbounds.json" || return 1
@@ -111,7 +122,7 @@ build_split_candidate() {
         ])' "$SRC/05_routing.json" > "$DST/05_routing.json" || return 1
 
     jq -e '.dns.tag == "dns-vless" and ([.dns.servers[]?.tag] | index("dns-direct") != null) and ([.dns.servers[]?.tag] | index("dns-vless") != null)' "$DST/02_dns.json" >/dev/null 2>&1 || return 1
-    jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) == 1' "$DST/02_dns.json" >/dev/null 2>&1 || return 1
+    jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) >= 1' "$DST/02_dns.json" >/dev/null 2>&1 || return 1
     jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | length) == 1' "$DST/04_outbounds.json" >/dev/null 2>&1 || return 1
     jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-vless")) != null and .outboundTag == "vless-reality")] | length) == 1' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
     jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-direct")) != null and .outboundTag == "direct")] | length) == 1' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
@@ -211,7 +222,7 @@ restart_xkeen "$TMP_DIR/xkeen-restart.log" || fail_after_apply 'XKeen init resta
 pidof xray >/dev/null 2>&1 || fail_after_apply 'Xray не запущен после migration restart'
 XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$TMP_DIR/xray-live.log" 2>&1 || fail_after_apply 'live Xray config не проходит validation после apply'
 
-jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) == 1' "$DNS_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-vless DoH transport отсутствует после apply'
+jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) >= 1' "$DNS_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-vless DoH transport отсутствует после apply'
 jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | length) == 1' "$OUTBOUND_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-out отсутствует после apply'
 jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-vless")) != null and .outboundTag == "vless-reality")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-vless не направлен через vless-reality'
 jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-direct")) != null and .outboundTag == "direct")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-direct не направлен через direct'
@@ -228,6 +239,7 @@ INBOUND_AFTER="$(jq -cS . "$INBOUND_FILE" | sha256sum | awk '{print $1}')"
 info "Split DNS operation: SUCCESS ($MODE)"
 info 'Xray validation: PASS'
 info 'XKeen proxy_dns: off; Keenetic/ndnproxy DNS path preserved'
+info 'Existing expert DNS selectors preserved; new baseline uses ordered first-match routing parity'
 info 'dns-vless transport: routed DoH/443 via vless-reality'
 info 'dns-out/VLESS/non-VLESS/inbounds preservation: PASS'
 info "Backup: $BACKUP_DIR"
