@@ -550,14 +550,14 @@ func (a *app) runProviderPlan(profileID string) (providerPlanResponse, error) {
 }
 
 func networkPlanIsActive(supported bool, effectiveDNSMode, proxyDNS, dnsRoutingMode string, dnsOut, vlessProfile bool) bool {
-	if !supported || proxyDNS != "off" || !dnsOut {
+	if !supported || proxyDNS != "off" {
 		return false
 	}
 	switch effectiveDNSMode {
 	case "firmware":
-		return dnsRoutingMode == "standard"
+		return dnsRoutingMode == "native" && !dnsOut
 	case "xkeen":
-		return dnsRoutingMode == "split" && vlessProfile
+		return dnsRoutingMode == "split" && dnsOut && vlessProfile
 	default:
 		return false
 	}
