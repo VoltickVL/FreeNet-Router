@@ -15,6 +15,7 @@ for NEEDLE in \
     'AUTO_VPN_FAILOVER' \
     '/opt/bin/vpn failover' \
     'NETWORK_PROXY_DNS' \
+    'ACTIVE_VPN_FILTER_SET' \
     'ROLLBACK ERROR/STATE: rollback success' \
     'EXPECTED_NO_DELTA=current XKeen/Xray/XKeen UI core is not reinstalled'
 do
@@ -27,6 +28,7 @@ TROOT="$TMP/opt"
 CONF="$TROOT/etc/freenet/freenet.conf"
 SUB="$TROOT/etc/xray/sub.url"
 PROFILE="$TROOT/etc/freenet/vpn_profile_name"
+FILTER="$TROOT/etc/xray/blanc_profile_filter.regex"
 OUT="$TROOT/etc/xray/configs/04_outbounds.json"
 INIT="$TROOT/etc/init.d/S05xkeen"
 CRON_BIN="$TMP/fake-crontab"
@@ -49,6 +51,7 @@ AUTO_XKEEN_GEODATA_CRON='30 6 * * *'
 EOF
 printf '%s\n' 'https://example.invalid/key' > "$SUB"
 printf '%s\n' 'Poland Warsaw Extra' > "$PROFILE"
+printf '%s\n' 'Warsaw|Warszawa|Poland|Polska|Польша|Варшава' > "$FILTER"
 cat > "$OUT" <<'EOF'
 {"outbounds":[{"tag":"vless-reality","protocol":"freedom"},{"tag":"dns-out","protocol":"dns"},{"tag":"direct","protocol":"freedom"}]}
 EOF
@@ -126,6 +129,7 @@ run_finalize() {
     FREENET_CONFIG_FILE="$CONF" \
     FREENET_SUB_FILE="$SUB" \
     FREENET_PROFILE_FILE="$PROFILE" \
+    FREENET_FILTER_FILE="$FILTER" \
     FREENET_XRAY_CONFIG_DIR="$TROOT/etc/xray/configs" \
     FREENET_XRAY_ASSET_DIR="$TROOT/etc/xray/dat" \
     FREENET_XKEEN_BIN="$TROOT/sbin/xkeen" \
@@ -147,6 +151,7 @@ grep -Fq 'READY=yes' "$TMP/plan.out" || fail 'accepted setup should be ready'
 grep -Fq 'INSTALL_SCENARIO=existing_stack' "$TMP/plan.out" || fail 'plan must expose existing-stack scenario'
 grep -Fq 'XKEEN_AUTOSTART=off' "$TMP/plan.out" || fail 'plan must expose autostart off'
 grep -Fq 'NETWORK_PROXY_DNS=on' "$TMP/plan.out" || fail 'plan must expose split-DNS topology'
+grep -Fq 'ACTIVE_VPN_FILTER_SET=yes' "$TMP/plan.out" || fail 'managed VPN filter must be exposed'
 grep -Fq 'AUTO_VPN_FAILOVER=no' "$TMP/plan.out" || fail 'legacy config must default failover to disabled'
 grep -Fq 'keep automatic VPN failover disabled' "$TMP/plan.out" || fail 'plan must disclose disabled failover'
 grep -Fq 'enable XKeen autostart through xkeen -auto on' "$TMP/plan.out" || fail 'plan must disclose autostart delta'
@@ -203,11 +208,12 @@ if grep -q '^[^#].*/opt/bin/vpn[[:space:]]\+failover' "$CRON_STORE"; then
 fi
 grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry lost after failover disablement'
 
-# Direct-DNS existing stack is valid without dns-out and must finalize without changing DNS topology.
+# Direct-DNS quick-country state is managed by the active filter even when preferred-profile metadata is absent.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
 sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$CONF"
 sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
 sed -i 's/^proxy_dns=.*/proxy_dns="off"/' "$INIT"
+rm -f "$PROFILE"
 cat > "$OUT" <<'EOF'
 {"outbounds":[{"tag":"vless-reality","protocol":"freedom"},{"tag":"direct","protocol":"freedom"}]}
 EOF
@@ -225,20 +231,35 @@ PLAN
 EOF
 chmod 755 "$TROOT/lib/freenet/apply_network_profile.sh"
 run_finalize plan > "$TMP/direct-plan.out"
-grep -Fq 'READY=yes' "$TMP/direct-plan.out" || { cat "$TMP/direct-plan.out" >&2; fail 'direct DNS without dns-out must be ready'; }
+grep -Fq 'READY=yes' "$TMP/direct-plan.out" || { cat "$TMP/direct-plan.out" >&2; fail 'direct DNS managed quick-country state must be ready without preferred profile metadata'; }
+grep -Fq 'PREFERRED_PROFILE_SET=no' "$TMP/direct-plan.out" || fail 'missing optional preferred profile metadata not exposed'
+grep -Fq 'ACTIVE_VPN_FILTER_SET=yes' "$TMP/direct-plan.out" || fail 'managed quick-country filter not accepted'
 grep -Fq 'NETWORK_PROXY_DNS=off' "$TMP/direct-plan.out" || fail 'direct DNS topology not exposed'
 grep -Fq 'DNS_OUT=no' "$TMP/direct-plan.out" || fail 'direct DNS must allow absent dns-out'
 grep -Fq 'keep direct DNS topology unchanged' "$TMP/direct-plan.out" || fail 'direct DNS expected delta missing'
 if ! run_finalize apply > "$TMP/direct-apply.out" 2>&1; then
     cat "$TMP/direct-apply.out" >&2
-    fail 'direct DNS finalize should succeed without dns-out'
+    fail 'direct DNS finalize should succeed without preferred profile metadata'
 fi
 grep -Fq '[FreeNet Setup Finalize] RESULT=SUCCESS' "$TMP/direct-apply.out" || fail 'direct DNS finalize success marker missing'
 grep -qx 'SETUP_COMPLETE=yes' "$CONF" || fail 'direct DNS setup complete not committed'
+[ ! -e "$PROFILE" ] || fail 'finalize must not invent preferred profile metadata'
 if grep -q 'dns-out' "$OUT"; then
     fail 'finalize must not add dns-out in direct DNS mode'
 fi
 grep -Fq 'proxy_dns="off"' "$INIT" || fail 'finalize must not enable proxy_dns in direct DNS mode'
+
+# Missing managed VPN filter remains a real blocker even when stale preferred-profile metadata exists.
+sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
+printf '%s\n' 'stale optional label' > "$PROFILE"
+rm -f "$FILTER"
+if run_finalize plan > "$TMP/no-filter-plan.out" 2>&1; then
+    cat "$TMP/no-filter-plan.out" >&2
+    fail 'setup without managed VPN filter must stay blocked'
+fi
+grep -Fq 'ACTIVE_VPN_FILTER_SET=no' "$TMP/no-filter-plan.out" || fail 'missing filter state not exposed'
+grep -Fq 'REASON=managed VPN profile filter is not established' "$TMP/no-filter-plan.out" || fail 'missing filter reason not reported'
+printf '%s\n' 'Warsaw|Warszawa|Poland|Polska|Польша|Варшава' > "$FILTER"
 
 # Simulate one cron-write failure after autostart mutation. Config, cron and autostart must roll back.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
