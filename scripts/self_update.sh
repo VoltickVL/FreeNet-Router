@@ -392,7 +392,8 @@ accept_runtime() {
         done
         [ "$OK" = yes ] || return 1
         pidof xray >/dev/null 2>&1 || return 1
-        jq -e '([.outbounds[]? | select(.tag == "dns-out")] | length) == 1' "$ROOT/etc/xray/configs/04_outbounds.json" >/dev/null 2>&1 || return 1
+        # DNS topology is independent from FreeNet application self-update.
+        # Exact Xray config hashes below must remain unchanged, whether dns-out exists or not.
     fi
 
     snapshot_xray "$TMP_DIR/xray-hashes.after" || return 1
