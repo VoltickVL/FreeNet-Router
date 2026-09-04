@@ -126,12 +126,14 @@ read_network_plan() {
     NETWORK_SUPPORTED=no
     NETWORK_MUTATION=unknown
     NETWORK_REASON='network plan unavailable'
+    NETWORK_EFFECTIVE_DNS_MODE=unknown
     NETWORK_PROXY_DNS=unknown
     [ -f "$NETWORK_HELPER" ] || return 1
     sh "$NETWORK_HELPER" plan > "$TMP_DIR/network-plan.out" 2> "$TMP_DIR/network-plan.err" || return 1
     NETWORK_SUPPORTED="$(sed -n 's/^SUPPORTED=//p' "$TMP_DIR/network-plan.out" | tail -n 1)"
     NETWORK_MUTATION="$(sed -n 's/^MUTATION=//p' "$TMP_DIR/network-plan.out" | tail -n 1)"
     NETWORK_REASON="$(sed -n 's/^REASON=//p' "$TMP_DIR/network-plan.out" | tail -n 1)"
+    NETWORK_EFFECTIVE_DNS_MODE="$(sed -n 's/^EFFECTIVE_DNS_MODE=//p' "$TMP_DIR/network-plan.out" | tail -n 1)"
     NETWORK_PROXY_DNS="$(sed -n 's/^PROXY_DNS=//p' "$TMP_DIR/network-plan.out" | tail -n 1)"
     [ "$NETWORK_SUPPORTED" = yes ] && [ "$NETWORK_MUTATION" = NONE ]
 }
@@ -225,7 +227,8 @@ evaluate() {
     if [ "$SUBSCRIPTION_CONFIGURED" != yes ]; then READY=no; REASON='subscription is not configured'
     elif [ "$ACTIVE_VPN_FILTER_SET" != yes ]; then READY=no; REASON='managed VPN profile filter is not established'
     elif [ "$VLESS_PROFILE" != yes ]; then READY=no; REASON='exactly one vless-reality outbound is required'
-    elif [ "$NETWORK_PROXY_DNS" = on ] && [ "$DNS_OUT" != yes ]; then READY=no; REASON='dns-out is required for the selected XKeen/Xray DNS mode'
+    elif [ "$NETWORK_EFFECTIVE_DNS_MODE" = xkeen ] && [ "$DNS_OUT" != yes ]; then READY=no; REASON='dns-out is required for the selected XKeen/Xray DNS mode'
+    elif [ "$NETWORK_EFFECTIVE_DNS_MODE" != firmware ] && [ "$NETWORK_EFFECTIVE_DNS_MODE" != xkeen ]; then READY=no; REASON='cannot determine accepted DNS mode'
     elif [ "$XRAY_RUNNING" != yes ]; then READY=no; REASON='Xray is not running'
     elif [ "$XRAY_VALID" != yes ]; then READY=no; REASON='live Xray configuration validation failed'
     elif [ "$NETWORK_SUPPORTED" != yes ] || [ "$NETWORK_MUTATION" != NONE ]; then READY=no; REASON='saved ISP/DNS profile is not runtime-accepted'
@@ -246,6 +249,7 @@ print_plan() {
     say "PREFERRED_PROFILE_SET=$PREFERRED_PROFILE_SET"
     say "ACTIVE_VPN_FILTER_SET=$ACTIVE_VPN_FILTER_SET"
     say "NETWORK_SUPPORTED=$NETWORK_SUPPORTED"
+    say "NETWORK_EFFECTIVE_DNS_MODE=$NETWORK_EFFECTIVE_DNS_MODE"
     say "NETWORK_PROXY_DNS=$NETWORK_PROXY_DNS"
     say "XRAY_RUNNING=$XRAY_RUNNING"
     say "XRAY_VALID=$XRAY_VALID"
@@ -261,7 +265,7 @@ print_plan() {
         [ "$AUTOSTART" = off ] && DELTA="$DELTA; enable XKeen autostart through xkeen -auto on"
         [ "$AUTO_ENDPOINT_UPDATE" = yes ] && DELTA="$DELTA; activate configured endpoint refresh schedule" || DELTA="$DELTA; keep endpoint refresh disabled until Automation settings enable it"
         [ "$AUTO_VPN_FAILOVER" = yes ] && DELTA="$DELTA; activate configured VPN failover schedule" || DELTA="$DELTA; keep automatic VPN failover disabled"
-        [ "$NETWORK_PROXY_DNS" = on ] && DELTA="$DELTA; require existing dns-out for XKeen/Xray DNS" || DELTA="$DELTA; keep direct DNS topology unchanged"
+        [ "$NETWORK_EFFECTIVE_DNS_MODE" = xkeen ] && DELTA="$DELTA; require existing dns-out for XKeen/Xray DNS" || DELTA="$DELTA; keep direct DNS topology unchanged"
         say "EXPECTED_DELTA=$DELTA"
     else
         say 'EXPECTED_DELTA=NONE until all provider/network/runtime acceptance gates pass'

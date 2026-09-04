@@ -14,6 +14,7 @@ for NEEDLE in \
     'AUTO_ENDPOINT_UPDATE' \
     'AUTO_VPN_FAILOVER' \
     '/opt/bin/vpn failover' \
+    'NETWORK_EFFECTIVE_DNS_MODE' \
     'NETWORK_PROXY_DNS' \
     'ACTIVE_VPN_FILTER_SET' \
     'ROLLBACK ERROR/STATE: rollback success' \
@@ -102,6 +103,7 @@ cat > "$TROOT/lib/freenet/apply_network_profile.sh" <<'EOF'
 [ "${1:-}" = plan ] || exit 2
 cat <<'PLAN'
 SUPPORTED=yes
+EFFECTIVE_DNS_MODE=xkeen
 REASON=verified preset
 PROXY_DNS=on
 DNS_OUT=yes
@@ -150,7 +152,8 @@ run_finalize plan > "$TMP/plan.out"
 grep -Fq 'READY=yes' "$TMP/plan.out" || fail 'accepted setup should be ready'
 grep -Fq 'INSTALL_SCENARIO=existing_stack' "$TMP/plan.out" || fail 'plan must expose existing-stack scenario'
 grep -Fq 'XKEEN_AUTOSTART=off' "$TMP/plan.out" || fail 'plan must expose autostart off'
-grep -Fq 'NETWORK_PROXY_DNS=on' "$TMP/plan.out" || fail 'plan must expose split-DNS topology'
+grep -Fq 'NETWORK_EFFECTIVE_DNS_MODE=xkeen' "$TMP/plan.out" || fail 'plan must expose effective split-DNS mode'
+grep -Fq 'NETWORK_PROXY_DNS=on' "$TMP/plan.out" || fail 'plan must expose legacy proxy_dns fact'
 grep -Fq 'ACTIVE_VPN_FILTER_SET=yes' "$TMP/plan.out" || fail 'managed VPN filter must be exposed'
 grep -Fq 'AUTO_VPN_FAILOVER=no' "$TMP/plan.out" || fail 'legacy config must default failover to disabled'
 grep -Fq 'keep automatic VPN failover disabled' "$TMP/plan.out" || fail 'plan must disclose disabled failover'
@@ -209,6 +212,7 @@ fi
 grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry lost after failover disablement'
 
 # Direct-DNS quick-country state is managed by the active filter even when preferred-profile metadata is absent.
+# Regression: legacy/runtime proxy_dns may still report on, but the accepted effective mode is firmware.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
 sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$CONF"
 sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
@@ -222,8 +226,9 @@ cat > "$TROOT/lib/freenet/apply_network_profile.sh" <<'EOF'
 [ "${1:-}" = plan ] || exit 2
 cat <<'PLAN'
 SUPPORTED=yes
+EFFECTIVE_DNS_MODE=firmware
 REASON=direct DNS accepted
-PROXY_DNS=off
+PROXY_DNS=on
 DNS_OUT=no
 VLESS_PROFILE=yes
 MUTATION=NONE
@@ -234,7 +239,8 @@ run_finalize plan > "$TMP/direct-plan.out"
 grep -Fq 'READY=yes' "$TMP/direct-plan.out" || { cat "$TMP/direct-plan.out" >&2; fail 'direct DNS managed quick-country state must be ready without preferred profile metadata'; }
 grep -Fq 'PREFERRED_PROFILE_SET=no' "$TMP/direct-plan.out" || fail 'missing optional preferred profile metadata not exposed'
 grep -Fq 'ACTIVE_VPN_FILTER_SET=yes' "$TMP/direct-plan.out" || fail 'managed quick-country filter not accepted'
-grep -Fq 'NETWORK_PROXY_DNS=off' "$TMP/direct-plan.out" || fail 'direct DNS topology not exposed'
+grep -Fq 'NETWORK_EFFECTIVE_DNS_MODE=firmware' "$TMP/direct-plan.out" || fail 'direct DNS effective mode not exposed'
+grep -Fq 'NETWORK_PROXY_DNS=on' "$TMP/direct-plan.out" || fail 'legacy proxy_dns regression fact not exposed'
 grep -Fq 'DNS_OUT=no' "$TMP/direct-plan.out" || fail 'direct DNS must allow absent dns-out'
 grep -Fq 'keep direct DNS topology unchanged' "$TMP/direct-plan.out" || fail 'direct DNS expected delta missing'
 if ! run_finalize apply > "$TMP/direct-apply.out" 2>&1; then
