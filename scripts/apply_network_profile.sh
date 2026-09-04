@@ -714,13 +714,21 @@ apply_split() {
     has_vless || { fail_not_applied 'Split DNS требует рабочий vless-reality'; return 1; }
     PRESERVE_BEFORE="$(non_dns_hashes)" || { fail_not_applied 'не удалось снять non-DNS preserve hashes'; return 1; }
 
-    # Repair v0.2.43-style Split in place: OPKG/Xray already owns :53, but native
-    # System DNS interception can still bypass Xray and leak the native resolver.
+    # Repair an identified OPKG/Xray Split in place. Legacy/manual revisions may
+    # have a partial DNS-only layer; requiring it to be normalized before repair
+    # defeats the repair path. Identity remains fail-closed, while the candidate
+    # below rebuilds only the managed DNS layer and is validated before mutation.
     if [ "$NDM_OVERRIDE_INITIAL" = on ]; then
         [ "$PROXY_DNS_INITIAL" = off ] || { fail_not_applied 'Split repair требует proxy_dns=off'; return 1; }
         [ "$NDM_FILTER_ENGINE_INITIAL" = opkg ] || { fail_not_applied 'Split repair требует Keenetic filter engine opkg'; return 1; }
         [ "$(port53_owner)" = xray ] || { fail_not_applied 'Split repair требует Xray на :53'; return 1; }
-        [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] || { fail_not_applied 'Split repair: DNS topology неполна; STOP'; return 1; }
+        DNS_INBOUND_COUNT="$(xray_dns_inbound_count)"
+        case "$DNS_INBOUND_COUNT" in ''|*[!0-9]*) fail_not_applied 'Split repair: не удалось классифицировать Xray :53 inbound'; return 1 ;; esac
+        [ "$DNS_INBOUND_COUNT" -ge 1 ] || { fail_not_applied 'Split repair: Xray :53 inbound отсутствует'; return 1; }
+        jsonc_normalize "$INBOUND_FILE" | jq -e 'all(.inbounds[]? | select((((.port // "") | tostring) == "53")); .protocol == "dokodemo-door")' >/dev/null 2>&1 || { fail_not_applied 'Split repair: неизвестный протокол на Xray :53'; return 1; }
+        jsonc_normalize "$OUT_FILE" | jq -e 'all(.outbounds[]? | select((.tag // "") == "dns-out"); .protocol == "dns")' >/dev/null 2>&1 || { fail_not_applied 'Split repair: неизвестный dns-out'; return 1; }
+        DNS_OUT_INITIAL=no; has_dns_out && DNS_OUT_INITIAL=yes
+        say "[FreeNet Network] SPLIT_REPAIR_FROM=dns_inbound_count=$DNS_INBOUND_COUNT;dns_out=$DNS_OUT_INITIAL;dns_routing=$(dns_routing_mode)"
         if ! native_intercept_value >/dev/null 2>&1; then
             # v0.2.43 did not persist this control bit. Only the observed legacy
             # state "on" is safe to adopt as the native baseline; otherwise STOP.
