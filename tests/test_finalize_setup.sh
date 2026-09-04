@@ -14,6 +14,7 @@ for NEEDLE in \
     'AUTO_ENDPOINT_UPDATE' \
     'AUTO_VPN_FAILOVER' \
     '/opt/bin/vpn failover' \
+    'NETWORK_PROXY_DNS' \
     'ROLLBACK ERROR/STATE: rollback success' \
     'EXPECTED_NO_DELTA=current XKeen/Xray/XKeen UI core is not reinstalled'
 do
@@ -34,13 +35,13 @@ CRON_FAIL_MARKER="$TMP/crontab.fail.once"
 STATE="$TMP/state"
 mkdir -p "$TROOT/etc/freenet" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$TROOT/etc/init.d" "$TROOT/sbin" "$TROOT/lib/freenet" "$TROOT/bin"
 
-# Legacy config intentionally has no AUTO_VPN_FAILOVER keys.
+# Split-DNS baseline with legacy config intentionally missing AUTO_VPN_FAILOVER keys.
 cat > "$CONF" <<'EOF'
 UI_PORT=1001
 INSTALL_SCENARIO=existing_stack
 SETUP_COMPLETE=no
 ISP_ID=rostelecom
-DNS_MODE=firmware
+DNS_MODE=xkeen
 AUTO_ENDPOINT_UPDATE=no
 AUTO_ENDPOINT_CRON='*/15 * * * *'
 AUTO_XKEEN_GEODATA=yes
@@ -145,6 +146,7 @@ run_finalize plan > "$TMP/plan.out"
 grep -Fq 'READY=yes' "$TMP/plan.out" || fail 'accepted setup should be ready'
 grep -Fq 'INSTALL_SCENARIO=existing_stack' "$TMP/plan.out" || fail 'plan must expose existing-stack scenario'
 grep -Fq 'XKEEN_AUTOSTART=off' "$TMP/plan.out" || fail 'plan must expose autostart off'
+grep -Fq 'NETWORK_PROXY_DNS=on' "$TMP/plan.out" || fail 'plan must expose split-DNS topology'
 grep -Fq 'AUTO_VPN_FAILOVER=no' "$TMP/plan.out" || fail 'legacy config must default failover to disabled'
 grep -Fq 'keep automatic VPN failover disabled' "$TMP/plan.out" || fail 'plan must disclose disabled failover'
 grep -Fq 'enable XKeen autostart through xkeen -auto on' "$TMP/plan.out" || fail 'plan must disclose autostart delta'
@@ -200,6 +202,43 @@ if grep -q '^[^#].*/opt/bin/vpn[[:space:]]\+failover' "$CRON_STORE"; then
     fail 'disabled failover cron remains active'
 fi
 grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry lost after failover disablement'
+
+# Direct-DNS existing stack is valid without dns-out and must finalize without changing DNS topology.
+sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
+sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$CONF"
+sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
+sed -i 's/^proxy_dns=.*/proxy_dns="off"/' "$INIT"
+cat > "$OUT" <<'EOF'
+{"outbounds":[{"tag":"vless-reality","protocol":"freedom"},{"tag":"direct","protocol":"freedom"}]}
+EOF
+cat > "$TROOT/lib/freenet/apply_network_profile.sh" <<'EOF'
+#!/bin/sh
+[ "${1:-}" = plan ] || exit 2
+cat <<'PLAN'
+SUPPORTED=yes
+REASON=direct DNS accepted
+PROXY_DNS=off
+DNS_OUT=no
+VLESS_PROFILE=yes
+MUTATION=NONE
+PLAN
+EOF
+chmod 755 "$TROOT/lib/freenet/apply_network_profile.sh"
+run_finalize plan > "$TMP/direct-plan.out"
+grep -Fq 'READY=yes' "$TMP/direct-plan.out" || { cat "$TMP/direct-plan.out" >&2; fail 'direct DNS without dns-out must be ready'; }
+grep -Fq 'NETWORK_PROXY_DNS=off' "$TMP/direct-plan.out" || fail 'direct DNS topology not exposed'
+grep -Fq 'DNS_OUT=no' "$TMP/direct-plan.out" || fail 'direct DNS must allow absent dns-out'
+grep -Fq 'keep direct DNS topology unchanged' "$TMP/direct-plan.out" || fail 'direct DNS expected delta missing'
+if ! run_finalize apply > "$TMP/direct-apply.out" 2>&1; then
+    cat "$TMP/direct-apply.out" >&2
+    fail 'direct DNS finalize should succeed without dns-out'
+fi
+grep -Fq '[FreeNet Setup Finalize] RESULT=SUCCESS' "$TMP/direct-apply.out" || fail 'direct DNS finalize success marker missing'
+grep -qx 'SETUP_COMPLETE=yes' "$CONF" || fail 'direct DNS setup complete not committed'
+if grep -q 'dns-out' "$OUT"; then
+    fail 'finalize must not add dns-out in direct DNS mode'
+fi
+grep -Fq 'proxy_dns="off"' "$INIT" || fail 'finalize must not enable proxy_dns in direct DNS mode'
 
 # Simulate one cron-write failure after autostart mutation. Config, cron and autostart must roll back.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"

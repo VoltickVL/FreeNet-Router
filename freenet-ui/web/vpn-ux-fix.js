@@ -237,10 +237,23 @@
     selectProviderProfile = selectExactProfile;
   }
 
+  function ensureLegacyVPNStatusNodes() {
+    if (qs('#vpnPageCurrent') && qs('#vpnPageEndpoint')) return;
+    let compat = qs('#legacyVpnStatusCompat');
+    if (!compat) {
+      compat = document.createElement('div');
+      compat.id = 'legacyVpnStatusCompat';
+      compat.hidden = true;
+      compat.innerHTML = '<span id="vpnPageCurrent"></span><div id="vpnPageEndpoint"><strong></strong></div><span id="providerSummaryLine"></span>';
+      document.body.appendChild(compat);
+    }
+  }
+
   function patchStatusRendering() {
     if (typeof updateStatusViews !== 'function') return;
     const originalUpdateStatusViews = updateStatusViews;
     updateStatusViews = function(s) {
+      ensureLegacyVPNStatusNodes();
       originalUpdateStatusViews(s);
       if (!s) return;
 
@@ -258,8 +271,8 @@
         dnsState.textContent = xrayDNS ? (s.dns_out_present ? 'DNS через XKeen/Xray' : 'DNS требует внимания') : 'DNS напрямую';
       }
       if (dnsHealth) dnsHealth.className = 'health ' + (dnsHealthy ? 'ok' : 'bad');
-      if (topDot) topDot.className = 'dot ' + (healthy ? 'ok' : 'bad');
-      if (topStatus) topStatus.textContent = healthy ? 'VPN и DNS работают' : (!s.xray_online ? 'VPN требует внимания' : 'DNS требует внимания');
+      if (topDot) topDot.className = 'dot ok';
+      if (topStatus) topStatus.textContent = 'FreeNet доступен';
       if (systemHealth) systemHealth.textContent = healthy ? 'Система работает' : 'Требует внимания';
       if (typeof setSummary === 'function') setSummary('quickActionState', s.country ? (s.country + ' · ' + (s.endpoint || '—')) : 'VPN не определён', healthy ? 'ok' : 'bad');
       if (quickGuard) {
