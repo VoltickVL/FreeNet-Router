@@ -223,7 +223,7 @@ evaluate() {
     if [ "$SUBSCRIPTION_CONFIGURED" != yes ]; then READY=no; REASON='subscription is not configured'
     elif [ "$PREFERRED_PROFILE_SET" != yes ]; then READY=no; REASON='preferred VPN profile is not applied'
     elif [ "$VLESS_PROFILE" != yes ]; then READY=no; REASON='exactly one vless-reality outbound is required'
-    elif [ "$DNS_OUT" != yes ]; then READY=no; REASON='dns-out is not accepted yet'
+    elif [ "$NETWORK_PROXY_DNS" = on ] && [ "$DNS_OUT" != yes ]; then READY=no; REASON='dns-out is required for the selected XKeen/Xray DNS mode'
     elif [ "$XRAY_RUNNING" != yes ]; then READY=no; REASON='Xray is not running'
     elif [ "$XRAY_VALID" != yes ]; then READY=no; REASON='live Xray configuration validation failed'
     elif [ "$NETWORK_SUPPORTED" != yes ] || [ "$NETWORK_MUTATION" != NONE ]; then READY=no; REASON='saved ISP/DNS profile is not runtime-accepted'
@@ -243,6 +243,7 @@ print_plan() {
     say "SUBSCRIPTION_CONFIGURED=$SUBSCRIPTION_CONFIGURED"
     say "PREFERRED_PROFILE_SET=$PREFERRED_PROFILE_SET"
     say "NETWORK_SUPPORTED=$NETWORK_SUPPORTED"
+    say "NETWORK_PROXY_DNS=$NETWORK_PROXY_DNS"
     say "XRAY_RUNNING=$XRAY_RUNNING"
     say "XRAY_VALID=$XRAY_VALID"
     say "DNS_OUT=$DNS_OUT"
@@ -257,6 +258,7 @@ print_plan() {
         [ "$AUTOSTART" = off ] && DELTA="$DELTA; enable XKeen autostart through xkeen -auto on"
         [ "$AUTO_ENDPOINT_UPDATE" = yes ] && DELTA="$DELTA; activate configured endpoint refresh schedule" || DELTA="$DELTA; keep endpoint refresh disabled until Automation settings enable it"
         [ "$AUTO_VPN_FAILOVER" = yes ] && DELTA="$DELTA; activate configured VPN failover schedule" || DELTA="$DELTA; keep automatic VPN failover disabled"
+        [ "$NETWORK_PROXY_DNS" = on ] && DELTA="$DELTA; require existing dns-out for XKeen/Xray DNS" || DELTA="$DELTA; keep direct DNS topology unchanged"
         say "EXPECTED_DELTA=$DELTA"
     else
         say 'EXPECTED_DELTA=NONE until all provider/network/runtime acceptance gates pass'
