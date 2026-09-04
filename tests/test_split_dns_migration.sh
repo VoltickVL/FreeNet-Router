@@ -91,7 +91,7 @@ cat > "$LEGACY/02_dns.json" <<'EOF'
   "dns": {
     "tag":"dns-vless",
     "servers":[
-      {"address":"77.88.8.8","port":53,"domains":["domain:stale-direct.example"],"skipFallback":true,"tag":"dns-direct","clientIP":"192.0.2.10"},
+      {"address":"77.88.8.8","port":53,"domains":["domain:expert-direct.example"],"skipFallback":true,"tag":"dns-direct","clientIP":"192.0.2.10"},
       {"address":"8.8.8.8","port":53,"tag":"dns-vless","skipFallback":false}
     ],
     "queryStrategy":"UseIPv4"
@@ -99,9 +99,11 @@ cat > "$LEGACY/02_dns.json" <<'EOF'
 }
 EOF
 
+DIRECT_BEFORE="$(jq -cS '[.dns.servers[] | select(.tag == "dns-direct")]' "$LEGACY/02_dns.json")"
 sh scripts/migrate_split_dns.sh --build-only "$LEGACY" "$LEGACY_DST"
-jq -e '([.dns.servers[]? | select((.domains // []) | index("domain:stale-direct.example"))] | length) == 0' "$LEGACY_DST/02_dns.json" >/dev/null
-jq -e '([.dns.servers[]? | select(has("clientIP"))] | length) == 0' "$LEGACY_DST/02_dns.json" >/dev/null
-jq -e '([.dns.servers | to_entries[] | select((.value.domains // []) | index("ext:geosite.dat:youtube")) | .key][0]) < ([.dns.servers | to_entries[] | select((.value.domains // []) | index("ext:geosite.dat:google")) | .key][0])' "$LEGACY_DST/02_dns.json" >/dev/null
+DIRECT_AFTER="$(jq -cS '[.dns.servers[] | select(.tag == "dns-direct")]' "$LEGACY_DST/02_dns.json")"
+[ "$DIRECT_BEFORE" = "$DIRECT_AFTER" ]
+jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) == 1' "$LEGACY_DST/02_dns.json" >/dev/null
+jq -e '([.dns.servers[]? | select(.tag == "dns-direct" and .clientIP == "192.0.2.10" and ((.domains // []) | index("domain:expert-direct.example")) != null)] | length) == 1' "$LEGACY_DST/02_dns.json" >/dev/null
 
 echo "split DNS migration candidate test: PASS"
