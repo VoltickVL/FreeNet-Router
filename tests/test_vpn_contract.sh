@@ -21,6 +21,12 @@ XRAY_STATE="$TMP/xray.state"
 FAILOVER_STATE="$TMP/failover.last"
 mkdir -p "$CONFIG_DIR" "$ASSET_DIR"
 
+# VPN lifecycle must not encode a specific DNS topology. dns-out, when present,
+# is just another non-VLESS outbound that the updater preserves unchanged.
+! grep -q 'dns-out' "$ROOT/scripts/blanc_xkeen_update_outbounds.sh"
+! grep -q 'dns-out' "$ROOT/scripts/vpn"
+grep -q 'candidate unexpectedly changes non-VLESS outbounds' "$ROOT/scripts/blanc_xkeen_update_outbounds.sh"
+
 printf '%s\n' 'Frankfurt|Germany|Германия' > "$FILTER"
 printf '%s\n' 'https://subscription.example/key' > "$SUB_FILE"
 
@@ -223,15 +229,32 @@ run_failover() {
     sh "$ROOT/scripts/vpn" failover
 }
 
-# Healthy endpoint => zero mutation.
-rm -f "$UPDATER_CALLED" "$CURL_COUNT" "$FAILOVER_STATE"
-printf '%s\n' healthy > "$CURL_MODE"
 cat > "$UPDATER" <<EOF
 #!/bin/sh
 printf '%s\n' called > "$UPDATER_CALLED"
 exit 60
 EOF
 chmod 755 "$UPDATER"
+
+# Existing-stack direct DNS: no dns-out is still a valid VPN/failover baseline.
+cat > "$CONFIG_DIR/04_outbounds.json" <<'EOF'
+{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"10.0.0.1","port":443}]}},{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]}
+EOF
+rm -f "$UPDATER_CALLED" "$CURL_COUNT" "$FAILOVER_STATE"
+printf '%s\n' healthy > "$CURL_MODE"
+run_failover > "$TMP/direct-dns-healthy.out" 2>&1
+grep -Fq 'current endpoint reachable; no mutation' "$TMP/direct-dns-healthy.out"
+test ! -e "$UPDATER_CALLED"
+[ "$(cat "$CURL_COUNT")" -eq 1 ]
+
+# Split-DNS topology remains accepted as well.
+cat > "$CONFIG_DIR/04_outbounds.json" <<'EOF'
+{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"10.0.0.1","port":443}]}},{"tag":"dns-out","protocol":"dns"}]}
+EOF
+
+# Healthy endpoint => zero mutation.
+rm -f "$UPDATER_CALLED" "$CURL_COUNT" "$FAILOVER_STATE"
+printf '%s\n' healthy > "$CURL_MODE"
 run_failover > "$TMP/healthy.out" 2>&1
 grep -Fq 'current endpoint reachable; no mutation' "$TMP/healthy.out"
 test ! -e "$UPDATER_CALLED"
