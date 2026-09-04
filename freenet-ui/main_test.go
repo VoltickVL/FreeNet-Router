@@ -46,6 +46,36 @@ func TestReadOutbound(t *testing.T) {
 	}
 }
 
+func TestReadOutboundWithoutDNSOut(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "04_outbounds.json")
+	data := `{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"5.6.7.8","port":443}]}},{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]}`
+	if err := os.WriteFile(p, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	endpoint, dns := readOutbound(p)
+	if endpoint != "5.6.7.8:443" {
+		t.Fatalf("endpoint=%q", endpoint)
+	}
+	if dns {
+		t.Fatal("direct-DNS topology must report dns-out absent without invalidating VPN endpoint")
+	}
+}
+
+func TestVPNPostconditionAllowsDirectDNSWithoutDNSOut(t *testing.T) {
+	if err := validateActionPostcondition("update", statusResponse{}, statusResponse{CountryCode: "pl", Endpoint: "1.2.3.4:443", DNSOut: false}); err != nil {
+		t.Fatalf("refresh rejected direct DNS: %v", err)
+	}
+	if err := validateActionPostcondition("de", statusResponse{}, statusResponse{CountryCode: "de", Endpoint: "5.6.7.8:443", DNSOut: false}); err != nil {
+		t.Fatalf("country switch rejected direct DNS: %v", err)
+	}
+	before := statusResponse{CountryCode: "de", Endpoint: "5.6.7.8:443", DNSOut: false}
+	after := statusResponse{CountryCode: "de", Endpoint: "5.6.7.9:443", DNSOut: false}
+	if err := validateActionPostcondition("rotate", before, after); err != nil {
+		t.Fatalf("rotate rejected direct DNS: %v", err)
+	}
+}
+
 func TestNetworkProfileConfigRoundTripPreservesOtherSettings(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "freenet.conf")
