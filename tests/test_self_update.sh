@@ -31,7 +31,7 @@ make_root() {
     printf '%s\n' 'OLD_SELF_UPDATE' > "$R/lib/freenet/self_update.sh"
     printf '%s\n' 'UI_PORT=1001' > "$R/etc/freenet/freenet.conf"
     printf '%s\n' 'SUBSCRIPTION_SENTINEL' > "$R/etc/freenet/subscription-sentinel"
-    printf '%s\n' '{"outbounds":[{"tag":"dns-out"}]}' > "$R/etc/xray/configs/04_outbounds.json"
+    printf '%s\n' '{"outbounds":[{"tag":"vless-reality","protocol":"vless"}]}' > "$R/etc/xray/configs/04_outbounds.json"
     chmod 755 "$R/sbin/freenet-ui" "$R/bin/freenet" "$R/bin/vpn" "$R/bin/blanc_xkeen_update_outbounds.sh" \
         "$R/lib/freenet/migrate_split_dns.sh" "$R/lib/freenet/apply_network_profile.sh" \
         "$R/lib/freenet/apply_provider_profile.sh" "$R/lib/freenet/finalize_setup.sh" \
@@ -102,6 +102,11 @@ run_apply() {
         $EXTRA_ENV \
         sh "$SCRIPT" apply v0.2.28
 }
+
+# Regression: application self-update acceptance must not require Split-DNS dns-out.
+if grep -Fq 'select(.tag == "dns-out")' "$SCRIPT"; then
+    fail 'self-update acceptance must be independent from dns-out topology'
+fi
 
 R="$TMP/root"
 D="$TMP/release"
