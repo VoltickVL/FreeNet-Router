@@ -123,7 +123,7 @@ func TestPartialLegacySplitSelfRepairNormalizesDNSLayer(t *testing.T) {
 
 	// Keep a cheap content fingerprint assertion so an accidental empty/truncated
 	// candidate cannot satisfy the string checks above.
-	h := sha256.Sum(routing)
+	h := sha256.Sum256(routing)
 	if fmt.Sprintf("%x", h[:]) == strings.Repeat("0", 64) {
 		t.Fatal("unexpected zero routing fingerprint")
 	}
