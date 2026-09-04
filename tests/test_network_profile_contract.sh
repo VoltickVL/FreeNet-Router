@@ -222,7 +222,7 @@ grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'repaired Split did not resto
 
 state_set PORT53_OWNER none
 if run_network apply > "$TMP/partial.apply" 2>&1; then fail 'partial topology unexpectedly succeeded'; fi
-if ! grep -Eq 'PRIMARY ERROR: (native mode должен иметь ndnproxy|native DNS preflight failed before mutation)' "$TMP/partial.apply"; then
+if ! grep -Eq 'PRIMARY ERROR: (native mode должен иметь ndnproxy|native DNS preflight failed before mutation|partial/unknown DNS topology: native restore ожидает opkg dns-override=on)' "$TMP/partial.apply"; then
     cat "$TMP/partial.apply" >&2
     fail 'partial topology STOP missing'
 fi
