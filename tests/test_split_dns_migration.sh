@@ -38,7 +38,9 @@ cat > "$SRC/05_routing.json" <<'EOF'
   "routing": {
     "domainStrategy":"AsIs",
     "rules": [
-      {"type":"field","domain":["domain:example.ru","ext:geosite.dat:private"],"outboundTag":"direct"},
+      {"type":"field","domain":["ext:geosite.dat:category-ads-all"],"outboundTag":"block"},
+      {"type":"field","domain":["ext:geosite.dat:youtube"],"outboundTag":"vless-reality"},
+      {"type":"field","domain":["ext:geosite.dat:google","domain:example.ru","ext:geosite.dat:private"],"outboundTag":"direct"},
       {"type":"field","domain":["ext:geosite.dat:ru-blocked"],"outboundTag":"vless-reality"},
       {"type":"field","network":"tcp,udp","outboundTag":"vless-reality"}
     ]
@@ -49,8 +51,21 @@ EOF
 sh scripts/migrate_split_dns.sh --build-only "$SRC" "$DST"
 
 jq -e '.dns.tag == "dns-vless"' "$DST/02_dns.json" >/dev/null
-jq -e '([.dns.servers[] | select(.tag == "dns-direct" and .address == "77.88.8.8" and .port == 53) | .domains[]] | index("domain:example.ru")) != null' "$DST/02_dns.json" >/dev/null
-jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) == 1' "$DST/02_dns.json" >/dev/null
+jq -e '
+  ([.dns.servers | to_entries[] | select((.value.domains // []) | index("ext:geosite.dat:youtube")) | .key][0]) as $youtube |
+  ([.dns.servers | to_entries[] | select((.value.domains // []) | index("ext:geosite.dat:google")) | .key][0]) as $google |
+  $youtube < $google and
+  .dns.servers[$youtube].tag == "dns-vless" and
+  .dns.servers[$youtube].address == "https://8.8.8.8/dns-query" and
+  .dns.servers[$youtube].finalQuery == true and
+  .dns.servers[$youtube].skipFallback == true and
+  .dns.servers[$google].tag == "dns-direct" and
+  .dns.servers[$google].address == "77.88.8.8" and
+  .dns.servers[$google].port == 53 and
+  .dns.servers[$google].finalQuery == true and
+  .dns.servers[$google].skipFallback == true
+' "$DST/02_dns.json" >/dev/null
+jq -e '.dns.servers[-1].tag == "dns-vless" and .dns.servers[-1].address == "https://8.8.8.8/dns-query" and .dns.servers[-1].finalQuery == true and (.dns.servers[-1] | has("domains") | not)' "$DST/02_dns.json" >/dev/null
 jq -e 'any(.outbounds[]; .tag == "vless-reality")' "$DST/04_outbounds.json" >/dev/null
 jq -e 'any(.outbounds[]; .tag == "direct")' "$DST/04_outbounds.json" >/dev/null
 jq -e 'any(.outbounds[]; .tag == "block")' "$DST/04_outbounds.json" >/dev/null
@@ -76,7 +91,7 @@ cat > "$LEGACY/02_dns.json" <<'EOF'
   "dns": {
     "tag":"dns-vless",
     "servers":[
-      {"address":"77.88.8.8","port":53,"domains":["domain:example.ru"],"skipFallback":true,"tag":"dns-direct","clientIP":"192.0.2.10"},
+      {"address":"77.88.8.8","port":53,"domains":["domain:stale-direct.example"],"skipFallback":true,"tag":"dns-direct","clientIP":"192.0.2.10"},
       {"address":"8.8.8.8","port":53,"tag":"dns-vless","skipFallback":false}
     ],
     "queryStrategy":"UseIPv4"
@@ -84,10 +99,9 @@ cat > "$LEGACY/02_dns.json" <<'EOF'
 }
 EOF
 
-DIRECT_BEFORE="$(jq -cS '[.dns.servers[] | select(.tag == "dns-direct")]' "$LEGACY/02_dns.json")"
 sh scripts/migrate_split_dns.sh --build-only "$LEGACY" "$LEGACY_DST"
-DIRECT_AFTER="$(jq -cS '[.dns.servers[] | select(.tag == "dns-direct")]' "$LEGACY_DST/02_dns.json")"
-[ "$DIRECT_BEFORE" = "$DIRECT_AFTER" ]
-jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not) and .skipFallback == false)] | length) == 1' "$LEGACY_DST/02_dns.json" >/dev/null
+jq -e '([.dns.servers[]? | select((.domains // []) | index("domain:stale-direct.example"))] | length) == 0' "$LEGACY_DST/02_dns.json" >/dev/null
+jq -e '([.dns.servers[]? | select(has("clientIP"))] | length) == 0' "$LEGACY_DST/02_dns.json" >/dev/null
+jq -e '([.dns.servers | to_entries[] | select((.value.domains // []) | index("ext:geosite.dat:youtube")) | .key][0]) < ([.dns.servers | to_entries[] | select((.value.domains // []) | index("ext:geosite.dat:google")) | .key][0])' "$LEGACY_DST/02_dns.json" >/dev/null
 
 echo "split DNS migration candidate test: PASS"
