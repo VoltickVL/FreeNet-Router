@@ -107,8 +107,7 @@ failover_baseline_valid() {
     }
     jq -e '
         ((.outbounds | type) == "array") and
-        (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1) and
-        (([.outbounds[] | select(.tag == "dns-out")] | length) == 1)
+        (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1)
     ' "$OUT_FILE" >/dev/null 2>&1 || {
         echo "[vpn] failover suppressed: local Xray outbound baseline is invalid" >&2
         return 1
