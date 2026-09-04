@@ -56,6 +56,7 @@ jobs:
           sh -n install.sh
           sh -n doctor.sh
           sh -n scripts/vpn
+          sh -n scripts/vpn_quality_probe.sh
           sh -n scripts/blanc_xkeen_update_outbounds.sh
           sh -n scripts/migrate_split_dns.sh
           sh -n scripts/bootstrap_entware.sh
@@ -64,6 +65,7 @@ jobs:
           sh -n scripts/finalize_setup.sh
           sh -n scripts/self_update.sh
           sh -n tests/test_vpn_contract.sh
+          sh -n tests/test_vpn_quality_probe.sh
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
@@ -75,6 +77,9 @@ jobs:
 
       - name: VPN transactional switch test
         run: sh tests/test_vpn_contract.sh
+
+      - name: VPN read-only route quality test
+        run: sh tests/test_vpn_quality_probe.sh
 
       - name: Split DNS migration candidate test
         run: sh tests/test_split_dns_migration.sh
@@ -107,6 +112,15 @@ jobs:
           grep -q 'ROLLBACK: restoring previous 04_outbounds.json and profile filter' scripts/blanc_xkeen_update_outbounds.sh
           grep -q "Cache-Control: no-cache" scripts/blanc_xkeen_update_outbounds.sh
           ! grep -Fq 'echo "$FILTER" > "$FILTER_FILE"' scripts/vpn
+
+      - name: VPN quality guard
+        run: |
+          grep -q 'MUTATION=NONE' scripts/vpn_quality_probe.sh
+          grep -q 'VPN_ROUTE_OK' scripts/vpn_quality_probe.sh
+          grep -q 'VPN_QUALITY' scripts/vpn_quality_probe.sh
+          grep -q -- '--socks5-hostname' scripts/vpn_quality_probe.sh
+          grep -q 'Direct DNS without dns-out is a valid VPN-quality baseline' tests/test_vpn_quality_probe.sh
+          ! grep -Eq 'xkeen.*restart|scripts/vpn.*(rotate|failover)|blanc_xkeen_update_outbounds' scripts/vpn_quality_probe.sh
 
       - name: Split DNS migration contract
         run: |
@@ -144,6 +158,7 @@ jobs:
           grep -q 'self_update.sh' bootstrap.sh
           grep -q 'cp bootstrap.sh dist/bootstrap.sh' .github/workflows/release.yml
           grep -q 'cp install.sh dist/freenet' .github/workflows/release.yml
+          grep -q 'cp scripts/vpn_quality_probe.sh dist/vpn_quality_probe.sh' .github/workflows/release.yml
           grep -q 'cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh' .github/workflows/release.yml
           grep -q 'cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh' .github/workflows/release.yml
           grep -q 'cp scripts/self_update.sh dist/self_update.sh' .github/workflows/release.yml

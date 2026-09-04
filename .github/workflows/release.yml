@@ -52,6 +52,7 @@ jobs:
           sh -n bootstrap.sh
           sh -n install.sh
           sh -n scripts/vpn
+          sh -n scripts/vpn_quality_probe.sh
           sh -n scripts/blanc_xkeen_update_outbounds.sh
           sh -n scripts/migrate_split_dns.sh
           sh -n scripts/bootstrap_entware.sh
@@ -59,6 +60,7 @@ jobs:
           sh -n scripts/apply_provider_profile.sh
           sh -n scripts/finalize_setup.sh
           sh -n scripts/self_update.sh
+          sh -n tests/test_vpn_quality_probe.sh
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
@@ -67,6 +69,9 @@ jobs:
           sh -n tests/test_finalize_setup.sh
           sh -n tests/test_self_update.sh
           sh -n deploy/S99freenet-ui
+
+      - name: VPN quality read-only contract test
+        run: sh tests/test_vpn_quality_probe.sh
 
       - name: Split DNS migration candidate test
         run: sh tests/test_split_dns_migration.sh
@@ -98,6 +103,7 @@ jobs:
           grep -q 'abort_signal' install.sh
           ! grep -q 'setup.sh' install.sh
           grep -q 'cp bootstrap.sh dist/bootstrap.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/vpn_quality_probe.sh dist/vpn_quality_probe.sh' .github/workflows/release.yml
           grep -q 'cp scripts/apply_network_profile.sh dist/apply_network_profile.sh' .github/workflows/release.yml
           grep -q 'cp scripts/apply_provider_profile.sh dist/apply_provider_profile.sh' .github/workflows/release.yml
           grep -q 'cp scripts/finalize_setup.sh dist/finalize_setup.sh' .github/workflows/release.yml
@@ -133,6 +139,7 @@ jobs:
 
           cp bootstrap.sh dist/bootstrap.sh
           cp scripts/vpn dist/vpn
+          cp scripts/vpn_quality_probe.sh dist/vpn_quality_probe.sh
           cp scripts/blanc_xkeen_update_outbounds.sh dist/blanc_xkeen_update_outbounds.sh
           cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh
           cp scripts/apply_network_profile.sh dist/apply_network_profile.sh
@@ -150,6 +157,7 @@ jobs:
             dist/freenet-ui-mips32le \
             dist/freenet-ui-mips32 \
             dist/vpn \
+            dist/vpn_quality_probe.sh \
             dist/blanc_xkeen_update_outbounds.sh \
             dist/migrate_split_dns.sh \
             dist/apply_network_profile.sh \
@@ -167,6 +175,7 @@ jobs:
               freenet-ui-mips32le \
               freenet-ui-mips32 \
               vpn \
+              vpn_quality_probe.sh \
               blanc_xkeen_update_outbounds.sh \
               migrate_split_dns.sh \
               apply_network_profile.sh \
