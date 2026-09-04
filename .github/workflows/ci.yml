@@ -56,6 +56,7 @@ jobs:
           sh -n install.sh
           sh -n doctor.sh
           sh -n scripts/vpn
+          sh -n scripts/vpn_quality_probe.sh
           sh -n scripts/blanc_xkeen_update_outbounds.sh
           sh -n scripts/migrate_split_dns.sh
           sh -n scripts/bootstrap_entware.sh
@@ -64,6 +65,7 @@ jobs:
           sh -n scripts/finalize_setup.sh
           sh -n scripts/self_update.sh
           sh -n tests/test_vpn_contract.sh
+          sh -n tests/test_vpn_quality_probe.sh
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
@@ -75,6 +77,9 @@ jobs:
 
       - name: VPN transactional switch test
         run: sh tests/test_vpn_contract.sh
+
+      - name: VPN read-only route quality test
+        run: sh tests/test_vpn_quality_probe.sh
 
       - name: Split DNS migration candidate test
         run: sh tests/test_split_dns_migration.sh
@@ -107,6 +112,14 @@ jobs:
           grep -q 'ROLLBACK: restoring previous 04_outbounds.json and profile filter' scripts/blanc_xkeen_update_outbounds.sh
           grep -q "Cache-Control: no-cache" scripts/blanc_xkeen_update_outbounds.sh
           ! grep -Fq 'echo "$FILTER" > "$FILTER_FILE"' scripts/vpn
+
+      - name: VPN quality guard
+        run: |
+          grep -q 'MUTATION=NONE' scripts/vpn_quality_probe.sh
+          grep -q 'VPN_ROUTE_OK' scripts/vpn_quality_probe.sh
+          grep -q 'VPN_QUALITY' scripts/vpn_quality_probe.sh
+          grep -q -- '--socks5-hostname' scripts/vpn_quality_probe.sh
+          ! grep -Eq 'FREENET_ACTION_REASON|UPDATER_BIN|xkeen.*restart|scripts/vpn.*(rotate|failover)' scripts/vpn_quality_probe.sh
 
       - name: Split DNS migration contract
         run: |
@@ -187,8 +200,6 @@ jobs:
 
       - name: UI recovery contract
         run: |
-          # A VPN restart may interrupt only the HTTP response. The UI must keep polling
-          # factual status instead of declaring an error before postcondition acceptance.
           grep -q 'actionFinishedByStatus' freenet-ui/web/index.html
           grep -q 'VPN перезапускается. Ответ на запрос ещё не получен' freenet-ui/web/index.html
           ! grep -q 'Соединение прервалось во время перезапуска VPN' freenet-ui/web/index.html
