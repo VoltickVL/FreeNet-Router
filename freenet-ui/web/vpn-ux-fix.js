@@ -38,18 +38,22 @@
 
   function mountExactConnectControls() {
     const quick = qs('#quickActionsSection');
-    const routine = quick && quick.querySelector('.action-row');
+    const routine = quick && quick.querySelector('.action-row:not(#exactConnectRow)');
     if (!quick || !routine) return null;
 
     const updateBtn = qs('#updateBtn');
     const rotateBtn = qs('#rotateBtn');
     if (updateBtn) {
-      updateBtn.textContent = 'Обновить текущий';
-      updateBtn.title = 'Обновить текущий активный VPN-профиль из подписки без намеренной смены сервера';
+      updateBtn.textContent = 'Обновить текущий VPN-профиль';
+      updateBtn.title = 'Получить свежие данные текущего активного VPN-профиля из подписки без намеренной смены сервера';
+      updateBtn.classList.remove('primary');
+      updateBtn.classList.add('secondary');
     }
     if (rotateBtn) {
-      rotateBtn.textContent = 'Другой сервер';
+      rotateBtn.textContent = 'Сменить сервер';
       rotateBtn.title = 'Выбрать другой endpoint внутри текущей активной группы';
+      rotateBtn.classList.remove('primary');
+      rotateBtn.classList.add('secondary');
     }
 
     let row = qs('#exactConnectRow');
@@ -58,7 +62,7 @@
       row.id = 'exactConnectRow';
       row.className = 'action-row';
       row.hidden = true;
-      row.innerHTML = '<button id="exactConnectBtn" class="btn primary" type="button" disabled>Подключиться</button><button id="exactCancelBtn" class="btn secondary" type="button">Отменить выбор</button>';
+      row.innerHTML = '<button id="exactConnectBtn" class="btn primary" type="button" disabled>Подключиться</button><button id="exactCancelBtn" class="btn secondary" type="button">Сбросить выбор</button>';
       routine.parentNode.insertBefore(row, routine);
       qs('#exactConnectBtn').addEventListener('click', connectExactProfile);
       qs('#exactCancelBtn').addEventListener('click', clearExactSelection);
@@ -198,7 +202,7 @@
       const accepted = !!(s && s.endpoint === expectedEndpoint && (!expectedCode || s.country_code === expectedCode) && s.xray_online && s.dns_out_present);
       if (!accepted) {
         const actual = s ? `${s.country || 'страна не определена'} · ${s.endpoint || 'endpoint неизвестен'}` : 'фактический статус недоступен';
-        selectedCardText(`Требуется проверка состояния`, expectedEndpoint, `FreeNet завершил apply, но live-state не совпал: ${actual}. Повторное подключение автоматически не запускается.`);
+        selectedCardText('Требуется проверка состояния', expectedEndpoint, `FreeNet завершил apply, но live-state не совпал: ${actual}. Повторное подключение автоматически не запускается.`);
         if (typeof showBox === 'function') showBox('notice', 'Фактическое состояние после подключения не подтверждено. Не повторяйте операцию вслепую.', 'bad');
         return;
       }
@@ -215,7 +219,7 @@
       if (typeof loadNetworkPlan === 'function') await loadNetworkPlan('');
       if (typeof showBox === 'function') showBox('notice', `Подключено: ${s.country || p.name || 'VPN'}${s.city ? ' · ' + s.city : ''}\n${s.endpoint}`, 'ok');
     } catch (_) {
-      selectedCardText(`Связь прервалась`, expectedEndpoint, 'FreeNet мог кратко перезапустить VPN. Сначала дождитесь фактического статуса; повторное подключение автоматически не запускается.');
+      selectedCardText('Связь прервалась', expectedEndpoint, 'FreeNet мог кратко перезапустить VPN. Сначала дождитесь фактического статуса; повторное подключение автоматически не запускается.');
       if (typeof showBox === 'function') showBox('notice', 'Связь прервалась во время переключения. Проверяем фактическое состояние перед любым повтором.', 'bad');
     } finally {
       providerApplying = false;
