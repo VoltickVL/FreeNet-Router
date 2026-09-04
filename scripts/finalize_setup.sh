@@ -8,6 +8,7 @@ ROOT="${FREENET_ROOT:-/opt}"
 CONFIG_FILE="${FREENET_CONFIG_FILE:-$ROOT/etc/freenet/freenet.conf}"
 SUB_FILE="${FREENET_SUB_FILE:-$ROOT/etc/xray/blanc_subscription.url}"
 PROFILE_FILE="${FREENET_PROFILE_FILE:-$ROOT/etc/freenet/vpn_profile_name}"
+FILTER_FILE="${FREENET_FILTER_FILE:-$ROOT/etc/xray/blanc_profile_filter.regex}"
 CONFIG_DIR="${FREENET_XRAY_CONFIG_DIR:-$ROOT/etc/xray/configs}"
 OUT_FILE="${FREENET_OUT_FILE:-$CONFIG_DIR/04_outbounds.json}"
 ASSET_DIR="${FREENET_XRAY_ASSET_DIR:-$ROOT/etc/xray/dat}"
@@ -215,13 +216,14 @@ evaluate() {
     AUTO_VPN_FAILOVER_CRON="$(config_value AUTO_VPN_FAILOVER_CRON '*/5 * * * *')"
     SUBSCRIPTION_CONFIGURED=no; [ -s "$SUB_FILE" ] && SUBSCRIPTION_CONFIGURED=yes
     PREFERRED_PROFILE_SET=no; [ -s "$PROFILE_FILE" ] && PREFERRED_PROFILE_SET=yes
+    ACTIVE_VPN_FILTER_SET=no; [ -s "$FILTER_FILE" ] && ACTIVE_VPN_FILTER_SET=yes
     XRAY_RUNNING=no; xray_running && XRAY_RUNNING=yes
     XRAY_VALID=no; validate_xray && XRAY_VALID=yes
     outbound_state
     read_network_plan || true
 
     if [ "$SUBSCRIPTION_CONFIGURED" != yes ]; then READY=no; REASON='subscription is not configured'
-    elif [ "$PREFERRED_PROFILE_SET" != yes ]; then READY=no; REASON='preferred VPN profile is not applied'
+    elif [ "$ACTIVE_VPN_FILTER_SET" != yes ]; then READY=no; REASON='managed VPN profile filter is not established'
     elif [ "$VLESS_PROFILE" != yes ]; then READY=no; REASON='exactly one vless-reality outbound is required'
     elif [ "$NETWORK_PROXY_DNS" = on ] && [ "$DNS_OUT" != yes ]; then READY=no; REASON='dns-out is required for the selected XKeen/Xray DNS mode'
     elif [ "$XRAY_RUNNING" != yes ]; then READY=no; REASON='Xray is not running'
@@ -242,6 +244,7 @@ print_plan() {
     say "SETUP_COMPLETE=$SETUP_COMPLETE"
     say "SUBSCRIPTION_CONFIGURED=$SUBSCRIPTION_CONFIGURED"
     say "PREFERRED_PROFILE_SET=$PREFERRED_PROFILE_SET"
+    say "ACTIVE_VPN_FILTER_SET=$ACTIVE_VPN_FILTER_SET"
     say "NETWORK_SUPPORTED=$NETWORK_SUPPORTED"
     say "NETWORK_PROXY_DNS=$NETWORK_PROXY_DNS"
     say "XRAY_RUNNING=$XRAY_RUNNING"
@@ -263,7 +266,7 @@ print_plan() {
     else
         say 'EXPECTED_DELTA=NONE until all provider/network/runtime acceptance gates pass'
     fi
-    say 'EXPECTED_NO_DELTA=current XKeen/Xray/XKeen UI core is not reinstalled; no subscription secret/VLESS credential rewrite; no ISP/DNS/routing mutation; no raw shell command surface'
+    say 'EXPECTED_NO_DELTA=current XKeen/Xray/XKeen UI core is not reinstalled; active VPN filter/profile metadata and VLESS credentials are not rewritten; no subscription secret rewrite; no ISP/DNS/routing mutation; no raw shell command surface'
     say 'MUTATION=NONE'
     say '========== END =========='
     [ "$READY" = yes ]
