@@ -30,6 +30,11 @@ CONFIG_SNAPSHOT_KIND="none"
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Network] ERROR: %s\n' "$*" >&2; }
+fail_not_applied() {
+    err "PRIMARY ERROR: $*"
+    err 'ROLLBACK ERROR/STATE: no live apply'
+    return 1
+}
 
 cleanup() {
     [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR" 2>/dev/null || true
@@ -302,12 +307,17 @@ ndm_save() {
 
 dns_query_ok() {
     if [ "$TEST_MODE" = yes ]; then [ "$(test_state_value DNS_QUERY_OK yes)" = yes ]; return; fi
-    LAN_IP="$(ip -4 addr show br0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\)\/.*/\1/p' | head -n 1)"
-    [ -n "$LAN_IP" ] || return 1
-    N=0
-    while [ "$N" -lt 5 ]; do
-        nslookup example.com "$LAN_IP" >/tmp/freenet-network-dns-query.$$.log 2>&1 && return 0
-        sleep 2; N=$((N + 1))
+    TARGETS="127.0.0.1"
+    if command -v ip >/dev/null 2>&1; then
+        ADDRS="$(ip -o -4 addr show 2>/dev/null | awk '$2 != "lo" {split($4,a,"/"); if (a[1] != "") print a[1]}' | awk '!seen[$0]++')"
+        [ -n "$ADDRS" ] && TARGETS="$TARGETS $ADDRS"
+    fi
+    for DNS_TARGET in $TARGETS; do
+        N=0
+        while [ "$N" -lt 3 ]; do
+            nslookup example.com "$DNS_TARGET" >/tmp/freenet-network-dns-query.$$.log 2>&1 && return 0
+            sleep 2; N=$((N + 1))
+        done
     done
     return 1
 }
@@ -377,7 +387,7 @@ plan() {
 preflight_common() {
     for C in jq awk grep sed mktemp cp mv sha256sum; do command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }; done
     if [ "$TEST_MODE" != yes ]; then
-        for C in netstat pidof ip nslookup ndmc; do command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }; done
+        for C in netstat pidof nslookup ndmc; do command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }; done
     fi
     [ -x "$XKEEN_BIN" ] || { err 'XKeen не найден'; return 1; }
     [ -x "$XRAY_BIN" ] || { err 'Xray не найден'; return 1; }
@@ -478,19 +488,19 @@ apply_candidate_dir() {
 }
 
 apply_split() {
-    preflight_common || return 1
-    [ "$(proxy_dns_state)" = off ] || { err 'Split DNS требует proxy_dns=off'; return 1; }
-    [ "$NDM_OVERRIDE_INITIAL" = off ] || { err 'ожидался native Keenetic DNS перед переходом в Split'; return 1; }
-    [ "$(port53_owner)" = ndnproxy ] || { err 'native mode должен иметь ndnproxy на :53'; return 1; }
-    [ "$(xray_dns_inbound_count)" = 0 ] || { err 'native mode неожиданно содержит Xray :53 inbound'; return 1; }
-    has_dns_out && { err 'native mode неожиданно содержит dns-out'; return 1; }
-    [ "$(dns_routing_mode)" = native ] || { err 'native mode содержит DNS routing delta'; return 1; }
-    has_vless || { err 'Split DNS требует рабочий vless-reality'; return 1; }
-    PRESERVE_BEFORE="$(non_dns_hashes)" || return 1
-    snapshot_configs split || { err 'не удалось создать backup Split DNS'; return 1; }
-    preserve_native_dns_file || { err 'не удалось сохранить native 02_dns'; return 1; }
-    make_tmp || return 1
-    build_split_candidate || { err 'candidate Split DNS не прошёл validation'; return 1; }
+    preflight_common || { fail_not_applied 'Split DNS preflight failed before mutation'; return 1; }
+    [ "$(proxy_dns_state)" = off ] || { fail_not_applied 'Split DNS требует proxy_dns=off'; return 1; }
+    [ "$NDM_OVERRIDE_INITIAL" = off ] || { fail_not_applied 'ожидался native Keenetic DNS перед переходом в Split'; return 1; }
+    [ "$(port53_owner)" = ndnproxy ] || { fail_not_applied 'native mode должен иметь ndnproxy на :53'; return 1; }
+    [ "$(xray_dns_inbound_count)" = 0 ] || { fail_not_applied 'native mode неожиданно содержит Xray :53 inbound'; return 1; }
+    has_dns_out && { fail_not_applied 'native mode неожиданно содержит dns-out'; return 1; }
+    [ "$(dns_routing_mode)" = native ] || { fail_not_applied 'native mode содержит DNS routing delta'; return 1; }
+    has_vless || { fail_not_applied 'Split DNS требует рабочий vless-reality'; return 1; }
+    PRESERVE_BEFORE="$(non_dns_hashes)" || { fail_not_applied 'не удалось снять non-DNS preserve hashes'; return 1; }
+    snapshot_configs split || { fail_not_applied 'не удалось создать backup Split DNS'; return 1; }
+    preserve_native_dns_file || { fail_not_applied 'не удалось сохранить native 02_dns'; return 1; }
+    make_tmp || { fail_not_applied 'не удалось создать временный каталог Split DNS'; return 1; }
+    build_split_candidate || { fail_not_applied 'candidate Split DNS не прошёл validation'; return 1; }
     ndm_set_override on || { err 'PRIMARY ERROR: не удалось включить opkg dns-override'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     apply_candidate_dir "$TMP_DIR/split" || { err 'PRIMARY ERROR: не удалось применить Split candidate'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     set_proxy_dns_off || { err 'PRIMARY ERROR: proxy_dns не удалось оставить off'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
@@ -509,13 +519,13 @@ apply_split() {
 }
 
 apply_native() {
-    preflight_common || return 1
-    [ "$(proxy_dns_state)" = off ] || { err 'native DNS требует proxy_dns=off'; return 1; }
-    PRESERVE_BEFORE="$(non_dns_hashes)" || return 1
+    preflight_common || { fail_not_applied 'native DNS preflight failed before mutation'; return 1; }
+    [ "$(proxy_dns_state)" = off ] || { fail_not_applied 'native DNS требует proxy_dns=off'; return 1; }
+    PRESERVE_BEFORE="$(non_dns_hashes)" || { fail_not_applied 'не удалось снять non-DNS preserve hashes'; return 1; }
 
     # True native no-op is valid; this path also allows applying only a new ISP id.
     if [ "$NDM_OVERRIDE_INITIAL" = off ] && [ "$(port53_owner)" = ndnproxy ] && [ "$(xray_dns_inbound_count)" = 0 ] && ! has_dns_out && [ "$(dns_routing_mode)" = native ]; then
-        dns_query_ok || { err 'PRIMARY ERROR: native Keenetic DNS query failed'; return 1; }
+        dns_query_ok || { fail_not_applied 'native Keenetic DNS query failed'; return 1; }
         say '[FreeNet Network] RESULT=SUCCESS'
         say '[FreeNet Network] EFFECTIVE_DNS_MODE=firmware'
         say '[FreeNet Network] NDM_DNS_OVERRIDE=off'
@@ -525,12 +535,12 @@ apply_native() {
         return 0
     fi
 
-    [ "$NDM_OVERRIDE_INITIAL" = on ] || { err 'partial/unknown DNS topology: native restore ожидает opkg dns-override=on'; return 1; }
-    [ "$(port53_owner)" = xray ] || { err 'Split mode должен иметь Xray на :53'; return 1; }
-    [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] || { err 'Split topology неполна; STOP'; return 1; }
-    snapshot_configs native || { err 'не удалось создать backup native restore'; return 1; }
-    make_tmp || return 1
-    build_native_candidate || return 1
+    [ "$NDM_OVERRIDE_INITIAL" = on ] || { fail_not_applied 'partial/unknown DNS topology: native restore ожидает opkg dns-override=on'; return 1; }
+    [ "$(port53_owner)" = xray ] || { fail_not_applied 'Split mode должен иметь Xray на :53'; return 1; }
+    [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] || { fail_not_applied 'Split topology неполна; STOP'; return 1; }
+    snapshot_configs native || { fail_not_applied 'не удалось создать backup native restore'; return 1; }
+    make_tmp || { fail_not_applied 'не удалось создать временный каталог native restore'; return 1; }
+    build_native_candidate || { fail_not_applied 'native candidate не прошёл validation'; return 1; }
     apply_candidate_dir "$TMP_DIR/native" || { err 'PRIMARY ERROR: не удалось применить native candidate'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     xkeen_runtime restart "/tmp/freenet-network-native-restart.$$.log" || { err 'PRIMARY ERROR: Xray restart после удаления DNS inbound failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     wait_for_xray yes || { err 'PRIMARY ERROR: Xray не поднялся в native candidate'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
@@ -550,11 +560,11 @@ apply_native() {
 
 apply_profile() {
     resolve_profile
-    [ "$SUPPORTED" = yes ] || { plan; err "$REASON"; return 1; }
+    [ "$SUPPORTED" = yes ] || { plan; fail_not_applied "$REASON"; return 1; }
     case "$EFFECTIVE_DNS" in
         firmware) say '[FreeNet Network] APPLY=firmware/native'; apply_native ;;
         xkeen) say '[FreeNet Network] APPLY=xkeen/opkg-split'; apply_split ;;
-        *) err 'unsupported apply combination'; return 1 ;;
+        *) fail_not_applied 'unsupported apply combination'; return 1 ;;
     esac
 }
 
