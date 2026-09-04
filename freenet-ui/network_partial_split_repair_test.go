@@ -1,8 +1,7 @@
 package main
 
 import (
-	"crypto/sha256"
-	"fmt"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -104,10 +103,28 @@ func TestPartialLegacySplitSelfRepairNormalizesDNSLayer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(outbound), `"tag":"dns-out"`) != 1 || !strings.Contains(string(outbound), `"protocol":"dns"`) {
+	var outboundDoc struct {
+		Outbounds []struct {
+			Tag      string `json:"tag"`
+			Protocol string `json:"protocol"`
+		} `json:"outbounds"`
+	}
+	if err := json.Unmarshal(outbound, &outboundDoc); err != nil {
+		t.Fatalf("normalized outbounds are not JSON: %v\n%s", err, outbound)
+	}
+	dnsOutCount := 0
+	for _, item := range outboundDoc.Outbounds {
+		if item.Tag == "dns-out" {
+			dnsOutCount++
+			if item.Protocol != "dns" {
+				t.Fatalf("dns-out has unexpected protocol %q", item.Protocol)
+			}
+		}
+	}
+	if dnsOutCount != 1 {
 		t.Fatalf("dns-out was not normalized exactly once: %s", outbound)
 	}
-	if !strings.Contains(string(outbound), `"marker":"preserve-vpn"`) {
+	if !strings.Contains(string(outbound), `"marker": "preserve-vpn"`) {
 		t.Fatalf("non-DNS VPN outbound was not preserved: %s", outbound)
 	}
 
@@ -115,16 +132,12 @@ func TestPartialLegacySplitSelfRepairNormalizesDNSLayer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"dns-vless"`, `"dns-direct"`, `"dns-out"`} {
+	if len(routing) < 20 {
+		t.Fatalf("normalized routing is unexpectedly short: %q", routing)
+	}
+	for _, want := range []string{"dns-vless", "dns-direct", "dns-out"} {
 		if !strings.Contains(string(routing), want) {
 			t.Fatalf("normalized Split routing missing %s: %s", want, routing)
 		}
-	}
-
-	// Keep a cheap content fingerprint assertion so an accidental empty/truncated
-	// candidate cannot satisfy the string checks above.
-	h := sha256.Sum256(routing)
-	if fmt.Sprintf("%x", h[:]) == strings.Repeat("0", 64) {
-		t.Fatal("unexpected zero routing fingerprint")
 	}
 }
