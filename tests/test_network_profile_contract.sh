@@ -11,6 +11,8 @@ for marker in \
     "ndmc -c 'no opkg dns-override'" \
     "ndmc -c 'system configuration save'" \
     'NDM_DNS_OVERRIDE=' \
+    'ndm_protected_state' \
+    'Keenetic protected DNS/WAN state changed unexpectedly' \
     '02_dns may be native JSONC/comment-only' \
     'ROLLBACK ERROR/STATE: no live apply' \
     'ROLLBACK ERROR/STATE: FAILED/UNKNOWN' \
@@ -50,6 +52,9 @@ cat > "$STATE" <<'EOF'
 PORT53_OWNER=ndnproxy
 NDM_DNS_OVERRIDE=off
 NDM_CONFIG_MARKER=preserved
+NDM_DNS_PROFILE_MARKER=preserved
+NDM_FILTER_ENGINE=auto
+NDM_MUTATE_PROTECTED_ON_OVERRIDE=no
 XRAY_RUNNING=yes
 XRAY_GID=11111
 DNS_QUERY_OK=yes
@@ -97,7 +102,9 @@ grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'native no-op failure mutated 
 grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'native no-op failure changed :53 owner'
 state_set DNS_QUERY_OK yes
 
-# Direct native -> Split must also accept a legacy on value and normalize it after snapshot.
+# Direct native -> Split must accept expected Keenetic representation drift:
+# opkg override may change filter-engine/UI representation and unrelated running-config lines,
+# but protected DNS profiles/upstreams/assignments/WAN DNS flags must remain identical.
 sed -i 's/^proxy_dns=.*/proxy_dns="on"/' "$TROOT/etc/init.d/S05xkeen"
 sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
 run_network apply > "$TMP/split.apply" 2>&1 || { cat "$TMP/split.apply" >&2; fail 'native -> split failed'; }
@@ -123,16 +130,29 @@ jq -e '([.outbounds[]? | select(.tag=="dns-out")] | length)==0' "$TROOT/etc/xray
 [ "$(hash_out)" = "$HOUT" ] || fail 'native changed VPN/non-DNS outbounds'
 [ "$(hash_route)" = "$HROUTE" ] || fail 'native changed non-DNS routing'
 
-# Failure after live mutation must restore exact native state.
+# A genuine protected NDM drift must still STOP. The controller cannot safely guess/replay
+# user DNS profile definitions, so rollback state remains UNKNOWN until facts are established.
 sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
+state_set NDM_MUTATE_PROTECTED_ON_OVERRIDE yes
+if run_network apply > "$TMP/protected-drift.apply" 2>&1; then fail 'protected NDM drift unexpectedly succeeded'; fi
+grep -Fq 'PRIMARY ERROR: Keenetic protected DNS/WAN state changed unexpectedly' "$TMP/protected-drift.apply" || fail 'protected NDM drift was not detected'
+grep -Fq 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN' "$TMP/protected-drift.apply" || fail 'protected NDM drift must stop as unknown when protected state cannot be restored'
+# Runtime rollback reaches the original topology before protected verification fails.
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'protected drift rollback did not restore NDM override'
+grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'protected drift rollback did not restore :53 owner'
+state_set NDM_MUTATE_PROTECTED_ON_OVERRIDE no
+state_set NDM_DNS_PROFILE_MARKER preserved
+
+# Failure after live mutation must restore exact native state and prove DNS works after rollback.
 for n in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do cp "$TROOT/etc/xray/configs/$n" "$TMP/$n.before"; done
-state_set DNS_QUERY_OK no
-if run_network apply > "$TMP/fail.apply" 2>&1; then fail 'failed DNS acceptance unexpectedly succeeded'; fi
+state_set NDM_SAVE_RESULT fail
+if run_network apply > "$TMP/fail.apply" 2>&1; then fail 'failed NDM save unexpectedly succeeded'; fi
+grep -Fq 'PRIMARY ERROR: NDM save failed after acceptance' "$TMP/fail.apply" || fail 'NDM save primary error missing'
 grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/fail.apply" || fail 'rollback success missing'
 grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'rollback did not restore NDM'
 grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'rollback did not restore :53 owner'
 for n in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do cmp -s "$TMP/$n.before" "$TROOT/etc/xray/configs/$n" || fail "rollback changed $n"; done
-state_set DNS_QUERY_OK yes
+state_set NDM_SAVE_RESULT success
 
 state_set PORT53_OWNER none
 if run_network apply > "$TMP/partial.apply" 2>&1; then fail 'partial topology unexpectedly succeeded'; fi
