@@ -15,6 +15,7 @@ func TestParseNetworkPlanMarksMatchingSplitActive(t *testing.T) {
 		"PROXY_DNS=off",
 		"PORT53_OWNER=xray",
 		"XRAY_GID=11111",
+		"NDM_DNS_INTERCEPT=off",
 		"DNS_ROUTING_MODE=split",
 		"DNS_OUT=yes",
 		"VLESS_PROFILE=yes",
@@ -32,6 +33,35 @@ func TestParseNetworkPlanMarksMatchingSplitActive(t *testing.T) {
 	if plan.DNSRoutingMode != "split" {
 		t.Fatalf("dns routing mode not exposed: %+v", plan)
 	}
+	if plan.DNSIntercept != "off" {
+		t.Fatalf("Keenetic DNS intercept state not exposed: %+v", plan)
+	}
+}
+
+func TestParseNetworkPlanDoesNotMarkSplitActiveWithNativeIntercept(t *testing.T) {
+	out := strings.Join([]string{
+		"ISP_ID=auto",
+		"DNS_MODE=xkeen",
+		"EFFECTIVE_DNS_MODE=xkeen",
+		"SUPPORTED=yes",
+		"REASON=Split DNS через XKeen/Xray выбран явно",
+		"PROXY_DNS=off",
+		"PORT53_OWNER=xray",
+		"XRAY_GID=11111",
+		"NDM_DNS_INTERCEPT=on",
+		"DNS_ROUTING_MODE=split",
+		"DNS_OUT=yes",
+		"VLESS_PROFILE=yes",
+		"EXPECTED_DELTA=suppress native system DNS interception",
+		"MUTATION=NONE",
+	}, "\n")
+	plan, err := parseNetworkPlan(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Active {
+		t.Fatalf("Split runtime with native Keenetic interception must remain repair-ready: %+v", plan)
+	}
 }
 
 func TestParseNetworkPlanDoesNotMarkMismatchedRuntimeActive(t *testing.T) {
@@ -44,6 +74,7 @@ func TestParseNetworkPlanDoesNotMarkMismatchedRuntimeActive(t *testing.T) {
 		"PROXY_DNS=off",
 		"PORT53_OWNER=xray",
 		"XRAY_GID=11111",
+		"NDM_DNS_INTERCEPT=off",
 		"DNS_ROUTING_MODE=standard",
 		"DNS_OUT=yes",
 		"VLESS_PROFILE=yes",
