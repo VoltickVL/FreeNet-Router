@@ -31,18 +31,18 @@ func TestRotatePostcondition(t *testing.T) {
 	if err := validateActionPostcondition("rotate", before, statusResponse{CountryCode: "de", Endpoint: "10.0.0.2:443", DNSOut: true}); err == nil || !strings.Contains(err.Error(), "profile group") {
 		t.Fatalf("profile-group change must fail, got %v", err)
 	}
-	if err := validateActionPostcondition("rotate", before, statusResponse{CountryCode: "pl", Endpoint: "10.0.0.2:443", DNSOut: false}); err == nil || !strings.Contains(err.Error(), "dns-out") {
-		t.Fatalf("missing dns-out must fail, got %v", err)
+	if err := validateActionPostcondition("rotate", before, statusResponse{CountryCode: "pl", Endpoint: "10.0.0.2:443", DNSOut: false}); err != nil {
+		t.Fatalf("direct-DNS rotation without dns-out must be accepted, got %v", err)
 	}
 }
 
-func TestCountrySwitchRequiresDNSOut(t *testing.T) {
-	before := statusResponse{CountryCode: "pl", Endpoint: "10.0.0.1:443", DNSOut: true, ISP: "vladlink", DNSMode: "xkeen"}
-	if err := validateActionPostcondition("de", before, statusResponse{CountryCode: "de", Endpoint: "10.0.0.2:443", DNSOut: true, ISP: "vladlink", DNSMode: "xkeen"}); err != nil {
-		t.Fatalf("valid country switch rejected: %v", err)
+func TestCountrySwitchAllowsDirectDNSWithoutDNSOut(t *testing.T) {
+	before := statusResponse{CountryCode: "pl", Endpoint: "10.0.0.1:443", DNSOut: false, ISP: "custom", DNSMode: "firmware"}
+	if err := validateActionPostcondition("de", before, statusResponse{CountryCode: "de", Endpoint: "10.0.0.2:443", DNSOut: false, ISP: "custom", DNSMode: "firmware"}); err != nil {
+		t.Fatalf("country switch with direct DNS rejected: %v", err)
 	}
-	if err := validateActionPostcondition("de", before, statusResponse{CountryCode: "de", Endpoint: "10.0.0.2:443", DNSOut: false, ISP: "vladlink", DNSMode: "xkeen"}); err == nil || !strings.Contains(err.Error(), "dns-out") {
-		t.Fatalf("country switch without dns-out must fail, got %v", err)
+	if err := validateActionPostcondition("de", before, statusResponse{CountryCode: "de", Endpoint: "10.0.0.2:443", DNSOut: true, ISP: "custom", DNSMode: "xkeen"}); err != nil {
+		t.Fatalf("country switch with split DNS rejected: %v", err)
 	}
 }
 
@@ -79,25 +79,36 @@ func TestRotateBaselineRequiresKnownProfileAndEndpoint(t *testing.T) {
 }
 
 func TestRotateUIContract(t *testing.T) {
-	b, err := webFS.ReadFile("web/index.html")
+	indexData, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	ui := string(b)
+	fixData, err := webFS.ReadFile("web/vpn-ux-fix.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(indexData)
+	fix := string(fixData)
 	for _, want := range []string{
 		`id="quickActionsSection"`,
 		`id="quickNetworkGuard"`,
 		`data-action="rotate"`,
-		`Сменить сервер`,
 		`Ищем другой VPN-сервер…`,
 		`requestedAction!=='rotate'`,
 		`Если альтернативы нет, конфигурация не изменится.`,
-		`Сохраняются: ISP `,
-		`DNS `,
-		`FreeNet требует сохранённый dns-out`,
 	} {
 		if !strings.Contains(ui, want) {
 			t.Fatalf("rotate/quick-action UI contract missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"Обновить текущий VPN-профиль",
+		"Сменить сервер",
+		"VPN-действия не меняют ISP и DNS",
+		"Текущий DNS-режим:",
+	} {
+		if !strings.Contains(fix, want) {
+			t.Fatalf("VPN UX compatibility layer missing %q", want)
 		}
 	}
 }
