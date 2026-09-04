@@ -25,6 +25,7 @@ BACKUP_DIR=""
 PROXY_DNS_INITIAL="unknown"
 NDM_OVERRIDE_INITIAL="unknown"
 NDM_FILTER_ENGINE_INITIAL="unknown"
+NDM_INTERCEPT_INITIAL="unknown"
 NDM_PROTECTED_HASH_INITIAL=""
 XRAY_WAS_RUNNING="no"
 CONFIG_SNAPSHOT_KIND="none"
@@ -261,10 +262,11 @@ ndm_running_config() {
     if [ "$TEST_MODE" = yes ]; then
         OVERRIDE="$(test_state_value NDM_DNS_OVERRIDE off)"
         ENGINE="$(test_state_value NDM_FILTER_ENGINE public)"
+        INTERCEPT="$(test_state_value NDM_DNS_INTERCEPT on)"
         PROFILE_MARKER="$(test_state_value NDM_DNS_PROFILE_MARKER preserved)"
         printf '%s\n' 'dns-proxy'
         printf '%s\n' '    rebind-protect auto'
-        printf '%s\n' '    intercept enable'
+        [ "$INTERCEPT" = on ] && printf '%s\n' '    intercept enable'
         printf '%s\n' '    tls upstream common.dot.dns.yandex.net'
         printf '%s\n' '    https upstream https://common.dot.dns.yandex.net/dns-query'
         printf '%s\n' '    filter profile xbox-dns.ru'
@@ -321,6 +323,27 @@ ndm_filter_engine_state() {
 
 ndm_filter_engine_token_ok() {
     printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9_-]+$'
+}
+
+ndm_intercept_state() {
+    STATE="$(ndm_running_config 2>/dev/null | tr -d '\r' | awk '
+        function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+        {
+            raw=$0
+            if (raw ~ /^[^ \t]/) {
+                top=trim(raw)
+                if (top == "!") { dns=0; next }
+                if (top == "dns-proxy") { dns=1; next }
+                if (top == "dns-proxy intercept enable") { print "on"; exit }
+                dns=0
+                next
+            }
+            line=trim(raw)
+            if (dns && line == "intercept enable") { print "on"; exit }
+        }
+        END { }
+    ')"
+    [ "$STATE" = on ] && printf '%s\n' on || printf '%s\n' off
 }
 
 # Protect only user DNS state that must survive native <-> OPKG transitions.
@@ -403,6 +426,20 @@ ndm_set_filter_engine() {
     ndmc -c "dns-proxy filter engine $WANT" >/dev/null 2>&1
 }
 
+ndm_set_intercept() {
+    WANT="$1"
+    case "$WANT" in on|off) : ;; *) return 1 ;; esac
+    if [ "$TEST_MODE" = yes ]; then
+        [ "$(test_state_value NDM_INTERCEPT_ACTION_RESULT success)" = success ] || return 1
+        test_state_set NDM_DNS_INTERCEPT "$WANT"
+        return
+    fi
+    case "$WANT" in
+        on) ndmc -c 'dns-proxy intercept enable' >/dev/null 2>&1 ;;
+        off) ndmc -c 'dns-proxy no intercept enable' >/dev/null 2>&1 ;;
+    esac
+}
+
 ndm_save() {
     if [ "$TEST_MODE" = yes ]; then
         [ "$(test_state_value NDM_SAVE_RESULT success)" = success ]
@@ -451,16 +488,21 @@ runtime_facts() {
     PORT53_OWNER="$(port53_owner)"
     NDM_OVERRIDE="$(ndm_override_state)"
     NDM_ENGINE="$(ndm_filter_engine_state)"
+    NDM_INTERCEPT="$(ndm_intercept_state)"
     DNS_INBOUND="$(xray_dns_inbound_count)"
     DNS_OUT=no; has_dns_out && DNS_OUT=yes
     VLESS=no; has_vless && VLESS=yes
     DNS_ROUTING="$(dns_routing_mode)"
+    if [ "$DNS_ROUTING" = split ] && [ "$NDM_INTERCEPT" != off ]; then
+        DNS_ROUTING=split-intercept
+    fi
     XPID="$(xray_pid)"; XRAY_RUNNING=no; XRAY_GID=unknown
     if [ -n "$XPID" ]; then XRAY_RUNNING=yes; XRAY_GID="$(xray_gid "$XPID")"; fi
     say "PROXY_DNS=$PROXY_DNS"
     say "PORT53_OWNER=$PORT53_OWNER"
     say "NDM_DNS_OVERRIDE=$NDM_OVERRIDE"
     say "NDM_FILTER_ENGINE=$NDM_ENGINE"
+    say "NDM_DNS_INTERCEPT=$NDM_INTERCEPT"
     say "XRAY_DNS_INBOUND_COUNT=$DNS_INBOUND"
     say "DNS_ROUTING_MODE=$DNS_ROUTING"
     say "XRAY_RUNNING=$XRAY_RUNNING"
@@ -479,11 +521,11 @@ plan() {
     say "REASON=$REASON"
     runtime_facts
     if [ "$SUPPORTED" = yes ] && [ "$EFFECTIVE_DNS" = firmware ]; then
-        say 'EXPECTED_DELTA=Keenetic native DNS owns :53; no opkg dns-override; restore native filter engine; remove only FreeNet DNS inbound/dns-out/DNS routing; restore exact native 02_dns; normalize proxy_dns=off if required without unnecessary runtime restart; save NDM only after acceptance'
+        say 'EXPECTED_DELTA=Keenetic native DNS owns :53; no opkg dns-override; restore native filter engine and native system DNS intercept state; remove only FreeNet DNS inbound/dns-out/DNS routing; restore exact native 02_dns; normalize proxy_dns=off if required without unnecessary runtime restart; save NDM only after acceptance'
         say 'EXPECTED_NO_DELTA=no VPN credential rewrite; no subscription change; no non-DNS routing/inbound/outbound change; preserve Keenetic DNS profiles/DoT/DoH/client assignments/WAN DNS flags'
     elif [ "$SUPPORTED" = yes ] && [ "$EFFECTIVE_DNS" = xkeen ]; then
-        say 'EXPECTED_DELTA=enable opkg dns-override; set Keenetic filter engine opkg; Xray owns :53; one dns-out; dns-direct -> direct; dns-vless -> vless-reality; normalize proxy_dns=off after snapshot; save NDM only after acceptance'
-        say 'EXPECTED_NO_DELTA=no VPN credential rewrite; no subscription change; no non-DNS routing/inbound/outbound change; preserve Keenetic DNS profiles/DoT/DoH/client assignments/WAN DNS flags'
+        say 'EXPECTED_DELTA=enable opkg dns-override; suppress native System DNS intercept while Split is active; set Keenetic filter engine opkg; Xray owns :53; ordered first-match DNS policy mirrors domain routing; one dns-out; dns-direct -> direct; dns-vless -> vless-reality; normalize proxy_dns=off after snapshot; save NDM only after acceptance'
+        say 'EXPECTED_NO_DELTA=no VPN credential rewrite; no subscription change; no non-DNS routing/inbound/outbound change; preserve Keenetic DNS profiles/DoT/DoH/client assignments/WAN DNS flags; exact native intercept state is restored on Direct/rollback'
     else
         say 'EXPECTED_DELTA=NONE until a supported DNS mode is selected'
         say 'EXPECTED_NO_DELTA=all runtime state preserved'
@@ -508,6 +550,7 @@ preflight_common() {
     PROXY_DNS_INITIAL="$(proxy_dns_state)"; case "$PROXY_DNS_INITIAL" in off|on) : ;; *) err 'не удалось определить proxy_dns'; return 1 ;; esac
     NDM_OVERRIDE_INITIAL="$(ndm_override_state)"; case "$NDM_OVERRIDE_INITIAL" in off|on) : ;; *) err 'не удалось определить opkg dns-override'; return 1 ;; esac
     NDM_FILTER_ENGINE_INITIAL="$(ndm_filter_engine_state)"; ndm_filter_engine_token_ok "$NDM_FILTER_ENGINE_INITIAL" || { err 'не удалось определить Keenetic filter engine'; return 1; }
+    NDM_INTERCEPT_INITIAL="$(ndm_intercept_state)"; case "$NDM_INTERCEPT_INITIAL" in off|on) : ;; *) err 'не удалось определить Keenetic DNS intercept'; return 1 ;; esac
     NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)"; [ -n "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'не удалось снять protected NDM hash'; return 1; }
     XPID="$(xray_pid)"; XRAY_WAS_RUNNING=no
     if [ -n "$XPID" ]; then XRAY_WAS_RUNNING=yes; [ "$(xray_gid "$XPID")" = 11111 ] || { err 'Xray GID не равен 11111'; return 1; }; fi
@@ -524,6 +567,7 @@ snapshot_configs() {
     ndm_protected_state > "$BACKUP_DIR/ndm-protected.before" 2>/dev/null || return 1
     printf '%s\n' "$NDM_OVERRIDE_INITIAL" > "$BACKUP_DIR/ndm-override.before"
     printf '%s\n' "$NDM_FILTER_ENGINE_INITIAL" > "$BACKUP_DIR/ndm-filter-engine.before"
+    printf '%s\n' "$NDM_INTERCEPT_INITIAL" > "$BACKUP_DIR/ndm-intercept.before"
     CONFIG_SNAPSHOT_KIND="$KIND"
 }
 
@@ -544,12 +588,14 @@ restore_runtime() {
         ndm_set_override on || return 1
         ndm_set_filter_engine "$NDM_FILTER_ENGINE_INITIAL" || return 1
     fi
+    ndm_set_intercept "$NDM_INTERCEPT_INITIAL" || return 1
     if [ "$XRAY_WAS_RUNNING" = yes ]; then xkeen_runtime restart "/tmp/freenet-network-rollback.$$.log" || return 1; wait_for_xray yes || return 1
     else xkeen_runtime stop "/tmp/freenet-network-rollback.$$.log" || true; wait_for_xray no || return 1
     fi
     case "$NDM_OVERRIDE_INITIAL" in on) wait_port53_owner xray || return 1 ;; off) wait_port53_owner ndnproxy || return 1 ;; esac
     [ "$(proxy_dns_state)" = "$PROXY_DNS_INITIAL" ] || return 1
     [ "$(ndm_filter_engine_state)" = "$NDM_FILTER_ENGINE_INITIAL" ] || return 1
+    [ "$(ndm_intercept_state)" = "$NDM_INTERCEPT_INITIAL" ] || return 1
     dns_query_ok || return 1
     [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || return 1
 }
@@ -564,6 +610,7 @@ rollback_files_only() {
     restore_files || return 1
     [ "$(proxy_dns_state)" = "$PROXY_DNS_INITIAL" ] || return 1
     [ "$(ndm_filter_engine_state)" = "$NDM_FILTER_ENGINE_INITIAL" ] || return 1
+    [ "$(ndm_intercept_state)" = "$NDM_INTERCEPT_INITIAL" ] || return 1
     dns_query_ok || return 1
     [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || return 1
     return 0
@@ -583,6 +630,13 @@ preserve_native_filter_engine() {
     mv -f "$NATIVE_STATE_DIR/filter-engine.native.tmp.$$" "$NATIVE_STATE_DIR/filter-engine.native" || return 1
 }
 
+preserve_native_intercept() {
+    mkdir -p "$NATIVE_STATE_DIR" || return 1
+    case "$NDM_INTERCEPT_INITIAL" in on|off) : ;; *) return 1 ;; esac
+    printf '%s\n' "$NDM_INTERCEPT_INITIAL" > "$NATIVE_STATE_DIR/intercept.native.tmp.$$" || return 1
+    mv -f "$NATIVE_STATE_DIR/intercept.native.tmp.$$" "$NATIVE_STATE_DIR/intercept.native" || return 1
+}
+
 native_dns_file_valid() {
     [ -f "$NATIVE_STATE_DIR/02_dns.native" ] || return 1
     [ -f "$NATIVE_STATE_DIR/02_dns.native.sha256" ] || return 1
@@ -599,6 +653,12 @@ native_filter_engine_value() {
     printf '%s\n' "$VALUE"
 }
 
+native_intercept_value() {
+    [ -f "$NATIVE_STATE_DIR/intercept.native" ] || return 1
+    VALUE="$(sed -n '1p' "$NATIVE_STATE_DIR/intercept.native" 2>/dev/null | tr -d '\r\n')"
+    case "$VALUE" in on|off) printf '%s\n' "$VALUE" ;; *) return 1 ;; esac
+}
+
 validate_preserve_hashes() {
     BEFORE="$1"; AFTER="$(non_dns_hashes)" || return 1
     [ "$BEFORE" = "$AFTER" ]
@@ -606,9 +666,16 @@ validate_preserve_hashes() {
 
 build_split_candidate() {
     C="$TMP_DIR/split"; mkdir -p "$C" || return 1
-    DIRECT_DOMAINS="$(jq -c '[.routing.rules[]? | select(.outboundTag == "direct") | .domain[]?] | unique' "$ROUTING_FILE")" || return 1
-    [ -n "$DIRECT_DOMAINS" ] || DIRECT_DOMAINS='[]'
-    jq -n --argjson domains "$DIRECT_DOMAINS" '{dns:{tag:"dns-vless",servers:[{address:"77.88.8.8",port:53,domains:$domains,skipFallback:true,tag:"dns-direct"},{address:"https://8.8.8.8/dns-query",tag:"dns-vless"}],queryStrategy:"UseIPv4"}}' > "$C/02_dns.json" || return 1
+    DNS_SERVERS="$(jq -c '[
+        .routing.rules[]?
+        | select((.domain? | type) == "array" and (.domain | length) > 0)
+        | if .outboundTag == "direct" then
+            {address:"77.88.8.8",port:53,domains:.domain,skipFallback:true,finalQuery:true,tag:"dns-direct"}
+          else
+            {address:"https://8.8.8.8/dns-query",domains:.domain,skipFallback:true,finalQuery:true,tag:"dns-vless"}
+          end
+      ] + [{address:"https://8.8.8.8/dns-query",tag:"dns-vless",finalQuery:true}]' "$ROUTING_FILE")" || return 1
+    jq -n --argjson servers "$DNS_SERVERS" '{dns:{tag:"dns-vless",servers:$servers,queryStrategy:"UseIPv4"}}' > "$C/02_dns.json" || return 1
     jq '.inbounds = ([.inbounds[]? | select((((.port // "") | tostring) != "53"))] + [{"tag":"dns","port":53,"protocol":"dokodemo-door","settings":{"network":"tcp,udp"}}])' "$INBOUND_FILE" > "$C/03_inbounds.json" || return 1
     jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out")] + [{"protocol":"dns","tag":"dns-out"}])' "$OUT_FILE" > "$C/04_outbounds.json" || return 1
     jq '.routing.rules = ([{"type":"field","inboundTag":["dns-vless"],"outboundTag":"vless-reality"},{"type":"field","inboundTag":["dns-direct"],"outboundTag":"direct"},{"type":"field","port":53,"outboundTag":"dns-out"}] + [.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))])' "$ROUTING_FILE" > "$C/05_routing.json" || return 1
@@ -631,38 +698,73 @@ apply_candidate_dir() {
     for NAME in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do mv -f "$CONFIG_DIR/$NAME.freenet.$$" "$CONFIG_DIR/$NAME" || return 1; done
 }
 
+split_success() {
+    say '[FreeNet Network] RESULT=SUCCESS'
+    say '[FreeNet Network] EFFECTIVE_DNS_MODE=xkeen'
+    say '[FreeNet Network] NDM_DNS_OVERRIDE=on'
+    say '[FreeNet Network] NDM_FILTER_ENGINE=opkg'
+    say '[FreeNet Network] NDM_DNS_INTERCEPT=off'
+    say '[FreeNet Network] PORT53_OWNER=xray'
+    say '[FreeNet Network] DNS_ROUTING_MODE=split'
+    say '[FreeNet Network] ROLLBACK=NOT_NEEDED'
+}
+
 apply_split() {
     preflight_common || { fail_not_applied 'Split DNS preflight failed before mutation'; return 1; }
-    [ "$NDM_OVERRIDE_INITIAL" = off ] || { fail_not_applied 'ожидался native Keenetic DNS перед переходом в Split'; return 1; }
+    has_vless || { fail_not_applied 'Split DNS требует рабочий vless-reality'; return 1; }
+    PRESERVE_BEFORE="$(non_dns_hashes)" || { fail_not_applied 'не удалось снять non-DNS preserve hashes'; return 1; }
+
+    # Repair v0.2.43-style Split in place: OPKG/Xray already owns :53, but native
+    # System DNS interception can still bypass Xray and leak the native resolver.
+    if [ "$NDM_OVERRIDE_INITIAL" = on ]; then
+        [ "$PROXY_DNS_INITIAL" = off ] || { fail_not_applied 'Split repair требует proxy_dns=off'; return 1; }
+        [ "$NDM_FILTER_ENGINE_INITIAL" = opkg ] || { fail_not_applied 'Split repair требует Keenetic filter engine opkg'; return 1; }
+        [ "$(port53_owner)" = xray ] || { fail_not_applied 'Split repair требует Xray на :53'; return 1; }
+        [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] || { fail_not_applied 'Split repair: DNS topology неполна; STOP'; return 1; }
+        if ! native_intercept_value >/dev/null 2>&1; then
+            # v0.2.43 did not persist this control bit. Only the observed legacy
+            # state "on" is safe to adopt as the native baseline; otherwise STOP.
+            [ "$NDM_INTERCEPT_INITIAL" = on ] || { fail_not_applied 'нет native intercept snapshot, а legacy Split уже имеет intercept=off; отказ от догадки'; return 1; }
+            preserve_native_intercept || { fail_not_applied 'не удалось сохранить legacy native intercept state'; return 1; }
+        fi
+        snapshot_configs split-repair || { fail_not_applied 'не удалось создать backup Split repair'; return 1; }
+        make_tmp || { fail_not_applied 'не удалось создать временный каталог Split repair'; return 1; }
+        build_split_candidate || { fail_not_applied 'candidate Split repair не прошёл validation'; return 1; }
+        ndm_set_intercept off || { err 'PRIMARY ERROR: не удалось отключить native Keenetic DNS intercept'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        apply_candidate_dir "$TMP_DIR/split" || { err 'PRIMARY ERROR: не удалось применить Split repair candidate'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        xkeen_runtime restart "/tmp/freenet-network-split-repair.$$.log" || { err 'PRIMARY ERROR: XKeen/Xray restart failed during Split repair'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        wait_for_xray yes && wait_port53_owner xray || { err 'PRIMARY ERROR: Xray не подтвердил :53 после Split repair'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        [ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(ndm_filter_engine_state)" = opkg ] && [ "$(ndm_intercept_state)" = off ] && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok || { err 'PRIMARY ERROR: post-repair Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed during Split repair'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic protected DNS/WAN state changed during Split repair'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        ndm_save || { err 'PRIMARY ERROR: NDM save failed after Split repair acceptance'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        split_success
+        return 0
+    fi
+
     [ "$NDM_FILTER_ENGINE_INITIAL" != opkg ] || { fail_not_applied 'native mode неожиданно использует Keenetic filter engine opkg'; return 1; }
     [ "$(port53_owner)" = ndnproxy ] || { fail_not_applied 'native mode должен иметь ndnproxy на :53'; return 1; }
     [ "$(xray_dns_inbound_count)" = 0 ] || { fail_not_applied 'native mode неожиданно содержит Xray :53 inbound'; return 1; }
     has_dns_out && { fail_not_applied 'native mode неожиданно содержит dns-out'; return 1; }
     [ "$(dns_routing_mode)" = native ] || { fail_not_applied 'native mode содержит DNS routing delta'; return 1; }
-    has_vless || { fail_not_applied 'Split DNS требует рабочий vless-reality'; return 1; }
-    PRESERVE_BEFORE="$(non_dns_hashes)" || { fail_not_applied 'не удалось снять non-DNS preserve hashes'; return 1; }
     snapshot_configs split || { fail_not_applied 'не удалось создать backup Split DNS'; return 1; }
     preserve_native_dns_file || { fail_not_applied 'не удалось сохранить native 02_dns'; return 1; }
     preserve_native_filter_engine || { fail_not_applied 'не удалось сохранить native Keenetic filter engine'; return 1; }
+    preserve_native_intercept || { fail_not_applied 'не удалось сохранить native Keenetic DNS intercept state'; return 1; }
     make_tmp || { fail_not_applied 'не удалось создать временный каталог Split DNS'; return 1; }
     build_split_candidate || { fail_not_applied 'candidate Split DNS не прошёл validation'; return 1; }
     set_proxy_dns_off || { err 'PRIMARY ERROR: proxy_dns не удалось нормализовать в off'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_set_override on || { err 'PRIMARY ERROR: не удалось включить opkg dns-override'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    ndm_set_intercept off || { err 'PRIMARY ERROR: не удалось отключить native Keenetic DNS intercept'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_set_filter_engine opkg || { err 'PRIMARY ERROR: не удалось включить Keenetic filter engine opkg'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     apply_candidate_dir "$TMP_DIR/split" || { err 'PRIMARY ERROR: не удалось применить Split candidate'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     xkeen_runtime restart "/tmp/freenet-network-split-restart.$$.log" || { err 'PRIMARY ERROR: XKeen/Xray restart failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     wait_for_xray yes && wait_port53_owner xray || { err 'PRIMARY ERROR: Xray не стал владельцем :53'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    [ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(ndm_filter_engine_state)" = opkg ] && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(ndm_filter_engine_state)" = opkg ] && [ "$(ndm_intercept_state)" = off ] && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic protected DNS/WAN state changed unexpectedly'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_save || { err 'PRIMARY ERROR: NDM save failed after acceptance'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    say '[FreeNet Network] RESULT=SUCCESS'
-    say '[FreeNet Network] EFFECTIVE_DNS_MODE=xkeen'
-    say '[FreeNet Network] NDM_DNS_OVERRIDE=on'
-    say '[FreeNet Network] NDM_FILTER_ENGINE=opkg'
-    say '[FreeNet Network] PORT53_OWNER=xray'
-    say '[FreeNet Network] DNS_ROUTING_MODE=split'
-    say '[FreeNet Network] ROLLBACK=NOT_NEEDED'
+    split_success
 }
 
 apply_native() {
@@ -677,12 +779,13 @@ apply_native() {
         if [ "$PROXY_DNS_INITIAL" = on ]; then
             snapshot_configs native-normalize || { fail_not_applied 'не удалось создать backup proxy_dns normalization'; return 1; }
             set_proxy_dns_off || { err 'PRIMARY ERROR: proxy_dns не удалось нормализовать в off'; rollback_files_only && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-            [ "$(proxy_dns_state)" = off ] && [ "$(ndm_filter_engine_state)" = "$NDM_FILTER_ENGINE_INITIAL" ] && dns_query_ok && validate_preserve_hashes "$PRESERVE_BEFORE" && [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: native proxy_dns normalization acceptance failed'; rollback_files_only && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            [ "$(proxy_dns_state)" = off ] && [ "$(ndm_filter_engine_state)" = "$NDM_FILTER_ENGINE_INITIAL" ] && [ "$(ndm_intercept_state)" = "$NDM_INTERCEPT_INITIAL" ] && dns_query_ok && validate_preserve_hashes "$PRESERVE_BEFORE" && [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: native proxy_dns normalization acceptance failed'; rollback_files_only && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
         fi
         say '[FreeNet Network] RESULT=SUCCESS'
         say '[FreeNet Network] EFFECTIVE_DNS_MODE=firmware'
         say '[FreeNet Network] NDM_DNS_OVERRIDE=off'
         say "[FreeNet Network] NDM_FILTER_ENGINE=$NDM_FILTER_ENGINE_INITIAL"
+        say "[FreeNet Network] NDM_DNS_INTERCEPT=$NDM_INTERCEPT_INITIAL"
         say '[FreeNet Network] PORT53_OWNER=ndnproxy'
         say '[FreeNet Network] DNS_ROUTING_MODE=native'
         say '[FreeNet Network] ROLLBACK=NOT_NEEDED'
@@ -692,9 +795,11 @@ apply_native() {
     [ "$PROXY_DNS_INITIAL" = off ] || { fail_not_applied 'partial/unknown DNS topology with proxy_dns=on; STOP'; return 1; }
     [ "$NDM_OVERRIDE_INITIAL" = on ] || { fail_not_applied 'partial/unknown DNS topology: native restore ожидает opkg dns-override=on'; return 1; }
     [ "$NDM_FILTER_ENGINE_INITIAL" = opkg ] || { fail_not_applied 'Split mode должен иметь Keenetic filter engine opkg'; return 1; }
+    [ "$NDM_INTERCEPT_INITIAL" = off ] || { fail_not_applied 'Split mode имеет native DNS intercept; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
     [ "$(port53_owner)" = xray ] || { fail_not_applied 'Split mode должен иметь Xray на :53'; return 1; }
     [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] || { fail_not_applied 'Split topology неполна; STOP'; return 1; }
     NATIVE_ENGINE="$(native_filter_engine_value)" || { fail_not_applied 'нет проверенного native filter engine snapshot; отказ от догадки'; return 1; }
+    NATIVE_INTERCEPT="$(native_intercept_value)" || { fail_not_applied 'нет проверенного native intercept snapshot; отказ от догадки'; return 1; }
     snapshot_configs native || { fail_not_applied 'не удалось создать backup native restore'; return 1; }
     make_tmp || { fail_not_applied 'не удалось создать временный каталог native restore'; return 1; }
     build_native_candidate || { fail_not_applied 'native candidate не прошёл validation'; return 1; }
@@ -703,8 +808,9 @@ apply_native() {
     wait_for_xray yes || { err 'PRIMARY ERROR: Xray не поднялся в native candidate'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_set_filter_engine "$NATIVE_ENGINE" || { err 'PRIMARY ERROR: не удалось восстановить native Keenetic filter engine'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_set_override off || { err 'PRIMARY ERROR: не удалось отключить opkg dns-override'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    ndm_set_intercept "$NATIVE_INTERCEPT" || { err 'PRIMARY ERROR: не удалось восстановить native Keenetic DNS intercept state'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     wait_port53_owner ndnproxy || { err 'PRIMARY ERROR: ndnproxy не стал владельцем :53'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    [ "$(ndm_filter_engine_state)" = "$NATIVE_ENGINE" ] && [ "$(xray_dns_inbound_count)" = 0 ] && ! has_dns_out && [ "$(dns_routing_mode)" = native ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply native DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(ndm_filter_engine_state)" = "$NATIVE_ENGINE" ] && [ "$(ndm_intercept_state)" = "$NATIVE_INTERCEPT" ] && [ "$(xray_dns_inbound_count)" = 0 ] && ! has_dns_out && [ "$(dns_routing_mode)" = native ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply native DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic protected DNS/WAN state changed unexpectedly'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_save || { err 'PRIMARY ERROR: NDM save failed after native acceptance'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
@@ -712,6 +818,7 @@ apply_native() {
     say '[FreeNet Network] EFFECTIVE_DNS_MODE=firmware'
     say '[FreeNet Network] NDM_DNS_OVERRIDE=off'
     say "[FreeNet Network] NDM_FILTER_ENGINE=$NATIVE_ENGINE"
+    say "[FreeNet Network] NDM_DNS_INTERCEPT=$NATIVE_INTERCEPT"
     say '[FreeNet Network] PORT53_OWNER=ndnproxy'
     say '[FreeNet Network] DNS_ROUTING_MODE=native'
     say '[FreeNet Network] ROLLBACK=NOT_NEEDED'
