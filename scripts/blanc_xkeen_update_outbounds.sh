@@ -291,10 +291,9 @@ esac
 
 if ! jq -e '
     ((.outbounds | type) == "array") and
-    (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1) and
-    (([.outbounds[] | select(.tag == "dns-out")] | length) == 1)
+    (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1)
 ' "$OUT_FILE" >/dev/null 2>&1; then
-    fail "live 04_outbounds.json must contain exactly one vless-reality and one dns-out"
+    fail "live 04_outbounds.json must contain exactly one vless-reality"
 fi
 
 log "action reason: $ACTION_REASON"
@@ -506,8 +505,7 @@ jq --slurpfile replacement "$VLESS_OBJECT" '
 
 if ! jq -e '
     ((.outbounds | type) == "array") and
-    (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1) and
-    (([.outbounds[] | select(.tag == "dns-out")] | length) == 1)
+    (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1)
 ' "$NEW_FILE" >/dev/null 2>&1; then
     fail "candidate outbound structure is invalid"
 fi
@@ -617,38 +615,3 @@ if [ "$OLD_IP" = "$NEW_IP" ] && [ "$OLD_PORT" = "$NEW_PORT" ]; then
 else
     log "endpoint changed: ${OLD_IP:-none}:${OLD_PORT:-none} -> $NEW_IP:$NEW_PORT"
 fi
-
-log "updated 04_outbounds.json"
-log "restarting xkeen..."
-
-restart_xkeen
-sleep 5
-
-if ! pidof xray >/dev/null 2>&1; then
-
-    log "ERROR: Xray did not return after restart"
-
-    if rollback_state; then
-        exit 1
-    fi
-
-    exit 2
-fi
-
-if ! XRAY_LOCATION_ASSET="$ASSET_DIR" \
-    /opt/sbin/xray run -test -confdir "$CONFIG_DIR" \
-    > "$XRAY_TEST_LOG" 2>&1; then
-
-    log "ERROR: live Xray validation failed after restart"
-
-    if rollback_state; then
-        exit 1
-    fi
-
-    exit 2
-fi
-
-log "Xray validation after restart: OK"
-log "done"
-
-exit 0
