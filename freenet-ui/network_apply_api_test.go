@@ -216,6 +216,56 @@ func TestNetworkApplyFailureKeepsPreviousActiveConfig(t *testing.T) {
 	}
 }
 
+func TestClassifyApplyFailurePreservesNetworkPreflightDetail(t *testing.T) {
+	out := strings.Join([]string{
+		"[FreeNet Network] APPLY=firmware/native",
+		"[FreeNet Network] ERROR: не удалось определить Keenetic filter engine",
+		"[FreeNet Network] ERROR: PRIMARY ERROR: native DNS preflight failed before mutation",
+		"[FreeNet Network] ERROR: ROLLBACK ERROR/STATE: no live apply",
+	}, " | ")
+	primary, rollback := classifyApplyFailure(out)
+	want := "native DNS preflight failed before mutation: не удалось определить Keenetic filter engine"
+	if primary != want || rollback != "NOT_APPLIED" {
+		t.Fatalf("unexpected preflight classification: primary=%q rollback=%q", primary, rollback)
+	}
+}
+
+func TestNetworkApplyPreflightFailureReturnsExactSanitizedReason(t *testing.T) {
+	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("echo '[FreeNet Network] ERROR: не удалось определить Keenetic filter engine' >&2\necho '[FreeNet Network] ERROR: PRIMARY ERROR: native DNS preflight failed before mutation' >&2\necho '[FreeNet Network] ERROR: ROLLBACK ERROR/STATE: no live apply' >&2\nexit 1"))
+	t.Setenv("FREENET_NETWORK_HELPER", helper)
+	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=xkeen\nSETUP_COMPLETE=yes\n")
+	before, err := os.ReadFile(a.cfg.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	payload := `{"isp":"vladlink","dns_mode":"firmware","confirm":true}`
+	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
+	r.Host = "192.168.50.1:1001"
+	r.Header.Set("Origin", "http://192.168.50.1:1001")
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	a.handleNetworkProfileApply(w, r)
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp networkApplyResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	want := "native DNS preflight failed before mutation: не удалось определить Keenetic filter engine"
+	if resp.PrimaryError != want || resp.RollbackState != "NOT_APPLIED" {
+		t.Fatalf("exact preflight reason not returned: %+v", resp)
+	}
+	after, err := os.ReadFile(a.cfg.ConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("preflight STOP changed active config\nbefore=%s\nafter=%s", before, after)
+	}
+}
+
 func TestNetworkPlanHandlerUsesExactAllowlistedHelper(t *testing.T) {
 	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("exit 9"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
