@@ -291,10 +291,9 @@ esac
 
 if ! jq -e '
     ((.outbounds | type) == "array") and
-    (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1) and
-    (([.outbounds[] | select(.tag == "dns-out")] | length) == 1)
+    (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1)
 ' "$OUT_FILE" >/dev/null 2>&1; then
-    fail "live 04_outbounds.json must contain exactly one vless-reality and one dns-out"
+    fail "live 04_outbounds.json must contain exactly one vless-reality"
 fi
 
 log "action reason: $ACTION_REASON"
@@ -506,8 +505,7 @@ jq --slurpfile replacement "$VLESS_OBJECT" '
 
 if ! jq -e '
     ((.outbounds | type) == "array") and
-    (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1) and
-    (([.outbounds[] | select(.tag == "dns-out")] | length) == 1)
+    (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1)
 ' "$NEW_FILE" >/dev/null 2>&1; then
     fail "candidate outbound structure is invalid"
 fi

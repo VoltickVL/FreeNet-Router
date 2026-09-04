@@ -110,7 +110,7 @@
       controls.connect.disabled = true;
       controls.connect.textContent = 'Проверяем…';
     }
-    selectedCardText(`Выбрано: ${selectedProviderName}`, profileEndpoint(p), 'FreeNet автоматически проверяет сервер перед подключением. Дополнительных действий не требуется.');
+    selectedCardText(`Выбрано: ${selectedProviderName}`, profileEndpoint(p), 'FreeNet проверяет VPN-сервер перед подключением. ISP и DNS при этом не изменяются.');
 
     try {
       await loadNetworkPlan(selectedProviderID);
@@ -126,7 +126,7 @@
         return;
       }
       exactPlan = pp;
-      selectedCardText(`Выбрано для подключения: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Готово. Нажмите «Подключиться». Проверка выполнена автоматически.');
+      selectedCardText(`Выбрано для подключения: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Готово. Нажмите «Подключиться». ISP и текущий DNS-режим сохранятся.');
       if (controls && controls.connect) {
         controls.connect.disabled = false;
         controls.connect.textContent = 'Подключиться';
@@ -153,7 +153,7 @@
       if (s) {
         const endpointOK = !expectedEndpoint || s.endpoint === expectedEndpoint;
         const countryOK = !expectedCode || s.country_code === expectedCode;
-        if (endpointOK && countryOK && s.xray_online && s.dns_out_present) return s;
+        if (endpointOK && countryOK && s.xray_online) return s;
       }
       await new Promise(resolve => setTimeout(resolve, 850));
     }
@@ -176,7 +176,7 @@
     }
     if (typeof buttonsBusy === 'function') buttonsBusy(true);
     if (typeof hideBox === 'function') hideBox('notice');
-    selectedCardText(`Подключаем: ${p.name || 'Extra-профиль'}`, expectedEndpoint, 'Применяем и подтверждаем фактическое состояние VPN…');
+    selectedCardText(`Подключаем: ${p.name || 'Extra-профиль'}`, expectedEndpoint, 'Применяем VPN-профиль и подтверждаем фактический endpoint. ISP/DNS остаются без изменений.');
 
     try {
       const r = await fetch('/api/network-profile/apply', {
@@ -199,11 +199,11 @@
       }
 
       const s = await waitExactState(expectedEndpoint, expectedCode);
-      const accepted = !!(s && s.endpoint === expectedEndpoint && (!expectedCode || s.country_code === expectedCode) && s.xray_online && s.dns_out_present);
+      const accepted = !!(s && s.endpoint === expectedEndpoint && (!expectedCode || s.country_code === expectedCode) && s.xray_online);
       if (!accepted) {
         const actual = s ? `${s.country || 'страна не определена'} · ${s.endpoint || 'endpoint неизвестен'}` : 'фактический статус недоступен';
-        selectedCardText('Требуется проверка состояния', expectedEndpoint, `FreeNet завершил apply, но live-state не совпал: ${actual}. Повторное подключение автоматически не запускается.`);
-        if (typeof showBox === 'function') showBox('notice', 'Фактическое состояние после подключения не подтверждено. Не повторяйте операцию вслепую.', 'bad');
+        selectedCardText('Требуется проверка состояния', expectedEndpoint, `FreeNet завершил apply, но live-state VPN не совпал: ${actual}. Повторное подключение автоматически не запускается.`);
+        if (typeof showBox === 'function') showBox('notice', 'Фактическое состояние VPN после подключения не подтверждено. Не повторяйте операцию вслепую.', 'bad');
         return;
       }
 
@@ -237,6 +237,38 @@
     selectProviderProfile = selectExactProfile;
   }
 
+  function patchStatusRendering() {
+    if (typeof updateStatusViews !== 'function') return;
+    const originalUpdateStatusViews = updateStatusViews;
+    updateStatusViews = function(s) {
+      originalUpdateStatusViews(s);
+      if (!s) return;
+
+      const xrayDNS = s.dns_mode === 'xkeen';
+      const dnsHealthy = xrayDNS ? !!s.dns_out_present : true;
+      const healthy = !!s.xray_online && dnsHealthy;
+      const dnsHealth = qs('#dnsHealth');
+      const dnsState = qs('#dnsState');
+      const topDot = qs('#topDot');
+      const topStatus = qs('#topStatus');
+      const systemHealth = qs('#systemHealth');
+      const quickGuard = qs('#quickNetworkGuard');
+
+      if (dnsState) {
+        dnsState.textContent = xrayDNS ? (s.dns_out_present ? 'DNS через XKeen/Xray' : 'DNS требует внимания') : 'DNS напрямую';
+      }
+      if (dnsHealth) dnsHealth.className = 'health ' + (dnsHealthy ? 'ok' : 'bad');
+      if (topDot) topDot.className = 'dot ' + (healthy ? 'ok' : 'bad');
+      if (topStatus) topStatus.textContent = healthy ? 'VPN и DNS работают' : (!s.xray_online ? 'VPN требует внимания' : 'DNS требует внимания');
+      if (systemHealth) systemHealth.textContent = healthy ? 'Система работает' : 'Требует внимания';
+      if (typeof setSummary === 'function') setSummary('quickActionState', s.country ? (s.country + ' · ' + (s.endpoint || '—')) : 'VPN не определён', healthy ? 'ok' : 'bad');
+      if (quickGuard) {
+        const dnsLabel = xrayDNS ? 'XKeen/Xray DNS' : 'DNS напрямую';
+        quickGuard.textContent = 'VPN-действия не меняют ISP и DNS. Текущий DNS-режим: ' + dnsLabel + '.';
+      }
+    };
+  }
+
   function patchNavigation() {
     const vpnNav = qs('.nav-btn[data-page="vpn"]');
     if (vpnNav) vpnNav.remove();
@@ -248,6 +280,7 @@
 
   function mount() {
     patchNavigation();
+    patchStatusRendering();
     mountExactConnectControls();
     patchProfileSelection();
   }

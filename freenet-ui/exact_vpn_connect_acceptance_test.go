@@ -19,7 +19,8 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 		"Сбросить выбор",
 		"Обновить текущий VPN-профиль",
 		"Сменить сервер",
-		"Проверка выполнена автоматически",
+		"ISP и DNS при этом не изменяются",
+		"VPN-действия не меняют ISP и DNS",
 		"operation: 'provider'",
 		"waitExactState",
 		"showExactMode(true)",
@@ -29,8 +30,14 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 			t.Fatalf("exact VPN UX contract missing %q", required)
 		}
 	}
-	if strings.Contains(ux, "quick.querySelector('.action-row')") {
-		t.Fatal("routine VPN action row must not be rediscovered positionally after exact row is inserted")
+	for _, forbidden := range []string{
+		"quick.querySelector('.action-row')",
+		"countryOK && s.xray_online && s.dns_out_present",
+		"expectedCode) && s.xray_online && s.dns_out_present",
+	} {
+		if strings.Contains(ux, forbidden) {
+			t.Fatalf("exact VPN UX contains forbidden coupled condition %q", forbidden)
+		}
 	}
 	if strings.Contains(ux, "confirm(") || strings.Contains(ux, "openModal(") {
 		t.Fatal("routine exact VPN connect must not require an extra confirmation dialog")

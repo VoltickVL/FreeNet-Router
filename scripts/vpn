@@ -7,6 +7,8 @@ CURL_BIN="${FREENET_CURL_BIN:-curl}"
 PIDOF_BIN="${FREENET_PIDOF_BIN:-pidof}"
 XRAY_BIN="${FREENET_XRAY_BIN:-/opt/sbin/xray}"
 ASSET_DIR="${FREENET_ASSET_DIR:-/opt/etc/xray/dat}"
+BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
+BOOTSTRAP_DNS_SECONDARY="8.8.8.8"
 FAILOVER_PROBES="${FREENET_FAILOVER_PROBES:-3}"
 FAILOVER_DELAY_SEC="${FREENET_FAILOVER_DELAY_SEC:-2}"
 FAILOVER_CONNECT_TIMEOUT="${FREENET_FAILOVER_CONNECT_TIMEOUT:-3}"
@@ -84,6 +86,71 @@ tcp_probe() {
     return 1
 }
 
+fetch_rotation_subscription() {
+    FETCH_URL="$1"
+    FETCH_DEST="$2"
+    : > "$FETCH_DEST"
+
+    # First respect the router's current DNS topology. Direct-DNS existing
+    # stacks must not require curl's optional --dns-servers capability.
+    if "$CURL_BIN" -4 -fsSL \
+        -H 'Cache-Control: no-cache' \
+        -H 'Pragma: no-cache' \
+        --connect-timeout 20 \
+        --max-time 60 \
+        -A 'Mozilla/5.0' \
+        "$FETCH_URL" > "$FETCH_DEST" 2>/dev/null; then
+        return 0
+    fi
+
+    : > "$FETCH_DEST"
+    if "$CURL_BIN" -4 -fsSL \
+        -H 'Cache-Control: no-cache' \
+        -H 'Pragma: no-cache' \
+        --dns-servers "$BOOTSTRAP_DNS_PRIMARY,$BOOTSTRAP_DNS_SECONDARY" \
+        --connect-timeout 20 \
+        --max-time 60 \
+        -A 'Mozilla/5.0' \
+        "$FETCH_URL" > "$FETCH_DEST" 2>/dev/null; then
+        return 0
+    fi
+
+    command -v nslookup >/dev/null 2>&1 || return 1
+    case "$FETCH_URL" in
+        https://*) DEFAULT_PORT=443 ;;
+        http://*) DEFAULT_PORT=80 ;;
+        *) return 1 ;;
+    esac
+    FETCH_REST="${FETCH_URL#*://}"
+    FETCH_AUTH="${FETCH_REST%%/*}"
+    case "$FETCH_AUTH" in
+        *:*) FETCH_HOST="${FETCH_AUTH%%:*}"; FETCH_PORT="${FETCH_AUTH##*:}" ;;
+        *) FETCH_HOST="$FETCH_AUTH"; FETCH_PORT="$DEFAULT_PORT" ;;
+    esac
+    [ -n "$FETCH_HOST" ] || return 1
+    case "$FETCH_PORT" in ''|*[!0-9]*) return 1 ;; esac
+
+    for DNS_SERVER in "$BOOTSTRAP_DNS_PRIMARY" "$BOOTSTRAP_DNS_SECONDARY"; do
+        FETCH_IP="$(
+            nslookup "$FETCH_HOST" "$DNS_SERVER" 2>/dev/null \
+                | awk '/^Name:/{seen=1; next} seen && /^Address [0-9]+:/ {if ($3 ~ /^[0-9]+\./) {print $3; exit}}'
+        )"
+        case "$FETCH_IP" in ''|*[!0-9.]*) continue ;; esac
+        : > "$FETCH_DEST"
+        if "$CURL_BIN" -4 -fsSL \
+            -H 'Cache-Control: no-cache' \
+            -H 'Pragma: no-cache' \
+            --resolve "$FETCH_HOST:$FETCH_PORT:$FETCH_IP" \
+            --connect-timeout 20 \
+            --max-time 60 \
+            -A 'Mozilla/5.0' \
+            "$FETCH_URL" > "$FETCH_DEST" 2>/dev/null; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 failover_baseline_valid() {
     [ -s "$OUT_FILE" ] || {
         echo "[vpn] failover suppressed: current outbound is missing" >&2
@@ -107,8 +174,7 @@ failover_baseline_valid() {
     }
     jq -e '
         ((.outbounds | type) == "array") and
-        (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1) and
-        (([.outbounds[] | select(.tag == "dns-out")] | length) == 1)
+        (([.outbounds[] | select(.tag == "vless-reality")] | length) == 1)
     ' "$OUT_FILE" >/dev/null 2>&1 || {
         echo "[vpn] failover suppressed: local Xray outbound baseline is invalid" >&2
         return 1
@@ -201,14 +267,7 @@ rotate_current_endpoint() {
     ALT_FILE="$ROTATE_TMP/alternate"
     TEMP_FILTER="$ROTATE_TMP/filter.regex"
 
-    if ! "$CURL_BIN" -4 -fsSL \
-        -H 'Cache-Control: no-cache' \
-        -H 'Pragma: no-cache' \
-        --dns-servers '77.88.8.8,8.8.8.8' \
-        --connect-timeout 20 \
-        --max-time 60 \
-        -A 'Mozilla/5.0' \
-        "$SUB_URL" > "$RAW_FILE" 2>/dev/null; then
+    if ! fetch_rotation_subscription "$SUB_URL" "$RAW_FILE"; then
         echo "[vpn] rotation subscription fetch failed before mutation" >&2
         return 1
     fi
