@@ -222,7 +222,10 @@ grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'repaired Split did not resto
 
 state_set PORT53_OWNER none
 if run_network apply > "$TMP/partial.apply" 2>&1; then fail 'partial topology unexpectedly succeeded'; fi
-grep -Fq 'native mode должен иметь ndnproxy' "$TMP/partial.apply" || fail 'partial topology STOP missing'
+if ! grep -Eq 'PRIMARY ERROR: (native mode должен иметь ndnproxy|native DNS preflight failed before mutation)' "$TMP/partial.apply"; then
+    cat "$TMP/partial.apply" >&2
+    fail 'partial topology STOP missing'
+fi
 grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/partial.apply" || fail 'partial preflight must report no live apply'
 grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'partial preflight mutated NDM'
 grep -q '^NDM_FILTER_ENGINE=public$' "$STATE" || fail 'partial preflight changed filter engine'
