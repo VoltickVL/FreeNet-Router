@@ -391,8 +391,10 @@ accept_runtime() {
             sleep 1
         done
         [ "$OK" = yes ] || return 1
+        # Web Update validates that the existing Xray process survived, but does not
+        # prescribe DNS topology. Direct DNS without dns-out and Split DNS with
+        # dns-out are both valid; the exact Xray config must remain byte-identical.
         pidof xray >/dev/null 2>&1 || return 1
-        jq -e '([.outbounds[]? | select(.tag == "dns-out")] | length) == 1' "$ROOT/etc/xray/configs/04_outbounds.json" >/dev/null 2>&1 || return 1
     fi
 
     snapshot_xray "$TMP_DIR/xray-hashes.after" || return 1
@@ -457,13 +459,13 @@ run_plan() {
     say "UPDATE_AVAILABLE=$AVAILABLE"
     say "ARCH=$ARCH"
     say 'MANIFEST_VERIFIED=yes'
-    say 'COMPONENTS=FreeNet UI; manager; VPN/updater helpers; network/provider/finalize helpers; bootstrap helper; self-update helper; upstream pins'
+    say 'COMPONENTS=интерфейс FreeNet; менеджер; VPN и updater helpers; network/provider/finalize helpers; bootstrap helper; self-update helper; upstream pins'
     if [ "$AVAILABLE" = yes ]; then
-        say "EXPECTED_DELTA=replace verified FreeNet-owned application assets with exact release $LATEST; restart FreeNet UI; validate target version and unchanged Xray state"
+        say "EXPECTED_DELTA=обновятся проверенные файлы FreeNet до $LATEST; Control Center будет перезапущен; целевая версия будет подтверждена; конфигурация Xray будет проверена на неизменность"
     else
-        say 'EXPECTED_DELTA=NONE; installed FreeNet version is current or newer'
+        say 'EXPECTED_DELTA=NONE; установленная версия FreeNet уже актуальна или новее'
     fi
-    say 'EXPECTED_NO_DELTA=subscription secret; Xray credentials/config; ISP/DNS/routing state; XKeen/Xray/XKeen UI core; cron'
+    say 'EXPECTED_NO_DELTA=подписка и её секрет; учётные данные и конфигурация Xray; ISP/DNS/routing; ядро XKeen/Xray/XKeen UI; cron'
     say 'MUTATION=NONE'
 }
 
@@ -501,16 +503,16 @@ run_apply() {
         exit 3
     fi
     LOCK_HELD=1
-    write_state CHECKING "$TARGET_TAG" 'Проверяем exact release и SHA-256' '' NOT_NEEDED '' || true
+    write_state CHECKING "$TARGET_TAG" 'Проверяем точный release и SHA-256' '' NOT_NEEDED '' || true
 
     make_tmp || fail_before_mutation 'cannot create staging directory'
     download_assets "$TARGET_TAG" || fail_before_mutation 'release asset download or SHA-256 verification failed'
     validate_stage || fail_before_mutation 'staging validation failed'
-    write_state SNAPSHOT "$TARGET_TAG" 'Создаём snapshot FreeNet-owned файлов' '' NOT_NEEDED '' || true
+    write_state SNAPSHOT "$TARGET_TAG" 'Создаём резервную копию файлов FreeNet' '' NOT_NEEDED '' || true
     prepare_backup || fail_before_mutation 'cannot create pre-update snapshot'
 
     MUTATED=1
-    write_state UPDATING "$TARGET_TAG" 'Применяем проверенные FreeNet assets' '' PENDING "$BACKUP_DIR" || true
+    write_state UPDATING "$TARGET_TAG" 'Устанавливаем проверенные файлы FreeNet' '' PENDING "$BACKUP_DIR" || true
     install_assets || fail_after_mutation 'live asset replacement failed'
 
     write_state RECONNECTING "$TARGET_TAG" 'FreeNet перезапускается; подтверждаем фактическое состояние' '' PENDING "$BACKUP_DIR" || true
