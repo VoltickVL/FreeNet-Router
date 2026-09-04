@@ -14,17 +14,23 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 	ux := string(data)
 	for _, required := range []string{
 		"selectProviderProfile = selectExactProfile",
+		".action-row:not(#exactConnectRow)",
 		"Подключиться",
-		"Обновить текущий",
-		"Другой сервер",
+		"Сбросить выбор",
+		"Обновить текущий VPN-профиль",
+		"Сменить сервер",
 		"Проверка выполнена автоматически",
 		"operation: 'provider'",
 		"waitExactState",
 		"showExactMode(true)",
+		"controls.routine.hidden = enabled",
 	} {
 		if !strings.Contains(ux, required) {
 			t.Fatalf("exact VPN UX contract missing %q", required)
 		}
+	}
+	if strings.Contains(ux, "quick.querySelector('.action-row')") {
+		t.Fatal("routine VPN action row must not be rediscovered positionally after exact row is inserted")
 	}
 	if strings.Contains(ux, "confirm(") || strings.Contains(ux, "openModal(") {
 		t.Fatal("routine exact VPN connect must not require an extra confirmation dialog")
