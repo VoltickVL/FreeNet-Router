@@ -834,6 +834,133 @@ apply_profile() {
     esac
 }
 
+# Existing XKeen/Xray configs may be valid JSONC (comments and trailing commas).
+# The live files are never rewritten during preflight: FreeNet normalizes only the
+# read stream used by jq, while Xray itself remains the semantic validator.
+jsonc_normalize() {
+    awk '
+        BEGIN { in_string=0; escaped=0; block=0; pending=0; ws="" }
+        function flush_pending() { if (pending) { printf ",%s", ws; pending=0; ws="" } }
+        {
+            line=$0; i=1
+            while (i <= length(line)) {
+                c=substr(line,i,1); n=(i < length(line) ? substr(line,i+1,1) : "")
+                if (block) {
+                    if (c == "*" && n == "/") { block=0; i+=2 } else i++
+                    continue
+                }
+                if (in_string) {
+                    printf "%s", c
+                    if (escaped) escaped=0
+                    else if (c == "\\") escaped=1
+                    else if (c == "\"") in_string=0
+                    i++; continue
+                }
+                if (c == "/" && n == "/") break
+                if (c == "/" && n == "*") { block=1; i+=2; continue }
+                if (pending) {
+                    if (c == " " || c == "\t" || c == "\r") { ws=ws c; i++; continue }
+                    if (c == "}" || c == "]") { printf "%s%s", ws, c; pending=0; ws=""; i++; continue }
+                    flush_pending()
+                }
+                if (c == "\"") { in_string=1; printf "%s", c; i++; continue }
+                if (c == ",") { pending=1; ws=""; i++; continue }
+                printf "%s", c; i++
+            }
+            if (pending) ws=ws "\n"; else printf "\n"
+        }
+        END {
+            if (pending) printf ",%s", ws
+            if (block || in_string) exit 2
+        }
+    ' "$1"
+}
+
+xray_dns_inbound_count() {
+    jsonc_normalize "$INBOUND_FILE" | jq -r '[.inbounds[]? | select((((.port // "") | tostring) == "53") and .protocol == "dokodemo-door")] | length' 2>/dev/null || printf '%s\n' unknown
+}
+
+has_dns_out() {
+    jsonc_normalize "$OUT_FILE" | jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | length) == 1' >/dev/null 2>&1
+}
+
+has_vless() {
+    jsonc_normalize "$OUT_FILE" | jq -e '([.outbounds[]? | select(.tag == "vless-reality")] | length) == 1' >/dev/null 2>&1
+}
+
+dns_routing_mode() {
+    STD="$(jsonc_normalize "$ROUTING_FILE" | jq -r '[.routing.rules[]? | select(((.inboundTag // []) | index("dns-vless")) != null and .outboundTag == "direct")] | length' 2>/dev/null || printf 0)"
+    SPLIT="$(jsonc_normalize "$ROUTING_FILE" | jq -r '[.routing.rules[]? | select(((.inboundTag // []) | index("dns-vless")) != null and .outboundTag == "vless-reality")] | length' 2>/dev/null || printf 0)"
+    DIRECT="$(jsonc_normalize "$ROUTING_FILE" | jq -r '[.routing.rules[]? | select(((.inboundTag // []) | index("dns-direct")) != null and .outboundTag == "direct")] | length' 2>/dev/null || printf 0)"
+    OUT="$(jsonc_normalize "$ROUTING_FILE" | jq -r '[.routing.rules[]? | select((((.port // "") | tostring) == "53") and .outboundTag == "dns-out")] | length' 2>/dev/null || printf 0)"
+    if [ "$STD:$SPLIT:$DIRECT:$OUT" = "0:0:0:0" ]; then printf '%s\n' native
+    elif [ "$STD:$SPLIT:$DIRECT:$OUT" = "0:1:1:1" ]; then printf '%s\n' split
+    elif [ "$STD:$SPLIT:$DIRECT:$OUT" = "1:0:1:1" ]; then printf '%s\n' standard
+    else printf '%s\n' unknown
+    fi
+}
+
+non_dns_hashes() {
+    jsonc_normalize "$INBOUND_FILE" | jq -cS '[.inbounds[]? | select((((.port // "") | tostring) != "53"))]' | sha256sum | awk '{print $1}'
+    jsonc_normalize "$OUT_FILE" | jq -cS '[.outbounds[]? | select((.tag // "") != "dns-out")]' | sha256sum | awk '{print $1}'
+    jsonc_normalize "$ROUTING_FILE" | jq -cS '[.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))]' | sha256sum | awk '{print $1}'
+}
+
+preflight_common() {
+    for C in jq awk grep sed sort mktemp cp mv sha256sum; do command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }; done
+    if [ "$TEST_MODE" != yes ]; then
+        for C in netstat pidof nslookup ndmc; do command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }; done
+    fi
+    [ -x "$XKEEN_BIN" ] || { err 'XKeen не найден'; return 1; }
+    [ -x "$XRAY_BIN" ] || { err 'Xray не найден'; return 1; }
+    [ -d "$CONFIG_DIR" ] || { err 'каталог Xray config не найден'; return 1; }
+    [ -d "$XRAY_ASSET_DIR" ] || { err 'каталог Xray assets не найден'; return 1; }
+    # 02_dns may be native JSONC/comment-only; preserve it opaquely. 03-05 may be
+    # valid Xray JSONC, so strict jq is not an authoritative preflight gate.
+    [ -f "$DNS_FILE" ] || { err 'не найден 02_dns.json'; return 1; }
+    for F in "$INBOUND_FILE" "$OUT_FILE" "$ROUTING_FILE"; do
+        [ -f "$F" ] || { err "не найден обязательный Xray config: $F"; return 1; }
+        jsonc_normalize "$F" | jq -e . >/dev/null 2>&1 || { err "Xray JSON/JSONC нельзя безопасно разобрать: $F"; return 1; }
+    done
+    XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" >/tmp/freenet-network-current-xray.$$.log 2>&1 || { err 'текущий Xray config не проходит xray run -test'; return 1; }
+    INIT="$(xkeen_init 2>/dev/null || true)"; [ -n "$INIT" ] || { err 'init XKeen не найден'; return 1; }
+    PROXY_DNS_INITIAL="$(proxy_dns_state)"; case "$PROXY_DNS_INITIAL" in off|on) : ;; *) err 'не удалось определить proxy_dns'; return 1 ;; esac
+    NDM_OVERRIDE_INITIAL="$(ndm_override_state)"; case "$NDM_OVERRIDE_INITIAL" in off|on) : ;; *) err 'не удалось определить opkg dns-override'; return 1 ;; esac
+    NDM_FILTER_ENGINE_INITIAL="$(ndm_filter_engine_state)"; ndm_filter_engine_token_ok "$NDM_FILTER_ENGINE_INITIAL" || { err 'не удалось определить Keenetic filter engine'; return 1; }
+    NDM_INTERCEPT_INITIAL="$(ndm_intercept_state)"; case "$NDM_INTERCEPT_INITIAL" in off|on) : ;; *) err 'не удалось определить Keenetic DNS intercept'; return 1 ;; esac
+    NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)"; [ -n "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'не удалось снять protected NDM hash'; return 1; }
+    XPID="$(xray_pid)"; XRAY_WAS_RUNNING=no
+    if [ -n "$XPID" ]; then XRAY_WAS_RUNNING=yes; [ "$(xray_gid "$XPID")" = 11111 ] || { err 'Xray GID не равен 11111'; return 1; }; fi
+}
+
+build_split_candidate() {
+    C="$TMP_DIR/split"; mkdir -p "$C" || return 1
+    DNS_SERVERS="$(jsonc_normalize "$ROUTING_FILE" | jq -c '[
+        .routing.rules[]?
+        | select((.domain? | type) == "array" and (.domain | length) > 0)
+        | if .outboundTag == "direct" then
+            {address:"77.88.8.8",port:53,domains:.domain,skipFallback:true,finalQuery:true,tag:"dns-direct"}
+          else
+            {address:"https://8.8.8.8/dns-query",domains:.domain,skipFallback:true,finalQuery:true,tag:"dns-vless"}
+          end
+      ] + [{address:"https://8.8.8.8/dns-query",tag:"dns-vless",finalQuery:true}]')" || return 1
+    jq -n --argjson servers "$DNS_SERVERS" '{dns:{tag:"dns-vless",servers:$servers,queryStrategy:"UseIPv4"}}' > "$C/02_dns.json" || return 1
+    jsonc_normalize "$INBOUND_FILE" | jq '.inbounds = ([.inbounds[]? | select((((.port // "") | tostring) != "53"))] + [{"tag":"dns","port":53,"protocol":"dokodemo-door","settings":{"network":"tcp,udp"}}])' > "$C/03_inbounds.json" || return 1
+    jsonc_normalize "$OUT_FILE" | jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out")] + [{"protocol":"dns","tag":"dns-out"}])' > "$C/04_outbounds.json" || return 1
+    jsonc_normalize "$ROUTING_FILE" | jq '.routing.rules = ([{"type":"field","inboundTag":["dns-vless"],"outboundTag":"vless-reality"},{"type":"field","inboundTag":["dns-direct"],"outboundTag":"direct"},{"type":"field","port":53,"outboundTag":"dns-out"}] + [.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))])' > "$C/05_routing.json" || return 1
+    XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$C" > "$TMP_DIR/xray-split-candidate.log" 2>&1 || return 1
+}
+
+build_native_candidate() {
+    native_dns_file_valid || { err 'нет проверенного native 02_dns snapshot; отказ от догадки'; return 1; }
+    C="$TMP_DIR/native"; mkdir -p "$C" || return 1
+    cp -p "$NATIVE_STATE_DIR/02_dns.native" "$C/02_dns.json" || return 1
+    jsonc_normalize "$INBOUND_FILE" | jq '.inbounds = [.inbounds[]? | select((((.port // "") | tostring) != "53"))]' > "$C/03_inbounds.json" || return 1
+    jsonc_normalize "$OUT_FILE" | jq '.outbounds = [.outbounds[]? | select((.tag // "") != "dns-out")]' > "$C/04_outbounds.json" || return 1
+    jsonc_normalize "$ROUTING_FILE" | jq '.routing.rules = [.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))]' > "$C/05_routing.json" || return 1
+    XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$C" > "$TMP_DIR/xray-native-candidate.log" 2>&1 || return 1
+}
+
 case "$MODE" in
     plan) plan ;;
     apply) apply_profile ;;
