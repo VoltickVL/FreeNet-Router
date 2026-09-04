@@ -12,9 +12,12 @@ for marker in \
     "ndmc -c 'system configuration save'" \
     'NDM_DNS_OVERRIDE=' \
     '02_dns may be native JSONC/comment-only' \
-    'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; do
+    'ROLLBACK ERROR/STATE: no live apply' \
+    'ROLLBACK ERROR/STATE: FAILED/UNKNOWN' \
+    'TARGETS="127.0.0.1"'; do
     grep -Fq "$marker" "$SCRIPT" || fail "missing contract marker: $marker"
 done
+if grep -Fq "ip -4 addr show br0" "$SCRIPT"; then fail 'DNS acceptance hardcodes br0'; fi
 if grep -Ei 'subscription.*url=|uuid=|publicKey|shortId|vless://' "$SCRIPT" >/dev/null; then fail 'network controller contains secret material'; fi
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT INT TERM
@@ -75,6 +78,15 @@ for x in 'EFFECTIVE_DNS_MODE=firmware' 'NDM_DNS_OVERRIDE=off' 'PORT53_OWNER=ndnp
 run_network apply > "$TMP/native.apply" 2>&1 || fail 'native no-op failed'
 grep -Fq 'RESULT=SUCCESS' "$TMP/native.apply" || fail 'native no-op result missing'
 
+# A read-only native acceptance failure must be classified as NOT_APPLIED, not UNKNOWN.
+state_set DNS_QUERY_OK no
+if run_network apply > "$TMP/native-query-fail.apply" 2>&1; then fail 'native DNS query failure unexpectedly succeeded'; fi
+grep -Fq 'PRIMARY ERROR: native Keenetic DNS query failed' "$TMP/native-query-fail.apply" || fail 'native no-op primary error missing'
+grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/native-query-fail.apply" || fail 'native no-op must report no live apply'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'native no-op failure mutated NDM'
+grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'native no-op failure changed :53 owner'
+state_set DNS_QUERY_OK yes
+
 sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
 run_network apply > "$TMP/split.apply" 2>&1 || { cat "$TMP/split.apply" >&2; fail 'native -> split failed'; }
 grep -q '^NDM_DNS_OVERRIDE=on$' "$STATE" || fail 'NDM override not enabled'
@@ -112,6 +124,7 @@ state_set DNS_QUERY_OK yes
 state_set PORT53_OWNER none
 if run_network apply > "$TMP/partial.apply" 2>&1; then fail 'partial topology unexpectedly succeeded'; fi
 grep -Fq 'native mode должен иметь ndnproxy' "$TMP/partial.apply" || fail 'partial topology STOP missing'
+grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/partial.apply" || fail 'partial preflight must report no live apply'
 grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'partial preflight mutated NDM'
 
 echo 'network profile contract PASS'
