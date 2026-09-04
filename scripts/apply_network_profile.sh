@@ -258,11 +258,32 @@ wait_port53_owner() {
 
 ndm_running_config() {
     if [ "$TEST_MODE" = yes ]; then
-        printf '%s\n' 'system configuration'
-        printf '%s\n' 'dns-proxy tls upstream common.dot.dns.yandex.net'
-        printf '%s\n' 'dns-proxy profile xbox-dns.ru'
-        [ "$(test_state_value NDM_DNS_OVERRIDE off)" = on ] && printf '%s\n' 'opkg dns-override'
-        printf 'marker %s\n' "$(test_state_value NDM_CONFIG_MARKER preserved)"
+        OVERRIDE="$(test_state_value NDM_DNS_OVERRIDE off)"
+        PROFILE_MARKER="$(test_state_value NDM_DNS_PROFILE_MARKER preserved)"
+        if [ "$(test_state_value NDM_FILTER_ENGINE auto)" = auto ]; then
+            if [ "$OVERRIDE" = on ]; then ENGINE=disabled; else ENGINE=public; fi
+        else
+            ENGINE="$(test_state_value NDM_FILTER_ENGINE public)"
+        fi
+        printf '%s\n' 'dns-proxy'
+        printf '%s\n' '    rebind-protect auto'
+        printf '%s\n' '    intercept enable'
+        printf '%s\n' '    tls upstream common.dot.dns.yandex.net'
+        printf '%s\n' '    https upstream https://common.dot.dns.yandex.net/dns-query'
+        printf '%s\n' '    filter profile xbox-dns.ru'
+        printf '    filter profile xbox-dns.ru description %s\n' "$PROFILE_MARKER"
+        printf '%s\n' '    filter profile xbox-dns.ru tls upstream xbox-dns.ru'
+        printf '%s\n' '    filter assign host profile aa:bb:cc:dd:ee:ff xbox-dns.ru'
+        printf '    filter engine %s\n' "$ENGINE"
+        printf '%s\n' '!'
+        printf '%s\n' 'interface GigabitEthernet0/0'
+        printf '%s\n' '    ip dhcp client dns-routes'
+        printf '%s\n' '    ip dhcp client no name-servers'
+        printf '%s\n' '!'
+        [ "$OVERRIDE" = on ] && printf '%s\n' 'opkg dns-override'
+        printf '%s\n' 'system'
+        printf '    description runtime-%s-%s\n' "$OVERRIDE" "$(test_state_value NDM_CONFIG_MARKER preserved)"
+        printf '%s\n' '!'
         return 0
     fi
     ndmc -c 'show running-config'
@@ -275,8 +296,49 @@ ndm_override_state() {
     fi
 }
 
+# Protect only DNS configuration that must survive native <-> OPKG transitions.
+# `filter engine` and unrelated running-config lines are intentionally excluded:
+# Keenetic may change their representation when opkg dns-override changes, while
+# profiles, upstreams, client/segment assignments and WAN DNS flags must not drift.
+ndm_protected_state() {
+    ndm_running_config 2>/dev/null | tr -d '\r' | awk '
+        function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+        function emit(scope, line) { line=trim(line); if (line != "") print scope "|" line }
+        function dns_mutable(line) { return line ~ /^filter[ \t]+engine([ \t]|$)/ }
+        {
+            raw=$0
+            if (raw ~ /^[^ \t]/) {
+                top=trim(raw)
+                if (top == "!") { scope=""; next }
+                if (top == "dns-proxy") { scope="dns-proxy"; next }
+                if (top ~ /^dns-proxy[ \t]+/) {
+                    line=top
+                    sub(/^dns-proxy[ \t]+/, "", line)
+                    if (!dns_mutable(line)) emit("dns-proxy", line)
+                    scope=""
+                    next
+                }
+                if (top ~ /^interface[ \t]+/) { scope=top; next }
+                if (top ~ /^ip[ \t]+host[ \t]+/ || top ~ /^ip[ \t]+name-server[ \t]+/ || top ~ /^ipv6[ \t]+name-server[ \t]+/) {
+                    emit("global", top)
+                    scope=""
+                    next
+                }
+                scope=""
+                next
+            }
+            line=trim(raw)
+            if (scope == "dns-proxy") {
+                if (!dns_mutable(line)) emit("dns-proxy", line)
+            } else if (scope ~ /^interface[ \t]+/) {
+                if (line ~ /(^|[ \t])name-servers([ \t]|$)/ || line ~ /^ip[ \t]+dhcp[ \t]+client[ \t]+dns-routes([ \t]|$)/) emit(scope, line)
+            }
+        }
+    ' | LC_ALL=C sort
+}
+
 ndm_protected_hash() {
-    ndm_running_config 2>/dev/null | tr -d '\r' | grep -Ev '^[[:space:]]*opkg dns-override[[:space:]]*$' | sha256sum | awk '{print $1}'
+    ndm_protected_state | sha256sum | awk '{print $1}'
 }
 
 ndm_set_override() {
@@ -287,6 +349,9 @@ ndm_set_override() {
         if [ "$WANT" = on ]; then test_state_set PORT53_OWNER none || return 1
         elif jq -e 'any(.inbounds[]?; (((.port // "") | tostring) == "53"))' "$INBOUND_FILE" >/dev/null 2>&1; then test_state_set PORT53_OWNER other || return 1
         else test_state_set PORT53_OWNER ndnproxy || return 1
+        fi
+        if [ "$(test_state_value NDM_MUTATE_PROTECTED_ON_OVERRIDE no)" = yes ]; then
+            test_state_set NDM_DNS_PROFILE_MARKER changed || return 1
         fi
         return 0
     fi
@@ -385,7 +450,7 @@ plan() {
 }
 
 preflight_common() {
-    for C in jq awk grep sed mktemp cp mv sha256sum; do command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }; done
+    for C in jq awk grep sed sort mktemp cp mv sha256sum; do command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }; done
     if [ "$TEST_MODE" != yes ]; then
         for C in netstat pidof nslookup ndmc; do command -v "$C" >/dev/null 2>&1 || { err "не найдена обязательная команда: $C"; return 1; }; done
     fi
@@ -412,6 +477,7 @@ snapshot_configs() {
     for NAME in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do cp -p "$CONFIG_DIR/$NAME" "$BACKUP_DIR/$NAME" || return 1; done
     INIT="$(xkeen_init 2>/dev/null || true)"; cp -p "$INIT" "$BACKUP_DIR/xkeen-init.before" || return 1
     ndm_running_config > "$BACKUP_DIR/ndm-running.before" 2>/dev/null || return 1
+    ndm_protected_state > "$BACKUP_DIR/ndm-protected.before" 2>/dev/null || return 1
     printf '%s\n' "$NDM_OVERRIDE_INITIAL" > "$BACKUP_DIR/ndm-override.before"
     CONFIG_SNAPSHOT_KIND="$KIND"
 }
@@ -431,6 +497,8 @@ restore_runtime() {
     else xkeen_runtime stop "/tmp/freenet-network-rollback.$$.log" || true; wait_for_xray no || return 1
     fi
     case "$NDM_OVERRIDE_INITIAL" in on) wait_port53_owner xray || return 1 ;; off) wait_port53_owner ndnproxy || return 1 ;; esac
+    [ "$(proxy_dns_state)" = "$PROXY_DNS_INITIAL" ] || return 1
+    dns_query_ok || return 1
     [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || return 1
 }
 
@@ -442,6 +510,8 @@ rollback_all() {
 
 rollback_files_only() {
     restore_files || return 1
+    [ "$(proxy_dns_state)" = "$PROXY_DNS_INITIAL" ] || return 1
+    dns_query_ok || return 1
     [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || return 1
     return 0
 }
@@ -513,7 +583,7 @@ apply_split() {
     wait_for_xray yes && wait_port53_owner xray || { err 'PRIMARY ERROR: Xray не стал владельцем :53'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     [ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic DNS profiles/assignments changed unexpectedly'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic protected DNS/WAN state changed unexpectedly'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_save || { err 'PRIMARY ERROR: NDM save failed after acceptance'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     say '[FreeNet Network] RESULT=SUCCESS'
     say '[FreeNet Network] EFFECTIVE_DNS_MODE=xkeen'
@@ -559,7 +629,7 @@ apply_native() {
     wait_port53_owner ndnproxy || { err 'PRIMARY ERROR: ndnproxy не стал владельцем :53'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     [ "$(xray_dns_inbound_count)" = 0 ] && ! has_dns_out && [ "$(dns_routing_mode)" = native ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply native DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic DNS profiles/assignments changed unexpectedly'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic protected DNS/WAN state changed unexpectedly'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_save || { err 'PRIMARY ERROR: NDM save failed after native acceptance'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     say '[FreeNet Network] RESULT=SUCCESS'
     say '[FreeNet Network] EFFECTIVE_DNS_MODE=firmware'
