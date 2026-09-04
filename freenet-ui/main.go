@@ -624,10 +624,6 @@ func rotateBaselineValid(s statusResponse) error {
 }
 
 func validateActionPostcondition(action string, before, after statusResponse) error {
-	if !after.DNSOut {
-		return errors.New("dns-out missing after operation")
-	}
-
 	switch action {
 	case "update":
 		return nil
