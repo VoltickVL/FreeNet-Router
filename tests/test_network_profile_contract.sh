@@ -112,8 +112,8 @@ grep -Fq 'EXPECTED_DELTA=enable opkg dns-override' "$TMP/split.plan" || fail 'sp
 run_network apply > "$TMP/split.apply" 2>&1 || { cat "$TMP/split.apply" >&2; fail 'native -> split failed'; }
 grep -Fq 'RESULT=SUCCESS' "$TMP/split.apply" || fail 'split success missing'
 grep -Fq 'NDM_DNS_OVERRIDE=on' "$TMP/split.apply" || fail 'split override result missing'
-grep -Fq '^NDM_DNS_OVERRIDE=on$' "$STATE" || fail 'test NDM override not enabled'
-grep -Fq '^PORT53_OWNER=xray$' "$STATE" || fail 'Xray did not own :53'
+grep -q '^NDM_DNS_OVERRIDE=on$' "$STATE" || fail 'test NDM override not enabled'
+grep -q '^PORT53_OWNER=xray$' "$STATE" || fail 'Xray did not own :53'
 [ -f "$TROOT/etc/freenet/native-dns/02_dns.native" ] || fail 'native 02 snapshot missing'
 [ "$(sha256sum "$TROOT/etc/freenet/native-dns/02_dns.native" | awk '{print $1}')" = "$NATIVE_02_HASH" ] || fail 'native 02 snapshot changed'
 jq -e '([.inbounds[] | select(((.port // "")|tostring)=="53" and .protocol=="dokodemo-door")] | length)==1' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'split :53 inbound missing'
@@ -128,8 +128,8 @@ jq -e '([.routing.rules[] | select(((.inboundTag // [])|index("dns-direct"))!=nu
 sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$TROOT/etc/freenet/freenet.conf"
 run_network apply > "$TMP/restore.apply" 2>&1 || { cat "$TMP/restore.apply" >&2; fail 'split -> native failed'; }
 grep -Fq 'NDM_DNS_OVERRIDE=off' "$TMP/restore.apply" || fail 'native override result missing'
-grep -Fq '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'NDM override not disabled'
-grep -Fq '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'ndnproxy did not regain :53'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'NDM override not disabled'
+grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'ndnproxy did not regain :53'
 [ "$(sha256sum "$TROOT/etc/xray/configs/02_dns.json" | awk '{print $1}')" = "$NATIVE_02_HASH" ] || fail 'native 02 not restored byte-for-byte'
 jq -e '([.inbounds[] | select(((.port // "")|tostring)=="53")] | length)==0' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'native still has Xray :53'
 jq -e '([.outbounds[] | select(.tag=="dns-out")] | length)==0' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'native still has dns-out'
@@ -147,8 +147,8 @@ cp "$TROOT/etc/xray/configs/05_routing.json" "$TMP/fail.05.before"
 state_set DNS_QUERY_OK no
 if run_network apply > "$TMP/split.fail" 2>&1; then fail 'failed DNS acceptance unexpectedly succeeded'; fi
 grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/split.fail" || fail 'rollback success not reported'
-grep -Fq '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'rollback did not restore native override'
-grep -Fq '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'rollback did not restore native :53 owner'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'rollback did not restore native override'
+grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'rollback did not restore native :53 owner'
 cmp -s "$TMP/fail.02.before" "$TROOT/etc/xray/configs/02_dns.json" || fail 'rollback did not restore 02'
 cmp -s "$TMP/fail.03.before" "$TROOT/etc/xray/configs/03_inbounds.json" || fail 'rollback did not restore 03'
 cmp -s "$TMP/fail.04.before" "$TROOT/etc/xray/configs/04_outbounds.json" || fail 'rollback did not restore 04'
@@ -159,6 +159,6 @@ state_set DNS_QUERY_OK yes
 state_set PORT53_OWNER none
 if run_network apply > "$TMP/partial.fail" 2>&1; then fail 'partial DNS topology unexpectedly succeeded'; fi
 grep -Eq 'native mode должен иметь ndnproxy|partial/unknown' "$TMP/partial.fail" || fail 'partial topology STOP reason missing'
-grep -Fq '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'partial preflight mutated NDM'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'partial preflight mutated NDM'
 
 echo 'network profile contract PASS'
