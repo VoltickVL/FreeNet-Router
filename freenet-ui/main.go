@@ -236,6 +236,7 @@ func main() {
 	mux.HandleFunc("POST /api/network-profile", a.requireAuth(a.handleNetworkProfilePost))
 	mux.HandleFunc("GET /api/network-profile/plan", a.requireAuth(a.handleNetworkProfilePlan))
 	mux.HandleFunc("POST /api/network-profile/apply", a.requireAuth(a.handleNetworkProfileApply))
+	registerDNSPathTrace(mux, a)
 	mux.HandleFunc("GET /api/subscription", a.requireAuth(a.handleSubscriptionGet))
 	mux.HandleFunc("POST /api/subscription", a.requireAuth(a.handleSubscriptionPost))
 	mux.HandleFunc("POST /api/action", a.requireAuth(a.handleAction))
