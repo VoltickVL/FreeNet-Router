@@ -147,7 +147,7 @@ func TestBridgeRejectsAmbiguousHistoricalNativeAssignments(t *testing.T) {
 	}
 }
 
-func TestBridgeRejectsHistoricalAssignmentsWithProtectedStateMismatch(t *testing.T) {
+func TestBridgeRecoversAssignmentsDespiteProtectedResolverStateChange(t *testing.T) {
 	root := t.TempDir()
 	nativeDir := filepath.Join(root, "native-dns")
 	backupRoot := filepath.Join(root, "backups")
@@ -156,16 +156,23 @@ func TestBridgeRejectsHistoricalAssignmentsWithProtectedStateMismatch(t *testing
 	nativeConfig := strings.ReplaceAll(
 		nativeAssignmentsTestConfig("filter assign host profile aa:bb:cc:dd:ee:ff xbox-dns.ru"),
 		"common.dot.dns.yandex.net",
-		"different.example.net",
+		"old-resolver.example.net",
 	)
-	writeNativeAssignmentsRecoveryBackup(t, backupRoot, "freenet-network-split-mismatch", nativeConfig)
+	writeNativeAssignmentsRecoveryBackup(t, backupRoot, "freenet-network-split-old-resolver", nativeConfig)
 
-	_, err := networkBridgeRecoverNativeAssignmentsSnapshot(nativeDir, backupRoot, splitAssignmentsTestConfig())
-	if err == nil || !strings.Contains(err.Error(), "no unambiguous historical native assignments backup") {
-		t.Fatalf("expected protected-state mismatch STOP, got %v", err)
+	recovered, err := networkBridgeRecoverNativeAssignmentsSnapshot(nativeDir, backupRoot, splitAssignmentsTestConfig())
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, statErr := os.Stat(filepath.Join(nativeDir, "assignments.native")); !os.IsNotExist(statErr) {
-		t.Fatalf("mismatched recovery must not persist snapshot, stat=%v", statErr)
+	if !recovered {
+		t.Fatal("expected assignment recovery to ignore unrelated resolver profile drift")
+	}
+	data, err := os.ReadFile(filepath.Join(nativeDir, "assignments.native"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "filter assign host profile aa:bb:cc:dd:ee:ff xbox-dns.ru") {
+		t.Fatalf("unexpected recovered assignments: %q", string(data))
 	}
 }
 
