@@ -19,9 +19,11 @@ import (
 )
 
 const (
-	dnsTracePayloadInbound = "freenet-trace-payload"
-	dnsTraceDNSInbound     = "freenet-trace-dns"
+	dnsTracePayloadInbound  = "freenet-trace-payload"
+	dnsTraceDNSInbound      = "freenet-trace-dns"
 	dnsTraceResolveOutbound = "freenet-trace-resolve"
+	dnsTraceStartupTimeout  = 8 * time.Second
+	dnsTraceProcessTimeout  = 16 * time.Second
 )
 
 type dnsPathTraceResponse struct {
@@ -249,17 +251,32 @@ func reserveTraceTCPPort() (int, error) {
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
-func waitTraceTCPPort(port int, deadline time.Time) error {
+func waitTraceTCPPort(port int, deadline time.Time, processDone <-chan error) error {
 	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", address, 80*time.Millisecond)
+		select {
+		case <-processDone:
+			return errors.New("temporary Xray trace process exited before listeners became ready")
+		default:
+		}
+		conn, err := net.DialTimeout("tcp", address, 100*time.Millisecond)
 		if err == nil {
 			_ = conn.Close()
 			return nil
 		}
-		time.Sleep(40 * time.Millisecond)
+		time.Sleep(75 * time.Millisecond)
 	}
-	return errors.New("temporary Xray trace listener did not start")
+	return errors.New("temporary Xray trace listener did not become ready before startup deadline")
+}
+
+func stopTraceProcess(cmd *exec.Cmd, processDone <-chan error) {
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+	}
+	select {
+	case <-processDone:
+	case <-time.After(750 * time.Millisecond):
+	}
 }
 
 func sendTraceHTTPProxyRequest(port int, host string) {
@@ -312,7 +329,7 @@ func runReadOnlyXrayPathProbe(host string, currentDNS, routing map[string]any) (
 		return "", errors.New("временный read-only Xray trace candidate не прошёл validation")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), dnsTraceProcessTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, legacyNativeXrayBin(), "run", "-confdir", tmp)
 	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+legacyNativeXrayAssetDir())
@@ -322,15 +339,17 @@ func runReadOnlyXrayPathProbe(host string, currentDNS, routing map[string]any) (
 	if err := cmd.Start(); err != nil {
 		return "", errors.New("не удалось запустить временный read-only Xray trace")
 	}
-	started := time.Now().Add(1800 * time.Millisecond)
-	if err := waitTraceTCPPort(payloadPort, started); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+	processDone := make(chan error, 1)
+	go func() {
+		processDone <- cmd.Wait()
+	}()
+	startupDeadline := time.Now().Add(dnsTraceStartupTimeout)
+	if err := waitTraceTCPPort(payloadPort, startupDeadline, processDone); err != nil {
+		stopTraceProcess(cmd, processDone)
 		return "", err
 	}
-	if err := waitTraceTCPPort(dnsPort, started); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+	if err := waitTraceTCPPort(dnsPort, startupDeadline, processDone); err != nil {
+		stopTraceProcess(cmd, processDone)
 		return "", err
 	}
 
@@ -343,8 +362,7 @@ func runReadOnlyXrayPathProbe(host string, currentDNS, routing map[string]any) (
 	// without touching live config, credentials, :53 ownership or persistent state.
 	sendTraceHTTPProxyRequest(dnsPort, host)
 	time.Sleep(250 * time.Millisecond)
-	_ = cmd.Process.Kill()
-	_ = cmd.Wait()
+	stopTraceProcess(cmd, processDone)
 	return logs.String(), nil
 }
 
