@@ -220,6 +220,7 @@ func networkBridgeConfigWithoutLocalPointer(config, lanIP string) string {
 				if address == lanIP || address == lanIP+":53" {
 					continue
 				}
+			}
 		}
 		kept = append(kept, raw)
 	}
