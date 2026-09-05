@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"os"
 	"strings"
 )
 
@@ -37,8 +38,9 @@ func networkBridgeAddressMatchesLAN(address, lanIP string) bool {
 // transition on the same baseline reached DNS-query failure.
 //
 // Only explicit global non-local name-server selections are accepted as proven
-// readiness. Everything else gets the transactional Yandex Basic safety fallback;
-// existing definitions, assignments and WAN DNS flags remain preserved.
+// readiness. Everything else gets either an exact previously snapshotted native
+// selection or the transactional Yandex Basic safety fallback. Existing profile
+// definitions, assignments and WAN DNS flags remain preserved.
 func networkBridgeHasNativeResolverSelection(config, lanIP string) bool {
 	for _, raw := range strings.Split(strings.ReplaceAll(config, "\r", ""), "\n") {
 		line := strings.TrimSpace(raw)
@@ -70,6 +72,11 @@ func networkBridgeNativeResolverStatus(lanIP string) (string, error) {
 	if networkBridgeHasNativeResolverSelection(config, lanIP) {
 		return "existing-native-resolver-ready", nil
 	}
+	if snapshot, snapshotErr := networkBridgeLoadNativeResolverSelection(); snapshotErr == nil && len(snapshot) > 0 {
+		return "native-resolver-snapshot-restore-needed", nil
+	} else if snapshotErr != nil && !errors.Is(snapshotErr, os.ErrNotExist) {
+		return "", snapshotErr
+	}
 	return "yandex-basic-fallback-needed", nil
 }
 
@@ -84,53 +91,43 @@ func networkBridgeNameServerLinesForAddress(config, address string) []string {
 	return lines
 }
 
-// Stage a deterministic native resolver only when removing the Split-owned local
-// pointer would otherwise leave no proven explicit independent resolver selection.
-// Preserved DoT/DoH/profile definitions and interface/WAN hints are intentionally
-// not treated as proof. Yandex Basic uses numeric upstreams so native DNS readiness
-// has no DNS bootstrap dependency. The forward change is intentionally not
-// persisted here: the shell core owns the single save after full post-apply
-// acceptance.
-func networkBridgeEnsureNativeResolverReady(lanIP string) ([]string, error) {
+// Stage a deterministic native resolver before removing the Split-owned local
+// pointer. Prefer the exact resolver selection snapshotted when entering Split;
+// only use Yandex Basic when no verified native snapshot exists. Forward staging
+// remains running-config only: persistence is owned by the full transaction after
+// runtime acceptance.
+func networkBridgeEnsureNativeResolverReady(lanIP string) ([]string, string, error) {
 	config, err := networkBridgeRunningConfig()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if networkBridgeHasNativeResolverSelection(config, lanIP) {
-		return nil, nil
+		return nil, "preserved-existing", nil
 	}
 
-	added := make([]string, 0, len(networkBridgeYandexBasicResolvers))
-	for _, address := range networkBridgeYandexBasicResolvers {
-		if err := networkBridgeNDMC("ip name-server " + address); err != nil {
-			_ = networkBridgeRemoveAddedNativeResolvers(added)
-			return nil, err
+	if snapshot, snapshotErr := networkBridgeLoadNativeResolverSelection(); snapshotErr == nil && len(snapshot) > 0 {
+		added, addErr := networkBridgeAddResolverSelectionLines(snapshot)
+		if addErr != nil {
+			return nil, "", addErr
 		}
-		updated, readErr := networkBridgeRunningConfig()
-		if readErr != nil || len(networkBridgeNameServerLinesForAddress(updated, address)) == 0 {
-			_ = networkBridgeRemoveAddedNativeResolvers(append(added, address))
-			return nil, errors.New("native DNS fallback was not accepted by Keenetic")
-		}
-		added = append(added, address)
+		return added, "restored-native-snapshot", nil
+	} else if snapshotErr != nil && !errors.Is(snapshotErr, os.ErrNotExist) {
+		return nil, "", snapshotErr
 	}
-	return added, nil
+
+	fallbackLines := make([]string, 0, len(networkBridgeYandexBasicResolvers))
+	for _, address := range networkBridgeYandexBasicResolvers {
+		fallbackLines = append(fallbackLines, "ip name-server "+address)
+	}
+	added, addErr := networkBridgeAddResolverSelectionLines(fallbackLines)
+	if addErr != nil {
+		return nil, "", addErr
+	}
+	return added, "yandex-basic-fallback", nil
 }
 
-func networkBridgeRemoveAddedNativeResolvers(addresses []string) error {
-	for i := len(addresses) - 1; i >= 0; i-- {
-		address := addresses[i]
-		config, err := networkBridgeRunningConfig()
-		if err != nil {
-			return err
-		}
-		lines := networkBridgeNameServerLinesForAddress(config, address)
-		for _, line := range lines {
-			if err := networkBridgeNDMC("no " + line); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+func networkBridgeRemoveAddedNativeResolvers(lines []string) error {
+	return networkBridgeRemoveResolverSelectionLines(lines)
 }
 
 func networkBridgeRollbackNativeResolverStage(lanIP string, restoreLocal bool, added []string) error {
@@ -148,8 +145,14 @@ func networkBridgeRollbackNativeResolverStage(lanIP string, restoreLocal bool, a
 func augmentNetworkBridgeNativeResolverPlan(output, status string) string {
 	values := parseNetworkBridgeValues(output)
 	delta := values["EXPECTED_DELTA"]
-	if status == "yandex-basic-fallback-needed" {
-		extra := "ensure native Yandex Basic resolver 77.88.8.8/77.88.8.1 before DNS acceptance"
+	var extra string
+	switch status {
+	case "native-resolver-snapshot-restore-needed":
+		extra = "restore exact snapshotted native Keenetic resolver selection before DNS acceptance"
+	case "yandex-basic-fallback-needed":
+		extra = "ensure native Yandex Basic resolver 77.88.8.8/77.88.8.1 before DNS acceptance"
+	}
+	if extra != "" {
 		if delta == "" {
 			delta = extra
 		} else if !strings.Contains(delta, extra) {
