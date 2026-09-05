@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/dns-split-disable-native-assignments
-      - name: Apply patch and expose failing rollback
+      - name: Apply patch and trace failing rollback
         shell: bash
         run: |
           awk '
@@ -33,4 +33,4 @@ jobs:
           s=s.replace(needle, "echo '--- fail.apply diagnostic ---'; cat \"$TMP/fail.apply\"; echo '--- end diagnostic ---'; "+needle, 1)
           p.write_text(s)
           PY
-          sh tests/test_network_profile_contract.sh
+          sh -x tests/test_network_profile_contract.sh
