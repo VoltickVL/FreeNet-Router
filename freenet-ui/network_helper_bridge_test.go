@@ -120,21 +120,31 @@ func TestBridgeDoesNotPersistForwardPointerMutationBeforeCoreAcceptance(t *testi
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, forbidden := range []string{
-		`if err := networkBridgeAddLocalPointer(lanIP); err != nil || networkBridgeSave() != nil {`,
-		`if err := networkBridgeRemoveLocalPointer(lanIP); err != nil || networkBridgeSave() != nil {`,
-	} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("bridge persists forward pointer mutation before core acceptance: %s", forbidden)
-		}
+
+	splitStart := strings.Index(text, "func applyNetworkBridgeSplit(")
+	if splitStart < 0 {
+		t.Fatal("applyNetworkBridgeSplit not found")
 	}
-	for _, required := range []string{
-		`if err := networkBridgeAddLocalPointer(lanIP); err != nil {`,
-		`if err := networkBridgeRemoveLocalPointer(lanIP); err != nil {`,
-		`rollback re-adds and saves the pointer`,
-	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("bridge staging/rollback contract marker missing: %s", required)
-		}
+	splitCore := strings.Index(text[splitStart:], `runNetworkBridgeCore(configPath, "apply")`)
+	if splitCore < 0 {
+		t.Fatal("Split core apply call not found")
+	}
+	if strings.Contains(text[splitStart:splitStart+splitCore], "networkBridgeSave()") {
+		t.Fatal("Split forward pointer staging persists before core acceptance")
+	}
+
+	nativeStart := strings.Index(text, "func applyNetworkBridgeNative(")
+	if nativeStart < 0 {
+		t.Fatal("applyNetworkBridgeNative not found")
+	}
+	nativeRecovery := strings.Index(text[nativeStart:], "if networkBridgeStrictRuntimeSplit(prePlan) {")
+	if nativeRecovery < 0 {
+		t.Fatal("native recovery boundary not found")
+	}
+	if strings.Contains(text[nativeStart:nativeStart+nativeRecovery], "networkBridgeSave()") {
+		t.Fatal("native forward pointer staging persists before recovery/core acceptance")
+	}
+	if !strings.Contains(text[nativeStart+nativeRecovery:], "networkBridgeSave()") {
+		t.Fatal("native rollback persistence contract disappeared")
 	}
 }
