@@ -97,16 +97,27 @@ func TestBridgeNativeResolverPreservedProfilesDoNotImplySelection(t *testing.T) 
 	}
 }
 
-func TestBridgeNativeResolverRecognizesIndependentSelections(t *testing.T) {
+func TestBridgeNativeResolverInterfaceHintsDoNotImplySelection(t *testing.T) {
+	config := strings.Join([]string{
+		"ip name-server 192.168.50.1:53",
+		"interface Vladlink",
+		"    ip dhcp client dns-routes",
+		"    name-servers 77.88.8.8",
+		"!",
+	}, "\n")
+	if networkBridgeHasNativeResolverSelection(config, "192.168.50.1") {
+		t.Fatal("interface/WAN DNS hints must not prove active native system resolver selection")
+	}
+}
+
+func TestBridgeNativeResolverRecognizesExplicitIndependentSelections(t *testing.T) {
 	cases := []string{
 		"ip name-server 77.88.8.8\n",
 		"ipv6 name-server 2a02:6b8::feed:0ff\n",
-		"interface Vladlink\n    ip dhcp client dns-routes\n!\n",
-		"interface Vladlink\n    name-servers 77.88.8.8\n!\n",
 	}
 	for _, config := range cases {
 		if !networkBridgeHasNativeResolverSelection(config, "192.168.50.1") {
-			t.Fatalf("active native resolver selection not recognized: %q", config)
+			t.Fatalf("explicit native resolver selection not recognized: %q", config)
 		}
 	}
 }
