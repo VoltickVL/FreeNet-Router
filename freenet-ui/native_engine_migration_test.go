@@ -308,7 +308,11 @@ func legacyMigrationNetworkHelper(marker string) string {
 ISP="$(sed -n 's/^ISP_ID=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
 DNS="$(sed -n 's/^DNS_MODE=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
 if [ "$1" = plan ]; then
-  if [ -f "` + marker + `" ]; then OWNER=ndnproxy; ROUTING=native; DNSOUT=no; else OWNER=xray; ROUTING=split; DNSOUT=yes; fi
+  if [ -f "` + marker + `" ]; then
+    OWNER=ndnproxy; ROUTING=native; DNSOUT=no; OVERRIDE=off; ENGINE=public; INTERCEPT=on; ASSIGNMENTS=present; INBOUND=0
+  else
+    OWNER=xray; ROUTING=split; DNSOUT=yes; OVERRIDE=on; ENGINE=opkg; INTERCEPT=off; ASSIGNMENTS=none; INBOUND=1
+  fi
   cat <<EOF
 ========== FreeNet Network Plan ==========
 ISP_ID=$ISP
@@ -317,7 +321,13 @@ EFFECTIVE_DNS_MODE=firmware
 SUPPORTED=yes
 REASON=профиль поддерживается
 PROXY_DNS=off
+NDM_DNS_OVERRIDE=$OVERRIDE
+NDM_FILTER_ENGINE=$ENGINE
+NDM_DNS_INTERCEPT=$INTERCEPT
+NDM_DNS_ASSIGNMENTS=$ASSIGNMENTS
 PORT53_OWNER=$OWNER
+XRAY_DNS_INBOUND_COUNT=$INBOUND
+XRAY_RUNNING=yes
 XRAY_GID=11111
 DNS_ROUTING_MODE=$ROUTING
 DNS_OUT=$DNSOUT

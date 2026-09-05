@@ -41,7 +41,13 @@ type networkPlanResponse struct {
 	EffectiveDNSMode                  string                     `json:"effective_dns_mode"`
 	Reason                            string                     `json:"reason,omitempty"`
 	ProxyDNS                          string                     `json:"proxy_dns,omitempty"`
+	NDMDNSOverride                    string                     `json:"ndm_dns_override,omitempty"`
+	NDMFilterEngine                   string                     `json:"ndm_filter_engine,omitempty"`
+	NDMDNSIntercept                   string                     `json:"ndm_dns_intercept,omitempty"`
+	NDMDNSAssignments                 string                     `json:"ndm_dns_assignments,omitempty"`
 	Port53Owner                       string                     `json:"port53_owner,omitempty"`
+	XrayDNSInboundCount               string                     `json:"xray_dns_inbound_count,omitempty"`
+	XrayRunning                       bool                       `json:"xray_running"`
 	XrayGID                           string                     `json:"xray_gid,omitempty"`
 	DNSRoutingMode                    string                     `json:"dns_routing_mode,omitempty"`
 	DNSOut                            bool                       `json:"dns_out_present"`
@@ -567,18 +573,49 @@ func (a *app) runProviderPlan(profileID string) (providerPlanResponse, error) {
 	return plan, nil
 }
 
-func networkPlanIsActive(supported bool, effectiveDNSMode, proxyDNS, dnsRoutingMode string, dnsOut, vlessProfile bool) bool {
-	if !supported || proxyDNS != "off" {
-		return false
+func networkPlanActiveMismatch(p networkPlanResponse) string {
+	if !p.Supported {
+		return "unsupported"
 	}
-	switch effectiveDNSMode {
+	var mismatches []string
+	need := func(ok bool, detail string) {
+		if !ok {
+			mismatches = append(mismatches, detail)
+		}
+	}
+	need(p.ProxyDNS == "off", "proxy_dns="+p.ProxyDNS+" (ожидается off)")
+
+	switch p.EffectiveDNSMode {
 	case "firmware":
-		return dnsRoutingMode == "native" && !dnsOut
+		need(p.NDMDNSOverride == "off", "dns-override="+p.NDMDNSOverride+" (ожидается off)")
+		need(p.NDMFilterEngine != "" && p.NDMFilterEngine != "unknown" && p.NDMFilterEngine != "opkg", "filter-engine="+p.NDMFilterEngine+" (ожидается native engine)")
+		need(p.Port53Owner == "ndnproxy", "owner:53="+p.Port53Owner+" (ожидается ndnproxy)")
+		need(p.XrayDNSInboundCount == "0", "xray-dns-inbound="+p.XrayDNSInboundCount+" (ожидается 0)")
+		need(p.DNSRoutingMode == "native", "dns-routing="+p.DNSRoutingMode+" (ожидается native)")
+		need(!p.DNSOut, "dns-out присутствует (ожидается отсутствует)")
+		if p.XrayRunning {
+			need(p.XrayGID == "11111", "xray-gid="+p.XrayGID+" (ожидается 11111)")
+		}
 	case "xkeen":
-		return dnsRoutingMode == "split" && dnsOut && vlessProfile
+		need(p.NDMDNSOverride == "on", "dns-override="+p.NDMDNSOverride+" (ожидается on)")
+		need(p.NDMFilterEngine == "opkg", "filter-engine="+p.NDMFilterEngine+" (ожидается opkg)")
+		need(p.NDMDNSIntercept == "off", "native-intercept="+p.NDMDNSIntercept+" (ожидается off)")
+		need(p.NDMDNSAssignments == "none", "native-assignments="+p.NDMDNSAssignments+" (ожидается none)")
+		need(p.Port53Owner == "xray", "owner:53="+p.Port53Owner+" (ожидается xray)")
+		need(p.XrayDNSInboundCount == "1", "xray-dns-inbound="+p.XrayDNSInboundCount+" (ожидается 1)")
+		need(p.XrayRunning, "xray-running=no (ожидается yes)")
+		need(p.XrayGID == "11111", "xray-gid="+p.XrayGID+" (ожидается 11111)")
+		need(p.DNSRoutingMode == "split", "dns-routing="+p.DNSRoutingMode+" (ожидается split)")
+		need(p.DNSOut, "dns-out отсутствует")
+		need(p.VLESSProfile, "vless-reality отсутствует")
 	default:
-		return false
+		mismatches = append(mismatches, "неподдерживаемый effective DNS mode")
 	}
+	return strings.Join(mismatches, "; ")
+}
+
+func networkPlanIsActive(p networkPlanResponse) bool {
+	return networkPlanActiveMismatch(p) == ""
 }
 
 func parseNetworkPlan(output string) (networkPlanResponse, error) {
@@ -590,7 +627,7 @@ func parseNetworkPlan(output string) (networkPlanResponse, error) {
 			continue
 		}
 		switch key {
-		case "ISP_ID", "DNS_MODE", "EFFECTIVE_DNS_MODE", "SUPPORTED", "REASON", "PROXY_DNS", "PORT53_OWNER", "XRAY_GID", "DNS_ROUTING_MODE", "DNS_OUT", "VLESS_PROFILE", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
+		case "ISP_ID", "DNS_MODE", "EFFECTIVE_DNS_MODE", "SUPPORTED", "REASON", "PROXY_DNS", "NDM_DNS_OVERRIDE", "NDM_FILTER_ENGINE", "NDM_DNS_INTERCEPT", "NDM_DNS_ASSIGNMENTS", "PORT53_OWNER", "XRAY_DNS_INBOUND_COUNT", "XRAY_RUNNING", "XRAY_GID", "DNS_ROUTING_MODE", "DNS_OUT", "VLESS_PROFILE", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
 			values[key] = strings.TrimSpace(value)
 		}
 	}
@@ -600,30 +637,38 @@ func parseNetworkPlan(output string) (networkPlanResponse, error) {
 	if values["MUTATION"] != "NONE" {
 		return networkPlanResponse{}, errors.New("network plan unexpectedly reports mutation")
 	}
-	supported := values["SUPPORTED"] == "yes"
-	effectiveDNSMode := values["EFFECTIVE_DNS_MODE"]
-	proxyDNS := values["PROXY_DNS"]
-	dnsRoutingMode := values["DNS_ROUTING_MODE"]
-	dnsOut := values["DNS_OUT"] == "yes"
-	vlessProfile := values["VLESS_PROFILE"] == "yes"
-	return networkPlanResponse{
-		Success:          true,
-		Supported:        supported,
-		Active:           networkPlanIsActive(supported, effectiveDNSMode, proxyDNS, dnsRoutingMode, dnsOut, vlessProfile),
-		ISP:              values["ISP_ID"],
-		DNSMode:          values["DNS_MODE"],
-		EffectiveDNSMode: effectiveDNSMode,
-		Reason:           values["REASON"],
-		ProxyDNS:         proxyDNS,
-		Port53Owner:      values["PORT53_OWNER"],
-		XrayGID:          values["XRAY_GID"],
-		DNSRoutingMode:   dnsRoutingMode,
-		DNSOut:           dnsOut,
-		VLESSProfile:     vlessProfile,
-		ExpectedDelta:    values["EXPECTED_DELTA"],
-		ExpectedNoDelta:  values["EXPECTED_NO_DELTA"],
-		Mutation:         values["MUTATION"],
-	}, nil
+	plan := networkPlanResponse{
+		Success:             true,
+		Supported:           values["SUPPORTED"] == "yes",
+		ISP:                 values["ISP_ID"],
+		DNSMode:             values["DNS_MODE"],
+		EffectiveDNSMode:    values["EFFECTIVE_DNS_MODE"],
+		Reason:              values["REASON"],
+		ProxyDNS:            values["PROXY_DNS"],
+		NDMDNSOverride:      values["NDM_DNS_OVERRIDE"],
+		NDMFilterEngine:     values["NDM_FILTER_ENGINE"],
+		NDMDNSIntercept:     values["NDM_DNS_INTERCEPT"],
+		NDMDNSAssignments:   values["NDM_DNS_ASSIGNMENTS"],
+		Port53Owner:         values["PORT53_OWNER"],
+		XrayDNSInboundCount: values["XRAY_DNS_INBOUND_COUNT"],
+		XrayRunning:         values["XRAY_RUNNING"] == "yes",
+		XrayGID:             values["XRAY_GID"],
+		DNSRoutingMode:      values["DNS_ROUTING_MODE"],
+		DNSOut:              values["DNS_OUT"] == "yes",
+		VLESSProfile:        values["VLESS_PROFILE"] == "yes",
+		ExpectedDelta:       values["EXPECTED_DELTA"],
+		ExpectedNoDelta:     values["EXPECTED_NO_DELTA"],
+		Mutation:            values["MUTATION"],
+	}
+	mismatch := networkPlanActiveMismatch(plan)
+	plan.Active = mismatch == ""
+	if plan.Supported && mismatch != "" {
+		if plan.Reason != "" {
+			plan.Reason += "; "
+		}
+		plan.Reason += "runtime не подтверждён: " + mismatch
+	}
+	return plan, nil
 }
 
 func parseProviderPlan(output string) (providerPlanResponse, error) {
@@ -657,36 +702,4 @@ func parseProviderPlan(output string) (providerPlanResponse, error) {
 		ExpectedNoDelta: values["EXPECTED_NO_DELTA"],
 		Mutation:        values["MUTATION"],
 	}, nil
-}
-
-func classifyApplyFailure(output string) (string, string) {
-	primary := ""
-	rollback := "UNKNOWN"
-	preflightDetail := ""
-	for _, part := range strings.Split(output, " | ") {
-		line := strings.TrimSpace(part)
-		if i := strings.Index(line, "[FreeNet Network] ERROR:"); i >= 0 {
-			detail := strings.TrimSpace(line[i+len("[FreeNet Network] ERROR:"):])
-			if detail != "" && !strings.HasPrefix(detail, "PRIMARY ERROR:") && !strings.HasPrefix(detail, "ROLLBACK ERROR/STATE:") {
-				preflightDetail = detail
-			}
-		}
-		if i := strings.Index(line, "PRIMARY ERROR:"); i >= 0 {
-			primary = strings.TrimSpace(line[i+len("PRIMARY ERROR:"):])
-		}
-		switch {
-		case strings.Contains(line, "ROLLBACK ERROR/STATE: FAILED/UNKNOWN"):
-			rollback = "FAILED/UNKNOWN"
-		case strings.Contains(line, "ROLLBACK ERROR/STATE: rollback success"):
-			rollback = "SUCCESS"
-		case strings.Contains(line, "ROLLBACK ERROR/STATE: no live apply"):
-			rollback = "NOT_APPLIED"
-		case strings.Contains(line, "rollback success/no live apply"):
-			rollback = "SUCCESS_OR_NOT_APPLIED"
-		}
-	}
-	if preflightDetail != "" && (primary == "native DNS preflight failed before mutation" || primary == "Split DNS preflight failed before mutation") {
-		primary += ": " + preflightDetail
-	}
-	return primary, rollback
 }
