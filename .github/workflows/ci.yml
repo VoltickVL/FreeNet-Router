@@ -71,6 +71,7 @@ jobs:
           sh -n tests/test_product_bootstrap_contract.sh
           sh -n tests/test_network_profile_contract.sh
           sh -n tests/test_network_jsonc_compat.sh
+          sh -n tests/test_network_partial_native_recovery.sh
           sh -n tests/test_provider_profile_apply.sh
           sh -n tests/test_finalize_setup.sh
           sh -n tests/test_self_update.sh
@@ -96,6 +97,9 @@ jobs:
 
       - name: Xray JSONC network compatibility test
         run: sh tests/test_network_jsonc_compat.sh
+
+      - name: Partial native control-plane recovery test
+        run: sh tests/test_network_partial_native_recovery.sh
 
       - name: Provider profile transactional test
         run: sh tests/test_provider_profile_apply.sh
