@@ -18,6 +18,9 @@ for marker in \
     'NDM_DNS_INTERCEPT=' \
     'filter-engine.native' \
     'intercept.native' \
+    'assignments.native' \
+    'split-assignments' \
+    'dns-proxy no filter assign' \
     'ndm_protected_state' \
     'Keenetic protected DNS/WAN state changed unexpectedly' \
     '02_dns may be native JSONC/comment-only' \
@@ -64,6 +67,7 @@ NDM_FILTER_ENGINE=public
 NDM_DNS_INTERCEPT=on
 NDM_CONFIG_MARKER=preserved
 NDM_DNS_PROFILE_MARKER=preserved
+NDM_DNS_ASSIGNMENTS=on
 NDM_MUTATE_PROTECTED_ON_OVERRIDE=no
 XRAY_RUNNING=yes
 XRAY_GID=11111
@@ -92,7 +96,7 @@ hash_route() { jq -cS '[.routing.rules[]? | select((.outboundTag // "") != "dns-
 H02="$(sha256sum "$TROOT/etc/xray/configs/02_dns.json" | awk '{print $1}')"; HIN="$(hash_in)"; HOUT="$(hash_out)"; HROUTE="$(hash_route)"
 
 run_network plan > "$TMP/native.plan"
-for x in 'EFFECTIVE_DNS_MODE=firmware' 'PROXY_DNS=on' 'NDM_DNS_OVERRIDE=off' 'NDM_FILTER_ENGINE=public' 'NDM_DNS_INTERCEPT=on' 'PORT53_OWNER=ndnproxy' 'DNS_OUT=no' 'DNS_ROUTING_MODE=native'; do grep -Fq "$x" "$TMP/native.plan" || fail "native fact missing: $x"; done
+for x in 'EFFECTIVE_DNS_MODE=firmware' 'PROXY_DNS=on' 'NDM_DNS_OVERRIDE=off' 'NDM_FILTER_ENGINE=public' 'NDM_DNS_INTERCEPT=on' 'NDM_DNS_ASSIGNMENTS=present' 'PORT53_OWNER=ndnproxy' 'DNS_OUT=no' 'DNS_ROUTING_MODE=native'; do grep -Fq "$x" "$TMP/native.plan" || fail "native fact missing: $x"; done
 
 # WORK-like existing stack: healthy native DNS may carry legacy proxy_dns=on in init.
 # FreeNet must normalize the persisted init value without restarting a working native runtime.
@@ -102,6 +106,7 @@ grep -Eq '^proxy_dns="?off"?$' "$TROOT/etc/init.d/S05xkeen" || fail 'native appl
 grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'native normalization changed NDM override'
 grep -q '^NDM_FILTER_ENGINE=public$' "$STATE" || fail 'native normalization changed filter engine'
 grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'native normalization changed system intercept'
+grep -q '^NDM_DNS_ASSIGNMENTS=on$' "$STATE" || fail 'native normalization changed filter assignments'
 grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'native normalization changed :53 owner'
 grep -q '^XRAY_RUNNING=yes$' "$STATE" || fail 'native normalization changed Xray runtime'
 # XKEEN_ACTION_RESULT=fail proves the successful native normalization did not invoke restart/start/stop.
@@ -115,6 +120,7 @@ grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/native-query-fail.apply" ||
 grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'native no-op failure mutated NDM'
 grep -q '^NDM_FILTER_ENGINE=public$' "$STATE" || fail 'native no-op failure changed filter engine'
 grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'native no-op failure changed intercept'
+grep -q '^NDM_DNS_ASSIGNMENTS=on$' "$STATE" || fail 'native no-op failure changed filter assignments'
 grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'native no-op failure changed :53 owner'
 state_set DNS_QUERY_OK yes
 
@@ -127,10 +133,13 @@ run_network apply > "$TMP/split.apply" 2>&1 || { cat "$TMP/split.apply" >&2; fai
 grep -q '^NDM_DNS_OVERRIDE=on$' "$STATE" || fail 'NDM override not enabled'
 grep -q '^NDM_FILTER_ENGINE=opkg$' "$STATE" || fail 'Keenetic filter engine not switched to opkg'
 grep -q '^NDM_DNS_INTERCEPT=off$' "$STATE" || fail 'native System DNS intercept not disabled'
+grep -q '^NDM_DNS_ASSIGNMENTS=off$' "$STATE" || fail 'native DNS filter assignments not detached in Split'
 grep -q '^PORT53_OWNER=xray$' "$STATE" || fail 'Xray did not own :53'
 grep -Eq '^proxy_dns="?off"?$' "$TROOT/etc/init.d/S05xkeen" || fail 'split did not normalize proxy_dns=off'
 [ "$(cat "$TROOT/etc/freenet/native-dns/filter-engine.native")" = public ] || fail 'native filter engine snapshot missing or wrong'
 [ "$(cat "$TROOT/etc/freenet/native-dns/intercept.native")" = on ] || fail 'native intercept snapshot missing or wrong'
+grep -Fq 'filter assign host profile aa:bb:cc:dd:ee:ff xbox-dns.ru' "$TROOT/etc/freenet/native-dns/assignments.native" || fail 'native host assignment snapshot missing'
+grep -Fq 'filter assign interface preset Home cloudflare-unfiltered' "$TROOT/etc/freenet/native-dns/assignments.native" || fail 'native interface assignment snapshot missing'
 [ "$(sha256sum "$TROOT/etc/freenet/native-dns/02_dns.native" | awk '{print $1}')" = "$H02" ] || fail 'native 02 snapshot changed'
 jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==1' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'split :53 missing'
 jq -e '([.outbounds[]? | select(.tag=="dns-out" and .protocol=="dns")] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'dns-out missing'
@@ -146,12 +155,23 @@ jq -e '
 [ "$(hash_out)" = "$HOUT" ] || fail 'split changed VPN/non-DNS outbounds'
 [ "$(hash_route)" = "$HROUTE" ] || fail 'split changed non-DNS routing'
 
-# Split -> native restores the exact native engine AND native intercept state.
+# Reproduce v0.2.52 defect: native assignments may remain active in an otherwise
+# valid Split topology. Plan must classify it repair-ready, and apply must detach
+# the exact saved assignments without touching their profile definitions.
+state_set NDM_DNS_ASSIGNMENTS on
+run_network plan > "$TMP/split-assignments.plan"
+grep -Fq 'DNS_ROUTING_MODE=split-assignments' "$TMP/split-assignments.plan" || fail 'Split assignments bypass not classified'
+run_network apply > "$TMP/split-assignments.repair" 2>&1 || { cat "$TMP/split-assignments.repair" >&2; fail 'Split assignments repair failed'; }
+grep -q '^NDM_DNS_ASSIGNMENTS=off$' "$STATE" || fail 'Split repair did not detach native assignments'
+grep -Fq 'RESULT=SUCCESS' "$TMP/split-assignments.repair" || fail 'Split assignment repair result missing'
+
+# Split -> native restores the exact native engine, intercept and filter assignments.
 sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$TROOT/etc/freenet/freenet.conf"
 run_network apply > "$TMP/restore.apply" 2>&1 || { cat "$TMP/restore.apply" >&2; fail 'split -> native failed'; }
 grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'NDM override not disabled'
 grep -q '^NDM_FILTER_ENGINE=public$' "$STATE" || fail 'native filter engine not restored'
 grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'native intercept state not restored'
+grep -q '^NDM_DNS_ASSIGNMENTS=on$' "$STATE" || fail 'native filter assignments not restored'
 grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'ndnproxy did not regain :53'
 [ "$(sha256sum "$TROOT/etc/xray/configs/02_dns.json" | awk '{print $1}')" = "$H02" ] || fail 'native 02 not restored byte-for-byte'
 jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==0' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'native still has Xray :53'
