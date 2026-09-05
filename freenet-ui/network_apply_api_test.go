@@ -39,10 +39,16 @@ func supportedPlanOutput() string {
 		"SUPPORTED=yes",
 		"REASON=профиль поддерживается",
 		"PROXY_DNS=off",
+		"NDM_DNS_OVERRIDE=off",
+		"NDM_FILTER_ENGINE=public",
+		"NDM_DNS_INTERCEPT=on",
+		"NDM_DNS_ASSIGNMENTS=present",
 		"PORT53_OWNER=ndnproxy",
+		"XRAY_DNS_INBOUND_COUNT=0",
+		"XRAY_RUNNING=yes",
 		"XRAY_GID=11111",
-		"DNS_ROUTING_MODE=standard",
-		"DNS_OUT=yes",
+		"DNS_ROUTING_MODE=native",
+		"DNS_OUT=no",
 		"VLESS_PROFILE=yes",
 		"EXPECTED_DELTA=проверить и применить выбранный DNS режим",
 		"EXPECTED_NO_DELTA=no VLESS credential rewrite",
@@ -56,9 +62,12 @@ func dynamicPlanHelper(applyTail string) string {
 ISP="$(sed -n 's/^ISP_ID=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
 DNS="$(sed -n 's/^DNS_MODE=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
 case "$DNS" in
-  auto|firmware) EFFECTIVE=firmware; ROUTING=standard ;;
-  xkeen) EFFECTIVE=xkeen; ROUTING=split ;;
-  custom) EFFECTIVE=custom; ROUTING=unknown ;;
+  auto|firmware)
+    EFFECTIVE=firmware; ROUTING=native; OVERRIDE=off; ENGINE=public; INTERCEPT=on; ASSIGNMENTS=present; OWNER=ndnproxy; INBOUND=0; DNSOUT=no ;;
+  xkeen)
+    EFFECTIVE=xkeen; ROUTING=split; OVERRIDE=on; ENGINE=opkg; INTERCEPT=off; ASSIGNMENTS=none; OWNER=xray; INBOUND=1; DNSOUT=yes ;;
+  custom)
+    EFFECTIVE=custom; ROUTING=unknown; OVERRIDE=unknown; ENGINE=unknown; INTERCEPT=unknown; ASSIGNMENTS=unknown; OWNER=unknown; INBOUND=unknown; DNSOUT=no ;;
 esac
 if [ "$1" = plan ]; then
 cat <<EOF
@@ -69,10 +78,16 @@ EFFECTIVE_DNS_MODE=$EFFECTIVE
 SUPPORTED=yes
 REASON=профиль поддерживается
 PROXY_DNS=off
-PORT53_OWNER=ndnproxy
+NDM_DNS_OVERRIDE=$OVERRIDE
+NDM_FILTER_ENGINE=$ENGINE
+NDM_DNS_INTERCEPT=$INTERCEPT
+NDM_DNS_ASSIGNMENTS=$ASSIGNMENTS
+PORT53_OWNER=$OWNER
+XRAY_DNS_INBOUND_COUNT=$INBOUND
+XRAY_RUNNING=yes
 XRAY_GID=11111
 DNS_ROUTING_MODE=$ROUTING
-DNS_OUT=yes
+DNS_OUT=$DNSOUT
 VLESS_PROFILE=yes
 EXPECTED_DELTA=применить выбранный draft
 EXPECTED_NO_DELTA=no VLESS credential rewrite
