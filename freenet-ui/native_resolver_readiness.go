@@ -24,43 +24,38 @@ func networkBridgeAddressMatchesLAN(address, lanIP string) bool {
 }
 
 // networkBridgeHasNativeResolverSelection answers whether Keenetic has an
-// independent resolver selection that can still feed native ndnproxy after the
-// Split-owned LAN_IP:53 pointer is removed.
+// explicit independent system resolver selection that can still feed native
+// ndnproxy after the Split-owned LAN_IP:53 pointer is removed.
 //
-// dns-proxy tls/https/dns53 upstream lines are deliberately NOT sufficient:
-// they are preserved profile definitions, but their mere existence does not prove
-// that the system resolver is currently selected to use them. HOME v0.2.63
-// demonstrated this exact distinction: preserved Yandex DoT/DoH definitions were
-// present while the only active global resolver selection was Split-local.
+// Passive resolver definitions and interface/WAN hints are deliberately NOT
+// sufficient evidence. dns-proxy tls/https/dns53 upstream lines are profile
+// definitions, while interface-scoped name-servers / ip dhcp client dns-routes
+// describe interface capabilities or learned-DNS behaviour without proving that
+// the system resolver will actually select a usable upstream after the Split
+// pointer disappears. HOME v0.2.63/v0.2.64 demonstrated both false-positive
+// classes: read-only plans reported readiness even though the prior native
+// transition on the same baseline reached DNS-query failure.
+//
+// Only explicit global non-local name-server selections are accepted as proven
+// readiness. Everything else gets the transactional Yandex Basic safety fallback;
+// existing definitions, assignments and WAN DNS flags remain preserved.
 func networkBridgeHasNativeResolverSelection(config, lanIP string) bool {
-	interfaceScope := false
 	for _, raw := range strings.Split(strings.ReplaceAll(config, "\r", ""), "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
 		}
 		indented := len(raw) > 0 && (raw[0] == ' ' || raw[0] == '\t')
-		if !indented {
-			interfaceScope = false
-			if line == "!" {
-				continue
-			}
-			if strings.HasPrefix(line, "interface ") {
-				interfaceScope = true
-				continue
-			}
-			if strings.HasPrefix(line, "ip name-server ") {
-				address := networkBridgeNameServerAddress(line)
-				if address != "" && !networkBridgeAddressMatchesLAN(address, lanIP) {
-					return true
-				}
-			}
-			if strings.HasPrefix(line, "ipv6 name-server ") {
-				return true
-			}
+		if indented {
 			continue
 		}
-		if interfaceScope && (strings.HasPrefix(line, "name-servers ") || strings.HasPrefix(line, "ip dhcp client dns-routes")) {
+		if strings.HasPrefix(line, "ip name-server ") {
+			address := networkBridgeNameServerAddress(line)
+			if address != "" && !networkBridgeAddressMatchesLAN(address, lanIP) {
+				return true
+			}
+		}
+		if strings.HasPrefix(line, "ipv6 name-server ") {
 			return true
 		}
 	}
@@ -90,11 +85,12 @@ func networkBridgeNameServerLinesForAddress(config, address string) []string {
 }
 
 // Stage a deterministic native resolver only when removing the Split-owned local
-// pointer would otherwise leave no independent active resolver selection.
-// Preserved DoT/DoH/profile definitions are intentionally not treated as active
-// selection. Yandex Basic uses numeric upstreams so native DNS readiness has no
-// DNS bootstrap dependency. The forward change is intentionally not persisted
-// here: the shell core owns the single save after full post-apply acceptance.
+// pointer would otherwise leave no proven explicit independent resolver selection.
+// Preserved DoT/DoH/profile definitions and interface/WAN hints are intentionally
+// not treated as proof. Yandex Basic uses numeric upstreams so native DNS readiness
+// has no DNS bootstrap dependency. The forward change is intentionally not
+// persisted here: the shell core owns the single save after full post-apply
+// acceptance.
 func networkBridgeEnsureNativeResolverReady(lanIP string) ([]string, error) {
 	config, err := networkBridgeRunningConfig()
 	if err != nil {
