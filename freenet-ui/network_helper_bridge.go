@@ -84,6 +84,14 @@ func runNetworkHelperBridge(mode string) int {
 
 	if mode == "plan" {
 		out := augmentNetworkBridgePlan(string(planOutput), target, lanIP, pointerPresent)
+		if target == "xkeen" {
+			selection, selectionErr := networkBridgeCurrentNativeResolverSelection(lanIP)
+			if selectionErr != nil {
+				out = strings.TrimRight(out, "\r\n") + "\nSUPPORTED=no\nREASON=Split resolver-selection preflight: " + selectionErr.Error() + "\n"
+			} else {
+				out = augmentNetworkBridgeSplitResolverPlan(out, len(selection))
+			}
+		}
 		if target == "firmware" {
 			resolverStatus, resolverErr := networkBridgeNativeResolverStatus(lanIP)
 			if resolverErr != nil {
@@ -326,10 +334,23 @@ func networkBridgeDNSQueryOK(lanIP string) bool {
 
 func applyNetworkBridgeSplit(configPath, lanIP string, pointerPresent bool, prePlan map[string]string) int {
 	wasSplit := networkBridgeRuntimeSplit(prePlan)
+	nativeSelection, selectionErr := networkBridgeCurrentNativeResolverSelection(lanIP)
+	if selectionErr != nil {
+		bridgeFailure("не удалось безопасно прочитать active native resolver selection перед Split: "+selectionErr.Error(), "NOT_APPLIED")
+		return 1
+	}
+	if len(nativeSelection) > 0 {
+		if err := networkBridgeWriteNativeResolverSelection(nativeSelection); err != nil {
+			bridgeFailure("не удалось сохранить exact native resolver selection перед Split: "+err.Error(), "NOT_APPLIED")
+			return 1
+		}
+	}
+
 	addedBeforeCore := false
 	if wasSplit && !pointerPresent {
 		// Stage the resolver pointer only in running-config. The shell core owns
-		// the single persistent NDM save after its full post-apply acceptance.
+		// its own acceptance; bridge-owned resolver-selection changes are saved
+		// only after the local Xray path is proven usable.
 		if err := networkBridgeAddLocalPointer(lanIP); err != nil {
 			bridgeFailure("не удалось направить активный Keenetic DNS на локальный Xray "+lanIP+":53", "FAILED/UNKNOWN")
 			return 1
@@ -348,30 +369,54 @@ func applyNetworkBridgeSplit(configPath, lanIP string, pointerPresent bool, preP
 		return bridgeExitCode(coreErr)
 	}
 
+	rollbackAfterCore := func(primary string) int {
+		if wasSplit {
+			rollback := "SUCCESS"
+			if err := networkBridgeRollbackSplitResolverRepair(lanIP, pointerPresent, nativeSelection); err != nil {
+				rollback = "FAILED/UNKNOWN"
+			}
+			bridgeFailure(primary, rollback)
+			return 1
+		}
+		return rollbackNetworkBridgeToNative(configPath, lanIP, primary, nativeSelection)
+	}
+
 	if !wasSplit {
-		if err := networkBridgeAddLocalPointer(lanIP); err != nil || networkBridgeSave() != nil || !networkBridgeDNSQueryOK(lanIP) {
-			return rollbackNetworkBridgeToNative(configPath, lanIP, "не удалось активировать локальный Xray DNS upstream после Split apply")
+		if err := networkBridgeAddLocalPointer(lanIP); err != nil {
+			return rollbackAfterCore("не удалось активировать локальный Xray DNS upstream после Split apply")
 		}
-	} else if !networkBridgeDNSQueryOK(lanIP) {
-		if addedBeforeCore {
-			_ = networkBridgeRemoveLocalPointer(lanIP)
-			_ = networkBridgeSave()
+	}
+	if !networkBridgeDNSQueryOK(lanIP) {
+		return rollbackAfterCore("локальный Xray DNS upstream не прошёл DNS query до отключения native resolver selection")
+	}
+
+	if len(nativeSelection) > 0 {
+		if err := networkBridgeRemoveResolverSelectionLines(nativeSelection); err != nil {
+			return rollbackAfterCore("не удалось временно отключить active native resolver selection в Split: " + err.Error())
 		}
-		bridgeFailure("локальный Xray DNS upstream не прошёл post-apply DNS query", "FAILED/UNKNOWN")
-		return 1
+	}
+	remaining, remainingErr := networkBridgeCurrentNativeResolverSelection(lanIP)
+	if remainingErr != nil || len(remaining) != 0 {
+		return rollbackAfterCore("Split acceptance: active native resolver selection остался параллельно локальному Xray DNS")
+	}
+	if err := networkBridgeSave(); err != nil {
+		return rollbackAfterCore("не удалось сохранить exclusive Split resolver selection")
+	}
+	if !networkBridgeDNSQueryOK(lanIP) {
+		return rollbackAfterCore("локальный Xray DNS upstream не прошёл post-detach DNS query")
 	}
 
 	present, err := networkBridgeLocalPointerPresent(lanIP)
 	if err != nil || !present {
-		bridgeFailure("Split acceptance: локальный Keenetic DNS upstream на Xray отсутствует", "FAILED/UNKNOWN")
-		return 1
+		return rollbackAfterCore("Split acceptance: локальный Keenetic DNS upstream на Xray отсутствует")
 	}
 	fmt.Printf("[FreeNet Network] LOCAL_XRAY_DNS_UPSTREAM=%s:53\n", lanIP)
+	fmt.Println("[FreeNet Network] NATIVE_RESOLVER_SELECTION=detached-for-split")
 	return 0
 }
 
 func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, prePlan map[string]string) int {
-	addedNativeResolvers, resolverErr := networkBridgeEnsureNativeResolverReady(lanIP)
+	stagedNativeResolvers, resolverSource, resolverErr := networkBridgeEnsureNativeResolverReady(lanIP)
 	if resolverErr != nil {
 		bridgeFailure("не удалось подготовить рабочий native Keenetic resolver перед отключением Split DNS: "+resolverErr.Error(), "NOT_APPLIED")
 		return 1
@@ -382,7 +427,7 @@ func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, pre
 		// self-reference, keeping the transition free from a zero-upstream window.
 		if err := networkBridgeRemoveLocalPointer(lanIP); err != nil {
 			rollback := "SUCCESS"
-			if rollbackErr := networkBridgeRollbackNativeResolverStage(lanIP, false, addedNativeResolvers); rollbackErr != nil {
+			if rollbackErr := networkBridgeRollbackNativeResolverStage(lanIP, false, stagedNativeResolvers); rollbackErr != nil {
 				rollback = "FAILED/UNKNOWN"
 			}
 			bridgeFailure("не удалось убрать Split-owned local Xray DNS upstream перед native restore", rollback)
@@ -395,8 +440,8 @@ func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, pre
 		recovered, recoverErr := networkBridgeEnsureNativeAssignmentsSnapshot()
 		if recoverErr != nil {
 			rollback := "NOT_APPLIED"
-			if removedBeforeCore || len(addedNativeResolvers) > 0 {
-				if err := networkBridgeRollbackNativeResolverStage(lanIP, removedBeforeCore, addedNativeResolvers); err == nil {
+			if removedBeforeCore || len(stagedNativeResolvers) > 0 {
+				if err := networkBridgeRollbackNativeResolverStage(lanIP, removedBeforeCore, stagedNativeResolvers); err == nil {
 					rollback = "SUCCESS"
 				} else {
 					rollback = "FAILED/UNKNOWN"
@@ -413,8 +458,8 @@ func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, pre
 	output, coreErr := runNetworkBridgeCore(configPath, "apply")
 	_, _ = os.Stdout.Write(output)
 	if coreErr != nil {
-		if removedBeforeCore || len(addedNativeResolvers) > 0 {
-			if err := networkBridgeRollbackNativeResolverStage(lanIP, removedBeforeCore, addedNativeResolvers); err != nil {
+		if removedBeforeCore || len(stagedNativeResolvers) > 0 {
+			if err := networkBridgeRollbackNativeResolverStage(lanIP, removedBeforeCore, stagedNativeResolvers); err != nil {
 				bridgeFailure("native apply failed and resolver-selection rollback failed", "FAILED/UNKNOWN")
 			}
 		}
@@ -432,17 +477,23 @@ func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, pre
 		return 1
 	}
 	fmt.Println("[FreeNet Network] LOCAL_XRAY_DNS_UPSTREAM=none")
-	if len(addedNativeResolvers) > 0 {
-		fmt.Println("[FreeNet Network] NATIVE_RESOLVER_SELECTION=yandex-basic-fallback")
-	} else {
-		fmt.Println("[FreeNet Network] NATIVE_RESOLVER_SELECTION=preserved-existing")
-	}
+	fmt.Println("[FreeNet Network] NATIVE_RESOLVER_SELECTION=" + resolverSource)
 	return 0
 }
 
-func rollbackNetworkBridgeToNative(configPath, lanIP, primary string) int {
-	_ = networkBridgeRemoveLocalPointer(lanIP)
-	_ = networkBridgeSave()
+func rollbackNetworkBridgeToNative(configPath, lanIP, primary string, nativeSelection []string) int {
+	if _, err := networkBridgeAddResolverSelectionLines(nativeSelection); err != nil {
+		bridgeFailure(primary, "FAILED/UNKNOWN")
+		return 1
+	}
+	if err := networkBridgeRemoveLocalPointer(lanIP); err != nil {
+		bridgeFailure(primary, "FAILED/UNKNOWN")
+		return 1
+	}
+	if err := networkBridgeSave(); err != nil {
+		bridgeFailure(primary, "FAILED/UNKNOWN")
+		return 1
+	}
 	rollbackConfig, err := networkBridgeFirmwareDraft(configPath)
 	if err != nil {
 		bridgeFailure(primary, "FAILED/UNKNOWN")
