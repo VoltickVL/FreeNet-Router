@@ -78,21 +78,35 @@ func TestBridgeRecognizesOnlyRouterLocalNameServerLines(t *testing.T) {
 
 func TestBridgeNativeResolverIgnoresSplitOwnedLocalPointer(t *testing.T) {
 	config := "ip name-server 192.168.50.1:53\n"
-	if networkBridgeHasNativeResolverDefinition(config, "192.168.50.1") {
-		t.Fatal("Split-owned local pointer must not count as a native resolver")
+	if networkBridgeHasNativeResolverSelection(config, "192.168.50.1") {
+		t.Fatal("Split-owned local pointer must not count as native resolver selection")
 	}
 }
 
-func TestBridgeNativeResolverRecognizesPreservedNativeDefinitions(t *testing.T) {
+func TestBridgeNativeResolverPreservedProfilesDoNotImplySelection(t *testing.T) {
+	config := strings.Join([]string{
+		"ip name-server 192.168.50.1:53",
+		"dns-proxy",
+		"    tls upstream 77.88.8.8 853 sni common.dot.dns.yandex.net",
+		"    https upstream https://common.dot.dns.yandex.net/dns-query",
+		"    dns53 upstream 77.88.8.1 53",
+		"!",
+	}, "\n")
+	if networkBridgeHasNativeResolverSelection(config, "192.168.50.1") {
+		t.Fatal("preserved DoT/DoH/dns53 profile definitions must not prove active native resolver selection")
+	}
+}
+
+func TestBridgeNativeResolverRecognizesIndependentSelections(t *testing.T) {
 	cases := []string{
 		"ip name-server 77.88.8.8\n",
-		"dns-proxy\n    tls upstream 77.88.8.8 853 sni common.dot.dns.yandex.net\n!\n",
-		"dns-proxy https upstream https://example.invalid/dns-query\n",
+		"ipv6 name-server 2a02:6b8::feed:0ff\n",
 		"interface Vladlink\n    ip dhcp client dns-routes\n!\n",
+		"interface Vladlink\n    name-servers 77.88.8.8\n!\n",
 	}
 	for _, config := range cases {
-		if !networkBridgeHasNativeResolverDefinition(config, "192.168.50.1") {
-			t.Fatalf("native resolver definition not recognized: %q", config)
+		if !networkBridgeHasNativeResolverSelection(config, "192.168.50.1") {
+			t.Fatalf("active native resolver selection not recognized: %q", config)
 		}
 	}
 }
