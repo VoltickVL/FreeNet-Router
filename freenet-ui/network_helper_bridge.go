@@ -89,7 +89,7 @@ func runNetworkHelperBridge(mode string) int {
 	if target == "xkeen" {
 		return applyNetworkBridgeSplit(configPath, lanIP, pointerPresent, values)
 	}
-	return applyNetworkBridgeNative(configPath, lanIP, pointerPresent)
+	return applyNetworkBridgeNative(configPath, lanIP, pointerPresent, values)
 }
 
 func runNetworkBridgeCore(configPath string, args ...string) ([]byte, error) {
@@ -346,7 +346,7 @@ func applyNetworkBridgeSplit(configPath, lanIP string, pointerPresent bool, preP
 	return 0
 }
 
-func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool) int {
+func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, prePlan map[string]string) int {
 	removedBeforeCore := false
 	if pointerPresent {
 		if err := networkBridgeRemoveLocalPointer(lanIP); err != nil || networkBridgeSave() != nil {
@@ -354,6 +354,25 @@ func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool) int
 			return 1
 		}
 		removedBeforeCore = true
+	}
+
+	if networkBridgeStrictRuntimeSplit(prePlan) {
+		recovered, recoverErr := networkBridgeEnsureNativeAssignmentsSnapshot()
+		if recoverErr != nil {
+			rollback := "NOT_APPLIED"
+			if removedBeforeCore {
+				if err := networkBridgeAddLocalPointer(lanIP); err == nil && networkBridgeSave() == nil {
+					rollback = "SUCCESS"
+				} else {
+					rollback = "FAILED/UNKNOWN"
+				}
+			}
+			bridgeFailure("не удалось восстановить native DNS filter assignments baseline из historical backup: "+recoverErr.Error(), rollback)
+			return 1
+		}
+		if recovered {
+			fmt.Println("[FreeNet Network] NATIVE_ASSIGNMENTS_RECOVERY=historical-native-backup")
+		}
 	}
 
 	output, coreErr := runNetworkBridgeCore(configPath, "apply")
