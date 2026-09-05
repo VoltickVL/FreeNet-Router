@@ -802,12 +802,26 @@ apply_native() {
 
     [ "$PROXY_DNS_INITIAL" = off ] || { fail_not_applied 'partial/unknown DNS topology with proxy_dns=on; STOP'; return 1; }
     [ "$NDM_OVERRIDE_INITIAL" = on ] || { fail_not_applied 'partial/unknown DNS topology: native restore ожидает opkg dns-override=on'; return 1; }
-    [ "$NDM_FILTER_ENGINE_INITIAL" = opkg ] || { fail_not_applied 'Split mode должен иметь Keenetic filter engine opkg'; return 1; }
-    [ "$NDM_INTERCEPT_INITIAL" = off ] || { fail_not_applied 'Split mode имеет native DNS intercept; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
-    [ "$(port53_owner)" = xray ] || { fail_not_applied 'Split mode должен иметь Xray на :53'; return 1; }
-    [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] || { fail_not_applied 'Split topology неполна; STOP'; return 1; }
     NATIVE_ENGINE="$(native_filter_engine_value)" || { fail_not_applied 'нет проверенного native filter engine snapshot; отказ от догадки'; return 1; }
     NATIVE_INTERCEPT="$(native_intercept_value)" || { fail_not_applied 'нет проверенного native intercept snapshot; отказ от догадки'; return 1; }
+    case "$NDM_FILTER_ENGINE_INITIAL" in
+        opkg)
+            [ "$NDM_INTERCEPT_INITIAL" = off ] || { fail_not_applied 'Split mode имеет native DNS intercept; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
+            ;;
+        "$NATIVE_ENGINE")
+            case "$NDM_INTERCEPT_INITIAL" in
+                off|"$NATIVE_INTERCEPT") : ;;
+                *) fail_not_applied 'partial native control-plane имеет неподтверждённое состояние DNS intercept; STOP'; return 1 ;;
+            esac
+            say '[FreeNet Network] PARTIAL_NATIVE_CONTROL_PLANE=confirmed-native-engine'
+            ;;
+        *)
+            fail_not_applied "partial Split/native control-plane: Keenetic filter engine $NDM_FILTER_ENGINE_INITIAL не совпадает с opkg или сохранённым native $NATIVE_ENGINE; STOP"
+            return 1
+            ;;
+    esac
+    [ "$(port53_owner)" = xray ] || { fail_not_applied 'Split/native partial control-plane должен иметь Xray на :53'; return 1; }
+    [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] || { fail_not_applied 'Split/native partial topology неполна; STOP'; return 1; }
     snapshot_configs native || { fail_not_applied 'не удалось создать backup native restore'; return 1; }
     make_tmp || { fail_not_applied 'не удалось создать временный каталог native restore'; return 1; }
     build_native_candidate || { fail_not_applied 'native candidate не прошёл validation'; return 1; }
@@ -817,8 +831,14 @@ apply_native() {
     ndm_set_filter_engine "$NATIVE_ENGINE" || { err 'PRIMARY ERROR: не удалось восстановить native Keenetic filter engine'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_set_override off || { err 'PRIMARY ERROR: не удалось отключить opkg dns-override'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_set_intercept "$NATIVE_INTERCEPT" || { err 'PRIMARY ERROR: не удалось восстановить native Keenetic DNS intercept state'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    wait_port53_owner ndnproxy || { err 'PRIMARY ERROR: ndnproxy не стал владельцем :53'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    [ "$(ndm_filter_engine_state)" = "$NATIVE_ENGINE" ] && [ "$(ndm_intercept_state)" = "$NATIVE_INTERCEPT" ] && [ "$(xray_dns_inbound_count)" = 0 ] && ! has_dns_out && [ "$(dns_routing_mode)" = native ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply native DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    wait_port53_owner ndnproxy || { err 'PRIMARY ERROR: post-apply native acceptance: ndnproxy не стал владельцем :53'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(ndm_override_state)" = off ] || { err 'PRIMARY ERROR: post-apply native acceptance: opkg dns-override остался включён'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(ndm_filter_engine_state)" = "$NATIVE_ENGINE" ] || { err 'PRIMARY ERROR: post-apply native acceptance: Keenetic filter engine не восстановлен'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(ndm_intercept_state)" = "$NATIVE_INTERCEPT" ] || { err 'PRIMARY ERROR: post-apply native acceptance: DNS intercept state не восстановлен'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(xray_dns_inbound_count)" = 0 ] || { err 'PRIMARY ERROR: post-apply native acceptance: Xray DNS inbound остался активен'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    ! has_dns_out || { err 'PRIMARY ERROR: post-apply native acceptance: dns-out остался активен'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(dns_routing_mode)" = native ] || { err 'PRIMARY ERROR: post-apply native acceptance: DNS-only Xray routing остался активен'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    dns_query_ok || { err 'PRIMARY ERROR: post-apply native acceptance: DNS query failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic protected DNS/WAN state changed unexpectedly'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_save || { err 'PRIMARY ERROR: NDM save failed after native acceptance'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
