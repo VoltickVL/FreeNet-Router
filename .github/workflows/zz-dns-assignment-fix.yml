@@ -1,0 +1,232 @@
+name: Apply DNS assignment fix
+
+on:
+  push:
+    branches:
+      - fix/dns-split-disable-native-assignments
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/dns-split-disable-native-assignments
+      - name: Apply scoped patch
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('scripts/apply_network_profile.sh')
+          s = p.read_text()
+
+          def rep(old, new, n=1):
+              global s
+              count = s.count(old)
+              if count < n:
+                  raise SystemExit(f'missing patch anchor: {old[:100]!r}; count={count}')
+              s = s.replace(old, new, n)
+
+          rep('NDM_PROTECTED_HASH_INITIAL=""\nXRAY_WAS_RUNNING="no"', 'NDM_PROTECTED_HASH_INITIAL=""\nNDM_ASSIGNMENTS_INITIAL=""\nXRAY_WAS_RUNNING="no"')
+
+          rep('        PROFILE_MARKER="$(test_state_value NDM_DNS_PROFILE_MARKER preserved)"\n', '        PROFILE_MARKER="$(test_state_value NDM_DNS_PROFILE_MARKER preserved)"\n        ASSIGNMENTS="$(test_state_value NDM_DNS_ASSIGNMENTS on)"\n')
+          rep("        printf '%s\\n' '    filter assign host profile aa:bb:cc:dd:ee:ff xbox-dns.ru'\n", "        if [ \"$ASSIGNMENTS\" = on ]; then\n            printf '%s\\n' '    filter assign host profile aa:bb:cc:dd:ee:ff xbox-dns.ru'\n            printf '%s\\n' '    filter assign interface preset Home cloudflare-unfiltered'\n        fi\n")
+
+          anchor = '# Protect only user DNS state that must survive native <-> OPKG transitions.\n'
+          helpers = r'''# Native Keenetic filter assignments can redirect selected hosts/interfaces to the
+# native dns-proxy even when OPKG/Xray owns :53. Split mode must detach these
+# bindings transactionally while preserving profile definitions and upstreams.
+ndm_filter_assignments() {
+    ndm_running_config 2>/dev/null | tr -d '\r' | awk '
+        function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+        {
+            raw=$0
+            if (raw ~ /^[^ \t]/) {
+                top=trim(raw)
+                if (top == "!") { dns=0; next }
+                if (top == "dns-proxy") { dns=1; next }
+                if (top ~ /^dns-proxy[ \t]+filter[ \t]+assign[ \t]+/) {
+                    line=top
+                    sub(/^dns-proxy[ \t]+/, "", line)
+                    print line
+                    dns=0
+                    next
+                }
+                dns=0
+                next
+            }
+            line=trim(raw)
+            if (dns && line ~ /^filter[ \t]+assign[ \t]+/) print line
+        }
+    ' | LC_ALL=C sort
+}
+
+assignment_stream_valid() {
+    awk '
+        NF == 0 { next }
+        $1 == "filter" && $2 == "assign" &&
+        ($3 == "host" || $3 == "interface") &&
+        ($4 == "profile" || $4 == "preset") && NF >= 6 { next }
+        { bad=1 }
+        END { exit bad ? 1 : 0 }
+    '
+}
+
+ndm_assignment_syntax_valid() {
+    ndm_filter_assignments | assignment_stream_valid
+}
+
+ndm_assignments_empty() {
+    [ -z "$(ndm_filter_assignments)" ]
+}
+
+ndm_clear_assignments() {
+    CURRENT="$(ndm_filter_assignments)" || return 1
+    printf '%s\n' "$CURRENT" | assignment_stream_valid || return 1
+    if [ "$TEST_MODE" = yes ]; then
+        test_state_set NDM_DNS_ASSIGNMENTS off
+        return
+    fi
+    [ -z "$CURRENT" ] && return 0
+    printf '%s\n' "$CURRENT" | while IFS= read -r LINE; do
+        [ -n "$LINE" ] || continue
+        SCOPE="$(printf '%s\n' "$LINE" | awk '{print $3}')"
+        KIND="$(printf '%s\n' "$LINE" | awk '{print $4}')"
+        TARGET="$(printf '%s\n' "$LINE" | awk '{print $5}')"
+        case "$SCOPE:$KIND" in
+            host:profile|host:preset|interface:profile|interface:preset) : ;;
+            *) exit 1 ;;
+        esac
+        printf '%s\n' "$TARGET" | grep -Eq '^[A-Za-z0-9_.:/-]+$' || exit 1
+        ndmc -c "dns-proxy no filter assign $SCOPE $KIND $TARGET" >/dev/null 2>&1 || exit 1
+    done || return 1
+    ndm_assignments_empty
+}
+
+ndm_restore_assignments_file() {
+    FILE="$1"
+    [ -f "$FILE" ] || return 1
+    assignment_stream_valid < "$FILE" || return 1
+    ndm_clear_assignments || return 1
+    if [ "$TEST_MODE" = yes ]; then
+        if [ -s "$FILE" ]; then test_state_set NDM_DNS_ASSIGNMENTS on || return 1
+        else test_state_set NDM_DNS_ASSIGNMENTS off || return 1
+        fi
+    else
+        while IFS= read -r LINE; do
+            [ -n "$LINE" ] || continue
+            ndmc -c "dns-proxy $LINE" >/dev/null 2>&1 || return 1
+        done < "$FILE"
+    fi
+    [ "$(ndm_filter_assignments)" = "$(cat "$FILE")" ]
+}
+
+preserve_native_assignments() {
+    mkdir -p "$NATIVE_STATE_DIR" || return 1
+    TMP_ASSIGN="$NATIVE_STATE_DIR/assignments.native.tmp.$$"
+    ndm_filter_assignments > "$TMP_ASSIGN" || return 1
+    assignment_stream_valid < "$TMP_ASSIGN" || { rm -f "$TMP_ASSIGN"; return 1; }
+    mv -f "$TMP_ASSIGN" "$NATIVE_STATE_DIR/assignments.native"
+}
+
+native_assignments_valid() {
+    [ -f "$NATIVE_STATE_DIR/assignments.native" ] || return 1
+    assignment_stream_valid < "$NATIVE_STATE_DIR/assignments.native"
+}
+
+native_assignments_match() {
+    native_assignments_valid || return 1
+    [ "$(ndm_filter_assignments)" = "$(cat "$NATIVE_STATE_DIR/assignments.native")" ]
+}
+
+'''
+          rep(anchor, helpers + anchor)
+
+          old_protected = r'''# Protect only user DNS state that must survive native <-> OPKG transitions.
+# Engine/intercept representation is intentionally excluded because OPKG mode changes
+# that control plane; profiles/upstreams/assignments and WAN DNS flags must not drift.
+'''
+          new_protected = r'''# Protect persistent user DNS definitions/state that must survive native <-> OPKG.
+# Engine/intercept and active filter assignments are excluded because Split changes
+# that control plane; assignments are snapshotted/restored separately and exactly.
+'''
+          rep(old_protected, new_protected)
+          rep("            return line ~ /^(tls|https|dns53)[ \\t]+upstream([ \\t]|$)/ ||\n                   line ~ /^filter[ \\t]+profile([ \\t]|$)/ ||\n                   line ~ /^filter[ \\t]+assign([ \\t]|$)/\n", "            return line ~ /^(tls|https|dns53)[ \\t]+upstream([ \\t]|$)/ ||\n                   line ~ /^filter[ \\t]+profile([ \\t]|$)/\n")
+
+          rep('    if [ "$DNS_ROUTING" = split ] && [ "$NDM_INTERCEPT" != off ]; then\n        DNS_ROUTING=split-intercept\n    fi\n', '    if [ "$DNS_ROUTING" = split ] && [ "$NDM_INTERCEPT" != off ]; then\n        DNS_ROUTING=split-intercept\n    fi\n    DNS_ASSIGNMENTS="$(ndm_filter_assignments)"\n    if [ "$DNS_ROUTING" = split ] && [ -n "$DNS_ASSIGNMENTS" ]; then\n        DNS_ROUTING=split-assignments\n    fi\n')
+          rep('    say "NDM_DNS_INTERCEPT=$NDM_INTERCEPT"\n', '    say "NDM_DNS_INTERCEPT=$NDM_INTERCEPT"\n    if [ -n "$DNS_ASSIGNMENTS" ]; then say "NDM_DNS_ASSIGNMENTS=present"; else say "NDM_DNS_ASSIGNMENTS=none"; fi\n')
+
+          rep("        say 'EXPECTED_DELTA=enable opkg dns-override; suppress native System DNS intercept while Split is active; set Keenetic filter engine opkg; Xray owns :53; ordered first-match DNS policy mirrors domain routing; one dns-out; dns-direct -> direct; dns-vless -> vless-reality; normalize proxy_dns=off after snapshot; save NDM only after acceptance'\n        say 'EXPECTED_NO_DELTA=no VPN credential rewrite; no subscription change; no non-DNS routing/inbound/outbound change; preserve Keenetic DNS profiles/DoT/DoH/client assignments/WAN DNS flags; exact native intercept state is restored on Direct/rollback'\n", "        say 'EXPECTED_DELTA=enable opkg dns-override; suppress native System DNS intercept while Split is active; temporarily detach native DNS filter assignments; set Keenetic filter engine opkg; Xray owns :53; ordered first-match DNS policy mirrors domain routing; one dns-out; dns-direct -> direct; dns-vless -> vless-reality; normalize proxy_dns=off after snapshot; save NDM only after acceptance'\n        say 'EXPECTED_NO_DELTA=no VPN credential rewrite; no subscription change; no non-DNS routing/inbound/outbound change; preserve Keenetic DNS profile definitions/DoT/DoH/WAN DNS flags; exact native filter assignments and intercept state are restored on Direct/rollback'\n")
+
+          rep('    NDM_INTERCEPT_INITIAL="$(ndm_intercept_state)"; case "$NDM_INTERCEPT_INITIAL" in off|on) : ;; *) err \'не удалось определить Keenetic DNS intercept\'; return 1 ;; esac\n    NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)";', '    NDM_INTERCEPT_INITIAL="$(ndm_intercept_state)"; case "$NDM_INTERCEPT_INITIAL" in off|on) : ;; *) err \'не удалось определить Keenetic DNS intercept\'; return 1 ;; esac\n    ndm_assignment_syntax_valid || { err \'неподдерживаемый синтаксис Keenetic DNS filter assignment\'; return 1; }\n    NDM_ASSIGNMENTS_INITIAL="$(ndm_filter_assignments)"\n    NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)";')
+
+          rep('    ndm_protected_state > "$BACKUP_DIR/ndm-protected.before" 2>/dev/null || return 1\n', '    ndm_protected_state > "$BACKUP_DIR/ndm-protected.before" 2>/dev/null || return 1\n    ndm_filter_assignments > "$BACKUP_DIR/ndm-assignments.before" 2>/dev/null || return 1\n')
+
+          rep('    ndm_set_intercept "$NDM_INTERCEPT_INITIAL" || return 1\n    if [ "$XRAY_WAS_RUNNING" = yes ]; then', '    ndm_set_intercept "$NDM_INTERCEPT_INITIAL" || return 1\n    ndm_restore_assignments_file "$BACKUP_DIR/ndm-assignments.before" || return 1\n    if [ "$XRAY_WAS_RUNNING" = yes ]; then')
+          rep('    [ "$(ndm_intercept_state)" = "$NDM_INTERCEPT_INITIAL" ] || return 1\n    dns_query_ok || return 1\n    [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || return 1\n}', '    [ "$(ndm_intercept_state)" = "$NDM_INTERCEPT_INITIAL" ] || return 1\n    [ "$(ndm_filter_assignments)" = "$NDM_ASSIGNMENTS_INITIAL" ] || return 1\n    dns_query_ok || return 1\n    [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || return 1\n}', 1)
+          rep('    [ "$(ndm_intercept_state)" = "$NDM_INTERCEPT_INITIAL" ] || return 1\n    dns_query_ok || return 1\n    [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || return 1\n    return 0\n}', '    [ "$(ndm_intercept_state)" = "$NDM_INTERCEPT_INITIAL" ] || return 1\n    [ "$(ndm_filter_assignments)" = "$NDM_ASSIGNMENTS_INITIAL" ] || return 1\n    dns_query_ok || return 1\n    [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || return 1\n    return 0\n}', 1)
+
+          rep('    say \'[FreeNet Network] NDM_DNS_INTERCEPT=off\'\n    say \'[FreeNet Network] PORT53_OWNER=xray\'', '    say \'[FreeNet Network] NDM_DNS_INTERCEPT=off\'\n    say \'[FreeNet Network] NDM_DNS_ASSIGNMENTS=none\'\n    say \'[FreeNet Network] PORT53_OWNER=xray\'')
+
+          rep('        snapshot_configs split-repair || { fail_not_applied \'не удалось создать backup Split repair\'; return 1; }', '        if ! native_assignments_valid; then\n            preserve_native_assignments || { fail_not_applied \'не удалось сохранить legacy native DNS filter assignments\'; return 1; }\n        elif [ -n "$NDM_ASSIGNMENTS_INITIAL" ] && ! native_assignments_match; then\n            fail_not_applied \'Split repair: active native DNS assignments differ from saved native baseline; STOP\'\n            return 1\n        fi\n        snapshot_configs split-repair || { fail_not_applied \'не удалось создать backup Split repair\'; return 1; }')
+          rep('        ndm_set_intercept off || { err \'PRIMARY ERROR: не удалось отключить native Keenetic DNS intercept\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n        apply_candidate_dir "$TMP_DIR/split"', '        ndm_set_intercept off || { err \'PRIMARY ERROR: не удалось отключить native Keenetic DNS intercept\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n        ndm_clear_assignments || { err \'PRIMARY ERROR: не удалось временно отключить native Keenetic DNS filter assignments\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n        apply_candidate_dir "$TMP_DIR/split"')
+          rep('[ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(ndm_filter_engine_state)" = opkg ] && [ "$(ndm_intercept_state)" = off ] && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok', '[ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(ndm_filter_engine_state)" = opkg ] && [ "$(ndm_intercept_state)" = off ] && ndm_assignments_empty && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok', 2)
+
+          rep('    preserve_native_intercept || { fail_not_applied \'не удалось сохранить native Keenetic DNS intercept state\'; return 1; }\n    make_tmp', '    preserve_native_intercept || { fail_not_applied \'не удалось сохранить native Keenetic DNS intercept state\'; return 1; }\n    preserve_native_assignments || { fail_not_applied \'не удалось сохранить native Keenetic DNS filter assignments\'; return 1; }\n    make_tmp')
+          rep('    set_proxy_dns_off || { err \'PRIMARY ERROR: proxy_dns не удалось нормализовать в off\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n    ndm_set_override on', '    set_proxy_dns_off || { err \'PRIMARY ERROR: proxy_dns не удалось нормализовать в off\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n    ndm_clear_assignments || { err \'PRIMARY ERROR: не удалось временно отключить native Keenetic DNS filter assignments\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n    ndm_set_override on')
+
+          rep('    NATIVE_INTERCEPT="$(native_intercept_value)" || { fail_not_applied \'нет проверенного native intercept snapshot; отказ от догадки\'; return 1; }\n', '    NATIVE_INTERCEPT="$(native_intercept_value)" || { fail_not_applied \'нет проверенного native intercept snapshot; отказ от догадки\'; return 1; }\n    native_assignments_valid || { fail_not_applied \'нет проверенного native DNS filter assignments snapshot; сначала требуется repair текущего XKeen/Xray DNS\'; return 1; }\n')
+          rep('    ndm_set_intercept "$NATIVE_INTERCEPT" || { err \'PRIMARY ERROR: не удалось восстановить native Keenetic DNS intercept state\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n    wait_port53_owner ndnproxy', '    ndm_set_intercept "$NATIVE_INTERCEPT" || { err \'PRIMARY ERROR: не удалось восстановить native Keenetic DNS intercept state\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n    ndm_restore_assignments_file "$NATIVE_STATE_DIR/assignments.native" || { err \'PRIMARY ERROR: не удалось восстановить native Keenetic DNS filter assignments\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n    wait_port53_owner ndnproxy')
+          rep('    [ "$(ndm_intercept_state)" = "$NATIVE_INTERCEPT" ] || { err \'PRIMARY ERROR: post-apply native acceptance: DNS intercept state не восстановлен\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n', '    [ "$(ndm_intercept_state)" = "$NATIVE_INTERCEPT" ] || { err \'PRIMARY ERROR: post-apply native acceptance: DNS intercept state не восстановлен\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n    native_assignments_match || { err \'PRIMARY ERROR: post-apply native acceptance: DNS filter assignments не восстановлены exact\'; rollback_all && err \'ROLLBACK ERROR/STATE: rollback success\' || err \'ROLLBACK ERROR/STATE: FAILED/UNKNOWN\'; return 1; }\n')
+
+          p.write_text(s)
+
+          t = Path('tests/test_network_profile_contract.sh')
+          q = t.read_text()
+          def trep(old, new, n=1):
+              global q
+              count = q.count(old)
+              if count < n:
+                  raise SystemExit(f'missing test anchor: {old[:100]!r}; count={count}')
+              q = q.replace(old, new, n)
+
+          trep("    'intercept.native' \\\n", "    'intercept.native' \\\n    'assignments.native' \\\n    'split-assignments' \\\n    'dns-proxy no filter assign' \\\n")
+          trep('NDM_DNS_PROFILE_MARKER=preserved\n', 'NDM_DNS_PROFILE_MARKER=preserved\nNDM_DNS_ASSIGNMENTS=on\n')
+          trep("'NDM_DNS_INTERCEPT=on' 'PORT53_OWNER=ndnproxy'", "'NDM_DNS_INTERCEPT=on' 'NDM_DNS_ASSIGNMENTS=present' 'PORT53_OWNER=ndnproxy'")
+          trep("grep -q '^NDM_DNS_INTERCEPT=on$' \"$STATE\" || fail 'native normalization changed system intercept'\n", "grep -q '^NDM_DNS_INTERCEPT=on$' \"$STATE\" || fail 'native normalization changed system intercept'\ngrep -q '^NDM_DNS_ASSIGNMENTS=on$' \"$STATE\" || fail 'native normalization changed filter assignments'\n", 1)
+          trep("grep -q '^NDM_DNS_INTERCEPT=on$' \"$STATE\" || fail 'native no-op failure changed intercept'\n", "grep -q '^NDM_DNS_INTERCEPT=on$' \"$STATE\" || fail 'native no-op failure changed intercept'\ngrep -q '^NDM_DNS_ASSIGNMENTS=on$' \"$STATE\" || fail 'native no-op failure changed filter assignments'\n")
+          trep("grep -q '^NDM_DNS_INTERCEPT=off$' \"$STATE\" || fail 'native System DNS intercept not disabled'\n", "grep -q '^NDM_DNS_INTERCEPT=off$' \"$STATE\" || fail 'native System DNS intercept not disabled'\ngrep -q '^NDM_DNS_ASSIGNMENTS=off$' \"$STATE\" || fail 'native DNS filter assignments not detached in Split'\n")
+          trep("[ \"$(cat \"$TROOT/etc/freenet/native-dns/intercept.native\")\" = on ] || fail 'native intercept snapshot missing or wrong'\n", "[ \"$(cat \"$TROOT/etc/freenet/native-dns/intercept.native\")\" = on ] || fail 'native intercept snapshot missing or wrong'\ngrep -Fq 'filter assign host profile aa:bb:cc:dd:ee:ff xbox-dns.ru' \"$TROOT/etc/freenet/native-dns/assignments.native\" || fail 'native host assignment snapshot missing'\ngrep -Fq 'filter assign interface preset Home cloudflare-unfiltered' \"$TROOT/etc/freenet/native-dns/assignments.native\" || fail 'native interface assignment snapshot missing'\n")
+          insert = r'''# Reproduce v0.2.52 defect: native assignments may remain active in an otherwise
+# valid Split topology. Plan must classify it repair-ready, and apply must detach
+# the exact saved assignments without touching their profile definitions.
+state_set NDM_DNS_ASSIGNMENTS on
+run_network plan > "$TMP/split-assignments.plan"
+grep -Fq 'DNS_ROUTING_MODE=split-assignments' "$TMP/split-assignments.plan" || fail 'Split assignments bypass not classified'
+run_network apply > "$TMP/split-assignments.repair" 2>&1 || { cat "$TMP/split-assignments.repair" >&2; fail 'Split assignments repair failed'; }
+grep -q '^NDM_DNS_ASSIGNMENTS=off$' "$STATE" || fail 'Split repair did not detach native assignments'
+grep -Fq 'RESULT=SUCCESS' "$TMP/split-assignments.repair" || fail 'Split assignment repair result missing'
+
+'''
+          trep("# Split -> native restores the exact native engine AND native intercept state.\n", insert + "# Split -> native restores the exact native engine, intercept and filter assignments.\n")
+          trep("grep -q '^NDM_DNS_INTERCEPT=on$' \"$STATE\" || fail 'native intercept state not restored'\n", "grep -q '^NDM_DNS_INTERCEPT=on$' \"$STATE\" || fail 'native intercept state not restored'\ngrep -q '^NDM_DNS_ASSIGNMENTS=on$' \"$STATE\" || fail 'native filter assignments not restored'\n", 1)
+          t.write_text(q)
+          PY
+
+          sh -n scripts/apply_network_profile.sh
+          sh -n tests/test_network_profile_contract.sh
+          sh tests/test_network_profile_contract.sh
+
+      - name: Commit scoped fix
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/zz-dns-assignment-fix.yml
+          git add scripts/apply_network_profile.sh tests/test_network_profile_contract.sh
+          git commit -m "fix(dns): detach native assignments in Split"
+          git push origin HEAD:fix/dns-split-disable-native-assignments
