@@ -114,24 +114,27 @@ func TestBridgeFirmwareDraftReplacesOnlyDNSMode(t *testing.T) {
 	}
 }
 
-func TestBridgeDoesNotPersistPointerMutationBeforeCoreAcceptance(t *testing.T) {
+func TestBridgeDoesNotPersistForwardPointerMutationBeforeCoreAcceptance(t *testing.T) {
 	data, err := os.ReadFile("network_helper_bridge.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(data)
-	for _, functionName := range []string{"applyNetworkBridgeSplit", "applyNetworkBridgeNative"} {
-		start := strings.Index(text, "func "+functionName+"(")
-		if start < 0 {
-			t.Fatalf("function %s not found", functionName)
+	for _, forbidden := range []string{
+		`if err := networkBridgeAddLocalPointer(lanIP); err != nil || networkBridgeSave() != nil {`,
+		`if err := networkBridgeRemoveLocalPointer(lanIP); err != nil || networkBridgeSave() != nil {`,
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("bridge persists forward pointer mutation before core acceptance: %s", forbidden)
 		}
-		relativeCore := strings.Index(text[start:], "runNetworkBridgeCore(configPath, \"apply\")")
-		if relativeCore < 0 {
-			t.Fatalf("core apply call not found in %s", functionName)
-		}
-		preCore := text[start : start+relativeCore]
-		if strings.Contains(preCore, "networkBridgeSave()") {
-			t.Fatalf("%s persists partial resolver pointer state before core acceptance", functionName)
+	}
+	for _, required := range []string{
+		`if err := networkBridgeAddLocalPointer(lanIP); err != nil {`,
+		`if err := networkBridgeRemoveLocalPointer(lanIP); err != nil {`,
+		`rollback re-adds and saves the pointer`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("bridge staging/rollback contract marker missing: %s", required)
 		}
 	}
 }
