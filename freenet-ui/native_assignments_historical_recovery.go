@@ -241,10 +241,14 @@ func networkBridgeExistingAssignmentsSnapshot(nativeDir string) (bool, error) {
 	return false, err
 }
 
-// networkBridgeFindNativeAssignmentsCandidate performs the historical lookup
-// without persisting anything. This is shared by the read-only plan preflight and
-// the apply path so they use exactly the same evidence and ambiguity rules.
+// networkBridgeFindNativeAssignmentsCandidate recovers only the assignments
+// control-plane. DNS resolver profiles/upstreams/WAN flags are intentionally not
+// used as a matching key because they are preserved independently and may change
+// legitimately after the old native snapshot. A candidate is accepted only when
+// every local native backup with the saved engine/intercept baseline agrees on the
+// exact assignment set; disagreement remains ambiguous and fails closed.
 func networkBridgeFindNativeAssignmentsCandidate(nativeDir, backupRoot, currentConfig string) (string, error) {
+	_ = currentConfig
 	nativeEngine, err := networkBridgeReadTrimmed(filepath.Join(nativeDir, "filter-engine.native"))
 	if err != nil || nativeEngine == "" || nativeEngine == "opkg" {
 		return "", errors.New("native filter engine baseline is unavailable")
@@ -253,7 +257,6 @@ func networkBridgeFindNativeAssignmentsCandidate(nativeDir, backupRoot, currentC
 	if err != nil || (nativeIntercept != "on" && nativeIntercept != "off") {
 		return "", errors.New("native intercept baseline is unavailable")
 	}
-	currentProtected := networkBridgeProtectedStateText(currentConfig)
 
 	entries, err := os.ReadDir(backupRoot)
 	if err != nil {
@@ -278,10 +281,6 @@ func networkBridgeFindNativeAssignmentsCandidate(nativeDir, backupRoot, currentC
 		if err != nil || intercept != nativeIntercept {
 			continue
 		}
-		protectedData, err := os.ReadFile(filepath.Join(dir, "ndm-protected.before"))
-		if err != nil || networkBridgeCanonicalLineSet(string(protectedData)) != currentProtected {
-			continue
-		}
 		runningData, err := os.ReadFile(filepath.Join(dir, "ndm-running.before"))
 		if err != nil {
 			continue
@@ -300,7 +299,7 @@ func networkBridgeFindNativeAssignmentsCandidate(nativeDir, backupRoot, currentC
 		}
 	}
 	if !found {
-		return "", errors.New("no unambiguous historical native assignments backup matches current protected DNS state")
+		return "", errors.New("no unambiguous historical native assignments backup matches native engine/intercept baseline")
 	}
 	return candidate, nil
 }
@@ -327,10 +326,10 @@ func networkBridgeNativeAssignmentsRecoveryStatus(lanIP string) (string, error) 
 
 // networkBridgeRecoverNativeAssignmentsSnapshot repairs the one legacy gap left
 // by pre-v0.2.53 Split: those releases saved full ndm-running.before snapshots but
-// did not persist assignments.native. Recovery is allowed only from native backups
-// whose override, engine, intercept and protected resolver state exactly match the
-// currently preserved native baseline. Different matching assignment sets are
-// ambiguous and fail closed.
+// did not persist assignments.native. Assignment recovery is deliberately
+// independent from resolver profile/upstream state: it requires the saved native
+// engine/intercept baseline and unanimous exact assignments across matching local
+// native backups. Different assignment sets remain ambiguous and fail closed.
 func networkBridgeRecoverNativeAssignmentsSnapshot(nativeDir, backupRoot, currentConfig string) (bool, error) {
 	exists, err := networkBridgeExistingAssignmentsSnapshot(nativeDir)
 	if err != nil {
