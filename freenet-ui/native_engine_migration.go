@@ -232,7 +232,7 @@ func ensureLegacyNativeDNSSnapshot() error {
 
 	backup, err := findNewestSafeLegacyNativeBackup()
 	if err != nil {
-		return err
+		return recoverCanonicalLegacyNativeDNSFromManagedSplit(err)
 	}
 	dnsData, err := os.ReadFile(filepath.Join(backup, "02_dns.json"))
 	if err != nil {
