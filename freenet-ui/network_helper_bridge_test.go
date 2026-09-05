@@ -113,3 +113,25 @@ func TestBridgeFirmwareDraftReplacesOnlyDNSMode(t *testing.T) {
 		}
 	}
 }
+
+func TestBridgeDoesNotPersistPointerMutationBeforeCoreAcceptance(t *testing.T) {
+	data, err := os.ReadFile("network_helper_bridge.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	for _, functionName := range []string{"applyNetworkBridgeSplit", "applyNetworkBridgeNative"} {
+		start := strings.Index(text, "func "+functionName+"(")
+		if start < 0 {
+			t.Fatalf("function %s not found", functionName)
+		}
+		relativeCore := strings.Index(text[start:], "runNetworkBridgeCore(configPath, \"apply\")")
+		if relativeCore < 0 {
+			t.Fatalf("core apply call not found in %s", functionName)
+		}
+		preCore := text[start : start+relativeCore]
+		if strings.Contains(preCore, "networkBridgeSave()") {
+			t.Fatalf("%s persists partial resolver pointer state before core acceptance", functionName)
+		}
+	}
+}
