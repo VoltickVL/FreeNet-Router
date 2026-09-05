@@ -24,6 +24,7 @@ jobs:
           import subprocess
 
           SOURCE_COMMIT = '236c3dca76f7e426af230e36e66debf7a4655b76'
+          subprocess.run(['git', 'fetch', 'origin', SOURCE_COMMIT, '--depth=1'], check=True)
           old = subprocess.check_output(
               ['git', 'show', f'{SOURCE_COMMIT}:.github/workflows/zz-dns-assignment-fix.yml'],
               text=True,
