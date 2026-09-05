@@ -1,0 +1,40 @@
+name: Apply DNS assignment fix on PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.head_ref == 'fix/dns-split-disable-native-assignments'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/dns-split-disable-native-assignments
+      - name: Extract and apply scoped patch
+        shell: bash
+        run: |
+          awk '
+            /python3 - <<.PY./ {capture=1; next}
+            capture && /^          PY$/ {capture=0; exit}
+            capture {sub(/^          /, ""); print}
+          ' .github/workflows/zz-dns-assignment-fix.yml > /tmp/freenet-dns-patch.py
+          test -s /tmp/freenet-dns-patch.py
+          python3 /tmp/freenet-dns-patch.py
+          sh -n scripts/apply_network_profile.sh
+          sh -n tests/test_network_profile_contract.sh
+          sh tests/test_network_profile_contract.sh
+      - name: Commit scoped fix
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/zz-dns-assignment-fix.yml .github/workflows/zz-dns-assignment-fix-pr.yml
+          git add scripts/apply_network_profile.sh tests/test_network_profile_contract.sh
+          git commit -m 'fix(dns): detach native assignments in Split'
+          git push origin HEAD:fix/dns-split-disable-native-assignments
