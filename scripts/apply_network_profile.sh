@@ -935,9 +935,9 @@ apply_native() {
     [ "$NDM_OVERRIDE_INITIAL" = on ] || { fail_not_applied 'partial/unknown DNS topology: native restore ожидает opkg dns-override=on'; return 1; }
     NATIVE_ENGINE="$(native_filter_engine_value)" || { fail_not_applied 'нет проверенного native filter engine snapshot; отказ от догадки'; return 1; }
     NATIVE_INTERCEPT="$(native_intercept_value)" || { fail_not_applied 'нет проверенного native intercept snapshot; отказ от догадки'; return 1; }
-    native_assignments_valid || { fail_not_applied 'нет проверенного native DNS filter assignments snapshot; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
     case "$NDM_FILTER_ENGINE_INITIAL" in
         opkg)
+  native_assignments_valid || { fail_not_applied 'нет проверенного native DNS filter assignments snapshot; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
             [ "$NDM_INTERCEPT_INITIAL" = off ] || { fail_not_applied 'Split mode имеет native DNS intercept; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
             ;;
         "$NATIVE_ENGINE")
@@ -945,6 +945,9 @@ apply_native() {
                 off|"$NATIVE_INTERCEPT") : ;;
                 *) fail_not_applied 'partial native control-plane имеет неподтверждённое состояние DNS intercept; STOP'; return 1 ;;
             esac
+            if ! native_assignments_valid; then
+                preserve_native_assignments || { fail_not_applied 'не удалось сохранить подтверждённый partial native DNS filter assignments baseline'; return 1; }
+            fi
             say '[FreeNet Network] PARTIAL_NATIVE_CONTROL_PLANE=confirmed-native-engine'
             ;;
         *)
