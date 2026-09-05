@@ -291,11 +291,114 @@
     if (location.hash === '#vpn' && typeof setPage === 'function') setPage('overview');
   }
 
+  let nativeEngineChoice = '';
+  const nativeEngineLabels = {
+    public: 'Публичные DNS-резолверы',
+    interceptor: 'Системный DNS-перехват',
+    nextdns: 'NextDNS',
+    skydns: 'SkyDNS'
+  };
+
+  function mountNativeEngineConfirmation() {
+    const networkHint = qs('#networkHint');
+    if (!networkHint) return null;
+    let box = qs('#nativeEngineConfirmation');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'nativeEngineConfirmation';
+      box.className = 'field';
+      box.hidden = true;
+      box.style.marginTop = '10px';
+      box.innerHTML = '<label for="nativeEngineSelect">Прежний native DNS engine</label><select id="nativeEngineSelect"><option value="">Выберите прежний режим</option></select><div class="hint">Одноразовая миграция старой конфигурации. FreeNet не угадывает потерянное состояние: выберите режим DNS-фильтра, который был активен до перехода на OPKG/Xray. После подтверждения FreeNet сохранит baseline и дальнейшие переключения будут автоматическими.</div>';
+      networkHint.parentNode.insertBefore(box, networkHint.nextSibling);
+      qs('#nativeEngineSelect').addEventListener('change', e => {
+        nativeEngineChoice = String(e.target.value || '').trim();
+        if (typeof renderNetworkControls === 'function') {
+          renderNetworkControls(!!(lastStatus && (lastStatus.busy || lastStatus.updater_busy)));
+        }
+      });
+    }
+    return {box, select: qs('#nativeEngineSelect')};
+  }
+
+  function syncNativeEngineConfirmation() {
+    const ui = mountNativeEngineConfirmation();
+    if (!ui) return;
+    const plan = typeof lastNetworkPlan !== 'undefined' ? lastNetworkPlan : null;
+    const required = !!(plan && plan.native_filter_engine_confirm_required);
+    ui.box.hidden = !required;
+    if (!required) {
+      nativeEngineChoice = '';
+      ui.select.value = '';
+      return;
+    }
+
+    const choices = Array.isArray(plan.native_filter_engine_choices) ? plan.native_filter_engine_choices : [];
+    const currentOptions = Array.from(ui.select.options).slice(1).map(o => o.value).join(',');
+    if (currentOptions !== choices.join(',')) {
+      ui.select.innerHTML = '<option value="">Выберите прежний режим</option>';
+      choices.forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = nativeEngineLabels[value] || value;
+        ui.select.appendChild(option);
+      });
+      if (choices.includes(nativeEngineChoice)) ui.select.value = nativeEngineChoice;
+      else nativeEngineChoice = '';
+    }
+
+    const apply = qs('#applyNetworkBtn');
+    if (apply && !nativeEngineChoice) apply.disabled = true;
+    if (typeof setSummary === 'function' && !nativeEngineChoice) {
+      setSummary('networkSummary', 'Нужно подтвердить прежний DNS engine');
+    }
+  }
+
+  function patchNativeEngineMigrationFlow() {
+    mountNativeEngineConfirmation();
+
+    if (typeof loadNetworkPlan === 'function') {
+      const originalLoadNetworkPlan = loadNetworkPlan;
+      loadNetworkPlan = async function(...args) {
+        const result = await originalLoadNetworkPlan(...args);
+        syncNativeEngineConfirmation();
+        return result;
+      };
+    }
+
+    if (typeof renderNetworkControls === 'function') {
+      const originalRenderNetworkControls = renderNetworkControls;
+      renderNetworkControls = function(...args) {
+        originalRenderNetworkControls(...args);
+        syncNativeEngineConfirmation();
+      };
+    }
+
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = function(input, init) {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      if (url === '/api/network-profile/apply' && init && String(init.method || '').toUpperCase() === 'POST' && typeof init.body === 'string') {
+        try {
+          const body = JSON.parse(init.body);
+          const plan = typeof lastNetworkPlan !== 'undefined' ? lastNetworkPlan : null;
+          if (body.operation === 'network' && plan && plan.native_filter_engine_confirm_required && nativeEngineChoice) {
+            body.native_filter_engine = nativeEngineChoice;
+            init = Object.assign({}, init, {body: JSON.stringify(body)});
+          }
+        } catch (_) {}
+      }
+      return originalFetch(input, init);
+    };
+
+    syncNativeEngineConfirmation();
+  }
+
   function mount() {
     patchNavigation();
     patchStatusRendering();
     mountExactConnectControls();
     patchProfileSelection();
+    patchNativeEngineMigrationFlow();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
