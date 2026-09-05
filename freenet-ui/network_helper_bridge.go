@@ -84,6 +84,14 @@ func runNetworkHelperBridge(mode string) int {
 
 	if mode == "plan" {
 		out := augmentNetworkBridgePlan(string(planOutput), target, lanIP, pointerPresent)
+		if target == "firmware" {
+			resolverStatus, resolverErr := networkBridgeNativeResolverStatus(lanIP)
+			if resolverErr != nil {
+				out = strings.TrimRight(out, "\r\n") + "\nSUPPORTED=no\nREASON=native resolver-selection preflight: " + resolverErr.Error() + "\n"
+			} else {
+				out = augmentNetworkBridgeNativeResolverPlan(out, resolverStatus)
+			}
+		}
 		if target == "firmware" && networkBridgeStrictRuntimeSplit(values) {
 			status, recoveryErr := networkBridgeNativeAssignmentsRecoveryStatus(lanIP)
 			if recoveryErr != nil {
@@ -363,13 +371,21 @@ func applyNetworkBridgeSplit(configPath, lanIP string, pointerPresent bool, preP
 }
 
 func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, prePlan map[string]string) int {
+	addedNativeResolvers, resolverErr := networkBridgeEnsureNativeResolverReady(lanIP)
+	if resolverErr != nil {
+		bridgeFailure("не удалось подготовить рабочий native Keenetic resolver перед отключением Split DNS: "+resolverErr.Error(), "NOT_APPLIED")
+		return 1
+	}
 	removedBeforeCore := false
 	if pointerPresent {
-		// Remove the Split-owned self-reference from running-config before native
-		// restore, but do not persist this partial state. The shell core saves NDM
-		// only after native DNS acceptance; rollback re-adds and saves the pointer.
+		// A native resolver is staged first. Only then remove the Split-owned
+		// self-reference, keeping the transition free from a zero-upstream window.
 		if err := networkBridgeRemoveLocalPointer(lanIP); err != nil {
-			bridgeFailure("не удалось убрать Split-owned local Xray DNS upstream перед native restore", "FAILED/UNKNOWN")
+			rollback := "SUCCESS"
+			if rollbackErr := networkBridgeRollbackNativeResolverStage(lanIP, false, addedNativeResolvers); rollbackErr != nil {
+				rollback = "FAILED/UNKNOWN"
+			}
+			bridgeFailure("не удалось убрать Split-owned local Xray DNS upstream перед native restore", rollback)
 			return 1
 		}
 		removedBeforeCore = true
@@ -379,8 +395,8 @@ func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, pre
 		recovered, recoverErr := networkBridgeEnsureNativeAssignmentsSnapshot()
 		if recoverErr != nil {
 			rollback := "NOT_APPLIED"
-			if removedBeforeCore {
-				if err := networkBridgeAddLocalPointer(lanIP); err == nil && networkBridgeSave() == nil {
+			if removedBeforeCore || len(addedNativeResolvers) > 0 {
+				if err := networkBridgeRollbackNativeResolverStage(lanIP, removedBeforeCore, addedNativeResolvers); err == nil {
 					rollback = "SUCCESS"
 				} else {
 					rollback = "FAILED/UNKNOWN"
@@ -397,9 +413,9 @@ func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, pre
 	output, coreErr := runNetworkBridgeCore(configPath, "apply")
 	_, _ = os.Stdout.Write(output)
 	if coreErr != nil {
-		if removedBeforeCore {
-			if err := networkBridgeAddLocalPointer(lanIP); err != nil || networkBridgeSave() != nil {
-				bridgeFailure("native apply failed and local Xray DNS pointer rollback failed", "FAILED/UNKNOWN")
+		if removedBeforeCore || len(addedNativeResolvers) > 0 {
+			if err := networkBridgeRollbackNativeResolverStage(lanIP, removedBeforeCore, addedNativeResolvers); err != nil {
+				bridgeFailure("native apply failed and resolver-selection rollback failed", "FAILED/UNKNOWN")
 			}
 		}
 		return bridgeExitCode(coreErr)
@@ -410,7 +426,17 @@ func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, pre
 		bridgeFailure("native acceptance: Split-owned local Xray DNS upstream остался активен", "FAILED/UNKNOWN")
 		return 1
 	}
+	resolverStatus, err := networkBridgeNativeResolverStatus(lanIP)
+	if err != nil || resolverStatus != "existing-native-resolver-ready" {
+		bridgeFailure("native acceptance: рабочий Keenetic resolver selection не подтверждён", "FAILED/UNKNOWN")
+		return 1
+	}
 	fmt.Println("[FreeNet Network] LOCAL_XRAY_DNS_UPSTREAM=none")
+	if len(addedNativeResolvers) > 0 {
+		fmt.Println("[FreeNet Network] NATIVE_RESOLVER_SELECTION=yandex-basic-fallback")
+	} else {
+		fmt.Println("[FreeNet Network] NATIVE_RESOLVER_SELECTION=preserved-existing")
+	}
 	return 0
 }
 
