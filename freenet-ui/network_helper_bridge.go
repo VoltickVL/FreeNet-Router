@@ -320,7 +320,9 @@ func applyNetworkBridgeSplit(configPath, lanIP string, pointerPresent bool, preP
 	wasSplit := networkBridgeRuntimeSplit(prePlan)
 	addedBeforeCore := false
 	if wasSplit && !pointerPresent {
-		if err := networkBridgeAddLocalPointer(lanIP); err != nil || networkBridgeSave() != nil {
+		// Stage the resolver pointer only in running-config. The shell core owns
+		// the single persistent NDM save after its full post-apply acceptance.
+		if err := networkBridgeAddLocalPointer(lanIP); err != nil {
 			bridgeFailure("не удалось направить активный Keenetic DNS на локальный Xray "+lanIP+":53", "FAILED/UNKNOWN")
 			return 1
 		}
@@ -363,7 +365,10 @@ func applyNetworkBridgeSplit(configPath, lanIP string, pointerPresent bool, preP
 func applyNetworkBridgeNative(configPath, lanIP string, pointerPresent bool, prePlan map[string]string) int {
 	removedBeforeCore := false
 	if pointerPresent {
-		if err := networkBridgeRemoveLocalPointer(lanIP); err != nil || networkBridgeSave() != nil {
+		// Remove the Split-owned self-reference from running-config before native
+		// restore, but do not persist this partial state. The shell core saves NDM
+		// only after native DNS acceptance; rollback re-adds and saves the pointer.
+		if err := networkBridgeRemoveLocalPointer(lanIP); err != nil {
 			bridgeFailure("не удалось убрать Split-owned local Xray DNS upstream перед native restore", "FAILED/UNKNOWN")
 			return 1
 		}
