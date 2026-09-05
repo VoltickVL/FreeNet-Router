@@ -209,36 +209,55 @@ func networkBridgeReadTrimmed(path string) (string, error) {
 	return strings.TrimSpace(strings.ReplaceAll(string(data), "\r", "")), nil
 }
 
-// networkBridgeRecoverNativeAssignmentsSnapshot repairs the one legacy gap left
-// by pre-v0.2.53 Split: those releases saved full ndm-running.before snapshots but
-// did not persist assignments.native. Recovery is allowed only from native backups
-// whose override, engine, intercept and protected resolver state exactly match the
-// currently preserved native baseline. Different matching assignment sets are
-// ambiguous and fail closed.
-func networkBridgeRecoverNativeAssignmentsSnapshot(nativeDir, backupRoot, currentConfig string) (bool, error) {
-	snapshotPath := filepath.Join(nativeDir, "assignments.native")
-	if data, err := os.ReadFile(snapshotPath); err == nil {
+func networkBridgeConfigWithoutLocalPointer(config, lanIP string) string {
+	var kept []string
+	for _, raw := range strings.Split(strings.ReplaceAll(config, "\r", ""), "\n") {
+		line := strings.TrimSpace(raw)
+		if strings.HasPrefix(line, "ip name-server ") {
+			fields := strings.Fields(line)
+			if len(fields) >= 3 {
+				address := strings.Trim(fields[2], "\"")
+				if address == lanIP || address == lanIP+":53" {
+					continue
+				}
+			}
+		}
+		kept = append(kept, raw)
+	}
+	return strings.Join(kept, "\n")
+}
+
+func networkBridgeExistingAssignmentsSnapshot(nativeDir string) (bool, error) {
+	data, err := os.ReadFile(filepath.Join(nativeDir, "assignments.native"))
+	if err == nil {
 		if !networkBridgeAssignmentSnapshotValid(data) {
 			return false, errors.New("existing native assignments snapshot is invalid")
 		}
-		return false, nil
-	} else if !os.IsNotExist(err) {
-		return false, err
+		return true, nil
 	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
 
+// networkBridgeFindNativeAssignmentsCandidate performs the historical lookup
+// without persisting anything. This is shared by the read-only plan preflight and
+// the apply path so they use exactly the same evidence and ambiguity rules.
+func networkBridgeFindNativeAssignmentsCandidate(nativeDir, backupRoot, currentConfig string) (string, error) {
 	nativeEngine, err := networkBridgeReadTrimmed(filepath.Join(nativeDir, "filter-engine.native"))
 	if err != nil || nativeEngine == "" || nativeEngine == "opkg" {
-		return false, errors.New("native filter engine baseline is unavailable")
+		return "", errors.New("native filter engine baseline is unavailable")
 	}
 	nativeIntercept, err := networkBridgeReadTrimmed(filepath.Join(nativeDir, "intercept.native"))
 	if err != nil || (nativeIntercept != "on" && nativeIntercept != "off") {
-		return false, errors.New("native intercept baseline is unavailable")
+		return "", errors.New("native intercept baseline is unavailable")
 	}
 	currentProtected := networkBridgeProtectedStateText(currentConfig)
 
 	entries, err := os.ReadDir(backupRoot)
 	if err != nil {
-		return false, errors.New("historical network backups are unavailable")
+		return "", errors.New("historical network backups are unavailable")
 	}
 	candidate := ""
 	found := false
@@ -277,24 +296,82 @@ func networkBridgeRecoverNativeAssignmentsSnapshot(nativeDir, backupRoot, curren
 			continue
 		}
 		if candidate != assignments {
-			return false, errors.New("matching historical native backups contain different DNS filter assignments")
+			return "", errors.New("matching historical native backups contain different DNS filter assignments")
 		}
 	}
 	if !found {
-		return false, errors.New("no unambiguous historical native assignments backup matches current protected DNS state")
+		return "", errors.New("no unambiguous historical native assignments backup matches current protected DNS state")
+	}
+	return candidate, nil
+}
+
+func networkBridgeNativeAssignmentsRecoveryStatus(lanIP string) (string, error) {
+	nativeDir := networkBridgeNativeStateDir()
+	exists, err := networkBridgeExistingAssignmentsSnapshot(nativeDir)
+	if err != nil {
+		return "", err
+	}
+	if exists {
+		return "snapshot-present", nil
+	}
+	config, err := networkBridgeRunningConfig()
+	if err != nil {
+		return "", errors.New("cannot read current Keenetic running-config")
+	}
+	config = networkBridgeConfigWithoutLocalPointer(config, lanIP)
+	if _, err := networkBridgeFindNativeAssignmentsCandidate(nativeDir, networkBridgeBackupRoot(), config); err != nil {
+		return "", err
+	}
+	return "historical-native-backup-ready", nil
+}
+
+// networkBridgeRecoverNativeAssignmentsSnapshot repairs the one legacy gap left
+// by pre-v0.2.53 Split: those releases saved full ndm-running.before snapshots but
+// did not persist assignments.native. Recovery is allowed only from native backups
+// whose override, engine, intercept and protected resolver state exactly match the
+// currently preserved native baseline. Different matching assignment sets are
+// ambiguous and fail closed.
+func networkBridgeRecoverNativeAssignmentsSnapshot(nativeDir, backupRoot, currentConfig string) (bool, error) {
+	exists, err := networkBridgeExistingAssignmentsSnapshot(nativeDir)
+	if err != nil {
+		return false, err
+	}
+	if exists {
+		return false, nil
 	}
 
+	candidate, err := networkBridgeFindNativeAssignmentsCandidate(nativeDir, backupRoot, currentConfig)
+	if err != nil {
+		return false, err
+	}
 	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
 		return false, err
 	}
-	tmp := snapshotPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(candidate), 0o600); err != nil {
+	f, err := os.CreateTemp(nativeDir, ".assignments.native.*")
+	if err != nil {
 		return false, err
 	}
-	if err := os.Rename(tmp, snapshotPath); err != nil {
-		_ = os.Remove(tmp)
+	tmp := f.Name()
+	keep := false
+	defer func() {
+		_ = f.Close()
+		if !keep {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if err := f.Chmod(0o600); err != nil {
 		return false, err
 	}
+	if _, err := f.WriteString(candidate); err != nil {
+		return false, err
+	}
+	if err := f.Close(); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmp, filepath.Join(nativeDir, "assignments.native")); err != nil {
+		return false, err
+	}
+	keep = true
 	return true, nil
 }
 

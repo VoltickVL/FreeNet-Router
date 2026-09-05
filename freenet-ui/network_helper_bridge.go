@@ -18,21 +18,46 @@ const (
 	defaultNetworkBridgeConfig     = "/opt/etc/freenet/freenet.conf"
 )
 
+func networkBridgeCanonicalExecutable() (string, bool) {
+	var candidates []string
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, exe)
+	}
+	if len(os.Args) > 0 {
+		candidates = append(candidates, os.Args[0])
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(strings.TrimSuffix(candidate, " (deleted)"))
+		if candidate == "" {
+			continue
+		}
+		if filepath.Base(filepath.Clean(candidate)) == "freenet-ui" {
+			return defaultNetworkBridgeExecutable, true
+		}
+	}
+	return "", false
+}
+
+func networkBridgeShouldOwnHelper(current string) bool {
+	current = strings.TrimSpace(current)
+	return current == "" || filepath.Clean(current) == filepath.Clean(defaultNetworkHelperCore)
+}
+
 // FreeNet owns the product-level DNS switch, while the legacy shell helper owns
-// the already hardened Xray/NDM transaction. In production the UI process points
-// FREENET_NETWORK_HELPER back to itself. Child invocations with plan/apply are
-// intercepted here and wrapped with the missing Keenetic resolver-selection leg.
-// Tests and explicit helper overrides remain untouched.
+// the already hardened Xray/NDM transaction. A production freenet-ui process must
+// route network plan/apply through itself so the resolver-selection and migration
+// bridge cannot be bypassed by an executable-path representation or a legacy
+// default helper environment. Explicit non-default helper overrides remain intact.
 func init() {
-	exe, err := os.Executable()
-	if err != nil || filepath.Clean(exe) != filepath.Clean(defaultNetworkBridgeExecutable) {
+	bridgeExe, production := networkBridgeCanonicalExecutable()
+	if !production {
 		return
 	}
 	if len(os.Args) > 1 && (os.Args[1] == "plan" || os.Args[1] == "apply") {
 		os.Exit(runNetworkHelperBridge(os.Args[1]))
 	}
-	if strings.TrimSpace(os.Getenv("FREENET_NETWORK_HELPER")) == "" {
-		_ = os.Setenv("FREENET_NETWORK_HELPER", exe)
+	if networkBridgeShouldOwnHelper(os.Getenv("FREENET_NETWORK_HELPER")) {
+		_ = os.Setenv("FREENET_NETWORK_HELPER", bridgeExe)
 	}
 }
 
@@ -78,7 +103,16 @@ func runNetworkHelperBridge(mode string) int {
 	}
 
 	if mode == "plan" {
-		_, _ = os.Stdout.WriteString(augmentNetworkBridgePlan(string(planOutput), target, lanIP, pointerPresent))
+		out := augmentNetworkBridgePlan(string(planOutput), target, lanIP, pointerPresent)
+		if target == "firmware" && networkBridgeStrictRuntimeSplit(values) {
+			status, recoveryErr := networkBridgeNativeAssignmentsRecoveryStatus(lanIP)
+			if recoveryErr != nil {
+				out = strings.TrimRight(out, "\r\n") + "\nSUPPORTED=no\nREASON=legacy native DNS filter assignments preflight: " + recoveryErr.Error() + "\n"
+			} else {
+				out = strings.TrimRight(out, "\r\n") + "\nNATIVE_ASSIGNMENTS_RECOVERY=" + status + "\n"
+			}
+		}
+		_, _ = os.Stdout.WriteString(out)
 		return 0
 	}
 	if mode != "apply" {
