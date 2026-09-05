@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -184,10 +183,8 @@ func legacyNativeDNSSnapshotPaths() (string, string) {
 
 func legacyNativeDNSSnapshotStatus() (valid bool, missing bool, err error) {
 	dnsPath, hashPath := legacyNativeDNSSnapshotPaths()
-	dnsInfo, dnsErr := os.Stat(dnsPath)
-	hashInfo, hashErr := os.Stat(hashPath)
-	_ = dnsInfo
-	_ = hashInfo
+	_, dnsErr := os.Stat(dnsPath)
+	_, hashErr := os.Stat(hashPath)
 
 	dnsMissing := os.IsNotExist(dnsErr)
 	hashMissing := os.IsNotExist(hashErr)
@@ -313,7 +310,7 @@ func legacyNativeBackupIsNative(dir string) (bool, error) {
 		return false, err
 	}
 	for _, item := range items {
-		if legacyNativePortIncludes53(item["port"]) {
+		if legacyNativePortIs53(item["port"]) {
 			return false, nil
 		}
 	}
@@ -607,25 +604,14 @@ func legacyNativeString(value any) string {
 	return ""
 }
 
-func legacyNativePortIncludes53(value any) bool {
+// The existing shell transaction treats only an explicit port 53 rule as its
+// managed DNS delta. Broad application rules such as 0-65535 must stay non-DNS.
+func legacyNativePortIs53(value any) bool {
 	switch v := value.(type) {
 	case float64:
 		return v == 53
 	case string:
-		for _, token := range strings.Split(v, ",") {
-			token = strings.TrimSpace(token)
-			if token == "53" {
-				return true
-			}
-			if strings.Contains(token, "-") {
-				parts := strings.SplitN(token, "-", 2)
-				lo, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
-				hi, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
-				if err1 == nil && err2 == nil && lo <= 53 && 53 <= hi {
-					return true
-				}
-			}
-		}
+		return strings.TrimSpace(v) == "53"
 	}
 	return false
 }
@@ -651,7 +637,7 @@ func legacyNativeInboundHasDNSTag(value any) bool {
 func legacyNativeDNSRoutingRule(rule map[string]any) bool {
 	return legacyNativeString(rule["outboundTag"]) == "dns-out" ||
 		legacyNativeInboundHasDNSTag(rule["inboundTag"]) ||
-		legacyNativePortIncludes53(rule["port"])
+		legacyNativePortIs53(rule["port"])
 }
 
 func legacyNativeStripDNSDelta(inbounds, outbounds, routing map[string]any) error {
@@ -661,7 +647,7 @@ func legacyNativeStripDNSDelta(inbounds, outbounds, routing map[string]any) erro
 	}
 	newIn := make([]any, 0, len(inItems))
 	for _, item := range inItems {
-		if !legacyNativePortIncludes53(item["port"]) {
+		if !legacyNativePortIs53(item["port"]) {
 			newIn = append(newIn, item)
 		}
 	}
