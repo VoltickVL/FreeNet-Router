@@ -76,6 +76,39 @@ func TestBridgeRecognizesOnlyRouterLocalNameServerLines(t *testing.T) {
 	}
 }
 
+func TestBridgeNativeResolverIgnoresSplitOwnedLocalPointer(t *testing.T) {
+	config := "ip name-server 192.168.50.1:53\n"
+	if networkBridgeHasNativeResolverDefinition(config, "192.168.50.1") {
+		t.Fatal("Split-owned local pointer must not count as a native resolver")
+	}
+}
+
+func TestBridgeNativeResolverRecognizesPreservedNativeDefinitions(t *testing.T) {
+	cases := []string{
+		"ip name-server 77.88.8.8\n",
+		"dns-proxy\n    tls upstream 77.88.8.8 853 sni common.dot.dns.yandex.net\n!\n",
+		"dns-proxy https upstream https://example.invalid/dns-query\n",
+		"interface Vladlink\n    ip dhcp client dns-routes\n!\n",
+	}
+	for _, config := range cases {
+		if !networkBridgeHasNativeResolverDefinition(config, "192.168.50.1") {
+			t.Fatalf("native resolver definition not recognized: %q", config)
+		}
+	}
+}
+
+func TestBridgeNativeResolverPlanMakesFallbackExplicit(t *testing.T) {
+	input := augmentNetworkBridgePlan(bridgePlanFixture("firmware", "on", "opkg", "xray", "split"), "firmware", "192.168.50.1", true)
+	got := augmentNetworkBridgeNativeResolverPlan(input, "yandex-basic-fallback-needed")
+	values := parseNetworkBridgeValues(got)
+	if values["NATIVE_RESOLVER_SELECTION"] != "yandex-basic-fallback-needed" {
+		t.Fatalf("native resolver status=%q", values["NATIVE_RESOLVER_SELECTION"])
+	}
+	if !strings.Contains(values["EXPECTED_DELTA"], "77.88.8.8/77.88.8.1") {
+		t.Fatalf("fallback is absent from expected delta: %q", values["EXPECTED_DELTA"])
+	}
+}
+
 func TestBridgeRuntimeClassification(t *testing.T) {
 	values := parseNetworkBridgeValues(bridgePlanFixture("xkeen", "on", "opkg", "xray", "split"))
 	if !networkBridgeRuntimeSplit(values) {
@@ -142,9 +175,28 @@ func TestBridgeDoesNotPersistForwardPointerMutationBeforeCoreAcceptance(t *testi
 		t.Fatal("native recovery boundary not found")
 	}
 	if strings.Contains(text[nativeStart:nativeStart+nativeRecovery], "networkBridgeSave()") {
-		t.Fatal("native forward pointer staging persists before recovery/core acceptance")
+		t.Fatal("native forward resolver staging persists before recovery/core acceptance")
 	}
-	if !strings.Contains(text[nativeStart+nativeRecovery:], "networkBridgeSave()") {
-		t.Fatal("native rollback persistence contract disappeared")
+	if !strings.Contains(text[nativeStart+nativeRecovery:], "networkBridgeRollbackNativeResolverStage") {
+		t.Fatal("native resolver rollback contract disappeared")
+	}
+}
+
+func TestBridgeStagesNativeResolverBeforeRemovingSplitPointer(t *testing.T) {
+	data, err := os.ReadFile("network_helper_bridge.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	start := strings.Index(text, "func applyNetworkBridgeNative(")
+	if start < 0 {
+		t.Fatal("applyNetworkBridgeNative not found")
+	}
+	body := text[start:]
+	stage := strings.Index(body, "networkBridgeEnsureNativeResolverReady(lanIP)")
+	remove := strings.Index(body, "networkBridgeRemoveLocalPointer(lanIP)")
+	core := strings.Index(body, `runNetworkBridgeCore(configPath, "apply")`)
+	if stage < 0 || remove < 0 || core < 0 || !(stage < remove && remove < core) {
+		t.Fatalf("native resolver ordering invalid: stage=%d remove=%d core=%d", stage, remove, core)
 	}
 }
