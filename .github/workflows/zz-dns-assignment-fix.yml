@@ -1,0 +1,75 @@
+name: Apply DNS assignment fix
+
+on:
+  push:
+    branches:
+      - fix/dns-split-disable-native-assignments
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/dns-split-disable-native-assignments
+          fetch-depth: 0
+      - name: Apply and test scoped DNS fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          SOURCE_COMMIT = '236c3dca76f7e426af230e36e66debf7a4655b76'
+          old = subprocess.check_output(
+              ['git', 'show', f'{SOURCE_COMMIT}:.github/workflows/zz-dns-assignment-fix.yml'],
+              text=True,
+          )
+          lines = old.splitlines()
+          capture = False
+          patch = []
+          for line in lines:
+              if "python3 - <<'PY'" in line:
+                  capture = True
+                  continue
+              if capture and line == '          PY':
+                  break
+              if capture:
+                  patch.append(line[10:] if line.startswith('          ') else line)
+          code = '\n'.join(patch) + '\n'
+          if 'ndm_filter_assignments()' not in code:
+              raise SystemExit('historical patch body not found')
+          exec(compile(code, '<dns-assignment-patch>', 'exec'), {})
+
+          # apply_network_profile.sh contains a late JSONC compatibility override of
+          # preflight_common(). Patch that effective definition as well as the older one.
+          p = Path('scripts/apply_network_profile.sh')
+          s = p.read_text()
+          old_preflight = '''    NDM_INTERCEPT_INITIAL="$(ndm_intercept_state)"; case "$NDM_INTERCEPT_INITIAL" in off|on) : ;; *) err 'не удалось определить Keenetic DNS intercept'; return 1 ;; esac
+    NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)"; [ -n "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'не удалось снять protected NDM hash'; return 1; }
+'''
+          new_preflight = '''    NDM_INTERCEPT_INITIAL="$(ndm_intercept_state)"; case "$NDM_INTERCEPT_INITIAL" in off|on) : ;; *) err 'не удалось определить Keenetic DNS intercept'; return 1 ;; esac
+    ndm_assignment_syntax_valid || { err 'неподдерживаемый синтаксис Keenetic DNS filter assignment'; return 1; }
+    NDM_ASSIGNMENTS_INITIAL="$(ndm_filter_assignments)"
+    NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)"; [ -n "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'не удалось снять protected NDM hash'; return 1; }
+'''
+          count = s.count(old_preflight)
+          if count != 1:
+              raise SystemExit(f'effective preflight anchor count={count}, expected 1')
+          p.write_text(s.replace(old_preflight, new_preflight, 1))
+          PY
+          sh -n scripts/apply_network_profile.sh
+          sh -n tests/test_network_profile_contract.sh
+          sh tests/test_network_profile_contract.sh
+      - name: Commit product change and remove harness
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm -f .github/workflows/zz-dns-assignment-fix.yml .github/workflows/zz-dns-assignment-fix-pr.yml .github/workflows/zz-dns-assignment-diagnostic.yml
+          git add scripts/apply_network_profile.sh tests/test_network_profile_contract.sh
+          git commit -m 'fix(dns): detach native assignments in Split'
+          git push origin HEAD:fix/dns-split-disable-native-assignments
