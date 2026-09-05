@@ -31,8 +31,9 @@ jobs:
           lines = old.splitlines()
           capture = False
           patch = []
+          start_marker = 'python3 - <<' + "'PY'"
           for line in lines:
-              if "python3 - <<'PY'" in line:
+              if start_marker in line:
                   capture = True
                   continue
               if capture and line == '          PY':
