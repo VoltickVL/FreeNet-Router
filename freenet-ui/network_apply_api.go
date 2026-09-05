@@ -31,37 +31,40 @@ type providerPlanResponse struct {
 }
 
 type networkPlanResponse struct {
-	Success           bool                       `json:"success"`
-	Supported         bool                       `json:"supported"`
-	Active            bool                       `json:"active"`
-	ISP               string                     `json:"isp"`
-	DNSMode           string                     `json:"dns_mode"`
-	ActiveISP         string                     `json:"active_isp,omitempty"`
-	ActiveDNSMode     string                     `json:"active_dns_mode,omitempty"`
-	EffectiveDNSMode  string                     `json:"effective_dns_mode"`
-	Reason            string                     `json:"reason,omitempty"`
-	ProxyDNS          string                     `json:"proxy_dns,omitempty"`
-	Port53Owner       string                     `json:"port53_owner,omitempty"`
-	XrayGID           string                     `json:"xray_gid,omitempty"`
-	DNSRoutingMode    string                     `json:"dns_routing_mode,omitempty"`
-	DNSOut            bool                       `json:"dns_out_present"`
-	VLESSProfile      bool                       `json:"vless_profile_present"`
-	ExpectedDelta     string                     `json:"expected_delta,omitempty"`
-	ExpectedNoDelta   string                     `json:"expected_no_delta,omitempty"`
-	Mutation          string                     `json:"mutation,omitempty"`
-	ExtraProfiles     []subscriptionProfile      `json:"extra_profiles,omitempty"`
-	ProfilesError     string                     `json:"profiles_error,omitempty"`
-	ProviderPlan      *providerPlanResponse       `json:"provider_plan,omitempty"`
-	SetupFinalizePlan *setupFinalizePlanResponse `json:"setup_finalize_plan,omitempty"`
-	Error             string                     `json:"error,omitempty"`
+	Success                           bool                       `json:"success"`
+	Supported                         bool                       `json:"supported"`
+	Active                            bool                       `json:"active"`
+	ISP                               string                     `json:"isp"`
+	DNSMode                           string                     `json:"dns_mode"`
+	ActiveISP                         string                     `json:"active_isp,omitempty"`
+	ActiveDNSMode                     string                     `json:"active_dns_mode,omitempty"`
+	EffectiveDNSMode                  string                     `json:"effective_dns_mode"`
+	Reason                            string                     `json:"reason,omitempty"`
+	ProxyDNS                          string                     `json:"proxy_dns,omitempty"`
+	Port53Owner                       string                     `json:"port53_owner,omitempty"`
+	XrayGID                           string                     `json:"xray_gid,omitempty"`
+	DNSRoutingMode                    string                     `json:"dns_routing_mode,omitempty"`
+	DNSOut                            bool                       `json:"dns_out_present"`
+	VLESSProfile                      bool                       `json:"vless_profile_present"`
+	ExpectedDelta                     string                     `json:"expected_delta,omitempty"`
+	ExpectedNoDelta                   string                     `json:"expected_no_delta,omitempty"`
+	Mutation                          string                     `json:"mutation,omitempty"`
+	NativeFilterEngineConfirmRequired bool                       `json:"native_filter_engine_confirm_required"`
+	NativeFilterEngineChoices         []string                   `json:"native_filter_engine_choices,omitempty"`
+	ExtraProfiles                     []subscriptionProfile      `json:"extra_profiles,omitempty"`
+	ProfilesError                     string                     `json:"profiles_error,omitempty"`
+	ProviderPlan                      *providerPlanResponse       `json:"provider_plan,omitempty"`
+	SetupFinalizePlan                 *setupFinalizePlanResponse `json:"setup_finalize_plan,omitempty"`
+	Error                             string                     `json:"error,omitempty"`
 }
 
 type networkApplyRequest struct {
-	Operation string `json:"operation,omitempty"`
-	ISP       string `json:"isp,omitempty"`
-	DNSMode   string `json:"dns_mode,omitempty"`
-	ProfileID string `json:"profile_id,omitempty"`
-	Confirm   bool   `json:"confirm"`
+	Operation          string `json:"operation,omitempty"`
+	ISP                string `json:"isp,omitempty"`
+	DNSMode            string `json:"dns_mode,omitempty"`
+	ProfileID          string `json:"profile_id,omitempty"`
+	NativeFilterEngine string `json:"native_filter_engine,omitempty"`
+	Confirm            bool   `json:"confirm"`
 }
 
 type networkApplyResponse struct {
@@ -259,6 +262,20 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 	}
 	if plan.Active {
 		writeJSON(w, http.StatusOK, networkApplyResponse{Success: true, Applied: false, Operation: "network", ISP: activeISP, DNSMode: activeDNS, Plan: plan, Message: "Выбранный сетевой профиль уже активен.", RollbackState: "NOT_NEEDED"})
+		return
+	}
+	if err := persistConfirmedLegacyNativeFilterEngine(plan, req.NativeFilterEngine); err != nil {
+		writeJSON(w, http.StatusConflict, networkApplyResponse{
+			Success:       false,
+			Applied:       false,
+			Operation:     "network",
+			ISP:           req.ISP,
+			DNSMode:       req.DNSMode,
+			Plan:          plan,
+			PrimaryError:  err.Error(),
+			RollbackState: "NOT_APPLIED",
+			Error:         "native DNS migration confirmation required",
+		})
 		return
 	}
 
@@ -488,6 +505,7 @@ func (a *app) runNetworkPlanFor(isp, dnsMode string) (networkPlanResponse, error
 	if plan.ISP != isp || plan.DNSMode != dnsMode {
 		return plan, errors.New("network helper did not plan the exact requested draft")
 	}
+	enrichNativeFilterEngineMigration(&plan)
 	if cmdErr != nil {
 		return plan, errors.New("network plan helper failed")
 	}
