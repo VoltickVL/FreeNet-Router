@@ -26,6 +26,23 @@ jobs:
           ' .github/workflows/zz-dns-assignment-fix.yml > /tmp/freenet-dns-patch.py
           test -s /tmp/freenet-dns-patch.py
           python3 /tmp/freenet-dns-patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('scripts/apply_network_profile.sh')
+          s = p.read_text()
+          old = '''    NDM_INTERCEPT_INITIAL="$(ndm_intercept_state)"; case "$NDM_INTERCEPT_INITIAL" in off|on) : ;; *) err 'не удалось определить Keenetic DNS intercept'; return 1 ;; esac
+    NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)"; [ -n "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'не удалось снять protected NDM hash'; return 1; }
+'''
+          new = '''    NDM_INTERCEPT_INITIAL="$(ndm_intercept_state)"; case "$NDM_INTERCEPT_INITIAL" in off|on) : ;; *) err 'не удалось определить Keenetic DNS intercept'; return 1 ;; esac
+    ndm_assignment_syntax_valid || { err 'неподдерживаемый синтаксис Keenetic DNS filter assignment'; return 1; }
+    NDM_ASSIGNMENTS_INITIAL="$(ndm_filter_assignments)"
+    NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)"; [ -n "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'не удалось снять protected NDM hash'; return 1; }
+'''
+          count = s.count(old)
+          if count != 1:
+              raise SystemExit(f'effective preflight anchor count={count}, expected 1')
+          p.write_text(s.replace(old, new, 1))
+          PY
           sh -n scripts/apply_network_profile.sh
           sh -n tests/test_network_profile_contract.sh
           sh tests/test_network_profile_contract.sh
@@ -34,7 +51,7 @@ jobs:
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git rm .github/workflows/zz-dns-assignment-fix.yml .github/workflows/zz-dns-assignment-fix-pr.yml
+          git rm .github/workflows/zz-dns-assignment-fix.yml .github/workflows/zz-dns-assignment-fix-pr.yml .github/workflows/zz-dns-assignment-diagnostic.yml
           git add scripts/apply_network_profile.sh tests/test_network_profile_contract.sh
           git commit -m 'fix(dns): detach native assignments in Split'
           git push origin HEAD:fix/dns-split-disable-native-assignments
