@@ -18,46 +18,26 @@ const (
 	defaultNetworkBridgeConfig     = "/opt/etc/freenet/freenet.conf"
 )
 
-func networkBridgeCanonicalExecutable() (string, bool) {
-	var candidates []string
-	if exe, err := os.Executable(); err == nil {
-		candidates = append(candidates, exe)
-	}
-	if len(os.Args) > 0 {
-		candidates = append(candidates, os.Args[0])
-	}
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(strings.TrimSuffix(candidate, " (deleted)"))
-		if candidate == "" {
-			continue
-		}
-		if filepath.Base(filepath.Clean(candidate)) == "freenet-ui" {
-			return defaultNetworkBridgeExecutable, true
-		}
-	}
-	return "", false
+func networkBridgeIsTestProcess() bool {
+	return strings.HasSuffix(filepath.Base(os.Args[0]), ".test")
 }
 
-func networkBridgeShouldOwnHelper(current string) bool {
-	current = strings.TrimSpace(current)
-	return current == "" || filepath.Clean(current) == filepath.Clean(defaultNetworkHelperCore)
+func networkBridgeInstallRequiredHelper() error {
+	return os.Setenv("FREENET_NETWORK_HELPER", defaultNetworkBridgeExecutable)
 }
 
-// FreeNet owns the product-level DNS switch, while the legacy shell helper owns
-// the already hardened Xray/NDM transaction. A production freenet-ui process must
-// route network plan/apply through itself so the resolver-selection and migration
-// bridge cannot be bypassed by an executable-path representation or a legacy
-// default helper environment. Explicit non-default helper overrides remain intact.
+// FreeNet owns the product-level DNS switch. The HTTP server must never inherit
+// or retain a helper path that bypasses the Go bridge: the bridge is mandatory,
+// while the hardened shell controller remains an internal core called only by
+// runNetworkBridgeCore. Child plan/apply dispatch is independent from executable
+// identity so atomic replacement, argv[0] representation and inherited env cannot
+// silently route around resolver-selection or migration preflight.
 func init() {
-	bridgeExe, production := networkBridgeCanonicalExecutable()
-	if !production {
-		return
-	}
 	if len(os.Args) > 1 && (os.Args[1] == "plan" || os.Args[1] == "apply") {
 		os.Exit(runNetworkHelperBridge(os.Args[1]))
 	}
-	if networkBridgeShouldOwnHelper(os.Getenv("FREENET_NETWORK_HELPER")) {
-		_ = os.Setenv("FREENET_NETWORK_HELPER", bridgeExe)
+	if !networkBridgeIsTestProcess() {
+		_ = networkBridgeInstallRequiredHelper()
 	}
 }
 

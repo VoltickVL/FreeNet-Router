@@ -1,20 +1,25 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestBridgeClaimsMissingOrLegacyCoreHelper(t *testing.T) {
-	if !networkBridgeShouldOwnHelper("") {
-		t.Fatal("production bridge must claim an unset network helper")
+func TestBridgeRuntimeForcesCanonicalHelper(t *testing.T) {
+	t.Setenv("FREENET_NETWORK_HELPER", "/tmp/legacy-or-custom-bypass")
+	if err := networkBridgeInstallRequiredHelper(); err != nil {
+		t.Fatal(err)
 	}
-	if !networkBridgeShouldOwnHelper(defaultNetworkHelperCore) {
-		t.Fatal("production bridge must replace the legacy direct core helper path")
+	if got := os.Getenv("FREENET_NETWORK_HELPER"); got != defaultNetworkBridgeExecutable {
+		t.Fatalf("network helper=%q, want mandatory bridge %q", got, defaultNetworkBridgeExecutable)
 	}
-	if networkBridgeShouldOwnHelper("/tmp/custom-network-helper") {
-		t.Fatal("explicit non-default helper override must remain intact")
+}
+
+func TestBridgeRecognizesGoTestProcess(t *testing.T) {
+	if !networkBridgeIsTestProcess() {
+		t.Fatalf("test process %q must not receive production init env mutation", os.Args[0])
 	}
 }
 
