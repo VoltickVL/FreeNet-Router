@@ -17,41 +17,32 @@ jobs:
           from pathlib import Path
           p = Path('scripts/apply_network_profile.sh')
           s = p.read_text()
-          old = '''    NATIVE_ENGINE="$(native_filter_engine_value)" || { fail_not_applied 'нет проверенного native filter engine snapshot; отказ от догадки'; return 1; }
-    NATIVE_INTERCEPT="$(native_intercept_value)" || { fail_not_applied 'нет проверенного native intercept snapshot; отказ от догадки'; return 1; }
-    native_assignments_valid || { fail_not_applied 'нет проверенного native DNS filter assignments snapshot; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
-    case "$NDM_FILTER_ENGINE_INITIAL" in
-        opkg)
+          line = "    native_assignments_valid || { fail_not_applied 'нет проверенного native DNS filter assignments snapshot; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }\n"
+          if s.count(line) != 1:
+              raise SystemExit(f'global assignments gate count={s.count(line)}')
+          s = s.replace(line, '', 1)
+          opkg = '''        opkg)
             [ "$NDM_INTERCEPT_INITIAL" = off ] || { fail_not_applied 'Split mode имеет native DNS intercept; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
-            ;;
-        "$NATIVE_ENGINE")
-            case "$NDM_INTERCEPT_INITIAL" in
-                off|"$NATIVE_INTERCEPT") : ;;
-                *) fail_not_applied 'partial native control-plane имеет неподтверждённое состояние DNS intercept; STOP'; return 1 ;;
-            esac
+'''
+          opkg_new = '''        opkg)
+            native_assignments_valid || { fail_not_applied 'нет проверенного native DNS filter assignments snapshot; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
+            [ "$NDM_INTERCEPT_INITIAL" = off ] || { fail_not_applied 'Split mode имеет native DNS intercept; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
+'''
+          if s.count(opkg) != 1:
+              raise SystemExit(f'opkg gate count={s.count(opkg)}')
+          s = s.replace(opkg, opkg_new, 1)
+          partial = '''            esac
             say '[FreeNet Network] PARTIAL_NATIVE_CONTROL_PLANE=confirmed-native-engine'
             ;;
 '''
-          new = '''    NATIVE_ENGINE="$(native_filter_engine_value)" || { fail_not_applied 'нет проверенного native filter engine snapshot; отказ от догадки'; return 1; }
-    NATIVE_INTERCEPT="$(native_intercept_value)" || { fail_not_applied 'нет проверенного native intercept snapshot; отказ от догадки'; return 1; }
-    case "$NDM_FILTER_ENGINE_INITIAL" in
-        opkg)
-            native_assignments_valid || { fail_not_applied 'нет проверенного native DNS filter assignments snapshot; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
-            [ "$NDM_INTERCEPT_INITIAL" = off ] || { fail_not_applied 'Split mode имеет native DNS intercept; сначала требуется repair текущего XKeen/Xray DNS'; return 1; }
-            ;;
-        "$NATIVE_ENGINE")
-            case "$NDM_INTERCEPT_INITIAL" in
-                off|"$NATIVE_INTERCEPT") : ;;
-                *) fail_not_applied 'partial native control-plane имеет неподтверждённое состояние DNS intercept; STOP'; return 1 ;;
-            esac
+          partial_new = '''            esac
             if ! native_assignments_valid; then
                 preserve_native_assignments || { fail_not_applied 'не удалось сохранить подтверждённый partial native DNS filter assignments baseline'; return 1; }
             fi
             say '[FreeNet Network] PARTIAL_NATIVE_CONTROL_PLANE=confirmed-native-engine'
             ;;
 '''
-          count = s.count(old)
-          if count != 1:
-              raise SystemExit(f'legacy assignment recovery anchor count={count}')
-          p.write_text(s.replace(old, new, 1))
+          if s.count(partial) != 1:
+              raise SystemExit(f'partial branch count={s.count(partial)}')
+          p.write_text(s.replace(partial, partial_new, 1))
           PY
