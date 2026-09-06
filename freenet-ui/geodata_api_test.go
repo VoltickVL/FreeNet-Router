@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -159,6 +160,21 @@ func TestGeoDataSearchAPIBoundsFileSelectionAndQuery(t *testing.T) {
 	w = doGeoDataAPIRequest(mux, cookie, "/api/geodata/search?kind=geosite&q="+longQuery)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("long query code=%d body=%s", w.Code, w.Body.String())
+	}
+	w = doGeoDataAPIRequest(mux, cookie, "/api/geodata/search?kind=geoip&q=example.com")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("non-literal geoip query code=%d body=%s", w.Code, w.Body.String())
+	}
+
+	for i := 0; i < maxGeoDataSelectedFiles; i++ {
+		name := "extra-" + strconv.Itoa(i) + ".dat"
+		if err := os.WriteFile(filepath.Join(dir, name), []byte{0x0a, 0xff}, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w = doGeoDataAPIRequest(mux, cookie, "/api/geodata/search?kind=geosite&q=youtube")
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("implicit unbounded search code=%d body=%s", w.Code, w.Body.String())
 	}
 }
 
