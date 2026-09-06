@@ -307,21 +307,22 @@ func networkBridgeFindNativeAssignmentsCandidate(nativeDir, backupRoot, currentC
 func networkBridgeNativeAssignmentsRecoveryStatus(lanIP string) (string, error) {
 	nativeDir := networkBridgeNativeStateDir()
 	exists, err := networkBridgeExistingAssignmentsSnapshot(nativeDir)
-	if err != nil {
-		return "", err
-	}
-	if exists {
+	if err == nil && exists {
 		return "snapshot-present", nil
 	}
-	config, err := networkBridgeRunningConfig()
-	if err != nil {
-		return "", errors.New("cannot read current Keenetic running-config")
+
+	// Historical recovery is useful evidence, but it is no longer a normal-path
+	// blocker. If the old exact assignment set cannot be reconstructed, Apply can
+	// converge to the deterministic empty active assignment set while preserving
+	// all profile/upstream definitions and the wider router configuration.
+	config, configErr := networkBridgeRunningConfig()
+	if configErr == nil {
+		config = networkBridgeConfigWithoutLocalPointer(config, lanIP)
+		if _, recoverErr := networkBridgeFindNativeAssignmentsCandidate(nativeDir, networkBridgeBackupRoot(), config); recoverErr == nil {
+			return "historical-native-backup-ready", nil
+		}
 	}
-	config = networkBridgeConfigWithoutLocalPointer(config, lanIP)
-	if _, err := networkBridgeFindNativeAssignmentsCandidate(nativeDir, networkBridgeBackupRoot(), config); err != nil {
-		return "", err
-	}
-	return "historical-native-backup-ready", nil
+	return "canonical-empty-fallback-ready", nil
 }
 
 // networkBridgeRecoverNativeAssignmentsSnapshot repairs the one legacy gap left
@@ -375,9 +376,45 @@ func networkBridgeRecoverNativeAssignmentsSnapshot(nativeDir, backupRoot, curren
 }
 
 func networkBridgeEnsureNativeAssignmentsSnapshot() (bool, error) {
-	config, err := networkBridgeRunningConfig()
-	if err != nil {
-		return false, errors.New("cannot read current Keenetic running-config")
+	nativeDir := networkBridgeNativeStateDir()
+	if exists, err := networkBridgeExistingAssignmentsSnapshot(nativeDir); err == nil && exists {
+		return false, nil
 	}
-	return networkBridgeRecoverNativeAssignmentsSnapshot(networkBridgeNativeStateDir(), networkBridgeBackupRoot(), config)
+
+	if config, err := networkBridgeRunningConfig(); err == nil {
+		if recovered, recoverErr := networkBridgeRecoverNativeAssignmentsSnapshot(nativeDir, networkBridgeBackupRoot(), config); recoverErr == nil {
+			return recovered, nil
+		}
+	}
+
+	// No reliable legacy assignment fact remains. Do not block Direct DNS: an
+	// empty active assignment set is deterministic and does not alter preserved
+	// DNS profiles/DoT/DoH definitions. Future Split transitions snapshot exact
+	// assignments before detaching them, so this fallback is legacy-only.
+	if err := os.MkdirAll(nativeDir, 0o700); err != nil {
+		return false, err
+	}
+	f, err := os.CreateTemp(nativeDir, ".assignments.native.*")
+	if err != nil {
+		return false, err
+	}
+	tmp := f.Name()
+	keep := false
+	defer func() {
+		_ = f.Close()
+		if !keep {
+			_ = os.Remove(tmp)
+		}
+	}()
+	if err := f.Chmod(0o600); err != nil {
+		return false, err
+	}
+	if err := f.Close(); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmp, filepath.Join(nativeDir, "assignments.native")); err != nil {
+		return false, err
+	}
+	keep = true
+	return true, nil
 }
