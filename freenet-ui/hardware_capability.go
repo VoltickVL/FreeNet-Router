@@ -77,6 +77,10 @@ func currentHardwareCapabilities() hardwareCapabilitiesResponse {
 	return result
 }
 
+// The capability gate changes what FreeNet may select next, but it deliberately
+// keeps dnsModes["xkeen"] intact. A 512 MiB router can already be in Split due to
+// an older release; preserving that value lets status/UI report the real active
+// state while the user performs one controlled transition back to native DNS.
 func applySplitDNSMemoryGate(capability hardwareCapabilitiesResponse) {
 	if capability.SplitDNSSupported {
 		splitDNSMemoryGateReason = ""
@@ -84,7 +88,6 @@ func applySplitDNSMemoryGate(capability hardwareCapabilitiesResponse) {
 	}
 
 	splitDNSMemoryGateReason = capability.Reason
-	delete(dnsModes, "xkeen")
 	for _, id := range []string{"vladlink", "alliancetelecom"} {
 		profile, ok := ispProfiles[id]
 		if !ok || profile.RecommendedDNSMode != "xkeen" {
@@ -93,6 +96,20 @@ func applySplitDNSMemoryGate(capability hardwareCapabilitiesResponse) {
 		profile.RecommendedDNSMode = "firmware"
 		ispProfiles[id] = profile
 	}
+}
+
+func splitDNSSelectionError(dnsMode string) error {
+	if strings.TrimSpace(dnsMode) != "xkeen" {
+		return nil
+	}
+	capability := currentHardwareCapabilities()
+	if capability.SplitDNSSupported {
+		return nil
+	}
+	if capability.Reason != "" {
+		return errors.New(capability.Reason)
+	}
+	return errors.New("XKeen/Xray DNS заблокирован для этого устройства")
 }
 
 func init() {
