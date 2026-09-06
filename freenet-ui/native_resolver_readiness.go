@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"os"
 	"strings"
 )
 
@@ -96,23 +95,17 @@ func networkBridgeYandexBasicResolverLines() []string {
 	return lines
 }
 
-// The normal native target is explicit and deterministic. A verified snapshot
-// created when FreeNet moved a managed native router into Split wins. Without a
-// managed snapshot we use the temporary Yandex Basic product fallback until the
-// Native DNS Provider selector replaces this compatibility default.
+// Until the Native DNS Provider selector is productized, the normal FreeNet
+// native target is one explicit deterministic resolver set: Yandex Basic.
 //
-// Crucially, arbitrary active global name-server lines observed at apply time do
-// not become the target merely because they exist. HOME and WORK runtime both
-// demonstrated that inherited/default active resolvers can survive a transition
-// and conflict with the intended topology. They are rollback input, not target
-// policy.
+// Existing active global name-server lines and the historical
+// resolver-selection.native snapshot are NOT target policy. They are preserved
+// only as rollback/migration evidence. This is intentional: HOME and WORK both
+// proved that inherited/default active resolvers can survive a transition and
+// cause parallel/conflicting DNS paths. Explicit DNS Apply therefore owns the
+// active System resolver selection and converges it to the target set.
 func networkBridgeCanonicalNativeResolverTarget() ([]string, string, error) {
-	if snapshot, snapshotErr := networkBridgeLoadNativeResolverSelection(); snapshotErr == nil && len(snapshot) > 0 {
-		return snapshot, "native-resolver-snapshot", nil
-	} else if snapshotErr != nil && !errors.Is(snapshotErr, os.ErrNotExist) {
-		return nil, "", snapshotErr
-	}
-	return networkBridgeYandexBasicResolverLines(), "yandex-basic-fallback", nil
+	return networkBridgeYandexBasicResolverLines(), "yandex-basic", nil
 }
 
 func networkBridgeNativeResolverStatus(lanIP string) (string, error) {
@@ -124,15 +117,12 @@ func networkBridgeNativeResolverStatus(lanIP string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	target, source, err := networkBridgeCanonicalNativeResolverTarget()
+	target, _, err := networkBridgeCanonicalNativeResolverTarget()
 	if err != nil {
 		return "", err
 	}
 	if networkBridgeResolverSelectionsEqual(current, target) {
 		return "existing-native-resolver-ready", nil
-	}
-	if source == "native-resolver-snapshot" {
-		return "native-resolver-snapshot-replace-needed", nil
 	}
 	if len(current) == 0 {
 		return "yandex-basic-fallback-needed", nil
@@ -223,10 +213,7 @@ func networkBridgeEnsureNativeResolverReady(lanIP string) ([]string, string, err
 	}
 
 	networkBridgeNativeResolverStageRemoved = append([]string(nil), removed...)
-	if source == "native-resolver-snapshot" {
-		return added, "canonical-native-snapshot", nil
-	}
-	return added, "canonical-yandex-basic", nil
+	return added, "canonical-" + source, nil
 }
 
 func networkBridgeRemoveAddedNativeResolvers(lines []string) error {
@@ -256,10 +243,8 @@ func augmentNetworkBridgeNativeResolverPlan(output, status string) string {
 	delta := values["EXPECTED_DELTA"]
 	var extra string
 	switch status {
-	case "native-resolver-snapshot-replace-needed":
-		extra = "replace active System resolver selection with exact snapshotted native set before DNS acceptance"
 	case "yandex-basic-fallback-needed":
-		extra = "ensure canonical native Yandex Basic resolver 77.88.8.8/77.88.8.1 before DNS acceptance"
+		extra = "set canonical native Yandex Basic resolver 77.88.8.8/77.88.8.1 before DNS acceptance"
 	case "yandex-basic-replace-needed":
 		extra = "remove inherited active System resolvers and set canonical native Yandex Basic 77.88.8.8/77.88.8.1 before DNS acceptance"
 	}
