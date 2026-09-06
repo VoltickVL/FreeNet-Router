@@ -9,10 +9,10 @@ import (
 )
 
 const (
-	maxGeoDataSelectedFiles       = 16
-	maxGeoDataQueryLength         = 253
-	maxGeoDataCategoriesPerFile   = 128
-	geoDataGenericFileError       = "geodata file is unreadable or invalid"
+	maxGeoDataSelectedFiles     = 16
+	maxGeoDataQueryLength       = 253
+	maxGeoDataCategoriesPerFile = 128
+	geoDataGenericFileError     = "geodata file is unreadable or invalid"
 )
 
 type geoDataFilesResponse struct {
@@ -71,7 +71,7 @@ func (a *app) handleGeoDataSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	if query == "" || len(query) > maxGeoDataQueryLength {
+	if query == "" || len(query) > maxGeoDataQueryLength || validateGeoDataSearchQuery(kind, query) != nil {
 		writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Error: "invalid geodata query"})
 		return
 	}
@@ -158,6 +158,19 @@ func parseGeoDataSearchKind(raw string) (GeoDataKind, error) {
 	}
 }
 
+func validateGeoDataSearchQuery(kind GeoDataKind, query string) error {
+	switch kind {
+	case GeoDataSite:
+		_, err := SearchGeoSiteData(nil, query)
+		return err
+	case GeoDataIP:
+		_, err := SearchGeoIPData(nil, query)
+		return err
+	default:
+		return fmt.Errorf("unsupported geodata kind")
+	}
+}
+
 func validGeoDataFileSelector(name string) bool {
 	name = strings.TrimSpace(name)
 	if name == "" || filepath.Base(name) != name || strings.ContainsAny(name, `/\\`) {
@@ -173,6 +186,9 @@ func selectGeoDataFiles(kind GeoDataKind, requested []string, installed []GeoDat
 			if file.Kind == kind || file.Kind == GeoDataUnknown {
 				selected = append(selected, file)
 			}
+		}
+		if len(selected) > maxGeoDataSelectedFiles {
+			return nil, fmt.Errorf("too many installed geodata files; select up to %d explicitly", maxGeoDataSelectedFiles)
 		}
 		return selected, nil
 	}
