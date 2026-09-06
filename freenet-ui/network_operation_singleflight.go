@@ -60,16 +60,66 @@ func writeNativeStateFile(path, value string) error {
 	return nil
 }
 
+func validNativeEngineStateToken(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "opkg" {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func ensureCanonicalNativeControlPlane() error {
+	dir := nativeDNSStateDir()
+	enginePath := filepath.Join(dir, "filter-engine.native")
+	interceptPath := filepath.Join(dir, "intercept.native")
+
+	// A valid snapshot is an exact fact from a previous managed Native -> Split
+	// transition. Keep it byte-semantically instead of forcing every router to
+	// one filter engine/intercept combination. Only legacy/missing state receives
+	// the deterministic fallback used by FreeNet's default Native profile.
+	engine := ""
+	if data, err := os.ReadFile(enginePath); err == nil {
+		engine = strings.TrimSpace(string(data))
+	}
+	if !validNativeEngineStateToken(engine) {
+		if err := writeNativeStateFile(enginePath, "public\n"); err != nil {
+			return err
+		}
+	}
+
+	intercept := ""
+	if data, err := os.ReadFile(interceptPath); err == nil {
+		intercept = strings.TrimSpace(string(data))
+	}
+	if intercept != "on" && intercept != "off" {
+		if err := writeNativeStateFile(interceptPath, "on\n"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func ensureCanonicalNativeDNSSnapshot() error {
 	valid, _, err := legacyNativeDNSSnapshotStatus()
 	if err == nil && valid {
 		return nil
 	}
 
-	// Native Keenetic/ndnproxy does not use Xray 02_dns. When a legacy install
-	// has no trustworthy snapshot, the deterministic neutral fragment is enough:
-	// the shell transaction still validates the complete stripped Xray candidate
-	// before any live DNS mutation.
+	// Prefer exact historical/managed recovery when it is available. It preserves
+	// an opaque legacy Native 02_dns (including JSONC/comments) without making that
+	// history a normal-path gate.
+	if err := ensureLegacyNativeDNSSnapshot(); err == nil {
+		return nil
+	}
+
+	// Native Keenetic/ndnproxy does not use Xray 02_dns. If no trustworthy legacy
+	// baseline remains, use a deterministic neutral fragment. The shell transaction
+	// still validates the complete stripped Xray candidate before live mutation.
 	data := canonicalLegacyNativeDNS
 	sum := sha256.Sum256(data)
 	dnsPath, hashPath := legacyNativeDNSSnapshotPaths()
@@ -85,35 +135,28 @@ func ensureCanonicalNativeAssignments() error {
 		return nil
 	}
 
-	// Preserve assignments that are still present in a native control-plane.
-	// A legacy Split may already have detached them; in that case there is no
-	// reliable current assignment fact, so canonical Native uses an empty active
-	// assignment set instead of blocking the whole DNS transition.
+	// If assignments are still active, they are the best current fact and can be
+	// saved directly. A managed/legacy Split normally has none active, so then try
+	// the historical recovery path before falling back to an empty active set.
 	if config, err := networkBridgeRunningConfig(); err == nil {
 		if assignments, parseErr := networkBridgeAssignmentsFromRunningConfig(config); parseErr == nil && strings.TrimSpace(assignments) != "" {
 			return writeNativeStateFile(filepath.Join(dir, "assignments.native"), assignments)
+		}
+		if _, recoverErr := networkBridgeRecoverNativeAssignmentsSnapshot(dir, networkBridgeBackupRoot(), config); recoverErr == nil {
+			return nil
 		}
 	}
 	return writeNativeStateFile(filepath.Join(dir, "assignments.native"), "")
 }
 
 func prepareCanonicalNativeApplyState() error {
+	if err := ensureCanonicalNativeControlPlane(); err != nil {
+		return err
+	}
 	if err := ensureCanonicalNativeDNSSnapshot(); err != nil {
 		return err
 	}
 	if err := ensureCanonicalNativeAssignments(); err != nil {
-		return err
-	}
-
-	// Direct DNS has one deterministic fallback control-plane for legacy states.
-	// These files are FreeNet-owned migration state only; the live shell apply
-	// still snapshots the real pre-state, validates the candidate, performs
-	// acceptance and rolls back on any failure.
-	dir := nativeDNSStateDir()
-	if err := writeNativeStateFile(filepath.Join(dir, "filter-engine.native"), "public\n"); err != nil {
-		return err
-	}
-	if err := writeNativeStateFile(filepath.Join(dir, "intercept.native"), "on\n"); err != nil {
 		return err
 	}
 	return nil
@@ -156,7 +199,7 @@ func beginNetworkApplyFlight(target string) (*networkApplyFlight, bool) {
 				Operation:     "network",
 				RollbackState: "NOT_APPLIED",
 				PrimaryError:  err.Error(),
-				Error:         "не удалось подготовить canonical Native DNS state",
+				Error:         "не удалось подготовить Native DNS state",
 			})
 			return flight, false
 		}
