@@ -393,12 +393,278 @@
     syncNativeEngineConfirmation();
   }
 
+  const policyPreview = {
+    mode: 'geosite',
+    query: '',
+    selected: null,
+    action: 'DIRECT',
+    files: []
+  };
+
+  function installPolicyPreviewStyles() {
+    if (qs('#policyPreviewStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'policyPreviewStyles';
+    style.textContent = '.policy-preview{margin-top:14px}.policy-tabs,.policy-actions{display:flex;gap:8px;flex-wrap:wrap}.policy-tab,.policy-action{appearance:none;border:1px solid #2b405e;background:#0c1726;color:#a9b7ca;border-radius:10px;padding:9px 12px;cursor:pointer;font-weight:700;font-size:12px}.policy-tab.active,.policy-action.active{color:#fff;border-color:#5b8cff;background:#18325a}.policy-action[data-action="DIRECT"].active{border-color:#49da92;background:#123729}.policy-action[data-action="BLOCK"].active{border-color:#ff7070;background:#3a1d27}.policy-search-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-top:10px}.policy-search-row input{width:100%;border:1px solid #2b405e;background:#09121e;color:#f4f7fb;border-radius:11px;padding:11px 12px;outline:none}.policy-results{display:grid;gap:7px;margin-top:10px}.policy-result{appearance:none;width:100%;border:1px solid #26364d;background:#09121e;color:#f4f7fb;border-radius:11px;padding:10px 12px;text-align:left;cursor:pointer}.policy-result:hover,.policy-result.active{border-color:#5b8cff;background:#13243d}.policy-result b{display:block;font-size:12px}.policy-result span{display:block;color:#8fa0b8;font-size:10px;margin-top:3px}.policy-draft{margin-top:12px;padding:12px;border:1px solid #26364d;border-radius:12px;background:#09121e}.policy-draft-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}.policy-leg{padding:9px;border-radius:10px;background:#0f1c2d;border:1px solid #20334d}.policy-leg b{display:block;font-size:11px}.policy-leg span{display:block;color:#8fa0b8;font-size:10px;margin-top:3px}.policy-muted{color:#8fa0b8;font-size:11px;line-height:1.45}.policy-badge{display:inline-flex;align-items:center;border:1px solid #334967;border-radius:999px;padding:4px 8px;color:#b9c7da;font-size:10px;font-weight:700}.policy-exact{margin-top:8px}.policy-readonly{color:#f1b84b;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}@media(max-width:760px){.policy-search-row{grid-template-columns:1fr}.policy-draft-grid{grid-template-columns:1fr}}';
+    document.head.appendChild(style);
+  }
+
+  function policyModeMeta() {
+    return policyPreview.mode === 'geoip'
+      ? {apiKind: 'geoip', exactKind: 'ip', placeholder: 'Например, 1.1.1.1', title: 'IP / GeoIP'}
+      : {apiKind: 'geosite', exactKind: 'domain', placeholder: 'Например, plati.market или youtube', title: 'Домен / GeoSite'};
+  }
+
+  function policyOutbound(action) {
+    if (action === 'DIRECT') return 'direct';
+    if (action === 'VPN') return 'vless-reality';
+    return 'block';
+  }
+
+  function policyDNSLeg(action) {
+    if (action === 'DIRECT') return 'dns-direct';
+    if (action === 'VPN') return 'dns-vless';
+    return 'block';
+  }
+
+  function setPolicyNotice(text, bad = false) {
+    const box = qs('#policyPreviewNotice');
+    if (!box) return;
+    box.textContent = text || '';
+    box.className = 'notice' + (text ? ' show ' + (bad ? 'bad' : 'ok') : '');
+  }
+
+  function renderPolicyDraftPreview() {
+    const box = qs('#policyDraftPreview');
+    if (!box) return;
+    box.textContent = '';
+    if (!policyPreview.selected) {
+      const empty = document.createElement('div');
+      empty.className = 'policy-muted';
+      empty.textContent = 'Выберите точное значение или найденную GeoSite/GeoIP category. Никакие конфиги пока не изменяются.';
+      box.appendChild(empty);
+      return;
+    }
+
+    const selected = policyPreview.selected;
+    const title = document.createElement('div');
+    const badge = document.createElement('span');
+    badge.className = 'policy-badge';
+    badge.textContent = `${selected.kind}:${selected.value}`;
+    title.appendChild(badge);
+    const grid = document.createElement('div');
+    grid.className = 'policy-draft-grid';
+
+    const selectorLeg = document.createElement('div');
+    selectorLeg.className = 'policy-leg';
+    selectorLeg.innerHTML = '<b>Правило</b>';
+    const selectorValue = document.createElement('span');
+    selectorValue.textContent = policyPreview.action;
+    selectorLeg.appendChild(selectorValue);
+    grid.appendChild(selectorLeg);
+
+    const payload = document.createElement('div');
+    payload.className = 'policy-leg';
+    payload.innerHTML = '<b>Payload routing</b>';
+    const payloadValue = document.createElement('span');
+    payloadValue.textContent = policyOutbound(policyPreview.action);
+    payload.appendChild(payloadValue);
+    grid.appendChild(payload);
+
+    const dns = document.createElement('div');
+    dns.className = 'policy-leg';
+    dns.innerHTML = '<b>Split DNS</b>';
+    const dnsValue = document.createElement('span');
+    const hasDNSLeg = selected.kind === 'domain' || selected.kind === 'geosite';
+    dnsValue.textContent = hasDNSLeg ? policyDNSLeg(policyPreview.action) : 'не применяется к IP selector';
+    dns.appendChild(dnsValue);
+    grid.appendChild(dns);
+
+    box.appendChild(title);
+    box.appendChild(grid);
+    const note = document.createElement('div');
+    note.className = 'policy-muted';
+    note.style.marginTop = '8px';
+    note.textContent = selected.file ? `Источник category: ${selected.file}. Это browser-only draft; Apply/Save намеренно отсутствуют.` : 'Точное правило. Это browser-only draft; Apply/Save намеренно отсутствуют.';
+    box.appendChild(note);
+  }
+
+  function renderPolicyActions() {
+    document.querySelectorAll('.policy-action').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.action === policyPreview.action);
+    });
+    renderPolicyDraftPreview();
+  }
+
+  function selectPolicyDraft(kind, value, file) {
+    policyPreview.selected = {kind, value, file: file || ''};
+    document.querySelectorAll('.policy-result').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.kind === kind && btn.dataset.value === value && (btn.dataset.file || '') === (file || ''));
+    });
+    renderPolicyDraftPreview();
+  }
+
+  function renderPolicySearchResults(response) {
+    const list = qs('#policySearchResults');
+    if (!list) return;
+    list.textContent = '';
+    const matches = response && Array.isArray(response.matches) ? response.matches : [];
+    let count = 0;
+    matches.forEach(match => {
+      const categories = Array.isArray(match.categories) ? match.categories : [];
+      categories.forEach(category => {
+        count++;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'policy-result';
+        button.dataset.kind = policyPreview.mode;
+        button.dataset.value = String(category);
+        button.dataset.file = String(match.file || '');
+        const strong = document.createElement('b');
+        strong.textContent = `${policyPreview.mode}:${category}`;
+        const meta = document.createElement('span');
+        meta.textContent = `Найдено в ${match.file || 'geodata'} · нажмите, чтобы выбрать category`;
+        button.appendChild(strong);
+        button.appendChild(meta);
+        button.addEventListener('click', () => selectPolicyDraft(policyPreview.mode, String(category), String(match.file || '')));
+        list.appendChild(button);
+      });
+    });
+    if (!count) {
+      const empty = document.createElement('div');
+      empty.className = 'policy-muted';
+      empty.textContent = 'Подходящих categories в выбранном типе geodata не найдено. Можно использовать точное значение.';
+      list.appendChild(empty);
+    }
+    const warnings = response && Array.isArray(response.warnings) ? response.warnings : [];
+    if (warnings.length) setPolicyNotice(warnings.join('\n'), true);
+    else setPolicyNotice(`Поиск завершён. Найдено categories: ${count}. MUTATION: NONE`);
+  }
+
+  async function loadPolicyGeoFiles() {
+    const state = qs('#policyGeoFilesState');
+    try {
+      const r = await fetch('/api/geodata/files');
+      if (r.status === 401) {
+        if (typeof loadAuthStatus === 'function') await loadAuthStatus();
+        return;
+      }
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.error || 'geodata unavailable');
+      policyPreview.files = Array.isArray(j.files) ? j.files : [];
+      const siteCount = policyPreview.files.filter(f => f.kind === 'geosite').length;
+      const ipCount = policyPreview.files.filter(f => f.kind === 'geoip').length;
+      const badCount = policyPreview.files.filter(f => f.error).length;
+      if (state) state.textContent = `GeoSite: ${siteCount} · GeoIP: ${ipCount}${badCount ? ' · с ошибкой: ' + badCount : ''}`;
+    } catch (_) {
+      if (state) state.textContent = 'Geodata недоступна';
+    }
+  }
+
+  async function runPolicyGeoSearch() {
+    const input = qs('#policySearchInput');
+    const searchBtn = qs('#policySearchBtn');
+    if (!input || !searchBtn) return;
+    const query = String(input.value || '').trim();
+    if (!query) {
+      setPolicyNotice('Введите домен/часть домена или literal IP.', true);
+      return;
+    }
+    policyPreview.query = query;
+    policyPreview.selected = null;
+    renderPolicyDraftPreview();
+    searchBtn.disabled = true;
+    searchBtn.textContent = 'Ищем…';
+    setPolicyNotice('');
+    try {
+      const kind = policyModeMeta().apiKind;
+      const r = await fetch(`/api/geodata/search?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(query)}`);
+      if (r.status === 401) {
+        if (typeof loadAuthStatus === 'function') await loadAuthStatus();
+        return;
+      }
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.error || 'search failed');
+      renderPolicySearchResults(j);
+    } catch (e) {
+      const list = qs('#policySearchResults');
+      if (list) list.textContent = '';
+      setPolicyNotice(`Поиск недоступен: ${e && e.message ? e.message : 'ошибка'}. Никакие настройки не изменены.`, true);
+    } finally {
+      searchBtn.disabled = false;
+      searchBtn.textContent = 'Найти';
+    }
+  }
+
+  function resetPolicyMode(mode) {
+    policyPreview.mode = mode;
+    policyPreview.selected = null;
+    policyPreview.query = '';
+    document.querySelectorAll('.policy-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
+    const input = qs('#policySearchInput');
+    const meta = policyModeMeta();
+    if (input) {
+      input.value = '';
+      input.placeholder = meta.placeholder;
+    }
+    const list = qs('#policySearchResults');
+    if (list) list.textContent = '';
+    setPolicyNotice('');
+    renderPolicyDraftPreview();
+  }
+
+  function mountPolicyPreview() {
+    const networkPage = qs('[data-page-view="network"]');
+    if (!networkPage || qs('#policyBuilderPreview')) return;
+    installPolicyPreviewStyles();
+    const existingCard = networkPage.querySelector('.card');
+    if (!existingCard) return;
+
+    const card = document.createElement('div');
+    card.id = 'policyBuilderPreview';
+    card.className = 'card policy-preview';
+    card.innerHTML = '<div class="card-head"><div><h2>Конструктор правил</h2><div class="hint">Один selector станет основой и payload routing, и Split DNS там, где это технически применимо.</div></div><div><span class="policy-readonly">Preview · MUTATION: NONE</span><div id="policyGeoFilesState" class="summary-state" style="margin-top:5px">Проверяем geodata…</div></div></div><div class="policy-tabs"><button type="button" class="policy-tab active" data-mode="geosite">Домен / GeoSite</button><button type="button" class="policy-tab" data-mode="geoip">IP / GeoIP</button></div><div class="policy-search-row"><input id="policySearchInput" type="search" autocomplete="off" spellcheck="false" placeholder="Например, plati.market или youtube"><button id="policySearchBtn" class="btn secondary" type="button">Найти</button></div><div class="policy-exact"><button id="policyUseExactBtn" class="mini-btn" type="button">Использовать точное введённое значение</button></div><div id="policySearchResults" class="policy-results"></div><div id="policyPreviewNotice" class="notice"></div><div style="margin-top:14px"><div class="eyebrow">Действие</div><div class="policy-actions" style="margin-top:7px"><button type="button" class="policy-action active" data-action="DIRECT">DIRECT</button><button type="button" class="policy-action" data-action="VPN">VPN</button><button type="button" class="policy-action" data-action="BLOCK">BLOCK</button></div></div><div id="policyDraftPreview" class="policy-draft"></div>';
+    existingCard.insertAdjacentElement('afterend', card);
+
+    card.querySelectorAll('.policy-tab').forEach(btn => btn.addEventListener('click', () => resetPolicyMode(btn.dataset.mode)));
+    card.querySelectorAll('.policy-action').forEach(btn => btn.addEventListener('click', () => {
+      policyPreview.action = btn.dataset.action;
+      renderPolicyActions();
+    }));
+    qs('#policySearchBtn').addEventListener('click', runPolicyGeoSearch);
+    qs('#policySearchInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        runPolicyGeoSearch();
+      }
+    });
+    qs('#policyUseExactBtn').addEventListener('click', () => {
+      const input = qs('#policySearchInput');
+      const value = String((input && input.value) || '').trim();
+      if (!value) {
+        setPolicyNotice('Сначала введите точное значение.', true);
+        return;
+      }
+      const kind = policyModeMeta().exactKind;
+      if (kind === 'ip' && !/^([0-9a-fA-F:.]+)$/.test(value)) {
+        setPolicyNotice('Для IP / GeoIP введите literal IPv4/IPv6, а не домен.', true);
+        return;
+      }
+      selectPolicyDraft(kind, value, '');
+      setPolicyNotice('Точное правило добавлено только в browser draft. MUTATION: NONE');
+    });
+
+    renderPolicyDraftPreview();
+    loadPolicyGeoFiles();
+  }
+
   function mount() {
     patchNavigation();
     patchStatusRendering();
     mountExactConnectControls();
     patchProfileSelection();
     patchNativeEngineMigrationFlow();
+    mountPolicyPreview();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
