@@ -604,8 +604,8 @@ func networkPlanActiveMismatch(p networkPlanResponse) string {
 	switch p.EffectiveDNSMode {
 	case "firmware":
 		need(p.NDMDNSOverride == "off", "dns-override="+p.NDMDNSOverride+" (ожидается off)")
-		need(p.NDMFilterEngine == "public", "filter-engine="+p.NDMFilterEngine+" (ожидается public)")
-		need(p.NDMDNSIntercept == "on", "native-intercept="+p.NDMDNSIntercept+" (ожидается on)")
+		need(p.NDMFilterEngine != "" && p.NDMFilterEngine != "unknown" && p.NDMFilterEngine != "opkg", "filter-engine="+p.NDMFilterEngine+" (ожидается native engine)")
+		need(p.NDMDNSIntercept == "on" || p.NDMDNSIntercept == "off", "native-intercept="+p.NDMDNSIntercept+" (ожидается известное native state)")
 		need(p.Port53Owner == "ndnproxy", "owner:53="+p.Port53Owner+" (ожидается ndnproxy)")
 		need(p.XrayDNSInboundCount == "0", "xray-dns-inbound="+p.XrayDNSInboundCount+" (ожидается 0)")
 		need(p.DNSRoutingMode == "native", "dns-routing="+p.DNSRoutingMode+" (ожидается native)")
