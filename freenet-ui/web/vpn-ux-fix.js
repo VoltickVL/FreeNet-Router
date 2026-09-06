@@ -682,8 +682,6 @@
     const option = select.querySelector('option[value="xkeen"]');
     if (!option) return;
 
-    // Fail closed in the browser until the authenticated hardware capability
-    // endpoint explicitly confirms enough RAM. Backend enforcement is separate.
     option.disabled = true;
     option.textContent = 'XKeen/Xray DNS — проверка ОЗУ…';
 
@@ -732,4 +730,99 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
   else mount();
+})();
+
+(() => {
+  if (typeof applyNetworkProfile !== 'function') return;
+  const applyButton = document.getElementById('applyNetworkBtn');
+  if (!applyButton) return;
+
+  const legacyApplyNetworkProfile = applyNetworkProfile;
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+  async function reconcileNetworkTargetAfterConflict(isp, dnsMode) {
+    showBox('networkNotice', 'FreeNet уже выполняет операцию. Повторный Apply не запускаем; подтверждаем фактическое состояние…');
+
+    let status = null;
+    for (let i = 0; i < 80; i++) {
+      try {
+        status = await loadStatus();
+      } catch (_) {
+        status = null;
+      }
+      if (status && !status.busy && !status.updater_busy) break;
+      await wait(750);
+    }
+
+    if (!status || status.busy || status.updater_busy) {
+      showBox('networkNotice', 'FreeNet всё ещё выполняет операцию или фактический статус недоступен. Повторный Apply автоматически не запускался.', 'bad');
+      return;
+    }
+
+    try {
+      await loadNetworkPlan();
+    } catch (_) {
+      showBox('networkNotice', 'Операция завершилась, но свежий read-only план недоступен. Повторный Apply автоматически не запускался.', 'bad');
+      return;
+    }
+
+    const plan = lastNetworkPlan;
+    const targetActive = !!(plan && plan.supported && plan.active && plan.isp === isp && plan.dns_mode === dnsMode);
+    if (targetActive) {
+      showBox('networkNotice', 'Целевое сетевое состояние подтверждено по фактическому read-only плану. Повторный Apply не требовался.', 'ok');
+      return;
+    }
+    if (plan && plan.supported && !plan.active) {
+      showBox('networkNotice', 'Предыдущая операция завершилась, но выбранная цель не применена. План пересчитан по фактическому состоянию. Повторный Apply автоматически не запускался.', 'bad');
+      return;
+    }
+    showBox('networkNotice', 'Фактическое сетевое состояние не подтверждено. Повторный Apply автоматически не запускался.', 'bad');
+  }
+
+  async function reconciledNetworkApply() {
+    if (networkDirty || !networkPlanReady || networkApplying) return;
+    const isp = el('ispSelect').value;
+    const dnsMode = el('dnsModeSelect').value;
+    const delta = (lastNetworkPlan && lastNetworkPlan.expected_delta) || 'сетевой профиль';
+    if (!window.confirm('Применить подтверждённый сетевой профиль?\n\n' + delta + '\n\nПри ошибке FreeNet использует транзакционный откат.')) return;
+
+    networkApplying = true;
+    buttonsBusy(true);
+    showBox('networkNotice', 'Применяем сетевой профиль…');
+    try {
+      const r = await fetch('/api/network-profile/apply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({operation: 'network', isp, dns_mode: dnsMode, confirm: true})
+      });
+      if (r.status === 401) {
+        await loadAuthStatus();
+        return;
+      }
+      const j = await r.json();
+      if (!r.ok || !j.success) {
+        if (r.status === 409 && String(j.error || '') === 'another FreeNet operation is already running') {
+          await reconcileNetworkTargetAfterConflict(isp, dnsMode);
+          return;
+        }
+        const parts = [j.error || 'Сетевой профиль не применён'];
+        if (j.primary_error) parts.push('ОСНОВНАЯ ОШИБКА: ' + j.primary_error);
+        if (j.rollback_state) parts.push('ОТКАТ: ' + j.rollback_state);
+        showBox('networkNotice', parts.join('\n'), 'bad');
+        return;
+      }
+      showBox('networkNotice', (j.message || 'Сетевой профиль применён') + ' Откат: ' + (j.rollback_state || 'NOT_NEEDED'), 'ok');
+      await loadStatus();
+      await loadNetworkPlan(selectedProviderID);
+    } catch (_) {
+      await reconcileNetworkTargetAfterConflict(isp, dnsMode);
+    } finally {
+      networkApplying = false;
+      buttonsBusy(!!(lastStatus && (lastStatus.busy || lastStatus.updater_busy)));
+    }
+  }
+
+  applyButton.removeEventListener('click', legacyApplyNetworkProfile);
+  applyNetworkProfile = reconciledNetworkApply;
+  applyButton.addEventListener('click', applyNetworkProfile);
 })();
