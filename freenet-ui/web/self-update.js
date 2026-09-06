@@ -746,6 +746,7 @@
     };
 
     planButton.addEventListener('click', () => loadNetworkPlan(selectedProviderID));
+    applyNetworkProfile = applyDraft;
     applyButton.addEventListener('click', applyDraft);
     isp.addEventListener('change', markDraft);
     dns.addEventListener('change', markDraft);
