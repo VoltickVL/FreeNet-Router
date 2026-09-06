@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -13,7 +12,7 @@ func canonicalNativePlanFixture() string {
 	return fixture
 }
 
-func TestCanonicalNativeResolverFallbackIsExactYandexBasic(t *testing.T) {
+func TestCanonicalNativeResolverTargetIsExactYandexBasic(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FREENET_NATIVE_DNS_STATE_DIR", dir)
 
@@ -22,16 +21,15 @@ func TestCanonicalNativeResolverFallbackIsExactYandexBasic(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{"ip name-server 77.88.8.8", "ip name-server 77.88.8.1"}
-	if source != "yandex-basic-fallback" || !networkBridgeResolverSelectionsEqual(got, want) {
+	if source != "yandex-basic" || !networkBridgeResolverSelectionsEqual(got, want) {
 		t.Fatalf("target=%v source=%q", got, source)
 	}
 }
 
-func TestCanonicalNativeResolverPrefersVerifiedSnapshot(t *testing.T) {
+func TestCanonicalNativeResolverTargetIgnoresHistoricalSnapshot(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FREENET_NATIVE_DNS_STATE_DIR", dir)
-	want := []string{"ip name-server 1.1.1.1", "ip name-server 9.9.9.9"}
-	if err := networkBridgeWriteNativeResolverSelection(want); err != nil {
+	if err := networkBridgeWriteNativeResolverSelection([]string{"ip name-server 1.1.1.1", "ip name-server 9.9.9.9"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,23 +37,9 @@ func TestCanonicalNativeResolverPrefersVerifiedSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if source != "native-resolver-snapshot" || !networkBridgeResolverSelectionsEqual(got, want) {
-		t.Fatalf("target=%v source=%q", got, source)
-	}
-}
-
-func TestCanonicalNativeResolverRejectsBrokenSnapshotInsteadOfGuessing(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("FREENET_NATIVE_DNS_STATE_DIR", dir)
-	if err := networkBridgeWriteNativeResolverSelection([]string{"ip name-server 1.1.1.1"}); err != nil {
-		t.Fatal(err)
-	}
-	_, hashPath := networkBridgeNativeResolverSnapshotPaths()
-	if err := os.WriteFile(hashPath, []byte("broken\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := networkBridgeCanonicalNativeResolverTarget(); err == nil {
-		t.Fatal("broken managed snapshot must STOP instead of falling back")
+	want := []string{"ip name-server 77.88.8.8", "ip name-server 77.88.8.1"}
+	if source != "yandex-basic" || !networkBridgeResolverSelectionsEqual(got, want) {
+		t.Fatalf("historical snapshot became target: target=%v source=%q", got, source)
 	}
 }
 
