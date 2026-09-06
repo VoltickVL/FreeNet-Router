@@ -22,20 +22,33 @@ type networkApplySingleflight struct {
 
 var networkApplyFlights networkApplySingleflight
 
-// Returns (flight, leader, targetConflict). A different target never replaces
-// the current flight: it is rejected as a real concurrent mutation request.
-func beginNetworkApplyFlight(target string) (*networkApplyFlight, bool, bool) {
+func beginNetworkApplyFlight(target string) (*networkApplyFlight, bool) {
 	networkApplyFlights.mu.Lock()
 	defer networkApplyFlights.mu.Unlock()
 	if current := networkApplyFlights.current; current != nil {
 		if current.target == target {
-			return current, false, false
+			return current, false
 		}
-		return current, false, true
+		// A different target is a real concurrent mutation request. Return a
+		// completed follower result without replacing or disturbing the leader.
+		done := make(chan struct{})
+		close(done)
+		return &networkApplyFlight{
+			target: target,
+			done:   done,
+			status: http.StatusLocked,
+			result: networkApplyResponse{
+				Success:       false,
+				Applied:       false,
+				Operation:     "network",
+				RollbackState: "NOT_APPLIED",
+				Error:         "FreeNet выполняет другую сетевую цель; параллельная mutation заблокирована",
+			},
+		}, false
 	}
 	flight := &networkApplyFlight{target: target, done: make(chan struct{})}
 	networkApplyFlights.current = flight
-	return flight, true, false
+	return flight, true
 }
 
 func finishNetworkApplyFlight(flight *networkApplyFlight, status int, result networkApplyResponse) {
