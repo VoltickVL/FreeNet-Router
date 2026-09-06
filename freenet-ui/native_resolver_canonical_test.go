@@ -6,6 +6,13 @@ import (
 	"testing"
 )
 
+func canonicalNativePlanFixture() string {
+	fixture := bridgePlanFixture("firmware", "off", "public", "ndnproxy", "native")
+	fixture = strings.Replace(fixture, "XRAY_DNS_INBOUND_COUNT=1", "XRAY_DNS_INBOUND_COUNT=0", 1)
+	fixture = strings.Replace(fixture, "DNS_OUT=yes", "DNS_OUT=no", 1)
+	return fixture
+}
+
 func TestCanonicalNativeResolverFallbackIsExactYandexBasic(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FREENET_NATIVE_DNS_STATE_DIR", dir)
@@ -53,7 +60,7 @@ func TestCanonicalNativeResolverRejectsBrokenSnapshotInsteadOfGuessing(t *testin
 }
 
 func TestNativeResolverPlanTreatsInheritedActiveResolversAsRealDelta(t *testing.T) {
-	input := bridgePlanFixture("firmware", "off", "public", "ndnproxy", "native")
+	input := canonicalNativePlanFixture()
 	got := augmentNetworkBridgeNativeResolverPlan(input, "yandex-basic-replace-needed")
 	values := parseNetworkBridgeValues(got)
 
@@ -74,7 +81,7 @@ func TestNativeResolverPlanTreatsInheritedActiveResolversAsRealDelta(t *testing.
 }
 
 func TestNativeResolverPlanKeepsCanonicalNativeActive(t *testing.T) {
-	input := bridgePlanFixture("firmware", "off", "public", "ndnproxy", "native")
+	input := canonicalNativePlanFixture()
 	got := augmentNetworkBridgeNativeResolverPlan(input, "existing-native-resolver-ready")
 	values := parseNetworkBridgeValues(got)
 	if values["DNS_ROUTING_MODE"] != "native" {
