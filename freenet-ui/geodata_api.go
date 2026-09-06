@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -13,12 +14,14 @@ const (
 	maxGeoDataQueryLength       = 253
 	maxGeoDataCategoriesPerFile = 128
 	geoDataGenericFileError     = "geodata file is unreadable or invalid"
+	geoDataSearchDisabledError  = "GeoData search temporarily disabled for memory safety"
 )
 
 type geoDataFilesResponse struct {
-	Success bool          `json:"success"`
-	Files   []GeoDataFile `json:"files"`
-	Error   string        `json:"error,omitempty"`
+	Success       bool          `json:"success"`
+	Files         []GeoDataFile `json:"files"`
+	SearchEnabled bool          `json:"search_enabled"`
+	Error         string        `json:"error,omitempty"`
 }
 
 type geoDataSearchMatch struct {
@@ -51,101 +54,66 @@ func (a *app) geoDataAssetDir() string {
 	return dir
 }
 
-func (a *app) handleGeoDataFiles(w http.ResponseWriter, _ *http.Request) {
-	files, err := DiscoverGeoDataFiles(a.geoDataAssetDir())
+// listGeoDataFileMetadata is intentionally metadata-only. The Network page calls
+// /api/geodata/files automatically, so discovery must never read or decode large
+// Xray .dat files on a memory-constrained router. Filename classification is only
+// a UI hint while content search is disabled; it is not trusted for parsing.
+func listGeoDataFileMetadata(assetDir string) ([]GeoDataFile, error) {
+	entries, err := os.ReadDir(assetDir)
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, geoDataFilesResponse{Success: false, Files: []GeoDataFile{}, Error: "geodata directory is unavailable"})
-		return
+		return nil, err
 	}
-	for i := range files {
-		if files[i].Error != "" {
-			files[i].Error = geoDataGenericFileError
+	files := make([]GeoDataFile, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.EqualFold(filepath.Ext(entry.Name()), ".dat") {
+			continue
 		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		files = append(files, GeoDataFile{
+			Name: entry.Name(),
+			Kind: geoDataKindFilenameHint(entry.Name()),
+			Size: info.Size(),
+		})
 	}
-	writeJSON(w, http.StatusOK, geoDataFilesResponse{Success: true, Files: files})
+	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+	return files, nil
 }
 
-func (a *app) handleGeoDataSearch(w http.ResponseWriter, r *http.Request) {
-	kind, err := parseGeoDataSearchKind(r.URL.Query().Get("kind"))
+func geoDataKindFilenameHint(name string) GeoDataKind {
+	lower := strings.ToLower(filepath.Base(name))
+	switch {
+	case strings.Contains(lower, "geosite"):
+		return GeoDataSite
+	case strings.Contains(lower, "geoip"):
+		return GeoDataIP
+	default:
+		return GeoDataUnknown
+	}
+}
+
+func (a *app) handleGeoDataFiles(w http.ResponseWriter, _ *http.Request) {
+	files, err := listGeoDataFileMetadata(a.geoDataAssetDir())
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: GeoDataUnknown, Matches: []geoDataSearchMatch{}, Error: err.Error()})
+		writeJSON(w, http.StatusServiceUnavailable, geoDataFilesResponse{Success: false, Files: []GeoDataFile{}, SearchEnabled: false, Error: "geodata directory is unavailable"})
 		return
 	}
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	if query == "" || len(query) > maxGeoDataQueryLength || validateGeoDataSearchQuery(kind, query) != nil {
-		writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Error: "invalid geodata query"})
-		return
-	}
+	writeJSON(w, http.StatusOK, geoDataFilesResponse{Success: true, Files: files, SearchEnabled: false})
+}
 
-	requested := append([]string(nil), r.URL.Query()["file"]...)
-	if len(requested) > maxGeoDataSelectedFiles {
-		writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Error: fmt.Sprintf("too many geodata files selected; max %d", maxGeoDataSelectedFiles)})
-		return
-	}
-	for _, name := range requested {
-		if !validGeoDataFileSelector(name) {
-			writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Error: "invalid geodata file selector"})
-			return
-		}
-	}
-
-	installed, err := DiscoverGeoDataFiles(a.geoDataAssetDir())
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Error: "geodata directory is unavailable"})
-		return
-	}
-	byName := make(map[string]GeoDataFile, len(installed))
-	for _, file := range installed {
-		byName[file.Name] = file
-	}
-
-	selected, err := selectGeoDataFiles(kind, requested, installed, byName)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Error: err.Error()})
-		return
-	}
-
-	matches := make([]geoDataSearchMatch, 0, len(selected))
-	warnings := make([]string, 0)
-	for _, file := range selected {
-		if file.Error != "" || file.Kind == GeoDataUnknown {
-			warnings = append(warnings, file.Name+": "+geoDataGenericFileError)
-			continue
-		}
-		if file.Kind != kind {
-			warnings = append(warnings, file.Name+": geodata type does not match requested kind")
-			continue
-		}
-		data, err := readBoundedGeoDataFile(filepath.Join(a.geoDataAssetDir(), file.Name))
-		if err != nil {
-			warnings = append(warnings, file.Name+": "+geoDataGenericFileError)
-			continue
-		}
-
-		var categories []string
-		switch kind {
-		case GeoDataSite:
-			categories, err = SearchGeoSiteData(data, query)
-		case GeoDataIP:
-			categories, err = SearchGeoIPData(data, query)
-		}
-		if err != nil {
-			warnings = append(warnings, file.Name+": search failed for this geodata file")
-			continue
-		}
-		if len(categories) == 0 {
-			continue
-		}
-		truncated := len(categories) > maxGeoDataCategoriesPerFile
-		if truncated {
-			categories = append([]string(nil), categories[:maxGeoDataCategoriesPerFile]...)
-		}
-		matches = append(matches, geoDataSearchMatch{File: file.Name, Kind: kind, Categories: categories, Truncated: truncated})
-	}
-
-	sort.Slice(matches, func(i, j int) bool { return matches[i].File < matches[j].File })
-	sort.Strings(warnings)
-	writeJSON(w, http.StatusOK, geoDataSearchResponse{Success: true, Kind: kind, Query: query, Matches: matches, Warnings: warnings})
+func (a *app) handleGeoDataSearch(w http.ResponseWriter, _ *http.Request) {
+	// P0 containment for 512 MiB routers: the legacy parser reads a complete
+	// .dat file into memory. Do not touch the asset directory at all from this
+	// endpoint until the search implementation is replaced by a bounded-memory
+	// streaming parser with cancellation and total decode limits.
+	writeJSON(w, http.StatusServiceUnavailable, geoDataSearchResponse{
+		Success: false,
+		Kind:    GeoDataUnknown,
+		Matches: []geoDataSearchMatch{},
+		Error:   geoDataSearchDisabledError,
+	})
 }
 
 func parseGeoDataSearchKind(raw string) (GeoDataKind, error) {
