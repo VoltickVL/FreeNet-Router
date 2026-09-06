@@ -8,12 +8,12 @@ import (
 
 func TestNetworkApplySingleflightJoinsSameTarget(t *testing.T) {
 	networkApplyFlights = networkApplySingleflight{}
-	leader, first := beginNetworkApplyFlight("vladlink\x00firmware")
-	if !first {
+	leader, first, conflict := beginNetworkApplyFlight("vladlink\x00firmware")
+	if !first || conflict {
 		t.Fatal("first request must lead")
 	}
-	follower, second := beginNetworkApplyFlight("vladlink\x00firmware")
-	if second || follower != leader {
+	follower, second, conflict := beginNetworkApplyFlight("vladlink\x00firmware")
+	if second || conflict || follower != leader {
 		t.Fatal("same target must join the existing flight")
 	}
 
@@ -26,15 +26,15 @@ func TestNetworkApplySingleflightJoinsSameTarget(t *testing.T) {
 	}
 }
 
-func TestNetworkApplySingleflightDoesNotJoinDifferentTarget(t *testing.T) {
+func TestNetworkApplySingleflightRejectsDifferentTargetWithoutReplacingFlight(t *testing.T) {
 	networkApplyFlights = networkApplySingleflight{}
-	first, leader := beginNetworkApplyFlight("vladlink\x00firmware")
-	if !leader {
+	first, leader, conflict := beginNetworkApplyFlight("vladlink\x00firmware")
+	if !leader || conflict {
 		t.Fatal("first request must lead")
 	}
-	second, secondLeader := beginNetworkApplyFlight("vladlink\x00xkeen")
-	if !secondLeader || second == first {
-		t.Fatal("different target must not join the current target")
+	current, secondLeader, conflict := beginNetworkApplyFlight("vladlink\x00xkeen")
+	if secondLeader || !conflict || current != first {
+		t.Fatal("different target must report conflict and preserve the current flight")
 	}
-	finishNetworkApplyFlight(second, http.StatusLocked, networkApplyResponse{Success: false})
+	finishNetworkApplyFlight(first, http.StatusOK, networkApplyResponse{Success: true})
 }
