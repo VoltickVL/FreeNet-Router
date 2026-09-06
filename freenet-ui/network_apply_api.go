@@ -145,6 +145,20 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, networkPlanResponse{Success: false, Error: selectionErr.Error()})
 		return
 	}
+	if capabilityErr := splitDNSSelectionError(dnsMode); capabilityErr != nil {
+		writeJSON(w, http.StatusConflict, networkPlanResponse{
+			Success:       false,
+			Supported:     false,
+			ISP:           isp,
+			DNSMode:       dnsMode,
+			ActiveISP:     activeISP,
+			ActiveDNSMode: activeDNS,
+			Reason:        capabilityErr.Error(),
+			Mutation:      "NONE",
+			Error:         capabilityErr.Error(),
+		})
+		return
+	}
 
 	plan, err := a.runNetworkPlanFor(isp, dnsMode)
 	plan.ActiveISP = activeISP
@@ -238,6 +252,19 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 
 	if !validNetworkSelection(req.ISP, req.DNSMode) {
 		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Error: "unsupported ISP or DNS mode"})
+		return
+	}
+	if capabilityErr := splitDNSSelectionError(req.DNSMode); capabilityErr != nil {
+		writeJSON(w, http.StatusConflict, networkApplyResponse{
+			Success:       false,
+			Applied:       false,
+			Operation:     "network",
+			ISP:           req.ISP,
+			DNSMode:       req.DNSMode,
+			PrimaryError:  capabilityErr.Error(),
+			RollbackState: "NOT_APPLIED",
+			Error:         "XKeen/Xray DNS недоступен на этом устройстве",
+		})
 		return
 	}
 
