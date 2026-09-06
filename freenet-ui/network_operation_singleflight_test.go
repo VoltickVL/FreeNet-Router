@@ -8,12 +8,12 @@ import (
 
 func TestNetworkApplySingleflightJoinsSameTarget(t *testing.T) {
 	networkApplyFlights = networkApplySingleflight{}
-	leader, first, conflict := beginNetworkApplyFlight("vladlink\x00firmware")
-	if !first || conflict {
+	leader, first := beginNetworkApplyFlight("vladlink\x00firmware")
+	if !first {
 		t.Fatal("first request must lead")
 	}
-	follower, second, conflict := beginNetworkApplyFlight("vladlink\x00firmware")
-	if second || conflict || follower != leader {
+	follower, second := beginNetworkApplyFlight("vladlink\x00firmware")
+	if second || follower != leader {
 		t.Fatal("same target must join the existing flight")
 	}
 
@@ -28,13 +28,21 @@ func TestNetworkApplySingleflightJoinsSameTarget(t *testing.T) {
 
 func TestNetworkApplySingleflightRejectsDifferentTargetWithoutReplacingFlight(t *testing.T) {
 	networkApplyFlights = networkApplySingleflight{}
-	first, leader, conflict := beginNetworkApplyFlight("vladlink\x00firmware")
-	if !leader || conflict {
+	first, leader := beginNetworkApplyFlight("vladlink\x00firmware")
+	if !leader {
 		t.Fatal("first request must lead")
 	}
-	current, secondLeader, conflict := beginNetworkApplyFlight("vladlink\x00xkeen")
-	if secondLeader || !conflict || current != first {
-		t.Fatal("different target must report conflict and preserve the current flight")
+	other, secondLeader := beginNetworkApplyFlight("vladlink\x00xkeen")
+	if secondLeader || other == first {
+		t.Fatal("different target must not become leader or replace the current flight")
+	}
+	r := httptest.NewRequest(http.MethodPost, "/api/network-profile/apply", nil)
+	status, got, ok := waitNetworkApplyFlight(r, other)
+	if !ok || status != http.StatusLocked || got.Success || got.RollbackState != "NOT_APPLIED" {
+		t.Fatalf("different target conflict mismatch: status=%d result=%+v ok=%v", status, got, ok)
+	}
+	if networkApplyFlights.current != first {
+		t.Fatal("different target must preserve the existing flight")
 	}
 	finishNetworkApplyFlight(first, http.StatusOK, networkApplyResponse{Success: true})
 }
