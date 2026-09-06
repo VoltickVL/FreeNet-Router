@@ -344,6 +344,19 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 		}
 	}
 
+	// Native migration state is prepared only after the authoritative read-only
+	// plan has decided that a live transition is actually needed. This keeps plan
+	// and already-active Apply idempotent and avoids hidden persistent prep writes.
+	if req.DNSMode == "firmware" {
+		if err := prepareCanonicalNativeApplyState(); err != nil {
+			return http.StatusServiceUnavailable, networkApplyResponse{
+				Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+				Plan: plan, PrimaryError: err.Error(), RollbackState: "NOT_APPLIED",
+				Error: "не удалось подготовить Native DNS state",
+			}
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	output, cmdErr := a.runNetworkApplyFor(ctx, req.ISP, req.DNSMode)
 	timedOut := ctx.Err() == context.DeadlineExceeded
