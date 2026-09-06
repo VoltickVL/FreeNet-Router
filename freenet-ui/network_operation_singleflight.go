@@ -1,7 +1,8 @@
 package main
 
 import (
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -59,43 +60,55 @@ func writeNativeStateFile(path, value string) error {
 	return nil
 }
 
+func ensureCanonicalNativeDNSSnapshot() error {
+	valid, _, err := legacyNativeDNSSnapshotStatus()
+	if err == nil && valid {
+		return nil
+	}
+
+	// Native Keenetic/ndnproxy does not use Xray 02_dns. When a legacy install
+	// has no trustworthy snapshot, the deterministic neutral fragment is enough:
+	// the shell transaction still validates the complete stripped Xray candidate
+	// before any live DNS mutation.
+	data := canonicalLegacyNativeDNS
+	sum := sha256.Sum256(data)
+	dnsPath, hashPath := legacyNativeDNSSnapshotPaths()
+	if err := writeNativeStateFile(dnsPath, string(data)); err != nil {
+		return err
+	}
+	return writeNativeStateFile(hashPath, hex.EncodeToString(sum[:])+"\n")
+}
+
 func ensureCanonicalNativeAssignments() error {
 	dir := networkBridgeNativeStateDir()
 	if exists, err := networkBridgeExistingAssignmentsSnapshot(dir); err == nil && exists {
 		return nil
 	}
 
-	config, configErr := networkBridgeRunningConfig()
-	if configErr == nil {
-		assignments, parseErr := networkBridgeAssignmentsFromRunningConfig(config)
-		if parseErr == nil && strings.TrimSpace(assignments) != "" {
+	// Preserve assignments that are still present in a native control-plane.
+	// A legacy Split may already have detached them; in that case there is no
+	// reliable current assignment fact, so canonical Native uses an empty active
+	// assignment set instead of blocking the whole DNS transition.
+	if config, err := networkBridgeRunningConfig(); err == nil {
+		if assignments, parseErr := networkBridgeAssignmentsFromRunningConfig(config); parseErr == nil && strings.TrimSpace(assignments) != "" {
 			return writeNativeStateFile(filepath.Join(dir, "assignments.native"), assignments)
-		}
-		// Legacy managed Split detached assignments. Recover them when an exact
-		// local snapshot exists; otherwise canonical Native has no assignments.
-		if strings.Contains(config, "opkg dns-override") {
-			if _, recoverErr := networkBridgeRecoverNativeAssignmentsSnapshot(dir, networkBridgeBackupRoot(), config); recoverErr == nil {
-				return nil
-			}
 		}
 	}
 	return writeNativeStateFile(filepath.Join(dir, "assignments.native"), "")
 }
 
 func prepareCanonicalNativeApplyState() error {
-	// 02_dns is not part of the live Native DNS path, but the Xray candidate
-	// still needs a validated neutral fragment before we remove Split-only DNS.
-	if err := ensureLegacyNativeDNSSnapshot(); err != nil {
+	if err := ensureCanonicalNativeDNSSnapshot(); err != nil {
 		return err
 	}
 	if err := ensureCanonicalNativeAssignments(); err != nil {
 		return err
 	}
 
-	// Direct DNS has one deterministic product target. Historical engine/intercept
-	// hints no longer gate normal Apply; they are normalized to the canonical
-	// Keenetic Native control-plane and the live pre-state is still covered by the
-	// transaction snapshot/rollback inside apply_network_profile.sh.
+	// Direct DNS has one deterministic fallback control-plane for legacy states.
+	// These files are FreeNet-owned migration state only; the live shell apply
+	// still snapshots the real pre-state, validates the candidate, performs
+	// acceptance and rolls back on any failure.
 	dir := nativeDNSStateDir()
 	if err := writeNativeStateFile(filepath.Join(dir, "filter-engine.native"), "public\n"); err != nil {
 		return err
@@ -165,7 +178,7 @@ func finishNetworkApplyFlight(flight *networkApplyFlight, status int, result net
 
 func waitNetworkApplyFlight(r *http.Request, flight *networkApplyFlight) (int, networkApplyResponse, bool) {
 	if flight == nil {
-		return http.StatusInternalServerError, networkApplyResponse{Success: false, Error: errors.New("network operation flight unavailable").Error()}, true
+		return http.StatusInternalServerError, networkApplyResponse{Success: false, Error: "network operation flight unavailable"}, true
 	}
 	select {
 	case <-flight.done:
