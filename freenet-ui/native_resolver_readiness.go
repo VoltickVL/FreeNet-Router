@@ -65,9 +65,9 @@ func networkBridgeHasNativeResolverSelection(config, lanIP string) bool {
 func networkBridgeResolverLineSet(lines []string) map[string]bool {
 	set := make(map[string]bool, len(lines))
 	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			set[line] = true
+		key := networkBridgeResolverSelectionKey(strings.TrimSpace(line))
+		if key != "" {
+			set[key] = true
 		}
 	}
 	return set
@@ -172,7 +172,8 @@ func networkBridgeEnsureNativeResolverReady(lanIP string) ([]string, string, err
 	missing := make([]string, 0, len(target))
 	for _, line := range target {
 		line = strings.TrimSpace(line)
-		if line != "" && !currentSet[line] {
+		key := networkBridgeResolverSelectionKey(line)
+		if key != "" && !currentSet[key] {
 			missing = append(missing, line)
 		}
 	}
@@ -185,7 +186,8 @@ func networkBridgeEnsureNativeResolverReady(lanIP string) ([]string, string, err
 	removed := make([]string, 0, len(current))
 	for _, line := range current {
 		line = strings.TrimSpace(line)
-		if line == "" || targetSet[line] {
+		key := networkBridgeResolverSelectionKey(line)
+		if line == "" || (key != "" && targetSet[key]) {
 			continue
 		}
 		if err := networkBridgeRemoveResolverSelectionLines([]string{line}); err != nil {
