@@ -201,6 +201,39 @@ func augmentNetworkBridgePlan(output, target, lanIP string, pointerPresent bool)
 	return out
 }
 
+func networkBridgeLANIPv4FromIPOutput(output string) (string, error) {
+	privateCandidate := ""
+	for _, line := range strings.Split(strings.ReplaceAll(output, "\r", ""), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 {
+			continue
+		}
+		iface := strings.TrimSuffix(fields[1], ":")
+		for i := 0; i+1 < len(fields); i++ {
+			if fields[i] != "inet" {
+				continue
+			}
+			address := strings.SplitN(fields[i+1], "/", 2)[0]
+			ip := net.ParseIP(address)
+			if ip == nil || ip.To4() == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || !ip.IsPrivate() {
+				break
+			}
+			lowerIface := strings.ToLower(iface)
+			if strings.HasPrefix(lowerIface, "br") || strings.Contains(lowerIface, "lan") || strings.Contains(lowerIface, "home") {
+				return address, nil
+			}
+			if privateCandidate == "" {
+				privateCandidate = address
+			}
+			break
+		}
+	}
+	if privateCandidate != "" {
+		return privateCandidate, nil
+	}
+	return "", errors.New("private LAN IPv4 not found")
+}
+
 func networkBridgeLANIPv4() (string, error) {
 	if value := strings.TrimSpace(os.Getenv("FREENET_NETWORK_BRIDGE_LAN_IP")); value != "" {
 		ip := net.ParseIP(value)
@@ -211,24 +244,11 @@ func networkBridgeLANIPv4() (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, "ip", "-o", "-4", "addr", "show", "br0").Output()
+	output, err := exec.CommandContext(ctx, "ip", "-o", "-4", "addr", "show").Output()
 	if err != nil {
 		return "", err
 	}
-	for _, line := range strings.Split(string(output), "\n") {
-		fields := strings.Fields(line)
-		for i := 0; i+1 < len(fields); i++ {
-			if fields[i] != "inet" {
-				continue
-			}
-			address := strings.SplitN(fields[i+1], "/", 2)[0]
-			ip := net.ParseIP(address)
-			if ip != nil && ip.To4() != nil && !ip.IsLoopback() {
-				return address, nil
-			}
-		}
-	}
-	return "", errors.New("br0 IPv4 not found")
+	return networkBridgeLANIPv4FromIPOutput(string(output))
 }
 
 func networkBridgeRunningConfig() (string, error) {
