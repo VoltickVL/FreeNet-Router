@@ -23,18 +23,51 @@ func networkBridgeNativeResolverSnapshotPaths() (string, string) {
 	return base, base + ".sha256"
 }
 
-func networkBridgeResolverSelectionLineSupported(line string) bool {
-	fields := strings.Fields(strings.TrimSpace(line))
-	if len(fields) != 3 {
+func networkBridgeResolverInterfaceTokenSupported(token string) bool {
+	if token == "" {
 		return false
 	}
-	if fields[0] == "ip" && fields[1] == "name-server" {
-		return fields[2] != ""
+	for _, r := range token {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || strings.ContainsRune("_.:/-", r) {
+			continue
+		}
+		return false
 	}
-	if fields[0] == "ipv6" && fields[1] == "name-server" {
-		return fields[2] != ""
+	return true
+}
+
+// Keenetic can serialize an explicit System DNS selection in either the compact
+// CLI form:
+//
+//   ip name-server 77.88.8.8
+//
+// or an interface-qualified running-config form:
+//
+//   ip name-server 77.88.8.8 "" on GigabitEthernet0/Vlan5
+//
+// The latter is still the same active resolver selection. Accept only this exact
+// known qualifier shape; arbitrary extra CLI syntax remains fail-closed.
+func networkBridgeResolverSelectionLineSupported(line string) bool {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) != 3 && len(fields) != 6 {
+		return false
 	}
-	return false
+	if (fields[0] != "ip" && fields[0] != "ipv6") || fields[1] != "name-server" || strings.Trim(fields[2], "\"") == "" {
+		return false
+	}
+	if len(fields) == 3 {
+		return true
+	}
+	return fields[3] == `""` && fields[4] == "on" && networkBridgeResolverInterfaceTokenSupported(fields[5])
+}
+
+func networkBridgeResolverSelectionKey(line string) string {
+	line = strings.TrimSpace(line)
+	if !networkBridgeResolverSelectionLineSupported(line) {
+		return ""
+	}
+	fields := strings.Fields(line)
+	return fields[0] + " name-server " + strings.Trim(fields[2], "\"")
 }
 
 // Return only top-level explicit resolver selections. The Split-owned LAN pointer
@@ -64,9 +97,10 @@ func networkBridgeNativeResolverSelectionLines(config, lanIP string) ([]string, 
 			if !networkBridgeResolverSelectionLineSupported(line) {
 				return nil, fmt.Errorf("unsupported IPv4 resolver selection syntax: %s", line)
 			}
-			if !seen[line] {
+			key := networkBridgeResolverSelectionKey(line)
+			if !seen[key] {
 				result = append(result, line)
-				seen[line] = true
+				seen[key] = true
 			}
 			continue
 		}
@@ -74,9 +108,10 @@ func networkBridgeNativeResolverSelectionLines(config, lanIP string) ([]string, 
 			if !networkBridgeResolverSelectionLineSupported(line) {
 				return nil, fmt.Errorf("unsupported IPv6 resolver selection syntax: %s", line)
 			}
-			if !seen[line] {
+			key := networkBridgeResolverSelectionKey(line)
+			if !seen[key] {
 				result = append(result, line)
-				seen[line] = true
+				seen[key] = true
 			}
 		}
 	}
@@ -104,6 +139,22 @@ func networkBridgeResolverSelectionLinePresent(config, want string) bool {
 	return false
 }
 
+func networkBridgeResolverSelectionPresent(config, want string) bool {
+	wantKey := networkBridgeResolverSelectionKey(want)
+	if wantKey == "" {
+		return false
+	}
+	for _, raw := range strings.Split(strings.ReplaceAll(config, "\r", ""), "\n") {
+		if len(raw) > 0 && (raw[0] == ' ' || raw[0] == '\t') {
+			continue
+		}
+		if networkBridgeResolverSelectionKey(strings.TrimSpace(raw)) == wantKey {
+			return true
+		}
+	}
+	return false
+}
+
 func networkBridgeAddResolverSelectionLines(lines []string) ([]string, error) {
 	added := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -117,7 +168,7 @@ func networkBridgeAddResolverSelectionLines(lines []string) ([]string, error) {
 			_ = networkBridgeRemoveResolverSelectionLines(added)
 			return nil, err
 		}
-		if networkBridgeResolverSelectionLinePresent(config, line) {
+		if networkBridgeResolverSelectionPresent(config, line) {
 			continue
 		}
 		if err := networkBridgeNDMC(line); err != nil {
@@ -125,7 +176,7 @@ func networkBridgeAddResolverSelectionLines(lines []string) ([]string, error) {
 			return nil, err
 		}
 		updated, err := networkBridgeRunningConfig()
-		if err != nil || !networkBridgeResolverSelectionLinePresent(updated, line) {
+		if err != nil || !networkBridgeResolverSelectionPresent(updated, line) {
 			_ = networkBridgeRemoveResolverSelectionLines(append(added, line))
 			return nil, errors.New("resolver selection was not accepted by Keenetic")
 		}
@@ -144,7 +195,7 @@ func networkBridgeRemoveResolverSelectionLines(lines []string) error {
 		if err != nil {
 			return err
 		}
-		if !networkBridgeResolverSelectionLinePresent(config, line) {
+		if !networkBridgeResolverSelectionPresent(config, line) {
 			continue
 		}
 		if err := networkBridgeNDMC("no " + line); err != nil {
@@ -154,7 +205,7 @@ func networkBridgeRemoveResolverSelectionLines(lines []string) error {
 		if err != nil {
 			return err
 		}
-		if networkBridgeResolverSelectionLinePresent(updated, line) {
+		if networkBridgeResolverSelectionPresent(updated, line) {
 			return errors.New("resolver selection remained active")
 		}
 	}
