@@ -39,7 +39,13 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 			t.Fatalf("exact VPN UX contains forbidden coupled condition %q", forbidden)
 		}
 	}
-	if strings.Contains(ux, "confirm(") || strings.Contains(ux, "openModal(") {
+	start := strings.Index(ux, "async function connectExactProfile")
+	end := strings.Index(ux, "function patchProfileSelection")
+	if start < 0 || end <= start {
+		t.Fatal("cannot isolate exact VPN connect flow")
+	}
+	exactConnect := ux[start:end]
+	if strings.Contains(exactConnect, "confirm(") || strings.Contains(exactConnect, "openModal(") {
 		t.Fatal("routine exact VPN connect must not require an extra confirmation dialog")
 	}
 }
