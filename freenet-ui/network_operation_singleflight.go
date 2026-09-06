@@ -164,16 +164,15 @@ func prepareCanonicalNativeApplyState() error {
 
 func beginNetworkApplyFlight(target string) (*networkApplyFlight, bool) {
 	networkApplyFlights.mu.Lock()
+	defer networkApplyFlights.mu.Unlock()
 	if current := networkApplyFlights.current; current != nil {
 		if current.target == target {
-			networkApplyFlights.mu.Unlock()
 			return current, false
 		}
 		// A different target is a real concurrent mutation request. Return a
 		// completed follower result without replacing or disturbing the leader.
 		done := make(chan struct{})
 		close(done)
-		networkApplyFlights.mu.Unlock()
 		return &networkApplyFlight{
 			target: target,
 			done:   done,
@@ -189,21 +188,6 @@ func beginNetworkApplyFlight(target string) (*networkApplyFlight, bool) {
 	}
 	flight := &networkApplyFlight{target: target, done: make(chan struct{})}
 	networkApplyFlights.current = flight
-	networkApplyFlights.mu.Unlock()
-
-	if strings.HasSuffix(target, "\x00firmware") {
-		if err := prepareCanonicalNativeApplyState(); err != nil {
-			finishNetworkApplyFlight(flight, http.StatusServiceUnavailable, networkApplyResponse{
-				Success:       false,
-				Applied:       false,
-				Operation:     "network",
-				RollbackState: "NOT_APPLIED",
-				PrimaryError:  err.Error(),
-				Error:         "не удалось подготовить Native DNS state",
-			})
-			return flight, false
-		}
-	}
 	return flight, true
 }
 
