@@ -47,6 +47,7 @@ type config struct {
 	VPNPath        string
 	FilterPath     string
 	OutPath        string
+	GeoDataDir     string
 	XKeenPath      string
 	LockPath       string
 	ConfigPath     string
@@ -212,6 +213,7 @@ func main() {
 	flag.StringVar(&cfg.VPNPath, "vpn", defaultVPNPath, "vpn helper path")
 	flag.StringVar(&cfg.FilterPath, "filter", defaultFilterPath, "profile filter path")
 	flag.StringVar(&cfg.OutPath, "outbound", defaultOutPath, "Xray outbound config path")
+	flag.StringVar(&cfg.GeoDataDir, "geodata-dir", defaultGeoDataAssetDir, "Xray geodata asset directory")
 	flag.StringVar(&cfg.XKeenPath, "xkeen", defaultXKeenPath, "XKeen executable path")
 	flag.StringVar(&cfg.LockPath, "updater-lock", defaultLockPath, "updater lock path")
 	flag.StringVar(&cfg.ConfigPath, "config", defaultConfigPath, "FreeNet local config path")
@@ -237,6 +239,7 @@ func main() {
 	mux.HandleFunc("GET /api/network-profile/plan", a.requireAuth(a.handleNetworkProfilePlan))
 	mux.HandleFunc("POST /api/network-profile/apply", a.requireAuth(a.handleNetworkProfileApply))
 	registerDNSPathTrace(mux, a)
+	registerGeoDataAPI(mux, a)
 	mux.HandleFunc("GET /api/subscription", a.requireAuth(a.handleSubscriptionGet))
 	mux.HandleFunc("POST /api/subscription", a.requireAuth(a.handleSubscriptionPost))
 	mux.HandleFunc("POST /api/action", a.requireAuth(a.handleAction))
