@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 )
@@ -52,7 +53,7 @@ func (a *app) handlePolicyCompilePreview(w http.ResponseWriter, r *http.Request)
 	// Reject trailing JSON values as well as unknown fields. The endpoint is a
 	// deterministic preview surface, not a permissive import parser.
 	var trailing any
-	if err := dec.Decode(&trailing); err == nil {
+	if err := dec.Decode(&trailing); err != io.EOF {
 		writeJSON(w, http.StatusBadRequest, policyPreviewResponse{Success: false, Mutation: "NONE", Error: "invalid policy preview request"})
 		return
 	}
