@@ -345,7 +345,7 @@ echo '[FreeNet Network] RESULT=SUCCESS'
 exit 0`
 }
 
-func TestNetworkApplyRequiresLegacyEngineChoiceBeforeHelperMutation(t *testing.T) {
+func TestNetworkApplyAutoPreparesCanonicalLegacyNativeState(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "native-dns")
 	marker := filepath.Join(t.TempDir(), "helper-applied")
 	t.Setenv("FREENET_NATIVE_DNS_STATE_DIR", stateDir)
@@ -359,25 +359,42 @@ func TestNetworkApplyRequiresLegacyEngineChoiceBeforeHelperMutation(t *testing.T
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	a.handleNetworkProfileApply(w, r)
-	if w.Code != http.StatusConflict {
+	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if _, err := os.Stat(marker); !os.IsNotExist(err) {
-		t.Fatalf("network helper mutated runtime without one-time confirmation: %v", err)
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("network helper did not run: %v", err)
 	}
-	if _, err := os.Stat(nativeFilterEngineSnapshotPath()); !os.IsNotExist(err) {
-		t.Fatalf("missing confirmation unexpectedly persisted baseline: %v", err)
+	for name, want := range map[string]string{
+		"filter-engine.native": "public\n",
+		"intercept.native":     "on\n",
+	} {
+		data, err := os.ReadFile(filepath.Join(stateDir, name))
+		if err != nil || string(data) != want {
+			t.Fatalf("%s=%q err=%v", name, data, err)
+		}
+	}
+	valid, missing, err := legacyNativeDNSSnapshotStatus()
+	if err != nil || !valid || missing {
+		t.Fatalf("canonical native DNS snapshot invalid: valid=%v missing=%v err=%v", valid, missing, err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "assignments.native")); err != nil {
+		t.Fatalf("canonical assignments snapshot missing: %v", err)
 	}
 	var resp networkApplyResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp.RollbackState != "NOT_APPLIED" || !resp.Plan.NativeFilterEngineConfirmRequired {
-		t.Fatalf("confirmation gate was not exposed safely: %+v", resp)
+	if !resp.Success || resp.Plan.NativeFilterEngineConfirmRequired {
+		t.Fatalf("obsolete confirmation gate leaked into normal Apply: %+v", resp)
+	}
+	isp, dns := readNetworkProfileConfig(a.cfg.ConfigPath)
+	if isp != "rostelecom" || dns != "firmware" {
+		t.Fatalf("accepted native profile not committed: %s/%s", isp, dns)
 	}
 }
 
-func TestNetworkApplyPersistsConfirmedLegacyEngineThenUsesExistingTransaction(t *testing.T) {
+func TestNetworkApplyIgnoresObsoleteManualEngineField(t *testing.T) {
 	stateDir := filepath.Join(t.TempDir(), "native-dns")
 	marker := filepath.Join(t.TempDir(), "helper-applied")
 	t.Setenv("FREENET_NATIVE_DNS_STATE_DIR", stateDir)
@@ -385,7 +402,7 @@ func TestNetworkApplyPersistsConfirmedLegacyEngineThenUsesExistingTransaction(t 
 	t.Setenv("FREENET_NETWORK_HELPER", writeFakeNetworkHelper(t, legacyMigrationNetworkHelper(marker)))
 	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=xkeen\nSETUP_COMPLETE=yes\n")
 
-	payload := `{"operation":"network","isp":"rostelecom","dns_mode":"firmware","native_filter_engine":"public","confirm":true}`
+	payload := `{"operation":"network","isp":"rostelecom","dns_mode":"firmware","native_filter_engine":"skydns","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
@@ -396,11 +413,11 @@ func TestNetworkApplyPersistsConfirmedLegacyEngineThenUsesExistingTransaction(t 
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("existing network transaction did not run: %v", err)
+		t.Fatalf("network transaction did not run: %v", err)
 	}
 	data, err := os.ReadFile(nativeFilterEngineSnapshotPath())
 	if err != nil || string(data) != "public\n" {
-		t.Fatalf("confirmed baseline missing: %q err=%v", data, err)
+		t.Fatalf("obsolete manual field overrode canonical baseline: %q err=%v", data, err)
 	}
 	isp, dns := readNetworkProfileConfig(a.cfg.ConfigPath)
 	if isp != "rostelecom" || dns != "firmware" {
