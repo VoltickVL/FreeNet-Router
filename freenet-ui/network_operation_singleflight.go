@@ -22,15 +22,20 @@ type networkApplySingleflight struct {
 
 var networkApplyFlights networkApplySingleflight
 
-func beginNetworkApplyFlight(target string) (*networkApplyFlight, bool) {
+// Returns (flight, leader, targetConflict). A different target never replaces
+// the current flight: it is rejected as a real concurrent mutation request.
+func beginNetworkApplyFlight(target string) (*networkApplyFlight, bool, bool) {
 	networkApplyFlights.mu.Lock()
 	defer networkApplyFlights.mu.Unlock()
-	if current := networkApplyFlights.current; current != nil && current.target == target {
-		return current, false
+	if current := networkApplyFlights.current; current != nil {
+		if current.target == target {
+			return current, false, false
+		}
+		return current, false, true
 	}
 	flight := &networkApplyFlight{target: target, done: make(chan struct{})}
 	networkApplyFlights.current = flight
-	return flight, true
+	return flight, true, false
 }
 
 func finishNetworkApplyFlight(flight *networkApplyFlight, status int, result networkApplyResponse) {
