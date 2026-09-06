@@ -108,6 +108,13 @@ if grep -Fq 'select(.tag == "dns-out")' "$SCRIPT"; then
     fail 'self-update acceptance must be independent from dns-out topology'
 fi
 
+# Regression: application self-update acceptance must not require Xray to be online.
+# Xray process state belongs to VPN runtime and may legitimately be offline on a
+# Direct-DNS router. Update safety is provided by exact Xray config hash compare.
+if grep -Fq 'pidof xray' "$SCRIPT"; then
+    fail 'self-update acceptance must be independent from Xray process state'
+fi
+
 R="$TMP/root"
 D="$TMP/release"
 make_root "$R"
@@ -154,6 +161,7 @@ fi
 grep -Fq 'PRIMARY_ERROR=staging validation failed' "$R/var/run/update.state" || fail 'staging primary error missing'
 
 # Successful exact-tag update replaces FreeNet-owned assets only and preserves Xray/config sentinels.
+# Test mode has no Xray process at all, so this is also the offline-Xray success regression.
 make_root "$R"
 make_release "$D"
 XRAY_BEFORE="$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')"
