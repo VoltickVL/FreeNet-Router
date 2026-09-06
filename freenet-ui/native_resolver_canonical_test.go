@@ -7,6 +7,7 @@ import (
 
 func canonicalNativePlanFixture() string {
 	fixture := bridgePlanFixture("firmware", "off", "public", "ndnproxy", "native")
+	fixture = strings.Replace(fixture, "NDM_DNS_INTERCEPT=off", "NDM_DNS_INTERCEPT=on", 1)
 	fixture = strings.Replace(fixture, "XRAY_DNS_INBOUND_COUNT=1", "XRAY_DNS_INBOUND_COUNT=0", 1)
 	fixture = strings.Replace(fixture, "DNS_OUT=yes", "DNS_OUT=no", 1)
 	return fixture

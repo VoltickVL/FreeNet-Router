@@ -147,15 +147,9 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	if capabilityErr := splitDNSSelectionError(dnsMode); capabilityErr != nil {
 		writeJSON(w, http.StatusConflict, networkPlanResponse{
-			Success:       false,
-			Supported:     false,
-			ISP:           isp,
-			DNSMode:       dnsMode,
-			ActiveISP:     activeISP,
-			ActiveDNSMode: activeDNS,
-			Reason:        capabilityErr.Error(),
-			Mutation:      "NONE",
-			Error:         capabilityErr.Error(),
+			Success: false, Supported: false, ISP: isp, DNSMode: dnsMode,
+			ActiveISP: activeISP, ActiveDNSMode: activeDNS,
+			Reason: capabilityErr.Error(), Mutation: "NONE", Error: capabilityErr.Error(),
 		})
 		return
 	}
@@ -171,6 +165,8 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Extra profiles are UI data only. Failure to discover them never blocks the
+	// ISP/DNS plan or Apply path.
 	if subscriptionConfigured(a.cfg.SubPath) {
 		ctx, cancel := context.WithTimeout(context.Background(), 32*time.Second)
 		profiles, profileErr := a.discoverSubscriptionProfiles(ctx)
@@ -202,7 +198,6 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 		}
 		plan.SetupFinalizePlan = &finalizePlan
 	}
-
 	writeJSON(w, http.StatusOK, plan)
 }
 
@@ -249,31 +244,63 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Error: "unsupported apply operation"})
 		return
 	}
-
 	if !validNetworkSelection(req.ISP, req.DNSMode) {
 		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Error: "unsupported ISP or DNS mode"})
 		return
 	}
 	if capabilityErr := splitDNSSelectionError(req.DNSMode); capabilityErr != nil {
 		writeJSON(w, http.StatusConflict, networkApplyResponse{
-			Success:       false,
-			Applied:       false,
-			Operation:     "network",
-			ISP:           req.ISP,
-			DNSMode:       req.DNSMode,
-			PrimaryError:  capabilityErr.Error(),
-			RollbackState: "NOT_APPLIED",
-			Error:         "XKeen/Xray DNS недоступен на этом устройстве",
+			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			PrimaryError: capabilityErr.Error(), RollbackState: "NOT_APPLIED",
+			Error: "XKeen/Xray DNS недоступен на этом устройстве",
 		})
 		return
 	}
 
+	// One confirmed target = one mutation. If the browser submits the same target
+	// twice (double listener, reconnect, repeated POST), the second request joins
+	// the first and receives its exact terminal result.
+	target := req.ISP + "\x00" + req.DNSMode
+	flight, leader := beginNetworkApplyFlight(target)
+	if !leader {
+		if status, result, ok := waitNetworkApplyFlight(r, flight); ok {
+			writeJSON(w, status, result)
+		}
+		return
+	}
+
+	status, result := a.executeNetworkApply(r.Context(), req)
+	finishNetworkApplyFlight(flight, status, result)
+	writeJSON(w, status, result)
+}
+
+func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRequest) (int, networkApplyResponse) {
+	// A real different mutation may own the global semaphore. Give short-lived
+	// work a chance to finish, but never start a second mutation concurrently.
+	acquireTimer := time.NewTimer(12 * time.Second)
+	defer acquireTimer.Stop()
 	select {
 	case a.sem <- struct{}{}:
 		defer func() { <-a.sem }()
-	default:
-		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Error: "another FreeNet operation is already running"})
-		return
+	case <-requestCtx.Done():
+		return http.StatusRequestTimeout, networkApplyResponse{
+			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			RollbackState: "NOT_APPLIED", Error: "запрос отменён до начала сетевой операции",
+		}
+	case <-acquireTimer.C:
+		// Before reporting a real conflict, classify the requested target. This
+		// makes an already-completed identical operation idempotent success.
+		if post, err := a.runNetworkPlanFor(req.ISP, req.DNSMode); err == nil && post.Active {
+			return http.StatusOK, networkApplyResponse{
+				Success: true, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+				Message: "Целевое сетевое состояние уже активно.", RollbackState: "NOT_NEEDED", Plan: post,
+			}
+		}
+		return http.StatusLocked, networkApplyResponse{
+			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			RollbackState: "NOT_APPLIED",
+			Error: "FreeNet выполняет другую подтверждённую операцию; параллельная mutation заблокирована",
+		}
 	}
 
 	activeISP, activeDNS := readNetworkProfileConfig(a.cfg.ConfigPath)
@@ -282,34 +309,52 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 	plan.ActiveDNSMode = activeDNS
 	plan.Active = plan.Active && req.ISP == activeISP && req.DNSMode == activeDNS
 	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, networkApplyResponse{Success: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode, Plan: plan, Error: err.Error()})
-		return
+		return http.StatusServiceUnavailable, networkApplyResponse{
+			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Plan: plan, RollbackState: "NOT_APPLIED", Error: err.Error(),
+		}
 	}
 	if !plan.Supported {
-		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode, Plan: plan, Error: plan.Reason})
-		return
+		return http.StatusConflict, networkApplyResponse{
+			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Plan: plan, RollbackState: "NOT_APPLIED", Error: plan.Reason,
+		}
 	}
 	if plan.Mutation != "NONE" {
-		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode, Plan: plan, Error: "network plan is not read-only; refusing apply"})
-		return
+		return http.StatusConflict, networkApplyResponse{
+			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Plan: plan, RollbackState: "NOT_APPLIED", Error: "network plan is not read-only; refusing apply",
+		}
 	}
 	if plan.Active {
-		writeJSON(w, http.StatusOK, networkApplyResponse{Success: true, Applied: false, Operation: "network", ISP: activeISP, DNSMode: activeDNS, Plan: plan, Message: "Выбранный сетевой профиль уже активен.", RollbackState: "NOT_NEEDED"})
-		return
+		// Runtime is already the requested target. Persist only the product
+		// selection if it is stale; no network mutation is required.
+		if activeISP != req.ISP || activeDNS != req.DNSMode {
+			if err := writeNetworkProfileConfig(a.cfg.ConfigPath, req.ISP, req.DNSMode); err != nil {
+				return http.StatusInternalServerError, networkApplyResponse{
+					Success: false, Applied: false, Operation: "network", ISP: activeISP, DNSMode: activeDNS,
+					Plan: plan, PrimaryError: "cannot persist already-active network target", RollbackState: "NOT_APPLIED",
+					Error: "runtime target active but product state commit failed",
+				}
+			}
+		}
+		return http.StatusOK, networkApplyResponse{
+			Success: true, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Plan: plan, Message: "Выбранный сетевой профиль уже активен.", RollbackState: "NOT_NEEDED",
+		}
 	}
-	if err := persistConfirmedLegacyNativeFilterEngine(plan, req.NativeFilterEngine); err != nil {
-		writeJSON(w, http.StatusConflict, networkApplyResponse{
-			Success:       false,
-			Applied:       false,
-			Operation:     "network",
-			ISP:           req.ISP,
-			DNSMode:       req.DNSMode,
-			Plan:          plan,
-			PrimaryError:  err.Error(),
-			RollbackState: "NOT_APPLIED",
-			Error:         "native DNS migration confirmation required",
-		})
-		return
+
+	// Native migration state is prepared only after the authoritative read-only
+	// plan has decided that a live transition is actually needed. This keeps plan
+	// and already-active Apply idempotent and avoids hidden persistent prep writes.
+	if req.DNSMode == "firmware" {
+		if err := prepareCanonicalNativeApplyState(); err != nil {
+			return http.StatusServiceUnavailable, networkApplyResponse{
+				Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+				Plan: plan, PrimaryError: err.Error(), RollbackState: "NOT_APPLIED",
+				Error: "не удалось подготовить Native DNS state",
+			}
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
@@ -325,36 +370,22 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		if primary == "" {
 			primary = cmdErr.Error()
 		}
-		writeJSON(w, http.StatusBadGateway, networkApplyResponse{
-			Success:       false,
-			Applied:       false,
-			Operation:     "network",
-			ISP:           req.ISP,
-			DNSMode:       req.DNSMode,
-			Plan:          plan,
-			PrimaryError:  primary,
-			RollbackState: rollback,
-			Error:         "network profile apply failed",
-		})
-		return
+		return http.StatusBadGateway, networkApplyResponse{
+			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Plan: plan, PrimaryError: primary, RollbackState: rollback, Error: "network profile apply failed",
+		}
 	}
 
-	// Helper success means runtime post-apply acceptance passed. Only now is the
-	// selected profile allowed to become persistent active configuration.
+	// Helper success means canonical target acceptance passed. Persist only after
+	// that fact; historical filter-engine/intercept snapshots are not a normal
+	// decision gate anymore.
 	if err := writeNetworkProfileConfig(a.cfg.ConfigPath, req.ISP, req.DNSMode); err != nil {
 		rollback := a.rollbackNetworkSelection(activeISP, activeDNS)
-		writeJSON(w, http.StatusBadGateway, networkApplyResponse{
-			Success:       false,
-			Applied:       false,
-			Operation:     "network",
-			ISP:           activeISP,
-			DNSMode:       activeDNS,
-			Plan:          plan,
-			PrimaryError:  "cannot commit accepted network profile",
-			RollbackState: rollback,
-			Error:         "runtime changed but active profile commit failed",
-		})
-		return
+		return http.StatusBadGateway, networkApplyResponse{
+			Success: false, Applied: false, Operation: "network", ISP: activeISP, DNSMode: activeDNS,
+			Plan: plan, PrimaryError: "cannot commit accepted network profile", RollbackState: rollback,
+			Error: "runtime changed but active profile commit failed",
+		}
 	}
 
 	post, postErr := a.runNetworkPlan()
@@ -364,30 +395,18 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 			primary = "post-apply plan unavailable: " + postErr.Error()
 		}
 		rollback := a.rollbackNetworkSelection(activeISP, activeDNS)
-		writeJSON(w, http.StatusBadGateway, networkApplyResponse{
-			Success:       false,
-			Applied:       false,
-			Operation:     "network",
-			ISP:           activeISP,
-			DNSMode:       activeDNS,
-			Plan:          plan,
-			PrimaryError:  primary,
-			RollbackState: rollback,
-			Error:         "network profile acceptance failed after commit",
-		})
-		return
+		return http.StatusBadGateway, networkApplyResponse{
+			Success: false, Applied: false, Operation: "network", ISP: activeISP, DNSMode: activeDNS,
+			Plan: plan, PrimaryError: primary, RollbackState: rollback,
+			Error: "network profile acceptance failed after commit",
+		}
 	}
 
-	writeJSON(w, http.StatusOK, networkApplyResponse{
-		Success:       true,
-		Applied:       true,
-		Operation:     "network",
-		ISP:           req.ISP,
-		DNSMode:       req.DNSMode,
-		Message:       "Сетевой профиль применён, проверен и сохранён как активный.",
-		RollbackState: "NOT_NEEDED",
-		Plan:          post,
-	})
+	return http.StatusOK, networkApplyResponse{
+		Success: true, Applied: true, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+		Message: "Сетевой профиль приведён к целевому состоянию, проверен и сохранён.",
+		RollbackState: "NOT_NEEDED", Plan: post,
+	}
 }
 
 func (a *app) handleProviderProfileApply(w http.ResponseWriter, req networkApplyRequest) {
@@ -396,7 +415,6 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, req networkApply
 		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Operation: "provider", Error: "invalid provider profile id"})
 		return
 	}
-
 	select {
 	case a.sem <- struct{}{}:
 		defer func() { <-a.sem }()
@@ -428,14 +446,9 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, req networkApply
 			primary = cmdErr.Error()
 		}
 		writeJSON(w, http.StatusBadGateway, networkApplyResponse{
-			Success:       false,
-			Applied:       false,
-			Operation:     "provider",
-			ProfileID:     profileID,
-			ProviderPlan:  &providerPlan,
-			PrimaryError:  primary,
-			RollbackState: rollback,
-			Error:         "provider profile apply failed",
+			Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+			ProviderPlan: &providerPlan, PrimaryError: primary, RollbackState: rollback,
+			Error: "provider profile apply failed",
 		})
 		return
 	}
@@ -443,28 +456,18 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, req networkApply
 	postProvider, postErr := a.runProviderPlan(profileID)
 	if postErr != nil {
 		writeJSON(w, http.StatusBadGateway, networkApplyResponse{
-			Success:       false,
-			Applied:       true,
-			Operation:     "provider",
-			ProfileID:     profileID,
-			ProviderPlan:  &providerPlan,
-			PrimaryError:  "post-apply provider plan unavailable: " + postErr.Error(),
+			Success: false, Applied: true, Operation: "provider", ProfileID: profileID,
+			ProviderPlan: &providerPlan, PrimaryError: "post-apply provider plan unavailable: " + postErr.Error(),
 			RollbackState: "NOT_REQUESTED_HELPER_REPORTED_SUCCESS",
-			Error:         "provider apply completed but UI acceptance could not be read",
+			Error: "provider apply completed but UI acceptance could not be read",
 		})
 		return
 	}
-
 	postNetwork, _ := a.runNetworkPlan()
 	writeJSON(w, http.StatusOK, networkApplyResponse{
-		Success:       true,
-		Applied:       true,
-		Operation:     "provider",
-		ProfileID:     profileID,
-		Message:       "VPN-профиль применён и Xray-конфигурация проверена.",
-		RollbackState: "NOT_NEEDED",
-		Plan:          postNetwork,
-		ProviderPlan:  &postProvider,
+		Success: true, Applied: true, Operation: "provider", ProfileID: profileID,
+		Message: "VPN-профиль применён и Xray-конфигурация проверена.", RollbackState: "NOT_NEEDED",
+		Plan: postNetwork, ProviderPlan: &postProvider,
 	})
 }
 
@@ -538,7 +541,6 @@ func (a *app) runNetworkPlanFor(isp, dnsMode string) (networkPlanResponse, error
 	if plan.ISP != isp || plan.DNSMode != dnsMode {
 		return plan, errors.New("network helper did not plan the exact requested draft")
 	}
-	enrichNativeFilterEngineMigration(&plan)
 	if cmdErr != nil {
 		return plan, errors.New("network plan helper failed")
 	}
@@ -616,6 +618,7 @@ func networkPlanActiveMismatch(p networkPlanResponse) string {
 	case "firmware":
 		need(p.NDMDNSOverride == "off", "dns-override="+p.NDMDNSOverride+" (ожидается off)")
 		need(p.NDMFilterEngine != "" && p.NDMFilterEngine != "unknown" && p.NDMFilterEngine != "opkg", "filter-engine="+p.NDMFilterEngine+" (ожидается native engine)")
+		need(p.NDMDNSIntercept == "on" || p.NDMDNSIntercept == "off", "native-intercept="+p.NDMDNSIntercept+" (ожидается известное native state)")
 		need(p.Port53Owner == "ndnproxy", "owner:53="+p.Port53Owner+" (ожидается ndnproxy)")
 		need(p.XrayDNSInboundCount == "0", "xray-dns-inbound="+p.XrayDNSInboundCount+" (ожидается 0)")
 		need(p.DNSRoutingMode == "native", "dns-routing="+p.DNSRoutingMode+" (ожидается native)")
@@ -665,27 +668,15 @@ func parseNetworkPlan(output string) (networkPlanResponse, error) {
 		return networkPlanResponse{}, errors.New("network plan unexpectedly reports mutation")
 	}
 	plan := networkPlanResponse{
-		Success:             true,
-		Supported:           values["SUPPORTED"] == "yes",
-		ISP:                 values["ISP_ID"],
-		DNSMode:             values["DNS_MODE"],
-		EffectiveDNSMode:    values["EFFECTIVE_DNS_MODE"],
-		Reason:              values["REASON"],
-		ProxyDNS:            values["PROXY_DNS"],
-		NDMDNSOverride:      values["NDM_DNS_OVERRIDE"],
-		NDMFilterEngine:     values["NDM_FILTER_ENGINE"],
-		NDMDNSIntercept:     values["NDM_DNS_INTERCEPT"],
-		NDMDNSAssignments:   values["NDM_DNS_ASSIGNMENTS"],
-		Port53Owner:         values["PORT53_OWNER"],
-		XrayDNSInboundCount: values["XRAY_DNS_INBOUND_COUNT"],
-		XrayRunning:         values["XRAY_RUNNING"] == "yes",
-		XrayGID:             values["XRAY_GID"],
-		DNSRoutingMode:      values["DNS_ROUTING_MODE"],
-		DNSOut:              values["DNS_OUT"] == "yes",
-		VLESSProfile:        values["VLESS_PROFILE"] == "yes",
-		ExpectedDelta:       values["EXPECTED_DELTA"],
-		ExpectedNoDelta:     values["EXPECTED_NO_DELTA"],
-		Mutation:            values["MUTATION"],
+		Success: true, Supported: values["SUPPORTED"] == "yes", ISP: values["ISP_ID"], DNSMode: values["DNS_MODE"],
+		EffectiveDNSMode: values["EFFECTIVE_DNS_MODE"], Reason: values["REASON"], ProxyDNS: values["PROXY_DNS"],
+		NDMDNSOverride: values["NDM_DNS_OVERRIDE"], NDMFilterEngine: values["NDM_FILTER_ENGINE"],
+		NDMDNSIntercept: values["NDM_DNS_INTERCEPT"], NDMDNSAssignments: values["NDM_DNS_ASSIGNMENTS"],
+		Port53Owner: values["PORT53_OWNER"], XrayDNSInboundCount: values["XRAY_DNS_INBOUND_COUNT"],
+		XrayRunning: values["XRAY_RUNNING"] == "yes", XrayGID: values["XRAY_GID"],
+		DNSRoutingMode: values["DNS_ROUTING_MODE"], DNSOut: values["DNS_OUT"] == "yes",
+		VLESSProfile: values["VLESS_PROFILE"] == "yes", ExpectedDelta: values["EXPECTED_DELTA"],
+		ExpectedNoDelta: values["EXPECTED_NO_DELTA"], Mutation: values["MUTATION"],
 	}
 	mismatch := networkPlanActiveMismatch(plan)
 	plan.Active = mismatch == ""
@@ -718,15 +709,9 @@ func parseProviderPlan(output string) (providerPlanResponse, error) {
 		return providerPlanResponse{}, errors.New("provider plan unexpectedly reports mutation")
 	}
 	return providerPlanResponse{
-		Success:         true,
-		ProfileID:       values["PROFILE_ID"],
-		ProfileName:     values["PROFILE_NAME"],
-		Endpoint:        values["ENDPOINT"],
-		CurrentOutbound: values["CURRENT_OUTBOUND"],
-		XrayRunning:     values["XRAY_RUNNING"] == "yes",
-		CandidateValid:  values["CANDIDATE_XRAY_VALID"] == "yes",
-		ExpectedDelta:   values["EXPECTED_DELTA"],
-		ExpectedNoDelta: values["EXPECTED_NO_DELTA"],
-		Mutation:        values["MUTATION"],
+		Success: true, ProfileID: values["PROFILE_ID"], ProfileName: values["PROFILE_NAME"], Endpoint: values["ENDPOINT"],
+		CurrentOutbound: values["CURRENT_OUTBOUND"], XrayRunning: values["XRAY_RUNNING"] == "yes",
+		CandidateValid: values["CANDIDATE_XRAY_VALID"] == "yes", ExpectedDelta: values["EXPECTED_DELTA"],
+		ExpectedNoDelta: values["EXPECTED_NO_DELTA"], Mutation: values["MUTATION"],
 	}, nil
 }
