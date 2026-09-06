@@ -391,9 +391,9 @@ accept_runtime() {
             sleep 1
         done
         [ "$OK" = yes ] || return 1
-        pidof xray >/dev/null 2>&1 || return 1
-        # DNS topology is independent from FreeNet application self-update.
-        # Exact Xray config hashes below must remain unchanged, whether dns-out exists or not.
+        # Xray process state belongs to the pre-existing VPN runtime, not to the
+        # FreeNet application update. A Direct-DNS router may intentionally have
+        # Xray offline. Exact Xray config hashes below are the update invariant.
     fi
 
     snapshot_xray "$TMP_DIR/xray-hashes.after" || return 1
