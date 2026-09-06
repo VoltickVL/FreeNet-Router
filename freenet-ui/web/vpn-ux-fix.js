@@ -658,6 +658,68 @@
     loadPolicyGeoFiles();
   }
 
+  let splitDNSCapabilityAttempts = 0;
+
+  function showSplitDNSMemoryNotice(text) {
+    let notice = qs('#splitDNSMemoryNotice');
+    const hint = qs('#networkHint');
+    if (!notice && hint && hint.parentNode) {
+      notice = document.createElement('div');
+      notice.id = 'splitDNSMemoryNotice';
+      notice.className = 'notice show bad';
+      notice.style.marginTop = '10px';
+      hint.parentNode.insertBefore(notice, hint.nextSibling);
+    }
+    if (notice) {
+      notice.textContent = text;
+      notice.className = 'notice show bad';
+    }
+  }
+
+  async function mountSplitDNSMemoryGate() {
+    const select = qs('#dnsModeSelect');
+    if (!select) return;
+    const option = select.querySelector('option[value="xkeen"]');
+    if (!option) return;
+
+    // Fail closed in the browser until the authenticated hardware capability
+    // endpoint explicitly confirms enough RAM. Backend enforcement is separate.
+    option.disabled = true;
+    option.textContent = 'XKeen/Xray DNS — проверка ОЗУ…';
+
+    try {
+      const r = await fetch('/api/capabilities', {cache: 'no-store'});
+      if (r.status === 401) {
+        if (typeof loadAuthStatus === 'function') await loadAuthStatus();
+        splitDNSCapabilityAttempts++;
+        if (splitDNSCapabilityAttempts < 20) setTimeout(mountSplitDNSMemoryGate, 1500);
+        return;
+      }
+      const capability = await r.json();
+      const supported = !!(r.ok && capability && capability.success && capability.split_dns_supported);
+      const oldNotice = qs('#splitDNSMemoryNotice');
+      if (supported) {
+        option.disabled = false;
+        option.textContent = 'XKeen/Xray DNS';
+        if (oldNotice) oldNotice.remove();
+        return;
+      }
+
+      option.disabled = true;
+      option.textContent = 'XKeen/Xray DNS — недоступно (мало ОЗУ)';
+      const mem = Number(capability && capability.memory_total_mib) || 0;
+      const min = Number(capability && capability.split_dns_min_mib) || 768;
+      const reason = String((capability && capability.reason) || '').trim();
+      showSplitDNSMemoryNotice(reason || (mem
+        ? `XKeen/Xray DNS недоступен: обнаружено ${mem} MiB RAM, требуется не менее ${min} MiB. Используйте DNS напрямую через роутер.`
+        : 'XKeen/Xray DNS недоступен: объём RAM не удалось безопасно определить. Используйте DNS напрямую через роутер.'));
+    } catch (_) {
+      option.disabled = true;
+      option.textContent = 'XKeen/Xray DNS — недоступно';
+      showSplitDNSMemoryNotice('FreeNet не смог подтвердить достаточный объём RAM. XKeen/Xray DNS заблокирован; используйте DNS напрямую через роутер.');
+    }
+  }
+
   function mount() {
     patchNavigation();
     patchStatusRendering();
@@ -665,6 +727,7 @@
     patchProfileSelection();
     patchNativeEngineMigrationFlow();
     mountPolicyPreview();
+    mountSplitDNSMemoryGate();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
