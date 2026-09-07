@@ -33,17 +33,28 @@ func parseBestServerHTTPResponseMS(output string) (int, bool) {
 	return ms, true
 }
 
-// parseBestServerDownloadMbps measures the completed response body phase rather
-// than curl's whole-transfer average. A fresh SOCKS/TCP/TLS connection can take
-// several RTTs before the first byte and made the old 1 MiB probe under-report a
-// high-capacity remote VPN by orders of magnitude.
+// parseBestServerDownloadMbps measures a completed response body. It remains
+// strict for short media segments where a truncated object must not look like a
+// clean sample.
 func parseBestServerDownloadMbps(output string, expectedBytes int64) (float64, bool) {
+	if expectedBytes <= 0 {
+		return 0, false
+	}
+	return parseBestServerDownloadMbpsAtLeast(output, int64(math.Ceil(float64(expectedBytes)*0.99)))
+}
+
+// parseBestServerDownloadMbpsAtLeast accepts a bounded capacity transfer even
+// when curl hit its overall deadline, provided enough response body bytes were
+// received to form a useful sustained-throughput sample. curl still emits the
+// -w timing fields on timeout, so discarding that sample made v0.2.85 show
+// "speed unavailable" despite a healthy VPN path.
+func parseBestServerDownloadMbpsAtLeast(output string, minimumBytes int64) (float64, bool) {
 	fields := strings.Fields(output)
-	if len(fields) != 4 || !bestServerHTTPStatusOK(fields[0]) || expectedBytes <= 0 {
+	if len(fields) != 4 || !bestServerHTTPStatusOK(fields[0]) || minimumBytes <= 0 {
 		return 0, false
 	}
 	size, err := strconv.ParseFloat(fields[1], 64)
-	if err != nil || size < float64(expectedBytes)*0.99 {
+	if err != nil || size < float64(minimumBytes) {
 		return 0, false
 	}
 	startTransfer, err := strconv.ParseFloat(fields[2], 64)
