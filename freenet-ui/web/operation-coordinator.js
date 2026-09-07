@@ -115,3 +115,278 @@
     }
   };
 })();
+
+(() => {
+  const qs = (selector, root = document) => root.querySelector(selector);
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let recommendation = null;
+  let scanBusy = false;
+  let applyBusy = false;
+  let authRetries = 0;
+
+  function setText(node, value) {
+    if (node) node.textContent = value || '';
+  }
+
+  function mountBestServerUI() {
+    const quick = qs('#quickActionsSection');
+    if (!quick) return null;
+
+    const head = quick.querySelector('.card-head');
+    const title = head && head.querySelector('h2');
+    const hint = head && head.querySelector('.hint');
+    if (title) title.textContent = 'Лучший VPN';
+    if (hint) hint.textContent = 'FreeNet сам проверяет доступные Extra-профили и рекомендует лучший.';
+
+    const countries = quick.querySelector('.quick-layout');
+    if (countries) countries.remove();
+
+    const profilesList = qs('#profilesList');
+    const profileLabel = profilesList && profilesList.querySelector('label[for="profileSearch"]');
+    if (profileLabel) profileLabel.textContent = 'Ручной выбор Extra-профиля';
+
+    let card = qs('#bestServerCard');
+    if (!card) {
+      card = document.createElement('div');
+      card.id = 'bestServerCard';
+      card.className = 'selected-profile';
+      card.style.marginTop = '4px';
+
+      const name = document.createElement('strong');
+      name.id = 'bestServerName';
+      name.textContent = 'Ищем лучший VPN…';
+      const endpoint = document.createElement('span');
+      endpoint.id = 'bestServerEndpoint';
+      endpoint.className = 'selected-endpoint';
+      endpoint.textContent = 'Проверяем доступные Extra-профили без переключения текущего VPN.';
+      const metrics = document.createElement('span');
+      metrics.id = 'bestServerMetrics';
+      metrics.className = 'selected-note';
+      metrics.textContent = 'MUTATION: NONE';
+      card.appendChild(name);
+      card.appendChild(endpoint);
+      card.appendChild(metrics);
+
+      const actions = document.createElement('div');
+      actions.id = 'bestServerActions';
+      actions.className = 'action-row';
+      actions.style.marginTop = '10px';
+      const apply = document.createElement('button');
+      apply.id = 'bestServerApply';
+      apply.type = 'button';
+      apply.className = 'btn primary';
+      apply.disabled = true;
+      apply.textContent = 'Переключиться на лучший';
+      const refresh = document.createElement('button');
+      refresh.id = 'bestServerRefresh';
+      refresh.type = 'button';
+      refresh.className = 'btn secondary';
+      refresh.textContent = 'Проверить заново';
+      actions.appendChild(apply);
+      actions.appendChild(refresh);
+
+      const stats = document.createElement('div');
+      stats.id = 'bestServerStats';
+      stats.className = 'hint';
+      stats.textContent = 'Оценка выполняется read-only: live VPN, ISP, DNS и routing не изменяются.';
+
+      const anchor = profilesList || quick.querySelector('.action-row');
+      if (anchor) {
+        quick.insertBefore(card, anchor);
+        quick.insertBefore(actions, anchor);
+        quick.insertBefore(stats, anchor);
+      } else {
+        quick.appendChild(card);
+        quick.appendChild(actions);
+        quick.appendChild(stats);
+      }
+      apply.addEventListener('click', applyBestServer);
+      refresh.addEventListener('click', () => scanBestServer(true));
+    }
+
+    const routine = qs('#updateBtn') && qs('#updateBtn').closest('.action-row');
+    const guard = qs('#quickNetworkGuard');
+    if (routine && !qs('#bestServerAdvanced')) {
+      const details = document.createElement('details');
+      details.id = 'bestServerAdvanced';
+      details.style.marginTop = '10px';
+      const summary = document.createElement('summary');
+      summary.className = 'hint';
+      summary.style.cursor = 'pointer';
+      summary.textContent = 'Дополнительные VPN-действия';
+      routine.parentNode.insertBefore(details, routine);
+      details.appendChild(summary);
+      details.appendChild(routine);
+      if (guard) details.appendChild(guard);
+    }
+    return card;
+  }
+
+  function setBusy(busy) {
+    scanBusy = busy;
+    const refresh = qs('#bestServerRefresh');
+    const apply = qs('#bestServerApply');
+    if (refresh) {
+      refresh.disabled = busy || applyBusy;
+      refresh.textContent = busy ? 'Проверяем…' : 'Проверить заново';
+    }
+    if (apply) apply.disabled = busy || applyBusy || !recommendation || recommendation.current;
+  }
+
+  function confidenceLabel(value) {
+    if (value === 'high') return 'высокая';
+    if (value === 'medium') return 'средняя';
+    return 'не определена';
+  }
+
+  function renderBestServer(data) {
+    recommendation = data && data.available ? data.recommendation : null;
+    const name = qs('#bestServerName');
+    const endpoint = qs('#bestServerEndpoint');
+    const metrics = qs('#bestServerMetrics');
+    const stats = qs('#bestServerStats');
+    const apply = qs('#bestServerApply');
+
+    if (!data || !data.success) {
+      setText(name, 'Рекомендация недоступна');
+      setText(endpoint, 'FreeNet не получил достоверный результат. Текущий VPN не изменён.');
+      setText(metrics, 'Повторного переключения или догадки нет.');
+      if (stats) stats.textContent = 'Можно запустить read-only проверку заново.';
+      if (apply) apply.disabled = true;
+      return;
+    }
+
+    const scanned = Number(data.profiles_scanned || 0);
+    const total = Number(data.profiles_total || scanned);
+    if (!recommendation) {
+      setText(name, 'Нет достоверно лучшего профиля');
+      setText(endpoint, 'Проверенные кандидаты не прошли полный VPN application probe.');
+      setText(metrics, 'Текущий VPN сохранён без изменений. MUTATION: NONE.');
+      if (stats) stats.textContent = `Проверено профилей: ${scanned} из ${total}.`;
+      if (apply) apply.disabled = true;
+      return;
+    }
+
+    const prefix = recommendation.current ? 'Текущий VPN уже лучший: ' : 'Рекомендуем: ';
+    setText(name, prefix + (recommendation.name || 'Extra-профиль'));
+    setText(endpoint, recommendation.endpoint || 'endpoint не указан');
+    const app = recommendation.application_rtt_ms ? `${recommendation.application_rtt_ms} мс через VPN` : 'VPN RTT —';
+    const tcp = recommendation.tcp_rtt_ms ? `${recommendation.tcp_rtt_ms} мс до endpoint` : 'endpoint RTT —';
+    const jitter = Number.isFinite(Number(recommendation.jitter_ms)) ? `${recommendation.jitter_ms} мс jitter` : '';
+    setText(metrics, `${app} · ${tcp}${jitter ? ' · ' + jitter : ''} · уверенность ${confidenceLabel(recommendation.confidence)}`);
+    if (stats) {
+      stats.textContent = `${data.message || 'Рекомендация готова.'} Проверено ${scanned} из ${total} профилей. Scan: MUTATION NONE.`;
+    }
+    if (apply) {
+      apply.disabled = recommendation.current || scanBusy || applyBusy;
+      apply.textContent = recommendation.current ? 'Уже используется лучший' : 'Переключиться на лучший';
+    }
+  }
+
+  async function scanBestServer(force) {
+    if (scanBusy || applyBusy) return;
+    mountBestServerUI();
+    setBusy(true);
+    setText(qs('#bestServerName'), 'Ищем лучший VPN…');
+    setText(qs('#bestServerEndpoint'), 'Сначала проверяем доступность серверов, затем shortlist через временный Xray candidate.');
+    setText(qs('#bestServerMetrics'), 'Live VPN не переключается. MUTATION: NONE.');
+    try {
+      const response = await fetch('/api/vpn/best' + (force ? '?refresh=1' : ''), {cache: 'no-store'});
+      if (response.status === 401) {
+        if (authRetries++ < 20) setTimeout(() => scanBestServer(false), 3000);
+        return;
+      }
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body || !body.success) {
+        renderBestServer(null);
+        return;
+      }
+      authRetries = 0;
+      renderBestServer(body);
+    } catch (_) {
+      renderBestServer(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function waitForEndpoint(expected) {
+    for (let i = 0; i < 35; i++) {
+      try {
+        const response = await fetch('/api/status', {cache: 'no-store'});
+        if (response.ok) {
+          const status = await response.json();
+          if (status && status.xray_online && status.endpoint === expected) return status;
+        }
+      } catch (_) {}
+      await wait(850);
+    }
+    return null;
+  }
+
+  async function applyBestServer() {
+    if (applyBusy || scanBusy || !recommendation || recommendation.current || !recommendation.id) return;
+    applyBusy = true;
+    setBusy(false);
+    const apply = qs('#bestServerApply');
+    const refresh = qs('#bestServerRefresh');
+    if (apply) {
+      apply.disabled = true;
+      apply.textContent = 'Переключаем…';
+    }
+    if (refresh) refresh.disabled = true;
+    setText(qs('#bestServerName'), 'Переключаемся на рекомендованный VPN…');
+    setText(qs('#bestServerMetrics'), 'Используется transactional provider apply; после операции проверяем фактический endpoint.');
+
+    const expectedEndpoint = recommendation.endpoint;
+    try {
+      const response = await fetch('/api/network-profile/apply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({operation: 'provider', profile_id: recommendation.id, confirm: true})
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body || !body.success) {
+        setText(qs('#bestServerName'), 'VPN не переключён');
+        setText(qs('#bestServerEndpoint'), expectedEndpoint);
+        setText(qs('#bestServerMetrics'), (body && (body.primary_error || body.error)) || 'Операция завершилась ошибкой; автоматического повтора нет.');
+        return;
+      }
+
+      const status = await waitForEndpoint(expectedEndpoint);
+      if (!status) {
+        setText(qs('#bestServerName'), 'Требуется проверка фактического состояния');
+        setText(qs('#bestServerEndpoint'), expectedEndpoint);
+        setText(qs('#bestServerMetrics'), 'Apply завершён, но endpoint ещё не подтверждён. Blind retry не выполняется.');
+        return;
+      }
+      setText(qs('#bestServerName'), 'Подключено: ' + (status.country || recommendation.name || 'VPN') + (status.city ? ' · ' + status.city : ''));
+      setText(qs('#bestServerEndpoint'), status.endpoint || expectedEndpoint);
+      setText(qs('#bestServerMetrics'), 'Фактический endpoint подтверждён. Обновляем рекомендацию…');
+      recommendation = null;
+      await scanBestServer(true);
+    } catch (_) {
+      setText(qs('#bestServerName'), 'Связь прервалась во время переключения');
+      setText(qs('#bestServerEndpoint'), expectedEndpoint);
+      setText(qs('#bestServerMetrics'), 'Operation Coordinator сначала reconciles фактический результат; второй mutation автоматически не запускается.');
+    } finally {
+      applyBusy = false;
+      if (refresh) refresh.disabled = false;
+      if (apply) {
+        apply.textContent = recommendation && recommendation.current ? 'Уже используется лучший' : 'Переключиться на лучший';
+        apply.disabled = !recommendation || recommendation.current || scanBusy;
+      }
+    }
+  }
+
+  function start() {
+    if (!mountBestServerUI()) return;
+    setTimeout(() => scanBestServer(false), 900);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, {once: true});
+  } else {
+    start();
+  }
+})();
