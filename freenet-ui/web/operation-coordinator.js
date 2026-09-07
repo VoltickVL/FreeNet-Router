@@ -134,25 +134,65 @@
     const style = document.createElement('style');
     style.id = 'overviewCompactStyle';
     style.textContent = `
-      .topbar.compact-vpn-topbar{height:72px;display:grid;grid-template-columns:auto minmax(260px,1fr) auto;gap:20px;align-items:center}
-      .top-vpn-summary{justify-self:center;min-width:0;max-width:560px;width:100%;display:flex;align-items:center;gap:10px;padding:7px 12px;border:1px solid rgba(51,73,103,.72);border-radius:12px;background:rgba(13,25,40,.72);box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}
+      .topbar.compact-vpn-topbar{height:72px;display:grid;grid-template-columns:auto minmax(360px,1fr) auto;gap:18px;align-items:center}
+      .top-vpn-summary{justify-self:center;min-width:0;max-width:650px;width:100%;display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px;padding:7px 12px;border:1px solid rgba(51,73,103,.78);border-radius:12px;background:rgba(13,25,40,.78);box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
       .top-vpn-flag{width:28px;height:19px;border-radius:4px;box-shadow:none}
-      .top-vpn-copy{display:flex;align-items:baseline;gap:10px;min-width:0;flex:1}
+      .top-vpn-copy{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;min-width:0}
+      .top-vpn-identity{display:flex;align-items:baseline;gap:9px;min-width:0}
+      .top-vpn-label{font-size:9px;font-weight:850;letter-spacing:.11em;text-transform:uppercase;color:var(--accent2);white-space:nowrap}
       .top-vpn-profile{font-size:12px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .top-vpn-endpoint{font-size:10px;color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:nowrap}
-      .top-health-state{padding:7px 10px;border:1px solid rgba(51,73,103,.72);border-radius:999px;background:rgba(13,25,40,.72);color:var(--muted);font-weight:700;letter-spacing:.01em}
+      .top-health-state{padding:7px 10px;border:1px solid rgba(51,73,103,.78);border-radius:999px;background:rgba(13,25,40,.78);color:var(--muted);font-weight:750;letter-spacing:.01em;white-space:nowrap}
       .top-health-state .dot{width:7px;height:7px;box-shadow:none}
       .top-health-state .dot.ok{box-shadow:none}
       .overview-compact-grid{grid-template-columns:minmax(0,1fr)!important}
       .overview-compact-grid #quickActionsSection{width:100%;max-width:none}
       .overview-hero-source{display:none!important}
-      @media(max-width:980px){.topbar.compact-vpn-topbar{grid-template-columns:auto minmax(0,1fr) auto;gap:10px}.top-vpn-summary{justify-self:stretch}.top-vpn-endpoint{display:none}}
-      @media(max-width:700px){.top-vpn-copy{display:block}.top-vpn-profile{display:block}.top-health-state #topStatus{display:none}.top-health-state{padding:8px}.top-vpn-summary{padding:7px 9px}}
+      @media(max-width:1100px){.topbar.compact-vpn-topbar{grid-template-columns:auto minmax(260px,1fr) auto;gap:10px}.top-vpn-summary{justify-self:stretch}.top-vpn-endpoint{display:none}}
+      @media(max-width:760px){.top-vpn-copy{display:block}.top-vpn-identity{display:block}.top-vpn-label{display:block;margin-bottom:2px}.top-vpn-profile{display:block}.top-health-state #topStatus{display:none}.top-health-state{padding:8px}.top-vpn-summary{padding:7px 9px}}
     `;
     document.head.appendChild(style);
   }
 
+  function healthStateFromStatus(s) {
+    if (!s) return {healthy: false, label: 'Проверяем состояние'};
+    const xrayHealthy = !!s.xray_online;
+    const xrayDNS = s.dns_mode === 'xkeen';
+    const dnsHealthy = xrayDNS ? !!s.dns_out_present : true;
+    if (!xrayHealthy) return {healthy: false, label: 'VPN не работает'};
+    if (!dnsHealthy) return {healthy: false, label: 'DNS требует внимания'};
+    return {healthy: true, label: xrayDNS ? 'VPN + DNS OK' : 'VPN OK · DNS напрямую'};
+  }
+
+  function renderOverviewTopbarFromStatus(s) {
+    if (!s) return;
+    const topProfile = qs('#topVpnProfile');
+    const topEndpoint = qs('#topVpnEndpoint');
+    const topFlag = qs('#topVpnFlag');
+    const profile = s.country ? `${s.country}${s.city ? ' · ' + s.city : ''}` : 'VPN не определён';
+    if (topProfile) topProfile.textContent = profile;
+    if (topEndpoint) topEndpoint.textContent = s.endpoint || '—';
+    if (topFlag) {
+      const code = String(s.country_code || '').trim().toLowerCase();
+      const flagClass = /^[a-z]{2}$/.test(code) ? `flag-${code}` : 'flag-unknown';
+      topFlag.className = `flag-icon top-vpn-flag ${flagClass}`;
+      topFlag.setAttribute('aria-label', profile);
+    }
+    const health = healthStateFromStatus(s);
+    const dot = qs('#topDot');
+    const status = qs('#topStatus');
+    if (dot) dot.className = 'dot ' + (health.healthy ? 'ok' : 'bad');
+    if (status) status.textContent = health.label;
+  }
+
   function syncOverviewTopbar() {
+    try {
+      if (typeof lastStatus !== 'undefined' && lastStatus) {
+        renderOverviewTopbarFromStatus(lastStatus);
+        return;
+      }
+    } catch (_) {}
+
     const profile = qs('#profile');
     const endpoint = qs('#endpoint');
     const sourceFlag = qs('#heroFlag');
@@ -169,11 +209,24 @@
 
     const xray = (qs('#xrayState') && qs('#xrayState').textContent || '').toLowerCase();
     const dns = (qs('#dnsState') && qs('#dnsState').textContent || '').toLowerCase();
-    const healthy = xray.includes('работает') && dns.includes('защищ');
+    const dnsHealthy = dns.includes('защищ') || dns.includes('напрямую') || dns.includes('xkeen/xray');
+    const healthy = xray.includes('работает') && dnsHealthy;
     const dot = qs('#topDot');
     const status = qs('#topStatus');
     if (dot) dot.className = 'dot ' + (healthy ? 'ok' : 'bad');
     if (status) status.textContent = healthy ? 'VPN + DNS OK' : 'Система требует внимания';
+  }
+
+  function installOverviewTopbarStatusHook() {
+    if (typeof updateStatusViews !== 'function' || updateStatusViews.__freenetOverviewTopbarHook) return;
+    const previousUpdateStatusViews = updateStatusViews;
+    const wrapped = function(s) {
+      const result = previousUpdateStatusViews.apply(this, arguments);
+      queueMicrotask(() => renderOverviewTopbarFromStatus(s));
+      return result;
+    };
+    wrapped.__freenetOverviewTopbarHook = true;
+    updateStatusViews = wrapped;
   }
 
   function mountOverviewTopbar() {
@@ -206,22 +259,29 @@
 
       const copy = document.createElement('span');
       copy.className = 'top-vpn-copy';
+      const identity = document.createElement('span');
+      identity.className = 'top-vpn-identity';
+      const label = document.createElement('span');
+      label.className = 'top-vpn-label';
+      label.textContent = 'Текущий VPN';
       const profile = document.createElement('strong');
       profile.id = 'topVpnProfile';
       profile.className = 'top-vpn-profile';
-      profile.textContent = 'Определяем VPN…';
+      profile.textContent = 'Определяем…';
+      identity.appendChild(label);
+      identity.appendChild(profile);
       const endpoint = document.createElement('span');
       endpoint.id = 'topVpnEndpoint';
       endpoint.className = 'top-vpn-endpoint';
       endpoint.textContent = '—';
-      copy.appendChild(profile);
+      copy.appendChild(identity);
       copy.appendChild(endpoint);
       summary.appendChild(flag);
       summary.appendChild(copy);
       topbar.insertBefore(summary, topActions);
     }
 
-    const watched = ['#profile', '#endpoint', '#heroFlag', '#xrayState', '#dnsState'].map(qs).filter(Boolean);
+    const watched = ['#profile', '#endpoint', '#heroFlag', '#xrayState', '#dnsState'].map(selector => qs(selector)).filter(Boolean);
     if (watched.length) {
       const observer = new MutationObserver(syncOverviewTopbar);
       watched.forEach(node => observer.observe(node, {subtree: true, childList: true, characterData: true, attributes: true}));
@@ -475,7 +535,7 @@
       setText(qs('#bestServerEndpoint'), status.endpoint || expectedEndpoint);
       setText(qs('#bestServerMetrics'), 'Фактический endpoint подтверждён. Обновляем рекомендацию…');
       recommendation = null;
-      syncOverviewTopbar();
+      renderOverviewTopbarFromStatus(status);
       await scanBestServer(true);
     } catch (_) {
       setText(qs('#bestServerName'), 'Связь прервалась во время переключения');
@@ -493,6 +553,8 @@
 
   function start() {
     mountOverviewTopbar();
+    installOverviewTopbarStatusHook();
+    syncOverviewTopbar();
     if (!mountBestServerUI()) return;
     setTimeout(() => scanBestServer(false), 900);
   }

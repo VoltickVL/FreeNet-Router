@@ -65,9 +65,16 @@ func TestOverviewMovesCurrentVPNIntoProfessionalTopbar(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"topVpnSummary",
+		"top-vpn-label",
+		"Текущий VPN",
 		"overview-hero-source",
 		"overview-compact-grid",
+		"renderOverviewTopbarFromStatus",
+		"installOverviewTopbarStatusHook",
+		"queueMicrotask",
+		"typeof lastStatus !== 'undefined'",
 		"VPN + DNS OK",
+		"VPN OK · DNS напрямую",
 		"Система требует внимания",
 	} {
 		if !strings.Contains(js, want) {
@@ -76,5 +83,19 @@ func TestOverviewMovesCurrentVPNIntoProfessionalTopbar(t *testing.T) {
 	}
 	if strings.Contains(js, "FreeNet доступен") {
 		t.Fatal("topbar must report actual VPN/DNS health, not tautological FreeNet availability")
+	}
+}
+
+func TestOverviewTopbarWatcherDoesNotPassArrayIndexAsQueryRoot(t *testing.T) {
+	data, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	if strings.Contains(js, ".map(qs)") {
+		t.Fatal("Array.map(qs) passes the numeric array index as qs root and breaks topbar synchronization at runtime")
+	}
+	if !strings.Contains(js, ".map(selector => qs(selector))") {
+		t.Fatal("topbar watcher must resolve selectors explicitly")
 	}
 }
