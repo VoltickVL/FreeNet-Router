@@ -22,15 +22,15 @@ var bestServerMediaServiceURLs = []string{
 }
 
 type bestServerMediaQualityResult struct {
-	OK             bool
-	Samples        int
-	MedianMbps     float64
-	MinMbps        float64
-	Stalls         int
-	ServiceOK      int
-	ServiceTotal   int
-	Grade          string
-	Penalty        int
+	OK           bool
+	Samples      int
+	MedianMbps   float64
+	MinMbps      float64
+	Stalls       int
+	ServiceOK    int
+	ServiceTotal int
+	Grade        string
+	Penalty      int
 }
 
 func summarizeBestServerMediaQuality(speeds []float64, serviceOK, serviceTotal int) bestServerMediaQualityResult {
@@ -100,13 +100,14 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 			"https://speed.cloudflare.com/__down?bytes=1048576&freenet_segment="+string(rune('a'+i)),
 		)
 	}
-	output, err := exec.CommandContext(mediaCtx, curlPath, args...).Output()
+	// curl can return a non-zero exit status when one transfer hits the bounded
+	// deadline while still returning valid -w records for transfers that already
+	// completed. Keep those records instead of throwing away the whole sample set.
+	output, _ := exec.CommandContext(mediaCtx, curlPath, args...).Output()
 	speeds := make([]float64, 0, bestServerMediaChunkRuns)
-	if err == nil {
-		for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-			if mbps, ok := parseBestServerDownloadMbps(line, bestServerMediaChunkBytes); ok {
-				speeds = append(speeds, mbps)
-			}
+	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if mbps, ok := parseBestServerDownloadMbps(line, bestServerMediaChunkBytes); ok {
+			speeds = append(speeds, mbps)
 		}
 	}
 
@@ -116,17 +117,15 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 			break
 		}
 		probeCtx, cancelProbe := context.WithTimeout(mediaCtx, 4*time.Second)
-		out, probeErr := exec.CommandContext(probeCtx, curlPath,
+		out, _ := exec.CommandContext(probeCtx, curlPath,
 			"--socks5-hostname", socks,
 			"-sS", "-I", "-L", "--max-redirs", "2",
 			"--connect-timeout", "3", "--max-time", "4",
 			"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", url,
 		).Output()
 		cancelProbe()
-		if probeErr == nil {
-			if _, ok := parseBestServerHTTPResponseMS(string(out)); ok {
-				serviceOK++
-			}
+		if _, ok := parseBestServerHTTPResponseMS(string(out)); ok {
+			serviceOK++
 		}
 	}
 	return summarizeBestServerMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
