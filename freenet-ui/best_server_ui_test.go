@@ -21,6 +21,8 @@ func TestBestServerUIReplacesManualQuickCountries(t *testing.T) {
 		"operation: 'provider'",
 		"profile_id: recommendation.id",
 		"MUTATION: NONE",
+		"HTTP-отклик",
+		"Мбит/с",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Best Server UI contract missing %q", want)
@@ -33,8 +35,8 @@ func TestBestServerRouteIsRegistered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "registerBestServerAPI(mux, a)") {
-		t.Fatal("Best Server API must be registered at startup")
+	if !strings.Contains(string(data), "registerBestServerQualityAPI(mux, a)") {
+		t.Fatal("Best Server quality API must be registered at startup")
 	}
 }
 
@@ -52,5 +54,27 @@ func TestBestServerUIKeepsExactProfileFallback(t *testing.T) {
 	}
 	if !strings.Contains(string(js), "Ручной выбор Extra-профиля") {
 		t.Fatal("manual exact selector must be clearly demoted to fallback")
+	}
+}
+
+func TestOverviewMovesCurrentVPNIntoProfessionalTopbar(t *testing.T) {
+	data, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"topVpnSummary",
+		"overview-hero-source",
+		"overview-compact-grid",
+		"VPN + DNS OK",
+		"Система требует внимания",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("compact Overview/topbar contract missing %q", want)
+		}
+	}
+	if strings.Contains(js, "FreeNet доступен") {
+		t.Fatal("topbar must report actual VPN/DNS health, not tautological FreeNet availability")
 	}
 }
