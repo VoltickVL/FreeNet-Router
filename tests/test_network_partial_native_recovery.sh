@@ -17,22 +17,42 @@ cat > "$TROOT/etc/init.d/S05xkeen" <<'EOF'
 proxy_dns="off"
 EOF
 chmod 755 "$TROOT/etc/init.d/S05xkeen"
-cat > "$TROOT/etc/xray/configs/02_dns.json" <<'EOF'
+printf '#!/bin/sh\nexit 0\n' > "$TROOT/sbin/xkeen"; chmod 755 "$TROOT/sbin/xkeen"
+printf '#!/bin/sh\nexit 0\n' > "$TROOT/sbin/xray"; chmod 755 "$TROOT/sbin/xray"
+
+write_split_xray_config() {
+    cat > "$TROOT/etc/xray/configs/02_dns.json" <<'EOF'
 {"dns":{"tag":"dns-vless","servers":[{"address":"https://8.8.8.8/dns-query","tag":"dns-vless","finalQuery":true}],"queryStrategy":"UseIPv4"}}
 EOF
-cat > "$TROOT/etc/xray/configs/03_inbounds.json" <<'EOF'
+    cat > "$TROOT/etc/xray/configs/03_inbounds.json" <<'EOF'
 {"inbounds":[{"tag":"redirect","port":5000,"protocol":"dokodemo-door"},{"tag":"dns","port":53,"protocol":"dokodemo-door","settings":{"network":"tcp,udp"}}]}
 EOF
-cat > "$TROOT/etc/xray/configs/04_outbounds.json" <<'EOF'
+    cat > "$TROOT/etc/xray/configs/04_outbounds.json" <<'EOF'
 {"outbounds":[{"tag":"vless-reality","protocol":"freedom"},{"tag":"direct","protocol":"freedom"},{"tag":"dns-out","protocol":"dns"}]}
 EOF
-cat > "$TROOT/etc/xray/configs/05_routing.json" <<'EOF'
+    cat > "$TROOT/etc/xray/configs/05_routing.json" <<'EOF'
 {"routing":{"rules":[{"type":"field","inboundTag":["dns-vless"],"outboundTag":"vless-reality"},{"type":"field","inboundTag":["dns-direct"],"outboundTag":"direct"},{"type":"field","port":53,"outboundTag":"dns-out"},{"type":"field","domain":["ext:geosite.dat:youtube"],"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"vless-reality"}]}}
 EOF
-printf '{}\n' > "$TROOT/etc/freenet/native-dns/02_dns.native"
-sha256sum "$TROOT/etc/freenet/native-dns/02_dns.native" | awk '{print $1}' > "$TROOT/etc/freenet/native-dns/02_dns.native.sha256"
-printf 'public\n' > "$TROOT/etc/freenet/native-dns/filter-engine.native"
-printf 'on\n' > "$TROOT/etc/freenet/native-dns/intercept.native"
+}
+
+write_native_snapshot() {
+    printf '{}\n' > "$TROOT/etc/freenet/native-dns/02_dns.native"
+    sha256sum "$TROOT/etc/freenet/native-dns/02_dns.native" | awk '{print $1}' > "$TROOT/etc/freenet/native-dns/02_dns.native.sha256"
+    printf 'public\n' > "$TROOT/etc/freenet/native-dns/filter-engine.native"
+    printf 'on\n' > "$TROOT/etc/freenet/native-dns/intercept.native"
+}
+
+run_network() {
+    FREENET_ROOT="$TROOT" FREENET_BACKUP_ROOT="$TROOT/backups" \
+    FREENET_CONFIG_FILE="$TROOT/etc/freenet/freenet.conf" FREENET_CONFIG_DIR="$TROOT/etc/xray/configs" \
+    FREENET_XRAY_ASSET_DIR="$TROOT/etc/xray/dat" FREENET_XKEEN_BIN="$TROOT/sbin/xkeen" \
+    FREENET_XRAY_BIN="$TROOT/sbin/xray" FREENET_XKEEN_RUNTIME_TIMEOUT=2 \
+    FREENET_NETWORK_TEST_MODE=yes FREENET_NETWORK_TEST_STATE="$STATE" sh "$SCRIPT" "$@"
+}
+
+# Existing supported recovery: full Split control-plane -> Native.
+write_split_xray_config
+write_native_snapshot
 cat > "$STATE" <<'EOF'
 PORT53_OWNER=xray
 NDM_DNS_OVERRIDE=on
@@ -50,20 +70,10 @@ NDM_FILTER_ENGINE_ACTION_RESULT=success
 NDM_INTERCEPT_ACTION_RESULT=success
 NDM_SAVE_RESULT=success
 EOF
-printf '#!/bin/sh\nexit 0\n' > "$TROOT/sbin/xkeen"; chmod 755 "$TROOT/sbin/xkeen"
-printf '#!/bin/sh\nexit 0\n' > "$TROOT/sbin/xray"; chmod 755 "$TROOT/sbin/xray"
 
-run_network() {
-    FREENET_ROOT="$TROOT" FREENET_BACKUP_ROOT="$TROOT/backups" \
-    FREENET_CONFIG_FILE="$TROOT/etc/freenet/freenet.conf" FREENET_CONFIG_DIR="$TROOT/etc/xray/configs" \
-    FREENET_XRAY_ASSET_DIR="$TROOT/etc/xray/dat" FREENET_XKEEN_BIN="$TROOT/sbin/xkeen" \
-    FREENET_XRAY_BIN="$TROOT/sbin/xray" FREENET_XKEEN_RUNTIME_TIMEOUT=2 \
-    FREENET_NETWORK_TEST_MODE=yes FREENET_NETWORK_TEST_STATE="$STATE" sh "$SCRIPT" "$@"
-}
-
-run_network apply > "$TMP/apply.log" 2>&1 || { cat "$TMP/apply.log" >&2; fail 'confirmed native-engine partial state did not recover'; }
-grep -Fq 'PARTIAL_NATIVE_CONTROL_PLANE=confirmed-native-engine' "$TMP/apply.log" || fail 'partial recovery marker missing'
-grep -Fq 'RESULT=SUCCESS' "$TMP/apply.log" || fail 'success marker missing'
+run_network apply > "$TMP/apply-full-split.log" 2>&1 || { cat "$TMP/apply-full-split.log" >&2; fail 'confirmed native-engine partial state did not recover'; }
+grep -Fq 'PARTIAL_NATIVE_CONTROL_PLANE=confirmed-native-engine' "$TMP/apply-full-split.log" || fail 'partial recovery marker missing'
+grep -Fq 'RESULT=SUCCESS' "$TMP/apply-full-split.log" || fail 'success marker missing'
 grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'dns override not disabled'
 grep -q '^NDM_FILTER_ENGINE=public$' "$STATE" || fail 'native engine not preserved'
 grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'native intercept not restored'
@@ -71,5 +81,45 @@ grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'ndnproxy did not regain :53'
 grep -q '^NDM_DNS_PROFILE_MARKER=preserved$' "$STATE" || fail 'protected native DNS state changed'
 jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==0' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'Xray :53 remained after native recovery'
 jq -e '([.outbounds[]? | select(.tag=="dns-out")] | length)==0' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'dns-out remained after native recovery'
+
+# MOM regression: NDM already reached Native (dns-override=off, ndnproxy owns :53)
+# while FreeNet-managed Xray DNS residue is still present on disk. This is a
+# repairable interrupted state; Direct Apply must remove only the Xray DNS layer
+# and must not bounce NDM back through opkg dns-override=on or rewrite native DNS
+# engine/intercept/assignments merely because historical Split state is stale.
+write_split_xray_config
+cat > "$STATE" <<'EOF'
+PORT53_OWNER=ndnproxy
+NDM_DNS_OVERRIDE=off
+NDM_FILTER_ENGINE=public
+NDM_DNS_INTERCEPT=on
+NDM_DNS_ASSIGNMENTS=on
+NDM_CONFIG_MARKER=preserved
+NDM_DNS_PROFILE_MARKER=preserved
+NDM_MUTATE_PROTECTED_ON_OVERRIDE=no
+XRAY_RUNNING=yes
+XRAY_GID=11111
+DNS_QUERY_OK=yes
+XKEEN_ACTION_RESULT=success
+NDM_ACTION_RESULT=fail
+NDM_FILTER_ENGINE_ACTION_RESULT=fail
+NDM_INTERCEPT_ACTION_RESULT=fail
+NDM_SAVE_RESULT=fail
+EOF
+
+run_network apply > "$TMP/apply-native-residue.log" 2>&1 || { cat "$TMP/apply-native-residue.log" >&2; fail 'native control-plane with Xray DNS residue did not reconcile'; }
+grep -Fq 'PARTIAL_NATIVE_RECONCILE=xray-dns-residue' "$TMP/apply-native-residue.log" || fail 'native residue reconcile marker missing'
+grep -Fq 'RESULT=SUCCESS' "$TMP/apply-native-residue.log" || fail 'native residue reconcile success marker missing'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'partial reconcile toggled dns-override'
+grep -q '^NDM_FILTER_ENGINE=public$' "$STATE" || fail 'partial reconcile rewrote native engine'
+grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'partial reconcile rewrote native intercept'
+grep -q '^NDM_DNS_ASSIGNMENTS=on$' "$STATE" || fail 'partial reconcile rewrote native assignments'
+grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'partial reconcile lost ndnproxy :53'
+grep -q '^NDM_DNS_PROFILE_MARKER=preserved$' "$STATE" || fail 'partial reconcile changed protected DNS state'
+jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==0' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'partial reconcile left Xray :53 inbound'
+jq -e '([.outbounds[]? | select(.tag=="dns-out")] | length)==0' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'partial reconcile left dns-out'
+jq -e '([.routing.rules[]? | select((.outboundTag // "")=="dns-out" or (((.inboundTag // []) | index("dns-vless")) != null) or (((.inboundTag // []) | index("dns-direct")) != null) or (((.port // "")|tostring)=="53"))] | length)==0' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'partial reconcile left DNS-only routing'
+jq -e 'any(.routing.rules[]?; .outboundTag=="direct" and ((.domain // []) | index("ext:geosite.dat:youtube") != null))' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'partial reconcile changed non-DNS direct routing'
+jq -e 'any(.routing.rules[]?; .outboundTag=="vless-reality" and .network=="tcp,udp")' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'partial reconcile changed non-DNS VPN routing'
 
 echo "partial native recovery: PASS"
