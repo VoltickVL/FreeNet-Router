@@ -30,3 +30,26 @@ func TestBestServerMediaQualityNeedsEnoughSamples(t *testing.T) {
 		t.Fatalf("too few media samples must fail closed: %+v", result)
 	}
 }
+
+func TestBestServerConcurrentMediaQualityUsesAggregateCapacity(t *testing.T) {
+	// Six concurrent ~40 Mbps streams represent roughly a 240 Mbps path.
+	// The old serial probe treated the same path as ~40 Mbps and could be even
+	// lower on 1 MiB objects because every transfer paid TCP slow-start.
+	result := summarizeBestServerConcurrentMediaQuality([]float64{38, 41, 39, 42, 40, 41}, 3, 3)
+	if !result.OK {
+		t.Fatalf("concurrent media sample should be usable: %+v", result)
+	}
+	if result.MedianMbps < 230 || result.MedianMbps > 260 {
+		t.Fatalf("aggregate capacity should reflect concurrent streams, got %.1f Mbps", result.MedianMbps)
+	}
+	if result.Grade != "excellent" {
+		t.Fatalf("stable ~240 Mbps aggregate path should be excellent: %+v", result)
+	}
+}
+
+func TestBestServerConcurrentMediaQualityStillFailsClosedOnTooFewStreams(t *testing.T) {
+	result := summarizeBestServerConcurrentMediaQuality([]float64{70, 68, 72}, 3, 3)
+	if result.OK {
+		t.Fatalf("concurrent probe must still require at least four completed streams: %+v", result)
+	}
+}

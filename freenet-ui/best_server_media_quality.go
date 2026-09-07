@@ -6,13 +6,16 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
-	bestServerMediaChunkBytes = 1048576
-	bestServerMediaChunkRuns  = 6
-	bestServerMediaTimeout    = 14 * time.Second
+	bestServerMediaChunkBytes   = 1048576
+	bestServerMediaChunkRuns    = 6
+	bestServerMediaTimeout      = 10 * time.Second
+	bestServerServiceTimeout    = 8 * time.Second
+	bestServerMediaStreamTimeout = 8 * time.Second
 )
 
 var bestServerMediaServiceURLs = []string{
@@ -58,6 +61,40 @@ func summarizeBestServerMediaQuality(speeds []float64, serviceOK, serviceTotal i
 		}
 	}
 
+	applyBestServerMediaGrade(&result, serviceOK, serviceTotal)
+	return result
+}
+
+// summarizeBestServerConcurrentMediaQuality is used by the real router probe.
+// Browser speed tests and normal web/video traffic open several TCP/TLS streams;
+// measuring six 1 MiB objects serially made v0.2.84-v0.2.86 understate a healthy
+// 250-300 Mbps VPN path by tens of times because every object paid slow-start.
+// The probe now downloads the same bounded 6 MiB concurrently and treats the sum
+// of body-phase stream rates as the aggregate capacity signal. Per-stream values
+// are still retained for stall detection.
+func summarizeBestServerConcurrentMediaQuality(speeds []float64, serviceOK, serviceTotal int) bestServerMediaQualityResult {
+	result := summarizeBestServerMediaQuality(speeds, serviceOK, serviceTotal)
+	if !result.OK {
+		return result
+	}
+	aggregate := 0.0
+	for _, speed := range speeds {
+		if speed > 0 {
+			aggregate += speed
+		}
+	}
+	if aggregate <= 0 {
+		result.OK = false
+		result.Grade = "unknown"
+		result.Penalty = 2600
+		return result
+	}
+	result.MedianMbps = aggregate
+	applyBestServerMediaGrade(&result, serviceOK, serviceTotal)
+	return result
+}
+
+func applyBestServerMediaGrade(result *bestServerMediaQualityResult, serviceOK, serviceTotal int) {
 	penalty := result.Stalls * 1800
 	switch {
 	case result.MedianMbps < 10:
@@ -83,44 +120,62 @@ func summarizeBestServerMediaQuality(speeds []float64, serviceOK, serviceTotal i
 	default:
 		result.Grade = "poor"
 	}
-	return result
 }
 
 func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) bestServerMediaQualityResult {
-	mediaCtx, cancel := context.WithTimeout(ctx, bestServerMediaTimeout)
-	defer cancel()
-	args := []string{
-		"--socks5-hostname", socks,
-		"-sS", "--connect-timeout", "3", "--max-time", "14",
-		"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}\n",
+	mediaCtx, cancelMedia := context.WithTimeout(ctx, bestServerMediaTimeout)
+	defer cancelMedia()
+
+	type streamResult struct {
+		mbps float64
+		ok   bool
 	}
+	results := make(chan streamResult, bestServerMediaChunkRuns)
+	var wg sync.WaitGroup
 	for i := 0; i < bestServerMediaChunkRuns; i++ {
-		args = append(args,
-			"-o", "/dev/null",
-			"https://speed.cloudflare.com/__down?bytes=1048576&freenet_segment="+string(rune('a'+i)),
-		)
+		segment := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			streamCtx, cancelStream := context.WithTimeout(mediaCtx, bestServerMediaStreamTimeout)
+			defer cancelStream()
+			url := "https://speed.cloudflare.com/__down?bytes=1048576&freenet_segment=" + string(rune('a'+segment))
+			output, _ := exec.CommandContext(streamCtx, curlPath,
+				"--socks5-hostname", socks,
+				"-sS", "--connect-timeout", "3", "--max-time", "8",
+				"-o", "/dev/null",
+				"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
+				url,
+			).Output()
+			mbps, ok := parseBestServerDownloadMbps(strings.TrimSpace(string(output)), bestServerMediaChunkBytes)
+			results <- streamResult{mbps: mbps, ok: ok}
+		}()
 	}
-	// curl can return a non-zero exit status when one transfer hits the bounded
-	// deadline while still returning valid -w records for transfers that already
-	// completed. Keep those records instead of throwing away the whole sample set.
-	output, _ := exec.CommandContext(mediaCtx, curlPath, args...).Output()
+	wg.Wait()
+	close(results)
+
 	speeds := make([]float64, 0, bestServerMediaChunkRuns)
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		if mbps, ok := parseBestServerDownloadMbps(line, bestServerMediaChunkBytes); ok {
-			speeds = append(speeds, mbps)
+	for result := range results {
+		if result.ok {
+			speeds = append(speeds, result.mbps)
 		}
 	}
 
+	// Service reachability has its own bounded budget. Reusing mediaCtx here made
+	// the checks inherit an already-expired 14s download deadline, producing 0/3
+	// service health even when the VPN itself was healthy.
+	serviceCtx, cancelServices := context.WithTimeout(ctx, bestServerServiceTimeout)
+	defer cancelServices()
 	serviceOK := 0
 	for _, url := range bestServerMediaServiceURLs {
-		if mediaCtx.Err() != nil {
+		if serviceCtx.Err() != nil {
 			break
 		}
-		probeCtx, cancelProbe := context.WithTimeout(mediaCtx, 4*time.Second)
+		probeCtx, cancelProbe := context.WithTimeout(serviceCtx, 3*time.Second)
 		out, _ := exec.CommandContext(probeCtx, curlPath,
 			"--socks5-hostname", socks,
 			"-sS", "-I", "-L", "--max-redirs", "2",
-			"--connect-timeout", "3", "--max-time", "4",
+			"--connect-timeout", "2", "--max-time", "3",
 			"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", url,
 		).Output()
 		cancelProbe()
@@ -128,7 +183,7 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 			serviceOK++
 		}
 	}
-	return summarizeBestServerMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
+	return summarizeBestServerConcurrentMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
 }
 
 func roundBestServerMediaMbps(value float64) float64 {
