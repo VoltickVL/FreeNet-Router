@@ -22,7 +22,7 @@ func TestBestServerUIReplacesManualQuickCountries(t *testing.T) {
 		"countries.remove()",
 		"operation: 'provider'",
 		"profile_id: recommendation.id",
-		"MUTATION: NONE",
+		"MUTATION NONE",
 		"HTTP-отклик",
 		"Мбит/с",
 	} {
@@ -80,7 +80,8 @@ func TestOverviewMovesCurrentVPNIntoProfessionalTopbar(t *testing.T) {
 		"typeof lastStatus !== 'undefined'",
 		"VPN + DNS OK",
 		"VPN OK · DNS напрямую",
-		"Система требует внимания",
+		"VPN не работает",
+		"DNS требует внимания",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Overview v3/topbar contract missing %q", want)
