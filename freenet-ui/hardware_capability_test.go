@@ -195,7 +195,7 @@ func TestLowMemoryInternalDraftCanRepresentExistingSplitForRollback(t *testing.T
 	memInfo := writeMemInfoFixture(t, "MemTotal:         500000 kB\n")
 	t.Setenv("FREENET_MEMINFO_PATH", memInfo)
 	a := testNetworkApp(t, "ISP_ID=vladlink\nDNS_MODE=firmware\n")
-	draft, err := a.createNetworkDraftConfig("vladlink", "xkeen")
+	draft, err := a.createNetworkDraftConfig("vladlink", "xkeen", nativeDNSProviderYandexBasic)
 	if err != nil {
 		t.Fatalf("internal rollback draft must remain representable: %v", err)
 	}
