@@ -5,6 +5,13 @@ import (
 	"testing"
 )
 
+func stableTestMedia(mbps float64) bestServerMediaQualityResult {
+	return bestServerMediaQualityResult{
+		OK: true, Samples: 6, MedianMbps: mbps, MinMbps: mbps * 0.9,
+		Stalls: 0, ServiceOK: 3, ServiceTotal: 3, Grade: "excellent", Penalty: 0,
+	}
+}
+
 func TestBestServerQualityBalancesLatencyAndThroughput(t *testing.T) {
 	candidates := []bestServerInternalCandidate{
 		{Profile: subscriptionProfile{ID: "de", Name: "Germany Frankfurt Extra", Address: "de.example", Port: 443}},
@@ -24,11 +31,11 @@ func TestBestServerQualityBalancesLatencyAndThroughput(t *testing.T) {
 	app := func(_ context.Context, c bestServerInternalCandidate) bestServerQualityApplicationResult {
 		switch c.Profile.ID {
 		case "de":
-			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{210, 220, 230}, Median: 220, Jitter: 20}, DownloadOK: true, DownloadMbps: 120}
+			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{210, 220, 230}, Median: 220, Jitter: 20}, DownloadOK: true, DownloadMbps: 120, Media: stableTestMedia(115)}
 		case "pl":
-			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{174, 180, 188}, Median: 180, Jitter: 14}, DownloadOK: true, DownloadMbps: 25}
+			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{174, 180, 188}, Median: 180, Jitter: 14}, DownloadOK: true, DownloadMbps: 25, Media: stableTestMedia(24)}
 		default:
-			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{250, 260, 270}, Median: 260, Jitter: 20}, DownloadOK: true, DownloadMbps: 80}
+			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{250, 260, 270}, Median: 260, Jitter: 20}, DownloadOK: true, DownloadMbps: 80, Media: stableTestMedia(78)}
 		}
 	}
 
@@ -43,7 +50,7 @@ func TestBestServerQualityBalancesLatencyAndThroughput(t *testing.T) {
 		t.Fatalf("expected bounded throughput metric, got %#v", result.Recommendation)
 	}
 	if result.Recommendation.Confidence != "high" {
-		t.Fatalf("expected high confidence from stable 3-sample HTTP + speed probe, got %q", result.Recommendation.Confidence)
+		t.Fatalf("expected high confidence from stable HTTP + throughput + media probes, got %q", result.Recommendation.Confidence)
 	}
 }
 
@@ -62,12 +69,30 @@ func TestBestServerQualityPenalizesMissingThroughput(t *testing.T) {
 		if c.Profile.ID == "fast-latency" {
 			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{145, 150, 155}, Median: 150, Jitter: 10}}
 		}
-		return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{210, 220, 230}, Median: 220, Jitter: 20}, DownloadOK: true, DownloadMbps: 70}
+		return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{210, 220, 230}, Median: 220, Jitter: 20}, DownloadOK: true, DownloadMbps: 70, Media: stableTestMedia(68)}
 	}
 
 	result := rankBestServerQualityCandidates(context.Background(), candidates, 2, false, "", "", tcp, app)
 	if result.Recommendation == nil || result.Recommendation.ID != "balanced" {
 		t.Fatalf("speed-unverified candidate must not beat a well-balanced measured candidate: %#v", result.Recommendation)
+	}
+}
+
+func TestBestServerQualityFailsClosedWhenSpeedUnavailable(t *testing.T) {
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "a", Name: "A", Address: "a.example", Port: 443}},
+		{Profile: subscriptionProfile{ID: "b", Name: "B", Address: "b.example", Port: 443}},
+	}
+	tcp := func(_ context.Context, _ subscriptionProfile) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{100, 105, 110}, Median: 105, Jitter: 10}
+	}
+	app := func(_ context.Context, _ bestServerInternalCandidate) bestServerQualityApplicationResult {
+		return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{170, 180, 190}, Median: 180, Jitter: 20}}
+	}
+
+	result := rankBestServerQualityCandidates(context.Background(), candidates, 2, false, "", "", tcp, app)
+	if result.Available || result.Recommendation != nil {
+		t.Fatalf("latency-only result must fail closed without throughput evidence: %#v", result.Recommendation)
 	}
 }
 
@@ -83,8 +108,8 @@ func TestBestServerQualityPrefersCurrentIdentityOnSharedEndpoint(t *testing.T) {
 		}
 		return bestServerProbeResult{OK: true, Samples: []int{115, 120, 125}, Median: 120, Jitter: 10}
 	}
-	app := func(_ context.Context, c bestServerInternalCandidate) bestServerQualityApplicationResult {
-		return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{200, 205, 210}, Median: 205, Jitter: 10}, DownloadOK: true, DownloadMbps: 80}
+	app := func(_ context.Context, _ bestServerInternalCandidate) bestServerQualityApplicationResult {
+		return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{200, 205, 210}, Median: 205, Jitter: 10}, DownloadOK: true, DownloadMbps: 80, Media: stableTestMedia(78)}
 	}
 
 	result := rankBestServerQualityCandidates(context.Background(), candidates, 3, false, "shared.example:443", "Frankfurt.*Germany", tcp, app)
