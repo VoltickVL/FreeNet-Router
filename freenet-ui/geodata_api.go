@@ -45,7 +45,7 @@ func registerGeoDataAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/geodata/search", a.requireAuth(a.handleGeoDataSearch))
 	registerPolicyPreviewAPI(mux, a)
 	registerHardwareCapabilityAPI(mux, a)
-	registerBestServerAPI(mux, a)
+	registerBestServerQualityAPI(mux, a)
 }
 
 func (a *app) geoDataAssetDir() string {
@@ -157,7 +157,6 @@ func selectGeoDataFiles(kind GeoDataKind, requested []string, installed []GeoDat
 			if file.Kind == kind || file.Kind == GeoDataUnknown {
 				selected = append(selected, file)
 			}
-		}
 		if len(selected) > maxGeoDataSelectedFiles {
 			return nil, fmt.Errorf("too many installed geodata files; select up to %d explicitly", maxGeoDataSelectedFiles)
 		}
