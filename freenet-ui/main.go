@@ -39,7 +39,7 @@ const (
 	defaultUpdateLock     = "/tmp/freenet-self-update.lock"
 )
 
-//go:embed web/index.html web/self-update.js web/vpn-ux-fix.js
+//go:embed web/index.html web/self-update.js web/vpn-ux-fix.js web/operation-coordinator.js
 var webFS embed.FS
 
 type config struct {
@@ -92,12 +92,13 @@ type actionRequest struct {
 }
 
 type actionResult struct {
-	Action    string `json:"action,omitempty"`
-	Success   bool   `json:"success"`
-	Message   string `json:"message,omitempty"`
-	Error     string `json:"error,omitempty"`
-	StartedAt string `json:"started_at,omitempty"`
-	EndedAt   string `json:"ended_at,omitempty"`
+	Action      string `json:"action,omitempty"`
+	OperationID string `json:"operation_id,omitempty"`
+	Success     bool   `json:"success"`
+	Message     string `json:"message,omitempty"`
+	Error       string `json:"error,omitempty"`
+	StartedAt   string `json:"started_at,omitempty"`
+	EndedAt     string `json:"ended_at,omitempty"`
 }
 
 type networkProfileRequest struct {
@@ -234,6 +235,7 @@ func main() {
 	mux.HandleFunc("POST /api/auth/logout", a.requireAuth(a.handleAuthLogout))
 	mux.HandleFunc("POST /api/auth/logout-all", a.requireAuth(a.handleAuthLogoutAll))
 	mux.HandleFunc("GET /api/status", a.requireAuth(a.handleStatus))
+	mux.HandleFunc("GET /api/operation/state", a.requireAuth(a.handleOperationState))
 	mux.HandleFunc("GET /api/network-profile", a.requireAuth(a.handleNetworkProfileGet))
 	mux.HandleFunc("POST /api/network-profile", a.requireAuth(a.handleNetworkProfilePost))
 	mux.HandleFunc("GET /api/network-profile/plan", a.requireAuth(a.handleNetworkProfilePlan))
@@ -318,7 +320,7 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/self-update.js" || r.URL.Path == "/vpn-ux-fix.js" {
+	if r.URL.Path == "/self-update.js" || r.URL.Path == "/vpn-ux-fix.js" || r.URL.Path == "/operation-coordinator.js" {
 		assetName := strings.TrimPrefix(r.URL.Path, "/")
 		data, err := webFS.ReadFile("web/" + assetName)
 		if err != nil {
@@ -338,7 +340,7 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "UI unavailable", http.StatusInternalServerError)
 		return
 	}
-	scripts := fmt.Sprintf("<script src=\"/self-update.js?v=v%s\"></script><script src=\"/vpn-ux-fix.js?v=v%s\"></script></body>", version, version)
+	scripts := fmt.Sprintf("<script src=\"/self-update.js?v=v%s\"></script><script src=\"/vpn-ux-fix.js?v=v%s\"></script><script src=\"/operation-coordinator.js?v=v%s\"></script></body>", version, version, version)
 	html := strings.Replace(string(data), "</body>", scripts, 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, html)
@@ -590,15 +592,37 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	op, leader, conflict := vpnOperations.begin("quick", req.Action)
+	if !leader {
+		if conflict != nil {
+			writeJSON(w, http.StatusConflict, operationConflictPayload("другая VPN-операция уже выполняется", *conflict))
+			return
+		}
+		status, payload, ok := vpnOperations.wait(r.Context(), op)
+		if !ok {
+			return
+		}
+		result, payloadOK := payload.(actionResult)
+		if !payloadOK {
+			writeJSON(w, http.StatusInternalServerError, actionResult{Success: false, Error: "operation result unavailable"})
+			return
+		}
+		writeJSON(w, status, result)
+		return
+	}
+
 	select {
 	case a.sem <- struct{}{}:
 		defer func() { <-a.sem }()
 	default:
-		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "another FreeNet operation is already running"})
+		result := actionResult{Action: req.Action, OperationID: op.state.ID, Success: false, Error: "another FreeNet operation is already running"}
+		vpnOperations.finish(op, http.StatusConflict, result, false, "", result.Error)
+		writeJSON(w, http.StatusConflict, result)
 		return
 	}
 
 	result := a.runAction(req.Action)
+	result.OperationID = op.state.ID
 	code := http.StatusOK
 	if !result.Success {
 		code = http.StatusBadGateway
@@ -606,6 +630,7 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 	a.mu.Lock()
 	a.last = result
 	a.mu.Unlock()
+	vpnOperations.finish(op, code, result, result.Success, result.Message, result.Error)
 	writeJSON(w, code, result)
 }
 
