@@ -81,6 +81,7 @@ type networkApplyResponse struct {
 	Success           bool                       `json:"success"`
 	Applied           bool                       `json:"applied"`
 	Operation         string                     `json:"operation,omitempty"`
+	OperationID       string                     `json:"operation_id,omitempty"`
 	ISP               string                     `json:"isp,omitempty"`
 	DNSMode           string                     `json:"dns_mode,omitempty"`
 	NativeDNSProvider string                     `json:"native_dns_provider,omitempty"`
@@ -209,8 +210,6 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extra profiles are UI data only. Failure to discover them never blocks the
-	// ISP/DNS plan or Apply path.
 	if subscriptionConfigured(a.cfg.SubPath) {
 		ctx, cancel := context.WithTimeout(context.Background(), 32*time.Second)
 		profiles, profileErr := a.discoverSubscriptionProfiles(ctx)
@@ -277,7 +276,7 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		operation = "network"
 	}
 	if operation == "provider" {
-		a.handleProviderProfileApply(w, req)
+		a.handleProviderProfileApply(w, r, req)
 		return
 	}
 	if operation == "finalize" {
@@ -309,8 +308,6 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// One confirmed target = one mutation. Include Native provider in identity so
-	// two different Direct targets can never join the same operation.
 	target := req.ISP + "\x00" + req.DNSMode + "\x00" + req.NativeDNSProvider
 	flight, leader := beginNetworkApplyFlight(target)
 	if !leader {
@@ -326,8 +323,6 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRequest) (int, networkApplyResponse) {
-	// A real different mutation may own the global semaphore. Give short-lived
-	// work a chance to finish, but never start a second mutation concurrently.
 	acquireTimer := time.NewTimer(12 * time.Second)
 	defer acquireTimer.Stop()
 	select {
@@ -340,8 +335,6 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 			RollbackState: "NOT_APPLIED", Error: "запрос отменён до начала сетевой операции",
 		}
 	case <-acquireTimer.C:
-		// Before reporting a real conflict, classify the requested target. This
-		// makes an already-completed identical operation idempotent success.
 		if post, err := a.runNetworkPlanFor(req.ISP, req.DNSMode, req.NativeDNSProvider); err == nil && post.Active {
 			return http.StatusOK, networkApplyResponse{
 				Success: true, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
@@ -386,8 +379,6 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 		}
 	}
 	if plan.Active {
-		// Runtime is already the requested target. Persist only product metadata if
-		// it is stale; no live network mutation is required.
 		if !networkTargetProductStateMatches(req.ISP, req.DNSMode, req.NativeDNSProvider, activeISP, activeDNS, activeProvider) {
 			if err := writeNetworkProfileConfigWithNativeProvider(a.cfg.ConfigPath, req.ISP, req.DNSMode, req.NativeDNSProvider); err != nil {
 				return http.StatusInternalServerError, networkApplyResponse{
@@ -405,9 +396,6 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 		}
 	}
 
-	// Native migration state is prepared only after the authoritative read-only
-	// plan has decided that a live transition is actually needed. This keeps plan
-	// and already-active Apply idempotent and avoids hidden persistent prep writes.
 	if req.DNSMode == "firmware" {
 		if err := prepareCanonicalNativeApplyState(); err != nil {
 			return http.StatusServiceUnavailable, networkApplyResponse{
@@ -439,9 +427,6 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 		}
 	}
 
-	// Helper success means canonical target acceptance passed. Persist only after
-	// that fact; historical filter-engine/intercept snapshots are not a normal
-	// decision gate anymore.
 	if err := writeNetworkProfileConfigWithNativeProvider(a.cfg.ConfigPath, req.ISP, req.DNSMode, req.NativeDNSProvider); err != nil {
 		rollback := a.rollbackNetworkSelection(activeISP, activeDNS, activeProvider)
 		return http.StatusBadGateway, networkApplyResponse{
@@ -475,28 +460,53 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 	}
 }
 
-func (a *app) handleProviderProfileApply(w http.ResponseWriter, req networkApplyRequest) {
+func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request, req networkApplyRequest) {
 	profileID := strings.TrimSpace(req.ProfileID)
 	if !validProfileID(profileID) {
 		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Operation: "provider", Error: "invalid provider profile id"})
 		return
 	}
+
+	op, leader, conflict := vpnOperations.begin("provider", profileID)
+	if !leader {
+		if conflict != nil {
+			writeJSON(w, http.StatusConflict, operationConflictPayload("другая VPN-операция уже выполняется", *conflict))
+			return
+		}
+		status, payload, ok := vpnOperations.wait(r.Context(), op)
+		if !ok {
+			return
+		}
+		result, payloadOK := payload.(networkApplyResponse)
+		if !payloadOK {
+			writeJSON(w, http.StatusInternalServerError, networkApplyResponse{Success: false, Operation: "provider", Error: "operation result unavailable"})
+			return
+		}
+		writeJSON(w, status, result)
+		return
+	}
+
+	status, result := a.executeProviderProfileApply(req)
+	result.OperationID = op.state.ID
+	vpnOperations.finish(op, status, result, result.Success, result.Message, result.Error)
+	writeJSON(w, status, result)
+}
+
+func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, networkApplyResponse) {
+	profileID := strings.TrimSpace(req.ProfileID)
 	select {
 	case a.sem <- struct{}{}:
 		defer func() { <-a.sem }()
 	default:
-		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", Error: "another FreeNet operation is already running"})
-		return
+		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "another FreeNet operation is already running"}
 	}
 
 	providerPlan, err := a.runProviderPlan(profileID)
 	if err != nil {
-		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, Error: err.Error()})
-		return
+		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, Error: err.Error()}
 	}
 	if !providerPlan.CandidateValid || providerPlan.Mutation != "NONE" {
-		writeJSON(w, http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, Error: "provider plan is not a validated read-only candidate"})
-		return
+		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, Error: "provider plan is not a validated read-only candidate"}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
@@ -511,30 +521,28 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, req networkApply
 		if primary == "" {
 			primary = cmdErr.Error()
 		}
-		writeJSON(w, http.StatusBadGateway, networkApplyResponse{
+		return http.StatusBadGateway, networkApplyResponse{
 			Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
 			ProviderPlan: &providerPlan, PrimaryError: primary, RollbackState: rollback,
 			Error: "provider profile apply failed",
-		})
-		return
+		}
 	}
 
 	postProvider, postErr := a.runProviderPlan(profileID)
 	if postErr != nil {
-		writeJSON(w, http.StatusBadGateway, networkApplyResponse{
+		return http.StatusBadGateway, networkApplyResponse{
 			Success: false, Applied: true, Operation: "provider", ProfileID: profileID,
 			ProviderPlan: &providerPlan, PrimaryError: "post-apply provider plan unavailable: " + postErr.Error(),
 			RollbackState: "NOT_REQUESTED_HELPER_REPORTED_SUCCESS",
 			Error: "provider apply completed but UI acceptance could not be read",
-		})
-		return
+		}
 	}
 	postNetwork, _ := a.runNetworkPlan()
-	writeJSON(w, http.StatusOK, networkApplyResponse{
+	return http.StatusOK, networkApplyResponse{
 		Success: true, Applied: true, Operation: "provider", ProfileID: profileID,
 		Message: "VPN-профиль применён и Xray-конфигурация проверена.", RollbackState: "NOT_NEEDED",
 		Plan: postNetwork, ProviderPlan: &postProvider,
-	})
+	}
 }
 
 func (a *app) createNetworkDraftConfig(isp, dnsMode, nativeProvider string) (string, error) {
