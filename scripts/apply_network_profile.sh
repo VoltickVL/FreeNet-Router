@@ -931,6 +931,61 @@ apply_native() {
         return 0
     fi
 
+    # Interrupted Direct transitions can leave FreeNet-owned Xray DNS residue on disk
+    # after Keenetic has already returned to the native control-plane. This is a
+    # recognized repairable state, not evidence that dns-override must still be on.
+    # Reconcile only the managed Xray DNS surface; keep the observed native NDM
+    # engine/intercept/assignments untouched and preserve non-DNS routing/VPN state.
+    if [ "$NDM_OVERRIDE_INITIAL" = off ] && [ "$(port53_owner)" = ndnproxy ]; then
+        [ "$PROXY_DNS_INITIAL" = off ] || { fail_not_applied 'native partial reconcile требует proxy_dns=off'; return 1; }
+        [ "$NDM_FILTER_ENGINE_INITIAL" != opkg ] || { fail_not_applied 'native partial reconcile: Keenetic filter engine opkg не является Native'; return 1; }
+
+        DNS_INBOUND_COUNT="$(xray_dns_inbound_count)"
+        case "$DNS_INBOUND_COUNT" in ''|*[!0-9]*) fail_not_applied 'native partial reconcile: не удалось классифицировать Xray :53 inbound'; return 1 ;; esac
+        DNS_OUT_INITIAL=no; has_dns_out && DNS_OUT_INITIAL=yes
+        DNS_ROUTING_INITIAL="$(dns_routing_mode)"
+
+        if [ "$DNS_INBOUND_COUNT" -gt 0 ] || [ "$DNS_OUT_INITIAL" = yes ] || [ "$DNS_ROUTING_INITIAL" != native ]; then
+            jsonc_normalize "$INBOUND_FILE" | jq -e 'all(.inbounds[]? | select((((.port // "") | tostring) == "53")); .protocol == "dokodemo-door")' >/dev/null 2>&1 || { fail_not_applied 'native partial reconcile: неизвестный Xray inbound на :53'; return 1; }
+            jsonc_normalize "$OUT_FILE" | jq -e 'all(.outbounds[]? | select((.tag // "") == "dns-out"); .protocol == "dns")' >/dev/null 2>&1 || { fail_not_applied 'native partial reconcile: неизвестный dns-out'; return 1; }
+            case "$DNS_ROUTING_INITIAL" in native|split|standard) : ;; *) fail_not_applied 'native partial reconcile: Xray DNS routing нельзя однозначно классифицировать'; return 1 ;; esac
+            native_dns_file_valid || { fail_not_applied 'native partial reconcile: нет проверенного native 02_dns snapshot'; return 1; }
+
+            snapshot_configs native-residue || { fail_not_applied 'не удалось создать backup Native partial reconcile'; return 1; }
+            make_tmp || { fail_not_applied 'не удалось создать временный каталог Native partial reconcile'; return 1; }
+            build_native_candidate || { fail_not_applied 'Native partial candidate не прошёл validation'; return 1; }
+            say "[FreeNet Network] PARTIAL_NATIVE_RECONCILE=xray-dns-residue"
+            apply_candidate_dir "$TMP_DIR/native" || { err 'PRIMARY ERROR: не удалось удалить FreeNet-owned Xray DNS residue'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+
+            if [ "$XRAY_WAS_RUNNING" = yes ]; then
+                xkeen_runtime restart "/tmp/freenet-network-native-residue.$$.log" || { err 'PRIMARY ERROR: Xray restart failed после Native partial reconcile'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+                wait_for_xray yes || { err 'PRIMARY ERROR: Xray не вернулся в исходное running state после Native partial reconcile'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            fi
+
+            wait_port53_owner ndnproxy || { err 'PRIMARY ERROR: Native partial acceptance: ndnproxy не владеет :53'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            [ "$(ndm_override_state)" = off ] || { err 'PRIMARY ERROR: Native partial acceptance: dns-override изменился'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            [ "$(ndm_filter_engine_state)" = "$NDM_FILTER_ENGINE_INITIAL" ] || { err 'PRIMARY ERROR: Native partial acceptance: filter engine изменился'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            [ "$(ndm_intercept_state)" = "$NDM_INTERCEPT_INITIAL" ] || { err 'PRIMARY ERROR: Native partial acceptance: intercept state изменился'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            [ "$(ndm_filter_assignments)" = "$NDM_ASSIGNMENTS_INITIAL" ] || { err 'PRIMARY ERROR: Native partial acceptance: DNS assignments изменились'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            [ "$(xray_dns_inbound_count)" = 0 ] || { err 'PRIMARY ERROR: Native partial acceptance: Xray DNS inbound остался'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            ! has_dns_out || { err 'PRIMARY ERROR: Native partial acceptance: dns-out остался'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            [ "$(dns_routing_mode)" = native ] || { err 'PRIMARY ERROR: Native partial acceptance: DNS-only routing остался'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            dns_query_ok || { err 'PRIMARY ERROR: Native partial acceptance: DNS query failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed during Native partial reconcile'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+            [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: protected Keenetic DNS/WAN state changed during Native partial reconcile'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+
+            say '[FreeNet Network] RESULT=SUCCESS'
+            say '[FreeNet Network] EFFECTIVE_DNS_MODE=firmware'
+            say '[FreeNet Network] NDM_DNS_OVERRIDE=off'
+            say "[FreeNet Network] NDM_FILTER_ENGINE=$NDM_FILTER_ENGINE_INITIAL"
+            say "[FreeNet Network] NDM_DNS_INTERCEPT=$NDM_INTERCEPT_INITIAL"
+            say '[FreeNet Network] PORT53_OWNER=ndnproxy'
+            say '[FreeNet Network] DNS_ROUTING_MODE=native'
+            say '[FreeNet Network] ROLLBACK=NOT_NEEDED'
+            return 0
+        fi
+    fi
+
     [ "$PROXY_DNS_INITIAL" = off ] || { fail_not_applied 'partial/unknown DNS topology with proxy_dns=on; STOP'; return 1; }
     [ "$NDM_OVERRIDE_INITIAL" = on ] || { fail_not_applied 'partial/unknown DNS topology: native restore ожидает opkg dns-override=on'; return 1; }
     NATIVE_ENGINE="$(native_filter_engine_value)" || { fail_not_applied 'нет проверенного native filter engine snapshot; отказ от догадки'; return 1; }
