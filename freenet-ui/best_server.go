@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,18 +56,18 @@ type bestServerCandidate struct {
 }
 
 type bestServerResponse struct {
-	Success          bool                  `json:"success"`
-	Available        bool                  `json:"available"`
-	ScannedAt        string                `json:"scanned_at,omitempty"`
-	CurrentEndpoint  string                `json:"current_endpoint,omitempty"`
-	Recommendation   *bestServerCandidate  `json:"recommendation,omitempty"`
-	Candidates       []bestServerCandidate `json:"candidates"`
-	ProfilesScanned  int                   `json:"profiles_scanned"`
-	ProfilesTotal    int                   `json:"profiles_total"`
-	ProfilesTruncated bool                 `json:"profiles_truncated,omitempty"`
-	Mutation         string                `json:"mutation"`
-	Message          string                `json:"message,omitempty"`
-	Error            string                `json:"error,omitempty"`
+	Success           bool                  `json:"success"`
+	Available         bool                  `json:"available"`
+	ScannedAt         string                `json:"scanned_at,omitempty"`
+	CurrentEndpoint   string                `json:"current_endpoint,omitempty"`
+	Recommendation    *bestServerCandidate  `json:"recommendation,omitempty"`
+	Candidates        []bestServerCandidate `json:"candidates"`
+	ProfilesScanned   int                   `json:"profiles_scanned"`
+	ProfilesTotal     int                   `json:"profiles_total"`
+	ProfilesTruncated bool                  `json:"profiles_truncated,omitempty"`
+	Mutation          string                `json:"mutation"`
+	Message           string                `json:"message,omitempty"`
+	Error             string                `json:"error,omitempty"`
 }
 
 type bestServerProbeResult struct {
@@ -137,6 +138,7 @@ func safeBestServerError(err error) string {
 
 func (a *app) scanBestServer(ctx context.Context, force bool) (bestServerResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
 	cacheKey := a.bestServerCacheKey(currentEndpoint)
 	if !force {
 		bestServerCache.Lock()
@@ -151,7 +153,7 @@ func (a *app) scanBestServer(ctx context.Context, force bool) (bestServerRespons
 	if err != nil {
 		return bestServerResponse{}, err
 	}
-	response := rankBestServerCandidates(ctx, all, total, truncated, currentEndpoint, defaultBestServerTCPProbe, a.probeBestServerApplication)
+	response := rankBestServerCandidatesWithFilter(ctx, all, total, truncated, currentEndpoint, currentFilter, defaultBestServerTCPProbe, a.probeBestServerApplication)
 	if ctx.Err() != nil {
 		return bestServerResponse{}, ctx.Err()
 	}
@@ -172,6 +174,9 @@ func (a *app) scanBestServer(ctx context.Context, force bool) (bestServerRespons
 	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
 		return bestServerResponse{}, errors.New("VPN endpoint changed during Best Server scan")
 	}
+	if afterFilter := readBestServerCurrentFilter(a.cfg.FilterPath); afterFilter != currentFilter {
+		return bestServerResponse{}, errors.New("VPN profile identity changed during Best Server scan")
+	}
 
 	bestServerCache.Lock()
 	bestServerCache.Entry = bestServerCacheEntry{Key: cacheKey, StoredAt: time.Now(), Response: cloneBestServerResponse(response)}
@@ -190,11 +195,12 @@ func cloneBestServerResponse(in bestServerResponse) bestServerResponse {
 }
 
 func (a *app) bestServerCacheKey(currentEndpoint string) string {
+	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
 	info, err := os.Stat(a.cfg.SubPath)
 	if err != nil {
-		return currentEndpoint + "|subscription-unavailable"
+		return currentEndpoint + "|" + currentFilter + "|subscription-unavailable"
 	}
-	return fmt.Sprintf("%s|%d|%d", currentEndpoint, info.Size(), info.ModTime().UnixNano())
+	return fmt.Sprintf("%s|%s|%d|%d", currentEndpoint, currentFilter, info.Size(), info.ModTime().UnixNano())
 }
 
 func (a *app) discoverBestServerCandidates(ctx context.Context) ([]bestServerInternalCandidate, int, bool, error) {
@@ -264,11 +270,25 @@ func rankBestServerCandidates(
 	tcpProbe bestServerTCPProbe,
 	appProbe bestServerApplicationProbe,
 ) bestServerResponse {
+	return rankBestServerCandidatesWithFilter(ctx, internal, total, truncated, currentEndpoint, "", tcpProbe, appProbe)
+}
+
+func rankBestServerCandidatesWithFilter(
+	ctx context.Context,
+	internal []bestServerInternalCandidate,
+	total int,
+	truncated bool,
+	currentEndpoint string,
+	currentFilter string,
+	tcpProbe bestServerTCPProbe,
+	appProbe bestServerApplicationProbe,
+) bestServerResponse {
+	currentIndex := bestServerCurrentCandidateIndex(internal, currentEndpoint, currentFilter)
 	results := make([]bestServerCandidate, len(internal))
 	for i, candidate := range internal {
 		results[i] = bestServerCandidate{
 			ID: candidate.Profile.ID, Name: candidate.Profile.Name, CountryCode: candidate.Profile.CountryCode,
-			Endpoint: profileEndpoint(candidate.Profile), Current: endpointsEqual(profileEndpoint(candidate.Profile), currentEndpoint),
+			Endpoint: profileEndpoint(candidate.Profile), Current: i == currentIndex,
 			Reason: "endpoint has not been verified",
 		}
 	}
@@ -324,14 +344,7 @@ func rankBestServerCandidates(
 	if len(shortlist) > bestServerShortlist {
 		shortlist = shortlist[:bestServerShortlist]
 	}
-	currentIndex := -1
-	for i := range results {
-		if results[i].Current && results[i].Reachable {
-			currentIndex = i
-			break
-		}
-	}
-	if currentIndex >= 0 && !containsBestServerIndex(shortlist, currentIndex) {
+	if currentIndex >= 0 && results[currentIndex].Reachable && !containsBestServerIndex(shortlist, currentIndex) {
 		shortlist = append(shortlist, currentIndex)
 	}
 
@@ -388,6 +401,43 @@ func rankBestServerCandidates(
 		}
 	}
 	return response
+}
+
+func bestServerCurrentCandidateIndex(internal []bestServerInternalCandidate, currentEndpoint, currentFilter string) int {
+	endpointMatches := make([]int, 0, 2)
+	for i, candidate := range internal {
+		if endpointsEqual(profileEndpoint(candidate.Profile), currentEndpoint) {
+			endpointMatches = append(endpointMatches, i)
+		}
+	}
+	if len(endpointMatches) == 0 {
+		return -1
+	}
+
+	currentFilter = strings.TrimSpace(currentFilter)
+	if currentFilter == "" {
+		if len(endpointMatches) == 1 {
+			return endpointMatches[0]
+		}
+		return -1
+	}
+
+	matcher, err := regexp.Compile(currentFilter)
+	if err != nil {
+		return -1
+	}
+	matched := -1
+	count := 0
+	for _, index := range endpointMatches {
+		if matcher.MatchString(internal[index].Profile.Name) {
+			matched = index
+			count++
+		}
+	}
+	if count == 1 {
+		return matched
+	}
+	return -1
 }
 
 func containsBestServerIndex(values []int, target int) bool {
@@ -469,6 +519,14 @@ func readBestServerCurrentEndpoint(outPath string) string {
 		return net.JoinHostPort(vnext.Address, strconv.Itoa(vnext.Port))
 	}
 	return ""
+}
+
+func readBestServerCurrentFilter(filterPath string) string {
+	data, err := os.ReadFile(filterPath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 func (a *app) probeBestServerApplication(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
