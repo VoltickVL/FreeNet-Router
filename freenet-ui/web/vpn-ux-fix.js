@@ -826,3 +826,158 @@
   applyNetworkProfile = reconciledNetworkApply;
   applyButton.addEventListener('click', applyNetworkProfile);
 })();
+
+(() => {
+  const qs = (s, root = document) => root.querySelector(s);
+  const fallbackProviders = [
+    {id: 'router-current', label: 'Текущие DNS роутера', addresses: []},
+    {id: 'yandex-basic', label: 'Яндекс Basic', addresses: ['77.88.8.8', '77.88.8.1']}
+  ];
+  let providerTouched = false;
+
+  function hideLegacyNetworkChoices() {
+    for (const id of ['ispSelect', 'dnsModeSelect']) {
+      const select = qs('#' + id);
+      if (!select) continue;
+      for (const value of ['auto', 'custom']) {
+        const option = select.querySelector(`option[value="${value}"]`);
+        if (!option) continue;
+        option.hidden = true;
+        option.disabled = true;
+      }
+    }
+    const direct = qs('#dnsModeSelect option[value="firmware"]');
+    if (direct) direct.textContent = 'DNS напрямую через роутер';
+  }
+
+  function mountNativeDNSProviderField() {
+    const dnsMode = qs('#dnsModeSelect');
+    const hint = qs('#networkHint');
+    if (!dnsMode || !hint || !hint.parentNode) return null;
+
+    let field = qs('#nativeDNSProviderField');
+    if (!field) {
+      field = document.createElement('div');
+      field.id = 'nativeDNSProviderField';
+      field.className = 'field';
+      field.style.marginTop = '10px';
+      field.innerHTML = '<label for="nativeDNSProviderSelect">DNS для режима напрямую</label><select id="nativeDNSProviderSelect"></select><div class="hint">«Текущие DNS роутера» сохраняет точный проверенный Native resolver этого роутера. «Яндекс Basic» использует 77.88.8.8 / 77.88.8.1. Named DNS profiles, DoT/DoH и назначения клиентов не переписываются.</div>';
+      hint.parentNode.insertBefore(field, hint.nextSibling);
+      qs('#nativeDNSProviderSelect').addEventListener('change', () => {
+        providerTouched = true;
+        if (typeof resetSetupFinalizePlan === 'function') resetSetupFinalizePlan();
+        const mode = qs('#dnsModeSelect');
+        if (mode) mode.dispatchEvent(new Event('change', {bubbles: true}));
+      });
+    }
+    field.hidden = dnsMode.value !== 'firmware';
+    return {field, select: qs('#nativeDNSProviderSelect')};
+  }
+
+  function providerLabel(option) {
+    const addresses = Array.isArray(option.addresses) ? option.addresses.filter(Boolean) : [];
+    return addresses.length ? `${option.label} (${addresses.join(' / ')})` : option.label;
+  }
+
+  function syncProviderOptions() {
+    const ui = mountNativeDNSProviderField();
+    if (!ui) return;
+    const plan = typeof lastNetworkPlan !== 'undefined' ? lastNetworkPlan : null;
+    const options = plan && Array.isArray(plan.native_dns_provider_options) && plan.native_dns_provider_options.length
+      ? plan.native_dns_provider_options
+      : fallbackProviders;
+    const ids = options.map(option => String(option.id || '')).filter(Boolean);
+    const currentIDs = Array.from(ui.select.options).map(option => option.value);
+    const existingValue = ui.select.value;
+    if (ids.join(',') !== currentIDs.join(',')) {
+      ui.select.textContent = '';
+      options.forEach(item => {
+        if (!item || !item.id) return;
+        const option = document.createElement('option');
+        option.value = String(item.id);
+        option.textContent = providerLabel(item);
+        ui.select.appendChild(option);
+      });
+      if (ids.includes(existingValue)) ui.select.value = existingValue;
+    }
+
+    if (!providerTouched && plan && plan.native_dns_provider && ids.includes(plan.native_dns_provider)) {
+      ui.select.value = plan.native_dns_provider;
+    }
+    if (!ui.select.value && ids.includes('yandex-basic')) ui.select.value = 'yandex-basic';
+    ui.field.hidden = String((qs('#dnsModeSelect') || {}).value || '') !== 'firmware';
+  }
+
+  function selectedNativeProvider() {
+    const select = qs('#nativeDNSProviderSelect');
+    return (select && select.value) || 'yandex-basic';
+  }
+
+  function patchNetworkPlanSync() {
+    if (typeof loadNetworkPlan !== 'function') return;
+    const previous = loadNetworkPlan;
+    loadNetworkPlan = async function(...args) {
+      const result = await previous(...args);
+      syncProviderOptions();
+      const plan = typeof lastNetworkPlan !== 'undefined' ? lastNetworkPlan : null;
+      if (plan && plan.active && plan.native_dns_provider === selectedNativeProvider()) providerTouched = false;
+      return result;
+    };
+  }
+
+  function patchNetworkControlRendering() {
+    if (typeof renderNetworkControls === 'function') {
+      const previous = renderNetworkControls;
+      renderNetworkControls = function(...args) {
+        previous(...args);
+        hideLegacyNetworkChoices();
+        syncProviderOptions();
+      };
+    }
+    const dnsMode = qs('#dnsModeSelect');
+    if (dnsMode) dnsMode.addEventListener('change', () => {
+      const ui = mountNativeDNSProviderField();
+      if (ui) ui.field.hidden = dnsMode.value !== 'firmware';
+    });
+  }
+
+  function patchNetworkFetch() {
+    const previousFetch = window.fetch.bind(window);
+    window.fetch = function(input, init) {
+      let requestInput = input;
+      let requestInit = init;
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+
+      if (providerTouched && url.startsWith('/api/network-profile/plan')) {
+        try {
+          const parsed = new URL(url, window.location.origin);
+          parsed.searchParams.set('native_dns_provider', selectedNativeProvider());
+          if (typeof input === 'string') requestInput = parsed.pathname + parsed.search + parsed.hash;
+        } catch (_) {}
+      }
+
+      if (url === '/api/network-profile/apply' && init && String(init.method || '').toUpperCase() === 'POST' && typeof init.body === 'string') {
+        try {
+          const body = JSON.parse(init.body);
+          if (body.operation === 'network') {
+            body.native_dns_provider = selectedNativeProvider();
+            requestInit = Object.assign({}, init, {body: JSON.stringify(body)});
+          }
+        } catch (_) {}
+      }
+      return previousFetch(requestInput, requestInit);
+    };
+  }
+
+  function mount() {
+    hideLegacyNetworkChoices();
+    mountNativeDNSProviderField();
+    syncProviderOptions();
+    patchNetworkPlanSync();
+    patchNetworkControlRendering();
+    patchNetworkFetch();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
+  else mount();
+})();

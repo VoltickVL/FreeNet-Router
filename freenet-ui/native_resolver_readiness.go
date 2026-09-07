@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 )
 
@@ -95,17 +96,33 @@ func networkBridgeYandexBasicResolverLines() []string {
 	return lines
 }
 
-// Until the Native DNS Provider selector is productized, the normal FreeNet
-// native target is one explicit deterministic resolver set: Yandex Basic.
+// Resolve the explicit Native DNS target selected in the FreeNet product state.
 //
-// Existing active global name-server lines and the historical
-// resolver-selection.native snapshot are NOT target policy. They are preserved
-// only as rollback/migration evidence. This is intentional: HOME and WORK both
-// proved that inherited/default active resolvers can survive a transition and
-// cause parallel/conflicting DNS paths. Explicit DNS Apply therefore owns the
-// active System resolver selection and converges it to the target set.
-func networkBridgeCanonicalNativeResolverTarget() ([]string, string, error) {
-	return networkBridgeYandexBasicResolverLines(), "yandex-basic", nil
+// yandex-basic is deterministic and remains the backward-compatible default.
+// router-current means: use the exact active Native selection if one is present;
+// while Split is active, restore the signed resolver-selection.native snapshot
+// captured before the local Xray pointer replaced the Native resolver selection.
+func networkBridgeCanonicalNativeResolverTarget(lanIP string) ([]string, string, error) {
+	provider := readNativeDNSProvider(networkBridgeConfigPath())
+	switch provider {
+	case nativeDNSProviderYandexBasic:
+		return networkBridgeYandexBasicResolverLines(), nativeDNSProviderYandexBasic, nil
+	case nativeDNSProviderRouterCurrent:
+		current, err := networkBridgeCurrentNativeResolverSelection(lanIP)
+		if err != nil {
+			return nil, "", err
+		}
+		if len(current) > 0 {
+			return current, nativeDNSProviderRouterCurrent, nil
+		}
+		saved, err := networkBridgeLoadNativeResolverSelection()
+		if err != nil {
+			return nil, "", fmt.Errorf("текущие DNS роутера недоступны: нет проверенного Native resolver snapshot: %w", err)
+		}
+		return saved, nativeDNSProviderRouterCurrent, nil
+	default:
+		return nil, "", errors.New("unsupported Native DNS provider")
+	}
 }
 
 func networkBridgeNativeResolverStatus(lanIP string) (string, error) {
@@ -117,7 +134,7 @@ func networkBridgeNativeResolverStatus(lanIP string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	target, _, err := networkBridgeCanonicalNativeResolverTarget()
+	target, source, err := networkBridgeCanonicalNativeResolverTarget(lanIP)
 	if err != nil {
 		return "", err
 	}
@@ -125,9 +142,9 @@ func networkBridgeNativeResolverStatus(lanIP string) (string, error) {
 		return "existing-native-resolver-ready", nil
 	}
 	if len(current) == 0 {
-		return "yandex-basic-fallback-needed", nil
+		return source + "-fallback-needed", nil
 	}
-	return "yandex-basic-replace-needed", nil
+	return source + "-replace-needed", nil
 }
 
 func networkBridgeNameServerLinesForAddress(config, address string) []string {
@@ -141,7 +158,7 @@ func networkBridgeNameServerLinesForAddress(config, address string) []string {
 	return lines
 }
 
-// Stage exactly the canonical native resolver set before removing the Split-owned
+// Stage exactly the selected Native resolver set before removing the Split-owned
 // local pointer. The operation is intentionally strict but simple:
 //   1. read the current active global resolver selection;
 //   2. add missing target lines so there is never a zero-upstream window;
@@ -162,7 +179,7 @@ func networkBridgeEnsureNativeResolverReady(lanIP string) ([]string, string, err
 	if err != nil {
 		return nil, "", err
 	}
-	target, source, err := networkBridgeCanonicalNativeResolverTarget()
+	target, source, err := networkBridgeCanonicalNativeResolverTarget(lanIP)
 	if err != nil {
 		return nil, "", err
 	}
@@ -211,7 +228,7 @@ func networkBridgeEnsureNativeResolverReady(lanIP string) ([]string, string, err
 		if err != nil {
 			return nil, "", err
 		}
-		return nil, "", errors.New("native resolver selection did not converge to canonical target")
+		return nil, "", errors.New("native resolver selection did not converge to selected provider target")
 	}
 
 	networkBridgeNativeResolverStageRemoved = append([]string(nil), removed...)
@@ -245,10 +262,14 @@ func augmentNetworkBridgeNativeResolverPlan(output, status string) string {
 	delta := values["EXPECTED_DELTA"]
 	var extra string
 	switch status {
-	case "yandex-basic-fallback-needed":
-		extra = "set canonical native Yandex Basic resolver 77.88.8.8/77.88.8.1 before DNS acceptance"
-	case "yandex-basic-replace-needed":
-		extra = "remove inherited active System resolvers and set canonical native Yandex Basic 77.88.8.8/77.88.8.1 before DNS acceptance"
+	case nativeDNSProviderYandexBasic + "-fallback-needed":
+		extra = "set selected Native DNS provider Yandex Basic 77.88.8.8/77.88.8.1 before DNS acceptance"
+	case nativeDNSProviderYandexBasic + "-replace-needed":
+		extra = "replace active System resolver selection with Yandex Basic 77.88.8.8/77.88.8.1 before DNS acceptance"
+	case nativeDNSProviderRouterCurrent + "-fallback-needed":
+		extra = "restore exact saved router Native DNS selection before DNS acceptance"
+	case nativeDNSProviderRouterCurrent + "-replace-needed":
+		extra = "replace active System resolver selection with exact saved/current router Native DNS selection before DNS acceptance"
 	}
 	if extra != "" {
 		if delta == "" {
@@ -262,10 +283,10 @@ func augmentNetworkBridgeNativeResolverPlan(output, status string) string {
 		out += "\nEXPECTED_DELTA=" + delta
 	}
 	out += "\nNATIVE_RESOLVER_SELECTION=" + status
-	// A router can already be structurally native while still carrying an
-	// inherited/unmanaged active System resolver set. Mark that as a real plan
-	// delta so initial setup does not incorrectly report "already active" and
-	// force the user to delete DNS addresses manually.
+	// A router can already be structurally native while still carrying a resolver
+	// set that differs from the explicitly selected provider. Mark that as a real
+	// plan delta so Apply owns the change transactionally instead of asking for
+	// manual DNS edits.
 	if status != "existing-native-resolver-ready" && networkBridgeRuntimeNative(values) {
 		out += "\nDNS_ROUTING_MODE=native-resolver-selection-replace"
 	}
