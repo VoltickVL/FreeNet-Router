@@ -6,9 +6,6 @@ import (
 )
 
 func TestBestServerHTTPResponseExcludesConnectionSetup(t *testing.T) {
-	// Simulate a remote VPN where SOCKS/TCP/TLS setup consumed 700 ms but the
-	// actual request-to-first-byte phase was 142 ms. The UI metric must report
-	// HTTP responsiveness, not the whole cold connection transaction.
 	ms, ok := parseBestServerHTTPResponseMS("204\t0.700\t0.842")
 	if !ok {
 		t.Fatal("expected valid HTTP response phase")
@@ -20,9 +17,6 @@ func TestBestServerHTTPResponseExcludesConnectionSetup(t *testing.T) {
 
 func TestBestServerDownloadUsesBodyPhaseNotColdTransferAverage(t *testing.T) {
 	const bytes = int64(16 * 1024 * 1024)
-	// Connection/TLS/TTFB took 850 ms; the completed 16 MiB body then arrived in
-	// 500 ms. Whole-transfer averaging would report ~99 Mbps, while the payload
-	// phase is ~268 Mbps and matches the capacity signal we actually want.
 	mbps, ok := parseBestServerDownloadMbps("200\t16777216\t0.850\t1.350", bytes)
 	if !ok {
 		t.Fatal("expected valid body throughput")
@@ -36,10 +30,25 @@ func TestBestServerDownloadUsesBodyPhaseNotColdTransferAverage(t *testing.T) {
 	}
 }
 
-func TestBestServerDownloadRejectsPartialTransfer(t *testing.T) {
+func TestBestServerDownloadStrictParserRejectsPartialTransfer(t *testing.T) {
 	const bytes = int64(16 * 1024 * 1024)
 	if _, ok := parseBestServerDownloadMbps("200\t1048576\t0.500\t1.000", bytes); ok {
-		t.Fatal("partial download must not become a trusted throughput metric")
+		t.Fatal("strict media/object parser must reject a truncated transfer")
+	}
+}
+
+func TestBestServerCapacityAcceptsUsefulPartialBodyOnTimeout(t *testing.T) {
+	// A bounded 16 MiB probe can hit its deadline after receiving several MiB.
+	// The body-phase rate is still useful capacity evidence and must not vanish.
+	mbps, ok := parseBestServerDownloadMbpsAtLeast("200\t4194304\t0.800\t2.800", 2*1024*1024)
+	if !ok {
+		t.Fatal("expected sufficient partial body to remain a valid capacity sample")
+	}
+	if math.Abs(mbps-16.777216) > 0.01 {
+		t.Fatalf("expected ~16.78 Mbps partial-body throughput, got %.3f", mbps)
+	}
+	if _, ok := parseBestServerDownloadMbpsAtLeast("200\t524288\t0.800\t2.800", 2*1024*1024); ok {
+		t.Fatal("too-small partial body must remain untrusted")
 	}
 }
 
