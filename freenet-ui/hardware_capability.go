@@ -116,10 +116,24 @@ func init() {
 	applySplitDNSMemoryGate(currentHardwareCapabilities())
 }
 
+// Capability discovery is intentionally available before Control Center login.
+// The Network page is mounted before authentication and must be able to decide
+// whether Split DNS may be offered without entering a finite 401 retry loop.
+// Pre-auth responses expose only the boolean capability and threshold; the exact
+// RAM amount and detailed failure reason remain available only after login.
 func registerHardwareCapabilityAPI(mux *http.ServeMux, a *app) {
-	mux.HandleFunc("GET /api/capabilities", a.requireAuth(a.handleHardwareCapabilities))
+	mux.HandleFunc("GET /api/capabilities", a.handleHardwareCapabilities)
 }
 
-func (a *app) handleHardwareCapabilities(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, currentHardwareCapabilities())
+func (a *app) handleHardwareCapabilities(w http.ResponseWriter, r *http.Request) {
+	capability := currentHardwareCapabilities()
+	if !a.isAuthenticated(r) {
+		capability.MemoryTotalMiB = 0
+		if !capability.SplitDNSSupported {
+			capability.Reason = "XKeen/Xray DNS недоступен для этого устройства"
+		} else {
+			capability.Reason = ""
+		}
+	}
+	writeJSON(w, http.StatusOK, capability)
 }
