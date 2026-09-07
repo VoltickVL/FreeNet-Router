@@ -16,11 +16,13 @@ func TestBestServerUIReplacesManualQuickCountries(t *testing.T) {
 		"Лучший VPN",
 		"/api/vpn/best",
 		"Переключиться на лучший",
-		"Проверить заново",
+		"Проверить всё заново",
+		"Проверить текущий VPN",
+		"Почему рекомендуем",
 		"countries.remove()",
 		"operation: 'provider'",
 		"profile_id: recommendation.id",
-		"MUTATION: NONE",
+		"MUTATION NONE",
 		"HTTP-отклик",
 		"Мбит/с",
 	} {
@@ -64,9 +66,12 @@ func TestOverviewMovesCurrentVPNIntoProfessionalTopbar(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
+		"FreeNetOverviewV3",
 		"topVpnSummary",
-		"top-vpn-label",
+		"overview-v3-chip-label",
 		"Текущий VPN",
+		"ISP",
+		"DNS",
 		"overview-hero-source",
 		"overview-compact-grid",
 		"renderOverviewTopbarFromStatus",
@@ -75,10 +80,11 @@ func TestOverviewMovesCurrentVPNIntoProfessionalTopbar(t *testing.T) {
 		"typeof lastStatus !== 'undefined'",
 		"VPN + DNS OK",
 		"VPN OK · DNS напрямую",
-		"Система требует внимания",
+		"VPN не работает",
+		"DNS требует внимания",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("compact Overview/topbar contract missing %q", want)
+			t.Fatalf("Overview v3/topbar contract missing %q", want)
 		}
 	}
 	if strings.Contains(js, "FreeNet доступен") {
