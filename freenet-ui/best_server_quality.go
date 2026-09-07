@@ -20,28 +20,28 @@ import (
 )
 
 const (
-	bestServerQualityTCPRuns           = 3
-	bestServerQualityTCPRequired       = 2
-	bestServerQualityTCPWorkers        = 8
-	bestServerQualityTCPTimeout        = 1200 * time.Millisecond
-	bestServerQualityShortlist         = 6
-	bestServerQualityWarmupRuns        = 1
-	bestServerQualityHTTPRuns          = 3
-	bestServerQualityHTTPRequired      = 2
-	bestServerQualityHTTPTimeout       = 5 * time.Second
-	bestServerQualityDownloadTimeout   = 8 * time.Second
-	bestServerQualityCandidateTimeout  = 18 * time.Second
-	bestServerQualityScanTimeout       = 90 * time.Second
-	bestServerQualityCacheTTL          = 3 * time.Minute
-	bestServerQualityProbeURL          = "https://www.gstatic.com/generate_204"
-	bestServerQualityDownloadURL       = "https://speed.cloudflare.com/__down?bytes=1048576"
-	bestServerQualityDownloadBytes     = 1048576
-	bestServerQualityNoSpeedPenalty    = 3000
-	bestServerQualityVeryLowSpeedPenalty = 3200
-	bestServerQualityLowSpeedPenalty   = 1600
-	bestServerQualityModerateSpeedPenalty = 500
-	bestServerQualityHighJitterMS      = 80
-	bestServerQualityHighTCPJitterMS   = 60
+	bestServerQualityTCPRuns                   = 3
+	bestServerQualityTCPRequired               = 2
+	bestServerQualityTCPWorkers                = 8
+	bestServerQualityTCPTimeout                = 1200 * time.Millisecond
+	bestServerQualityShortlist                 = 6
+	bestServerQualityWarmupRuns                = 1
+	bestServerQualityHTTPRuns                  = 3
+	bestServerQualityHTTPRequired              = 2
+	bestServerQualityHTTPTimeout               = 5 * time.Second
+	bestServerQualityDownloadTimeout           = 10 * time.Second
+	bestServerQualityCandidateTimeout          = 18 * time.Second
+	bestServerQualityScanTimeout               = 90 * time.Second
+	bestServerQualityCacheTTL                  = 3 * time.Minute
+	bestServerQualityProbeURL                  = "https://www.gstatic.com/generate_204"
+	bestServerQualityDownloadURL               = "https://speed.cloudflare.com/__down?bytes=16777216"
+	bestServerQualityDownloadBytes             = 16777216
+	bestServerQualityNoSpeedPenalty            = 3000
+	bestServerQualityVeryLowSpeedPenalty       = 3200
+	bestServerQualityLowSpeedPenalty           = 1600
+	bestServerQualityModerateSpeedPenalty      = 500
+	bestServerQualityHighJitterMS              = 80
+	bestServerQualityHighTCPJitterMS           = 60
 )
 
 type bestServerQualityCandidate struct {
@@ -132,7 +132,7 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServerQualityResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	cacheKey := "quality-v3|" + a.bestServerCacheKey(currentEndpoint)
+	cacheKey := "quality-v4|" + a.bestServerCacheKey(currentEndpoint)
 	if !force {
 		bestServerQualityCache.Lock()
 		entry := bestServerQualityCache.Entry
@@ -331,9 +331,9 @@ func rankBestServerQualityCandidates(
 			results[index].Confidence = "medium"
 		}
 		if probe.DownloadOK {
-			results[index].Reason = fmt.Sprintf("VPN HTTP median %d ms (%d samples), jitter %d ms, download %.1f Mbps", probe.HTTP.Median, len(probe.HTTP.Samples), probe.HTTP.Jitter, roundBestServerMbps(probe.DownloadMbps))
+			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms, sustained body download %.1f Mbps", probe.HTTP.Median, len(probe.HTTP.Samples), probe.HTTP.Jitter, roundBestServerMbps(probe.DownloadMbps))
 		} else {
-			results[index].Reason = fmt.Sprintf("VPN HTTP median %d ms (%d samples), jitter %d ms; bounded download probe unavailable", probe.HTTP.Median, len(probe.HTTP.Samples), probe.HTTP.Jitter)
+			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms; bounded sustained download probe unavailable", probe.HTTP.Median, len(probe.HTTP.Samples), probe.HTTP.Jitter)
 		}
 	}
 
@@ -399,9 +399,9 @@ func defaultBestServerQualityTCPProbe(ctx context.Context, profile subscriptionP
 func bestServerQualityScore(httpMS, tcpMS, httpJitterMS, tcpJitterMS int, downloadMbps float64, downloadOK bool) int {
 	score := 10000
 	// Responsiveness still matters, but a visibly slow VPN should not win only
-	// because one request completed a little sooner. Throughput is therefore a
-	// first-class signal in v3 and very low measured speed carries an explicit
-	// penalty.
+	// because one request completed a little sooner. Throughput remains a
+	// first-class signal in v4, now measured over the response body rather than
+	// being dominated by connection establishment on high-RTT VPNs.
 	score -= minInt(httpMS, 2500) * 2
 	score -= minInt(tcpMS, 1000) * 2
 	score -= minInt(httpJitterMS, 1000) * 3
@@ -536,23 +536,15 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 		output, err := exec.CommandContext(probeCtx, curlPath,
 			"--socks5-hostname", socks,
 			"-sS", "--connect-timeout", "3", "--max-time", "5",
-			"-o", "/dev/null", "-w", "%{http_code}\t%{time_total}", bestServerQualityProbeURL,
+			"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", bestServerQualityProbeURL,
 		).Output()
 		cancel()
 		if err != nil {
 			continue
 		}
-		fields := strings.Fields(string(output))
-		if len(fields) != 2 || len(fields[0]) != 3 || fields[0][0] < '2' || fields[0][0] > '4' {
+		ms, ok := parseBestServerHTTPResponseMS(string(output))
+		if !ok {
 			continue
-		}
-		seconds, err := strconv.ParseFloat(fields[1], 64)
-		if err != nil || seconds <= 0 {
-			continue
-		}
-		ms := int(math.Round(seconds * 1000))
-		if ms < 1 {
-			ms = 1
 		}
 		samples = append(samples, ms)
 	}
@@ -565,19 +557,14 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 	downloadCtx, cancelDownload := context.WithTimeout(ctx, bestServerQualityDownloadTimeout)
 	output, err := exec.CommandContext(downloadCtx, curlPath,
 		"--socks5-hostname", socks,
-		"-sS", "--connect-timeout", "3", "--max-time", "8",
-		"-o", "/dev/null", "-w", "%{http_code}\t%{speed_download}", bestServerQualityDownloadURL,
+		"-sS", "--connect-timeout", "3", "--max-time", "10",
+		"-o", "/dev/null", "-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}", bestServerQualityDownloadURL,
 	).Output()
 	cancelDownload()
 	if err == nil {
-		fields := strings.Fields(string(output))
-		if len(fields) == 2 && len(fields[0]) == 3 && fields[0][0] >= '2' && fields[0][0] <= '4' {
-			bytesPerSecond, parseErr := strconv.ParseFloat(fields[1], 64)
-			if parseErr == nil && bytesPerSecond > 0 {
-				// curl speed_download is bytes/sec. Convert to decimal Mbit/sec.
-				result.DownloadMbps = bytesPerSecond * 8 / 1_000_000
-				result.DownloadOK = result.DownloadMbps > 0
-			}
+		if mbps, ok := parseBestServerDownloadMbps(string(output), bestServerQualityDownloadBytes); ok {
+			result.DownloadMbps = mbps
+			result.DownloadOK = true
 		}
 	}
 	return result
