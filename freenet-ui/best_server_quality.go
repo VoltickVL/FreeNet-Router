@@ -36,7 +36,10 @@ const (
 	bestServerQualityProbeURL          = "https://www.gstatic.com/generate_204"
 	bestServerQualityDownloadURL       = "https://speed.cloudflare.com/__down?bytes=1048576"
 	bestServerQualityDownloadBytes     = 1048576
-	bestServerQualityNoSpeedPenalty    = 1200
+	bestServerQualityNoSpeedPenalty    = 3000
+	bestServerQualityVeryLowSpeedPenalty = 3200
+	bestServerQualityLowSpeedPenalty   = 1600
+	bestServerQualityModerateSpeedPenalty = 500
 	bestServerQualityHighJitterMS      = 80
 	bestServerQualityHighTCPJitterMS   = 60
 )
@@ -129,7 +132,7 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServerQualityResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	cacheKey := "quality-v2|" + a.bestServerCacheKey(currentEndpoint)
+	cacheKey := "quality-v3|" + a.bestServerCacheKey(currentEndpoint)
 	if !force {
 		bestServerQualityCache.Lock()
 		entry := bestServerQualityCache.Entry
@@ -153,9 +156,9 @@ func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServer
 	response.CurrentEndpoint = currentEndpoint
 	if response.Available && response.Recommendation != nil {
 		if response.Recommendation.Current {
-			response.Message = "Текущий VPN имеет лучший подтверждённый баланс отклика, стабильности и скорости."
+			response.Message = "Текущий VPN имеет лучший подтверждённый баланс скорости, отклика и стабильности."
 		} else {
-			response.Message = "FreeNet нашёл профиль с лучшим подтверждённым балансом отклика, стабильности и скорости."
+			response.Message = "FreeNet нашёл профиль с лучшим подтверждённым балансом скорости, отклика и стабильности."
 		}
 	} else {
 		response.Message = "Достоверная рекомендация сейчас недоступна; текущий VPN не изменён."
@@ -395,12 +398,24 @@ func defaultBestServerQualityTCPProbe(ctx context.Context, profile subscriptionP
 
 func bestServerQualityScore(httpMS, tcpMS, httpJitterMS, tcpJitterMS int, downloadMbps float64, downloadOK bool) int {
 	score := 10000
-	score -= minInt(httpMS, 2500) * 4
+	// Responsiveness still matters, but a visibly slow VPN should not win only
+	// because one request completed a little sooner. Throughput is therefore a
+	// first-class signal in v3 and very low measured speed carries an explicit
+	// penalty.
+	score -= minInt(httpMS, 2500) * 2
 	score -= minInt(tcpMS, 1000) * 2
 	score -= minInt(httpJitterMS, 1000) * 3
 	score -= minInt(tcpJitterMS, 500)
 	if downloadOK {
-		score += int(math.Min(downloadMbps, 300) * 10)
+		score += int(math.Min(downloadMbps, 200) * 25)
+		switch {
+		case downloadMbps < 10:
+			score -= bestServerQualityVeryLowSpeedPenalty
+		case downloadMbps < 25:
+			score -= bestServerQualityLowSpeedPenalty
+		case downloadMbps < 50:
+			score -= bestServerQualityModerateSpeedPenalty
+		}
 	} else {
 		score -= bestServerQualityNoSpeedPenalty
 	}
