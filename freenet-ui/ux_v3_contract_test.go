@@ -7,7 +7,7 @@ import (
 )
 
 func TestOverviewV3ReadabilityContract(t *testing.T) {
-	b, err := os.ReadFile("web/vpn-ux-fix.js")
+	b, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,6 +19,7 @@ func TestOverviewV3ReadabilityContract(t *testing.T) {
 		"DNS",
 		"Проверить текущий VPN",
 		"Почему рекомендуем",
+		"best-v3-metrics",
 	} {
 		if !strings.Contains(s, needle) {
 			t.Fatalf("Overview v3 contract missing %q", needle)
@@ -27,11 +28,11 @@ func TestOverviewV3ReadabilityContract(t *testing.T) {
 }
 
 func TestOverviewV3DoesNotShowTautologicalAvailability(t *testing.T) {
-	b, err := os.ReadFile("web/vpn-ux-fix.js")
+	b, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), "topStatus.textContent = 'FreeNet доступен'") {
+	if strings.Contains(string(b), "FreeNet доступен") {
 		t.Fatal("topbar must report factual VPN/DNS health, not tautological FreeNet availability")
 	}
 }
