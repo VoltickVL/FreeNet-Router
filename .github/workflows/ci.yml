@@ -253,3 +253,27 @@ jobs:
           )
           file dist/freenet-ui-*
           sha256sum dist/freenet-ui-*
+
+  browser-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/freenet-browser" --no-package-lock --ignore-scripts playwright@1.51.1
+          node "$RUNNER_TEMP/freenet-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: VPN browser behavior and screenshots
+        env:
+          NODE_PATH: ${{ runner.temp }}/freenet-browser/node_modules
+        run: node tests/test_vpn_ui.cjs
+      - name: Upload VPN UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpn-ui-screenshots
+          path: test-artifacts/
+          if-no-files-found: ignore

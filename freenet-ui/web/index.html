@@ -47,7 +47,7 @@
 
     <div class="content">
       <section class="page active" data-page-view="overview">
-        <div class="page-head"><div><div class="page-kicker">Control Center</div><h1>Обзор</h1><p>Текущий VPN, здоровье системы и частые действия — без лишней прокрутки.</p></div><div id="setupSummary" class="summary-state">Загружаем состояние…</div></div>
+        <div class="page-head"><div><div class="page-kicker">Control Center</div><h1>Обзор</h1><p>Состояние соединения и управление VPN.</p></div><div id="setupSummary" class="summary-state">Загружаем состояние…</div></div>
         <div class="grid-2">
           <div class="card hero">
             <div class="eyebrow">Текущий VPN</div>
@@ -63,6 +63,24 @@
 
           <div class="card" id="quickActionsSection">
             <div class="card-head"><div><h2>Быстрый VPN</h2><div class="hint">Страна или конкретный Extra-профиль.</div></div><div id="quickActionState" class="summary-state">Загружаем…</div></div>
+            <div id="bestServerShell" class="best-v4-shell" aria-busy="false">
+              <div class="best-v4-current">
+                <span id="bestCurrentFlag" class="flag-icon flag-unknown" aria-hidden="true"></span>
+                <div class="best-v4-current-main"><div class="best-v4-label">Текущий VPN</div><div id="bestCurrentName" class="best-v4-name">Определяем…</div><div id="bestCurrentQuality" class="best-quality">Качество ещё не проверено</div></div>
+              </div>
+              <div class="best-v4-actions">
+                <button id="bestServerCheckCurrent" type="button" class="btn secondary">Проверить текущий VPN</button>
+                <button id="bestServerRefresh" type="button" class="btn primary">Найти лучший VPN</button>
+              </div>
+              <div id="bestServerStatus" class="best-v4-status" role="status" aria-live="polite" aria-atomic="true"></div>
+              <div id="bestServerResult" class="best-v4-result">
+                <div class="best-v4-label">Рекомендация FreeNet</div><h3 id="bestServerName">Лучший VPN</h3>
+                <div id="bestServerReason" class="best-v4-reason"></div>
+                <details class="best-details"><summary>Результаты измерений</summary><div id="bestServerMetrics" class="best-v4-metrics"></div><div id="bestServerEndpoint" class="best-v4-endpoint"></div></details>
+              </div>
+              <button id="bestServerApply" type="button" class="btn primary best-v4-apply" disabled>Переключиться на лучший</button>
+              <details class="best-details"><summary>Подробности текущего соединения</summary><div id="bestCurrentMetrics" class="best-v4-metrics"></div><div id="bestCurrentEndpoint" class="best-v4-endpoint">—</div><p>Скорость — результат короткого теста загрузки, а не скорость тарифа. HTTP и TCP показывают время отклика. Проверки запускаются вручную и не переключают VPN. Российские серверы исключены из поиска.</p></details>
+            </div>
             <div class="quick-layout">
               <button class="btn country-btn" data-action="de"><span class="left"><span class="flag-icon flag-de" aria-hidden="true"></span><span>Германия<span class="sub">Frankfurt</span></span></span><span>›</span></button>
               <button class="btn country-btn" data-action="pl"><span class="left"><span class="flag-icon flag-pl" aria-hidden="true"></span><span>Польша<span class="sub">Warsaw</span></span></span><span>›</span></button>
@@ -185,7 +203,7 @@ function formatSetupFinalizePlan(p){if(!p)return 'Финальный план н
 function networkState(){if(networkChecking)return 'checking';if(networkDirty)return 'dirty';if(lastNetworkPlan){if(lastNetworkPlan.supported&&lastNetworkPlan.active)return 'active';if(lastNetworkPlan.supported&&!lastNetworkPlan.active)return 'changes';return 'blocked'}if(networkPlanError)return 'error';return 'unverified'}
 function renderNetworkControls(busy=false){const state=networkState(),save=el('saveNetworkBtn'),plan=el('planNetworkBtn'),apply=el('applyNetworkBtn');save.hidden=!networkDirty;plan.hidden=networkDirty||state==='active';apply.hidden=state!=='changes';apply.disabled=busy||state!=='changes';if(state==='active')setSummary('networkSummary','Профиль активен','ok');else if(state==='changes')setSummary('networkSummary','Есть подтверждённые изменения');else if(state==='blocked'||state==='error')setSummary('networkSummary','Требует внимания','bad');else if(state==='dirty')setSummary('networkSummary','Есть несохранённые изменения');else setSummary('networkSummary','Проверяем сетевой профиль…')}
 function updateNetworkHint(s){const providerNote=s.isp==='podryad'?' Подряд использует подтверждённую Management базовую policy Ростелекома; отдельный runtime acceptance будет зафиксирован в provider-policy cycle.':'';el('networkHint').textContent='Профиль: '+(s.isp_label||s.isp||'Авто')+'. Рекомендованный DNS: '+(dnsLabels[s.recommended_dns_mode]||s.recommended_dns_mode||'Авто')+'. Выбранный режим: '+(dnsLabels[s.dns_mode]||s.dns_mode||'Авто')+'.'+providerNote }
-function buttonsBusy(serverBusy){const busy=localPending||networkApplying||providerApplying||setupFinalizeApplying||serverBusy;document.querySelectorAll('#controlCenter button').forEach(b=>{if(!b.classList.contains('nav-btn')&&!b.id?.includes('mobileMenu'))b.disabled=busy});renderNetworkControls(busy);const providerApply=el('applyProviderBtn'),finalizePlan=el('planFinalizeBtn'),finalizeApply=el('applyFinalizeBtn'),rotate=el('rotateBtn'),trigger=el('profilesTrigger');if(providerApply){providerApply.hidden=!selectedProviderID||providerApplied;providerApply.disabled=busy||!selectedProviderID||!providerPlanReady||providerApplied}if(rotate)rotate.disabled=busy||!lastStatus||!lastStatus.country_code||!lastStatus.endpoint||lastStatus.endpoint==='—';if(trigger)trigger.disabled=busy||!extraProfiles.length;if(finalizePlan)finalizePlan.disabled=busy;if(finalizeApply){finalizeApply.hidden=!setupFinalizePlanReady||setupFinalizeComplete;finalizeApply.disabled=busy||!setupFinalizePlanReady||setupFinalizeComplete}}
+function buttonsBusy(serverBusy){const busy=localPending||networkApplying||providerApplying||setupFinalizeApplying||serverBusy;document.dispatchEvent(new CustomEvent('freenet:controls-busy',{detail:!!busy}));document.querySelectorAll('#controlCenter button').forEach(b=>{if(!b.closest('#bestServerShell')&&!b.classList.contains('nav-btn')&&!b.id?.includes('mobileMenu'))b.disabled=busy});renderNetworkControls(busy);const providerApply=el('applyProviderBtn'),finalizePlan=el('planFinalizeBtn'),finalizeApply=el('applyFinalizeBtn'),rotate=el('rotateBtn'),trigger=el('profilesTrigger');if(providerApply){providerApply.hidden=!selectedProviderID||providerApplied;providerApply.disabled=busy||!selectedProviderID||!providerPlanReady||providerApplied}if(rotate)rotate.disabled=busy||!lastStatus||!lastStatus.country_code||!lastStatus.endpoint||lastStatus.endpoint==='—';if(trigger)trigger.disabled=busy||!extraProfiles.length;if(finalizePlan)finalizePlan.disabled=busy;if(finalizeApply){finalizeApply.hidden=!setupFinalizePlanReady||setupFinalizeComplete;finalizeApply.disabled=busy||!setupFinalizePlanReady||setupFinalizeComplete}}
 function resetSetupFinalizePlan(){setupFinalizePlanReady=false;setupFinalizeComplete=false;lastSetupFinalizePlan=null;hideBox('setupFinalizePlan');hideBox('setupFinalizeNotice');const state=el('setupState');if(state)state.textContent='● Требуется проверка'}
 function resetProviderSelection(){selectedProviderID='';selectedProviderName='';providerPlanReady=false;providerApplied=false;hideBox('providerPlan');hideBox('providerNotice');closeProfileMenu();renderProfileOptions();renderSelectedProfile(null);resetSetupFinalizePlan()}
 async function saveSubscription(){hideBox('subscriptionNotice');const input=el('subscriptionInput'),url=input.value.trim();if(!url){showBox('subscriptionNotice','Вставьте новую HTTPS ключ-ссылку','bad');return}try{const r=await fetch('/api/subscription',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});if(r.status===401){await loadAuthStatus();return}const j=await r.json();if(!r.ok||!j.success){showBox('subscriptionNotice',j.error||'Не удалось сохранить подписку','bad');return}input.value='';resetProviderSelection();showBox('subscriptionNotice',j.message||'Подписка сохранена','ok');await loadStatus();await loadNetworkPlan()}catch(e){showBox('subscriptionNotice','Не удалось сохранить подписку: нет связи с FreeNet','bad')}}

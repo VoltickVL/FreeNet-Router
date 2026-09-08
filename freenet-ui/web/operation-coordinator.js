@@ -106,6 +106,8 @@
   let currentQuality = null;
   let scanBusy = false;
   let applyBusy = false;
+  let externalBusy = false;
+  let scanMode = false;
   let topbarSyncTimer = null;
 
   function setText(node, value) { if (node) node.textContent = value || ''; }
@@ -152,6 +154,22 @@
       #profilesList{margin-top:12px}#bestServerAdvanced{margin-top:10px;border-top:1px solid #23364e;padding-top:10px}#bestServerAdvanced summary{cursor:pointer;color:#9fb0c6;font-size:12px}
       @media(max-width:1050px){.topbar.overview-v4-topbar{grid-template-columns:auto minmax(360px,1fr) auto}.overview-v4-top{grid-template-columns:1fr 1fr}.overview-v4-chip:first-child{grid-column:1/-1}.overview-v4-endpoint{display:none}.best-v4-current{align-items:flex-start;flex-direction:column}.best-v4-metrics{justify-content:flex-start}}
       @media(max-width:680px){.overview-v4-top{display:none}.topbar.overview-v4-topbar{grid-template-columns:auto 1fr}.top-actions{justify-self:end}.content{width:calc(100% - 20px)}.best-v4-actions{grid-template-columns:1fr}.best-v4-pill{min-width:72px}}
+      .topbar.overview-v4-topbar{height:76px;grid-template-columns:auto minmax(0,1fr) auto}
+      .overview-v4-top{display:flex;justify-self:end;justify-content:flex-end;gap:24px;width:auto}
+      .overview-v4-chip{padding:0;border:0;background:none}.overview-v4-chip-label{font-size:11px;letter-spacing:0;text-transform:none}.overview-v4-chip-value{font-size:13px}
+      #quickActionsSection{min-height:0;background:#101c2c;padding:26px;border-radius:20px;box-shadow:none}
+      #quickActionsSection .card-head{margin-bottom:24px}#quickActionsSection .card-head .hint{margin-top:5px}
+      #quickActionState{display:none}.best-v4-shell{gap:20px}.best-v4-current{background:none;border:0;padding:0;align-items:center;justify-content:flex-start;gap:16px}
+      #bestCurrentFlag{width:44px;height:30px;border-radius:6px;flex-shrink:0}.best-v4-label{font-size:12px;letter-spacing:0;text-transform:none;color:#aebbd0}.best-v4-name{font-size:26px;font-weight:700;white-space:normal;overflow-wrap:anywhere;line-height:1.25;margin-top:5px}
+      .best-quality{color:#aebbd0;font-size:14px;line-height:1.5;margin-top:7px}.best-v4-actions{display:flex;flex-wrap:wrap;gap:12px}.best-v4-actions .btn{padding:12px 18px;min-height:46px;border-radius:10px}
+      .best-v4-actions #bestServerRefresh{background:#3267d6;border-color:#5083ea}.best-v4-actions .btn:focus-visible,#bestServerAdvanced summary:focus-visible,.best-details summary:focus-visible{outline:2px solid #9ec2ff;outline-offset:4px}
+      .best-v4-status{min-height:22px;font-size:14px;line-height:1.6;color:#b9c7d9}.best-v4-status:empty{display:none}.best-v4-status.busy:before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:#7aa8ff;margin-right:9px}
+      .best-details{border-top:1px solid #29384d;padding-top:14px}.best-details summary,#bestServerAdvanced summary{font-size:13px;color:#aebbd0;cursor:pointer;padding:4px 0}.best-details[open] summary{margin-bottom:12px}.best-details p{font-size:12px;line-height:1.5;color:#aebbd0;margin:12px 0 0}
+      .best-v4-metrics{justify-content:flex-start;gap:24px}.best-v4-pill{padding:0;border:0;background:none;min-width:80px}.best-v4-pill span{font-size:11px;letter-spacing:0;text-transform:none;color:#aebbd0}.best-v4-pill b{font-size:17px;font-weight:600}.best-v4-endpoint{overflow-wrap:anywhere}
+      .best-v4-result{border:0;border-left:3px solid #6b9aff;border-radius:0 12px 12px 0;background:#15263e;padding:20px}.best-v4-result h3{font-size:21px}.best-v4-result .best-details{margin-top:14px}.best-v4-result-head{display:block}
+      #bestServerAdvanced{margin-top:18px;padding-top:14px}#bestServerApply.show{width:fit-content;padding:12px 20px}
+      @media(max-width:1050px){.topbar.overview-v4-topbar{grid-template-columns:auto minmax(0,1fr) auto}.overview-v4-top{display:flex}.best-v4-current{flex-direction:row}.overview-v4-chip:first-child{grid-column:auto}}
+      @media(max-width:760px){.overview-v4-top{display:none}.topbar.overview-v4-topbar{grid-template-columns:auto 1fr;padding:0 16px}.content{width:calc(100% - 28px)}#quickActionsSection{padding:20px}.best-v4-name{font-size:23px}.best-v4-actions{display:grid;grid-template-columns:1fr}.best-v4-actions .btn{width:100%}.best-v4-metrics{gap:18px}.best-v4-result{padding:16px}}
     `;
     document.head.appendChild(style);
   }
@@ -170,11 +188,6 @@
 
   function renderOverviewTopbarFromStatus(s) {
     if (!s) return;
-    const name = s.country ? `${s.country}${s.city ? ' · ' + s.city : ''}` : 'VPN не определён';
-    setText(qs('#topVpnProfile'), name);
-    setText(qs('#topVpnEndpoint'), s.endpoint || '—');
-    const flag = qs('#topVpnFlag');
-    if (flag) flag.className = `flag-icon ${flagClass(s.country_code)}`;
     setText(qs('#topISPValue'), s.isp_label || s.isp || 'Не определён');
     setText(qs('#topDNSValue'), dnsLabel(s));
     const state = healthState(s);
@@ -212,8 +225,8 @@
     const selectors = ['#profile', '#endpoint', '#overviewISP', '#overviewDNS'];
     const nodes = selectors.map(selector => qs(selector)).filter(Boolean);
     if (!nodes.length) return;
-    if (qs('#topVpnProfile') && qs('#profile')) setText(qs('#topVpnProfile'), qs('#profile').textContent);
-    if (qs('#topVpnEndpoint') && qs('#endpoint')) setText(qs('#topVpnEndpoint'), qs('#endpoint').textContent);
+    if (qs('#topISPValue') && qs('#overviewISP')) setText(qs('#topISPValue'), qs('#overviewISP').textContent);
+    if (qs('#topDNSValue') && qs('#overviewDNS')) setText(qs('#topDNSValue'), qs('#overviewDNS').textContent);
   }
 
   function installOverviewTopbarStatusHook() {
@@ -246,17 +259,7 @@
     const summary = document.createElement('div');
     summary.id = 'topVpnSummary';
     summary.className = 'overview-v4-top';
-    const flag = document.createElement('span');
-    flag.id = 'topVpnFlag';
-    flag.className = 'flag-icon flag-unknown';
-    const vpn = makeChip('Текущий VPN', 'topVpnProfile', flag);
-    const endpoint = document.createElement('span');
-    endpoint.id = 'topVpnEndpoint';
-    endpoint.className = 'overview-v4-endpoint';
-    endpoint.textContent = '—';
-    vpn.appendChild(endpoint);
-    summary.appendChild(vpn);
-    summary.appendChild(makeChip('ISP', 'topISPValue'));
+    summary.appendChild(makeChip('Провайдер', 'topISPValue'));
     summary.appendChild(makeChip('DNS', 'topDNSValue'));
     topbar.insertBefore(summary, topActions);
     const watched = ['#profile', '#endpoint', '#overviewISP', '#overviewDNS'].map(selector => qs(selector)).filter(Boolean);
@@ -292,14 +295,14 @@
   function renderMetrics(root, candidate) {
     if (!root) return;
     root.textContent = '';
-    root.appendChild(metricPill('Скорость', metric(candidate, 'speed'), true));
-    root.appendChild(metricPill('HTTP', metric(candidate, 'http')));
+    root.appendChild(metricPill('Тест загрузки', metric(candidate, 'speed'), true));
+    root.appendChild(metricPill('HTTP-отклик', metric(candidate, 'http')));
     root.appendChild(metricPill('TCP', metric(candidate, 'tcp')));
-    root.appendChild(metricPill('Jitter', metric(candidate, 'jitter')));
+    root.appendChild(metricPill('Колебание задержки', metric(candidate, 'jitter')));
   }
   function candidateName(candidate, fallback) { return candidate && candidate.name ? candidate.name : fallback; }
   function currentCandidate(data) {
-    return Array.isArray(data && data.candidates) ? data.candidates.find(item => item && item.current) || data.candidates[0] || null : null;
+    return Array.isArray(data && data.candidates) ? data.candidates.find(item => item && item.current) || null : null;
   }
 
   function renderCurrentIdentity(s) {
@@ -308,6 +311,16 @@
     if (!name || !s) return;
     setText(name, s.country ? `${s.country}${s.city ? ' · ' + s.city : ''}` : 'VPN не определён');
     setText(endpoint, s.endpoint || '—');
+    const flag = qs('#bestCurrentFlag');
+    if (flag) flag.className = `flag-icon ${flagClass(s.country_code)}`;
+    if (currentQuality && currentQuality.endpoint !== s.endpoint) {
+      currentQuality = null;
+      recommendation = null;
+      renderMetrics(qs('#bestCurrentMetrics'), null);
+      setText(qs('#bestCurrentQuality'), 'Качество ещё не проверено');
+      qs('#bestServerResult')?.classList.remove('show');
+      qs('#bestServerApply')?.classList.remove('show');
+    }
   }
 
   function renderCurrentQuality(data) {
@@ -318,7 +331,11 @@
       setText(qs('#bestCurrentEndpoint'), candidate.endpoint || '—');
     }
     renderMetrics(qs('#bestCurrentMetrics'), candidate);
-    setText(qs('#bestServerStatus'), data && data.message ? data.message : 'Текущий VPN проверен.');
+    const measured = candidate && Number(candidate.download_mbps) > 0;
+    const stamp = new Date(data && data.scanned_at || Date.now());
+    const time = Number.isNaN(stamp.getTime()) ? '' : stamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+    setText(qs('#bestCurrentQuality'), candidate ? `${measured ? 'Тест загрузки: ' + metric(candidate, 'speed') : 'Скорость не измерена'}${time ? ' · ' + time : ''}` : 'Недостаточно данных для оценки');
+    setText(qs('#bestServerStatus'), candidate ? 'Проверка текущего VPN завершена.' : 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
   }
 
   function recommendationReason(data, best) {
@@ -336,7 +353,7 @@
   function renderBestResult(data) {
     recommendation = data && data.available && data.recommendation && !isRussianProfile(data.recommendation) ? data.recommendation : null;
     const current = currentCandidate(data);
-    if (current) renderCurrentQuality({message: 'Текущий VPN измерен тем же методом.', candidates: [current]});
+    if (current) renderCurrentQuality({scanned_at: data.scanned_at, candidates: [current]});
     const box = qs('#bestServerResult');
     const apply = qs('#bestServerApply');
     if (!recommendation) {
@@ -350,7 +367,7 @@
     setText(qs('#bestServerEndpoint'), recommendation.endpoint || '—');
     setText(qs('#bestServerReason'), recommendationReason(data, recommendation));
     renderMetrics(qs('#bestServerMetrics'), recommendation);
-    setText(qs('#bestServerStatus'), `${data.message || 'Рекомендация готова.'} Проверено зарубежных профилей: ${data.profiles_scanned || 0}. MUTATION NONE.`);
+    setText(qs('#bestServerStatus'), `Поиск завершён. Проверено зарубежных профилей: ${data.profiles_scanned || 0}.`);
     if (apply) {
       apply.disabled = recommendation.current || scanBusy || applyBusy;
       apply.textContent = recommendation.current ? 'Лучший уже используется' : 'Переключиться на лучший';
@@ -364,39 +381,12 @@
     const title = quick.querySelector('.card-head h2');
     const hint = quick.querySelector('.card-head .hint');
     if (title) title.textContent = 'VPN';
-    if (hint) hint.textContent = 'Ничего не проверяется автоматически. Текущий VPN и поиск лучшего запускаются отдельно.';
+    if (hint) hint.textContent = 'Проверьте соединение или подберите сервер быстрее.';
     const countries = quick.querySelector('.quick-layout');
     if (countries) countries.remove();
     const profilesList = qs('#profilesList');
     const profileLabel = profilesList && profilesList.querySelector('label[for="profileSearch"]');
     if (profileLabel) profileLabel.textContent = 'Ручной выбор Extra-профиля';
-
-    if (!qs('#bestServerShell')) {
-      const shell = document.createElement('div');
-      shell.id = 'bestServerShell';
-      shell.className = 'best-v4-shell';
-      shell.innerHTML = `
-        <div class="best-v4-current">
-          <div class="best-v4-current-main"><div class="best-v4-label">Текущий VPN</div><div id="bestCurrentName" class="best-v4-name">Определяем…</div><div id="bestCurrentEndpoint" class="best-v4-endpoint">—</div></div>
-          <div id="bestCurrentMetrics" class="best-v4-metrics"></div>
-        </div>
-        <div class="best-v4-actions">
-          <button id="bestServerCheckCurrent" type="button" class="btn secondary">Проверить текущий VPN</button>
-          <button id="bestServerRefresh" type="button" class="btn secondary">Найти лучший VPN</button>
-        </div>
-        <div id="bestServerResult" class="best-v4-result">
-          <div class="best-v4-result-head"><div><div class="best-v4-label">Рекомендация FreeNet · только зарубежные серверы</div><h3 id="bestServerName">Лучший VPN</h3><div id="bestServerEndpoint" class="best-v4-endpoint">—</div></div></div>
-          <div id="bestServerReason" class="best-v4-reason">Почему рекомендуем</div>
-          <div id="bestServerMetrics" class="best-v4-metrics"></div>
-        </div>
-        <button id="bestServerApply" type="button" class="btn primary best-v4-apply" disabled>Переключиться на лучший</button>
-        <div id="bestServerStatus" class="best-v4-status">Готово. Проверки запускаются только по вашему действию. MUTATION NONE.</div>`;
-      const anchor = profilesList || quick.querySelector('.action-row');
-      if (anchor) quick.insertBefore(shell, anchor); else quick.appendChild(shell);
-      qs('#bestServerCheckCurrent').addEventListener('click', scanCurrentVPN);
-      qs('#bestServerRefresh').addEventListener('click', scanBestServer);
-      qs('#bestServerApply').addEventListener('click', applyBestServer);
-    }
 
     const routine = qs('#updateBtn') && qs('#updateBtn').closest('.action-row');
     const guard = qs('#quickNetworkGuard');
@@ -404,37 +394,41 @@
       const details = document.createElement('details');
       details.id = 'bestServerAdvanced';
       const summary = document.createElement('summary');
-      summary.textContent = 'Ручной выбор Extra-профиля и дополнительные действия';
+      summary.textContent = 'Выбрать сервер вручную';
       details.appendChild(summary);
       profilesList.parentNode.insertBefore(details, profilesList);
       details.appendChild(profilesList);
+      const exact = qs('#exactConnectRow');
+      if (exact) details.appendChild(exact);
       if (routine) details.appendChild(routine);
       if (guard) details.appendChild(guard);
     }
     try { if (typeof lastStatus !== 'undefined' && lastStatus) renderCurrentIdentity(lastStatus); } catch (_) {}
     renderMetrics(qs('#bestCurrentMetrics'), currentQuality);
-    return shell;
+    return qs('#bestServerShell');
   }
 
   function setBusy(mode) {
+    scanMode = mode;
     scanBusy = !!mode;
     const current = qs('#bestServerCheckCurrent');
     const best = qs('#bestServerRefresh');
     const apply = qs('#bestServerApply');
-    if (current) { current.disabled = scanBusy || applyBusy; current.textContent = mode === 'current' ? 'Проверяем текущий…' : 'Проверить текущий VPN'; }
-    if (best) { best.disabled = scanBusy || applyBusy; best.textContent = mode === 'best' ? 'Ищем лучший…' : 'Найти лучший VPN'; }
-    if (apply) apply.disabled = scanBusy || applyBusy || !recommendation || recommendation.current;
+    if (current) { current.disabled = scanBusy || applyBusy || externalBusy; current.textContent = mode === 'current' ? 'Проверяем текущий…' : 'Проверить текущий VPN'; }
+    if (best) { best.disabled = scanBusy || applyBusy || externalBusy; best.textContent = mode === 'best' ? 'Ищем лучший…' : 'Найти лучший VPN'; }
+    if (apply) apply.disabled = scanBusy || applyBusy || externalBusy || !recommendation || recommendation.current;
     const status = qs('#bestServerStatus');
-    if (status) status.classList.toggle('busy', !!mode);
+    if (status) status.classList.toggle('busy', !!mode || applyBusy);
+    qs('#bestServerShell')?.setAttribute('aria-busy', String(scanBusy || applyBusy));
   }
 
   async function scanCurrentVPN() {
-    if (scanBusy || applyBusy) return;
-    mountBestServerUI();
-    setBusy('current');
-    setText(qs('#bestServerStatus'), 'Проверяем только текущий VPN. Другие профили не сканируются. MUTATION NONE.');
+    if (scanBusy || applyBusy || externalBusy) return;
     try {
-      const response = await fetch('/api/vpn/current-quality', {cache: 'no-store'});
+      mountBestServerUI();
+      setBusy('current');
+      setText(qs('#bestServerStatus'), 'Проверяем текущий VPN… Это может занять до минуты.');
+      const response = await fetch('/api/vpn/current-quality', {cache: 'no-store', signal: AbortSignal.timeout(60000)});
       const body = await response.json().catch(() => null);
       if (!response.ok || !body || !body.success) {
         setText(qs('#bestServerStatus'), (body && body.error) || 'Не удалось проверить текущий VPN.');
@@ -442,22 +436,23 @@
       }
       renderCurrentQuality(body);
     } catch (_) {
-      setText(qs('#bestServerStatus'), 'Не удалось проверить текущий VPN: нет связи с FreeNet.');
+      setText(qs('#bestServerStatus'), 'Не удалось завершить проверку текущего VPN. Проверьте связь с FreeNet.');
     } finally {
       setBusy(false);
     }
   }
 
   async function scanBestServer() {
-    if (scanBusy || applyBusy) return;
-    mountBestServerUI();
-    setBusy('best');
-    recommendation = null;
-    const apply = qs('#bestServerApply');
-    if (apply) apply.classList.remove('show');
-    setText(qs('#bestServerStatus'), 'Сравниваем зарубежные Extra-профили. Российские серверы исключены. MUTATION NONE.');
+    if (scanBusy || applyBusy || externalBusy) return;
     try {
-      const response = await fetch('/api/vpn/best-foreign', {cache: 'no-store'});
+      mountBestServerUI();
+      setBusy('best');
+      recommendation = null;
+      const apply = qs('#bestServerApply');
+      if (apply) apply.classList.remove('show');
+      qs('#bestServerResult')?.classList.remove('show');
+      setText(qs('#bestServerStatus'), 'Сравниваем зарубежные серверы… Текущий VPN продолжает работать.');
+      const response = await fetch('/api/vpn/best-foreign', {cache: 'no-store', signal: AbortSignal.timeout(180000)});
       const body = await response.json().catch(() => null);
       if (!response.ok || !body || !body.success) {
         renderBestResult(null);
@@ -467,7 +462,7 @@
       renderBestResult(body);
     } catch (_) {
       renderBestResult(null);
-      setText(qs('#bestServerStatus'), 'Поиск лучшего VPN не завершён: нет связи с FreeNet.');
+      setText(qs('#bestServerStatus'), 'Не удалось завершить поиск. Проверьте связь с FreeNet.');
     } finally {
       setBusy(false);
     }
@@ -488,12 +483,12 @@
   }
 
   async function applyBestServer() {
-    if (applyBusy || scanBusy || !recommendation || recommendation.current || !recommendation.id || isRussianProfile(recommendation)) return;
+    if (applyBusy || scanBusy || externalBusy || !recommendation || recommendation.current || !recommendation.id || isRussianProfile(recommendation)) return;
     applyBusy = true;
     setBusy(false);
     const apply = qs('#bestServerApply');
     if (apply) { apply.disabled = true; apply.textContent = 'Переключаем…'; }
-    setText(qs('#bestServerStatus'), 'Применяем выбранный зарубежный профиль транзакционно и подтверждаем фактический endpoint.');
+    setText(qs('#bestServerStatus'), 'Переключаем VPN и проверяем соединение…');
     const expectedEndpoint = recommendation.endpoint;
     try {
       const response = await fetch('/api/network-profile/apply', {
@@ -507,7 +502,7 @@
       }
       const status = await waitForEndpoint(expectedEndpoint);
       if (!status) {
-        setText(qs('#bestServerStatus'), 'Apply завершён, но endpoint ещё не подтверждён. Blind retry не выполняется.');
+        setText(qs('#bestServerStatus'), 'Переключение ещё не подтверждено. Проверьте состояние системы перед повторной попыткой.');
         return;
       }
       recommendation = null;
@@ -516,9 +511,10 @@
       if (qs('#bestServerResult')) qs('#bestServerResult').classList.remove('show');
       if (apply) apply.classList.remove('show');
       renderMetrics(qs('#bestCurrentMetrics'), null);
-      setText(qs('#bestServerStatus'), 'VPN переключён и endpoint подтверждён. Для новых метрик нажмите «Проверить текущий VPN».');
+      setText(qs('#bestCurrentQuality'), 'Качество ещё не проверено');
+      setText(qs('#bestServerStatus'), 'VPN переключён. Соединение проверено.');
     } catch (_) {
-      setText(qs('#bestServerStatus'), 'Связь прервалась во время переключения. Operation Coordinator reconciles результат; второй mutation не запускается.');
+      setText(qs('#bestServerStatus'), 'Связь прервалась во время переключения. Результат не подтверждён — проверьте состояние системы перед повторной попыткой.');
     } finally {
       applyBusy = false;
       setBusy(false);
@@ -529,6 +525,10 @@
     const root = document.documentElement;
     if (!root || root.dataset.freenetBestServerActions === '1') return;
     root.dataset.freenetBestServerActions = '1';
+    document.addEventListener('freenet:controls-busy', event => {
+      externalBusy = !!event.detail;
+      setBusy(scanMode);
+    });
     document.addEventListener('click', event => {
       const origin = event.target;
       if (!origin || typeof origin.closest !== 'function') return;
