@@ -2,24 +2,30 @@ package main
 
 import "testing"
 
-func TestBestServerMediaQualityAcceptsStableSingleStreamSamples(t *testing.T) {
-	stable := summarizeBestServerMediaQuality([]float64{92, 88, 95, 91, 86, 90}, 3, 3)
-	if !stable.OK || stable.Grade != "excellent" || stable.Stalls != 0 {
-		t.Fatalf("stable Speedtest samples should be excellent: %+v", stable)
+func TestBestServerAggregateMediaQualityUsesCombinedCapacity(t *testing.T) {
+	result := summarizeBestServerAggregateMediaQuality([]float64{38, 41, 39, 42, 40, 41}, 4, 4)
+	if !result.OK {
+		t.Fatalf("aggregate Speedtest sample should be usable: %+v", result)
+	}
+	if result.MedianMbps < 230 || result.MedianMbps > 260 {
+		t.Fatalf("aggregate capacity should reflect concurrent streams, got %.1f Mbps", result.MedianMbps)
+	}
+	if result.Grade != "excellent" {
+		t.Fatalf("stable aggregate path should be excellent: %+v", result)
 	}
 }
 
-func TestBestServerMediaQualityRejectsSingleStreamStall(t *testing.T) {
-	stable := summarizeBestServerMediaQuality([]float64{92, 88, 95, 91, 86, 90}, 3, 3)
-	stalled := summarizeBestServerMediaQuality([]float64{96, 91, 8, 94, 90, 89}, 3, 3)
+func TestBestServerAggregateMediaQualityRejectsStreamStall(t *testing.T) {
+	stable := summarizeBestServerAggregateMediaQuality([]float64{42, 40, 39, 41, 38, 40}, 4, 4)
+	stalled := summarizeBestServerAggregateMediaQuality([]float64{42, 40, 5, 41, 38, 40}, 4, 4)
 	if !stalled.OK || stalled.Stalls < 1 || stalled.Penalty <= stable.Penalty {
-		t.Fatalf("single-stream stall must be detected and penalized: stable=%+v stalled=%+v", stable, stalled)
+		t.Fatalf("stream stall must be detected and penalized: stable=%+v stalled=%+v", stable, stalled)
 	}
 }
 
-func TestBestServerMediaQualityPenalizesServicePathFailures(t *testing.T) {
-	allOK := summarizeBestServerMediaQuality([]float64{60, 62, 64, 61, 59, 63}, 3, 3)
-	partial := summarizeBestServerMediaQuality([]float64{60, 62, 64, 61, 59, 63}, 1, 3)
+func TestBestServerAggregateMediaQualityPenalizesServicePathFailures(t *testing.T) {
+	allOK := summarizeBestServerAggregateMediaQuality([]float64{40, 42, 41, 39, 38, 43}, 4, 4)
+	partial := summarizeBestServerAggregateMediaQuality([]float64{40, 42, 41, 39, 38, 43}, 2, 4)
 	if partial.Penalty <= allOK.Penalty {
 		t.Fatalf("service path failures must increase penalty: all=%+v partial=%+v", allOK, partial)
 	}
@@ -28,9 +34,9 @@ func TestBestServerMediaQualityPenalizesServicePathFailures(t *testing.T) {
 	}
 }
 
-func TestBestServerMediaQualityNeedsAllSingleStreamSamples(t *testing.T) {
-	result := summarizeBestServerMediaQuality([]float64{80, 82, 79, 81, 80}, 3, 3)
+func TestBestServerAggregateMediaQualityNeedsAllStreams(t *testing.T) {
+	result := summarizeBestServerAggregateMediaQuality([]float64{80, 82, 79, 81, 80}, 4, 4)
 	if result.OK || result.Penalty == 0 {
-		t.Fatalf("too few Speedtest samples must fail closed: %+v", result)
+		t.Fatalf("too few Speedtest streams must fail closed: %+v", result)
 	}
 }
