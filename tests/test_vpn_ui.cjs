@@ -8,8 +8,11 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui/web');
 const artifacts = process.env.FREENET_UI_ARTIFACTS || path.join(root, 'test-artifacts');
-const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, available:true, reachable:true, download_mbps:42.5, application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8};
+const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, available:true, reachable:true, download_mbps:42.5, application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:6};
 const winner = {...current,id:'fixture-de',name:'Германия · Франкфурт',country_code:'de',endpoint:'192.0.2.20:443',current:false,download_mbps:68.2,application_rtt_ms:110};
+const second = {...winner,id:'fixture-lt',name:'Литва · Вильнюс',country_code:'lt',endpoint:'192.0.2.40:443',download_mbps:59.1};
+const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:51.4};
+let expectedApply = winner;
 let status = {version:'0.2.88',country:'Польша',city:'Варшава',country_code:'pl',endpoint:current.endpoint,xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true};
 const server = http.createServer((req,res)=>{
   const url = new URL(req.url,'http://localhost');
@@ -50,11 +53,11 @@ const server = http.createServer((req,res)=>{
         if(mode==='empty')return answer(route,{success:true,available:false,candidates:[],profiles_scanned:0});
         const best=url.pathname.endsWith('best-foreign');
         const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
-        return answer(route,{success:true,available:true,candidates:best?[current,winner]:[current],recommendation:best?recommendation:null,profiles_scanned:best?2:1,scanned_at:'2026-09-08T03:00:00Z'});
+        return answer(route,{success:true,available:true,candidates:best?(bestMode==='ru'?[current,{...winner,country_code:'ru'}]:[current,winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}]):[current],recommendation:best?recommendation:null,profiles_scanned:best?6:1,scanned_at:'2026-09-08T03:00:00Z'});
       }
       if(url.pathname==='/api/network-profile/apply'){
-        assert.deepEqual(JSON.parse(req.postData()),{operation:'provider',profile_id:winner.id,confirm:true});
-        status={...status,country:'Германия',city:'Франкфурт',country_code:'de',endpoint:winner.endpoint};
+        assert.deepEqual(JSON.parse(req.postData()),{operation:'provider',profile_id:expectedApply.id,confirm:true});
+        status={...status,country:'Германия',city:'Франкфурт',country_code:'de',endpoint:expectedApply.endpoint};
         if(applyMode!=='ok'){
           status={...status,country:'',country_code:'',city:'',profile_label:'🇱🇹 Lithuania, Extra Whitelist'};
           operation={id:'fixture-op',kind:'provider',target:winner.id,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
@@ -82,6 +85,7 @@ const server = http.createServer((req,res)=>{
       await page.locator('#bestServerCheckCurrent').click();
       assert.equal(await page.locator('#bestServerCheckCurrent').textContent(),'Проверяем текущий…');
       assert.equal(await page.locator('#bestServerRefresh').isDisabled(),true);
+      assert.equal(await page.locator('#bestServerAdvanced').evaluate(n=>n.inert),true,'manual changes are blocked during scan');
       await page.evaluate(()=>{buttonsBusy(false);document.querySelector('#bestServerCheckCurrent').click();});
       assert.equal(await page.locator('#bestServerCheckCurrent').isDisabled(),true,'status polling must not enable a running scan');
       await page.waitForFunction(()=>!document.querySelector('#bestServerCheckCurrent').disabled);
@@ -103,32 +107,56 @@ const server = http.createServer((req,res)=>{
     mode='ok';
     const beforeBest=scans().length;
     await page.locator('#bestServerRefresh').click();
-    assert.equal(await page.locator('#bestServerRefresh').textContent(),'Ищем лучший…');
+    assert.equal(await page.locator('#bestServerRefresh').textContent(),'Подбираем…');
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
     assert.equal(scans().length,beforeBest+1);
     assert.equal(scans().at(-1).path,'/api/vpn/best-foreign');
     assert.equal(await page.locator('#bestServerApply').isVisible(),true);
     assert.match(await page.locator('#bestServerReason').textContent(),/скорость выше/);
     assert.equal(calls.filter(c=>c.method==='POST').length,0,'checks never mutate VPN');
+    assert.equal(await page.locator('.vpn-option').count(),3,'show up to three distinct measured foreign replacements');
+    assert.equal(await page.locator('#profilesTrigger').isVisible(),true,'manual choice is always open');
+    assert.equal(await page.locator('#bestCurrentMetrics').isVisible(),true);
+    for(const row of await page.locator('.vpn-option').all()) {
+      assert.equal(await row.locator('.best-v4-metrics').isVisible(),true,'all comparison metrics visible without disclosure');
+      assert.equal(await row.locator('.best-v4-pill').count(),4);
+    }
+    await page.setViewportSize({width:1366,height:768});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-result.png'),fullPage:true});
+    assert.equal(await page.evaluate(()=>document.querySelector('#bestServerAdvanced').getBoundingClientRect().bottom <= innerHeight),true,'desktop comparison and manual controls fit viewport');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight),true,'desktop Overview needs no page scrolling');
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:path.join(artifacts,'vpn-mobile-result.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no horizontal overflow on mobile');
-    await page.locator('#bestServerAdvanced > summary').click();
+    assert.equal(await page.locator('.best-v4-pill:visible').evaluateAll(nodes=>nodes.every(n=>n.scrollWidth<=n.clientWidth)),true,'metric values must not overlap adjacent metrics on mobile');
     await page.locator('#profilesTrigger').click();
     assert.doesNotMatch(await page.locator('#profilesMenu').textContent(),/Россия/);
-    await page.locator('#bestServerAdvanced > summary').click();
-    for(const kind of ['current','ru']){
+    await page.locator('#profilesTrigger').click();
+    for(const kind of ['ru']){
       bestMode=kind;await page.locator('#bestServerRefresh').click();
       await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
       assert.equal(await page.locator('#bestServerApply').isVisible(),false,'current/RU recommendation cannot be applied');
     }
+    bestMode='current';await page.locator('#bestServerRefresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    assert.equal(await page.locator('.vpn-option').count(),3,'current winner still permits measured alternatives');
+    assert.match(await page.locator('#bestServerStatus').textContent(),/Текущий VPN имеет лучший/);
     bestMode='winner';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
     await page.locator('#bestServerApply').click();
     await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent==='VPN переключён. Соединение проверено.');
     assert.equal(calls.filter(c=>c.method==='POST').length,1,'apply issues one transactional request');
     assert.match(await page.locator('#bestCurrentName').textContent(),/Германия/);
+    expectedApply=second;
+    status={...status,endpoint:current.endpoint,country:'Польша',city:'Варшава',country_code:'pl'};
+    await page.goto(base);
+    await page.locator('#bestServerRefresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    await page.locator('.vpn-option-apply').nth(1).click();
+    await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent==='VPN переключён. Соединение проверено.');
+    assert.equal(status.endpoint,second.endpoint);
+    assert.equal(await page.locator('.vpn-option-apply').count(),0,'all stale alternatives cleared after switching');
+    expectedApply=winner;
     for(const scenario of ['gateway','empty','aborted','failed','other']){
       applyMode=scenario;operationReads=0;
       status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};

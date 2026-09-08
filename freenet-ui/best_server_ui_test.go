@@ -21,8 +21,8 @@ func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 		"/api/vpn/current-quality",
 		"/api/vpn/best-foreign",
 		"Проверить текущий VPN",
-		"Найти лучший VPN",
-		"Переключиться на лучший",
+		"Подобрать серверы",
+		"Переключиться",
 		"Почему рекомендуем",
 		"countries.remove()",
 		"operation: 'provider'",
@@ -114,7 +114,7 @@ func TestBestServerUIKeepsExactProfileFallback(t *testing.T) {
 	if !strings.Contains(string(index), `id="profileSearch"`) || !strings.Contains(string(index), `id="profilesTrigger"`) {
 		t.Fatal("manual exact profile selector disappeared")
 	}
-	if !strings.Contains(string(js), "Ручной выбор Extra-профиля") {
+	if !strings.Contains(string(js), "Выбор сервера вручную") {
 		t.Fatal("manual exact selector must remain as advanced fallback")
 	}
 }

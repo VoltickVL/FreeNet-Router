@@ -64,22 +64,20 @@
           <div class="card" id="quickActionsSection">
             <div class="card-head"><div><h2>Быстрый VPN</h2><div class="hint">Страна или конкретный Extra-профиль.</div></div><div id="quickActionState" class="summary-state">Загружаем…</div></div>
             <div id="bestServerShell" class="best-v4-shell" aria-busy="false">
-              <div class="best-v4-current">
-                <span id="bestCurrentFlag" class="flag-icon flag-unknown" aria-hidden="true"></span>
-                <div class="best-v4-current-main"><div class="best-v4-label">Текущий VPN</div><div id="bestCurrentName" class="best-v4-name">Определяем…</div><div id="bestCurrentQuality" class="best-quality">Качество ещё не проверено</div></div>
-              </div>
-              <div class="best-v4-actions">
+              <section class="vpn-current-panel" aria-label="Текущий VPN">
+                <div class="best-v4-current"><span id="bestCurrentFlag" class="flag-icon flag-unknown" aria-hidden="true"></span><div class="best-v4-current-main"><div class="best-v4-label">Текущий VPN</div><div id="bestCurrentName" class="best-v4-name">Определяем…</div></div></div>
+                <div id="bestCurrentEndpoint" class="best-v4-endpoint">—</div>
+                <div id="bestCurrentMetrics" class="best-v4-metrics"></div>
+                <div id="bestCurrentQuality" class="best-quality">Качество ещё не проверено</div>
                 <button id="bestServerCheckCurrent" type="button" class="btn secondary">Проверить текущий VPN</button>
-                <button id="bestServerRefresh" type="button" class="btn primary">Найти лучший VPN</button>
-              </div>
+              </section>
+              <section class="vpn-alternatives-panel" aria-label="Серверы для замены">
+                <div class="vpn-section-head"><div><h3>Серверы для замены</h3><span class="hint">До трёх проверенных вариантов</span></div><button id="bestServerRefresh" type="button" class="btn primary">Подобрать серверы</button></div>
+                <div id="bestServerEmpty" class="vpn-empty">Нажмите «Подобрать серверы», чтобы сравнить скорость и отклик. Текущий VPN продолжит работать.</div>
+                <div id="bestServerResult" class="best-v4-result"></div>
+              </section>
               <div id="bestServerStatus" class="best-v4-status" role="status" aria-live="polite" aria-atomic="true"></div>
-              <div id="bestServerResult" class="best-v4-result">
-                <div class="best-v4-label">Рекомендация FreeNet</div><h3 id="bestServerName">Лучший VPN</h3>
-                <div id="bestServerReason" class="best-v4-reason"></div>
-                <details class="best-details"><summary>Результаты измерений</summary><div id="bestServerMetrics" class="best-v4-metrics"></div><div id="bestServerEndpoint" class="best-v4-endpoint"></div></details>
-              </div>
-              <button id="bestServerApply" type="button" class="btn primary best-v4-apply" disabled>Переключиться на лучший</button>
-              <details class="best-details"><summary>Подробности текущего соединения</summary><div id="bestCurrentMetrics" class="best-v4-metrics"></div><div id="bestCurrentEndpoint" class="best-v4-endpoint">—</div><p>Скорость — результат короткого теста загрузки, а не скорость тарифа. HTTP и TCP показывают время отклика. Проверки запускаются вручную и не переключают VPN. Российские серверы исключены из поиска.</p></details>
+              <p class="vpn-measure-note">Проверки запускаются вручную. Скорость — короткий тест загрузки, не скорость тарифа. Российские серверы исключены из поиска.</p>
             </div>
             <div class="quick-layout">
               <button class="btn country-btn" data-action="de"><span class="left"><span class="flag-icon flag-de" aria-hidden="true"></span><span>Германия<span class="sub">Frankfurt</span></span></span><span>›</span></button>
