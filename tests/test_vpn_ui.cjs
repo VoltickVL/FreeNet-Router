@@ -27,12 +27,18 @@ const server = http.createServer((req,res)=>{
     const page=await browser.newPage({viewport:{width:1440,height:1000}});
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     const calls=[];let pending=[];let mode='ok';let bestMode='winner';
+    let applyMode='ok', operation=null, operationReads=0;
     const answer = (route,body,code=200)=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
     await page.route('**/api/**',async route=>{
       const req=route.request(),url=new URL(req.url());
       calls.push({path:url.pathname,method:req.method(),body:req.postData()});
       if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
       if(url.pathname==='/api/status')return answer(route,status);
+      if(url.pathname==='/api/operation/state'){
+        operationReads++;
+        if(operationReads===1)return answer(route,{success:true,active:true,operation:{...operation,state:'running',result:''}});
+        return answer(route,{success:true,active:false,operation});
+      }
       if(url.pathname==='/api/network-profile/plan')return answer(route,{success:true,supported:true,active:true,extra_profiles:[{...current,address:'192.0.2.10',port:443},{...winner,address:'192.0.2.20',port:443},{id:'fixture-ru',name:'Россия',country_code:'ru',address:'192.0.2.30',port:443}]});
       if(url.pathname==='/api/vpn/current-quality'||url.pathname==='/api/vpn/best-foreign'){
         pending.push(url.pathname);
@@ -49,6 +55,14 @@ const server = http.createServer((req,res)=>{
       if(url.pathname==='/api/network-profile/apply'){
         assert.deepEqual(JSON.parse(req.postData()),{operation:'provider',profile_id:winner.id,confirm:true});
         status={...status,country:'Германия',city:'Франкфурт',country_code:'de',endpoint:winner.endpoint};
+        if(applyMode!=='ok'){
+          status={...status,country:'',country_code:'',city:'',profile_label:'🇱🇹 Lithuania, Extra Whitelist'};
+          operation={id:'fixture-op',kind:'provider',target:winner.id,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
+          if(applyMode==='failed')operation={...operation,state:'failed',result:'FAIL',error:'Проверка соединения не пройдена'};
+          if(applyMode==='other')operation={...operation,target:'another-profile'};
+          if(applyMode==='aborted')return route.abort();
+          return route.fulfill({status:applyMode==='empty'?200:504,contentType:'text/html',body:applyMode==='empty'?'':'<h1>Gateway Timeout</h1>'});
+        }
         return answer(route,{success:true,applied:true});
       }
       return answer(route,{success:true,available:false,configured:true,active:false});
@@ -115,7 +129,26 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent==='VPN переключён. Соединение проверено.');
     assert.equal(calls.filter(c=>c.method==='POST').length,1,'apply issues one transactional request');
     assert.match(await page.locator('#bestCurrentName').textContent(),/Германия/);
+    for(const scenario of ['gateway','empty','aborted','failed','other']){
+      applyMode=scenario;operationReads=0;
+      status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};
+      await page.goto(base);
+      await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
+      await page.locator('#bestServerRefresh').click();
+      await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+      const postsBefore=calls.filter(c=>c.method==='POST').length;
+      await page.locator('#bestServerApply').click();
+      if(scenario==='failed')await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent.includes('Проверка соединения не пройдена'));
+      else if(scenario==='other')await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent.includes('пока не подтверждён'));
+      else {
+        await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent==='VPN переключён. Соединение проверено.');
+        assert.match(await page.locator('#bestCurrentName').textContent(),/Lithuania/);
+        assert.equal(await page.locator('#bestServerCheckCurrent').isDisabled(),false);
+      }
+      assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1,scenario+': no second POST');
+      assert.ok(operationReads>=1,scenario+': operation state was read');
+    }
     assert.equal(errors.length,0,errors.join('\n'));
-    console.log('PASS: shipped-page startup, no auto scan, current-only click/re-entry/remount/single-flight, HTTP/network/JSON/empty results, foreign scan, RU/manual exclusion, current-winner guard, exact apply, mobile overflow.');
+    console.log('PASS: gateway/empty/aborted response reconciliation, terminal failure, unrelated operation rejection, exact Lithuania identity;  shipped-page startup, no auto scan, current-only click/re-entry/remount/single-flight, HTTP/network/JSON/empty results, foreign scan, RU/manual exclusion, current-winner guard, exact apply, mobile overflow.');
   } finally {await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
