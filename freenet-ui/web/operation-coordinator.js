@@ -346,7 +346,9 @@
   function renderMetrics(root, candidate) {
     if (!root) return;
     root.textContent = '';
-    root.appendChild(metricPill('Тест загрузки', metric(candidate, 'speed'), true));
+    const speed = metricPill('Тест загрузки', metric(candidate, 'speed'), candidate?.eligible === true);
+    if (candidate && candidate.download_mbps > 0 && candidate.download_mbps < 20) speed.querySelector('b').style.color = '#f5bc72';
+    root.appendChild(speed);
     root.appendChild(metricPill('HTTP-отклик', metric(candidate, 'http')));
     root.appendChild(metricPill('TCP', metric(candidate, 'tcp')));
     root.appendChild(metricPill('Колебание задержки', metric(candidate, 'jitter')));
@@ -390,6 +392,7 @@
     const stamp = new Date(data && data.scanned_at || Date.now());
     const time = Number.isNaN(stamp.getTime()) ? '' : stamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
     setText(qs('#bestCurrentQuality'), candidate ? `${measured ? 'Тест загрузки: ' + metric(candidate, 'speed') : 'Скорость не измерена'}${time ? ' · ' + time : ''}` : 'Недостаточно данных для оценки');
+    if (candidate?.download_issue && !measured) setText(qs('#bestCurrentQuality'), 'Тест Cloudflare: ' + candidate.download_issue);
     setText(qs('#bestServerStatus'), candidate ? 'Проверка текущего VPN завершена.' : 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
   }
 
@@ -434,6 +437,7 @@
     if (!alternatives.length) {
       clearAlternatives('Подходящих замен с подтверждённой скоростью не найдено. Текущий VPN сохранён.');
       setText(qs('#bestServerStatus'), data && data.message || 'Достоверные варианты для замены недоступны.');
+      renderRejectedCandidates(data);
       return;
     }
     qs('#bestServerEmpty').hidden = true;
@@ -455,6 +459,33 @@
       row.append(head, metrics, reason); box.appendChild(row);
     });
     setText(qs('#bestServerStatus'), `Проверено профилей: ${data.profiles_scanned || 0}. Вариантов для замены: ${alternatives.length}.${data.recommendation && data.recommendation.current ? ' Текущий VPN имеет лучший общий результат.' : ''}`);
+  }
+
+  function renderRejectedCandidates(data) {
+    const seen = new Set();
+    const checked = (data.candidates || []).filter(c => {
+      if (!c || !c.tested || c.current || c.eligible || isRussianProfile(c) || seen.has(c.endpoint)) return false;
+      seen.add(c.endpoint); return true;
+    });
+    if (!checked.length) return;
+    const box = qs('#bestServerResult');
+    qs('#bestServerEmpty').hidden = true;
+    box.classList.add('show');
+    checked.slice(0, 2).forEach(candidate => {
+      const row = document.createElement('article'); row.className = 'vpn-option vpn-rejected';
+      const head = document.createElement('div'); head.className = 'vpn-option-head';
+      const name = document.createElement('h4'); name.textContent = candidateName(candidate, 'VPN');
+      const badge = document.createElement('span'); badge.textContent = 'Не рекомендован'; badge.style.cssText = 'font-size:11px;color:#f5bc72';
+      head.append(name, badge);
+      const metrics = document.createElement('div'); metrics.className = 'best-v4-metrics'; renderMetrics(metrics, candidate);
+      const reasons = document.createElement('div'); reasons.className = 'best-v4-reason';
+      reasons.textContent = Array.isArray(candidate.rejections) ? candidate.rejections.join(' · ') : 'Недостаточно данных для рекомендации';
+      const detail = document.createElement('div'); detail.className = 'best-v4-reason';
+      detail.textContent = candidate.media_issue ? 'Загрузки Cloudflare: ' + candidate.media_issue :
+        candidate.download_issue ? 'Тест Cloudflare: ' + candidate.download_issue : '';
+      row.append(head, metrics, reasons, detail); box.append(row);
+    });
+    setText(qs('#bestServerStatus'), `Проверка завершена. Рекомендованных замен нет. Показаны причины для ${Math.min(checked.length, 2)} из ${checked.length} проверенных альтернатив.`);
   }
 
   function mountBestServerUI() {

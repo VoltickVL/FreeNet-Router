@@ -45,6 +45,10 @@ const (
 )
 
 type bestServerQualityCandidate struct {
+	Tested       bool    `json:"tested"`
+	Rejections   []string `json:"rejections,omitempty"`
+	DownloadIssue string `json:"download_issue,omitempty"`
+	MediaIssue    string `json:"media_issue,omitempty"`
 	Eligible     bool    `json:"eligible"`
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
@@ -87,6 +91,7 @@ type bestServerQualityResponse struct {
 }
 
 type bestServerQualityApplicationResult struct {
+	DownloadIssue string
 	OK           bool
 	HTTP         bestServerProbeResult
 	DownloadOK   bool
@@ -321,11 +326,14 @@ func rankBestServerQualityCandidates(
 		candidateCtx, cancel := context.WithTimeout(ctx, bestServerQualityCandidateTimeout)
 		probe := appProbe(candidateCtx, internal[index])
 		cancel()
+		results[index].Tested = true
 		if !probe.OK {
 			results[index].Reason = "VPN application probe failed; profile is not recommended"
 			continue
 		}
 		results[index].Available = true
+		results[index].DownloadIssue = probe.DownloadIssue
+		results[index].MediaIssue = probe.Media.Issue
 		results[index].ApplicationMS = probe.HTTP.Median
 		results[index].JitterMS = probe.HTTP.Jitter
 		results[index].HTTPSamples = len(probe.HTTP.Samples)
@@ -378,6 +386,7 @@ func rankBestServerQualityCandidates(
 		}
 	}
 
+	for i := range results { if !results[i].Eligible { results[i].Rejections = bestServerRejectionReasons(results[i]) } }
 	sort.SliceStable(results, func(i, j int) bool {
 		if results[i].Available != results[j].Available {
 			return results[i].Available
@@ -604,7 +613,7 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 	// the optional large capacity transfer. Media also provides a speed fallback.
 	result.Media = probeBestServerMediaQuality(ctx, curlPath, socks)
 	downloadCtx, cancelDownload := context.WithTimeout(ctx, bestServerQualityDownloadTimeout)
-	output, _ := exec.CommandContext(downloadCtx, curlPath,
+	output, downloadErr := exec.CommandContext(downloadCtx, curlPath,
 		"--socks5-hostname", socks,
 		"-sS", "--connect-timeout", "3", "--max-time", "10",
 		"-o", "/dev/null", "-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}", bestServerQualityDownloadURL,
@@ -613,6 +622,8 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 	if mbps, ok := parseBestServerDownloadMbpsAtLeast(string(output), bestServerQualityDownloadMinimumBytes); ok {
 		result.DownloadMbps = mbps
 		result.DownloadOK = true
+	} else {
+		result.DownloadIssue = bestServerTransferIssue(string(output), downloadErr)
 	}
 	return result
 }

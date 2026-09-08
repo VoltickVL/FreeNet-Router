@@ -5,6 +5,7 @@ import (
 	"math"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,7 @@ var bestServerMediaServiceURLs = []string{
 }
 
 type bestServerMediaQualityResult struct {
+	Issue        string
 	OK           bool
 	Samples      int
 	MedianMbps   float64
@@ -129,6 +131,7 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 	defer cancelMedia()
 
 	type streamResult struct {
+		issue string
 		mbps float64
 		ok   bool
 	}
@@ -142,7 +145,7 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 			streamCtx, cancelStream := context.WithTimeout(mediaCtx, bestServerMediaStreamTimeout)
 			defer cancelStream()
 			url := "https://speed.cloudflare.com/__down?bytes=1048576&freenet_segment=" + string(rune('a'+segment))
-			output, _ := exec.CommandContext(streamCtx, curlPath,
+			output, transferErr := exec.CommandContext(streamCtx, curlPath,
 				"--socks5-hostname", socks,
 				"-sS", "--connect-timeout", "3", "--max-time", "8",
 				"-o", "/dev/null",
@@ -150,7 +153,9 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 				url,
 			).Output()
 			mbps, ok := parseBestServerDownloadMbps(strings.TrimSpace(string(output)), bestServerMediaChunkBytes)
-			results <- streamResult{mbps: mbps, ok: ok}
+			issue := ""
+			if !ok { issue = bestServerTransferIssue(string(output), transferErr) }
+			results <- streamResult{mbps: mbps, ok: ok, issue: issue}
 		}()
 	}
 	wg.Wait()
@@ -158,9 +163,12 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 	close(results)
 
 	speeds := make([]float64, 0, bestServerMediaChunkRuns)
+	issues := make(map[string]int)
 	for result := range results {
 		if result.ok {
 			speeds = append(speeds, result.mbps)
+		} else {
+			issues[result.issue]++
 		}
 	}
 
@@ -190,6 +198,10 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 		if <-serviceResults { serviceOK++ }
 	}
 	result := summarizeBestServerMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
+	issueLines := make([]string, 0, len(issues))
+	for issue, count := range issues { issueLines = append(issueLines, strconv.Itoa(count)+"× "+issue) }
+	sort.Strings(issueLines)
+	result.Issue = strings.Join(issueLines, "; ")
 	if result.OK {
 		// Failed streams are failures, not invisible missing samples. Real
 		// aggregate throughput uses one shared wall clock, not summed rates
