@@ -363,12 +363,12 @@
   function renderMetrics(root, candidate) {
     if (!root) return;
     root.textContent = '';
-    const speed = metricPill('Тест загрузки', metric(candidate, 'speed'), candidate?.eligible === true);
+    const speed = metricPill('Скорость VPN', metric(candidate, 'speed'), candidate?.eligible === true);
     if (candidate && candidate.download_mbps > 0 && candidate.download_mbps < 20) speed.querySelector('b').style.color = '#f5bc72';
     root.appendChild(speed);
-    root.appendChild(metricPill('HTTP-отклик', metric(candidate, 'http')));
-    root.appendChild(metricPill('TCP', metric(candidate, 'tcp')));
-    root.appendChild(metricPill('Колебание задержки', metric(candidate, 'jitter')));
+    root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http')));
+    root.appendChild(metricPill('Связь с сервером', metric(candidate, 'tcp')));
+    root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter')));
   }
   function candidateName(candidate, fallback) { return profileDisplayName(candidate, fallback); }
   function currentCandidate(data) {
@@ -413,8 +413,8 @@
     const measured = shown && Number(shown.download_mbps) > 0;
     const stamp = new Date(data && data.scanned_at || Date.now());
     const time = Number.isNaN(stamp.getTime()) ? '' : stamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
-    setText(qs('#bestCurrentQuality'), shown ? `${measured ? 'Тест загрузки: ' + metric(shown, 'speed') : 'Скорость не измерена'}${time ? ' · ' + time : ''}` : 'Недостаточно данных для оценки');
-    if (shown?.download_issue && !measured) setText(qs('#bestCurrentQuality'), 'Speedtest: ' + shown.download_issue);
+    setText(qs('#bestCurrentQuality'), shown ? `${measured ? 'Скорость VPN: ' + metric(shown, 'speed') : 'Скорость пока не измерена'}${time ? ' · ' + time : ''}` : 'Недостаточно данных для оценки');
+    if (shown?.download_issue && !measured) setText(qs('#bestCurrentQuality'), 'Замер скорости: ' + shown.download_issue);
     setText(qs('#bestServerStatus'), shown ? 'Проверка текущего VPN завершена.' : 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
   }
 
@@ -429,7 +429,7 @@
       const delta = Math.round((bs - cs) * 10) / 10;
       parts.push(delta === 0 ? 'Скорость такая же' : `Скорость ${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)} Мбит/с`);
     }
-    if (bh > 0 && ch > 0) parts.push(bh === ch ? 'HTTP такой же' : `HTTP ${bh < ch ? 'быстрее' : 'медленнее'} на ${Math.abs(ch - bh)} мс`);
+    if (bh > 0 && ch > 0) parts.push(bh === ch ? 'Отклик такой же' : `Отклик ${bh < ch ? 'быстрее' : 'медленнее'} на ${Math.abs(ch - bh)} мс`);
     return parts.length ? parts.join(' · ') + '.' : 'Сервер проверен; данных для прямого сравнения скорости с текущим недостаточно.';
   }
 
@@ -484,18 +484,22 @@
         button.textContent = 'Переключиться'; button.setAttribute('aria-label', 'Переключиться: ' + name.textContent);
         head.appendChild(button);
       } else {
-        const badge = document.createElement('span'); badge.className = 'vpn-compare-badge'; badge.textContent = 'Для сравнения';
+        const badge = document.createElement('span'); badge.className = 'vpn-compare-badge'; badge.textContent = 'Не подходит для переключения';
         head.appendChild(badge);
       }
       const metrics = document.createElement('div'); metrics.className = 'best-v4-metrics'; renderMetrics(metrics, candidate);
       const reason = document.createElement('div'); reason.className = 'best-v4-reason';
       if (index === 0) reason.id = 'bestServerReason';
       const diagnostic = !candidate.eligible && Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.join(' · ') : '';
-      reason.textContent = (candidate.eligible ? recommendationReason(data, candidate) : diagnostic || 'Сервер измерен, но данных недостаточно для рекомендации.') + ` · Speedtest ${candidate.media_samples || 0}/${4} · Сайты ${candidate.service_ok || 0}/${candidate.service_total || 0}`;
+      reason.textContent = (candidate.eligible ? recommendationReason(data, candidate) : diagnostic || 'Сервер измерен, но данных недостаточно для рекомендации.') + ` · Замер скорости ${candidate.media_samples || 0}/${4} · Доступность сервисов ${candidate.service_ok || 0}/${candidate.service_total || 0}`;
       row.append(head, metrics, reason); box.appendChild(row);
     });
     const switchable = alternatives.filter(candidate => candidate.eligible).length;
-    setText(qs('#bestServerStatus'), `Проверено профилей: ${data.profiles_scanned || 0}. Показано вариантов для сравнения: ${alternatives.length}; пригодны для переключения: ${switchable}.${data.recommendation && data.recommendation.current ? ' Текущий VPN остаётся предпочтительным.' : ''}`);
+    const currentPreferred = data.recommendation && data.recommendation.current ? ' Текущий VPN остаётся предпочтительным.' : '';
+    const statusText = switchable > 0 ?
+      `Проверено профилей: ${data.profiles_scanned || 0}. Подходящих вариантов для переключения: ${switchable}.${currentPreferred}` :
+      `Проверено профилей: ${data.profiles_scanned || 0}. Подходящей замены не найдено — текущий VPN не изменён.`;
+    setText(qs('#bestServerStatus'), statusText);
   }
 
   function mountBestServerUI() {
@@ -505,6 +509,12 @@
     const hint = quick.querySelector('.card-head .hint');
     if (title) title.textContent = 'VPN';
     if (hint) hint.textContent = 'Соединение и выбор сервера';
+    const alternativesTitle = qs('.vpn-section-head h3');
+    const alternativesHint = qs('.vpn-section-head .hint');
+    if (alternativesTitle) alternativesTitle.textContent = 'Результаты проверки';
+    if (alternativesHint) alternativesHint.textContent = 'До трёх лучших измеренных вариантов';
+    const measureNote = qs('.vpn-measure-note');
+    if (measureNote) measureNote.textContent = 'FreeNet сначала сравнивает реальный отклик через каждый VPN, затем глубоко проверяет лучшие варианты. Скорость — короткий тест загрузки, не скорость тарифа. Российские серверы исключены из поиска.';
     const countries = quick.querySelector('.quick-layout');
     if (countries) countries.remove();
     const profilesList = qs('#profilesList');
@@ -600,9 +610,10 @@
         if (job.state === 'completed' && job.result) return new Response(JSON.stringify(job.result), {status:200});
         if (job.state === 'failed') return new Response(JSON.stringify({success:false,error:job.error || 'Проверка не завершена'}), {status:503});
         if (job.state !== 'running') throw new Error('Invalid quality job state');
-        stage.textContent = job.stage === 'quality' ? `Проверяем качество VPN · завершено ${job.completed} из ${job.total}` :
+        stage.textContent = job.stage === 'quality' ? `Глубоко проверяем лучшие VPN · завершено ${job.completed} из ${job.total}` :
+          job.stage === 'preflight' ? `Сравниваем реальный отклик через VPN · завершено ${job.completed} из ${job.total}` :
           job.stage === 'tcp' ? 'Проверяем доступность серверов…' : 'Получаем профили подписки…';
-        if (job.stage === 'quality' && job.total > 0) { progress.max = job.total; progress.value = job.completed; }
+        if ((job.stage === 'quality' || job.stage === 'preflight') && job.total > 0) { progress.max = job.total; progress.value = job.completed; }
         else progress.removeAttribute('value');
         if (Date.now()-started > 180000) throw new DOMException('Quality job timeout', 'TimeoutError');
         await wait(1000);
@@ -641,7 +652,7 @@
     try {
       mountBestServerUI();
       setBusy('best');
-      clearAlternatives('Подбираем варианты и измеряем качество…');
+      clearAlternatives('Сравниваем реальный отклик и измеряем качество…');
       qs('#bestServerResult')?.classList.remove('show');
       setText(qs('#bestServerStatus'), 'Сравниваем зарубежные серверы… Текущий VPN продолжает работать.');
       const response = await requestQuality('/api/vpn/best-foreign', 'best');
