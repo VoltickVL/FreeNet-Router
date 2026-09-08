@@ -118,6 +118,9 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !prepareBestServerResponse(w) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), bestServerQualityScanTimeout)
 	defer cancel()
 	force := r.URL.Query().Get("refresh") == "1"
