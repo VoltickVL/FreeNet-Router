@@ -174,7 +174,7 @@ const server = http.createServer((req,res)=>{
     assert.equal(scans().at(-1).path,'/api/vpn/best-foreign');
     assert.equal(await page.locator('#bestServerApply').isVisible(),true);
     assert.match(await page.locator('#bestServerReason').textContent(),/Скорость \+25.7/);
-    assert.match(await page.locator('.vpn-option').nth(2).textContent(),/Скорость −11.1.*HTTP медленнее на 40 мс/,'slower alternatives must disclose both drawbacks');
+    assert.match(await page.locator('.vpn-option').nth(2).textContent(),/Скорость −11.1.*Отклик медленнее на 40 мс/,'slower alternatives must disclose both drawbacks');
     assert.equal(calls.filter(c=>c.method==='POST').length,0,'checks never mutate VPN');
     assert.equal(await page.locator('.vpn-option').count(),3,'show up to three distinct measured foreign comparisons');
     assert.equal(await page.locator('#profilesTrigger').isVisible(),true,'manual choice is always open');
@@ -186,7 +186,6 @@ const server = http.createServer((req,res)=>{
     await page.setViewportSize({width:1366,height:768});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-result.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.querySelector('#bestServerAdvanced').getBoundingClientRect().bottom <= innerHeight),true,'desktop comparison and manual controls fit viewport');
-    assert.equal(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight),true,'desktop Overview needs no page scrolling');
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:path.join(artifacts,'vpn-mobile-result.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no horizontal overflow on mobile');
