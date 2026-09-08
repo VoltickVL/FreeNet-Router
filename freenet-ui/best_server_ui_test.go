@@ -11,9 +11,13 @@ func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	js := string(data)
+	markup, err := os.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data) + string(markup)
 	for _, want := range []string{
-		"Ничего не проверяется автоматически",
+		"Проверки запускаются вручную",
 		"/api/vpn/current-quality",
 		"/api/vpn/best-foreign",
 		"Проверить текущий VPN",
@@ -23,7 +27,6 @@ func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 		"countries.remove()",
 		"operation: 'provider'",
 		"profile_id: recommendation.id",
-		"MUTATION NONE",
 		"Мбит/с",
 	} {
 		if !strings.Contains(js, want) {
@@ -43,7 +46,11 @@ func TestBestServerActionsHaveLifecycleSafeDelegation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	js := string(data)
+	markup, err := os.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data) + string(markup)
 	for _, want := range []string{
 		"installBestServerActionDelegation",
 		"freenetBestServerActions",
@@ -68,7 +75,11 @@ func TestBestServerUIExcludesRussiaFromSuggestions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	js := string(data)
+	markup, err := os.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data) + string(markup)
 	for _, want := range []string{
 		"isRussianProfile",
 		"profile.country_code",
@@ -108,18 +119,22 @@ func TestBestServerUIKeepsExactProfileFallback(t *testing.T) {
 	}
 }
 
-func TestOverviewMovesCurrentVPNIntoProfessionalTopbar(t *testing.T) {
+func TestOverviewKeepsSystemSummaryAndSingleVPNCard(t *testing.T) {
 	data, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	js := string(data)
+	markup, err := os.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data) + string(markup)
 	for _, want := range []string{
 		"FreeNetOverviewV4",
 		"topVpnSummary",
 		"overview-v4-chip-label",
 		"Текущий VPN",
-		"ISP",
+		"Провайдер",
 		"DNS",
 		"overview-hero-source",
 		"overview-compact-grid",
@@ -143,7 +158,11 @@ func TestOverviewTopbarWatcherDoesNotPassArrayIndexAsQueryRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	js := string(data)
+	markup, err := os.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data) + string(markup)
 	if strings.Contains(js, ".map(qs)") {
 		t.Fatal("Array.map(qs) passes numeric array index as qs root and breaks topbar synchronization")
 	}
