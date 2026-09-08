@@ -10,8 +10,8 @@ import (
 
 const (
 	bestServerMediaChunkRuns = 6
-	bestServerMediaTimeout   = 20 * time.Second
-	bestServerServiceTimeout = 8 * time.Second
+	bestServerMediaTimeout   = 12 * time.Second
+	bestServerServiceTimeout = 6 * time.Second
 )
 
 var bestServerMediaServiceURLs = []string{
@@ -62,6 +62,28 @@ func summarizeBestServerMediaQuality(speeds []float64, serviceOK, serviceTotal i
 	return result
 }
 
+func summarizeBestServerAggregateMediaQuality(speeds []float64, serviceOK, serviceTotal int) bestServerMediaQualityResult {
+	result := summarizeBestServerMediaQuality(speeds, serviceOK, serviceTotal)
+	if !result.OK {
+		return result
+	}
+	aggregate := 0.0
+	for _, speed := range speeds {
+		if speed > 0 {
+			aggregate += speed
+		}
+	}
+	if aggregate <= 0 {
+		result.OK = false
+		result.Grade = "unknown"
+		result.Penalty = 2600
+		return result
+	}
+	result.MedianMbps = aggregate
+	applyBestServerMediaGrade(&result, serviceOK, serviceTotal)
+	return result
+}
+
 func applyBestServerMediaGrade(result *bestServerMediaQualityResult, serviceOK, serviceTotal int) {
 	penalty := result.Stalls * 1800
 	switch {
@@ -92,7 +114,7 @@ func applyBestServerMediaGrade(result *bestServerMediaQualityResult, serviceOK, 
 
 func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) bestServerMediaQualityResult {
 	mediaCtx, cancelMedia := context.WithTimeout(ctx, bestServerMediaTimeout)
-	speeds, issue := probeBestServerSpeedtestSingleStream(mediaCtx, curlPath, socks, bestServerMediaChunkRuns)
+	speeds, issue := probeBestServerSpeedtestConcurrent(mediaCtx, curlPath, socks, bestServerMediaChunkRuns)
 	cancelMedia()
 
 	serviceCtx, cancelServices := context.WithTimeout(ctx, bestServerServiceTimeout)
@@ -120,7 +142,7 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 		}
 	}
 
-	result := summarizeBestServerMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
+	result := summarizeBestServerAggregateMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
 	result.Issue = issue
 	if len(speeds) < bestServerMediaChunkRuns {
 		result.Stalls += bestServerMediaChunkRuns - len(speeds)
