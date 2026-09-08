@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -37,6 +38,7 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 
 	phaseCtx, cancelPhase := context.WithTimeout(ctx, bestServerPreflightPhaseTimeout)
 	defer cancelPhase()
+	reportBestServerProgress(ctx, "preflight", 0, len(candidates))
 	jobs := make(chan int)
 	results := make(chan bestServerPreflightResult, len(candidates))
 	workers := bestServerPreflightWorkers
@@ -44,6 +46,7 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 		workers = len(candidates)
 	}
 	var wg sync.WaitGroup
+	var completed atomic.Int32
 	for worker := 0; worker < workers; worker++ {
 		wg.Add(1)
 		go func() {
@@ -56,6 +59,8 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 				probe := a.probeBestServerApplicationPreflight(probeCtx, candidates[index])
 				cancel()
 				results <- bestServerPreflightResult{Index: index, Probe: probe}
+				done := int(completed.Add(1))
+				reportBestServerProgress(ctx, "preflight", done, len(candidates))
 			}
 		}()
 	}
