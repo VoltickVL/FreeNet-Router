@@ -44,7 +44,7 @@
     const updateBtn = qs('#updateBtn');
     const rotateBtn = qs('#rotateBtn');
     if (updateBtn) {
-      updateBtn.textContent = 'Обновить текущий VPN-профиль';
+      updateBtn.textContent = 'Обновить профиль';
       updateBtn.title = 'Получить свежие данные текущего активного VPN-профиля из подписки без намеренной смены сервера';
       updateBtn.classList.remove('primary');
       updateBtn.classList.add('secondary');
@@ -142,7 +142,7 @@
     }
   }
 
-  async function waitExactState(expectedEndpoint, expectedCode) {
+  async function waitExactState(expectedEndpoint) {
     let s = null;
     for (let i = 0; i < 30; i++) {
       try {
@@ -151,13 +151,12 @@
         s = null;
       }
       if (s) {
-        const endpointOK = !expectedEndpoint || s.endpoint === expectedEndpoint;
-        const countryOK = !expectedCode || s.country_code === expectedCode;
-        if (endpointOK && countryOK && s.xray_online) return s;
+        const endpointOK = expectedEndpoint && s.endpoint === expectedEndpoint;
+        if (endpointOK && !s.busy && !s.updater_busy && s.xray_online) return s;
       }
       await new Promise(resolve => setTimeout(resolve, 850));
     }
-    return s;
+    return null;
   }
 
   async function connectExactProfile() {
@@ -166,7 +165,6 @@
     const p = exactProfile;
     const pp = exactPlan;
     const expectedEndpoint = pp.endpoint || profileEndpoint(p);
-    const expectedCode = profileCode(p);
     const controls = mountExactConnectControls();
 
     providerApplying = true;
@@ -198,8 +196,8 @@
         return;
       }
 
-      const s = await waitExactState(expectedEndpoint, expectedCode);
-      const accepted = !!(s && s.endpoint === expectedEndpoint && (!expectedCode || s.country_code === expectedCode) && s.xray_online);
+      const s = await waitExactState(expectedEndpoint);
+      const accepted = !!(s && s.endpoint === expectedEndpoint && !s.busy && !s.updater_busy && s.xray_online);
       if (!accepted) {
         const actual = s ? `${s.country || 'страна не определена'} · ${s.endpoint || 'endpoint неизвестен'}` : 'фактический статус недоступен';
         selectedCardText('Требуется проверка состояния', expectedEndpoint, `FreeNet завершил apply, но live-state VPN не совпал: ${actual}. Повторное подключение автоматически не запускается.`);
@@ -222,12 +220,17 @@
       selectedCardText('Связь прервалась', expectedEndpoint, 'FreeNet мог кратко перезапустить VPN. Сначала дождитесь фактического статуса; повторное подключение автоматически не запускается.');
       if (typeof showBox === 'function') showBox('notice', 'Связь прервалась во время переключения. Проверяем фактическое состояние перед любым повтором.', 'bad');
     } finally {
+      // An attempted apply consumes its plan, including uncertain outcomes.
+      // A new attempt must go through explicit selection and validation again.
+      exactProfile = null;
+      exactPlan = null;
+      providerPlanReady = false;
       providerApplying = false;
       if (typeof buttonsBusy === 'function') buttonsBusy(!!(lastStatus && (lastStatus.busy || lastStatus.updater_busy)));
       const state = mountExactConnectControls();
-      if (state && state.connect && exactProfile && exactPlan) {
-        state.connect.disabled = false;
-        state.connect.textContent = 'Подключиться';
+      if (state && state.connect) {
+        state.connect.disabled = true;
+        state.connect.textContent = 'Выберите сервер заново';
       }
     }
   }
