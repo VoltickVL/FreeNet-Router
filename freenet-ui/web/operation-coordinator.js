@@ -297,7 +297,6 @@
     root.appendChild(metricPill('TCP', metric(candidate, 'tcp')));
     root.appendChild(metricPill('Jitter', metric(candidate, 'jitter')));
   }
-
   function candidateName(candidate, fallback) { return candidate && candidate.name ? candidate.name : fallback; }
   function currentCandidate(data) {
     return Array.isArray(data && data.candidates) ? data.candidates.find(item => item && item.current) || data.candidates[0] || null : null;
@@ -526,8 +525,25 @@
     }
   }
 
+  function installBestServerActionDelegation() {
+    const root = document.documentElement;
+    if (!root || root.dataset.freenetBestServerActions === '1') return;
+    root.dataset.freenetBestServerActions = '1';
+    document.addEventListener('click', event => {
+      const origin = event.target;
+      if (!origin || typeof origin.closest !== 'function') return;
+      const button = origin.closest('#bestServerCheckCurrent, #bestServerRefresh, #bestServerApply');
+      if (!button || button.disabled) return;
+      event.preventDefault();
+      if (button.id === 'bestServerCheckCurrent') { void scanCurrentVPN(); return; }
+      if (button.id === 'bestServerRefresh') { void scanBestServer(); return; }
+      if (button.id === 'bestServerApply') void applyBestServer();
+    }, true);
+  }
+
   function start() {
     installRussianProfileFilter();
+    installBestServerActionDelegation();
     mountOverviewTopbar();
     installOverviewTopbarStatusHook();
     syncOverviewTopbar();

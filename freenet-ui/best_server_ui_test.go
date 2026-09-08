@@ -38,6 +38,31 @@ func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 	}
 }
 
+func TestBestServerActionsHaveLifecycleSafeDelegation(t *testing.T) {
+	data, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"installBestServerActionDelegation",
+		"freenetBestServerActions",
+		"document.addEventListener('click'",
+		"#bestServerCheckCurrent, #bestServerRefresh, #bestServerApply",
+		"void scanCurrentVPN()",
+		"void scanBestServer()",
+		"void applyBestServer()",
+		"}, true)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("lifecycle-safe Best Server action contract missing %q", want)
+		}
+	}
+	if !strings.Contains(js, "installBestServerActionDelegation();") {
+		t.Fatal("delegated Best Server action binding must be installed at startup")
+	}
+}
+
 func TestBestServerUIExcludesRussiaFromSuggestions(t *testing.T) {
 	data, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
