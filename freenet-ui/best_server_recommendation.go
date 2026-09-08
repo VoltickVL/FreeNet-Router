@@ -30,6 +30,10 @@ func bestServerMeaningfullyBetter(current, challenger bestServerQualityCandidate
 	return speedGain >= minimumSpeedGain || (httpGain >= bestServerMeaningfulHTTPGainMS && speedNotMateriallyWorse)
 }
 
+func completeBestServerCurrentBaseline(candidate bestServerQualityCandidate) bool {
+	return candidate.ApplicationMS > 0 && candidate.MediaSamples >= bestServerMediaRequiredRuns && candidate.ServiceTotal >= 3
+}
+
 func applyBestServerRecommendationDeadband(response bestServerQualityResponse) bestServerQualityResponse {
 	out := cloneBestServerQualityResponse(response)
 	for i := range out.Candidates {
@@ -50,10 +54,11 @@ func applyBestServerRecommendationDeadband(response bestServerQualityResponse) b
 		}
 	}
 
-	// If the current VPN was identified but its complete quality baseline could
-	// not be confirmed, fail closed. A fast-looking alternative is not enough to
-	// justify changing a working live VPN without an apples-to-apples baseline.
-	if currentAnyIndex >= 0 && currentEligibleIndex < 0 {
+	// Missing evidence is different from a measured unhealthy current VPN. If
+	// the current path was only partially measured, fail closed. If the current
+	// path was fully measured and proved unhealthy, a healthy replacement may be
+	// recommended.
+	if currentAnyIndex >= 0 && currentEligibleIndex < 0 && !completeBestServerCurrentBaseline(out.Candidates[currentAnyIndex]) {
 		out.Recommendation = nil
 		out.Available = false
 		out.Message = "Текущий VPN не удалось полностью измерить. Переключение не предлагается, пока нет подтверждённого сравнения."
