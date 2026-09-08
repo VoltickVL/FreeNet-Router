@@ -17,7 +17,7 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 		".action-row:not(#exactConnectRow)",
 		"Подключиться",
 		"Сбросить выбор",
-		"Обновить текущий VPN-профиль",
+		"Обновить профиль",
 		"Сменить сервер",
 		"ISP и DNS при этом не изменяются",
 		"VPN-действия не меняют ISP и DNS",

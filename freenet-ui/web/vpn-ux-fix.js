@@ -191,7 +191,7 @@
         const parts = [j.error || 'VPN-профиль не подключён'];
         if (j.primary_error) parts.push('Основная ошибка: ' + j.primary_error);
         if (j.rollback_state) parts.push('Откат: ' + j.rollback_state);
-        selectedCardText(`Не подключено: ${p.name || 'Extra-профиль'}`, expectedEndpoint, parts.join(' · '));
+        selectedCardText(`${j.result_unknown ? 'Результат не подтверждён' : 'Не подключено'}: ${p.name || 'Extra-профиль'}`, expectedEndpoint, parts.join(' · '));
         if (typeof showBox === 'function') showBox('notice', parts.join('\n'), 'bad');
         return;
       }
@@ -215,7 +215,7 @@
       if (typeof renderSelectedProfile === 'function') renderSelectedProfile(null);
       showExactMode(false);
       if (typeof loadNetworkPlan === 'function') await loadNetworkPlan('');
-      if (typeof showBox === 'function') showBox('notice', `Подключено: ${s.country || p.name || 'VPN'}${s.city ? ' · ' + s.city : ''}\n${s.endpoint}`, 'ok');
+      if (typeof showBox === 'function') showBox('notice', `Подключено: ${s.profile_label || p.name || s.country || 'VPN'}${s.city ? ' · ' + s.city : ''}\n${s.endpoint}`, 'ok');
     } catch (_) {
       selectedCardText('Связь прервалась', expectedEndpoint, 'FreeNet мог кратко перезапустить VPN. Сначала дождитесь фактического статуса; повторное подключение автоматически не запускается.');
       if (typeof showBox === 'function') showBox('notice', 'Связь прервалась во время переключения. Проверяем фактическое состояние перед любым повтором.', 'bad');
