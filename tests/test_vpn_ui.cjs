@@ -147,6 +147,7 @@ const server = http.createServer((req,res)=>{
       }
       assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1,scenario+': no second POST');
       assert.ok(operationReads>=1,scenario+': operation state was read');
+      assert.equal(await page.locator('#bestServerApply').isVisible(),false,scenario+': stale apply cannot be repeated');
     }
     assert.equal(errors.length,0,errors.join('\n'));
     console.log('PASS: gateway/empty/aborted response reconciliation, terminal failure, unrelated operation rejection, exact Lithuania identity;  shipped-page startup, no auto scan, current-only click/re-entry/remount/single-flight, HTTP/network/JSON/empty results, foreign scan, RU/manual exclusion, current-winner guard, exact apply, mobile overflow.');

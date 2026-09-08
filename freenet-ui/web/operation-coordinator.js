@@ -531,6 +531,8 @@
       if (apply) apply.classList.remove('show');
       setText(qs('#bestServerStatus'), 'Связь прервалась во время переключения. Результат не подтверждён — проверьте состояние системы перед повторной попыткой.');
     } finally {
+      recommendation = null;
+      if (apply) apply.classList.remove('show');
       applyBusy = false;
       setBusy(false);
     }
