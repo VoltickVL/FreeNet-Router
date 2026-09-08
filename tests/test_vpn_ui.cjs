@@ -58,6 +58,10 @@ const server = http.createServer((req,res)=>{
         if(mode==='gateway')return route.fulfill({status:504,contentType:'text/html',body:'<h1>Gateway Timeout</h1>'});
         if(mode==='incomplete')return answer(route,{success:true});
         if(mode==='empty')return answer(route,{success:true,available:false,candidates:[],profiles_scanned:0});
+        if(mode==='rejected')return answer(route,{success:true,available:false,candidates:[current,
+          {...winner,tested:true,eligible:false,download_mbps:0,media_samples:0,rejections:['Скорость не измерена','Загрузок завершено 0/6'],media_issue:'6× HTTP 403; curl 0; получено 123 байт'},
+          {...second,tested:true,eligible:false,download_mbps:4.2,rejections:['Загрузка ниже 20 Мбит/с']},
+          {...third,tested:false,eligible:false}],profiles_scanned:4});
         const best=url.pathname.endsWith('best-foreign');
         const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
         return answer(route,{success:true,available:true,candidates:best?(bestMode==='ru'?[current,{...winner,country_code:'ru'}]:[current,winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}]):[current],recommendation:best?recommendation:null,profiles_scanned:best?6:1,scanned_at:'2026-09-08T03:00:00Z'});
@@ -145,6 +149,20 @@ const server = http.createServer((req,res)=>{
     mode='empty';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
     assert.match(await page.locator('#bestServerEmpty').textContent(),/замен.*не найдено/,'only a completed empty scan may report no replacements');
+    mode='rejected';await page.locator('#bestServerRefresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    assert.equal(await page.locator('.vpn-rejected').count(),2);
+    assert.equal(await page.locator('.vpn-option-apply').count(),0,'rejected candidates have no suggested apply action');
+    assert.match(await page.locator('#bestServerResult').textContent(),/HTTP 403/);
+    assert.match(await page.locator('#bestServerResult').textContent(),/Загрузка ниже 20/);
+    assert.equal(await page.locator('.vpn-rejected .best-v4-pill.speed').count(),0,'untrusted speed is never green');
+    await page.setViewportSize({width:1366,height:768});
+    await page.screenshot({path:path.join(artifacts,'vpn-rejected-desktop.png'),fullPage:true});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight),true,'diagnostics fit desktop');
+    await page.setViewportSize({width:390,height:844});
+    await page.screenshot({path:path.join(artifacts,'vpn-rejected-mobile.png'),fullPage:true});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'diagnostics have no horizontal overflow');
+    await page.setViewportSize({width:1440,height:1000});
     mode='ok';
     const beforeBest=scans().length;
     await page.locator('#bestServerRefresh').click();

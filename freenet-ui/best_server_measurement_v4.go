@@ -7,7 +7,7 @@ import (
 )
 
 func bestServerHTTPStatusOK(code string) bool {
-	return len(code) == 3 && code[0] >= '2' && code[0] <= '4'
+	return len(code) == 3 && code[0] == '2' && code[1] >= '0' && code[1] <= '9' && code[2] >= '0' && code[2] <= '9'
 }
 
 // parseBestServerHTTPResponseMS measures only the HTTP response phase after
