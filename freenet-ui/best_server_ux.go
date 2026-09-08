@@ -172,6 +172,11 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		}
 	}
 
+	// First compare the real application path through each candidate VPN with a
+	// cheap bounded probe. Only then spend the expensive Speedtest budget on the
+	// best measured paths. This prevents shared/provider endpoint TCP latency
+	// from making distant exits dominate the shortlist.
+	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := rankBestServerQualityCandidates(
 		ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter,
 		defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
@@ -181,10 +186,10 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	}
 	if cachedOK {
 		response.Candidates = append(response.Candidates, cachedCurrent)
-		response.ProfilesScanned = profilesScanned
 	} else if candidate, ok := currentBestServerQualityCandidate(response); ok {
 		storeBestServerCurrentQuality(currentEndpoint, currentFilter, candidate)
 	}
+	response.ProfilesScanned = profilesScanned
 	response.Success = true
 	response.Mutation = "NONE"
 	response.ScannedAt = time.Now().UTC().Format(time.RFC3339)
@@ -199,7 +204,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		response.Message = "Достоверная рекомендация среди зарубежных профилей сейчас недоступна; текущий VPN не изменён."
 	}
 	if cachedOK {
-		response.Message += " Свежий замер текущего VPN переиспользован без повторной тяжёлой Speedtest-проверки."
+		response.Message += " Свежий подтверждённый замер текущего VPN переиспользован без повторной тяжёлой Speedtest-проверки."
 	}
 	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
 		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during Best Server scan")
