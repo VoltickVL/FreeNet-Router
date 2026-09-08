@@ -426,7 +426,7 @@
     const seen = new Set([data && data.current_endpoint, current && current.endpoint].filter(Boolean));
     alternatives = (Array.isArray(data && data.candidates) ? data.candidates : []).filter(candidate => {
       if (!candidate || candidate.current || isRussianProfile(candidate) || !candidate.id || !candidate.endpoint ||
-          !candidate.available || !(candidate.download_mbps > 0) || !(candidate.media_samples >= 4) || seen.has(candidate.endpoint)) return false;
+          candidate.eligible !== true || !candidate.available || !(candidate.download_mbps > 0) || !(candidate.media_samples >= 4) || seen.has(candidate.endpoint)) return false;
       seen.add(candidate.endpoint);
       return true;
     }).slice(0, 3);
@@ -451,7 +451,7 @@
       const metrics = document.createElement('div'); metrics.className = 'best-v4-metrics'; renderMetrics(metrics, candidate);
       const reason = document.createElement('div'); reason.className = 'best-v4-reason';
       if (index === 0) reason.id = 'bestServerReason';
-      reason.textContent = recommendationReason(data, candidate);
+      reason.textContent = recommendationReason(data, candidate) + ` · Провалы ${candidate.media_stalls || 0}/${candidate.media_samples} · Сайты ${candidate.service_ok}/${candidate.service_total}`;
       row.append(head, metrics, reason); box.appendChild(row);
     });
     setText(qs('#bestServerStatus'), `Проверено профилей: ${data.profiles_scanned || 0}. Вариантов для замены: ${alternatives.length}.${data.recommendation && data.recommendation.current ? ' Текущий VPN имеет лучший общий результат.' : ''}`);
@@ -510,13 +510,76 @@
     qs('#bestServerShell')?.setAttribute('aria-busy', String(scanBusy || applyBusy));
   }
 
+  async function requestQuality(path, mode) {
+    const id = crypto.randomUUID();
+    const started = Date.now();
+    const panel = document.createElement('div');
+    panel.id = 'fnQualityProgress';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-label', 'Проверка VPN');
+    panel.style.cssText = 'position:fixed;inset:0;z-index:950;background:#030911cc;display:grid;place-items:center;padding:20px;backdrop-filter:blur(5px)';
+    const card = document.createElement('section');
+    card.style.cssText = 'width:min(440px,100%);box-sizing:border-box;padding:28px;background:#101e30;border:1px solid #304963;border-radius:18px;color:#e5eefb';
+    const title = document.createElement('h2');
+    title.style.cssText = 'font-size:20px;margin:0 0 16px';
+    title.textContent = mode === 'current' ? 'Проверяем текущий VPN' : 'Подбираем серверы';
+    const stage = document.createElement('p');
+    stage.textContent = 'Запускаем проверку на роутере…';
+    stage.setAttribute('aria-live', 'polite');
+    const progress = document.createElement('progress');
+    progress.style.cssText = 'width:100%;accent-color:#5189ff';
+    progress.setAttribute('aria-label', 'Проверка выполняется');
+    const timer = document.createElement('p');
+    timer.style.cssText = 'font-size:13px;color:#9eb4d2';
+    const tick = () => { timer.textContent = `Прошло ${Math.floor((Date.now()-started)/1000)} с · текущий VPN не переключается`; };
+    tick();
+    card.append(title, stage, progress, timer); panel.append(card); document.body.append(panel);
+    const controls = qs('#controlCenter'), wasInert = controls?.inert;
+    const focused = document.activeElement;
+    if (controls) controls.inert = true;
+    card.tabIndex = -1; card.focus();
+    const ticker = setInterval(tick, 1000);
+    try {
+      const readState = () => fetch(`${path}?job=status&id=${encodeURIComponent(id)}`, {cache:'no-store', signal:AbortSignal.timeout(10000)});
+      let response;
+      try {
+        response = await fetch(`${path}?job=start&id=${encodeURIComponent(id)}`, {cache:'no-store', signal:AbortSignal.timeout(10000)});
+      } catch (error) {
+        // A lost acknowledgement is not permission to launch another scan.
+        stage.textContent = 'Восстанавливаем связь и проверяем состояние задачи…';
+        response = await readState();
+      }
+      while (response.status === 202) {
+        const job = await response.json();
+        if (job.id !== id || job.mode !== mode) throw new Error('Quality job identity mismatch');
+        if (job.state === 'completed' && job.result) return new Response(JSON.stringify(job.result), {status:200});
+        if (job.state === 'failed') return new Response(JSON.stringify({success:false,error:job.error || 'Проверка не завершена'}), {status:503});
+        if (job.state !== 'running') throw new Error('Invalid quality job state');
+        stage.textContent = job.stage === 'quality' ? `Проверяем качество VPN · завершено ${job.completed} из ${job.total}` :
+          job.stage === 'tcp' ? 'Проверяем доступность серверов…' : 'Получаем профили подписки…';
+        // Candidate count is real; it is not a fabricated percentage of time.
+        if (job.stage === 'quality' && job.total > 0) { progress.max = job.total; progress.value = job.completed; }
+        else progress.removeAttribute('value');
+        if (Date.now()-started > 180000) throw new DOMException('Quality job timeout', 'TimeoutError');
+        await wait(1000);
+        response = await readState();
+      }
+      return response;
+    } finally {
+      clearInterval(ticker); panel.remove();
+      if (controls) controls.inert = wasInert;
+      if (focused?.isConnected) focused.focus();
+    }
+  }
+
   async function scanCurrentVPN() {
     if (scanBusy || applyBusy || externalBusy) return;
     try {
       mountBestServerUI();
       setBusy('current');
       setText(qs('#bestServerStatus'), 'Проверяем текущий VPN… Это может занять до минуты.');
-      const response = await fetch('/api/vpn/current-quality', {cache: 'no-store', signal: AbortSignal.timeout(60000)});
+      const response = await requestQuality('/api/vpn/current-quality', 'current');
       const body = await response.json().catch(() => null);
       if (!response.ok || !body || !body.success) {
         setText(qs('#bestServerStatus'), (body && body.error) || 'Не удалось проверить текущий VPN.');
@@ -540,7 +603,7 @@
       if (apply) apply.classList.remove('show');
       qs('#bestServerResult')?.classList.remove('show');
       setText(qs('#bestServerStatus'), 'Сравниваем зарубежные серверы… Текущий VPN продолжает работать.');
-      const response = await fetch('/api/vpn/best-foreign', {cache: 'no-store', signal: AbortSignal.timeout(180000)});
+      const response = await requestQuality('/api/vpn/best-foreign', 'best');
       const body = await response.json().catch(() => null);
       if (!response.ok || !body || body.success !== true || !Array.isArray(body.candidates)) {
         clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');
@@ -555,6 +618,7 @@
         return;
       }
       renderBestResult(body);
+      if (body.partial) setText(qs('#bestServerStatus'), 'Проверка завершена в пределах лимита времени. Показаны только измеренные варианты; часть кандидатов не проверена.');
     } catch (error) {
       clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');
       setText(qs('#bestServerStatus'), error && error.name === 'TimeoutError' ?

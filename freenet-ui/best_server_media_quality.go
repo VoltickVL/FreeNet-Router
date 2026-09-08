@@ -22,6 +22,7 @@ var bestServerMediaServiceURLs = []string{
 	"https://www.instagram.com/",
 	"https://web.telegram.org/",
 	"https://web.whatsapp.com/",
+	"https://www.youtube.com/",
 }
 
 type bestServerMediaQualityResult struct {
@@ -123,6 +124,7 @@ func applyBestServerMediaGrade(result *bestServerMediaQualityResult, serviceOK, 
 }
 
 func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) bestServerMediaQualityResult {
+	started := time.Now()
 	mediaCtx, cancelMedia := context.WithTimeout(ctx, bestServerMediaTimeout)
 	defer cancelMedia()
 
@@ -152,6 +154,7 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 		}()
 	}
 	wg.Wait()
+	elapsed := time.Since(started).Seconds()
 	close(results)
 
 	speeds := make([]float64, 0, bestServerMediaChunkRuns)
@@ -167,10 +170,10 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 	serviceCtx, cancelServices := context.WithTimeout(ctx, bestServerServiceTimeout)
 	defer cancelServices()
 	serviceOK := 0
+	serviceResults := make(chan bool, len(bestServerMediaServiceURLs))
 	for _, url := range bestServerMediaServiceURLs {
-		if serviceCtx.Err() != nil {
-			break
-		}
+		url := url
+		go func() {
 		probeCtx, cancelProbe := context.WithTimeout(serviceCtx, 3*time.Second)
 		out, _ := exec.CommandContext(probeCtx, curlPath,
 			"--socks5-hostname", socks,
@@ -179,11 +182,23 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 			"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", url,
 		).Output()
 		cancelProbe()
-		if _, ok := parseBestServerHTTPResponseMS(string(out)); ok {
-			serviceOK++
-		}
+		_, ok := parseBestServerHTTPResponseMS(string(out))
+		serviceResults <- ok
+		}()
 	}
-	return summarizeBestServerConcurrentMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
+	for range bestServerMediaServiceURLs {
+		if <-serviceResults { serviceOK++ }
+	}
+	result := summarizeBestServerMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
+	if result.OK {
+		// Failed streams are failures, not invisible missing samples. Real
+		// aggregate throughput uses one shared wall clock, not summed rates
+		// from different stream intervals (which can overstate capacity).
+		result.Stalls += bestServerMediaChunkRuns - len(speeds)
+		if elapsed > 0 { result.MedianMbps = float64(len(speeds)*bestServerMediaChunkBytes*8) / elapsed / 1000000 }
+		applyBestServerMediaGrade(&result, serviceOK, len(bestServerMediaServiceURLs))
+	}
+	return result
 }
 
 func roundBestServerMediaMbps(value float64) float64 {

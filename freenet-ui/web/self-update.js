@@ -3,6 +3,15 @@
   let plan = null;
   let polling = false;
   let activeModalConfirm = null;
+  let updateProgressTimer = null;
+  let updateProgressStarted = 0;
+
+  function stopUpdateProgress() {
+    clearInterval(updateProgressTimer);
+    updateProgressTimer = null;
+    updateProgressStarted = 0;
+    qs('#fnUpdateProgress')?.remove();
+  }
 
   function mountTypographyReadability() {
     if (qs('#freenetTypographyReadability')) return;
@@ -190,6 +199,17 @@
   }
 
   function modalProgress(title, text) {
+    if (!updateProgressStarted) updateProgressStarted = Date.now();
+    if (!qs('#fnUpdateProgress')) {
+      const box = document.createElement('div'); box.id = 'fnUpdateProgress';
+      const bar = document.createElement('progress');
+      bar.setAttribute('aria-label', 'Обновление выполняется');
+      bar.style.cssText = 'width:100%;accent-color:#5189ff';
+      const timer = document.createElement('p');
+      const tick = () => { timer.textContent = `Прошло ${Math.floor((Date.now()-updateProgressStarted)/1000)} с · не выключайте роутер`; };
+      tick(); box.append(bar, timer); qs('#fnModalBody').after(box);
+      updateProgressTimer = setInterval(tick, 1000);
+    }
     qs('#fnModalTitle').textContent = title;
     qs('#fnModalBody').textContent = text;
     qs('#fnModalConfirm').hidden = true;
@@ -199,6 +219,7 @@
   }
 
   function modalResult(title, text, type = 'ok') {
+    stopUpdateProgress();
     qs('#fnModalTitle').textContent = title;
     qs('#fnModalBody').textContent = text;
     modalStatus('', '');
@@ -526,8 +547,13 @@
 
   async function pollState(target) {
     if (!polling) return;
+    if (updateProgressStarted && Date.now() - updateProgressStarted > 300000) {
+      polling = false;
+      modalResult('Результат обновления пока неизвестен', 'Ожидание ограничено пятью минутами. Не запускайте обновление повторно до проверки фактической версии и состояния FreeNet.', 'bad');
+      return;
+    }
     try {
-      const r = await fetch('/api/system/update/state', {cache: 'no-store'});
+      const r = await fetch('/api/system/update/state', {cache: 'no-store', signal: AbortSignal.timeout(10000)});
       if (r.status === 401) {
         setUpdateSummary('FreeNet перезапущен — восстанавливаем интерфейс…');
         modalStatus('Новая версия запущена. Сессия авторизации будет восстановлена через экран входа.', '');
@@ -561,7 +587,7 @@
     modalProgress(`Перезапускаем FreeNet…`, `Ждём, когда Control Center вернётся на версии ${target}. Краткий 502 во время этого этапа ожидаем.`);
     for (let i = 0; i < 90; i++) {
       try {
-        const r = await fetch('/versionz', {cache: 'no-store'});
+        const r = await fetch('/versionz', {cache: 'no-store', signal: AbortSignal.timeout(5000)});
         const v = (await r.text()).trim();
         if (r.ok && v === target) {
           modalResult('Обновление установлено', `FreeNet ${target} запущен и подтверждён. Интерфейс сейчас обновится автоматически.`, 'ok');
