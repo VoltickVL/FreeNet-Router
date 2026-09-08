@@ -7,7 +7,7 @@ import (
 
 func stableTestMedia(mbps float64) bestServerMediaQualityResult {
 	return bestServerMediaQualityResult{
-		OK: true, Samples: 6, MedianMbps: mbps, MinMbps: mbps * 0.9,
+		OK: true, Samples: bestServerMediaChunkRuns, MedianMbps: mbps, MinMbps: mbps * 0.9,
 		Stalls: 0, ServiceOK: 3, ServiceTotal: 3, Grade: "excellent", Penalty: 0,
 	}
 }
