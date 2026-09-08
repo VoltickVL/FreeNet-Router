@@ -18,7 +18,7 @@ func TestOverviewV4ReadabilityContract(t *testing.T) {
 		"ISP",
 		"DNS",
 		"Проверить текущий VPN",
-		"Найти лучший VPN",
+		"Подобрать серверы",
 		"Почему рекомендуем",
 		"best-v4-metrics",
 	} {

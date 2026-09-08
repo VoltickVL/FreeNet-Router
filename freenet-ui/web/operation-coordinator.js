@@ -204,9 +204,9 @@
       .best-v4-status{grid-column:1/-1;font-size:13px;min-height:0;line-height:1.4}
       .vpn-measure-note{grid-column:1/-1;margin:0;font-size:11px;color:#91a4bb;line-height:1.4}
       #bestServerAdvanced{margin-top:16px;padding-top:14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px}
-      #bestServerAdvanced h3{grid-column:1/-1}#profilesList{margin-top:0!important;display:grid;grid-template-columns:minmax(140px,.7fr) minmax(190px,1fr);gap:10px;align-items:end}
-      #profilesList .profile-combobox{margin-top:0!important}#profilesList .field label{font-size:11px;margin-bottom:4px}
-      #profilesList input,#profilesTrigger{min-height:40px}#profilesList .selected-profile{grid-column:1/-1;margin-top:0;padding:0;border:0;background:none;font-size:11px}
+      #bestServerAdvanced h3{grid-column:1/-1}#bestServerAdvanced #profilesList.profiles{min-height:0;margin-top:0!important;display:grid;grid-template-columns:minmax(140px,.7fr) minmax(190px,1fr);gap:10px;align-items:end}
+      #profilesList .profile-combobox{margin-top:0!important}#profilesList .field{padding:0;border:0;background:none}#profilesList .field label{font-size:11px;margin-bottom:4px}
+      #profilesList input,#profilesTrigger{min-height:40px}#profilesList #selectedProfileCard{min-height:0;grid-column:1/-1;margin-top:0;padding:0;border:0;background:none;font-size:11px}
       #profilesList .selected-profile strong,#profilesList .selected-endpoint{display:inline;margin-right:8px}#profilesList .selected-note{margin-top:3px}
       #bestServerAdvanced .action-row{align-self:center;margin:0;display:flex;gap:8px}#bestServerAdvanced .action-row[hidden]{display:none}
       #bestServerAdvanced .btn{font-size:12px;padding:8px 12px;min-height:40px}#quickNetworkGuard{display:none}

@@ -85,6 +85,7 @@ const server = http.createServer((req,res)=>{
       await page.locator('#bestServerCheckCurrent').click();
       assert.equal(await page.locator('#bestServerCheckCurrent').textContent(),'Проверяем текущий…');
       assert.equal(await page.locator('#bestServerRefresh').isDisabled(),true);
+      assert.equal(await page.locator('#bestServerAdvanced').evaluate(n=>n.inert),true,'manual changes are blocked during scan');
       await page.evaluate(()=>{buttonsBusy(false);document.querySelector('#bestServerCheckCurrent').click();});
       assert.equal(await page.locator('#bestServerCheckCurrent').isDisabled(),true,'status polling must not enable a running scan');
       await page.waitForFunction(()=>!document.querySelector('#bestServerCheckCurrent').disabled);
@@ -121,8 +122,8 @@ const server = http.createServer((req,res)=>{
       assert.equal(await row.locator('.best-v4-pill').count(),4);
     }
     await page.setViewportSize({width:1366,height:900});
-    assert.equal(await page.evaluate(()=>document.querySelector('#bestServerAdvanced').getBoundingClientRect().bottom <= innerHeight),true,'desktop comparison and manual controls fit viewport');
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-result.png'),fullPage:true});
+    assert.equal(await page.evaluate(()=>document.querySelector('#bestServerAdvanced').getBoundingClientRect().bottom <= innerHeight),true,'desktop comparison and manual controls fit viewport');
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:path.join(artifacts,'vpn-mobile-result.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no horizontal overflow on mobile');
