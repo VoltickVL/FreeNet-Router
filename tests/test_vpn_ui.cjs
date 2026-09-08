@@ -50,6 +50,8 @@ const server = http.createServer((req,res)=>{
         if(mode==='network')return route.abort();
         if(mode==='http')return answer(route,{success:false,error:'Проверка временно недоступна'},503);
         if(mode==='malformed')return route.fulfill({status:200,contentType:'application/json',body:'invalid'});
+        if(mode==='gateway')return route.fulfill({status:504,contentType:'text/html',body:'<h1>Gateway Timeout</h1>'});
+        if(mode==='incomplete')return answer(route,{success:true});
         if(mode==='empty')return answer(route,{success:true,available:false,candidates:[],profiles_scanned:0});
         const best=url.pathname.endsWith('best-foreign');
         const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
@@ -105,6 +107,26 @@ const server = http.createServer((req,res)=>{
       mode=failure;await currentCheck();
       assert.match(await page.locator('#bestServerStatus').textContent(),/недоступна|Не удалось|не удалось/);
     }
+    mode='ok';
+    for(const failure of ['http','network','malformed','gateway','incomplete']) {
+      mode=failure;
+      const before=scans().length;
+      await page.locator('#bestServerRefresh').click();
+      await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+      assert.equal(scans().length,before+1,'failed scan must not retry automatically');
+      assert.match(await page.locator('#bestServerEmpty').textContent(),/пока неизвестно/);
+      assert.doesNotMatch(await page.locator('#bestServerEmpty').textContent(),/замен.*не найдено/);
+      const message=await page.locator('#bestServerStatus').textContent();
+      assert.match(message,/Подбор не завершён/);
+      if(failure==='gateway')assert.match(message,/HTTP 504/);
+      if(failure==='malformed'||failure==='incomplete')assert.match(message,/HTTP 200/);
+      assert.doesNotMatch(message,/<h1>/,'raw gateway response must not enter UI');
+      assert.equal(await page.locator('.vpn-option-apply').count(),0);
+      assert.equal(await page.locator('#bestServerAdvanced').evaluate(n=>n.inert),false);
+    }
+    mode='empty';await page.locator('#bestServerRefresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    assert.match(await page.locator('#bestServerEmpty').textContent(),/замен.*не найдено/,'only a completed empty scan may report no replacements');
     mode='ok';
     const beforeBest=scans().length;
     await page.locator('#bestServerRefresh').click();
