@@ -24,7 +24,10 @@ func bestServerCurrentQualityKey(endpoint, filter string) string {
 }
 
 func storeBestServerCurrentQuality(endpoint, filter string, candidate bestServerQualityCandidate) {
-	if !candidate.Current || !candidate.Tested || strings.TrimSpace(endpoint) == "" {
+	// Do not let an incomplete current-only run become the baseline for a later
+	// full comparison. A reusable baseline must include the same complete speed,
+	// service and stability evidence required for a switchable candidate.
+	if !candidate.Current || !candidate.Tested || !candidate.Eligible || candidate.DownloadMbps <= 0 || strings.TrimSpace(endpoint) == "" {
 		return
 	}
 	bestServerCurrentQualityCache.Lock()
