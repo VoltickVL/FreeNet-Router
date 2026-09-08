@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	bestServerMediaChunkRuns = 6
-	bestServerMediaTimeout   = 12 * time.Second
-	bestServerServiceTimeout = 6 * time.Second
+	bestServerMediaChunkRuns     = 4
+	bestServerMediaRequiredRuns  = 3
+	bestServerMediaTimeout       = 10 * time.Second
+	bestServerServiceTimeout     = 6 * time.Second
 )
 
 var bestServerMediaServiceURLs = []string{
@@ -36,7 +37,7 @@ type bestServerMediaQualityResult struct {
 
 func summarizeBestServerMediaQuality(speeds []float64, serviceOK, serviceTotal int) bestServerMediaQualityResult {
 	result := bestServerMediaQualityResult{Samples: len(speeds), ServiceOK: serviceOK, ServiceTotal: serviceTotal, Grade: "unknown"}
-	if len(speeds) < bestServerMediaChunkRuns {
+	if len(speeds) < bestServerMediaRequiredRuns {
 		result.Penalty = 2600
 		return result
 	}
@@ -144,8 +145,10 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 
 	result := summarizeBestServerAggregateMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
 	result.Issue = issue
-	if len(speeds) < bestServerMediaChunkRuns {
-		result.Stalls += bestServerMediaChunkRuns - len(speeds)
+	// A single failed transfer is diagnostic noise, not an automatic stall.
+	// 3/4 completed streams are enough for bounded aggregate evidence.
+	if len(speeds) < bestServerMediaRequiredRuns {
+		result.Stalls += bestServerMediaRequiredRuns - len(speeds)
 	}
 	return result
 }
