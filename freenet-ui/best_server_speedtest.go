@@ -6,16 +6,19 @@ import (
 	"fmt"
 	"net/url"
 	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
-	bestServerSpeedtestServersURL  = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=1&limit=10"
-	bestServerSpeedtestBytes       = int64(4_000_000)
-	bestServerSpeedtestListTimeout = 5 * time.Second
-	bestServerSpeedtestRunTimeout  = 5 * time.Second
+	bestServerSpeedtestServersURL   = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=1&limit=10"
+	bestServerSpeedtestBytes        = int64(8_000_000)
+	bestServerSpeedtestListTimeout  = 4 * time.Second
+	bestServerSpeedtestRunTimeout   = 6 * time.Second
+	bestServerSpeedtestServerTries  = 2
 )
 
 type bestServerSpeedtestServer struct {
@@ -23,6 +26,12 @@ type bestServerSpeedtestServer struct {
 	Host string `json:"host"`
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+type bestServerSpeedtestStreamResult struct {
+	Mbps  float64
+	Issue string
+	OK    bool
 }
 
 func bestServerSpeedtestDownloadURL(server bestServerSpeedtestServer, nonce int64) string {
@@ -47,7 +56,7 @@ func discoverBestServerSpeedtestServers(ctx context.Context, curlPath, socks str
 	defer cancel()
 	output, err := exec.CommandContext(listCtx, curlPath,
 		"--socks5-hostname", socks,
-		"-sS", "--connect-timeout", "3", "--max-time", "5",
+		"-sS", "--connect-timeout", "3", "--max-time", "4",
 		bestServerSpeedtestServersURL,
 	).Output()
 	if err != nil {
@@ -75,66 +84,91 @@ func discoverBestServerSpeedtestServers(ctx context.Context, curlPath, socks str
 	return filtered, ""
 }
 
-func probeBestServerSpeedtestSingleStream(ctx context.Context, curlPath, socks string, runs int) ([]float64, string) {
-	if runs < 1 {
-		return nil, "Speedtest run count invalid"
+func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks string, streams int) ([]float64, string) {
+	if streams < 1 {
+		return nil, "Speedtest stream count invalid"
 	}
 	servers, issue := discoverBestServerSpeedtestServers(ctx, curlPath, socks)
 	if len(servers) == 0 {
 		return nil, issue
 	}
 
-	var selected *bestServerSpeedtestServer
-	speeds := make([]float64, 0, runs)
-	issues := make([]string, 0, 3)
-	for run := 0; run < runs; run++ {
+	tries := bestServerSpeedtestServerTries
+	if tries > len(servers) {
+		tries = len(servers)
+	}
+	bestSpeeds := []float64(nil)
+	bestIssues := []string(nil)
+	for serverIndex := 0; serverIndex < tries; serverIndex++ {
 		if ctx.Err() != nil {
 			break
 		}
-		candidates := servers
-		if selected != nil {
-			candidates = []bestServerSpeedtestServer{*selected}
+		server := servers[serverIndex]
+		results := make(chan bestServerSpeedtestStreamResult, streams)
+		var wg sync.WaitGroup
+		for stream := 0; stream < streams; stream++ {
+			stream := stream
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				nonce := time.Now().UnixNano() + int64(stream)
+				downloadURL := bestServerSpeedtestDownloadURL(server, nonce)
+				if downloadURL == "" {
+					results <- bestServerSpeedtestStreamResult{Issue: "Speedtest download URL invalid"}
+					return
+				}
+				runCtx, cancel := context.WithTimeout(ctx, bestServerSpeedtestRunTimeout)
+				output, transferErr := exec.CommandContext(runCtx, curlPath,
+					"--socks5-hostname", socks,
+					"-sS", "--connect-timeout", "3", "--max-time", "6",
+					"-o", "/dev/null",
+					"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
+					downloadURL,
+				).Output()
+				cancel()
+				minimum := bestServerSpeedtestBytes / 5
+				if mbps, ok := parseBestServerDownloadMbpsAtLeast(string(output), minimum); ok {
+					results <- bestServerSpeedtestStreamResult{Mbps: mbps, OK: true}
+					return
+				}
+				results <- bestServerSpeedtestStreamResult{Issue: bestServerTransferIssue(string(output), transferErr)}
+			}()
 		}
-		measured := false
-		for _, server := range candidates {
-			nonce := time.Now().UnixNano() + int64(run)
-			downloadURL := bestServerSpeedtestDownloadURL(server, nonce)
-			if downloadURL == "" {
-				continue
-			}
-			runCtx, cancel := context.WithTimeout(ctx, bestServerSpeedtestRunTimeout)
-			output, transferErr := exec.CommandContext(runCtx, curlPath,
-				"--socks5-hostname", socks,
-				"-sS", "--connect-timeout", "3", "--max-time", "5",
-				"-o", "/dev/null",
-				"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
-				downloadURL,
-			).Output()
-			cancel()
-			minimum := bestServerSpeedtestBytes / 5
-			if mbps, ok := parseBestServerDownloadMbpsAtLeast(string(output), minimum); ok {
-				speeds = append(speeds, mbps)
-				copyServer := server
-				selected = &copyServer
-				measured = true
-				break
-			}
-			if len(issues) < 3 {
-				issues = append(issues, bestServerTransferIssue(string(output), transferErr))
+		wg.Wait()
+		close(results)
+
+		speeds := make([]float64, 0, streams)
+		issueCounts := map[string]int{}
+		for result := range results {
+			if result.OK {
+				speeds = append(speeds, result.Mbps)
+			} else if result.Issue != "" {
+				issueCounts[result.Issue]++
 			}
 		}
-		if !measured && selected != nil {
-			break
+		issues := make([]string, 0, len(issueCounts))
+		for text, count := range issueCounts {
+			issues = append(issues, strconv.Itoa(count)+"× "+text)
+		}
+		sort.Strings(issues)
+		if len(speeds) > len(bestSpeeds) {
+			bestSpeeds = append([]float64(nil), speeds...)
+			bestIssues = append([]string(nil), issues...)
+		}
+		if len(speeds) == streams {
+			return speeds, ""
 		}
 	}
-	if len(speeds) == 0 {
-		if len(issues) == 0 {
+
+	if len(bestSpeeds) == 0 {
+		if len(bestIssues) == 0 {
 			return nil, "Speedtest download unavailable"
 		}
-		return nil, "Speedtest download unavailable: " + strings.Join(issues, "; ")
+		return nil, "Speedtest download unavailable: " + strings.Join(bestIssues, "; ")
 	}
-	if len(speeds) < runs {
-		return speeds, fmt.Sprintf("Speedtest samples %d/%d", len(speeds), runs)
+	message := fmt.Sprintf("Speedtest streams %d/%d", len(bestSpeeds), streams)
+	if len(bestIssues) > 0 {
+		message += ": " + strings.Join(bestIssues, "; ")
 	}
-	return speeds, ""
+	return bestSpeeds, message
 }
