@@ -197,9 +197,9 @@
       .vpn-empty{padding:38px 24px;border:1px dashed #34465e;border-radius:12px;color:#aebbd0;font-size:14px;line-height:1.6}
       .best-v4-result,.best-v4-result.show{padding:0;border:0;background:none;border-radius:0}
       .best-v4-result.show{display:grid;gap:10px}.vpn-option{padding:12px 14px;border:1px solid #2d425e;background:#122238;border-radius:12px}
-      .vpn-option-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px}
+      .vpn-option-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}
       .vpn-option-head h4{font-size:14px;line-height:1.3;margin:0;overflow-wrap:anywhere}
-      .vpn-option .btn{min-height:34px;padding:7px 12px;font-size:12px;flex-shrink:0}
+      .vpn-option .btn{min-height:30px;padding:5px 12px;font-size:12px;flex-shrink:0}
       .vpn-option .best-v4-metrics{margin:0}.best-v4-reason{font-size:11px;line-height:1.4;margin-top:8px}
       .best-v4-status{grid-column:1/-1;font-size:13px;min-height:0;line-height:1.4}
       .vpn-measure-note{grid-column:1/-1;margin:0;font-size:11px;color:#91a4bb;line-height:1.4}
@@ -210,7 +210,10 @@
       #profilesList .selected-profile strong,#profilesList .selected-endpoint{display:inline;margin-right:8px}#profilesList .selected-note{margin-top:3px}
       #bestServerAdvanced .action-row{align-self:center;margin:0;display:flex;gap:8px}#bestServerAdvanced .action-row[hidden]{display:none}
       #bestServerAdvanced .btn{font-size:12px;padding:8px 12px;min-height:40px}#quickNetworkGuard{display:none}
-      #bestServerAdvanced[inert]{opacity:.55}.footer{margin-top:10px}
+      #bestServerAdvanced[inert]{opacity:.55}
+      #bestServerAdvanced:has(#exactConnectRow[hidden]) #selectedProfileCard{display:none}
+      .content:has(.page.active[data-page-view="overview"])>.footer{display:none}
+      @media(min-width:761px){.vpn-option{padding:9px 12px}.vpn-option .best-v4-reason{margin-top:5px}.best-v4-shell{row-gap:12px}.vpn-section-head{margin-bottom:10px}}
       @media(max-width:1150px){.best-v4-shell{grid-template-columns:minmax(210px,.8fr) minmax(0,1.5fr);gap:14px}.vpn-current-panel{padding-right:14px}#bestServerAdvanced{grid-template-columns:1fr}#bestServerAdvanced .action-row{justify-content:flex-end}}
       @media(max-width:760px){.best-v4-shell{grid-template-columns:1fr}.vpn-current-panel{border-right:0;border-bottom:1px solid #29384d;padding:0 0 16px}.vpn-current-panel .best-v4-metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.vpn-current-panel .best-v4-pill b{font-size:14px}.vpn-current-panel>.best-v4-endpoint{margin-bottom:12px}.vpn-section-head{align-items:flex-start}.vpn-section-head .btn{padding:9px;font-size:12px;min-height:40px}.best-v4-pill b{font-size:13px}.best-v4-pill span{font-size:10px}.vpn-option{padding:12px}.vpn-option-head{gap:8px}.vpn-option-head h4{font-size:13px}#bestServerAdvanced #profilesList.profiles{grid-template-columns:1fr}.best-v4-name{font-size:20px}#bestServerAdvanced .action-row{flex-wrap:wrap}.vpn-empty{padding:24px 16px}}
     `;

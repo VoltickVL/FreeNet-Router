@@ -53,7 +53,7 @@ const server = http.createServer((req,res)=>{
         if(mode==='empty')return answer(route,{success:true,available:false,candidates:[],profiles_scanned:0});
         const best=url.pathname.endsWith('best-foreign');
         const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
-        return answer(route,{success:true,available:true,candidates:best?(bestMode==='ru'?[current,{...winner,country_code:'ru'}]:[current,winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}]):[current],recommendation:best?recommendation:null,profiles_scanned:best?2:1,scanned_at:'2026-09-08T03:00:00Z'});
+        return answer(route,{success:true,available:true,candidates:best?(bestMode==='ru'?[current,{...winner,country_code:'ru'}]:[current,winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}]):[current],recommendation:best?recommendation:null,profiles_scanned:best?6:1,scanned_at:'2026-09-08T03:00:00Z'});
       }
       if(url.pathname==='/api/network-profile/apply'){
         assert.deepEqual(JSON.parse(req.postData()),{operation:'provider',profile_id:expectedApply.id,confirm:true});
@@ -121,7 +121,7 @@ const server = http.createServer((req,res)=>{
       assert.equal(await row.locator('.best-v4-metrics').isVisible(),true,'all comparison metrics visible without disclosure');
       assert.equal(await row.locator('.best-v4-pill').count(),4);
     }
-    await page.setViewportSize({width:1366,height:900});
+    await page.setViewportSize({width:1366,height:768});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-result.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.querySelector('#bestServerAdvanced').getBoundingClientRect().bottom <= innerHeight),true,'desktop comparison and manual controls fit viewport');
     await page.setViewportSize({width:390,height:844});
