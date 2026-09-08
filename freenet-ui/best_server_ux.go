@@ -114,6 +114,9 @@ func (a *app) handleBestServerForeign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !prepareBestServerResponse(w) {
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), bestServerQualityScanTimeout)
 	defer cancel()
 	response, err := a.scanBestServerForeign(ctx)
