@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	bestServerSpeedtestServersURL  = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=true&limit=10"
+	bestServerSpeedtestServersURL  = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=1&limit=10"
 	bestServerSpeedtestBytes       = int64(4_000_000)
 	bestServerSpeedtestListTimeout = 5 * time.Second
 	bestServerSpeedtestRunTimeout  = 5 * time.Second
