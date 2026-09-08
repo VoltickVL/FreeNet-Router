@@ -542,15 +542,24 @@
       setText(qs('#bestServerStatus'), 'Сравниваем зарубежные серверы… Текущий VPN продолжает работать.');
       const response = await fetch('/api/vpn/best-foreign', {cache: 'no-store', signal: AbortSignal.timeout(180000)});
       const body = await response.json().catch(() => null);
-      if (!response.ok || !body || !body.success) {
-        renderBestResult(null);
-        setText(qs('#bestServerStatus'), (body && body.error) || 'Поиск лучшего VPN не завершён.');
+      if (!response.ok || !body || body.success !== true || !Array.isArray(body.candidates)) {
+        clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');
+        // A gateway/invalid response is not a successful scan with zero results.
+        // Keep the HTTP status, but never display the raw response (e.g. HTML).
+        const detail = body && typeof body.error === 'string' ? body.error :
+          response.status === 504 ? 'Шлюз не дождался ответа FreeNet.' :
+          response.status === 502 ? 'Шлюз не получил корректный ответ FreeNet.' :
+          response.status === 401 ? 'Требуется войти в FreeNet заново.' :
+          response.ok ? 'Ответ FreeNet не содержит результатов проверки.' : 'Сервер вернул ошибку.';
+        setText(qs('#bestServerStatus'), `Подбор не завершён (HTTP ${response.status}). ${detail}`);
         return;
       }
       renderBestResult(body);
-    } catch (_) {
-      renderBestResult(null);
-      setText(qs('#bestServerStatus'), 'Не удалось завершить поиск. Проверьте связь с FreeNet.');
+    } catch (error) {
+      clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');
+      setText(qs('#bestServerStatus'), error && error.name === 'TimeoutError' ?
+        'Подбор не завершён: превышено время ожидания ответа (180 с).' :
+        'Подбор не завершён: связь с FreeNet прервалась.');
     } finally {
       setBusy(false);
     }
