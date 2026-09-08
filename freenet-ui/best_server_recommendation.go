@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"math"
+	"strings"
 )
 
 const (
@@ -31,6 +32,9 @@ func bestServerMeaningfullyBetter(current, challenger bestServerQualityCandidate
 
 func applyBestServerRecommendationDeadband(response bestServerQualityResponse) bestServerQualityResponse {
 	out := cloneBestServerQualityResponse(response)
+	for i := range out.Candidates {
+		out.Candidates[i].Reason = strings.ReplaceAll(out.Candidates[i].Reason, "Speedtest single-stream median", "Speedtest aggregate capacity")
+	}
 	currentIndex := -1
 	for i := range out.Candidates {
 		if out.Candidates[i].Current && out.Candidates[i].Eligible {
