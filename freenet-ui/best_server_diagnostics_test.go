@@ -36,7 +36,7 @@ func TestBestServerTransferDiagnosticsExcludeRawSecrets(t *testing.T) {
 
 func TestBestServerRejectionsDistinguishUnmeasuredAndSlow(t *testing.T) {
 	c := bestServerQualityCandidate{Tested: true, Available: true, MediaSamples: 0, ServiceTotal: 4, ServiceOK: 4}
-	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Скорость Speedtest не измерена") || !strings.Contains(got, "0/6") {
+	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Скорость Speedtest не измерена") || !strings.Contains(got, "0/4") {
 		t.Fatal(got)
 	}
 	c.DownloadMbps = 4
