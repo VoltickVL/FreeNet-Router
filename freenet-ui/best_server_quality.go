@@ -28,7 +28,7 @@ const (
 	bestServerQualityHTTPRuns             = 3
 	bestServerQualityHTTPRequired         = 2
 	bestServerQualityHTTPTimeout          = 5 * time.Second
-	bestServerQualityCandidateTimeout     = 30 * time.Second
+	bestServerQualityCandidateTimeout     = 26 * time.Second
 	bestServerQualityScanTimeout          = 150 * time.Second
 	bestServerQualityCacheTTL             = 3 * time.Minute
 	bestServerQualityProbeURL             = "https://www.gstatic.com/generate_204"
@@ -145,7 +145,7 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServerQualityResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	cacheKey := "quality-v6|" + a.bestServerCacheKey(currentEndpoint)
+	cacheKey := "quality-v7|" + a.bestServerCacheKey(currentEndpoint)
 	if !force {
 		bestServerQualityCache.Lock()
 		entry := bestServerQualityCache.Entry
@@ -361,7 +361,7 @@ func rankBestServerQualityCandidates(
 			results[index].Confidence = "medium"
 		}
 		if probe.DownloadOK {
-			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms, Speedtest single-stream median %.1f Mbps; transfer %s, stalls %d/%d, services %d/%d",
+			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms, Speedtest aggregate capacity %.1f Mbps; transfer %s, stalls %d/%d, services %d/%d",
 				probe.HTTP.Median, len(probe.HTTP.Samples), probe.HTTP.Jitter, roundBestServerMbps(probe.DownloadMbps),
 				probe.Media.Grade, probe.Media.Stalls, probe.Media.Samples, probe.Media.ServiceOK, probe.Media.ServiceTotal)
 		} else {
@@ -608,7 +608,7 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 }
 
 func eligibleBestServerQuality(c bestServerQualityCandidate) bool {
-	return c.Available && c.DownloadMbps >= 20 && c.MediaSamples == bestServerMediaChunkRuns &&
+	return c.Available && c.DownloadMbps >= 20 && c.MediaSamples >= bestServerMediaRequiredRuns &&
 		c.MediaStalls == 0 && (c.MediaGrade == "good" || c.MediaGrade == "excellent") &&
 		c.ServiceTotal >= 3 && c.ServiceOK == c.ServiceTotal &&
 		c.JitterMS <= bestServerQualityHighJitterMS && c.TCPJitterMS <= bestServerQualityHighTCPJitterMS
