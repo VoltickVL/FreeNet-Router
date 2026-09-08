@@ -19,59 +19,55 @@ import (
 )
 
 const (
-	bestServerQualityTCPRuns                   = 3
-	bestServerQualityTCPRequired               = 2
-	bestServerQualityTCPWorkers                = 8
-	bestServerQualityTCPTimeout                = 1200 * time.Millisecond
-	bestServerQualityShortlist                 = 6
-	bestServerQualityWarmupRuns                = 1
-	bestServerQualityHTTPRuns                  = 3
-	bestServerQualityHTTPRequired              = 2
-	bestServerQualityHTTPTimeout               = 5 * time.Second
-	bestServerQualityDownloadTimeout           = 10 * time.Second
-	bestServerQualityCandidateTimeout          = 30 * time.Second
-	bestServerQualityScanTimeout               = 150 * time.Second
-	bestServerQualityCacheTTL                  = 3 * time.Minute
-	bestServerQualityProbeURL                  = "https://www.gstatic.com/generate_204"
-	bestServerQualityDownloadURL               = "https://speed.cloudflare.com/__down?bytes=16777216"
-	bestServerQualityDownloadBytes             = 16777216
-	bestServerQualityDownloadMinimumBytes      = bestServerQualityDownloadBytes / 8
-	bestServerQualityNoSpeedPenalty            = 3000
-	bestServerQualityVeryLowSpeedPenalty       = 3200
-	bestServerQualityLowSpeedPenalty           = 1600
-	bestServerQualityModerateSpeedPenalty      = 500
-	bestServerQualityHighJitterMS              = 80
-	bestServerQualityHighTCPJitterMS           = 60
+	bestServerQualityTCPRuns              = 3
+	bestServerQualityTCPRequired          = 2
+	bestServerQualityTCPWorkers           = 8
+	bestServerQualityTCPTimeout           = 1200 * time.Millisecond
+	bestServerQualityShortlist            = 6
+	bestServerQualityWarmupRuns           = 1
+	bestServerQualityHTTPRuns             = 3
+	bestServerQualityHTTPRequired         = 2
+	bestServerQualityHTTPTimeout          = 5 * time.Second
+	bestServerQualityCandidateTimeout     = 30 * time.Second
+	bestServerQualityScanTimeout          = 150 * time.Second
+	bestServerQualityCacheTTL             = 3 * time.Minute
+	bestServerQualityProbeURL             = "https://www.gstatic.com/generate_204"
+	bestServerQualityNoSpeedPenalty       = 3000
+	bestServerQualityVeryLowSpeedPenalty  = 3200
+	bestServerQualityLowSpeedPenalty      = 1600
+	bestServerQualityModerateSpeedPenalty = 500
+	bestServerQualityHighJitterMS         = 80
+	bestServerQualityHighTCPJitterMS      = 60
 )
 
 type bestServerQualityCandidate struct {
-	Tested       bool    `json:"tested"`
-	Rejections   []string `json:"rejections,omitempty"`
-	DownloadIssue string `json:"download_issue,omitempty"`
-	MediaIssue    string `json:"media_issue,omitempty"`
-	Eligible     bool    `json:"eligible"`
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	CountryCode  string  `json:"country_code,omitempty"`
-	Endpoint     string  `json:"endpoint"`
-	Current      bool    `json:"current"`
-	Reachable    bool    `json:"reachable"`
-	Available    bool    `json:"available"`
-	TCPRTTMS     int     `json:"tcp_rtt_ms,omitempty"`
-	TCPJitterMS  int     `json:"tcp_jitter_ms,omitempty"`
-	ApplicationMS int    `json:"application_rtt_ms,omitempty"`
-	JitterMS     int     `json:"jitter_ms,omitempty"`
-	DownloadMbps float64 `json:"download_mbps,omitempty"`
-	HTTPSamples  int     `json:"http_samples,omitempty"`
-	MediaGrade   string  `json:"media_grade,omitempty"`
-	MediaStalls  int     `json:"media_stalls,omitempty"`
-	MediaSamples int     `json:"media_samples,omitempty"`
-	MediaMbps    float64 `json:"media_mbps,omitempty"`
-	ServiceOK    int     `json:"service_ok,omitempty"`
-	ServiceTotal int     `json:"service_total,omitempty"`
-	Score        int     `json:"score,omitempty"`
-	Confidence   string  `json:"confidence,omitempty"`
-	Reason       string  `json:"reason"`
+	Tested        bool     `json:"tested"`
+	Rejections    []string `json:"rejections,omitempty"`
+	DownloadIssue string   `json:"download_issue,omitempty"`
+	MediaIssue    string   `json:"media_issue,omitempty"`
+	Eligible      bool     `json:"eligible"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	CountryCode   string   `json:"country_code,omitempty"`
+	Endpoint      string   `json:"endpoint"`
+	Current       bool     `json:"current"`
+	Reachable     bool     `json:"reachable"`
+	Available     bool     `json:"available"`
+	TCPRTTMS      int      `json:"tcp_rtt_ms,omitempty"`
+	TCPJitterMS   int      `json:"tcp_jitter_ms,omitempty"`
+	ApplicationMS int      `json:"application_rtt_ms,omitempty"`
+	JitterMS      int      `json:"jitter_ms,omitempty"`
+	DownloadMbps  float64  `json:"download_mbps,omitempty"`
+	HTTPSamples   int      `json:"http_samples,omitempty"`
+	MediaGrade    string   `json:"media_grade,omitempty"`
+	MediaStalls   int      `json:"media_stalls,omitempty"`
+	MediaSamples  int      `json:"media_samples,omitempty"`
+	MediaMbps     float64  `json:"media_mbps,omitempty"`
+	ServiceOK     int      `json:"service_ok,omitempty"`
+	ServiceTotal  int      `json:"service_total,omitempty"`
+	Score         int      `json:"score,omitempty"`
+	Confidence    string   `json:"confidence,omitempty"`
+	Reason        string   `json:"reason"`
 }
 
 type bestServerQualityResponse struct {
@@ -92,11 +88,11 @@ type bestServerQualityResponse struct {
 
 type bestServerQualityApplicationResult struct {
 	DownloadIssue string
-	OK           bool
-	HTTP         bestServerProbeResult
-	DownloadOK   bool
-	DownloadMbps float64
-	Media        bestServerMediaQualityResult
+	OK            bool
+	HTTP          bestServerProbeResult
+	DownloadOK    bool
+	DownloadMbps  float64
+	Media         bestServerMediaQualityResult
 }
 
 type bestServerQualityApplicationProbe func(context.Context, bestServerInternalCandidate) bestServerQualityApplicationResult
@@ -149,7 +145,7 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServerQualityResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	cacheKey := "quality-v5|" + a.bestServerCacheKey(currentEndpoint)
+	cacheKey := "quality-v6|" + a.bestServerCacheKey(currentEndpoint)
 	if !force {
 		bestServerQualityCache.Lock()
 		entry := bestServerQualityCache.Entry
@@ -173,9 +169,9 @@ func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServer
 	response.CurrentEndpoint = currentEndpoint
 	if response.Available && response.Recommendation != nil {
 		if response.Recommendation.Current {
-			response.Message = "Текущий VPN имеет лучший подтверждённый баланс скорости, отклика и плавности медиа."
+			response.Message = "Текущий VPN имеет лучший подтверждённый баланс скорости, отклика и стабильности."
 		} else {
-			response.Message = "FreeNet нашёл профиль с лучшим подтверждённым балансом скорости, отклика и плавности медиа."
+			response.Message = "FreeNet нашёл профиль с лучшим подтверждённым балансом скорости, отклика и стабильности."
 		}
 	} else {
 		response.Message = "Недостаточно подтверждённых данных о скорости и стабильности; рекомендация не готова, текущий VPN не изменён."
@@ -316,8 +312,6 @@ func rankBestServerQualityCandidates(
 		if ctx.Err() != nil {
 			break
 		}
-		// Do not start a probe that cannot finish within its full budget.
-		// Preserve earlier completed measurements, explicitly marked partial.
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerQualityCandidateTimeout+time.Second {
 			partial = true
 			break
@@ -343,15 +337,6 @@ func rankBestServerQualityCandidates(
 		results[index].MediaMbps = roundBestServerMediaMbps(probe.Media.MedianMbps)
 		results[index].ServiceOK = probe.Media.ServiceOK
 		results[index].ServiceTotal = probe.Media.ServiceTotal
-
-		// A stable set of short body-phase media samples is a valid bounded
-		// throughput fallback when the larger capacity transfer hits its deadline.
-		// This prevents a timeout from erasing all speed evidence while still
-		// requiring enough real payload samples before a recommendation is allowed.
-		if !probe.DownloadOK && probe.Media.OK && probe.Media.MedianMbps > 0 {
-			probe.DownloadOK = true
-			probe.DownloadMbps = probe.Media.MedianMbps
-		}
 		if probe.DownloadOK {
 			results[index].DownloadMbps = roundBestServerMbps(probe.DownloadMbps)
 		}
@@ -369,24 +354,28 @@ func rankBestServerQualityCandidates(
 		if results[index].Score < 1 {
 			results[index].Score = 1
 		}
-		mediaStable := probe.Media.OK && (probe.Media.Grade == "excellent" || probe.Media.Grade == "good")
-		if len(probe.HTTP.Samples) >= bestServerQualityHTTPRuns && probe.DownloadOK && mediaStable && probe.HTTP.Jitter <= bestServerQualityHighJitterMS && results[index].TCPJitterMS <= bestServerQualityHighTCPJitterMS {
+		stableTransfer := probe.Media.OK && (probe.Media.Grade == "excellent" || probe.Media.Grade == "good")
+		if len(probe.HTTP.Samples) >= bestServerQualityHTTPRuns && probe.DownloadOK && stableTransfer && probe.HTTP.Jitter <= bestServerQualityHighJitterMS && results[index].TCPJitterMS <= bestServerQualityHighTCPJitterMS {
 			results[index].Confidence = "high"
 		} else {
 			results[index].Confidence = "medium"
 		}
 		if probe.DownloadOK {
-			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms, sustained body download %.1f Mbps; media %s, stalls %d/%d, services %d/%d",
+			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms, Speedtest single-stream median %.1f Mbps; transfer %s, stalls %d/%d, services %d/%d",
 				probe.HTTP.Median, len(probe.HTTP.Samples), probe.HTTP.Jitter, roundBestServerMbps(probe.DownloadMbps),
 				probe.Media.Grade, probe.Media.Stalls, probe.Media.Samples, probe.Media.ServiceOK, probe.Media.ServiceTotal)
 		} else {
-			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms; sustained download unavailable; media %s, stalls %d/%d, services %d/%d",
+			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms; Speedtest throughput unavailable; transfer %s, stalls %d/%d, services %d/%d",
 				probe.HTTP.Median, len(probe.HTTP.Samples), probe.HTTP.Jitter,
 				probe.Media.Grade, probe.Media.Stalls, probe.Media.Samples, probe.Media.ServiceOK, probe.Media.ServiceTotal)
 		}
 	}
 
-	for i := range results { if !results[i].Eligible { results[i].Rejections = bestServerRejectionReasons(results[i]) } }
+	for i := range results {
+		if !results[i].Eligible {
+			results[i].Rejections = bestServerRejectionReasons(results[i])
+		}
+	}
 	sort.SliceStable(results, func(i, j int) bool {
 		if results[i].Available != results[j].Available {
 			return results[i].Available
@@ -419,10 +408,6 @@ func rankBestServerQualityCandidates(
 	}
 	for i := range response.Candidates {
 		candidate := response.Candidates[i]
-		// v0.2.85 runtime proved that latency-only ranking is not sufficient:
-		// three identical scans had no throughput for either profile yet still
-		// declared a winner. Recommendation is now fail-closed until speed and a
-		// minimum media sample set are both confirmed.
 		if candidate.Eligible {
 			best := candidate
 			response.Recommendation = &best
@@ -609,21 +594,15 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 	}
 
 	result := bestServerQualityApplicationResult{OK: true, HTTP: httpResult}
-	// Stability and service evidence must not inherit a budget exhausted by
-	// the optional large capacity transfer. Media also provides a speed fallback.
 	result.Media = probeBestServerMediaQuality(ctx, curlPath, socks)
-	downloadCtx, cancelDownload := context.WithTimeout(ctx, bestServerQualityDownloadTimeout)
-	output, downloadErr := exec.CommandContext(downloadCtx, curlPath,
-		"--socks5-hostname", socks,
-		"-sS", "--connect-timeout", "3", "--max-time", "10",
-		"-o", "/dev/null", "-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}", bestServerQualityDownloadURL,
-	).Output()
-	cancelDownload()
-	if mbps, ok := parseBestServerDownloadMbpsAtLeast(string(output), bestServerQualityDownloadMinimumBytes); ok {
-		result.DownloadMbps = mbps
+	if result.Media.OK && result.Media.MedianMbps > 0 {
 		result.DownloadOK = true
+		result.DownloadMbps = result.Media.MedianMbps
 	} else {
-		result.DownloadIssue = bestServerTransferIssue(string(output), downloadErr)
+		result.DownloadIssue = result.Media.Issue
+		if result.DownloadIssue == "" {
+			result.DownloadIssue = "Speedtest throughput unavailable"
+		}
 	}
 	return result
 }
