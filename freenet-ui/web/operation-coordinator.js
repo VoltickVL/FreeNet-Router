@@ -197,10 +197,10 @@
       .vpn-empty{padding:38px 24px;border:1px dashed #34465e;border-radius:12px;color:#aebbd0;font-size:14px;line-height:1.6}
       .best-v4-result,.best-v4-result.show{padding:0;border:0;background:none;border-radius:0}
       .best-v4-result.show{display:grid;gap:10px}.vpn-option{padding:12px 14px;border:1px solid #2d425e;background:#122238;border-radius:12px}
-      .vpn-option-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}
+      .vpn-option-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}.vpn-option-title{display:flex;align-items:center;gap:8px;min-width:0}
       .vpn-option-head h4{font-size:14px;line-height:1.3;margin:0;overflow-wrap:anywhere}
       .vpn-option .btn{min-height:30px;padding:5px 12px;font-size:12px;flex-shrink:0}
-      .vpn-option .best-v4-metrics{margin:0}.best-v4-reason{font-size:11px;line-height:1.4;margin-top:8px}
+      .vpn-option .best-v4-metrics{margin:0}.best-v4-reason{font-size:11px;line-height:1.4;margin-top:8px}.vpn-compare-badge{font-size:11px;color:#9fb4d2;white-space:nowrap}
       .best-v4-status{grid-column:1/-1;font-size:13px;min-height:0;line-height:1.4}
       .vpn-measure-note{grid-column:1/-1;margin:0;font-size:11px;color:#91a4bb;line-height:1.4}
       #bestServerAdvanced{margin-top:16px;padding-top:14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px}
@@ -214,6 +214,7 @@
       #bestServerAdvanced:has(#exactConnectRow[hidden]) #selectedProfileCard{display:none}
       .content:has(.page.active[data-page-view="overview"])>.footer{display:none}
       .content:has(.page.active[data-page-view="overview"]){padding-top:14px;padding-bottom:8px}
+      .flag-za{background:linear-gradient(to bottom,#de3831 0 43%,#fff 43% 57%,#002395 57%)}.flag-za:before{content:'';position:absolute;inset:0;background:#007749;clip-path:polygon(0 18%,48% 50%,0 82%,0 64%,28% 50%,0 36%)}
       @media(min-width:761px){.vpn-option{padding:9px 12px}.vpn-option .best-v4-reason{margin-top:5px}.best-v4-shell{row-gap:12px}.vpn-section-head{margin-bottom:10px}}
       @media(max-width:1150px){.best-v4-shell{grid-template-columns:minmax(210px,.8fr) minmax(0,1.5fr);gap:14px}.vpn-current-panel{padding-right:14px}#bestServerAdvanced{grid-template-columns:1fr}#bestServerAdvanced .action-row{justify-content:flex-end}}
       @media(max-width:760px){.best-v4-shell{grid-template-columns:1fr}.vpn-current-panel{border-right:0;border-bottom:1px solid #29384d;padding:0 0 16px}.vpn-current-panel .best-v4-metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.vpn-current-panel .best-v4-pill b{font-size:14px}.vpn-current-panel>.best-v4-endpoint{margin-bottom:12px}.vpn-section-head{align-items:flex-start}.vpn-section-head .btn{padding:9px;font-size:12px;min-height:40px}.best-v4-pill b{font-size:13px}.best-v4-pill span{font-size:10px}.vpn-option{padding:12px}.vpn-option-head{gap:8px}.vpn-option-head h4{font-size:13px}#bestServerAdvanced #profilesList.profiles{grid-template-columns:1fr}.best-v4-name{font-size:20px}#bestServerAdvanced .action-row{flex-wrap:wrap}.vpn-empty{padding:24px 16px}}
@@ -235,6 +236,22 @@
   function flagClass(code) {
     const value = String(code || '').trim().toLowerCase();
     return /^[a-z]{2}$/.test(value) ? `flag-${value}` : 'flag-unknown';
+  }
+  function profileDisplayName(profile, fallback) {
+    const raw = String(profile && profile.name || fallback || 'VPN').trim();
+    const code = String(profile && profile.country_code || '').trim().toUpperCase();
+    return code && raw.toUpperCase().startsWith(code + ' ') ? raw.slice(code.length + 1).trim() : raw;
+  }
+  function statusDisplayName(s) {
+    const raw = String(s && (s.profile_label || (s.country ? `${s.country}${s.city ? ' · ' + s.city : ''}` : 'Профиль не определён')) || 'Профиль не определён').trim();
+    const code = String(s && s.country_code || '').trim().toUpperCase();
+    return code && raw.toUpperCase().startsWith(code + ' ') ? raw.slice(code.length + 1).trim() : raw;
+  }
+  function makeRenderedFlag(code) {
+    const flag = document.createElement('span');
+    flag.className = `flag-icon ${flagClass(code)}`;
+    flag.setAttribute('aria-hidden', 'true');
+    return flag;
   }
 
   function renderOverviewTopbarFromStatus(s) {
@@ -353,7 +370,7 @@
     root.appendChild(metricPill('TCP', metric(candidate, 'tcp')));
     root.appendChild(metricPill('Колебание задержки', metric(candidate, 'jitter')));
   }
-  function candidateName(candidate, fallback) { return candidate && candidate.name ? candidate.name : fallback; }
+  function candidateName(candidate, fallback) { return profileDisplayName(candidate, fallback); }
   function currentCandidate(data) {
     return Array.isArray(data && data.candidates) ? data.candidates.find(item => item && item.current) || null : null;
   }
@@ -362,8 +379,7 @@
     const name = qs('#bestCurrentName');
     const endpoint = qs('#bestCurrentEndpoint');
     if (!name || !s) return;
-    const label = s.profile_label || (s.country ? `${s.country}${s.city ? ' · ' + s.city : ''}` : 'Профиль не определён');
-    setText(name, label);
+    setText(name, statusDisplayName(s));
     setText(endpoint, s.endpoint || '—');
     const flag = qs('#bestCurrentFlag');
     if (flag) {
@@ -382,23 +398,29 @@
 
   function renderCurrentQuality(data) {
     const candidate = currentCandidate(data);
-    currentQuality = candidate;
+    if (candidate) currentQuality = candidate;
     if (candidate) {
       setText(qs('#bestCurrentName'), candidateName(candidate, 'Текущий VPN'));
       setText(qs('#bestCurrentEndpoint'), candidate.endpoint || '—');
+      const flag = qs('#bestCurrentFlag');
+      if (flag) {
+        flag.className = `flag-icon ${flagClass(candidate.country_code)}`;
+        flag.hidden = !candidate.country_code;
+      }
     }
-    renderMetrics(qs('#bestCurrentMetrics'), candidate);
-    const measured = candidate && Number(candidate.download_mbps) > 0;
+    renderMetrics(qs('#bestCurrentMetrics'), candidate || currentQuality);
+    const shown = candidate || currentQuality;
+    const measured = shown && Number(shown.download_mbps) > 0;
     const stamp = new Date(data && data.scanned_at || Date.now());
     const time = Number.isNaN(stamp.getTime()) ? '' : stamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
-    setText(qs('#bestCurrentQuality'), candidate ? `${measured ? 'Тест загрузки: ' + metric(candidate, 'speed') : 'Скорость не измерена'}${time ? ' · ' + time : ''}` : 'Недостаточно данных для оценки');
-    if (candidate?.download_issue && !measured) setText(qs('#bestCurrentQuality'), 'Тест Cloudflare: ' + candidate.download_issue);
-    setText(qs('#bestServerStatus'), candidate ? 'Проверка текущего VPN завершена.' : 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
+    setText(qs('#bestCurrentQuality'), shown ? `${measured ? 'Тест загрузки: ' + metric(shown, 'speed') : 'Скорость не измерена'}${time ? ' · ' + time : ''}` : 'Недостаточно данных для оценки');
+    if (shown?.download_issue && !measured) setText(qs('#bestCurrentQuality'), 'Speedtest: ' + shown.download_issue);
+    setText(qs('#bestServerStatus'), shown ? 'Проверка текущего VPN завершена.' : 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
   }
 
   function recommendationReason(data, best) {
     if (!best) return 'Недостаточно подтверждённых данных для безопасной рекомендации.';
-    const current = currentCandidate(data);
+    const current = currentCandidate(data) || currentQuality;
     if (best.current) return 'Текущий VPN уже показывает лучший подтверждённый результат среди проверенных зарубежных профилей.';
     const parts = [];
     const bs = Number(best.download_mbps || 0), cs = Number(current && current.download_mbps || 0);
@@ -408,7 +430,7 @@
       parts.push(delta === 0 ? 'Скорость такая же' : `Скорость ${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)} Мбит/с`);
     }
     if (bh > 0 && ch > 0) parts.push(bh === ch ? 'HTTP такой же' : `HTTP ${bh < ch ? 'быстрее' : 'медленнее'} на ${Math.abs(ch - bh)} мс`);
-    return parts.length ? parts.join(' · ') + '.' : 'Скорость и работа VPN подтверждены; данных для сравнения с текущим недостаточно.';
+    return parts.length ? parts.join(' · ') + '.' : 'Сервер проверен; данных для прямого сравнения скорости с текущим недостаточно.';
   }
 
   function clearAlternatives(message) {
@@ -420,72 +442,60 @@
     if (empty) { empty.hidden = false; empty.textContent = message || 'Подберите серверы, чтобы увидеть проверенные варианты.'; }
   }
 
+  function comparisonCandidates(data, current) {
+    const seen = new Set([data && data.current_endpoint, current && current.endpoint].filter(Boolean));
+    const pool = (Array.isArray(data && data.candidates) ? data.candidates : []).filter(candidate => {
+      if (!candidate || !candidate.tested || candidate.current || isRussianProfile(candidate) || !candidate.id || !candidate.endpoint || seen.has(candidate.endpoint)) return false;
+      if (!candidate.available && !candidate.reachable) return false;
+      seen.add(candidate.endpoint);
+      return true;
+    });
+    const preferred = pool.filter(candidate => candidate.eligible === true);
+    const diagnostic = pool.filter(candidate => candidate.eligible !== true);
+    return preferred.concat(diagnostic).slice(0, 3);
+  }
+
   function renderBestResult(data) {
     clearAlternatives();
     const current = currentCandidate(data);
     if (current) renderCurrentQuality({scanned_at: data.scanned_at, candidates: [current]});
-    // Candidates arrive in the engine's deterministic quality order. Use the
-    // same evidence threshold as its recommendation, and distinct endpoints.
-    const seen = new Set([data && data.current_endpoint, current && current.endpoint].filter(Boolean));
-    alternatives = (Array.isArray(data && data.candidates) ? data.candidates : []).filter(candidate => {
-      if (!candidate || candidate.current || isRussianProfile(candidate) || !candidate.id || !candidate.endpoint ||
-          candidate.eligible !== true || !candidate.available || !(candidate.download_mbps > 0) || !(candidate.media_samples >= 4) || seen.has(candidate.endpoint)) return false;
-      seen.add(candidate.endpoint);
-      return true;
-    }).slice(0, 3);
+    alternatives = comparisonCandidates(data, current);
     const box = qs('#bestServerResult');
     if (!alternatives.length) {
-      clearAlternatives('Подходящих замен с подтверждённой скоростью не найдено. Текущий VPN сохранён.');
-      setText(qs('#bestServerStatus'), data && data.message || 'Достоверные варианты для замены недоступны.');
-      renderRejectedCandidates(data);
+      clearAlternatives('Проверенных зарубежных вариантов для сравнения сейчас нет. Текущий VPN сохранён.');
+      setText(qs('#bestServerStatus'), data && data.message || 'Сравнение сейчас недоступно.');
       return;
     }
     qs('#bestServerEmpty').hidden = true;
     box.classList.add('show');
     alternatives.forEach((candidate, index) => {
-      const row = document.createElement('article'); row.className = 'vpn-option';
+      const row = document.createElement('article'); row.className = 'vpn-option' + (candidate.eligible ? '' : ' vpn-rejected');
       const head = document.createElement('div'); head.className = 'vpn-option-head';
+      const title = document.createElement('div'); title.className = 'vpn-option-title';
+      title.appendChild(makeRenderedFlag(candidate.country_code));
       const name = document.createElement('h4'); name.textContent = candidateName(candidate, 'VPN');
       if (index === 0) name.id = 'bestServerName';
-      const button = document.createElement('button'); button.type = 'button';
-      button.className = 'btn secondary vpn-option-apply'; button.dataset.candidateId = candidate.id;
-      if (index === 0) button.id = 'bestServerApply';
-      button.textContent = 'Переключиться'; button.setAttribute('aria-label', 'Переключиться: ' + name.textContent);
-      head.append(name, button);
+      title.appendChild(name);
+      head.appendChild(title);
+      if (candidate.eligible) {
+        const button = document.createElement('button'); button.type = 'button';
+        button.className = 'btn secondary vpn-option-apply'; button.dataset.candidateId = candidate.id;
+        if (index === 0) button.id = 'bestServerApply';
+        button.textContent = 'Переключиться'; button.setAttribute('aria-label', 'Переключиться: ' + name.textContent);
+        head.appendChild(button);
+      } else {
+        const badge = document.createElement('span'); badge.className = 'vpn-compare-badge'; badge.textContent = 'Для сравнения';
+        head.appendChild(badge);
+      }
       const metrics = document.createElement('div'); metrics.className = 'best-v4-metrics'; renderMetrics(metrics, candidate);
       const reason = document.createElement('div'); reason.className = 'best-v4-reason';
       if (index === 0) reason.id = 'bestServerReason';
-      reason.textContent = recommendationReason(data, candidate) + ` · Провалы ${candidate.media_stalls || 0}/${candidate.media_samples} · Сайты ${candidate.service_ok}/${candidate.service_total}`;
+      const diagnostic = !candidate.eligible && Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.join(' · ') : '';
+      reason.textContent = (candidate.eligible ? recommendationReason(data, candidate) : diagnostic || 'Сервер измерен, но данных недостаточно для рекомендации.') + ` · Speedtest ${candidate.media_samples || 0}/${4} · Сайты ${candidate.service_ok || 0}/${candidate.service_total || 0}`;
       row.append(head, metrics, reason); box.appendChild(row);
     });
-    setText(qs('#bestServerStatus'), `Проверено профилей: ${data.profiles_scanned || 0}. Вариантов для замены: ${alternatives.length}.${data.recommendation && data.recommendation.current ? ' Текущий VPN имеет лучший общий результат.' : ''}`);
-  }
-
-  function renderRejectedCandidates(data) {
-    const seen = new Set();
-    const checked = (data.candidates || []).filter(c => {
-      if (!c || !c.tested || c.current || c.eligible || isRussianProfile(c) || seen.has(c.endpoint)) return false;
-      seen.add(c.endpoint); return true;
-    });
-    if (!checked.length) return;
-    const box = qs('#bestServerResult');
-    qs('#bestServerEmpty').hidden = true;
-    box.classList.add('show');
-    checked.slice(0, 2).forEach(candidate => {
-      const row = document.createElement('article'); row.className = 'vpn-option vpn-rejected';
-      const head = document.createElement('div'); head.className = 'vpn-option-head';
-      const name = document.createElement('h4'); name.textContent = candidateName(candidate, 'VPN');
-      const badge = document.createElement('span'); badge.textContent = 'Не рекомендован'; badge.style.cssText = 'font-size:11px;color:#f5bc72';
-      head.append(name, badge);
-      const metrics = document.createElement('div'); metrics.className = 'best-v4-metrics'; renderMetrics(metrics, candidate);
-      const reasons = document.createElement('div'); reasons.className = 'best-v4-reason';
-      reasons.textContent = Array.isArray(candidate.rejections) ? candidate.rejections.join(' · ') : 'Недостаточно данных для рекомендации';
-      const detail = document.createElement('div'); detail.className = 'best-v4-reason';
-      detail.textContent = candidate.media_issue ? 'Загрузки Cloudflare: ' + candidate.media_issue :
-        candidate.download_issue ? 'Тест Cloudflare: ' + candidate.download_issue : '';
-      row.append(head, metrics, reasons, detail); box.append(row);
-    });
-    setText(qs('#bestServerStatus'), `Проверка завершена. Рекомендованных замен нет. Показаны причины для ${Math.min(checked.length, 2)} из ${checked.length} проверенных альтернатив.`);
+    const switchable = alternatives.filter(candidate => candidate.eligible).length;
+    setText(qs('#bestServerStatus'), `Проверено профилей: ${data.profiles_scanned || 0}. Показано вариантов для сравнения: ${alternatives.length}; пригодны для переключения: ${switchable}.${data.recommendation && data.recommendation.current ? ' Текущий VPN остаётся предпочтительным.' : ''}`);
   }
 
   function mountBestServerUI() {
@@ -502,6 +512,11 @@
     if (profileLabel) profileLabel.textContent = 'Поиск по стране или городу';
 
     const routine = qs('#updateBtn') && qs('#updateBtn').closest('.action-row');
+    const update = qs('#updateBtn');
+    if (update) {
+      update.textContent = 'Обновить и проверить';
+      update.title = 'Получить свежий endpoint текущего профиля из подписки и затем автоматически проверить его качество';
+    }
     const guard = qs('#quickNetworkGuard');
     if (profilesList && !qs('#bestServerAdvanced')) {
       const details = document.createElement('section');
@@ -528,10 +543,9 @@
     scanBusy = !!mode;
     const current = qs('#bestServerCheckCurrent');
     const best = qs('#bestServerRefresh');
-    const apply = qs('#bestServerApply');
     if (current) { current.disabled = scanBusy || applyBusy || externalBusy; current.textContent = mode === 'current' ? 'Проверяем текущий…' : 'Проверить текущий VPN'; }
     if (best) { best.disabled = scanBusy || applyBusy || externalBusy; best.textContent = mode === 'best' ? 'Подбираем…' : 'Подобрать серверы'; }
-    document.querySelectorAll('.vpn-option-apply').forEach(button => { button.disabled = scanBusy || applyBusy || externalBusy || !alternatives.some(candidate => candidate.id === button.dataset.candidateId); });
+    document.querySelectorAll('.vpn-option-apply').forEach(button => { button.disabled = scanBusy || applyBusy || externalBusy || !alternatives.some(candidate => candidate.eligible && candidate.id === button.dataset.candidateId); });
     const manual = qs('#bestServerAdvanced');
     if (manual) manual.inert = scanBusy || applyBusy || externalBusy;
     const maintenance = qs('.vpn-current-panel>.action-row');
@@ -577,7 +591,6 @@
       try {
         response = await fetch(`${path}?job=start&id=${encodeURIComponent(id)}`, {cache:'no-store', signal:AbortSignal.timeout(10000)});
       } catch (error) {
-        // A lost acknowledgement is not permission to launch another scan.
         stage.textContent = 'Восстанавливаем связь и проверяем состояние задачи…';
         response = await readState();
       }
@@ -589,7 +602,6 @@
         if (job.state !== 'running') throw new Error('Invalid quality job state');
         stage.textContent = job.stage === 'quality' ? `Проверяем качество VPN · завершено ${job.completed} из ${job.total}` :
           job.stage === 'tcp' ? 'Проверяем доступность серверов…' : 'Получаем профили подписки…';
-        // Candidate count is real; it is not a fabricated percentage of time.
         if (job.stage === 'quality' && job.total > 0) { progress.max = job.total; progress.value = job.completed; }
         else progress.removeAttribute('value');
         if (Date.now()-started > 180000) throw new DOMException('Quality job timeout', 'TimeoutError');
@@ -630,16 +642,12 @@
       mountBestServerUI();
       setBusy('best');
       clearAlternatives('Подбираем варианты и измеряем качество…');
-      const apply = qs('#bestServerApply');
-      if (apply) apply.classList.remove('show');
       qs('#bestServerResult')?.classList.remove('show');
       setText(qs('#bestServerStatus'), 'Сравниваем зарубежные серверы… Текущий VPN продолжает работать.');
       const response = await requestQuality('/api/vpn/best-foreign', 'best');
       const body = await response.json().catch(() => null);
       if (!response.ok || !body || body.success !== true || !Array.isArray(body.candidates)) {
         clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');
-        // A gateway/invalid response is not a successful scan with zero results.
-        // Keep the HTTP status, but never display the raw response (e.g. HTML).
         const detail = body && typeof body.error === 'string' ? body.error :
           response.status === 504 ? 'Шлюз не дождался ответа FreeNet.' :
           response.status === 502 ? 'Шлюз не получил корректный ответ FreeNet.' :
@@ -675,7 +683,7 @@
   }
 
   async function applyBestServer() {
-    if (applyBusy || scanBusy || externalBusy || !recommendation || recommendation.current || !recommendation.id || isRussianProfile(recommendation)) return;
+    if (applyBusy || scanBusy || externalBusy || !recommendation || recommendation.current || !recommendation.id || !recommendation.eligible || isRussianProfile(recommendation)) return;
     applyBusy = true;
     setBusy(false);
     const apply = Array.from(document.querySelectorAll('.vpn-option-apply')).find(button => button.dataset.candidateId === recommendation.id);
@@ -691,10 +699,7 @@
       if (!response.ok || !body || !body.success) {
         const detail = body && (body.primary_error || body.error);
         setText(qs('#bestServerStatus'), detail || 'Результат переключения не подтверждён. Не повторяйте операцию.');
-        if (!body || body.result_unknown) {
-          recommendation = null;
-          if (apply) apply.classList.remove('show');
-        }
+        if (!body || body.result_unknown) recommendation = null;
         return;
       }
       const status = await waitForEndpoint(expectedEndpoint);
@@ -706,19 +711,35 @@
       currentQuality = null;
       renderOverviewTopbarFromStatus(status);
       if (qs('#bestServerResult')) qs('#bestServerResult').classList.remove('show');
-      if (apply) apply.classList.remove('show');
       renderMetrics(qs('#bestCurrentMetrics'), null);
       setText(qs('#bestCurrentQuality'), 'Качество ещё не проверено');
       setText(qs('#bestServerStatus'), 'VPN переключён. Соединение проверено.');
     } catch (_) {
       recommendation = null;
-      if (apply) apply.classList.remove('show');
       setText(qs('#bestServerStatus'), 'Связь прервалась во время переключения. Результат не подтверждён — проверьте состояние системы перед повторной попыткой.');
     } finally {
       clearAlternatives('Результаты сброшены после переключения. Для нового сравнения подберите серверы снова.');
       applyBusy = false;
       setBusy(false);
     }
+  }
+
+  function installUpdateQualityFollowup() {
+    if (typeof act !== 'function' || act.__freenetUpdateQualityFollowup) return;
+    const previous = act;
+    const wrapped = async function(action) {
+      await previous(action);
+      if (action !== 'update') return;
+      try {
+        if (typeof loadStatus === 'function') await loadStatus();
+        if (lastStatus && !lastStatus.busy && !lastStatus.updater_busy && lastStatus.xray_online) {
+          await wait(250);
+          await scanCurrentVPN();
+        }
+      } catch (_) {}
+    };
+    wrapped.__freenetUpdateQualityFollowup = true;
+    act = wrapped;
   }
 
   function installBestServerActionDelegation() {
@@ -732,14 +753,14 @@
     document.addEventListener('click', event => {
       const origin = event.target;
       if (!origin || typeof origin.closest !== 'function') return;
-      const button = origin.closest('#bestServerCheckCurrent, #bestServerRefresh, #bestServerApply, .vpn-option-apply');
+      const button = origin.closest('#bestServerCheckCurrent, #bestServerRefresh, .vpn-option-apply');
       if (!button || button.disabled) return;
       event.preventDefault();
       if (button.id === 'bestServerCheckCurrent') { void scanCurrentVPN(); return; }
       if (button.id === 'bestServerRefresh') { void scanBestServer(); return; }
       if (button.matches('.vpn-option-apply')) {
         if (scanBusy || applyBusy || externalBusy) return;
-        recommendation = alternatives.find(candidate => candidate.id === button.dataset.candidateId) || null;
+        recommendation = alternatives.find(candidate => candidate.eligible && candidate.id === button.dataset.candidateId) || null;
         void applyBestServer();
       }
     }, true);
@@ -748,11 +769,11 @@
   function start() {
     installRussianProfileFilter();
     installBestServerActionDelegation();
+    installUpdateQualityFollowup();
     mountOverviewTopbar();
     installOverviewTopbarStatusHook();
     syncOverviewTopbar();
     mountBestServerUI();
-    // Intentionally no Best Server scan here. Heavy VPN quality probes are user-triggered only.
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, {once: true});

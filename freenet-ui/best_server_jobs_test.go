@@ -74,10 +74,10 @@ func TestBestServerJobTerminalResultAndFailure(t *testing.T) {
 }
 
 func TestBestServerEligibilityRejectsWeakEvidence(t *testing.T) {
-	good := bestServerQualityCandidate{Available: true, DownloadMbps: 50, MediaSamples: 6, MediaGrade: "good", ServiceOK: 4, ServiceTotal: 4, JitterMS: 10, TCPJitterMS: 10}
+	good := bestServerQualityCandidate{Available: true, DownloadMbps: 50, MediaSamples: bestServerMediaRequiredRuns, MediaGrade: "good", ServiceOK: 4, ServiceTotal: 4, JitterMS: 10, TCPJitterMS: 10}
 	if !eligibleBestServerQuality(good) { t.Fatal("stable measured candidate rejected") }
 	for _, change := range []func(*bestServerQualityCandidate){
-		func(c *bestServerQualityCandidate) { c.MediaSamples = 4 },
+		func(c *bestServerQualityCandidate) { c.MediaSamples = bestServerMediaRequiredRuns - 1 },
 		func(c *bestServerQualityCandidate) { c.MediaStalls = 1 },
 		func(c *bestServerQualityCandidate) { c.ServiceOK = 3 },
 		func(c *bestServerQualityCandidate) { c.DownloadMbps = 5 },

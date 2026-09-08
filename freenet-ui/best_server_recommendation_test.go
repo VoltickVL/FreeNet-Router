@@ -20,8 +20,8 @@ func TestBestServerRecommendationKeepsCurrentForNoiseLevelDifference(t *testing.
 		t.Fatalf("noise-level difference must keep current VPN: %#v", final.Recommendation)
 	}
 	for _, candidate := range final.Candidates {
-		if candidate.ID == "bg" && candidate.Eligible {
-			t.Fatalf("marginal challenger must not be offered as replacement: %#v", candidate)
+		if candidate.ID == "bg" && !candidate.Eligible {
+			t.Fatalf("marginal but healthy challenger must remain available for comparison/manual choice: %#v", candidate)
 		}
 	}
 }

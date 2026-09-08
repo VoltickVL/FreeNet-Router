@@ -19,7 +19,7 @@ func TestOverviewV4ReadabilityContract(t *testing.T) {
 		"DNS",
 		"Проверить текущий VPN",
 		"Подобрать серверы",
-		"данных для сравнения с текущим недостаточно",
+		"данных для прямого сравнения скорости с текущим недостаточно",
 		"best-v4-metrics",
 	} {
 		if !strings.Contains(s, needle) {

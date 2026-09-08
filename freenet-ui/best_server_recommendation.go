@@ -46,17 +46,11 @@ func applyBestServerRecommendationDeadband(response bestServerQualityResponse) b
 		return out
 	}
 	current := out.Candidates[currentIndex]
-	for i := range out.Candidates {
-		candidate := &out.Candidates[i]
-		if candidate.Current || !candidate.Eligible {
-			continue
-		}
-		if !bestServerMeaningfullyBetter(current, *candidate) {
-			candidate.Eligible = false
-			candidate.Rejections = append(candidate.Rejections, "Нет значимого улучшения относительно текущего VPN")
-		}
-	}
 
+	// Quality eligibility and recommendation significance are deliberately
+	// separate. A healthy alternative that is only marginally different from
+	// current remains a valid comparison/manual choice; it is simply not a
+	// reason for FreeNet to recommend switching a working VPN.
 	var winner *bestServerQualityCandidate
 	for i := range out.Candidates {
 		candidate := out.Candidates[i]
