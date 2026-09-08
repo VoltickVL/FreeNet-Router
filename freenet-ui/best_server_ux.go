@@ -43,6 +43,16 @@ func currentBestServerCandidate(candidates []bestServerInternalCandidate, curren
 	return []bestServerInternalCandidate{candidates[index]}, true
 }
 
+func withoutBestServerCandidate(candidates []bestServerInternalCandidate, index int) []bestServerInternalCandidate {
+	if index < 0 || index >= len(candidates) {
+		return candidates
+	}
+	out := make([]bestServerInternalCandidate, 0, len(candidates)-1)
+	out = append(out, candidates[:index]...)
+	out = append(out, candidates[index+1:]...)
+	return out
+}
+
 func (a *app) handleCurrentVPNQuality(w http.ResponseWriter, r *http.Request) {
 	if len(a.sem) > 0 {
 		writeJSON(w, http.StatusConflict, bestServerQualityResponse{
@@ -97,6 +107,9 @@ func (a *app) scanCurrentVPNQuality(ctx context.Context) (bestServerQualityRespo
 	response.ScannedAt = time.Now().UTC().Format(time.RFC3339)
 	response.CurrentEndpoint = currentEndpoint
 	response.Message = "Проверен только текущий VPN; поиск лучшего VPN не запускался."
+	if candidate, ok := currentBestServerQualityCandidate(response); ok {
+		storeBestServerCurrentQuality(currentEndpoint, currentFilter, candidate)
+	}
 	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
 		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during current VPN check")
 	}
@@ -151,12 +164,26 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		}, nil
 	}
 
+	profilesScanned := len(candidates)
+	cachedCurrent, cachedOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
+	if cachedOK {
+		if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
+			candidates = withoutBestServerCandidate(candidates, currentIndex)
+		}
+	}
+
 	response := rankBestServerQualityCandidates(
-		ctx, candidates, len(candidates), truncated, currentEndpoint, currentFilter,
+		ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter,
 		defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
 	)
 	if ctx.Err() != nil {
 		return bestServerQualityResponse{}, ctx.Err()
+	}
+	if cachedOK {
+		response.Candidates = append(response.Candidates, cachedCurrent)
+		response.ProfilesScanned = profilesScanned
+	} else if candidate, ok := currentBestServerQualityCandidate(response); ok {
+		storeBestServerCurrentQuality(currentEndpoint, currentFilter, candidate)
 	}
 	response.Success = true
 	response.Mutation = "NONE"
@@ -170,6 +197,9 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		}
 	} else {
 		response.Message = "Достоверная рекомендация среди зарубежных профилей сейчас недоступна; текущий VPN не изменён."
+	}
+	if cachedOK {
+		response.Message += " Свежий замер текущего VPN переиспользован без повторной тяжёлой Speedtest-проверки."
 	}
 	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
 		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during Best Server scan")
