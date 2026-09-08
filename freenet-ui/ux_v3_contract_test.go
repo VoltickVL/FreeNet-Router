@@ -6,28 +6,29 @@ import (
 	"testing"
 )
 
-func TestOverviewV3ReadabilityContract(t *testing.T) {
+func TestOverviewV4ReadabilityContract(t *testing.T) {
 	b, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(b)
 	for _, needle := range []string{
-		"FreeNetOverviewV3",
+		"FreeNetOverviewV4",
 		"Текущий VPN",
 		"ISP",
 		"DNS",
 		"Проверить текущий VPN",
+		"Найти лучший VPN",
 		"Почему рекомендуем",
-		"best-v3-metrics",
+		"best-v4-metrics",
 	} {
 		if !strings.Contains(s, needle) {
-			t.Fatalf("Overview v3 contract missing %q", needle)
+			t.Fatalf("Overview v4 contract missing %q", needle)
 		}
 	}
 }
 
-func TestOverviewV3DoesNotShowTautologicalAvailability(t *testing.T) {
+func TestOverviewV4DoesNotShowTautologicalAvailability(t *testing.T) {
 	b, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
