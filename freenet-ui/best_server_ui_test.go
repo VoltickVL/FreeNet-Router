@@ -6,39 +6,63 @@ import (
 	"testing"
 )
 
-func TestBestServerUIReplacesManualQuickCountries(t *testing.T) {
+func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 	data, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(data)
 	for _, want := range []string{
-		"Лучший VPN",
-		"/api/vpn/best",
-		"Переключиться на лучший",
-		"Проверить всё заново",
+		"Ничего не проверяется автоматически",
+		"/api/vpn/current-quality",
+		"/api/vpn/best-foreign",
 		"Проверить текущий VPN",
+		"Найти лучший VPN",
+		"Переключиться на лучший",
 		"Почему рекомендуем",
 		"countries.remove()",
 		"operation: 'provider'",
 		"profile_id: recommendation.id",
 		"MUTATION NONE",
-		"HTTP-отклик",
 		"Мбит/с",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("Best Server UI contract missing %q", want)
 		}
 	}
+	if strings.Contains(js, "setTimeout(() => scanBestServer") {
+		t.Fatal("Overview must not auto-start Best Server scan")
+	}
+	if strings.Contains(js, "current.addEventListener('click', () => scanBestServer") {
+		t.Fatal("current VPN button must not trigger full Best Server scan")
+	}
 }
 
-func TestBestServerRouteIsRegistered(t *testing.T) {
+func TestBestServerUIExcludesRussiaFromSuggestions(t *testing.T) {
+	data, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"isRussianProfile",
+		"profile.country_code",
+		"extra_profiles.filter(profile => !isRussianProfile(profile))",
+		"Российские серверы исключены",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("foreign-only UI contract missing %q", want)
+		}
+	}
+}
+
+func TestBestServerUXRoutesAreRegistered(t *testing.T) {
 	data, err := os.ReadFile("geodata_api.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "registerBestServerQualityAPI(mux, a)") {
-		t.Fatal("Best Server quality API must be registered at startup")
+	if !strings.Contains(string(data), "registerBestServerUXAPI(mux, a)") {
+		t.Fatal("explicit current/best VPN quality API must be registered at startup")
 	}
 }
 
@@ -55,7 +79,7 @@ func TestBestServerUIKeepsExactProfileFallback(t *testing.T) {
 		t.Fatal("manual exact profile selector disappeared")
 	}
 	if !strings.Contains(string(js), "Ручной выбор Extra-профиля") {
-		t.Fatal("manual exact selector must be clearly demoted to fallback")
+		t.Fatal("manual exact selector must remain as advanced fallback")
 	}
 }
 
@@ -66,9 +90,9 @@ func TestOverviewMovesCurrentVPNIntoProfessionalTopbar(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"FreeNetOverviewV3",
+		"FreeNetOverviewV4",
 		"topVpnSummary",
-		"overview-v3-chip-label",
+		"overview-v4-chip-label",
 		"Текущий VPN",
 		"ISP",
 		"DNS",
@@ -84,11 +108,8 @@ func TestOverviewMovesCurrentVPNIntoProfessionalTopbar(t *testing.T) {
 		"DNS требует внимания",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("Overview v3/topbar contract missing %q", want)
+			t.Fatalf("Overview v4/topbar contract missing %q", want)
 		}
-	}
-	if strings.Contains(js, "FreeNet доступен") {
-		t.Fatal("topbar must report actual VPN/DNS health, not tautological FreeNet availability")
 	}
 }
 
@@ -99,7 +120,7 @@ func TestOverviewTopbarWatcherDoesNotPassArrayIndexAsQueryRoot(t *testing.T) {
 	}
 	js := string(data)
 	if strings.Contains(js, ".map(qs)") {
-		t.Fatal("Array.map(qs) passes the numeric array index as qs root and breaks topbar synchronization at runtime")
+		t.Fatal("Array.map(qs) passes numeric array index as qs root and breaks topbar synchronization")
 	}
 	if !strings.Contains(js, ".map(selector => qs(selector))") {
 		t.Fatal("topbar watcher must resolve selectors explicitly")
