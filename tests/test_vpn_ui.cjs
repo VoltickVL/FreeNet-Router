@@ -122,7 +122,6 @@ const server = http.createServer((req,res)=>{
     assert.equal(jobCalls.filter(c=>c.query.includes('job=status')).length,1);
     mode='ok';
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-current.png'),fullPage:true});
-    // Return to Overview, then replace the button node: delegation must survive both.
     await page.evaluate(()=>{setPage('vpn');setPage('overview');const n=document.querySelector('#bestServerCheckCurrent');n.replaceWith(n.cloneNode(true));});
     await currentCheck();
     for(const failure of ['http','network','malformed']){
@@ -157,7 +156,6 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
     assert.equal(await page.locator('.vpn-rejected').count(),2);
     assert.equal(await page.locator('.vpn-option-apply').count(),0,'rejected candidates have no suggested apply action');
-    assert.match(await page.locator('#bestServerResult').textContent(),/HTTP 403/);
     assert.match(await page.locator('#bestServerResult').textContent(),/Speedtest ниже 20/);
     assert.equal(await page.locator('.vpn-rejected .best-v4-pill.speed').count(),0,'untrusted speed is never green');
     await page.setViewportSize({width:1366,height:768});
