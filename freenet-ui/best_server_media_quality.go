@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	bestServerMediaChunkRuns = 3
-	bestServerMediaTimeout   = 18 * time.Second
+	bestServerMediaChunkRuns = 6
+	bestServerMediaTimeout   = 20 * time.Second
 	bestServerServiceTimeout = 8 * time.Second
 )
 
