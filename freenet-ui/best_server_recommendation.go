@@ -35,17 +35,34 @@ func applyBestServerRecommendationDeadband(response bestServerQualityResponse) b
 	for i := range out.Candidates {
 		out.Candidates[i].Reason = strings.ReplaceAll(out.Candidates[i].Reason, "Speedtest single-stream median", "Speedtest aggregate capacity")
 	}
-	currentIndex := -1
+	currentAnyIndex := -1
+	currentEligibleIndex := -1
 	for i := range out.Candidates {
-		if out.Candidates[i].Current && out.Candidates[i].Eligible {
-			currentIndex = i
+		if !out.Candidates[i].Current {
+			continue
+		}
+		if currentAnyIndex < 0 {
+			currentAnyIndex = i
+		}
+		if out.Candidates[i].Eligible {
+			currentEligibleIndex = i
 			break
 		}
 	}
-	if currentIndex < 0 {
+
+	// If the current VPN was identified but its complete quality baseline could
+	// not be confirmed, fail closed. A fast-looking alternative is not enough to
+	// justify changing a working live VPN without an apples-to-apples baseline.
+	if currentAnyIndex >= 0 && currentEligibleIndex < 0 {
+		out.Recommendation = nil
+		out.Available = false
+		out.Message = "Текущий VPN не удалось полностью измерить. Переключение не предлагается, пока нет подтверждённого сравнения."
 		return out
 	}
-	current := out.Candidates[currentIndex]
+	if currentEligibleIndex < 0 {
+		return out
+	}
+	current := out.Candidates[currentEligibleIndex]
 
 	// Quality eligibility and recommendation significance are deliberately
 	// separate. A healthy alternative that is only marginally different from
