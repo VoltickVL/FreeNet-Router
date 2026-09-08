@@ -28,9 +28,9 @@
     return new Response(JSON.stringify(body), {status, headers: {'Content-Type': 'application/json; charset=utf-8'}});
   }
 
-  async function readOperationState() {
+  async function readOperationState(timeoutMS = 7000) {
     try {
-      const response = await previousFetch('/api/operation/state', {cache: 'no-store'});
+      const response = await previousFetch('/api/operation/state', {cache: 'no-store', signal: AbortSignal.timeout(timeoutMS)});
       if (!response.ok) return null;
       const body = await response.json();
       return body && body.success ? body : null;
@@ -64,8 +64,9 @@
   }
 
   async function reconcile(meta) {
-    for (let i = 0; i < 40; i++) {
-      const state = await readOperationState();
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+      const state = await readOperationState(Math.max(1, Math.min(7000, deadline - Date.now())));
       const op = state && state.operation;
       if (op) {
         const terminal = terminalResponse(op, meta);
@@ -82,13 +83,16 @@
     if (!meta) return previousFetch(input, init);
     try {
       const response = await previousFetch(input, init);
-      if (response.status !== 409 && response.status !== 423) return response;
-      let conflict = null;
-      try { conflict = await response.clone().json(); } catch (_) {}
-      const current = conflict && conflict.current_operation;
-      if (current && matchingFreshOperation(current, meta)) {
+      let body = null;
+      try { body = await response.clone().json(); } catch (_) {}
+      const conflict = response.status === 409 || response.status === 423;
+      const current = body && body.current_operation;
+      const ambiguous = !body || typeof body.success !== 'boolean';
+      if ((conflict && current && matchingFreshOperation(current, meta)) || ambiguous) {
         const reconciled = await reconcile(meta);
         if (reconciled) return reconciled;
+        return jsonResponse(202, {success: false, result_unknown: true,
+          error: 'Результат переключения пока не подтверждён. Не повторяйте операцию.'});
       }
       return response;
     } catch (error) {
@@ -309,11 +313,15 @@
     const name = qs('#bestCurrentName');
     const endpoint = qs('#bestCurrentEndpoint');
     if (!name || !s) return;
-    setText(name, s.country ? `${s.country}${s.city ? ' · ' + s.city : ''}` : 'VPN не определён');
+    const label = s.profile_label || (s.country ? `${s.country}${s.city ? ' · ' + s.city : ''}` : 'Профиль не определён');
+    setText(name, label);
     setText(endpoint, s.endpoint || '—');
     const flag = qs('#bestCurrentFlag');
-    if (flag) flag.className = `flag-icon ${flagClass(s.country_code)}`;
-    if (currentQuality && currentQuality.endpoint !== s.endpoint) {
+    if (flag) {
+      flag.className = `flag-icon ${flagClass(s.country_code)}`;
+      flag.hidden = !s.country_code;
+    }
+    if (!applyBusy && currentQuality && currentQuality.endpoint !== s.endpoint) {
       currentQuality = null;
       recommendation = null;
       renderMetrics(qs('#bestCurrentMetrics'), null);
@@ -474,7 +482,7 @@
         const response = await fetch('/api/status', {cache: 'no-store'});
         if (response.ok) {
           const status = await response.json();
-          if (status && status.xray_online && status.endpoint === expected) return status;
+          if (status && !status.busy && !status.updater_busy && status.xray_online && status.endpoint === expected) return status;
         }
       } catch (_) {}
       await wait(850);
@@ -497,7 +505,12 @@
       });
       const body = await response.json().catch(() => null);
       if (!response.ok || !body || !body.success) {
-        setText(qs('#bestServerStatus'), (body && (body.primary_error || body.error)) || 'VPN не переключён.');
+        const detail = body && (body.primary_error || body.error);
+        setText(qs('#bestServerStatus'), detail || 'Результат переключения не подтверждён. Не повторяйте операцию.');
+        if (!body || body.result_unknown) {
+          recommendation = null;
+          if (apply) apply.classList.remove('show');
+        }
         return;
       }
       const status = await waitForEndpoint(expectedEndpoint);
@@ -514,8 +527,12 @@
       setText(qs('#bestCurrentQuality'), 'Качество ещё не проверено');
       setText(qs('#bestServerStatus'), 'VPN переключён. Соединение проверено.');
     } catch (_) {
+      recommendation = null;
+      if (apply) apply.classList.remove('show');
       setText(qs('#bestServerStatus'), 'Связь прервалась во время переключения. Результат не подтверждён — проверьте состояние системы перед повторной попыткой.');
     } finally {
+      recommendation = null;
+      if (apply) apply.classList.remove('show');
       applyBusy = false;
       setBusy(false);
     }

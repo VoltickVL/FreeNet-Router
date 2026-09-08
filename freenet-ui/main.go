@@ -883,6 +883,9 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 func (a *app) status() statusResponse {
 	code := detectCountry(a.cfg.FilterPath)
 	p := profiles[code]
+	if label := currentExactProfileLabel(a.cfg.FilterPath); label != "" {
+		p.Label = label
+	}
 	endpoint, dnsOut := readOutbound(a.cfg.OutPath)
 	isp, dnsMode := readNetworkProfileConfig(a.cfg.ConfigPath)
 	installScenario, setupComplete := readSetupState(a.cfg.ConfigPath)
