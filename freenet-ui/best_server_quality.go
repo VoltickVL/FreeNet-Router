@@ -45,6 +45,7 @@ const (
 )
 
 type bestServerQualityCandidate struct {
+	Eligible     bool    `json:"eligible"`
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
 	CountryCode  string  `json:"country_code,omitempty"`
@@ -70,6 +71,7 @@ type bestServerQualityCandidate struct {
 }
 
 type bestServerQualityResponse struct {
+	Partial           bool                         `json:"partial,omitempty"`
 	Success           bool                         `json:"success"`
 	Available         bool                         `json:"available"`
 	ScannedAt         string                       `json:"scanned_at,omitempty"`
@@ -207,6 +209,7 @@ func rankBestServerQualityCandidates(
 	tcpProbe bestServerTCPProbe,
 	appProbe bestServerQualityApplicationProbe,
 ) bestServerQualityResponse {
+	reportBestServerProgress(ctx, "tcp", 0, len(internal))
 	currentIndex := bestServerCurrentCandidateIndex(internal, currentEndpoint, currentFilter)
 	results := make([]bestServerQualityCandidate, len(internal))
 	for i, candidate := range internal {
@@ -303,10 +306,18 @@ func rankBestServerQualityCandidates(
 		seenEndpoint[endpoint] = true
 	}
 
-	for _, index := range shortlist {
+	partial := false
+	for position, index := range shortlist {
 		if ctx.Err() != nil {
 			break
 		}
+		// Do not start a probe that cannot finish within its full budget.
+		// Preserve earlier completed measurements, explicitly marked partial.
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerQualityCandidateTimeout+time.Second {
+			partial = true
+			break
+		}
+		reportBestServerProgress(ctx, "quality", position, len(shortlist))
 		candidateCtx, cancel := context.WithTimeout(ctx, bestServerQualityCandidateTimeout)
 		probe := appProbe(candidateCtx, internal[index])
 		cancel()
@@ -336,6 +347,7 @@ func rankBestServerQualityCandidates(
 		if probe.DownloadOK {
 			results[index].DownloadMbps = roundBestServerMbps(probe.DownloadMbps)
 		}
+		results[index].Eligible = eligibleBestServerQuality(results[index])
 
 		baseScore := bestServerQualityScore(
 			probe.HTTP.Median,
@@ -392,6 +404,7 @@ func rankBestServerQualityCandidates(
 	})
 
 	response := bestServerQualityResponse{
+		Partial: partial,
 		Available: false, Candidates: results, ProfilesScanned: len(internal), ProfilesTotal: total,
 		ProfilesTruncated: truncated, Mutation: "NONE",
 	}
@@ -401,7 +414,7 @@ func rankBestServerQualityCandidates(
 		// three identical scans had no throughput for either profile yet still
 		// declared a winner. Recommendation is now fail-closed until speed and a
 		// minimum media sample set are both confirmed.
-		if candidate.Available && candidate.DownloadMbps > 0 && candidate.MediaSamples >= 4 {
+		if candidate.Eligible {
 			best := candidate
 			response.Recommendation = &best
 			response.Available = true
@@ -587,6 +600,9 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 	}
 
 	result := bestServerQualityApplicationResult{OK: true, HTTP: httpResult}
+	// Stability and service evidence must not inherit a budget exhausted by
+	// the optional large capacity transfer. Media also provides a speed fallback.
+	result.Media = probeBestServerMediaQuality(ctx, curlPath, socks)
 	downloadCtx, cancelDownload := context.WithTimeout(ctx, bestServerQualityDownloadTimeout)
 	output, _ := exec.CommandContext(downloadCtx, curlPath,
 		"--socks5-hostname", socks,
@@ -598,6 +614,12 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 		result.DownloadMbps = mbps
 		result.DownloadOK = true
 	}
-	result.Media = probeBestServerMediaQuality(ctx, curlPath, socks)
 	return result
+}
+
+func eligibleBestServerQuality(c bestServerQualityCandidate) bool {
+	return c.Available && c.DownloadMbps >= 20 && c.MediaSamples == bestServerMediaChunkRuns &&
+		c.MediaStalls == 0 && (c.MediaGrade == "good" || c.MediaGrade == "excellent") &&
+		c.ServiceTotal >= 3 && c.ServiceOK == c.ServiceTotal &&
+		c.JitterMS <= bestServerQualityHighJitterMS && c.TCPJitterMS <= bestServerQualityHighTCPJitterMS
 }

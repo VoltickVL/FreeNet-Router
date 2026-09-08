@@ -8,7 +8,7 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui/web');
 const artifacts = process.env.FREENET_UI_ARTIFACTS || path.join(root, 'test-artifacts');
-const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, available:true, reachable:true, download_mbps:42.5, application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:6};
+const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, eligible:true, available:true, reachable:true, download_mbps:42.5, application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:6,media_stalls:0,service_ok:4,service_total:4};
 const winner = {...current,id:'fixture-de',name:'Германия · Франкфурт',country_code:'de',endpoint:'192.0.2.20:443',current:false,download_mbps:68.2,application_rtt_ms:110};
 const second = {...winner,id:'fixture-lt',name:'Литва · Вильнюс',country_code:'lt',endpoint:'192.0.2.40:443',download_mbps:59.1};
 const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:31.4,application_rtt_ms:180};
@@ -34,7 +34,7 @@ const server = http.createServer((req,res)=>{
     const answer = (route,body,code=200)=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
     await page.route('**/api/**',async route=>{
       const req=route.request(),url=new URL(req.url());
-      calls.push({path:url.pathname,method:req.method(),body:req.postData()});
+      calls.push({path:url.pathname,query:url.search,method:req.method(),body:req.postData()});
       if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
       if(url.pathname==='/api/status')return answer(route,status);
       if(url.pathname==='/api/operation/state'){
@@ -44,6 +44,11 @@ const server = http.createServer((req,res)=>{
       }
       if(url.pathname==='/api/network-profile/plan')return answer(route,{success:true,supported:true,active:true,provider_plan:url.searchParams.has('provider_profile_id')?{success:true,candidate_xray_valid:true,mutation:'NONE',endpoint:expectedApply.endpoint}:undefined,extra_profiles:[{...current,address:'192.0.2.10',port:443},{...winner,address:'192.0.2.20',port:443},{...second,address:'192.0.2.40',port:443},{id:'fixture-ru',name:'Россия',country_code:'ru',address:'192.0.2.30',port:443}]});
       if(url.pathname==='/api/vpn/current-quality'||url.pathname==='/api/vpn/best-foreign'){
+        if(mode==='job') {
+          const job={id:url.searchParams.get('id'),mode:url.pathname.endsWith('best-foreign')?'best':'current'};
+          if(url.searchParams.get('job')==='start')return answer(route,{...job,state:'running',stage:'quality',completed:0,total:1},202);
+          return answer(route,{...job,state:'completed',result:{success:true,candidates:[current],scanned_at:'2026-09-08T03:00:00Z'}},202);
+        }
         pending.push(url.pathname);
         await new Promise(resolve=>setTimeout(resolve,350));
         pending.pop();
@@ -77,7 +82,7 @@ const server = http.createServer((req,res)=>{
     await page.goto(base);
     await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
     await page.waitForTimeout(150);
-    const scans=()=>calls.filter(c=>c.path.startsWith('/api/vpn/'));
+    const scans=()=>calls.filter(c=>c.path.startsWith('/api/vpn/')&&!c.query.includes('job=status'));
     assert.equal(scans().length,0,'opening Overview must not scan');
     assert.equal(errors.length,0,errors.join('\n'));
     assert.equal(await page.locator('#bestServerShell').count(),1);
@@ -99,6 +104,19 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('#bestCurrentQuality').textContent(),/42.5/);
     assert.match(await page.locator('#bestServerStatus').textContent(),/завершена/);
     assert.equal(await page.locator('#bestServerResult').isVisible(),false);
+    mode='job';
+    const jobsBefore=calls.length;
+    await page.locator('#bestServerCheckCurrent').click();
+    await page.locator('#fnQualityProgress').waitFor({state:'visible'});
+    assert.match(await page.locator('#fnQualityProgress').textContent(),/Прошло.*с/);
+    assert.equal(await page.locator('#controlCenter').evaluate(n=>n.inert),true);
+    await page.waitForFunction(()=>!document.querySelector('#bestServerCheckCurrent').disabled);
+    assert.equal(await page.locator('#fnQualityProgress').count(),0);
+    assert.equal(await page.locator('#controlCenter').evaluate(n=>n.inert),false);
+    const jobCalls=calls.slice(jobsBefore).filter(c=>c.path.startsWith('/api/vpn/'));
+    assert.equal(jobCalls.filter(c=>c.query.includes('job=start')).length,1);
+    assert.equal(jobCalls.filter(c=>c.query.includes('job=status')).length,1);
+    mode='ok';
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-current.png'),fullPage:true});
     // Return to Overview, then replace the button node: delegation must survive both.
     await page.evaluate(()=>{setPage('vpn');setPage('overview');const n=document.querySelector('#bestServerCheckCurrent');n.replaceWith(n.cloneNode(true));});

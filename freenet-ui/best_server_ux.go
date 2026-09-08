@@ -11,8 +11,9 @@ import (
 const bestServerCurrentScanTimeout = 45 * time.Second
 
 func registerBestServerUXAPI(mux *http.ServeMux, a *app) {
-	mux.HandleFunc("GET /api/vpn/current-quality", a.requireAuth(a.handleCurrentVPNQuality))
-	mux.HandleFunc("GET /api/vpn/best-foreign", a.requireAuth(a.handleBestServerForeign))
+	jobs := &bestServerJobs{}
+	mux.HandleFunc("GET /api/vpn/current-quality", a.requireAuth(jobs.wrap(a, "current", a.handleCurrentVPNQuality, a.scanCurrentVPNQuality)))
+	mux.HandleFunc("GET /api/vpn/best-foreign", a.requireAuth(jobs.wrap(a, "best", a.handleBestServerForeign, a.scanBestServerForeign)))
 }
 
 func isRussianBestServerCandidate(candidate bestServerInternalCandidate) bool {
