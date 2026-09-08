@@ -106,6 +106,8 @@
   let currentQuality = null;
   let scanBusy = false;
   let applyBusy = false;
+  let externalBusy = false;
+  let scanMode = false;
   let topbarSyncTimer = null;
 
   function setText(node, value) { if (node) node.textContent = value || ''; }
@@ -407,20 +409,21 @@
   }
 
   function setBusy(mode) {
+    scanMode = mode;
     scanBusy = !!mode;
     const current = qs('#bestServerCheckCurrent');
     const best = qs('#bestServerRefresh');
     const apply = qs('#bestServerApply');
-    if (current) { current.disabled = scanBusy || applyBusy; current.textContent = mode === 'current' ? 'Проверяем текущий…' : 'Проверить текущий VPN'; }
-    if (best) { best.disabled = scanBusy || applyBusy; best.textContent = mode === 'best' ? 'Ищем лучший…' : 'Найти лучший VPN'; }
-    if (apply) apply.disabled = scanBusy || applyBusy || !recommendation || recommendation.current;
+    if (current) { current.disabled = scanBusy || applyBusy || externalBusy; current.textContent = mode === 'current' ? 'Проверяем текущий…' : 'Проверить текущий VPN'; }
+    if (best) { best.disabled = scanBusy || applyBusy || externalBusy; best.textContent = mode === 'best' ? 'Ищем лучший…' : 'Найти лучший VPN'; }
+    if (apply) apply.disabled = scanBusy || applyBusy || externalBusy || !recommendation || recommendation.current;
     const status = qs('#bestServerStatus');
     if (status) status.classList.toggle('busy', !!mode || applyBusy);
     qs('#bestServerShell')?.setAttribute('aria-busy', String(scanBusy || applyBusy));
   }
 
   async function scanCurrentVPN() {
-    if (scanBusy || applyBusy) return;
+    if (scanBusy || applyBusy || externalBusy) return;
     try {
       mountBestServerUI();
       setBusy('current');
@@ -440,7 +443,7 @@
   }
 
   async function scanBestServer() {
-    if (scanBusy || applyBusy) return;
+    if (scanBusy || applyBusy || externalBusy) return;
     try {
       mountBestServerUI();
       setBusy('best');
@@ -480,7 +483,7 @@
   }
 
   async function applyBestServer() {
-    if (applyBusy || scanBusy || !recommendation || recommendation.current || !recommendation.id || isRussianProfile(recommendation)) return;
+    if (applyBusy || scanBusy || externalBusy || !recommendation || recommendation.current || !recommendation.id || isRussianProfile(recommendation)) return;
     applyBusy = true;
     setBusy(false);
     const apply = qs('#bestServerApply');
@@ -522,6 +525,10 @@
     const root = document.documentElement;
     if (!root || root.dataset.freenetBestServerActions === '1') return;
     root.dataset.freenetBestServerActions = '1';
+    document.addEventListener('freenet:controls-busy', event => {
+      externalBusy = !!event.detail;
+      setBusy(scanMode);
+    });
     document.addEventListener('click', event => {
       const origin = event.target;
       if (!origin || typeof origin.closest !== 'function') return;

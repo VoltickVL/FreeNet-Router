@@ -68,7 +68,8 @@ const server = http.createServer((req,res)=>{
       await page.locator('#bestServerCheckCurrent').click();
       assert.equal(await page.locator('#bestServerCheckCurrent').textContent(),'Проверяем текущий…');
       assert.equal(await page.locator('#bestServerRefresh').isDisabled(),true);
-      await page.evaluate(()=>document.querySelector('#bestServerCheckCurrent').click());
+      await page.evaluate(()=>{buttonsBusy(false);document.querySelector('#bestServerCheckCurrent').click();});
+      assert.equal(await page.locator('#bestServerCheckCurrent').isDisabled(),true,'status polling must not enable a running scan');
       await page.waitForFunction(()=>!document.querySelector('#bestServerCheckCurrent').disabled);
       assert.equal(scans().length,before+1,'one click produces exactly one current-only request');
       assert.equal(scans().at(-1).path,'/api/vpn/current-quality');
