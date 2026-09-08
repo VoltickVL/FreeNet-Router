@@ -11,7 +11,7 @@ const artifacts = process.env.FREENET_UI_ARTIFACTS || path.join(root, 'test-arti
 const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, available:true, reachable:true, download_mbps:42.5, application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:6};
 const winner = {...current,id:'fixture-de',name:'Германия · Франкфурт',country_code:'de',endpoint:'192.0.2.20:443',current:false,download_mbps:68.2,application_rtt_ms:110};
 const second = {...winner,id:'fixture-lt',name:'Литва · Вильнюс',country_code:'lt',endpoint:'192.0.2.40:443',download_mbps:59.1};
-const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:51.4};
+const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:31.4,application_rtt_ms:180};
 let expectedApply = winner;
 let status = {version:'0.2.88',country:'Польша',city:'Варшава',country_code:'pl',endpoint:current.endpoint,xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true};
 const server = http.createServer((req,res)=>{
@@ -42,7 +42,7 @@ const server = http.createServer((req,res)=>{
         if(operationReads===1)return answer(route,{success:true,active:true,operation:{...operation,state:'running',result:''}});
         return answer(route,{success:true,active:false,operation});
       }
-      if(url.pathname==='/api/network-profile/plan')return answer(route,{success:true,supported:true,active:true,extra_profiles:[{...current,address:'192.0.2.10',port:443},{...winner,address:'192.0.2.20',port:443},{id:'fixture-ru',name:'Россия',country_code:'ru',address:'192.0.2.30',port:443}]});
+      if(url.pathname==='/api/network-profile/plan')return answer(route,{success:true,supported:true,active:true,provider_plan:url.searchParams.has('provider_profile_id')?{success:true,candidate_xray_valid:true,mutation:'NONE',endpoint:expectedApply.endpoint}:undefined,extra_profiles:[{...current,address:'192.0.2.10',port:443},{...winner,address:'192.0.2.20',port:443},{...second,address:'192.0.2.40',port:443},{id:'fixture-ru',name:'Россия',country_code:'ru',address:'192.0.2.30',port:443}]});
       if(url.pathname==='/api/vpn/current-quality'||url.pathname==='/api/vpn/best-foreign'){
         pending.push(url.pathname);
         await new Promise(resolve=>setTimeout(resolve,350));
@@ -60,9 +60,10 @@ const server = http.createServer((req,res)=>{
         status={...status,country:'Германия',city:'Франкфурт',country_code:'de',endpoint:expectedApply.endpoint};
         if(applyMode!=='ok'){
           status={...status,country:'',country_code:'',city:'',profile_label:'🇱🇹 Lithuania, Extra Whitelist'};
-          operation={id:'fixture-op',kind:'provider',target:winner.id,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
+          operation={id:'fixture-op',kind:'provider',target:expectedApply.id,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
           if(applyMode==='failed')operation={...operation,state:'failed',result:'FAIL',error:'Проверка соединения не пройдена'};
           if(applyMode==='other')operation={...operation,target:'another-profile'};
+          if(applyMode==='manual-ok')return answer(route,{success:true,applied:true});
           if(applyMode==='aborted')return route.abort();
           return route.fulfill({status:applyMode==='empty'?200:504,contentType:'text/html',body:applyMode==='empty'?'':'<h1>Gateway Timeout</h1>'});
         }
@@ -112,7 +113,8 @@ const server = http.createServer((req,res)=>{
     assert.equal(scans().length,beforeBest+1);
     assert.equal(scans().at(-1).path,'/api/vpn/best-foreign');
     assert.equal(await page.locator('#bestServerApply').isVisible(),true);
-    assert.match(await page.locator('#bestServerReason').textContent(),/скорость выше/);
+    assert.match(await page.locator('#bestServerReason').textContent(),/Скорость \+25.7/);
+    assert.match(await page.locator('.vpn-option').nth(2).textContent(),/Скорость −11.1.*HTTP медленнее на 40 мс/,'slower alternatives must disclose both drawbacks');
     assert.equal(calls.filter(c=>c.method==='POST').length,0,'checks never mutate VPN');
     assert.equal(await page.locator('.vpn-option').count(),3,'show up to three distinct measured foreign replacements');
     assert.equal(await page.locator('#profilesTrigger').isVisible(),true,'manual choice is always open');
@@ -176,6 +178,25 @@ const server = http.createServer((req,res)=>{
       assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1,scenario+': no second POST');
       assert.ok(operationReads>=1,scenario+': operation state was read');
       assert.equal(await page.locator('#bestServerApply').isVisible(),false,scenario+': stale apply cannot be repeated');
+    }
+    for(const scenario of ['manual-ok','gateway','other']) {
+      expectedApply=second;applyMode=scenario;operationReads=0;
+      status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};
+      await page.goto(base);
+      await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
+      const postsBefore=calls.filter(c=>c.method==='POST').length;
+      await page.locator('#profilesTrigger').click();
+      await page.locator('[data-profile-id="fixture-lt"]').click();
+      await page.waitForFunction(()=>!document.querySelector('#exactConnectBtn').disabled);
+      assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore,'manual selection only validates');
+      await page.locator('#exactConnectBtn').click();
+      if(scenario==='other')await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('пока не подтверждён'));
+      else await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Подключено:'));
+      assert.equal(status.country_code,'','exact Extra acceptance must not depend on legacy country mapping');
+      assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1);
+      await page.evaluate(()=>{buttonsBusy(false);document.querySelector('#exactConnectBtn').click();});
+      assert.equal(await page.locator('#exactConnectBtn').isDisabled(),true,'used manual plan cannot be re-enabled by polling');
+      assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1,'no blind manual repeat');
     }
     assert.equal(errors.length,0,errors.join('\n'));
     console.log('PASS: gateway/empty/aborted response reconciliation, terminal failure, unrelated operation rejection, exact Lithuania identity;  shipped-page startup, no auto scan, current-only click/re-entry/remount/single-flight, HTTP/network/JSON/empty results, foreign scan, RU/manual exclusion, current-winner guard, exact apply, mobile overflow.');

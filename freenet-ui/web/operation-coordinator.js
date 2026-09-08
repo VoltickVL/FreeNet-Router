@@ -218,6 +218,9 @@
       @media(max-width:1150px){.best-v4-shell{grid-template-columns:minmax(210px,.8fr) minmax(0,1.5fr);gap:14px}.vpn-current-panel{padding-right:14px}#bestServerAdvanced{grid-template-columns:1fr}#bestServerAdvanced .action-row{justify-content:flex-end}}
       @media(max-width:760px){.best-v4-shell{grid-template-columns:1fr}.vpn-current-panel{border-right:0;border-bottom:1px solid #29384d;padding:0 0 16px}.vpn-current-panel .best-v4-metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.vpn-current-panel .best-v4-pill b{font-size:14px}.vpn-current-panel>.best-v4-endpoint{margin-bottom:12px}.vpn-section-head{align-items:flex-start}.vpn-section-head .btn{padding:9px;font-size:12px;min-height:40px}.best-v4-pill b{font-size:13px}.best-v4-pill span{font-size:10px}.vpn-option{padding:12px}.vpn-option-head{gap:8px}.vpn-option-head h4{font-size:13px}#bestServerAdvanced #profilesList.profiles{grid-template-columns:1fr}.best-v4-name{font-size:20px}#bestServerAdvanced .action-row{flex-wrap:wrap}.vpn-empty{padding:24px 16px}}
       @media(max-width:760px){.vpn-current-panel .best-v4-metrics,.vpn-option .best-v4-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.vpn-current-panel .best-v4-pill b,.vpn-option .best-v4-pill b{font-size:15px}}
+      .vpn-current-panel>.action-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+      .vpn-current-panel>.action-row[hidden]{display:none}
+      .vpn-current-panel>.action-row .btn{font-size:12px;min-height:38px;padding:7px;justify-content:center;text-align:center}
     `;
     document.head.appendChild(style);
   }
@@ -397,9 +400,12 @@
     const parts = [];
     const bs = Number(best.download_mbps || 0), cs = Number(current && current.download_mbps || 0);
     const bh = Number(best.application_rtt_ms || 0), ch = Number(current && current.application_rtt_ms || 0);
-    if (bs > 0 && cs > 0 && bs > cs) parts.push(`скорость выше примерно на ${(bs - cs).toFixed(1)} Мбит/с`);
-    if (bh > 0 && ch > 0 && bh < ch) parts.push(`HTTP-отклик быстрее на ${ch - bh} мс`);
-    return parts.length ? `Почему рекомендуем: ${parts.join(', ')}.` : 'Скорость и работа VPN подтверждены проверкой.';
+    if (bs > 0 && cs > 0) {
+      const delta = Math.round((bs - cs) * 10) / 10;
+      parts.push(delta === 0 ? 'Скорость такая же' : `Скорость ${delta > 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)} Мбит/с`);
+    }
+    if (bh > 0 && ch > 0) parts.push(bh === ch ? 'HTTP такой же' : `HTTP ${bh < ch ? 'быстрее' : 'медленнее'} на ${Math.abs(ch - bh)} мс`);
+    return parts.length ? parts.join(' · ') + '.' : 'Скорость и работа VPN подтверждены; данных для сравнения с текущим недостаточно.';
   }
 
   function clearAlternatives(message) {
@@ -479,6 +485,8 @@
       if (routine) details.appendChild(routine);
       if (guard) details.appendChild(guard);
     }
+    const currentPanel = qs('.vpn-current-panel');
+    if (routine && currentPanel && routine.parentNode !== currentPanel) currentPanel.appendChild(routine);
     try { if (typeof lastStatus !== 'undefined' && lastStatus) renderCurrentIdentity(lastStatus); } catch (_) {}
     renderMetrics(qs('#bestCurrentMetrics'), currentQuality);
     return qs('#bestServerShell');
@@ -495,6 +503,8 @@
     document.querySelectorAll('.vpn-option-apply').forEach(button => { button.disabled = scanBusy || applyBusy || externalBusy || !alternatives.some(candidate => candidate.id === button.dataset.candidateId); });
     const manual = qs('#bestServerAdvanced');
     if (manual) manual.inert = scanBusy || applyBusy || externalBusy;
+    const maintenance = qs('.vpn-current-panel>.action-row');
+    if (maintenance) maintenance.inert = scanBusy || applyBusy || externalBusy;
     const status = qs('#bestServerStatus');
     if (status) status.classList.toggle('busy', !!mode || applyBusy);
     qs('#bestServerShell')?.setAttribute('aria-busy', String(scanBusy || applyBusy));

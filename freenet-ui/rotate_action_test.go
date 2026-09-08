@@ -102,7 +102,7 @@ func TestRotateUIContract(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		"Обновить текущий VPN-профиль",
+		"Обновить профиль",
 		"Сменить сервер",
 		"VPN-действия не меняют ISP и DNS",
 		"Текущий DNS-режим:",

@@ -23,7 +23,7 @@ func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 		"Проверить текущий VPN",
 		"Подобрать серверы",
 		"Переключиться",
-		"Почему рекомендуем",
+		"данных для сравнения с текущим недостаточно",
 		"countries.remove()",
 		"operation: 'provider'",
 		"profile_id: recommendation.id",
