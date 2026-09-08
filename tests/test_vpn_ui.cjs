@@ -8,7 +8,7 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui/web');
 const artifacts = process.env.FREENET_UI_ARTIFACTS || path.join(root, 'test-artifacts');
-const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, eligible:true, available:true, reachable:true, download_mbps:42.5, application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:6,media_stalls:0,service_ok:4,service_total:4};
+const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, eligible:true, available:true, reachable:true, download_mbps:42.5, application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:4,media_stalls:0,service_ok:4,service_total:4};
 const winner = {...current,id:'fixture-de',name:'Германия · Франкфурт',country_code:'de',endpoint:'192.0.2.20:443',current:false,download_mbps:68.2,application_rtt_ms:110};
 const second = {...winner,id:'fixture-lt',name:'Литва · Вильнюс',country_code:'lt',endpoint:'192.0.2.40:443',download_mbps:59.1};
 const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:31.4,application_rtt_ms:180};
@@ -59,8 +59,8 @@ const server = http.createServer((req,res)=>{
         if(mode==='incomplete')return answer(route,{success:true});
         if(mode==='empty')return answer(route,{success:true,available:false,candidates:[],profiles_scanned:0});
         if(mode==='rejected')return answer(route,{success:true,available:false,candidates:[current,
-          {...winner,tested:true,eligible:false,download_mbps:0,media_samples:0,rejections:['Скорость не измерена','Загрузок завершено 0/6'],media_issue:'6× HTTP 403; curl 0; получено 123 байт'},
-          {...second,tested:true,eligible:false,download_mbps:4.2,rejections:['Загрузка ниже 20 Мбит/с']},
+          {...winner,tested:true,eligible:false,download_mbps:0,media_samples:0,rejections:['Скорость не измерена','Speedtest завершено 0/4'],media_issue:'4× HTTP 403; curl 0; получено 123 байт'},
+          {...second,tested:true,eligible:false,download_mbps:4.2,rejections:['Speedtest ниже 20 Мбит/с']},
           {...third,tested:false,eligible:false}],profiles_scanned:4});
         const best=url.pathname.endsWith('best-foreign');
         const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
@@ -70,7 +70,7 @@ const server = http.createServer((req,res)=>{
         assert.deepEqual(JSON.parse(req.postData()),{operation:'provider',profile_id:expectedApply.id,confirm:true});
         status={...status,country:'Германия',city:'Франкфурт',country_code:'de',endpoint:expectedApply.endpoint};
         if(applyMode!=='ok'){
-          status={...status,country:'',country_code:'',city:'',profile_label:'🇱🇹 Lithuania, Extra Whitelist'};
+          status={...status,country:'',country_code:'',city:'',profile_label:'LT Lithuania, Extra Whitelist'};
           operation={id:'fixture-op',kind:'provider',target:expectedApply.id,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
           if(applyMode==='failed')operation={...operation,state:'failed',result:'FAIL',error:'Проверка соединения не пройдена'};
           if(applyMode==='other')operation={...operation,target:'another-profile'};
@@ -125,10 +125,14 @@ const server = http.createServer((req,res)=>{
     // Return to Overview, then replace the button node: delegation must survive both.
     await page.evaluate(()=>{setPage('vpn');setPage('overview');const n=document.querySelector('#bestServerCheckCurrent');n.replaceWith(n.cloneNode(true));});
     await currentCheck();
-    for(const failure of ['http','network','malformed','empty']){
+    for(const failure of ['http','network','malformed']){
       mode=failure;await currentCheck();
       assert.match(await page.locator('#bestServerStatus').textContent(),/недоступна|Не удалось|не удалось/);
     }
+    mode='empty';
+    await currentCheck();
+    assert.match(await page.locator('#bestServerStatus').textContent(),/завершена/,'a completed empty current scan may retain the last confirmed current-quality display');
+    assert.match(await page.locator('#bestCurrentQuality').textContent(),/42.5/,'last confirmed current-quality is not erased by an empty identity response');
     mode='ok';
     for(const failure of ['http','network','malformed','gateway','incomplete']) {
       mode=failure;
@@ -137,7 +141,7 @@ const server = http.createServer((req,res)=>{
       await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
       assert.equal(scans().length,before+1,'failed scan must not retry automatically');
       assert.match(await page.locator('#bestServerEmpty').textContent(),/пока неизвестно/);
-      assert.doesNotMatch(await page.locator('#bestServerEmpty').textContent(),/замен.*не найдено/);
+      assert.doesNotMatch(await page.locator('#bestServerEmpty').textContent(),/вариантов.*нет/);
       const message=await page.locator('#bestServerStatus').textContent();
       assert.match(message,/Подбор не завершён/);
       if(failure==='gateway')assert.match(message,/HTTP 504/);
@@ -148,13 +152,13 @@ const server = http.createServer((req,res)=>{
     }
     mode='empty';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
-    assert.match(await page.locator('#bestServerEmpty').textContent(),/замен.*не найдено/,'only a completed empty scan may report no replacements');
+    assert.match(await page.locator('#bestServerEmpty').textContent(),/вариантов для сравнения.*нет/,'only a completed empty scan may report no comparison candidates');
     mode='rejected';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
     assert.equal(await page.locator('.vpn-rejected').count(),2);
     assert.equal(await page.locator('.vpn-option-apply').count(),0,'rejected candidates have no suggested apply action');
     assert.match(await page.locator('#bestServerResult').textContent(),/HTTP 403/);
-    assert.match(await page.locator('#bestServerResult').textContent(),/Загрузка ниже 20/);
+    assert.match(await page.locator('#bestServerResult').textContent(),/Speedtest ниже 20/);
     assert.equal(await page.locator('.vpn-rejected .best-v4-pill.speed').count(),0,'untrusted speed is never green');
     await page.setViewportSize({width:1366,height:768});
     await page.screenshot({path:path.join(artifacts,'vpn-rejected-desktop.png'),fullPage:true});
@@ -174,7 +178,7 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('#bestServerReason').textContent(),/Скорость \+25.7/);
     assert.match(await page.locator('.vpn-option').nth(2).textContent(),/Скорость −11.1.*HTTP медленнее на 40 мс/,'slower alternatives must disclose both drawbacks');
     assert.equal(calls.filter(c=>c.method==='POST').length,0,'checks never mutate VPN');
-    assert.equal(await page.locator('.vpn-option').count(),3,'show up to three distinct measured foreign replacements');
+    assert.equal(await page.locator('.vpn-option').count(),3,'show up to three distinct measured foreign comparisons');
     assert.equal(await page.locator('#profilesTrigger').isVisible(),true,'manual choice is always open');
     assert.equal(await page.locator('#bestCurrentMetrics').isVisible(),true);
     for(const row of await page.locator('.vpn-option').all()) {
@@ -195,12 +199,12 @@ const server = http.createServer((req,res)=>{
     for(const kind of ['ru']){
       bestMode=kind;await page.locator('#bestServerRefresh').click();
       await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
-      assert.equal(await page.locator('#bestServerApply').isVisible(),false,'current/RU recommendation cannot be applied');
+      assert.equal(await page.locator('#bestServerApply').isVisible(),false,'RU recommendation cannot be applied');
     }
     bestMode='current';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
     assert.equal(await page.locator('.vpn-option').count(),3,'current winner still permits measured alternatives');
-    assert.match(await page.locator('#bestServerStatus').textContent(),/Текущий VPN имеет лучший/);
+    assert.match(await page.locator('#bestServerStatus').textContent(),/Текущий VPN остаётся предпочтительным/);
     bestMode='winner';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
     await page.locator('#bestServerApply').click();
@@ -257,6 +261,6 @@ const server = http.createServer((req,res)=>{
       assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1,'no blind manual repeat');
     }
     assert.equal(errors.length,0,errors.join('\n'));
-    console.log('PASS: gateway/empty/aborted response reconciliation, terminal failure, unrelated operation rejection, exact Lithuania identity;  shipped-page startup, no auto scan, current-only click/re-entry/remount/single-flight, HTTP/network/JSON/empty results, foreign scan, RU/manual exclusion, current-winner guard, exact apply, mobile overflow.');
+    console.log('PASS: shipped-page startup, explicit current/full scans, fresh-current retention, 3 comparison rows, CSS flags, RU exclusion, transactional apply reconciliation, exact-profile fallback and responsive layout.');
   } finally {await browser.close();server.close();}
 })().catch(e=>{console.error(e);server.close();process.exitCode=1;});
