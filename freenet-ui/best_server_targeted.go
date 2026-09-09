@@ -307,7 +307,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 		}
 	}
 
-	applyCtx, cancel := context.WithTimeout(ctx, a.cfg.Timeout)
+	applyCtx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	output, cmdErr := runCommand(applyCtx, providerHelperPath(), "apply", target.Profile.ID)
 	cancel()
 	safeOutput := sanitizeOutput(string(output))
