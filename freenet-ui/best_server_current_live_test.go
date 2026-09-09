@@ -34,6 +34,16 @@ func TestBestServerCountryCodeFromLabel(t *testing.T) {
 	}
 }
 
+func TestBestServerProfileFromEndpoint(t *testing.T) {
+	profile, ok := bestServerProfileFromEndpoint("143.20.254.191:443")
+	if !ok || profile.Address != "143.20.254.191" || profile.Port != 443 {
+		t.Fatalf("unexpected profile: %#v ok=%v", profile, ok)
+	}
+	if _, ok := bestServerProfileFromEndpoint("broken"); ok {
+		t.Fatal("invalid endpoint must fail closed")
+	}
+}
+
 func TestFilterForeignBestServerCandidatesExcludesRussianAndWhitelist(t *testing.T) {
 	in := []bestServerInternalCandidate{
 		{Profile: subscriptionProfile{ID: "1", Name: "SK Bratislava, Slovakia, Extra", CountryCode: "sk"}},
