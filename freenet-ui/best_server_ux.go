@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
 
-const bestServerCurrentScanTimeout = 45 * time.Second
+const (
+	bestServerCurrentScanTimeout     = 45 * time.Second
+	bestServerComparisonTarget       = 3
+)
 
 func registerBestServerUXAPI(mux *http.ServeMux, a *app) {
 	jobs := &bestServerJobs{}
@@ -48,6 +52,44 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 		}
 	}
 	return filtered
+}
+
+func appendUniqueMeasuredBestServerResults(dst []bestServerQualityCandidate, candidates []bestServerQualityCandidate) []bestServerQualityCandidate {
+	seen := make(map[string]bool, len(dst)+len(candidates))
+	for _, candidate := range dst {
+		seen[candidate.ID+"|"+candidate.Endpoint] = true
+	}
+	for _, candidate := range candidates {
+		if candidate.Current || !candidate.Tested || candidate.DownloadMbps <= 0 || candidate.MediaSamples < bestServerMediaRequiredRuns {
+			continue
+		}
+		key := candidate.ID + "|" + candidate.Endpoint
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		dst = append(dst, candidate)
+	}
+	return dst
+}
+
+func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		a, b := candidates[i], candidates[j]
+		if a.Eligible != b.Eligible {
+			return a.Eligible
+		}
+		if a.Score != b.Score {
+			return a.Score > b.Score
+		}
+		if a.ApplicationMS != b.ApplicationMS {
+			return a.ApplicationMS < b.ApplicationMS
+		}
+		if a.DownloadMbps != b.DownloadMbps {
+			return a.DownloadMbps > b.DownloadMbps
+		}
+		return a.ID < b.ID
+	})
 }
 
 func currentBestServerCandidate(candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) ([]bestServerInternalCandidate, bool) {
@@ -157,6 +199,13 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 
 	profilesScanned := len(candidates)
 	cachedCurrent, cachedOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
+	if !cachedOK {
+		currentResponse := a.scanActiveCurrentVPNQuality(ctx, currentEndpoint, currentFilter)
+		if current, ok := currentBestServerQualityCandidate(currentResponse); ok && completeBestServerCurrentBaseline(current) {
+			cachedCurrent = current
+			cachedOK = true
+		}
+	}
 	if cachedOK {
 		if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
 			candidates = withoutBestServerCandidate(candidates, currentIndex)
@@ -164,39 +213,74 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	}
 
 	// First compare the real application path through each candidate VPN with a
-	// cheap bounded probe. Only then spend the expensive Speedtest budget on the
-	// best measured paths. This prevents shared/provider endpoint TCP latency
-	// from making distant exits dominate the shortlist.
-	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
-	response := rankBestServerQualityCandidates(
-		ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter,
-		defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
-	)
-	if ctx.Err() != nil {
-		return bestServerQualityResponse{}, ctx.Err()
+	// cheap bounded probe. Keep a reserve beyond the first deep-test batch so a
+	// failed Speedtest sample does not leave the UI with only one or two rows.
+	shortlisted := a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
+	response := bestServerQualityResponse{
+		Partial: false, Success: true, Available: false, Candidates: []bestServerQualityCandidate{},
+		ProfilesScanned: profilesScanned, ProfilesTotal: profilesScanned, ProfilesTruncated: truncated,
+		Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
 	}
-	response.Candidates = filterMeasuredBestServerResults(response.Candidates)
+	measured := make([]bestServerQualityCandidate, 0, bestServerComparisonTarget)
+	for offset := 0; offset < len(shortlisted) && len(measured) < bestServerComparisonTarget; offset += bestServerQualityShortlist {
+		end := offset + bestServerQualityShortlist
+		if end > len(shortlisted) {
+			end = len(shortlisted)
+		}
+		batch := shortlisted[offset:end]
+		batchResponse := rankBestServerQualityCandidates(
+			ctx, batch, len(batch), false, currentEndpoint, currentFilter,
+			defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
+		)
+		if ctx.Err() != nil {
+			return bestServerQualityResponse{}, ctx.Err()
+		}
+		response.Partial = response.Partial || batchResponse.Partial
+		measured = appendUniqueMeasuredBestServerResults(measured, batchResponse.Candidates)
+	}
+	sortMeasuredBestServerResults(measured)
+	if len(measured) > bestServerComparisonTarget {
+		measured = measured[:bestServerComparisonTarget]
+	}
+	response.Candidates = append(response.Candidates, measured...)
 	if cachedOK {
 		response.Candidates = append(response.Candidates, cachedCurrent)
-	} else if candidate, ok := currentBestServerQualityCandidate(response); ok {
-		storeBestServerCurrentQuality(currentEndpoint, currentFilter, candidate)
 	}
-	response.ProfilesScanned = profilesScanned
-	response.Success = true
-	response.Mutation = "NONE"
-	response.ScannedAt = time.Now().UTC().Format(time.RFC3339)
-	response.CurrentEndpoint = currentEndpoint
-	if response.Available && response.Recommendation != nil {
-		if response.Recommendation.Current {
-			response.Message = "Текущий VPN уже лучший среди проверенных зарубежных профилей."
-		} else {
-			response.Message = "FreeNet нашёл лучший зарубежный VPN-профиль."
+
+	// Seed the response with the best measured foreign option; the conservative
+	// deadband below will keep current preferred unless the improvement is real.
+	for i := range measured {
+		if measured[i].Eligible {
+			best := measured[i]
+			response.Recommendation = &best
+			response.Available = true
+			break
 		}
-	} else {
-		response.Message = "Достоверная рекомендация среди зарубежных профилей сейчас недоступна; текущий VPN не изменён."
 	}
 	if cachedOK {
-		response.Message += " Свежий подтверждённый замер текущего VPN переиспользован без повторной тяжёлой Speedtest-проверки."
+		response = applyBestServerRecommendationDeadband(response)
+	} else {
+		response.Available = false
+		response.Recommendation = nil
+		response.Message = "Текущий VPN не удалось полностью измерить. Варианты показаны только для сравнения; автоматическая рекомендация отключена."
+	}
+
+	if response.Message == "" {
+		if response.Available && response.Recommendation != nil {
+			if response.Recommendation.Current {
+				response.Message = "Текущий VPN остаётся предпочтительным среди проверенных зарубежных профилей."
+			} else {
+				response.Message = "FreeNet нашёл зарубежный VPN с подтверждённым значимым улучшением."
+			}
+		} else {
+			response.Message = "Достоверная рекомендация среди зарубежных профилей сейчас недоступна; текущий VPN не изменён."
+		}
+	}
+	if cachedOK {
+		response.Message += " Свежий подтверждённый замер текущего VPN использован как базовая точка сравнения."
+	}
+	if len(measured) < bestServerComparisonTarget {
+		response.Message += " Полностью измеренных альтернатив: " + strconv.Itoa(len(measured)) + "."
 	}
 	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
 		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during Best Server scan")
