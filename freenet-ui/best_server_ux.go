@@ -5,13 +5,14 @@ import (
 	"errors"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
-	bestServerCurrentScanTimeout     = 45 * time.Second
-	bestServerComparisonTarget       = 3
+	bestServerCurrentScanTimeout = 45 * time.Second
+	bestServerComparisonTarget   = 3
 )
 
 func registerBestServerUXAPI(mux *http.ServeMux, a *app) {
