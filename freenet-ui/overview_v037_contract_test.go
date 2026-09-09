@@ -23,7 +23,7 @@ func TestV037OverviewScaleContract(t *testing.T) {
     for _, needle := range []string{
         "Issue #350: v0.3.7 final render-scale alignment",
         "width:min(1370px,calc(100% - 46px))",
-        ".page[data-page-view=\\\"overview\\\"] .page-head h1{font-size:34px",
+        ".page[data-page-view=\"overview\"] .page-head h1{font-size:34px",
         ".best-v4-shell{grid-template-columns:minmax(365px,390px)",
         ".vpn-option-title h4{font-size:18px",
         ".vpn-option .best-v4-pill b{font-size:17px",
