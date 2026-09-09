@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	bestServerTargetedRetryTimeout = 42 * time.Second
+	bestServerTargetedRetryTimeout = 75 * time.Second
 	bestServerRefreshTimeout       = 210 * time.Second
 )
 

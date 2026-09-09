@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	bestServerCurrentScanTimeout  = 45 * time.Second
+	bestServerCurrentScanTimeout  = 75 * time.Second
 	bestServerMeasuredBatchSize   = 4
 	bestServerVisibleAlternatives = 3
 )
