@@ -1,0 +1,30 @@
+name: Issue 350 codemod
+
+on:
+  push:
+    branches:
+      - fix/350-v037-final-overview
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/350-v037-final-overview
+          fetch-depth: 0
+      - name: Apply v0.3.7 final Overview patch
+        run: python3 tools/issue350_patch.py
+      - name: Remove temporary codemod files
+        run: rm -f tools/issue350_patch.py .github/workflows/issue-350-codemod.yml
+      - name: Commit product changes
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: complete Best Server checks and final Overview scale (#350)'
+          git push origin HEAD:fix/350-v037-final-overview
