@@ -67,6 +67,15 @@ func countMeasuredBestServerAlternatives(candidates []bestServerQualityCandidate
 	return count
 }
 
+func hasMeasuredBestServerCurrent(candidates []bestServerQualityCandidate) bool {
+	for _, candidate := range candidates {
+		if candidate.Current && completeBestServerCurrentBaseline(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
 func currentBestServerCandidate(candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) ([]bestServerInternalCandidate, bool) {
 	index := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter)
 	if index < 0 {
@@ -115,6 +124,7 @@ func (a *app) scanCurrentVPNQuality(ctx context.Context) (bestServerQualityRespo
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
 	response := a.scanActiveCurrentVPNQuality(ctx, currentEndpoint, currentFilter)
+	enrichCurrentBestServerTCP(ctx, &response, currentEndpoint)
 	if ctx.Err() != nil {
 		return bestServerQualityResponse{}, ctx.Err()
 	}
@@ -183,7 +193,8 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	// First compare the real application path through each candidate VPN with a
 	// cheap bounded probe. Keep a reserve beyond the first deep-test batch so a
 	// failed Speedtest does not reduce the final comparison to only one or two
-	// rows. Expensive probing stops as soon as three measured alternatives exist.
+	// rows. Expensive probing stops as soon as three measured alternatives exist
+	// and a trustworthy current baseline is also available.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := bestServerQualityResponse{Candidates: []bestServerQualityCandidate{}, ProfilesTruncated: truncated, Mutation: "NONE"}
 	for start := 0; start < len(candidates); start += bestServerQualityBatchSize {
@@ -208,7 +219,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 			response.Recommendation = &copyValue
 		}
 		response.Candidates = append(response.Candidates, filterMeasuredBestServerResults(batch.Candidates)...)
-		if countMeasuredBestServerAlternatives(response.Candidates) >= bestServerMeasuredTarget {
+		if countMeasuredBestServerAlternatives(response.Candidates) >= bestServerMeasuredTarget && (cachedOK || hasMeasuredBestServerCurrent(response.Candidates)) {
 			break
 		}
 	}
