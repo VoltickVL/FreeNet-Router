@@ -46,6 +46,18 @@ func readBestServerActiveOutbound(outPath string) (map[string]any, string, bool)
 	return nil, "", false
 }
 
+func bestServerProfileFromEndpoint(endpoint string) (subscriptionProfile, bool) {
+	host, portText, err := net.SplitHostPort(strings.TrimSpace(endpoint))
+	if err != nil || strings.TrimSpace(host) == "" {
+		return subscriptionProfile{}, false
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil || port <= 0 || port > 65535 {
+		return subscriptionProfile{}, false
+	}
+	return subscriptionProfile{Address: host, Port: port}, true
+}
+
 func bestServerCountryCodeFromLabel(label string) string {
 	fields := strings.Fields(strings.TrimSpace(label))
 	if len(fields) == 0 || len(fields[0]) != 2 {
@@ -204,6 +216,15 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 	candidate := bestServerQualityCandidate{
 		Tested: true, ID: "current-live", Name: label, CountryCode: bestServerCountryCodeFromLabel(label),
 		Endpoint: currentEndpoint, Current: true, Reachable: true,
+	}
+	if profile, ok := bestServerProfileFromEndpoint(currentEndpoint); ok {
+		tcpCtx, cancelTCP := context.WithTimeout(ctx, 5*time.Second)
+		tcp := defaultBestServerQualityTCPProbe(tcpCtx, profile)
+		cancelTCP()
+		if tcp.OK {
+			candidate.TCPRTTMS = tcp.Median
+			candidate.TCPJitterMS = tcp.Jitter
+		}
 	}
 	probeCtx, cancel := context.WithTimeout(ctx, bestServerQualityCandidateTimeout)
 	probe := a.probeBestServerActiveOutbound(probeCtx, outbound)
