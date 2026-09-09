@@ -21,10 +21,10 @@ func TestParseSubscriptionBodyReturnsOnlySanitizedActiveExtra(t *testing.T) {
 	if len(profiles) != 2 {
 		t.Fatalf("profiles=%d want=2: %+v", len(profiles), profiles)
 	}
-	if !strings.Contains(profiles[0].Name, "Frankfurt") || profiles[0].Address != "203.0.113.10" || profiles[0].Port != 443 {
+	if !strings.Contains(profiles[0].Name, "Frankfurt") || profiles[0].Address != "203.0.113.10" || profiles[0].Port != 443 || profiles[0].CountryCode != "de" {
 		t.Fatalf("unexpected first profile: %+v", profiles[0])
 	}
-	if !strings.Contains(profiles[1].Name, "Warsaw") || profiles[1].Address != "198.51.100.20" || profiles[1].Port != 8443 {
+	if !strings.Contains(profiles[1].Name, "Warsaw") || profiles[1].Address != "198.51.100.20" || profiles[1].Port != 8443 || profiles[1].CountryCode != "pl" {
 		t.Fatalf("unexpected second profile: %+v", profiles[1])
 	}
 	for _, p := range profiles {
@@ -44,7 +44,7 @@ func TestParseSubscriptionBodyReturnsOnlySanitizedActiveExtra(t *testing.T) {
 	}
 }
 
-func TestProfileCountryCodeUsesExplicitASCIIPrefixOnly(t *testing.T) {
+func TestProfileCountryCodeSupportsASCIIAndRegionalIndicatorPrefix(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		want string
@@ -52,6 +52,9 @@ func TestProfileCountryCodeUsesExplicitASCIIPrefixOnly(t *testing.T) {
 		{"NL Amsterdam, Нидерланды, Extra", "nl"},
 		{"DE Франкфурт-на-Майне, Германия, Extra", "de"},
 		{"AE Фуджейра, ОАЭ, Extra", "ae"},
+		{"🇩🇪 Frankfurt, Germany, Extra", "de"},
+		{"🇵🇱 Warsaw, Poland, Extra", "pl"},
+		{"🇸🇰 Братислава, Словакия, Extra", "sk"},
 		{"Frankfurt, Germany, Extra", ""},
 		{"de Frankfurt, Germany, Extra", ""},
 		{"D Frankfurt, Germany, Extra", ""},
@@ -61,7 +64,7 @@ func TestProfileCountryCodeUsesExplicitASCIIPrefixOnly(t *testing.T) {
 		}
 	}
 
-	p, ok := parseSafeVLESSProfile("vless://X@example.test:443?security=reality#PL%20Warsaw%2C%20Poland%2C%20Extra")
+	p, ok := parseSafeVLESSProfile("vless://X@example.test:443?security=reality#%F0%9F%87%B5%F0%9F%87%B1%20Warsaw%2C%20Poland%2C%20Extra")
 	if !ok || p.CountryCode != "pl" {
 		t.Fatalf("country metadata missing from sanitized profile: %+v ok=%v", p, ok)
 	}
@@ -71,6 +74,22 @@ func TestProfileCountryCodeUsesExplicitASCIIPrefixOnly(t *testing.T) {
 	}
 	if !strings.Contains(string(encoded), `"country_code":"pl"`) {
 		t.Fatalf("country metadata missing from JSON: %s", encoded)
+	}
+}
+
+func TestProfileDisplayNameStripsPlatformDependentCountryMarker(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want string
+	}{
+		{"🇱🇹 Lithuania, Extra Whitelist", "Lithuania, Extra Whitelist"},
+		{"🇩🇰 Копенгаген, Дания, Extra", "Копенгаген, Дания, Extra"},
+		{"PL Варшава, Польша, Extra", "Варшава, Польша, Extra"},
+		{"Frankfurt, Germany, Extra", "Frankfurt, Germany, Extra"},
+	} {
+		if got := profileDisplayName(tc.name); got != tc.want {
+			t.Fatalf("profileDisplayName(%q)=%q want %q", tc.name, got, tc.want)
+		}
 	}
 }
 
