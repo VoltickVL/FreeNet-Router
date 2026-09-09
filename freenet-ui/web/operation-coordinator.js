@@ -200,7 +200,12 @@
       .vpn-option-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}.vpn-option-title{display:flex;align-items:center;gap:8px;min-width:0}
       .vpn-option-head h4{font-size:14px;line-height:1.3;margin:0;overflow-wrap:anywhere}
       .vpn-option .btn{min-height:30px;padding:5px 12px;font-size:12px;flex-shrink:0}
-      .vpn-option .best-v4-metrics{margin:0}.best-v4-reason{font-size:11px;line-height:1.4;margin-top:8px}.vpn-compare-badge{font-size:11px;color:#9fb4d2;white-space:nowrap}
+      .vpn-option .best-v4-metrics{margin:0}
+      .best-v4-reason{display:flex;flex-wrap:wrap;gap:5px 6px;font-size:11px;line-height:1.3;margin-top:8px;color:#b9c7d9}
+      .vpn-detail-chip{display:inline-flex;align-items:center;min-height:22px;padding:3px 7px;border:1px solid #30445f;border-radius:7px;background:#0d1b2c;color:#aebed3;white-space:normal}
+      .vpn-detail-chip.bad{border-color:rgba(255,112,112,.5);background:rgba(116,32,42,.24);color:#ffb0b0}
+      .vpn-rejected{border-color:rgba(255,112,112,.42);background:linear-gradient(160deg,rgba(74,31,42,.34),rgba(18,34,56,.96))}
+      .vpn-rejected .vpn-compare-badge{color:#ff9d9d}.vpn-compare-badge{font-size:11px;color:#9fb4d2;white-space:nowrap}
       .best-v4-status{grid-column:1/-1;font-size:13px;min-height:0;line-height:1.4}
       .vpn-measure-note{grid-column:1/-1;margin:0;font-size:11px;color:#91a4bb;line-height:1.4}
       #bestServerAdvanced{margin-top:16px;padding-top:14px;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px}
@@ -215,6 +220,7 @@
       .content:has(.page.active[data-page-view="overview"])>.footer{display:none}
       .content:has(.page.active[data-page-view="overview"]){padding-top:14px;padding-bottom:8px}
       .flag-za{background:linear-gradient(to bottom,#de3831 0 43%,#fff 43% 57%,#002395 57%)}.flag-za:before{content:'';position:absolute;inset:0;background:#007749;clip-path:polygon(0 18%,48% 50%,0 82%,0 64%,28% 50%,0 36%)}
+      .flag-sk{background:linear-gradient(to bottom,#fff 0 33.33%,#0b4ea2 33.33% 66.66%,#ee1c25 66.66%)}
       @media(min-width:761px){.vpn-option{padding:9px 12px}.vpn-option .best-v4-reason{margin-top:5px}.best-v4-shell{row-gap:12px}.vpn-section-head{margin-bottom:10px}}
       @media(max-width:1150px){.best-v4-shell{grid-template-columns:minmax(210px,.8fr) minmax(0,1.5fr);gap:14px}.vpn-current-panel{padding-right:14px}#bestServerAdvanced{grid-template-columns:1fr}#bestServerAdvanced .action-row{justify-content:flex-end}}
       @media(max-width:760px){.best-v4-shell{grid-template-columns:1fr}.vpn-current-panel{border-right:0;border-bottom:1px solid #29384d;padding:0 0 16px}.vpn-current-panel .best-v4-metrics{grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.vpn-current-panel .best-v4-pill b{font-size:14px}.vpn-current-panel>.best-v4-endpoint{margin-bottom:12px}.vpn-section-head{align-items:flex-start}.vpn-section-head .btn{padding:9px;font-size:12px;min-height:40px}.best-v4-pill b{font-size:13px}.best-v4-pill span{font-size:10px}.vpn-option{padding:12px}.vpn-option-head{gap:8px}.vpn-option-head h4{font-size:13px}#bestServerAdvanced #profilesList.profiles{grid-template-columns:1fr}.best-v4-name{font-size:20px}#bestServerAdvanced .action-row{flex-wrap:wrap}.vpn-empty{padding:24px 16px}}
@@ -433,6 +439,14 @@
     return parts.length ? parts.join(' · ') + '.' : 'Сервер проверен; данных для прямого сравнения скорости с текущим недостаточно.';
   }
 
+  function appendDetailChip(root, text, tone = '') {
+    if (!root || !text) return;
+    const chip = document.createElement('span');
+    chip.className = 'vpn-detail-chip' + (tone ? ' ' + tone : '');
+    chip.textContent = String(text).replace(/[.]$/, '');
+    root.appendChild(chip);
+  }
+
   function clearAlternatives(message) {
     alternatives = [];
     recommendation = null;
@@ -484,14 +498,20 @@
         button.textContent = 'Переключиться'; button.setAttribute('aria-label', 'Переключиться: ' + name.textContent);
         head.appendChild(button);
       } else {
-        const badge = document.createElement('span'); badge.className = 'vpn-compare-badge'; badge.textContent = 'Не подходит для переключения';
+        const badge = document.createElement('span'); badge.className = 'vpn-compare-badge'; badge.textContent = 'Не прошёл проверку';
         head.appendChild(badge);
       }
       const metrics = document.createElement('div'); metrics.className = 'best-v4-metrics'; renderMetrics(metrics, candidate);
       const reason = document.createElement('div'); reason.className = 'best-v4-reason';
       if (index === 0) reason.id = 'bestServerReason';
-      const diagnostic = !candidate.eligible && Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.join(' · ') : '';
-      reason.textContent = (candidate.eligible ? recommendationReason(data, candidate) : diagnostic || 'Сервер измерен, но данных недостаточно для рекомендации.') + ` · Замер скорости ${candidate.media_samples || 0}/${4} · Доступность сервисов ${candidate.service_ok || 0}/${candidate.service_total || 0}`;
+      if (candidate.eligible) {
+        recommendationReason(data, candidate).split(' · ').filter(Boolean).forEach(text => appendDetailChip(reason, text));
+      } else {
+        const diagnostics = Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.slice(0, 2) : ['Недостаточно подтверждённых данных'];
+        diagnostics.forEach(text => appendDetailChip(reason, text, 'bad'));
+      }
+      appendDetailChip(reason, `Замер скорости: ${candidate.media_samples || 0}/4`);
+      appendDetailChip(reason, `Сервисы: ${candidate.service_ok || 0}/${candidate.service_total || 0}`);
       row.append(head, metrics, reason); box.appendChild(row);
     });
     const switchable = alternatives.filter(candidate => candidate.eligible).length;
@@ -512,7 +532,7 @@
     const alternativesTitle = qs('.vpn-section-head h3');
     const alternativesHint = qs('.vpn-section-head .hint');
     if (alternativesTitle) alternativesTitle.textContent = 'Результаты проверки';
-    if (alternativesHint) alternativesHint.textContent = 'До трёх лучших измеренных вариантов';
+    if (alternativesHint) alternativesHint.textContent = 'До трёх лучших проверенных вариантов';
     const measureNote = qs('.vpn-measure-note');
     if (measureNote) measureNote.textContent = 'FreeNet сначала сравнивает реальный отклик через каждый VPN, затем глубоко проверяет лучшие варианты. Скорость — короткий тест загрузки, не скорость тарифа. Российские серверы исключены из поиска.';
     const countries = quick.querySelector('.quick-layout');
