@@ -14,6 +14,34 @@ func TestFilterForeignBestServerCandidatesExcludesRussia(t *testing.T) {
 	}
 }
 
+func TestFilterMeasuredBestServerResultsKeepsRejectedDeepProbe(t *testing.T) {
+	input := []bestServerQualityCandidate{
+		{ID: "good", Tested: true, Available: true, Eligible: true, DownloadMbps: 120, MediaSamples: bestServerMediaRequiredRuns},
+		{ID: "near-miss", Tested: true, Available: true, Eligible: false, DownloadMbps: 0, MediaSamples: 2, Rejections: []string{"Скорость Speedtest не измерена"}},
+		{ID: "app-failed", Tested: true, Reachable: true, Available: false, Eligible: false, Rejections: []string{"Не подтверждён HTTP-отклик через VPN"}},
+		{ID: "untested", Reachable: true, Tested: false},
+	}
+	got := filterMeasuredBestServerResults(input)
+	if len(got) != 3 {
+		t.Fatalf("visible deep-probe results = %#v, want good + two rejected diagnostics", got)
+	}
+	if got[0].ID != "good" || got[1].ID != "near-miss" || got[2].ID != "app-failed" {
+		t.Fatalf("unexpected visible result order: %#v", got)
+	}
+}
+
+func TestSortMeasuredBestServerResultsKeepsEligibleAheadOfDiagnostic(t *testing.T) {
+	input := []bestServerQualityCandidate{
+		{ID: "failed-fast", Tested: true, Reachable: true, Score: 9999, ApplicationMS: 90},
+		{ID: "eligible", Tested: true, Available: true, Eligible: true, Score: 500, ApplicationMS: 170, DownloadMbps: 100},
+		{ID: "failed-app", Tested: true, Available: true, Score: 800, ApplicationMS: 140},
+	}
+	sortMeasuredBestServerResults(input)
+	if input[0].ID != "eligible" || input[1].ID != "failed-app" || input[2].ID != "failed-fast" {
+		t.Fatalf("unexpected UX order: %#v", input)
+	}
+}
+
 func TestCurrentBestServerCandidateSelectsExactlyOneCurrentProfile(t *testing.T) {
 	input := []bestServerInternalCandidate{
 		{Profile: subscriptionProfile{ID: "a", Name: "PL Warsaw, Extra", CountryCode: "pl", Address: "10.0.0.1", Port: 443}},

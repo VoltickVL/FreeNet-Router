@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	bestServerCurrentScanTimeout = 45 * time.Second
-	bestServerMeasuredBatchSize  = 4
+	bestServerCurrentScanTimeout  = 45 * time.Second
+	bestServerMeasuredBatchSize   = 4
 	bestServerVisibleAlternatives = 3
 )
 
@@ -45,10 +45,13 @@ func filterForeignBestServerCandidates(candidates []bestServerInternalCandidate)
 	return filtered
 }
 
+// Keep every candidate that reached a real deep probe so the UI can explain
+// why a near-miss was rejected. Eligibility still controls recommendation and
+// apply; retaining diagnostics here never makes a failed candidate switchable.
 func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []bestServerQualityCandidate {
 	filtered := make([]bestServerQualityCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.Current || (candidate.Tested && candidate.DownloadMbps > 0 && candidate.MediaSamples >= bestServerMediaRequiredRuns) {
+		if candidate.Current || (candidate.Tested && (candidate.Available || candidate.Reachable)) {
 			filtered = append(filtered, candidate)
 		}
 	}
@@ -74,10 +77,19 @@ func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
 		if a.Eligible != b.Eligible {
 			return a.Eligible
 		}
+		if a.Available != b.Available {
+			return a.Available
+		}
 		if a.Score != b.Score {
 			return a.Score > b.Score
 		}
 		if a.ApplicationMS != b.ApplicationMS {
+			if a.ApplicationMS == 0 {
+				return false
+			}
+			if b.ApplicationMS == 0 {
+				return true
+			}
 			return a.ApplicationMS < b.ApplicationMS
 		}
 		if a.DownloadMbps != b.DownloadMbps {
