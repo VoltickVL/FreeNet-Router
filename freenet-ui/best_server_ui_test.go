@@ -17,16 +17,17 @@ func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 	}
 	js := string(data) + string(markup)
 	for _, want := range []string{
-		"Проверки запускаются вручную",
 		"/api/vpn/current-quality",
 		"/api/vpn/best-foreign",
 		"Проверить текущий VPN",
 		"Подобрать серверы",
-		"Переключиться",
-		"данных для прямого сравнения скорости с текущим недостаточно",
+		"Топ-3 варианта на основе реальных измерений",
+		"Лучший вариант",
+		"Для сравнения",
+		"Не прошёл проверку",
 		"countries.remove()",
 		"operation: 'provider'",
-		"profile_id: recommendation.id",
+		"profile_id:candidate.id",
 		"Мбит/с",
 	} {
 		if !strings.Contains(js, want) {
@@ -55,11 +56,11 @@ func TestBestServerActionsHaveLifecycleSafeDelegation(t *testing.T) {
 		"installBestServerActionDelegation",
 		"freenetBestServerActions",
 		"document.addEventListener('click'",
-		"#bestServerCheckCurrent, #bestServerRefresh, .vpn-option-apply",
+		"#bestServerCheckCurrent,#bestServerRefresh,.vpn-option-apply,.vpn-option-retry",
 		"void scanCurrentVPN()",
 		"void scanBestServer()",
-		"void applyBestServer()",
-		"}, true)",
+		"void applyCandidate(candidate)",
+		"},true)",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("lifecycle-safe Best Server action contract missing %q", want)
@@ -82,9 +83,8 @@ func TestBestServerUIExcludesRussiaFromSuggestions(t *testing.T) {
 	js := string(data) + string(markup)
 	for _, want := range []string{
 		"isRussianProfile",
-		"profile.country_code",
+		"country_code",
 		"extra_profiles.filter(profile => !isRussianProfile(profile))",
-		"Российские серверы исключены",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("foreign-only UI contract missing %q", want)
@@ -130,16 +130,16 @@ func TestOverviewKeepsSystemSummaryAndSingleVPNCard(t *testing.T) {
 	}
 	js := string(data) + string(markup)
 	for _, want := range []string{
-		"FreeNetOverviewV4",
-		"topVpnSummary",
-		"overview-v4-chip-label",
+		"FreeNetApprovedOverview",
+		"overviewApprovedTop",
+		"overview-approved-fact",
 		"Текущий VPN",
 		"Провайдер",
 		"DNS",
 		"overview-hero-source",
 		"overview-compact-grid",
 		"renderOverviewTopbarFromStatus",
-		"installOverviewTopbarStatusHook",
+		"installOverviewStatusHook",
 		"queueMicrotask",
 		"typeof lastStatus !== 'undefined'",
 		"VPN + DNS OK",
@@ -148,25 +148,23 @@ func TestOverviewKeepsSystemSummaryAndSingleVPNCard(t *testing.T) {
 		"DNS требует внимания",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("Overview v4/topbar contract missing %q", want)
+			t.Fatalf("approved Overview/topbar contract missing %q", want)
 		}
 	}
 }
 
-func TestOverviewTopbarWatcherDoesNotPassArrayIndexAsQueryRoot(t *testing.T) {
+func TestOverviewTopbarSyncDoesNotUseArrayIndexAsQueryRoot(t *testing.T) {
 	data, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	markup, err := os.ReadFile("web/index.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	js := string(data) + string(markup)
+	js := string(data)
 	if strings.Contains(js, ".map(qs)") {
 		t.Fatal("Array.map(qs) passes numeric array index as qs root and breaks topbar synchronization")
 	}
-	if !strings.Contains(js, ".map(selector => qs(selector))") {
-		t.Fatal("topbar watcher must resolve selectors explicitly")
+	for _, want := range []string{"syncOverviewTopbar", "#topISPValue", "#topDNSValue"} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("topbar direct synchronization missing %q", want)
+		}
 	}
 }
