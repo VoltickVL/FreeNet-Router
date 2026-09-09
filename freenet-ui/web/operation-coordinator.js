@@ -117,6 +117,37 @@
 
   function setText(node, value) { if (node) node.textContent = value || ''; }
 
+  const iconPaths = {
+    speed: '<path d="M12 3v12m0 0 5-5m-5 5-5-5"/><path d="M5 21h14"/>',
+    http: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    tcp: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="16" r="2"/><circle cx="19" cy="16" r="2"/><path d="M10.8 6.7 6.2 14M13.2 6.7l4.6 7.3M7 16h10"/>',
+    jitter: '<path d="M3 13h3l2-6 3 11 3-13 2 8h5"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m16.5 16.5 4 4"/>',
+    refresh: '<path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M18.5 10A7 7 0 0 0 6.7 6.7L4 9M5.5 14A7 7 0 0 0 17.3 17.3L20 15"/>',
+    swap: '<path d="M7 7h13l-3-3m3 3-3 3M17 17H4l3 3m-3-3 3-3"/>',
+    check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>',
+    info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',
+    trophy: '<path d="M8 4h8v4a4 4 0 0 1-8 0V4Z"/><path d="M8 6H5v1a4 4 0 0 0 4 4M16 6h3v1a4 4 0 0 1-4 4M12 12v4M9 20h6M10 16h4"/>',
+    compare: '<path d="M12 3 19 6v5c0 4.5-3 7.7-7 10-4-2.3-7-5.5-7-10V6l7-3Z"/><path d="M9 12h6"/>',
+    alert: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 17h.01"/>',
+    retry: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>'
+  };
+
+  function makeIcon(name, className = '') {
+    const span = document.createElement('span');
+    span.className = `fn-icon${className ? ' ' + className : ''}`;
+    span.setAttribute('aria-hidden', 'true');
+    span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${iconPaths[name] || iconPaths.info}</svg>`;
+    return span;
+  }
+
+  function setButtonLabel(button, label, iconName = '') {
+    if (!button) return;
+    button.textContent = '';
+    if (iconName) button.appendChild(makeIcon(iconName, 'button-icon'));
+    const text = document.createElement('span'); text.textContent = label; button.appendChild(text);
+  }
+
   function stripProfilePrefix(value) {
     let text = String(value || '').trim();
     text = text.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '');
@@ -195,22 +226,23 @@
     const style = document.createElement('style');
     style.id = 'FreeNetApprovedOverview';
     style.textContent = `
-      :root{--fn-blue:#2f73ff;--fn-blue2:#5593ff;--fn-green:#34e2a0;--fn-red:#ff5f6d;--fn-card:#0f1d30;--fn-card2:#12243a;--fn-border:#2d4869;--fn-muted:#a9bad1}
-      body{font-size:15px}.content{width:min(1240px,calc(100% - 34px));padding:14px 0 12px}.topbar.overview-approved{height:64px;padding:0 24px;background:rgba(6,14,25,.97);border-bottom:1px solid #223650}.page[data-page-view="overview"] .page-head{margin:0 0 12px;align-items:center}.page[data-page-view="overview"] .page-head h1{font-size:31px}.page[data-page-view="overview"] .page-kicker,.page[data-page-view="overview"] .page-head p{display:none}.page[data-page-view="overview"]>.grid-equal{display:none!important}.content:has(.page.active[data-page-view="overview"])>.footer{display:none!important}
-      .overview-hero-source{display:none!important}.overview-compact-grid{grid-template-columns:1fr!important}.overview-approved-top{margin-left:auto;display:flex;align-items:center;gap:28px}.overview-approved-fact{display:grid;gap:1px}.overview-approved-fact span{font-size:11px;color:#84a0c4;font-weight:750}.overview-approved-fact strong{font-size:13px;color:#f4f8ff;white-space:nowrap}.top-status{font-size:12px}.top-status .dot.ok{background:var(--fn-green);box-shadow:0 0 15px rgba(52,226,160,.7)}
-      #quickActionsSection{padding:18px 20px 16px;border-radius:20px;border:1px solid #2a4667;background:linear-gradient(150deg,#102036,#0b1728);box-shadow:none;overflow:visible}#quickActionsSection>.card-head{display:none!important}
-      .best-v4-shell{display:grid;grid-template-columns:minmax(278px,.74fr) minmax(0,1.75fr);gap:0 22px;align-items:start}.vpn-current-panel{min-width:0;padding:4px 22px 0 0;border-right:1px solid #30435d}.vpn-alternatives-panel{min-width:0;padding-left:0}.best-v4-current{display:flex;align-items:flex-start;gap:10px}.best-v4-current-main{min-width:0}.best-v4-label{color:#a9bad1;font-size:11px;font-weight:800}.best-v4-name{font-size:22px;font-weight:780;line-height:1.18;margin-top:5px;color:#f7f9fd;overflow-wrap:anywhere}.best-v4-endpoint{margin:8px 0 14px;color:#8fa8c5;font:11px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.vpn-current-panel #bestCurrentFlag{width:30px;height:21px;margin-top:3px;border-radius:4px}
-      .best-v4-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}.vpn-current-panel .best-v4-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.best-v4-pill{position:relative;min-width:0;padding:9px 10px 9px 34px;border:1px solid #31547b;border-radius:10px;background:#0d1b2c}.best-v4-pill:before{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:17px;height:17px;display:grid;place-items:center;color:#68a0ff;font-size:17px;line-height:1}.best-v4-pill[data-metric="speed"]:before{content:'⇩'}.best-v4-pill[data-metric="http"]:before{content:'◷'}.best-v4-pill[data-metric="tcp"]:before{content:'⌘'}.best-v4-pill[data-metric="jitter"]:before{content:'⌁'}.best-v4-pill span{display:block;color:#a9bad1;font-size:10px;line-height:1.15}.best-v4-pill b{display:block;margin-top:3px;font-size:15px;line-height:1.1;white-space:nowrap}.best-v4-pill.speed b{color:#5ce9ad}.vpn-current-panel .best-v4-pill b{font-size:18px}
-      .best-quality{margin:9px 0 10px;color:#9db1ca;font-size:11px;line-height:1.35}.vpn-current-panel>#bestServerCheckCurrent{width:100%;min-height:42px;justify-content:center;background:linear-gradient(180deg,#347dff,#2466e4);border-color:#6497ff;font-size:13px}.vpn-current-panel>.action-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}.vpn-current-panel>.action-row[hidden]{display:none}.vpn-current-panel>.action-row .btn{min-height:36px;padding:6px 8px;justify-content:center;text-align:center;font-size:11px;background:#0f2035;border-color:#2d4c70}
-      .current-health{margin-top:9px;padding:9px 11px;border:1px solid rgba(52,226,160,.55);border-radius:10px;background:rgba(16,101,77,.22);color:#bdf9df;font-size:11px;line-height:1.35;display:flex;gap:8px;align-items:flex-start}.current-health:before{content:'✓';flex:0 0 20px;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;background:#31dfa0;color:#052416;font-weight:900}.current-health.neutral{border-color:#38506e;background:#0c1a2b;color:#a9bad1}.current-health.neutral:before{content:'i';background:#4e78a9;color:#e9f3ff}.current-help{margin:9px 0 0;color:#93a8c2;font-size:10px;line-height:1.45}
-      .vpn-section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}.vpn-section-head h3{margin:0;font-size:18px}.vpn-section-head .hint{margin-top:3px;font-size:11px;color:#9eb0c8}.vpn-section-head #bestServerRefresh{min-height:42px;padding:8px 18px;border-radius:11px;background:linear-gradient(180deg,#347dff,#2466e4);border-color:#6497ff;font-size:13px}.vpn-empty{padding:34px 20px;border:1px dashed #38506d;border-radius:12px;color:#a8b7ca;font-size:13px;line-height:1.5}
-      .best-v4-result,.best-v4-result.show{padding:0;border:0;background:none}.best-v4-result.show{display:grid;gap:8px}.vpn-option{padding:9px 11px;border:1px solid #304a69;background:linear-gradient(155deg,#12263e,#0e1d31);border-radius:12px}.vpn-option.vpn-best{border-color:#19cf89;background:linear-gradient(155deg,rgba(16,75,64,.72),rgba(9,31,42,.95));box-shadow:inset 0 0 0 1px rgba(25,207,137,.12)}.vpn-option.vpn-rejected{border-color:#d84454;background:linear-gradient(155deg,rgba(66,28,40,.72),rgba(19,27,42,.96))}.vpn-option-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}.vpn-option-title{display:flex;align-items:center;gap:8px;min-width:0}.vpn-option-title .flag-icon{width:28px;height:19px}.vpn-option-title h4{font-size:14px;line-height:1.25;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vpn-option-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}.vpn-state-badge{display:inline-flex;align-items:center;min-height:25px;padding:4px 9px;border:1px solid #405874;border-radius:999px;color:#b8c8db;background:#122236;font-size:10px;font-weight:800;white-space:nowrap}.vpn-best .vpn-state-badge{border-color:#20d694;color:#5beab1;background:rgba(13,79,60,.42)}.vpn-rejected .vpn-state-badge{border-color:#dd4d5d;color:#ff7885;background:rgba(97,29,42,.4)}.vpn-option .btn{min-height:30px;padding:5px 11px;border-radius:9px;font-size:11px;justify-content:center}.vpn-best .vpn-option-apply{background:linear-gradient(180deg,#347dff,#2466e4);border-color:#6497ff}.vpn-option-retry{background:#17263a;border-color:#466280}.vpn-option .best-v4-metrics{margin:0;gap:7px}.vpn-option .best-v4-pill{padding:0 8px 0 0;border:0;border-right:1px solid #31445e;border-radius:0;background:none}.vpn-option .best-v4-pill:last-child{border-right:0}.vpn-option .best-v4-pill:before{display:none}.vpn-option .best-v4-pill span{font-size:9px}.vpn-option .best-v4-pill b{font-size:14px}.best-v4-reason{display:flex;flex-wrap:wrap;gap:4px 5px;margin-top:6px;font-size:10px;line-height:1.2}.vpn-detail-chip{display:inline-flex;align-items:center;min-height:19px;padding:2px 6px;border:1px solid #35516e;border-radius:7px;background:#0c1a2b;color:#b3c4d8;white-space:nowrap}.vpn-detail-chip.ok{border-color:rgba(52,226,160,.38);color:#9aebc5;background:rgba(12,75,56,.22)}.vpn-detail-chip.bad{border-color:rgba(255,95,109,.5);color:#ff9ba4;background:rgba(102,27,40,.25)}
-      .best-v4-status{margin-top:9px;padding:8px 10px;border:1px solid #315b8b;border-radius:10px;background:#0d2a48;color:#b9d4f4;font-size:10px;line-height:1.35;min-height:0}.best-v4-status:empty{display:none}.best-v4-status.busy{color:#cfe2fa}.vpn-measure-note{display:none}
-      #bestServerAdvanced{grid-column:1/-1;margin-top:13px;padding-top:11px;border-top:1px solid #2b415d;display:grid;grid-template-columns:1fr;gap:7px}#bestServerAdvanced h3{margin:0;font-size:16px}#bestServerAdvanced:before{content:'ПОИСК ПО СТРАНЕ ИЛИ ГОРОДУ';font-size:9px;font-weight:850;letter-spacing:.08em;color:#9eb0c8;order:1}#bestServerAdvanced h3{order:0}#bestServerAdvanced #profilesList.profiles{order:2;display:grid;grid-template-columns:minmax(210px,.75fr) minmax(320px,1.45fr);gap:9px;align-items:end;margin-top:0!important}#profilesList .field{padding:0;border:0;background:none}#profilesList .field label{display:none}#profilesList .profile-combobox{margin-top:0!important}#profilesList input,#profilesTrigger{min-height:38px;background:#0c1929;border-color:#315074;border-radius:9px;font-size:11px}#profilesList #selectedProfileCard{grid-column:1/-1;margin:0;padding:7px 9px;border-color:#2f4a69;background:#0c1929;font-size:10px}#bestServerAdvanced .action-row{order:3;display:flex;gap:8px;margin:0}#bestServerAdvanced .action-row[hidden]{display:none}#bestServerAdvanced .btn{min-height:36px;padding:6px 10px;font-size:11px}#bestServerAdvanced:has(#exactConnectRow[hidden]) #selectedProfileCard{display:none}#quickNetworkGuard{display:none}
-      .flag-dk{background:#c8102e}.flag-dk:before{content:'';position:absolute;left:31%;top:0;bottom:0;width:10%;background:#fff}.flag-dk:after{content:'';position:absolute;left:0;right:0;top:43%;height:14%;background:#fff}.flag-hr{background:linear-gradient(to bottom,#ff0000 0 33.33%,#fff 33.33% 66.66%,#171796 66.66%)}.flag-hr:after{content:'';position:absolute;left:42%;top:30%;width:17%;height:38%;background:repeating-conic-gradient(#e5232e 0 25%,#fff 0 50%) 0/5px 5px;border:1px solid #1d4d9b}.flag-sk{background:linear-gradient(to bottom,#fff 0 33.33%,#0b4ea2 33.33% 66.66%,#ee1c25 66.66%)}.flag-za{background:linear-gradient(to bottom,#de3831 0 43%,#fff 43% 57%,#002395 57%)}.flag-za:before{content:'';position:absolute;inset:0;background:#007749;clip-path:polygon(0 18%,48% 50%,0 82%,0 64%,28% 50%,0 36%)}.flag-si{background:linear-gradient(to bottom,#fff 0 33.33%,#0056a4 33.33% 66.66%,#ed1c24 66.66%)}.flag-rs{background:linear-gradient(to bottom,#c6363c 0 33.33%,#0c4076 33.33% 66.66%,#fff 66.66%)}.flag-is{background:#02529c}.flag-is:before{content:'';position:absolute;left:31%;top:0;bottom:0;width:14%;background:#fff}.flag-is:after{content:'';position:absolute;left:0;right:0;top:41%;height:18%;background:#fff}.flag-lu{background:linear-gradient(to bottom,#ed2939 0 33.33%,#fff 33.33% 66.66%,#00a1de 66.66%)}
-      @media(max-width:1120px){.best-v4-shell{grid-template-columns:minmax(250px,.72fr) minmax(0,1.55fr);gap:0 14px}.vpn-current-panel{padding-right:14px}.vpn-option-title h4{font-size:13px}.vpn-state-badge{display:none}.overview-approved-top{gap:16px}}
-      @media(max-width:760px){.content{width:calc(100% - 20px);padding-top:10px}.topbar.overview-approved{padding:0 14px}.overview-approved-top{display:none}.best-v4-shell{grid-template-columns:1fr;gap:12px}.vpn-current-panel{border-right:0;border-bottom:1px solid #30435d;padding:0 0 14px}.vpn-current-panel .best-v4-metrics,.vpn-option .best-v4-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.vpn-option .best-v4-pill{border-right:0}.vpn-section-head{align-items:flex-start}.vpn-section-head #bestServerRefresh{min-height:38px;padding:7px 10px}.vpn-option-head{align-items:flex-start}.vpn-option-actions{flex-direction:column;align-items:flex-end}.vpn-state-badge{display:inline-flex}.vpn-option-title h4{white-space:normal}.vpn-detail-chip{white-space:normal}#bestServerAdvanced #profilesList.profiles{grid-template-columns:1fr}.best-v4-name{font-size:20px}}
-      @media(min-width:761px) and (max-height:820px){.content{padding-top:9px}.page[data-page-view="overview"] .page-head{margin-bottom:7px}.page[data-page-view="overview"] .page-head h1{font-size:26px}#quickActionsSection{padding:12px 15px 10px}.best-v4-shell{gap:0 16px}.vpn-current-panel{padding-right:15px}.best-v4-name{font-size:18px}.best-v4-endpoint{margin:5px 0 9px}.vpn-current-panel .best-v4-metrics{gap:6px}.best-v4-pill{padding-top:6px;padding-bottom:6px}.vpn-current-panel .best-v4-pill b{font-size:15px}.best-quality{margin:6px 0}.vpn-current-panel>#bestServerCheckCurrent{min-height:35px}.vpn-current-panel>.action-row{margin-top:6px}.vpn-current-panel>.action-row .btn{min-height:31px}.current-health{margin-top:6px;padding:6px 8px}.current-help{margin-top:5px;line-height:1.3}.vpn-section-head{margin-bottom:6px}.vpn-section-head h3{font-size:16px}.vpn-section-head #bestServerRefresh{min-height:35px}.best-v4-result.show{gap:5px}.vpn-option{padding:6px 8px}.vpn-option-head{margin-bottom:3px}.vpn-option .btn{min-height:25px;padding:3px 8px}.vpn-option .best-v4-pill b{font-size:12px}.best-v4-reason{margin-top:3px;gap:2px 4px}.vpn-detail-chip{min-height:16px;padding:1px 4px;font-size:9px}.best-v4-status{margin-top:5px;padding:5px 7px}#bestServerAdvanced{margin-top:7px;padding-top:6px;gap:4px}#bestServerAdvanced h3{font-size:14px}#profilesList input,#profilesTrigger{min-height:31px}#bestServerAdvanced .btn{min-height:30px}}
+      :root{--fn-blue:#2d77ff;--fn-blue2:#5598ff;--fn-green:#36e3a2;--fn-red:#ff5c6a;--fn-card:#0e1e31;--fn-card2:#10243a;--fn-border:#294b70;--fn-muted:#a9bbd2;--fn-deep:#081523}
+      body{font-size:15px}.content{width:min(1248px,calc(100% - 38px));padding:15px 0 22px}.topbar.overview-approved{height:64px;padding:0 24px;background:rgba(6,14,25,.97);border-bottom:1px solid #223650}.page[data-page-view="overview"] .page-head{margin:0 0 13px;align-items:center}.page[data-page-view="overview"] .page-head h1{font-size:30px;line-height:1.1}.page[data-page-view="overview"] .page-kicker,.page[data-page-view="overview"] .page-head p{display:none}.page[data-page-view="overview"]>.grid-equal{display:none!important}.content:has(.page.active[data-page-view="overview"])>.footer{display:none!important}
+      .overview-hero-source{display:none!important}.overview-compact-grid{grid-template-columns:1fr!important;gap:13px}.overview-approved-top{margin-left:auto;display:flex;align-items:center;gap:30px}.overview-approved-fact{display:grid;gap:1px}.overview-approved-fact span{font-size:11px;color:#83a2ca;font-weight:760}.overview-approved-fact strong{font-size:13px;color:#f5f8ff;white-space:nowrap}.top-status{font-size:12px}.top-status .dot.ok{background:var(--fn-green);box-shadow:0 0 15px rgba(52,226,160,.7)}
+      #quickActionsSection{align-self:start;padding:20px 20px 18px;border-radius:20px;border:1px solid #294968;background:linear-gradient(150deg,#102238,#0b1829);box-shadow:none;overflow:visible}#quickActionsSection>.card-head{display:none!important}
+      .best-v4-shell{display:grid;grid-template-columns:minmax(312px,342px) minmax(0,1fr);gap:0 26px;align-items:start}.vpn-current-panel{min-width:0;padding:8px 24px 0 0;border-right:1px solid #304861}.vpn-alternatives-panel{min-width:0;padding-left:0}.best-v4-current{display:flex;align-items:flex-start;gap:12px}.best-v4-current-main{min-width:0}.best-v4-label{color:#a9bad1;font-size:12px;font-weight:800}.best-v4-name{font-size:23px;font-weight:790;line-height:1.2;margin-top:5px;color:#f8faff;overflow-wrap:anywhere;letter-spacing:-.015em}.best-v4-endpoint{margin:10px 0 17px;color:#8ea8c9;font:12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.vpn-current-panel #bestCurrentFlag{width:33px;height:23px;margin-top:3px;border-radius:4px}
+      .fn-icon{display:inline-grid;place-items:center;flex:0 0 auto;width:20px;height:20px;color:#6aa2ff}.fn-icon svg{display:block;width:100%;height:100%}.button-icon{width:18px;height:18px;color:currentColor}.metric-icon{width:24px;height:24px}.vpn-current-panel .metric-icon{width:23px;height:23px}.status-icon{width:18px;height:18px}.chip-icon{width:14px;height:14px}.manual-search-icon{position:absolute;left:13px;top:50%;transform:translateY(-50%);z-index:1;width:18px;height:18px;color:#7095c5}.fn-sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+      .best-v4-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:0}.vpn-current-panel .best-v4-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.best-v4-pill{min-width:0;display:grid;grid-template-columns:30px minmax(0,1fr);grid-template-rows:auto auto;column-gap:8px;align-items:center}.best-v4-pill>.metric-icon{grid-row:1/3}.best-v4-pill>.metric-copy{min-width:0}.best-v4-pill span.metric-label{display:block;color:#adbed3;font-size:11px;line-height:1.15}.metric-value-line{display:flex;align-items:center;gap:7px;min-width:0;margin-top:4px;flex-wrap:wrap}.best-v4-pill b{display:block;font-size:17px;line-height:1.1;white-space:nowrap;color:#f7f9fd}.best-v4-pill.speed b{color:#55e9aa}.metric-delta{display:inline-flex;align-items:center;min-height:19px;padding:2px 6px;border-radius:999px;font-size:9px;font-weight:780;white-space:nowrap}.metric-delta.good{background:rgba(20,132,93,.38);color:#64e8b2}.metric-delta.bad{background:rgba(121,42,52,.36);color:#ff98a1}
+      .vpn-current-panel .best-v4-pill{min-height:78px;padding:12px 11px;border:1px solid #315985;border-radius:11px;background:#0d1c2e}.vpn-current-panel .best-v4-pill span.metric-label{font-size:11px}.vpn-current-panel .best-v4-pill b{font-size:20px}.vpn-current-panel .best-v4-pill.speed b{font-size:20px}.best-quality{margin:12px 0 11px;color:#9eb2cb;font-size:12px;line-height:1.35}.vpn-current-panel>#bestServerCheckCurrent{width:100%;min-height:48px;justify-content:center;background:linear-gradient(180deg,#347eff,#2367e7);border-color:#69a0ff;border-radius:11px;font-size:14px;box-shadow:0 8px 22px rgba(27,94,218,.18)}.vpn-current-panel>.action-row{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:9px}.vpn-current-panel>.action-row[hidden]{display:none}.vpn-current-panel>.action-row .btn{min-height:43px;padding:7px 9px;justify-content:center;text-align:center;font-size:12px;background:#0f2035;border-color:#315275;border-radius:11px}.vpn-current-panel>.action-row .btn .button-icon{width:18px;height:18px;color:#6e9fff}
+      .current-health{margin-top:12px;padding:11px 12px;border:1px solid rgba(52,226,160,.62);border-radius:11px;background:linear-gradient(90deg,rgba(15,112,80,.26),rgba(13,70,60,.14));color:#bdf9df;font-size:12px;line-height:1.4;display:flex;gap:10px;align-items:flex-start}.current-health:before{content:'✓';flex:0 0 23px;width:23px;height:23px;border-radius:50%;display:grid;place-items:center;background:#36e3a2;color:#052416;font-weight:950;font-size:14px}.current-health.neutral{border-color:#385473;background:#0c1a2b;color:#a9bad1}.current-health.neutral:before{content:'i';background:#4e7eae;color:#eef6ff}.current-help{margin:10px 0 0;color:#96abc5;font-size:11px;line-height:1.48}
+      .vpn-section-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:12px}.vpn-section-head h3{margin:0;font-size:20px;line-height:1.15}.vpn-section-head .hint{margin-top:4px;font-size:12px;color:#9eb3cc}.vpn-section-head #bestServerRefresh{min-height:48px;padding:9px 18px;border-radius:11px;background:linear-gradient(180deg,#347eff,#2469e9);border-color:#69a0ff;font-size:14px;box-shadow:0 8px 22px rgba(27,94,218,.18)}.vpn-section-head #bestServerRefresh .button-icon{width:19px;height:19px}.vpn-empty{padding:39px 24px;border:1px dashed #385472;border-radius:13px;color:#aab9cb;font-size:13px;line-height:1.5;background:rgba(7,18,31,.18)}
+      .best-v4-result,.best-v4-result.show{padding:0;border:0;background:none}.best-v4-result.show{display:grid;gap:12px}.vpn-option{min-height:145px;padding:13px 14px 12px;border:1px solid #315276;background:linear-gradient(155deg,#122941,#0e1e32);border-radius:14px;box-shadow:inset 0 1px rgba(255,255,255,.018)}.vpn-option.vpn-best{border-color:#1fd697;background:linear-gradient(155deg,rgba(12,83,68,.74),rgba(8,33,43,.97));box-shadow:inset 0 0 0 1px rgba(25,207,137,.13),0 0 22px rgba(22,193,132,.04)}.vpn-option.vpn-rejected{border-color:#db4858;background:linear-gradient(155deg,rgba(69,27,39,.76),rgba(19,27,42,.97))}.vpn-option-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:11px}.vpn-option-title{display:flex;align-items:center;gap:11px;min-width:0}.vpn-option-title .flag-icon{width:34px;height:24px;border-radius:4px}.vpn-option-title h4{font-size:17px;line-height:1.2;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-.01em}.vpn-option-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}.vpn-state-badge{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:6px 12px;border:1px solid #405e80;border-radius:999px;color:#c1cfe0;background:#14263b;font-size:11px;font-weight:820;white-space:nowrap}.vpn-best .vpn-state-badge{border-color:#20d895;color:#5cebb3;background:rgba(13,90,65,.42)}.vpn-rejected .vpn-state-badge{border-color:#df5060;color:#ff7885;background:rgba(100,28,41,.43)}.vpn-option .btn{min-height:40px;padding:7px 14px;border-radius:10px;font-size:12px;justify-content:center}.vpn-best .vpn-option-apply{background:linear-gradient(180deg,#347eff,#2367e7);border-color:#69a0ff}.vpn-option-retry{background:#17293e;border-color:#49698d}.vpn-option .best-v4-metrics{margin:0}.vpn-option .best-v4-pill{min-height:58px;padding:4px 12px 4px 8px;border:0;border-right:1px solid #334a65;border-radius:0;background:none;grid-template-columns:27px minmax(0,1fr);column-gap:8px}.vpn-option .best-v4-pill:last-child{border-right:0}.vpn-option .best-v4-pill span.metric-label{font-size:10px}.vpn-option .best-v4-pill b{font-size:16px}.vpn-option .metric-icon{width:23px;height:23px}.best-v4-reason{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;font-size:11px;line-height:1.25}.vpn-detail-chip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 9px;border:1px solid #3a5877;border-radius:8px;background:#0c1b2d;color:#bdcad9;white-space:nowrap}.vpn-detail-chip.ok{border-color:rgba(52,226,160,.42);color:#a4edcb;background:rgba(12,81,58,.23)}.vpn-detail-chip.bad{border-color:rgba(255,95,109,.53);color:#ffa0a8;background:rgba(104,28,42,.27)}.vpn-rejected-note{margin:9px 0 0;color:#b9c6d7;font-size:11px;line-height:1.4}
+      .best-v4-status{margin-top:12px;padding:10px 12px;border:1px solid #31699f;border-radius:11px;background:linear-gradient(90deg,#0c3155,#0a2846);color:#c3daf4;font-size:11px;line-height:1.4;min-height:0}.best-v4-status:empty{display:none}.best-v4-status.busy{color:#d5e7fb}.best-v4-status.summary{display:flex;align-items:flex-start;gap:10px}.best-v4-status.summary .status-icon{flex:0 0 22px;width:22px;height:22px;color:#8fc5ff}.best-v4-status.summary .summary-copy{display:grid;gap:2px}.best-v4-status.summary .summary-main{color:#c6dcf4}.best-v4-status.summary .summary-sub{color:#9fb8d4}.vpn-measure-note{display:none}
+      #bestServerAdvanced{margin:0 4px;padding:0;display:grid;grid-template-columns:1fr;gap:8px;background:transparent;border:0;min-height:0!important}#bestServerAdvanced h3{margin:0;font-size:18px;line-height:1.2}#bestServerAdvanced:before{content:'ПОИСК ПО СТРАНЕ ИЛИ ГОРОДУ';font-size:10px;font-weight:860;letter-spacing:.1em;color:#9fb2ca;order:1}#bestServerAdvanced h3{order:0}#bestServerAdvanced #profilesList.profiles{order:2;display:grid!important;grid-template-columns:minmax(260px,.88fr) minmax(360px,1.45fr);gap:10px;align-items:end;margin:0!important;min-height:0!important}#profilesList .field{position:relative;padding:0;border:0;background:none;min-height:0!important}#profilesList .field label{display:none}#profilesList .profile-combobox{margin:0!important;min-height:0!important}#profilesList input,#profilesTrigger{min-height:48px;background:#0b1929;border-color:#315276;border-radius:10px;font-size:12px}#profilesList input{padding-left:42px}#profilesList #selectedProfileCard{grid-column:1/-1;margin:0;padding:8px 10px;border-color:#2f4d6e;background:#0c1a2b;font-size:10px}#bestServerAdvanced .action-row{order:3;display:flex;gap:8px;margin:0}#bestServerAdvanced .action-row[hidden]{display:none}#bestServerAdvanced .btn{min-height:39px;padding:7px 11px;font-size:11px}#bestServerAdvanced:has(#exactConnectRow[hidden]) #selectedProfileCard{display:none}#quickNetworkGuard{display:none}
+      .flag-dk{background:linear-gradient(to right,transparent 0 31%,#fff 31% 42%,transparent 42%),linear-gradient(to bottom,transparent 0 42%,#fff 42% 57%,transparent 57%),#c8102e}.flag-no{background:linear-gradient(to right,transparent 0 28%,#fff 28% 46%,transparent 46%),linear-gradient(to bottom,transparent 0 38%,#fff 38% 63%,transparent 63%),#ba0c2f}.flag-no:after{content:'';position:absolute;inset:0;background:linear-gradient(to right,transparent 0 33%,#00205b 33% 41%,transparent 41%),linear-gradient(to bottom,transparent 0 45%,#00205b 45% 56%,transparent 56%)}.flag-se{background:linear-gradient(to right,transparent 0 31%,#fecc00 31% 42%,transparent 42%),linear-gradient(to bottom,transparent 0 43%,#fecc00 43% 58%,transparent 58%),#006aa7}.flag-fi{background:linear-gradient(to right,transparent 0 30%,#003580 30% 45%,transparent 45%),linear-gradient(to bottom,transparent 0 40%,#003580 40% 60%,transparent 60%),#fff}.flag-is{background:linear-gradient(to right,transparent 0 29%,#fff 29% 48%,transparent 48%),linear-gradient(to bottom,transparent 0 37%,#fff 37% 64%,transparent 64%),#02529c}.flag-is:after{content:'';position:absolute;inset:0;background:linear-gradient(to right,transparent 0 35%,#dc1e35 35% 42%,transparent 42%),linear-gradient(to bottom,transparent 0 46%,#dc1e35 46% 56%,transparent 56%)}.flag-ch{background:#d52b1e}.flag-ch:before{content:'';position:absolute;left:39%;top:18%;width:22%;height:64%;background:#fff}.flag-ch:after{content:'';position:absolute;left:23%;top:39%;width:54%;height:22%;background:#fff}.flag-hr{background:linear-gradient(to bottom,#ff0000 0 33.33%,#fff 33.33% 66.66%,#171796 66.66%)}.flag-hr:after{content:'';position:absolute;left:41%;top:27%;width:18%;height:43%;background:repeating-conic-gradient(#e5232e 0 25%,#fff 0 50%) 0/5px 5px;border:1px solid #1d4d9b}.flag-sk{background:linear-gradient(to bottom,#fff 0 33.33%,#0b4ea2 33.33% 66.66%,#ee1c25 66.66%)}.flag-za{background:linear-gradient(to bottom,#de3831 0 43%,#fff 43% 57%,#002395 57%)}.flag-za:before{content:'';position:absolute;inset:0;background:#007749;clip-path:polygon(0 18%,48% 50%,0 82%,0 64%,28% 50%,0 36%)}.flag-si{background:linear-gradient(to bottom,#fff 0 33.33%,#0056a4 33.33% 66.66%,#ed1c24 66.66%)}.flag-rs{background:linear-gradient(to bottom,#c6363c 0 33.33%,#0c4076 33.33% 66.66%,#fff 66.66%)}.flag-lu{background:linear-gradient(to bottom,#ed2939 0 33.33%,#fff 33.33% 66.66%,#00a1de 66.66%)}
+      @media(max-width:1180px){.content{width:calc(100% - 30px)}#quickActionsSection{padding:17px 16px 15px}.best-v4-shell{grid-template-columns:minmax(292px,310px) minmax(0,1fr);gap:0 18px}.vpn-current-panel{padding-right:18px}.best-v4-name{font-size:21px}.vpn-current-panel .best-v4-pill{padding-left:9px;padding-right:8px;grid-template-columns:26px minmax(0,1fr)}.vpn-current-panel .best-v4-pill b{font-size:18px}.vpn-option{padding:11px 11px 10px;min-height:132px}.vpn-option-title h4{font-size:15px}.vpn-option-actions{gap:7px}.vpn-state-badge{padding:5px 9px;font-size:10px}.vpn-option .btn{padding:6px 10px}.vpn-option .best-v4-pill{padding-left:5px;padding-right:7px;grid-template-columns:22px minmax(0,1fr);column-gap:6px}.vpn-option .metric-icon{width:20px;height:20px}.vpn-option .best-v4-pill b{font-size:15px}.vpn-detail-chip{min-height:25px;padding:3px 7px;font-size:10px}.overview-approved-top{gap:16px}}
+      @media(max-width:820px){.content{width:calc(100% - 20px);padding-top:10px}.topbar.overview-approved{padding:0 14px}.overview-approved-top{display:none}.best-v4-shell{grid-template-columns:1fr;gap:14px}.vpn-current-panel{border-right:0;border-bottom:1px solid #30435d;padding:0 0 16px}.vpn-current-panel .best-v4-metrics,.vpn-option .best-v4-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.vpn-option .best-v4-pill{border-right:0;border:1px solid #294665;border-radius:9px;padding:8px}.vpn-section-head{align-items:flex-start}.vpn-section-head #bestServerRefresh{min-height:42px;padding:8px 11px}.vpn-option-head{align-items:flex-start}.vpn-option-actions{flex-direction:column;align-items:flex-end}.vpn-option-title h4{white-space:normal}.vpn-detail-chip{white-space:normal}#bestServerAdvanced{margin:0}#bestServerAdvanced #profilesList.profiles{grid-template-columns:1fr}.best-v4-name{font-size:20px}}
+      @media(min-width:821px) and (max-height:820px){.content{padding-top:8px}.page[data-page-view="overview"] .page-head{margin-bottom:7px}.page[data-page-view="overview"] .page-head h1{font-size:26px}.overview-compact-grid{gap:7px}#quickActionsSection{padding:11px 13px 9px}.best-v4-shell{grid-template-columns:minmax(265px,285px) minmax(0,1fr);gap:0 15px}.vpn-current-panel{padding:2px 14px 0 0}.best-v4-name{font-size:18px}.best-v4-endpoint{margin:5px 0 8px}.vpn-current-panel .best-v4-metrics{gap:6px}.vpn-current-panel .best-v4-pill{min-height:54px;padding:6px;grid-template-columns:20px minmax(0,1fr);column-gap:5px}.vpn-current-panel .metric-icon{width:18px;height:18px}.vpn-current-panel .best-v4-pill b{font-size:14px}.best-quality{margin:5px 0;font-size:10px}.vpn-current-panel>#bestServerCheckCurrent{min-height:34px;font-size:11px}.vpn-current-panel>.action-row{margin-top:5px;gap:6px}.vpn-current-panel>.action-row .btn{min-height:30px;font-size:9px}.current-health{margin-top:5px;padding:5px 7px;font-size:9px}.current-health:before{width:18px;height:18px;flex-basis:18px;font-size:11px}.current-help{margin-top:4px;font-size:8.5px;line-height:1.25}.vpn-section-head{margin-bottom:5px}.vpn-section-head h3{font-size:16px}.vpn-section-head .hint{font-size:9px}.vpn-section-head #bestServerRefresh{min-height:34px;font-size:11px}.best-v4-result.show{gap:5px}.vpn-option{min-height:0;padding:6px 8px}.vpn-option-head{margin-bottom:4px}.vpn-option-title .flag-icon{width:25px;height:17px}.vpn-option-title h4{font-size:12px}.vpn-state-badge{min-height:23px;padding:2px 6px;font-size:8px}.vpn-option .btn{min-height:26px;padding:3px 7px;font-size:9px}.vpn-option .best-v4-pill{min-height:34px;padding:0 5px;grid-template-columns:16px minmax(0,1fr);column-gap:4px}.vpn-option .metric-icon{width:15px;height:15px}.vpn-option .best-v4-pill span.metric-label{font-size:7px}.vpn-option .best-v4-pill b{font-size:11px}.metric-delta{display:none}.best-v4-reason{margin-top:3px;gap:3px}.vpn-detail-chip{min-height:17px;padding:1px 4px;font-size:7.5px}.chip-icon{width:10px;height:10px}.vpn-rejected-note{display:none}.best-v4-status{margin-top:5px;padding:5px 7px;font-size:8px}#bestServerAdvanced{gap:3px}#bestServerAdvanced h3{font-size:14px}#bestServerAdvanced:before{font-size:7px}#profilesList input,#profilesTrigger{min-height:31px;font-size:9px}#bestServerAdvanced .btn{min-height:29px}}
     `;
     document.head.appendChild(style);
   }
@@ -307,21 +339,36 @@
     return '—';
   }
 
-  function metricPill(label, value, key, trustedSpeed) {
+  function httpDelta(candidate, baseline) {
+    const value = Number(candidate && candidate.application_rtt_ms || 0);
+    const current = Number(baseline && baseline.application_rtt_ms || 0);
+    if (!value || !current || candidate === baseline || candidate.current) return null;
+    const diff = current - value;
+    if (!diff) return {text: 'так же', tone: ''};
+    return {text: `на ${Math.abs(diff)} мс ${diff > 0 ? 'быстрее' : 'медленнее'}`, tone: diff > 0 ? 'good' : 'bad'};
+  }
+
+  function metricPill(label, value, key, trustedSpeed, delta = null) {
     const node = document.createElement('div');
     node.className = 'best-v4-pill' + (key === 'speed' && trustedSpeed ? ' speed' : '');
     node.dataset.metric = key;
-    const name = document.createElement('span'); name.textContent = label;
-    const number = document.createElement('b'); number.textContent = value;
-    node.append(name, number);
+    node.appendChild(makeIcon(key, 'metric-icon'));
+    const copy = document.createElement('div'); copy.className = 'metric-copy';
+    const name = document.createElement('span'); name.className = 'metric-label'; name.textContent = label;
+    const valueLine = document.createElement('div'); valueLine.className = 'metric-value-line';
+    const number = document.createElement('b'); number.textContent = value; valueLine.appendChild(number);
+    if (delta && delta.text) {
+      const note = document.createElement('span'); note.className = `metric-delta${delta.tone ? ' ' + delta.tone : ''}`; note.textContent = delta.text; valueLine.appendChild(note);
+    }
+    copy.append(name, valueLine); node.appendChild(copy);
     return node;
   }
 
-  function renderMetrics(root, candidate) {
+  function renderMetrics(root, candidate, baseline = null) {
     if (!root) return;
     root.textContent = '';
     root.appendChild(metricPill('Скорость VPN', metric(candidate, 'speed'), 'speed', candidate?.eligible === true));
-    root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false));
+    root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline)));
     root.appendChild(metricPill('Связь с сервером', metric(candidate, 'tcp'), 'tcp', false));
     root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter'), 'jitter', false));
   }
@@ -358,7 +405,7 @@
     }
     if (candidate.eligible) {
       box.className = 'current-health';
-      box.textContent = 'Текущий VPN работает стабильно. Скорость и отклик подтверждены.';
+      box.textContent = 'Текущий VPN работает стабильно.\nСкорость и отклик в норме.';
     } else {
       box.className = 'current-health neutral';
       box.textContent = 'VPN работает, но для полной оценки качества данных пока недостаточно.';
@@ -413,8 +460,20 @@
     if (!root || !text) return;
     const chip = document.createElement('span');
     chip.className = 'vpn-detail-chip' + (tone ? ' ' + tone : '');
-    chip.textContent = String(text).replace(/[.]$/, '');
+    if (tone === 'ok') chip.appendChild(makeIcon('check', 'chip-icon'));
+    if (tone === 'bad') chip.appendChild(makeIcon('alert', 'chip-icon'));
+    const label = document.createElement('span'); label.textContent = String(text).replace(/[.]$/, ''); chip.appendChild(label);
     root.appendChild(chip);
+  }
+
+  function friendlyRejection(text) {
+    const value = String(text || '').trim();
+    const lower = value.toLowerCase();
+    if (lower.includes('timeout') || lower.includes('тайма')) return 'Таймауты при замере';
+    if (lower.includes('стабил') || lower.includes('jitter') || lower.includes('колеб')) return 'Нестабильное соединение';
+    if (lower.includes('speedtest') && lower.includes('0/')) return 'Speedtest не завершён';
+    if (lower.includes('скорость') && lower.includes('не измер')) return 'Скорость не измерена';
+    return value.length > 42 ? value.slice(0, 39) + '…' : value;
   }
 
   function clearAlternatives(message) {
@@ -424,6 +483,7 @@
     if (box) { box.textContent = ''; box.classList.remove('show'); }
     const empty = qs('#bestServerEmpty');
     if (empty) { empty.hidden = false; empty.textContent = message || 'Подберите серверы, чтобы увидеть проверенные варианты.'; }
+    const status = qs('#bestServerStatus'); if (status) status.classList.remove('summary');
   }
 
   function comparisonCandidates(data, current) {
@@ -444,17 +504,40 @@
   }
 
   function stateForCandidate(data, candidate) {
-    if (!candidate.eligible) return {kind: 'rejected', label: 'Не прошёл проверку'};
+    if (!candidate.eligible) return {kind: 'rejected', label: 'Не прошёл проверку', icon: 'alert'};
     if (data && data.recommendation && !data.recommendation.current && sameCandidate(data.recommendation, candidate)) {
-      return {kind: 'best', label: 'Лучший вариант'};
+      return {kind: 'best', label: 'Лучший вариант', icon: 'trophy'};
     }
-    return {kind: 'comparison', label: 'Для сравнения'};
+    return {kind: 'comparison', label: 'Для сравнения', icon: 'compare'};
+  }
+
+  function renderSummaryStatus(data, states) {
+    const status = qs('#bestServerStatus');
+    if (!status) return;
+    const best = states.filter(state => state.kind === 'best').length;
+    const comparisons = states.filter(state => state.kind === 'comparison').length;
+    const rejected = states.filter(state => state.kind === 'rejected').length;
+    status.textContent = ''; status.classList.add('summary');
+    status.appendChild(makeIcon('info', 'status-icon'));
+    const copy = document.createElement('div'); copy.className = 'summary-copy';
+    const main = document.createElement('div'); main.className = 'summary-main';
+    const pieces = [];
+    if (best) pieces.push(`${best} подходит`);
+    if (comparisons) pieces.push(`${comparisons} для сравнения`);
+    if (rejected) pieces.push(`${rejected} не прошёл проверку`);
+    main.textContent = `Проверено профилей: ${data.profiles_scanned || 0}. Показано ${states.length} вариант${states.length === 1 ? '' : states.length < 5 ? 'а' : 'ов'}: ${pieces.join(', ') || 'нет подходящих'}.`;
+    copy.appendChild(main);
+    if (data.recommendation && data.recommendation.current) {
+      const sub = document.createElement('div'); sub.className = 'summary-sub'; sub.textContent = 'Текущий VPN остаётся предпочтительным.'; copy.appendChild(sub);
+    }
+    status.appendChild(copy);
   }
 
   function renderBestResult(data) {
     clearAlternatives();
     const current = currentCandidate(data);
     if (current) renderCurrentQuality({scanned_at: data.scanned_at, candidates: [current]});
+    const baseline = current || currentQuality;
     alternatives = comparisonCandidates(data, current);
     const box = qs('#bestServerResult');
     if (!alternatives.length) {
@@ -464,8 +547,9 @@
     }
     const empty = qs('#bestServerEmpty'); if (empty) empty.hidden = true;
     box.classList.add('show');
+    const states = [];
     alternatives.forEach((candidate, index) => {
-      const state = stateForCandidate(data, candidate);
+      const state = stateForCandidate(data, candidate); states.push(state);
       const row = document.createElement('article');
       row.className = `vpn-option vpn-${state.kind}`;
       const head = document.createElement('div'); head.className = 'vpn-option-head';
@@ -475,7 +559,7 @@
       if (index === 0) name.id = 'bestServerName';
       title.appendChild(name); head.appendChild(title);
       const actions = document.createElement('div'); actions.className = 'vpn-option-actions';
-      const badge = document.createElement('span'); badge.className = 'vpn-state-badge'; badge.textContent = state.label; actions.appendChild(badge);
+      const badge = document.createElement('span'); badge.className = 'vpn-state-badge'; badge.append(makeIcon(state.icon, 'status-icon'), document.createTextNode(state.label)); actions.appendChild(badge);
       if (candidate.eligible) {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'btn secondary vpn-option-apply'; button.dataset.candidateId = candidate.id;
         if (index === 0) button.id = 'bestServerApply';
@@ -486,26 +570,27 @@
         const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn secondary vpn-option-retry'; retry.textContent = 'Проверить снова'; actions.appendChild(retry);
       }
       head.appendChild(actions);
-      const metrics = document.createElement('div'); metrics.className = 'best-v4-metrics'; renderMetrics(metrics, candidate);
+      const metrics = document.createElement('div'); metrics.className = 'best-v4-metrics'; renderMetrics(metrics, candidate, baseline);
       const reason = document.createElement('div'); reason.className = 'best-v4-reason'; if (index === 0) reason.id = 'bestServerReason';
+      const legacyDeltas = document.createElement('span'); legacyDeltas.className = 'fn-sr-only comparison-deltas'; legacyDeltas.textContent = recommendationReason(data, candidate).join(' · '); reason.appendChild(legacyDeltas);
       if (candidate.eligible) {
-        recommendationReason(data, candidate).forEach(text => appendDetailChip(reason, text, text.includes('быстрее') || text.includes('+') ? 'ok' : ''));
         appendDetailChip(reason, `Speedtest ${candidate.media_samples || 0}/4`, 'ok');
         appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, 'ok');
         appendDetailChip(reason, 'Доступен', 'ok');
       } else {
-        const diagnostics = Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.slice(0, 3) : ['Недостаточно подтверждённых данных'];
-        diagnostics.forEach(text => appendDetailChip(reason, text, 'bad'));
         appendDetailChip(reason, `Speedtest ${candidate.media_samples || 0}/4`, 'bad');
         appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, candidate.service_ok === candidate.service_total && candidate.service_total > 0 ? 'ok' : 'bad');
+        const diagnostics = Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.slice(0, 2) : ['Недостаточно подтверждённых данных'];
+        diagnostics.forEach(text => appendDetailChip(reason, friendlyRejection(text), 'bad'));
+        const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = (candidate.rejections || []).join(' · '); reason.appendChild(originals);
       }
-      row.append(head, metrics, reason); box.appendChild(row);
+      row.append(head, metrics, reason);
+      if (!candidate.eligible) {
+        const note = document.createElement('p'); note.className = 'vpn-rejected-note'; note.textContent = 'Сервер не прошёл все проверки и не рекомендуется для переключения.'; row.appendChild(note);
+      }
+      box.appendChild(row);
     });
-    const switchable = alternatives.filter(candidate => candidate.eligible).length;
-    const currentPreferred = data.recommendation && data.recommendation.current ? ' Текущий VPN остаётся предпочтительным.' : '';
-    const rejected = alternatives.filter(candidate => !candidate.eligible).length;
-    const statusText = `Проверено профилей: ${data.profiles_scanned || 0}. Показано вариантов: ${alternatives.length}; подходит: ${switchable}${rejected ? `; не прошли проверку: ${rejected}` : ''}.${currentPreferred}`;
-    setText(qs('#bestServerStatus'), statusText);
+    renderSummaryStatus(data, states);
   }
 
   function mountBestServerUI() {
@@ -516,31 +601,35 @@
     const alternativesHint = qs('.vpn-section-head .hint'); if (alternativesHint) alternativesHint.textContent = 'Топ-3 варианта на основе реальных измерений';
     const profilesList = qs('#profilesList');
     const profileLabel = profilesList && profilesList.querySelector('label[for="profileSearch"]'); if (profileLabel) profileLabel.textContent = 'Поиск по стране или городу';
-    const update = qs('#updateBtn'); if (update) { update.textContent = 'Обновить и проверить'; update.title = 'Получить свежий endpoint текущего профиля и автоматически проверить качество'; update.classList.remove('primary'); update.classList.add('secondary'); }
-    const rotate = qs('#rotateBtn'); if (rotate) { rotate.textContent = 'Сменить сервер'; rotate.classList.remove('primary'); rotate.classList.add('secondary'); }
+    const update = qs('#updateBtn'); if (update) { setButtonLabel(update, 'Обновить и проверить', 'refresh'); update.title = 'Получить свежий endpoint текущего профиля и автоматически проверить качество'; update.classList.remove('primary'); update.classList.add('secondary'); }
+    const rotate = qs('#rotateBtn'); if (rotate) { setButtonLabel(rotate, 'Сменить сервер', 'swap'); rotate.classList.remove('primary'); rotate.classList.add('secondary'); }
     const currentPanel = qs('.vpn-current-panel');
     const routine = update && update.closest('.action-row');
     if (routine && currentPanel && routine.parentNode !== currentPanel) currentPanel.appendChild(routine);
     const currentCheck = qs('#bestServerCheckCurrent'); if (currentCheck) { currentCheck.classList.remove('secondary'); currentCheck.classList.add('primary'); }
+    const refresh = qs('#bestServerRefresh'); if (refresh && !scanBusy) setButtonLabel(refresh, 'Подобрать серверы', 'search');
     if (currentPanel && !qs('#bestCurrentHealth')) {
       const health = document.createElement('div'); health.id = 'bestCurrentHealth'; health.className = 'current-health neutral'; health.textContent = 'Проверка качества ещё не выполнялась.';
       currentPanel.appendChild(health);
-      const help = document.createElement('p'); help.id = 'bestCurrentHelp'; help.className = 'current-help'; help.textContent = 'FreeNet сравнивает реальный отклик через каждый VPN и глубоко проверяет лучшие варианты. Скорость — короткий тест загрузки, не скорость тарифа.';
+      const help = document.createElement('p'); help.id = 'bestCurrentHelp'; help.className = 'current-help'; help.textContent = 'FreeNet сравнивает реальный отклик через каждый VPN, затем глубоко проверяет лучшие варианты. Скорость — короткий тест загрузки, не скорость тарифа. Российские серверы исключены из поиска.';
       currentPanel.appendChild(help);
     }
     const measureNote = qs('.vpn-measure-note'); if (measureNote) measureNote.remove();
     const status = qs('#bestServerStatus'), alternativesPanel = qs('.vpn-alternatives-panel');
     if (status && alternativesPanel && status.parentNode !== alternativesPanel) alternativesPanel.appendChild(status);
     const guard = qs('#quickNetworkGuard');
-    if (profilesList && !qs('#bestServerAdvanced')) {
-      const manual = document.createElement('section'); manual.id = 'bestServerAdvanced';
+    let manual = qs('#bestServerAdvanced');
+    if (profilesList && !manual) {
+      manual = document.createElement('section'); manual.id = 'bestServerAdvanced';
       const title = document.createElement('h3'); title.textContent = 'Выбор сервера вручную'; manual.appendChild(title);
-      profilesList.parentNode.insertBefore(manual, profilesList); manual.appendChild(profilesList);
-      const exact = qs('#exactConnectRow'); if (exact) manual.appendChild(exact);
-      if (guard) manual.appendChild(guard);
+      quick.parentNode.insertBefore(manual, quick.nextSibling);
     }
-    const manual = qs('#bestServerAdvanced');
+    if (manual && quick.parentNode && manual.parentNode !== quick.parentNode) quick.parentNode.insertBefore(manual, quick.nextSibling);
+    if (manual && profilesList && profilesList.parentNode !== manual) manual.appendChild(profilesList);
     const exact = qs('#exactConnectRow'); if (manual && exact && exact.parentNode !== manual) manual.appendChild(exact);
+    if (manual && guard && guard.parentNode !== manual) manual.appendChild(guard);
+    const searchField = profilesList && profilesList.querySelector('.field');
+    if (searchField && !searchField.querySelector('.manual-search-icon')) searchField.prepend(makeIcon('search', 'manual-search-icon'));
     renderMetrics(qs('#bestCurrentMetrics'), currentQuality); renderCurrentHealth(currentQuality);
     try { if (typeof lastStatus !== 'undefined' && lastStatus) renderCurrentIdentity(lastStatus); } catch (_) {}
     return qs('#bestServerShell');
@@ -551,7 +640,7 @@
     scanBusy = !!mode;
     const current = qs('#bestServerCheckCurrent'), best = qs('#bestServerRefresh');
     if (current) { current.disabled = scanBusy || applyBusy || externalBusy; current.textContent = mode === 'current' ? 'Проверяем текущий…' : 'Проверить текущий VPN'; }
-    if (best) { best.disabled = scanBusy || applyBusy || externalBusy; best.textContent = mode === 'best' ? 'Подбираем…' : 'Подобрать серверы'; }
+    if (best) { best.disabled = scanBusy || applyBusy || externalBusy; setButtonLabel(best, mode === 'best' ? 'Подбираем…' : 'Подобрать серверы', 'search'); }
     document.querySelectorAll('.vpn-option-apply,.vpn-option-retry').forEach(button => { button.disabled = scanBusy || applyBusy || externalBusy; });
     const manual = qs('#bestServerAdvanced'); if (manual) manual.inert = scanBusy || applyBusy || externalBusy;
     const maintenance = qs('.vpn-current-panel>.action-row'); if (maintenance) maintenance.inert = scanBusy || applyBusy || externalBusy;
