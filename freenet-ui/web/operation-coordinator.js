@@ -732,3 +732,135 @@
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
 })();
+
+// Runtime polish pass: visual-only. Best Server selection/apply semantics above are unchanged.
+(() => {
+  const q = (selector, root = document) => root.querySelector(selector);
+  let scheduled = false;
+
+  const flagSVG = code => {
+    const common = 'viewBox="0 0 30 20" width="30" height="20" preserveAspectRatio="none" aria-hidden="true" focusable="false"';
+    const maps = {
+      pl: '<rect width="30" height="10" fill="#fff"/><rect y="10" width="30" height="10" fill="#dc143c"/>',
+      ru: '<rect width="30" height="6.667" fill="#fff"/><rect y="6.667" width="30" height="6.666" fill="#0039a6"/><rect y="13.333" width="30" height="6.667" fill="#d52b1e"/>',
+      lt: '<rect width="30" height="6.667" fill="#fdb913"/><rect y="6.667" width="30" height="6.666" fill="#006a44"/><rect y="13.333" width="30" height="6.667" fill="#c1272d"/>',
+      de: '<rect width="30" height="6.667" fill="#000"/><rect y="6.667" width="30" height="6.666" fill="#dd0000"/><rect y="13.333" width="30" height="6.667" fill="#ffce00"/>',
+      nl: '<rect width="30" height="6.667" fill="#ae1c28"/><rect y="6.667" width="30" height="6.666" fill="#fff"/><rect y="13.333" width="30" height="6.667" fill="#21468b"/>',
+      at: '<rect width="30" height="6.667" fill="#ed2939"/><rect y="6.667" width="30" height="6.666" fill="#fff"/><rect y="13.333" width="30" height="6.667" fill="#ed2939"/>',
+      bg: '<rect width="30" height="6.667" fill="#fff"/><rect y="6.667" width="30" height="6.666" fill="#00966e"/><rect y="13.333" width="30" height="6.667" fill="#d62612"/>',
+      fr: '<rect width="10" height="20" fill="#0055a4"/><rect x="10" width="10" height="20" fill="#fff"/><rect x="20" width="10" height="20" fill="#ef4135"/>',
+      it: '<rect width="10" height="20" fill="#009246"/><rect x="10" width="10" height="20" fill="#fff"/><rect x="20" width="10" height="20" fill="#ce2b37"/>',
+      dk: '<rect width="30" height="20" fill="#c8102e"/><rect x="9" width="4" height="20" fill="#fff"/><rect y="8" width="30" height="4" fill="#fff"/>',
+      fi: '<rect width="30" height="20" fill="#fff"/><rect x="9" width="4" height="20" fill="#003580"/><rect y="8" width="30" height="4" fill="#003580"/>',
+      se: '<rect width="30" height="20" fill="#006aa7"/><rect x="9" width="4" height="20" fill="#fecc00"/><rect y="8" width="30" height="4" fill="#fecc00"/>',
+      no: '<rect width="30" height="20" fill="#ba0c2f"/><rect x="8" width="6" height="20" fill="#fff"/><rect y="7" width="30" height="6" fill="#fff"/><rect x="10" width="2" height="20" fill="#00205b"/><rect y="9" width="30" height="2" fill="#00205b"/>',
+      hr: '<rect width="30" height="6.667" fill="#ff0000"/><rect y="6.667" width="30" height="6.666" fill="#fff"/><rect y="13.333" width="30" height="6.667" fill="#171796"/><path d="M12 6h6v7c0 2-1.3 3.2-3 4-1.7-.8-3-2-3-4z" fill="#fff" stroke="#174e9c" stroke-width=".6"/><rect x="12.4" y="6.4" width="1.3" height="1.3" fill="#e31d2b"/><rect x="15" y="6.4" width="1.3" height="1.3" fill="#e31d2b"/><rect x="13.7" y="7.7" width="1.3" height="1.3" fill="#e31d2b"/><rect x="16.3" y="7.7" width="1.3" height="1.3" fill="#e31d2b"/><rect x="12.4" y="9" width="1.3" height="1.3" fill="#e31d2b"/><rect x="15" y="9" width="1.3" height="1.3" fill="#e31d2b"/>',
+      sk: '<rect width="30" height="6.667" fill="#fff"/><rect y="6.667" width="30" height="6.666" fill="#0b4ea2"/><rect y="13.333" width="30" height="6.667" fill="#ee1c25"/><path d="M8 5h7v7.2c0 2.1-1.4 3.4-3.5 4.5C9.4 15.6 8 14.3 8 12.2z" fill="#ee1c25" stroke="#fff" stroke-width=".65"/><path d="M11.5 7v5m-2-3h4m-3.4 2h2.8" stroke="#fff" stroke-width=".7" stroke-linecap="round"/><path d="M9.2 13.2c1.4-.9 3.2-.9 4.6 0" stroke="#0b4ea2" stroke-width="1" fill="none"/>',
+      si: '<rect width="30" height="6.667" fill="#fff"/><rect y="6.667" width="30" height="6.666" fill="#0056a4"/><rect y="13.333" width="30" height="6.667" fill="#ed1c24"/><path d="M8.5 4.8h5.4v5.6c0 1.8-1.1 3-2.7 3.8-1.6-.8-2.7-2-2.7-3.8z" fill="#0056a4" stroke="#fff" stroke-width=".5"/>',
+      rs: '<rect width="30" height="6.667" fill="#c6363c"/><rect y="6.667" width="30" height="6.666" fill="#0c4076"/><rect y="13.333" width="30" height="6.667" fill="#fff"/><path d="M8.5 5h5.5v7c0 1.7-1.1 2.8-2.7 3.6-1.7-.8-2.8-1.9-2.8-3.6z" fill="#c6363c" stroke="#fff" stroke-width=".5"/>',
+      ua: '<rect width="30" height="10" fill="#0057b7"/><rect y="10" width="30" height="10" fill="#ffd700"/>',
+      jp: '<rect width="30" height="20" fill="#fff"/><circle cx="15" cy="10" r="5" fill="#bc002d"/>',
+      ch: '<rect width="30" height="20" fill="#d52b1e"/><rect x="13" y="5" width="4" height="10" fill="#fff"/><rect x="10" y="8" width="10" height="4" fill="#fff"/>'
+    };
+    const body = maps[code];
+    return body ? `<svg ${common}>${body}</svg>` : '';
+  };
+
+  function cleanFlag(node) {
+    if (!node || !node.classList || !node.classList.contains('flag-icon')) return;
+    const token = Array.from(node.classList).find(name => /^flag-[a-z]{2}$/.test(name));
+    if (!token) return;
+    const code = token.slice(5);
+    const svg = flagSVG(code);
+    if (!svg) return;
+    if (node.dataset.fnFlagCode === code && node.classList.contains('fn-clean-flag') && node.querySelector('svg')) return;
+    node.dataset.fnFlagCode = code;
+    node.classList.add('fn-clean-flag');
+    node.innerHTML = svg;
+  }
+
+  function polishFlags() {
+    document.querySelectorAll('.flag-icon').forEach(cleanFlag);
+  }
+
+  function polishBestAlternative() {
+    const rows = Array.from(document.querySelectorAll('#bestServerResult .vpn-option'));
+    rows.forEach(row => row.classList.remove('fn-best-alternative'));
+    if (!rows.length || rows.some(row => row.classList.contains('vpn-best'))) return;
+    const first = rows.find(row => !row.classList.contains('vpn-rejected') && row.querySelector('.vpn-option-apply'));
+    if (!first) return;
+    first.classList.add('fn-best-alternative');
+    const badge = first.querySelector('.vpn-state-badge');
+    if (badge && badge.textContent.trim() === 'Для сравнения') badge.textContent = 'Лучший из вариантов';
+  }
+
+  function polishTopbar() {
+    const status = q('#topStatus');
+    const dot = q('#topDot');
+    if (status) {
+      const current = status.textContent.trim();
+      if (current === 'VPN + DNS OK' || current === 'VPN OK · DNS напрямую' || (dot && dot.classList.contains('ok') && current !== 'Нет связи')) status.textContent = 'Всё работает';
+      status.closest('.top-status')?.classList.add('fn-health-pill');
+    }
+    const actions = q('.top-actions');
+    const manual = q('#bestServerAdvanced');
+    if (actions && manual && !q('#fnManualShortcut')) {
+      const button = document.createElement('button');
+      button.id = 'fnManualShortcut';
+      button.type = 'button';
+      button.className = 'fn-manual-shortcut';
+      button.textContent = 'Сервер вручную';
+      button.addEventListener('click', () => {
+        manual.scrollIntoView({behavior: 'smooth', block: 'center'});
+        window.setTimeout(() => q('#profileSearch')?.focus(), 280);
+      });
+      const link = q('#topXkeenLink');
+      actions.insertBefore(button, link || actions.firstChild);
+    }
+  }
+
+  function fitCurrentMetrics() {
+    document.querySelectorAll('.vpn-current-panel .best-v4-pill b').forEach(node => {
+      node.classList.toggle('fn-long-value', node.textContent.trim().length >= 9);
+    });
+  }
+
+  function run() {
+    scheduled = false;
+    polishFlags();
+    polishBestAlternative();
+    polishTopbar();
+    fitCurrentMetrics();
+  }
+
+  function schedule() {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(run);
+  }
+
+  function install() {
+    if (q('#FreeNetFinalRuntimePolish')) return;
+    const style = document.createElement('style');
+    style.id = 'FreeNetFinalRuntimePolish';
+    style.textContent = `
+      .vpn-current-panel .best-v4-pill{grid-template-columns:20px minmax(0,1fr)!important;column-gap:7px!important;padding-left:9px!important;padding-right:8px!important;overflow:hidden}
+      .vpn-current-panel .metric-icon{width:20px!important;height:20px!important}.vpn-current-panel .metric-copy,.vpn-current-panel .metric-value-line{min-width:0;max-width:100%}
+      .vpn-current-panel .best-v4-pill b{font-size:18px!important;letter-spacing:-.035em;max-width:100%;white-space:nowrap}.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:16.5px!important;letter-spacing:-.05em}
+      .vpn-option.fn-best-alternative{border-color:#22d99a!important;background:linear-gradient(155deg,rgba(11,78,65,.62),rgba(9,31,43,.97))!important;box-shadow:inset 0 0 0 1px rgba(34,217,154,.22),0 0 0 1px rgba(34,217,154,.08),0 0 26px rgba(34,217,154,.07)!important}
+      .vpn-option.fn-best-alternative .vpn-state-badge{border-color:#22d99a!important;color:#63edb8!important;background:rgba(13,90,65,.46)!important}.vpn-option.fn-best-alternative .vpn-state-badge:before{content:'★';font-size:12px;color:#63edb8}
+      .flag-icon.fn-clean-flag{position:relative!important;display:inline-block!important;box-sizing:border-box!important;padding:0!important;background:none!important;background-image:none!important;overflow:hidden!important;border:1px solid rgba(145,173,207,.32)!important;border-radius:4px!important;line-height:0!important;isolation:isolate}.flag-icon.fn-clean-flag:before,.flag-icon.fn-clean-flag:after{content:none!important;display:none!important;background:none!important}.flag-icon.fn-clean-flag>svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+      .top-actions{gap:10px!important}.top-status.fn-health-pill{display:inline-flex!important;align-items:center;gap:8px;padding:6px 10px;border:1px solid #29445f;border-radius:999px;background:#0b1828;color:#c8d7e8!important;white-space:nowrap}.top-status.fn-health-pill .dot{margin:0}.top-status.fn-health-pill .dot.ok{background:#36e3a2!important;box-shadow:0 0 12px rgba(54,227,162,.58)!important}.fn-manual-shortcut{min-height:34px;padding:6px 11px;border:1px solid #315276;border-radius:9px;background:#0d1c2e;color:#c7d6e7;font:700 11px/1 inherit;cursor:pointer;white-space:nowrap}.fn-manual-shortcut:hover{border-color:#5286bd;background:#11243a;color:#fff}.fn-manual-shortcut:focus-visible{outline:2px solid #6aa2ff;outline-offset:2px}
+      #bestServerAdvanced{border-top:1px solid #233b55;padding-top:12px!important;margin-top:0!important}.overview-approved-top{gap:24px!important}
+      @media(max-width:1180px){.vpn-current-panel .best-v4-pill b{font-size:16.5px!important}.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:15px!important}.fn-manual-shortcut{display:none}}
+      @media(max-width:820px){.vpn-current-panel .best-v4-pill b,.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:15px!important;letter-spacing:-.035em}.top-status.fn-health-pill{padding:5px 8px}}
+      @media(min-width:821px) and (max-height:820px){.vpn-current-panel .best-v4-pill b,.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:13px!important;letter-spacing:-.03em}}
+    `;
+    document.head.appendChild(style);
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.documentElement, {subtree:true,childList:true,attributes:true,attributeFilter:['class','hidden'],characterData:true});
+    schedule();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true}); else install();
+})();
