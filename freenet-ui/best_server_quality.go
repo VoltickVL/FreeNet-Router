@@ -28,8 +28,8 @@ const (
 	bestServerQualityHTTPRuns             = 3
 	bestServerQualityHTTPRequired         = 2
 	bestServerQualityHTTPTimeout          = 5 * time.Second
-	bestServerQualityCandidateTimeout     = 26 * time.Second
-	bestServerQualityScanTimeout          = 150 * time.Second
+	bestServerQualityCandidateTimeout     = 55 * time.Second
+	bestServerQualityScanTimeout          = 420 * time.Second
 	bestServerQualityCacheTTL             = 3 * time.Minute
 	bestServerQualityProbeURL             = "https://www.gstatic.com/generate_204"
 	bestServerQualityNoSpeedPenalty       = 3000
@@ -312,7 +312,7 @@ func rankBestServerQualityCandidates(
 		if ctx.Err() != nil {
 			break
 		}
-		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerQualityCandidateTimeout+time.Second {
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerQualityCandidateTimeout+2*time.Second {
 			partial = true
 			break
 		}

@@ -11,8 +11,8 @@ import (
 const (
 	bestServerMediaChunkRuns     = 4
 	bestServerMediaRequiredRuns  = 3
-	bestServerMediaTimeout       = 10 * time.Second
-	bestServerServiceTimeout     = 6 * time.Second
+	bestServerMediaTimeout       = 22 * time.Second
+	bestServerServiceTimeout     = 8 * time.Second
 )
 
 var bestServerMediaServiceURLs = []string{

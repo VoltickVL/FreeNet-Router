@@ -16,9 +16,9 @@ import (
 const (
 	bestServerSpeedtestServersURL   = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=1&limit=10"
 	bestServerSpeedtestBytes        = int64(8_000_000)
-	bestServerSpeedtestListTimeout  = 4 * time.Second
-	bestServerSpeedtestRunTimeout   = 6 * time.Second
-	bestServerSpeedtestServerTries  = 2
+	bestServerSpeedtestListTimeout  = 5 * time.Second
+	bestServerSpeedtestRunTimeout   = 8 * time.Second
+	bestServerSpeedtestServerTries  = 3
 )
 
 type bestServerSpeedtestServer struct {
@@ -56,7 +56,7 @@ func discoverBestServerSpeedtestServers(ctx context.Context, curlPath, socks str
 	defer cancel()
 	output, err := exec.CommandContext(listCtx, curlPath,
 		"--socks5-hostname", socks,
-		"-sS", "--connect-timeout", "3", "--max-time", "4",
+		"-sS", "--connect-timeout", "3", "--max-time", "5",
 		bestServerSpeedtestServersURL,
 	).Output()
 	if err != nil {
@@ -120,7 +120,7 @@ func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks str
 				runCtx, cancel := context.WithTimeout(ctx, bestServerSpeedtestRunTimeout)
 				output, transferErr := exec.CommandContext(runCtx, curlPath,
 					"--socks5-hostname", socks,
-					"-sS", "--connect-timeout", "3", "--max-time", "6",
+					"-sS", "--connect-timeout", "3", "--max-time", "8",
 					"-o", "/dev/null",
 					"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
 					downloadURL,
