@@ -252,20 +252,37 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		return bestServerQualityResponse{}, err
 	}
 	candidates := filterForeignBestServerCandidates(all)
-	if len(candidates) == 0 {
-		return bestServerQualityResponse{
-			Success: true, Available: false, Candidates: []bestServerQualityCandidate{}, ProfilesScanned: 0, ProfilesTotal: 0,
-			ProfilesTruncated: truncated, Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
-			Message: "Подходящих зарубежных Extra-профилей нет; российские и специализированные Whitelist-профили исключены из автоматического подбора.",
-		}, nil
-	}
-
 	profilesScanned := len(candidates)
-	cachedCurrent, cachedOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
-	if cachedOK {
-		if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
-			candidates = withoutBestServerCandidate(candidates, currentIndex)
+
+	// A full comparison must always have its own current baseline. Reuse a
+	// fresh complete baseline when available; otherwise measure the active live
+	// outbound before probing alternatives. This is independent of whether the
+	// current profile belongs to the foreign alternative pool (for example a
+	// Whitelist profile). The measurement is read-only and never mutates VPN.
+	currentBaseline, currentBaselineOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
+	currentBaselineCached := currentBaselineOK
+	if !currentBaselineOK {
+		baselineCtx, cancelBaseline := context.WithTimeout(ctx, bestServerCurrentScanTimeout)
+		baselineResponse := a.scanActiveCurrentVPNQuality(baselineCtx, currentEndpoint, currentFilter)
+		cancelBaseline()
+		if candidate, ok := currentBestServerQualityCandidate(baselineResponse); ok {
+			currentBaseline = candidate
+			currentBaselineOK = true
 		}
+	}
+	if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
+		candidates = withoutBestServerCandidate(candidates, currentIndex)
+	}
+	if len(candidates) == 0 {
+		currentCandidates := []bestServerQualityCandidate{}
+		if currentBaselineOK {
+			currentCandidates = append(currentCandidates, currentBaseline)
+		}
+		return bestServerQualityResponse{
+			Success: true, Available: currentBaselineOK && currentBaseline.Eligible, Candidates: currentCandidates, ProfilesScanned: profilesScanned, ProfilesTotal: profilesScanned,
+			ProfilesTruncated: truncated, Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
+			Message: "Подходящих зарубежных Extra-профилей нет; текущий VPN сохранён и проверен отдельно от списка замен.",
+		}, nil
 	}
 
 	// First compare the real application path through each candidate VPN. Keep a
@@ -273,13 +290,14 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	// alternatives are available or the global scan budget is nearly exhausted.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
-	if ctx.Err() != nil && len(response.Candidates) == 0 {
+	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {
 		return bestServerQualityResponse{}, ctx.Err()
 	}
-	if cachedOK {
-		response.Candidates = append(response.Candidates, cachedCurrent)
-	} else if candidate, ok := currentBestServerQualityCandidate(response); ok {
-		storeBestServerCurrentQuality(currentEndpoint, currentFilter, candidate)
+	if currentBaselineOK {
+		response.Candidates = append(response.Candidates, currentBaseline)
+		if !currentBaselineCached {
+			storeBestServerCurrentQuality(currentEndpoint, currentFilter, currentBaseline)
+		}
 	}
 	response.ProfilesScanned = profilesScanned
 	response.Success = true
@@ -295,8 +313,10 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	} else {
 		response.Message = "Достоверная рекомендация среди зарубежных профилей сейчас недоступна; текущий VPN не изменён."
 	}
-	if cachedOK {
+	if currentBaselineCached {
 		response.Message += " Свежий подтверждённый замер текущего VPN переиспользован без повторной тяжёлой Speedtest-проверки."
+	} else if currentBaselineOK {
+		response.Message += " Текущий VPN измерен в рамках этого полного сравнения."
 	}
 	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
 		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during Best Server scan")
