@@ -4,11 +4,15 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
 
-const bestServerCurrentScanTimeout = 45 * time.Second
+const (
+	bestServerCurrentScanTimeout   = 45 * time.Second
+	bestServerMeasuredDisplayTarget = 3
+)
 
 func registerBestServerUXAPI(mux *http.ServeMux, a *app) {
 	jobs := &bestServerJobs{}
@@ -48,6 +52,89 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 		}
 	}
 	return filtered
+}
+
+func countMeasuredForeignBestServerResults(candidates []bestServerQualityCandidate) int {
+	count := 0
+	for _, candidate := range candidates {
+		if !candidate.Current && candidate.Tested && candidate.DownloadMbps > 0 && candidate.MediaSamples >= bestServerMediaRequiredRuns {
+			count++
+		}
+	}
+	return count
+}
+
+func remainingUntestedBestServerCandidates(internal []bestServerInternalCandidate, results []bestServerQualityCandidate) []bestServerInternalCandidate {
+	tested := make(map[string]bool, len(results))
+	for _, candidate := range results {
+		if candidate.Tested && candidate.ID != "" {
+			tested[candidate.ID] = true
+		}
+	}
+	remaining := make([]bestServerInternalCandidate, 0, len(internal))
+	for _, candidate := range internal {
+		if !tested[candidate.Profile.ID] {
+			remaining = append(remaining, candidate)
+		}
+	}
+	return remaining
+}
+
+func mergeBestServerQualityResponse(primary, extra bestServerQualityResponse) bestServerQualityResponse {
+	seen := make(map[string]bool, len(primary.Candidates)+len(extra.Candidates))
+	merged := make([]bestServerQualityCandidate, 0, len(primary.Candidates)+len(extra.Candidates))
+	for _, group := range [][]bestServerQualityCandidate{primary.Candidates, extra.Candidates} {
+		for _, candidate := range group {
+			key := candidate.ID + "|" + candidate.Endpoint
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			merged = append(merged, candidate)
+		}
+	}
+	primary.Candidates = merged
+	primary.Partial = primary.Partial || extra.Partial
+	if extra.Available && extra.Recommendation != nil && (!primary.Available || primary.Recommendation == nil || extra.Recommendation.Score > primary.Recommendation.Score) {
+		copyRecommendation := *extra.Recommendation
+		primary.Recommendation = &copyRecommendation
+		primary.Available = true
+	}
+	return primary
+}
+
+func finalizeMeasuredBestServerResponse(response bestServerQualityResponse) bestServerQualityResponse {
+	response.Candidates = filterMeasuredBestServerResults(response.Candidates)
+	sort.SliceStable(response.Candidates, func(i, j int) bool {
+		a, b := response.Candidates[i], response.Candidates[j]
+		if a.Current != b.Current {
+			return !a.Current
+		}
+		if a.Eligible != b.Eligible {
+			return a.Eligible
+		}
+		if a.Score != b.Score {
+			return a.Score > b.Score
+		}
+		if a.ApplicationMS != b.ApplicationMS {
+			return a.ApplicationMS < b.ApplicationMS
+		}
+		if a.DownloadMbps != b.DownloadMbps {
+			return a.DownloadMbps > b.DownloadMbps
+		}
+		return a.ID < b.ID
+	})
+	response.Available = false
+	response.Recommendation = nil
+	for _, candidate := range response.Candidates {
+		if candidate.Eligible && !candidate.Current {
+			best := candidate
+			response.Recommendation = &best
+			response.Available = true
+			break
+		}
+	}
+	return response
 }
 
 func currentBestServerCandidate(candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) ([]bestServerInternalCandidate, bool) {
@@ -164,9 +251,9 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	}
 
 	// First compare the real application path through each candidate VPN with a
-	// cheap bounded probe. Only then spend the expensive Speedtest budget on the
-	// best measured paths. This prevents shared/provider endpoint TCP latency
-	// from making distant exits dominate the shortlist.
+	// cheap bounded probe. Keep a small reserve beyond the first deep-test batch;
+	// if one of the first candidates cannot produce throughput evidence, use the
+	// remaining budget to fill the user-visible top three with measured results.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := rankBestServerQualityCandidates(
 		ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter,
@@ -175,7 +262,25 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	if ctx.Err() != nil {
 		return bestServerQualityResponse{}, ctx.Err()
 	}
-	response.Candidates = filterMeasuredBestServerResults(response.Candidates)
+	if countMeasuredForeignBestServerResults(response.Candidates) < bestServerMeasuredDisplayTarget {
+		remaining := remainingUntestedBestServerCandidates(candidates, response.Candidates)
+		if len(remaining) > 0 {
+			hasBudget := true
+			if deadline, ok := ctx.Deadline(); ok {
+				hasBudget = time.Until(deadline) >= bestServerQualityCandidateTimeout+time.Second
+			}
+			if hasBudget {
+				extra := rankBestServerQualityCandidates(
+					ctx, remaining, profilesScanned, truncated, currentEndpoint, currentFilter,
+					defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
+				)
+				if ctx.Err() == nil {
+					response = mergeBestServerQualityResponse(response, extra)
+				}
+			}
+		}
+	}
+	response = finalizeMeasuredBestServerResponse(response)
 	if cachedOK {
 		response.Candidates = append(response.Candidates, cachedCurrent)
 	} else if candidate, ok := currentBestServerQualityCandidate(response); ok {
