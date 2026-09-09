@@ -19,6 +19,7 @@ func registerBestServerUXAPI(mux *http.ServeMux, a *app) {
 	jobs := &bestServerJobs{}
 	mux.HandleFunc("GET /api/vpn/current-quality", a.requireAuth(jobs.wrap(a, "current", a.handleCurrentVPNQuality, a.scanCurrentVPNQuality)))
 	mux.HandleFunc("GET /api/vpn/best-foreign", a.requireAuth(jobs.wrap(a, "best", a.handleBestServerForeign, a.scanBestServerForeign)))
+	registerBestServerTargetedAPI(mux, a)
 }
 
 func isRussianBestServerCandidate(candidate bestServerInternalCandidate) bool {
