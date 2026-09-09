@@ -11,6 +11,7 @@ ROOT="${FREENET_ROOT:-/opt}"
 CURRENT_VERSION="${FREENET_CURRENT_VERSION:-}"
 ARCH="${FREENET_ARCH:-}"
 STATE_FILE="${FREENET_UPDATE_STATE_FILE:-$ROOT/var/run/freenet-self-update.state}"
+VERSION_FILE="${FREENET_VERSION_FILE:-$ROOT/etc/freenet/version}"
 LOCK_DIR="${FREENET_UPDATE_LOCK_DIR:-/tmp/freenet-self-update.lock}"
 TEST_MODE="${FREENET_SELF_UPDATE_TEST_MODE:-no}"
 TEST_RELEASE_DIR="${FREENET_TEST_RELEASE_DIR:-}"
@@ -111,6 +112,53 @@ write_state() {
     } > "$TMP_STATE" || return 1
     chmod 600 "$TMP_STATE" 2>/dev/null || true
     mv -f "$TMP_STATE" "$STATE_FILE"
+}
+
+ui_port() {
+    P="$(sed -n 's/^UI_PORT=//p' "$ROOT/etc/freenet/freenet.conf" 2>/dev/null | tail -n 1 | tr -d "'\"\r")"
+    [ -n "$P" ] && printf '%s\n' "$P" || printf '%s\n' 1001
+}
+
+detect_current() {
+    if [ -n "$CURRENT_VERSION" ]; then
+        normalize_current
+        return $?
+    fi
+
+    if [ -s "$VERSION_FILE" ]; then
+        CURRENT_VERSION="$(head -n 1 "$VERSION_FILE" 2>/dev/null | tr -d '\r\n')"
+        normalize_current && return 0
+        CURRENT_VERSION=""
+    fi
+
+    PORT="$(ui_port)"
+    LIVE_VERSION="$(curl -fsS --connect-timeout 2 --max-time 5 "http://127.0.0.1:$PORT/versionz" 2>/dev/null | tr -d '\r\n' || true)"
+    if valid_tag "$LIVE_VERSION"; then
+        CURRENT_VERSION="$LIVE_VERSION"
+        return 0
+    fi
+
+    if [ -f "$STATE_FILE" ] && grep -Eq '^STATE=SUCCESS$' "$STATE_FILE" 2>/dev/null; then
+        STATE_VERSION="$(sed -n 's/^TARGET_VERSION=//p' "$STATE_FILE" 2>/dev/null | tail -n 1 | tr -d '\r\n')"
+        if valid_tag "$STATE_VERSION"; then
+            CURRENT_VERSION="$STATE_VERSION"
+            return 0
+        fi
+    fi
+
+    CURRENT_VERSION=""
+    return 1
+}
+
+persist_version() {
+    TARGET="$1"
+    valid_tag "$TARGET" || return 1
+    DIR="$(dirname "$VERSION_FILE")"
+    mkdir -p "$DIR" 2>/dev/null || return 1
+    TMP_VERSION="$VERSION_FILE.tmp.$$"
+    printf '%s\n' "$TARGET" > "$TMP_VERSION" || return 1
+    chmod 600 "$TMP_VERSION" 2>/dev/null || true
+    mv -f "$TMP_VERSION" "$VERSION_FILE"
 }
 
 bootstrap_ip() {
@@ -349,11 +397,6 @@ install_assets() {
     return 0
 }
 
-ui_port() {
-    P="$(sed -n 's/^UI_PORT=//p' "$ROOT/etc/freenet/freenet.conf" 2>/dev/null | tail -n 1 | tr -d "'\"\r")"
-    [ -n "$P" ] && printf '%s\n' "$P" || printf '%s\n' 1001
-}
-
 restart_ui() {
     TARGET="$1"
     [ "$FAIL_STAGE" = restart ] && return 1
@@ -391,9 +434,6 @@ accept_runtime() {
             sleep 1
         done
         [ "$OK" = yes ] || return 1
-        # Xray process state belongs to the pre-existing VPN runtime, not to the
-        # FreeNet application update. A Direct-DNS router may intentionally have
-        # Xray offline. Exact Xray config hashes below are the update invariant.
     fi
 
     snapshot_xray "$TMP_DIR/xray-hashes.after" || return 1
@@ -438,7 +478,7 @@ plan_error() {
 }
 
 run_plan() {
-    normalize_current || { plan_error 'current FreeNet version is invalid'; return 1; }
+    detect_current || { plan_error 'current FreeNet version is invalid'; return 1; }
     get_arch || { plan_error 'unsupported Entware architecture'; return 1; }
     for T in curl sha256sum sed awk grep mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || { plan_error "required command missing: $T"; return 1; }
@@ -489,7 +529,7 @@ fail_after_mutation() {
 }
 
 run_apply() {
-    normalize_current || fail_before_mutation 'current FreeNet version is invalid'
+    detect_current || fail_before_mutation 'current FreeNet version is invalid'
     valid_tag "$TARGET_TAG" || fail_before_mutation 'target release tag is invalid'
     version_gt "$TARGET_TAG" "$CURRENT_VERSION" || fail_before_mutation 'target release is not newer than current FreeNet'
     get_arch || fail_before_mutation 'unsupported Entware architecture'
@@ -517,6 +557,7 @@ run_apply() {
     write_state RECONNECTING "$TARGET_TAG" 'FreeNet перезапускается; подтверждаем фактическое состояние' '' PENDING "$BACKUP_DIR" || true
     restart_ui "$TARGET_TAG" || fail_after_mutation 'FreeNet UI restart failed'
     accept_runtime "$TARGET_TAG" || fail_after_mutation 'post-update runtime acceptance failed'
+    persist_version "$TARGET_TAG" || fail_after_mutation 'cannot persist installed version marker'
 
     MUTATED=0
     write_state SUCCESS "$TARGET_TAG" 'FreeNet успешно обновлён и проверен' '' NOT_NEEDED "$BACKUP_DIR" || true
