@@ -79,3 +79,18 @@ func TestCountMeasuredBestServerAlternatives(t *testing.T) {
 		t.Fatalf("expected 2 measured alternatives, got %d", got)
 	}
 }
+
+func TestHasMeasuredBestServerCurrentRequiresCompleteBaseline(t *testing.T) {
+	complete := bestServerQualityCandidate{
+		Current: true, ApplicationMS: 180, MediaSamples: bestServerMediaRequiredRuns,
+		ServiceOK: 4, ServiceTotal: 4, DownloadMbps: 120,
+	}
+	if !hasMeasuredBestServerCurrent([]bestServerQualityCandidate{complete}) {
+		t.Fatal("complete current baseline must be recognized")
+	}
+	incomplete := complete
+	incomplete.MediaSamples = 0
+	if hasMeasuredBestServerCurrent([]bestServerQualityCandidate{incomplete}) {
+		t.Fatal("incomplete current baseline must not allow early stop")
+	}
+}
