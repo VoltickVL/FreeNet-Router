@@ -47,6 +47,7 @@ func registerGeoDataAPI(mux *http.ServeMux, a *app) {
 	registerHardwareCapabilityAPI(mux, a)
 	registerBestServerQualityAPI(mux, a)
 	registerBestServerUXAPI(mux, a)
+	registerBestServerTargetedAPI(mux, a)
 }
 
 func (a *app) geoDataAssetDir() string {

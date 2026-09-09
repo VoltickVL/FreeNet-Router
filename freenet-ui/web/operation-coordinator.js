@@ -14,6 +14,9 @@
       if (url === '/api/network-profile/apply' && body && body.operation === 'provider' && typeof body.profile_id === 'string' && body.profile_id) {
         return {kind: 'provider', target: body.profile_id, startedAt: Date.now()};
       }
+      if (url === '/api/vpn/current-refresh' && body && body.confirm === true) {
+        return {kind: 'refresh', target: 'current', startedAt: Date.now()};
+      }
     } catch (_) {}
     return null;
   }
@@ -45,6 +48,10 @@
       if (meta.kind === 'quick') {
         return jsonResponse(200, {success: true, action: meta.target, operation_id: op.id, message: op.message || 'VPN-действие выполнено'});
       }
+      if (meta.kind === 'refresh') {
+        return jsonResponse(200, {success: true, outcome: 'applied', applied: true, mutation: 'APPLIED',
+          operation_id: op.id, rollback_state: 'NOT_NEEDED', message: op.message || 'Свежий endpoint применён и проверен'});
+      }
       return jsonResponse(200, {
         success: true, applied: true, operation: 'provider', profile_id: meta.target,
         operation_id: op.id, rollback_state: 'NOT_NEEDED', message: op.message || 'VPN-профиль применён и проверен'
@@ -64,7 +71,7 @@
   }
 
   async function reconcile(meta) {
-    const deadline = Date.now() + 120000;
+    const deadline = Date.now() + (meta.kind === 'refresh' ? 240000 : 120000);
     while (Date.now() < deadline) {
       const state = await readOperationState(Math.max(1, Math.min(7000, deadline - Date.now())));
       const op = state && state.operation;
@@ -567,7 +574,7 @@
         button.setAttribute('aria-label', `${button.textContent}: ${name.textContent}`);
         actions.appendChild(button);
       } else {
-        const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn secondary vpn-option-retry'; retry.textContent = 'Проверить снова'; actions.appendChild(retry);
+        const retry = document.createElement('button'); retry.type = 'button'; retry.className = 'btn secondary vpn-option-retry'; retry.dataset.candidateId = candidate.id; retry.textContent = 'Проверить снова'; actions.appendChild(retry);
       }
       head.appendChild(actions);
       const metrics = document.createElement('div'); metrics.className = 'best-v4-metrics'; renderMetrics(metrics, candidate, baseline);
@@ -716,14 +723,82 @@
     }catch(_){recommendation=null;setText(qs('#bestServerStatus'),'Связь прервалась во время переключения. Результат не подтверждён — проверьте состояние системы перед повторной попыткой.');}finally{clearAlternatives('Результаты подбора израсходованы. Для нового переключения подберите серверы снова.');applyBusy=false;setBusy(false);}
   }
 
+  async function retryCandidate(candidate, button) {
+    if (scanBusy || applyBusy || externalBusy || !candidate || !candidate.id) return;
+    const original = button && button.textContent;
+    try {
+      setBusy('retry');
+      if (button) { button.disabled = true; button.textContent = 'Проверяем…'; }
+      setText(qs('#bestServerStatus'), `Повторно проверяем только ${profileDisplayName(candidate, 'этот сервер')}… Текущий VPN не изменяется.`);
+      const response = await fetch(`/api/vpn/best-candidate?id=${encodeURIComponent(candidate.id)}`, {cache:'no-store', signal:AbortSignal.timeout(50000)});
+      const body = await response.json().catch(()=>null);
+      if (!response.ok || !body || body.success !== true || !Array.isArray(body.candidates)) {
+        setText(qs('#bestServerStatus'), (body && (body.message || body.error)) || 'Повторная проверка не завершена. Текущий VPN не изменён.');
+        return;
+      }
+      const updated = body.candidates.find(item => item && item.id === candidate.id);
+      if (!updated) {
+        setText(qs('#bestServerStatus'), 'Повторная проверка не вернула выбранный сервер. Текущий VPN не изменён.');
+        return;
+      }
+      alternatives = alternatives.map(item => item.id === candidate.id ? updated : item);
+      const candidates = currentQuality ? [Object.assign({}, currentQuality, {current:true}), ...alternatives] : alternatives.slice();
+      renderBestResult(Object.assign({}, body, {candidates, profiles_scanned: 1, profiles_total: 1}));
+      setText(qs('#bestServerStatus'), body.message || (updated.eligible ? 'Сервер прошёл повторную проверку.' : 'Сервер снова не прошёл все проверки.'));
+    } catch (_) {
+      setText(qs('#bestServerStatus'), 'Повторная проверка прервалась. Текущий VPN не изменён.');
+    } finally {
+      if (button && button.isConnected) { button.disabled = false; if (original) button.textContent = original; }
+      setBusy(false);
+    }
+  }
+
+  async function refreshCurrentVPN() {
+    if (scanBusy || applyBusy || externalBusy) return;
+    const update = qs('#updateBtn');
+    applyBusy = true;
+    setBusy(false);
+    if (update) { update.disabled = true; setButtonLabel(update, 'Проверяем обновление…', 'refresh'); }
+    setText(qs('#bestServerStatus'), 'Получаем свежий endpoint и сравниваем его с текущим VPN до переключения…');
+    try {
+      const response = await fetch('/api/vpn/current-refresh', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({confirm:true})});
+      const body = await response.json().catch(()=>null);
+      if (!response.ok || !body || body.success !== true) {
+        const detail = body && (body.primary_error || body.error || body.message);
+        setText(qs('#bestServerStatus'), detail || 'Безопасное обновление не завершено. Не повторяйте операцию до проверки состояния.');
+        return;
+      }
+      if (body.current) renderCurrentQuality({scanned_at:new Date().toISOString(), candidates:[Object.assign({}, body.current, {current:true})]});
+      if (body.outcome === 'applied') {
+        const expected = body.candidate && body.candidate.endpoint;
+        const status = expected ? await waitForEndpoint(expected) : null;
+        if (!status) {
+          setText(qs('#bestServerStatus'), 'Свежий endpoint применён, но live-state ещё не подтверждён в браузере. Не повторяйте операцию.');
+          return;
+        }
+        currentQuality = body.candidate ? Object.assign({}, body.candidate, {current:true}) : null;
+        renderOverviewTopbarFromStatus(status);
+        if (currentQuality) renderCurrentQuality({scanned_at:new Date().toISOString(), candidates:[currentQuality]});
+        clearAlternatives('Текущий endpoint обновлён. Для нового сравнения подберите серверы снова.');
+      }
+      setText(qs('#bestServerStatus'), body.message || ({no_new:'Нового endpoint нет. Текущий VPN сохранён.',current_better:'Текущий VPN лучше. Переключение не выполнялось.',check_failed:'Свежий endpoint не прошёл проверку. Текущий VPN сохранён.',applied:'Свежий endpoint применён и проверен.'}[body.outcome] || 'Проверка завершена.'));
+    } catch (_) {
+      setText(qs('#bestServerStatus'), 'Связь прервалась во время безопасного обновления. Проверьте фактическое состояние перед повтором.');
+    } finally {
+      applyBusy = false;
+      setBusy(false);
+      if (update) { update.disabled = externalBusy; setButtonLabel(update, 'Обновить и проверить', 'refresh'); }
+    }
+  }
+
   function installUpdateQualityFollowup() {
-    if(typeof act!=='function'||act.__freenetUpdateQualityFollowup)return;const previous=act;const wrapped=async function(action){await previous(action);if(action!=='update')return;try{if(typeof loadStatus==='function')await loadStatus();if(lastStatus&&!lastStatus.busy&&!lastStatus.updater_busy&&lastStatus.xray_online){await wait(250);await scanCurrentVPN();}}catch(_){}};wrapped.__freenetUpdateQualityFollowup=true;act=wrapped;
+    if(typeof act!=='function'||act.__freenetUpdateQualityFollowup)return;const previous=act;const wrapped=async function(action){if(action==='update')return refreshCurrentVPN();return previous(action);};wrapped.__freenetUpdateQualityFollowup=true;act=wrapped;
   }
 
   function installBestServerActionDelegation() {
     const root=document.documentElement;if(!root||root.dataset.freenetBestServerActions==='1')return;root.dataset.freenetBestServerActions='1';
     document.addEventListener('freenet:controls-busy',event=>{externalBusy=!!event.detail;setBusy(scanMode);});
-    document.addEventListener('click',event=>{const origin=event.target;if(!origin||typeof origin.closest!=='function')return;const button=origin.closest('#bestServerCheckCurrent,#bestServerRefresh,.vpn-option-apply,.vpn-option-retry');if(!button||button.disabled)return;event.preventDefault();if(button.id==='bestServerCheckCurrent'){void scanCurrentVPN();return}if(button.id==='bestServerRefresh'||button.matches('.vpn-option-retry')){void scanBestServer();return}if(button.matches('.vpn-option-apply')){const candidate=alternatives.find(item=>item.eligible&&item.id===button.dataset.candidateId);if(candidate)void applyCandidate(candidate);}},true);
+    document.addEventListener('click',event=>{const origin=event.target;if(!origin||typeof origin.closest!=='function')return;const button=origin.closest('#bestServerCheckCurrent,#bestServerRefresh,.vpn-option-apply,.vpn-option-retry');if(!button||button.disabled)return;event.preventDefault();if(button.id==='bestServerCheckCurrent'){void scanCurrentVPN();return}if(button.id==='bestServerRefresh'){void scanBestServer();return}if(button.matches('.vpn-option-retry')){const candidate=alternatives.find(item=>item.id===button.dataset.candidateId);if(candidate)void retryCandidate(candidate,button);return}if(button.matches('.vpn-option-apply')){const candidate=alternatives.find(item=>item.eligible&&item.id===button.dataset.candidateId);if(candidate)void applyCandidate(candidate);}},true);
   }
 
   function start() {
