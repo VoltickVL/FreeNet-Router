@@ -40,6 +40,16 @@ func filterForeignBestServerCandidates(candidates []bestServerInternalCandidate)
 	return filtered
 }
 
+func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []bestServerQualityCandidate {
+	filtered := make([]bestServerQualityCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Current || (candidate.Tested && candidate.DownloadMbps > 0 && candidate.MediaSamples >= bestServerMediaRequiredRuns) {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
+}
+
 func currentBestServerCandidate(candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) ([]bestServerInternalCandidate, bool) {
 	index := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter)
 	if index < 0 {
@@ -165,6 +175,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	if ctx.Err() != nil {
 		return bestServerQualityResponse{}, ctx.Err()
 	}
+	response.Candidates = filterMeasuredBestServerResults(response.Candidates)
 	if cachedOK {
 		response.Candidates = append(response.Candidates, cachedCurrent)
 	} else if candidate, ok := currentBestServerQualityCandidate(response); ok {
