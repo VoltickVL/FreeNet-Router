@@ -24,10 +24,15 @@ func isRussianBestServerCandidate(candidate bestServerInternalCandidate) bool {
 	return strings.Contains(name, "russia") || strings.Contains(name, "росси")
 }
 
+func isSpecializedBestServerCandidate(candidate bestServerInternalCandidate) bool {
+	name := strings.ToLower(strings.TrimSpace(candidate.Profile.Name))
+	return strings.Contains(name, "whitelist")
+}
+
 func filterForeignBestServerCandidates(candidates []bestServerInternalCandidate) []bestServerInternalCandidate {
 	filtered := make([]bestServerInternalCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if isRussianBestServerCandidate(candidate) {
+		if isRussianBestServerCandidate(candidate) || isSpecializedBestServerCandidate(candidate) {
 			continue
 		}
 		filtered = append(filtered, candidate)
@@ -82,33 +87,9 @@ func (a *app) handleCurrentVPNQuality(w http.ResponseWriter, r *http.Request) {
 func (a *app) scanCurrentVPNQuality(ctx context.Context) (bestServerQualityResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	all, _, _, err := a.discoverBestServerCandidates(ctx)
-	if err != nil {
-		return bestServerQualityResponse{}, err
-	}
-	currentOnly, ok := currentBestServerCandidate(all, currentEndpoint, currentFilter)
-	if !ok {
-		return bestServerQualityResponse{
-			Success: true, Available: false, Candidates: []bestServerQualityCandidate{}, ProfilesScanned: 0, ProfilesTotal: 1,
-			Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
-			Message: "Текущий Extra-профиль не удалось однозначно сопоставить с подпиской; другие VPN не проверялись.",
-		}, nil
-	}
-
-	response := rankBestServerQualityCandidates(
-		ctx, currentOnly, 1, false, currentEndpoint, currentFilter,
-		defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
-	)
+	response := a.scanActiveCurrentVPNQuality(ctx, currentEndpoint, currentFilter)
 	if ctx.Err() != nil {
 		return bestServerQualityResponse{}, ctx.Err()
-	}
-	response.Success = true
-	response.Mutation = "NONE"
-	response.ScannedAt = time.Now().UTC().Format(time.RFC3339)
-	response.CurrentEndpoint = currentEndpoint
-	response.Message = "Проверен только текущий VPN; поиск лучшего VPN не запускался."
-	if candidate, ok := currentBestServerQualityCandidate(response); ok {
-		storeBestServerCurrentQuality(currentEndpoint, currentFilter, candidate)
 	}
 	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
 		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during current VPN check")
@@ -160,7 +141,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		return bestServerQualityResponse{
 			Success: true, Available: false, Candidates: []bestServerQualityCandidate{}, ProfilesScanned: 0, ProfilesTotal: 0,
 			ProfilesTruncated: truncated, Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
-			Message: "Подходящих зарубежных Extra-профилей нет; российские VPN исключены из рекомендаций.",
+			Message: "Подходящих зарубежных Extra-профилей нет; российские и специализированные Whitelist-профили исключены из автоматического подбора.",
 		}, nil
 	}
 
