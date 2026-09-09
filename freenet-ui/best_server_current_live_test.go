@@ -46,14 +46,15 @@ func TestFilterForeignBestServerCandidatesExcludesRussianAndWhitelist(t *testing
 	}
 }
 
-func TestFilterMeasuredBestServerResultsDropsDashSpeedRows(t *testing.T) {
+func TestFilterMeasuredBestServerResultsKeepsDeepTestedNearMiss(t *testing.T) {
 	in := []bestServerQualityCandidate{
-		{ID: "good", Tested: true, DownloadMbps: 127, MediaSamples: bestServerMediaRequiredRuns},
-		{ID: "dash", Tested: true, DownloadMbps: 0, MediaSamples: 0},
+		{ID: "good", Tested: true, Available: true, Eligible: true, DownloadMbps: 127, MediaSamples: bestServerMediaRequiredRuns},
+		{ID: "dash", Tested: true, Available: true, DownloadMbps: 0, MediaSamples: 0, Rejections: []string{"Скорость не измерена"}},
 		{ID: "current", Current: true},
+		{ID: "untested", Reachable: true, Tested: false},
 	}
 	got := filterMeasuredBestServerResults(in)
-	if len(got) != 2 || got[0].ID != "good" || got[1].ID != "current" {
-		t.Fatalf("unexpected measured results: %#v", got)
+	if len(got) != 3 || got[0].ID != "good" || got[1].ID != "dash" || got[2].ID != "current" {
+		t.Fatalf("unexpected visible results: %#v", got)
 	}
 }
