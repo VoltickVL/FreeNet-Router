@@ -21,9 +21,11 @@ func TestApprovedOverviewPixelContract(t *testing.T) {
 		".vpn-state-badge{display:inline-flex;align-items:center;gap:7px;min-height:34px",
 		".vpn-detail-chip{display:inline-flex;align-items:center;gap:6px;min-height:28px",
 		".best-v4-status.summary{display:flex;align-items:flex-start;gap:10px}",
-		"#bestServerAdvanced #profilesList.profiles{order:2;display:grid!important",
-		"#profilesList input,#profilesTrigger{min-height:48px",
-		"quick.parentNode.insertBefore(manual, quick.nextSibling)",
+		"#bestServerAdvanced.fn-topbar-vpn-picker",
+		"#bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{display:grid!important",
+		"#bestServerAdvanced.fn-topbar-vpn-picker #profileSearch,#bestServerAdvanced.fn-topbar-vpn-picker #profilesTrigger{min-height:36px!important",
+		"topbar.insertBefore(manual, topSummary || topActions || null)",
+		".topbar.overview-approved .top-status{display:none!important}",
 		"makeIcon(key, 'metric-icon')",
 		"makeIcon(state.icon, 'status-icon')",
 		".flag-no:after{content:'';position:absolute;inset:0",
@@ -36,7 +38,10 @@ func TestApprovedOverviewPixelContract(t *testing.T) {
 
 	mustNotContain := []string{
 		"#bestServerAdvanced{grid-column:1/-1",
+		"quick.parentNode.insertBefore(manual, quick.nextSibling)",
 		".vpn-option .best-v4-pill:before{display:none}",
+		"fn-manual-shortcut",
+		"fn-health-pill",
 	}
 	for _, needle := range mustNotContain {
 		if strings.Contains(s, needle) {

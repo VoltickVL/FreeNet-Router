@@ -111,11 +111,18 @@ func TestBestServerUIKeepsExactProfileFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(index), `id="profileSearch"`) || !strings.Contains(string(index), `id="profilesTrigger"`) {
+	markup := string(index)
+	script := string(js)
+	if !strings.Contains(markup, `id="profileSearch"`) || !strings.Contains(markup, `id="profilesTrigger"`) {
 		t.Fatal("manual exact profile selector disappeared")
 	}
-	if !strings.Contains(string(js), "Выбор сервера вручную") {
-		t.Fatal("manual exact selector must remain as advanced fallback")
+	for _, want := range []string{"fn-topbar-vpn-picker", "topbar.insertBefore(manual, topSummary || topActions || null)"} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("manual exact selector must remain as topbar fallback: missing %q", want)
+		}
+	}
+	if !strings.Contains(markup, "extraProfiles.length?'Выбрать VPN':'Профили не загружены'") {
+		t.Fatal("topbar exact selector must use user-facing label 'Выбрать VPN'")
 	}
 }
 
