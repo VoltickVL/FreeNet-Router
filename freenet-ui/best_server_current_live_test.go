@@ -34,6 +34,16 @@ func TestBestServerCountryCodeFromLabel(t *testing.T) {
 	}
 }
 
+func TestBestServerProfileFromEndpoint(t *testing.T) {
+	profile, ok := bestServerProfileFromEndpoint("143.20.254.191:443")
+	if !ok || profile.Address != "143.20.254.191" || profile.Port != 443 {
+		t.Fatalf("unexpected profile: %#v ok=%v", profile, ok)
+	}
+	if _, ok := bestServerProfileFromEndpoint("not-an-endpoint"); ok {
+		t.Fatal("invalid endpoint must fail closed")
+	}
+}
+
 func TestFilterForeignBestServerCandidatesExcludesRussianAndWhitelist(t *testing.T) {
 	in := []bestServerInternalCandidate{
 		{Profile: subscriptionProfile{ID: "1", Name: "SK Bratislava, Slovakia, Extra", CountryCode: "sk"}},
@@ -55,5 +65,26 @@ func TestFilterMeasuredBestServerResultsDropsDashSpeedRows(t *testing.T) {
 	got := filterMeasuredBestServerResults(in)
 	if len(got) != 2 || got[0].ID != "good" || got[1].ID != "current" {
 		t.Fatalf("unexpected measured results: %#v", got)
+	}
+}
+
+func TestAppendUniqueMeasuredBestServerResultsFillsReserve(t *testing.T) {
+	first := []bestServerQualityCandidate{
+		{ID: "hr", Endpoint: "192.0.2.1:443", Tested: true, Eligible: true, DownloadMbps: 149, MediaSamples: bestServerMediaRequiredRuns, Score: 100},
+		{ID: "pl", Endpoint: "192.0.2.2:443", Tested: true, Eligible: true, DownloadMbps: 146, MediaSamples: bestServerMediaRequiredRuns, Score: 90},
+		{ID: "failed", Endpoint: "192.0.2.3:443", Tested: true, DownloadMbps: 0},
+	}
+	second := []bestServerQualityCandidate{
+		{ID: "pl", Endpoint: "192.0.2.2:443", Tested: true, Eligible: true, DownloadMbps: 146, MediaSamples: bestServerMediaRequiredRuns, Score: 90},
+		{ID: "de", Endpoint: "192.0.2.4:443", Tested: true, Eligible: false, DownloadMbps: 132, MediaSamples: bestServerMediaRequiredRuns, Score: 80},
+	}
+	got := appendUniqueMeasuredBestServerResults(nil, first)
+	got = appendUniqueMeasuredBestServerResults(got, second)
+	if len(got) != 3 {
+		t.Fatalf("expected three unique measured alternatives, got %#v", got)
+	}
+	sortMeasuredBestServerResults(got)
+	if got[0].ID != "hr" || got[1].ID != "pl" || got[2].ID != "de" {
+		t.Fatalf("unexpected measured ordering: %#v", got)
 	}
 }
