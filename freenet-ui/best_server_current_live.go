@@ -205,6 +205,17 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 		Tested: true, ID: "current-live", Name: label, CountryCode: bestServerCountryCodeFromLabel(label),
 		Endpoint: currentEndpoint, Current: true, Reachable: true,
 	}
+	if host, portText, err := net.SplitHostPort(currentEndpoint); err == nil {
+		if port, convErr := strconv.Atoi(portText); convErr == nil && port > 0 && port <= 65535 {
+			tcpCtx, cancelTCP := context.WithTimeout(ctx, 5*time.Second)
+			tcp := defaultBestServerQualityTCPProbe(tcpCtx, subscriptionProfile{Address: host, Port: port})
+			cancelTCP()
+			if tcp.OK {
+				candidate.TCPRTTMS = tcp.Median
+				candidate.TCPJitterMS = tcp.Jitter
+			}
+		}
+	}
 	probeCtx, cancel := context.WithTimeout(ctx, bestServerQualityCandidateTimeout)
 	probe := a.probeBestServerActiveOutbound(probeCtx, outbound)
 	cancel()
