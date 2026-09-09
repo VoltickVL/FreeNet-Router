@@ -8,7 +8,11 @@ import (
 	"time"
 )
 
-const bestServerCurrentScanTimeout = 45 * time.Second
+const (
+	bestServerCurrentScanTimeout = 45 * time.Second
+	bestServerMeasuredTarget     = 3
+	bestServerQualityBatchSize   = 6
+)
 
 func registerBestServerUXAPI(mux *http.ServeMux, a *app) {
 	jobs := &bestServerJobs{}
@@ -48,6 +52,19 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 		}
 	}
 	return filtered
+}
+
+func countMeasuredBestServerAlternatives(candidates []bestServerQualityCandidate) int {
+	count := 0
+	for _, candidate := range candidates {
+		if candidate.Current {
+			continue
+		}
+		if candidate.Tested && candidate.DownloadMbps > 0 && candidate.MediaSamples >= bestServerMediaRequiredRuns {
+			count++
+		}
+	}
+	return count
 }
 
 func currentBestServerCandidate(candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) ([]bestServerInternalCandidate, bool) {
@@ -164,23 +181,43 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	}
 
 	// First compare the real application path through each candidate VPN with a
-	// cheap bounded probe. Only then spend the expensive Speedtest budget on the
-	// best measured paths. This prevents shared/provider endpoint TCP latency
-	// from making distant exits dominate the shortlist.
+	// cheap bounded probe. Keep a reserve beyond the first deep-test batch so a
+	// failed Speedtest does not reduce the final comparison to only one or two
+	// rows. Expensive probing stops as soon as three measured alternatives exist.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
-	response := rankBestServerQualityCandidates(
-		ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter,
-		defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
-	)
-	if ctx.Err() != nil {
-		return bestServerQualityResponse{}, ctx.Err()
+	response := bestServerQualityResponse{Candidates: []bestServerQualityCandidate{}, ProfilesTruncated: truncated, Mutation: "NONE"}
+	for start := 0; start < len(candidates); start += bestServerQualityBatchSize {
+		if ctx.Err() != nil {
+			return bestServerQualityResponse{}, ctx.Err()
+		}
+		end := start + bestServerQualityBatchSize
+		if end > len(candidates) {
+			end = len(candidates)
+		}
+		batch := rankBestServerQualityCandidates(
+			ctx, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
+			defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
+		)
+		if ctx.Err() != nil {
+			return bestServerQualityResponse{}, ctx.Err()
+		}
+		response.Partial = response.Partial || batch.Partial
+		response.Available = response.Available || batch.Available
+		if response.Recommendation == nil && batch.Recommendation != nil {
+			copyValue := *batch.Recommendation
+			response.Recommendation = &copyValue
+		}
+		response.Candidates = append(response.Candidates, filterMeasuredBestServerResults(batch.Candidates)...)
+		if countMeasuredBestServerAlternatives(response.Candidates) >= bestServerMeasuredTarget {
+			break
+		}
 	}
-	response.Candidates = filterMeasuredBestServerResults(response.Candidates)
 	if cachedOK {
 		response.Candidates = append(response.Candidates, cachedCurrent)
 	} else if candidate, ok := currentBestServerQualityCandidate(response); ok {
 		storeBestServerCurrentQuality(currentEndpoint, currentFilter, candidate)
 	}
+	response = applyBestServerRecommendationDeadband(response)
 	response.ProfilesScanned = profilesScanned
 	response.Success = true
 	response.Mutation = "NONE"
