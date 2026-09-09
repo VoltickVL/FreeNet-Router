@@ -1,0 +1,25 @@
+name: Issue 347 Mobile Fix
+
+on:
+  push:
+    branches: [fix/347-overview-render-contract]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/347-overview-render-contract
+          fetch-depth: 0
+      - run: python3 scripts/issue347_fix_mobile.py
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: keep approved Overview responsive on mobile (#347)"
+          git push origin HEAD:fix/347-overview-render-contract
