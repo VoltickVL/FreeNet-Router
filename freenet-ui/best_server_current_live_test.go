@@ -25,6 +25,16 @@ func TestReadBestServerActiveOutbound(t *testing.T) {
 	}
 }
 
+func TestBestServerProfileFromEndpoint(t *testing.T) {
+	profile, ok := bestServerProfileFromEndpoint("143.20.254.191:443")
+	if !ok || profile.Address != "143.20.254.191" || profile.Port != 443 {
+		t.Fatalf("unexpected profile: %#v ok=%v", profile, ok)
+	}
+	if _, ok := bestServerProfileFromEndpoint("broken-endpoint"); ok {
+		t.Fatal("invalid endpoint must fail closed")
+	}
+}
+
 func TestBestServerCountryCodeFromLabel(t *testing.T) {
 	if got := bestServerCountryCodeFromLabel("PL Варшава, Польша, Extra"); got != "pl" {
 		t.Fatalf("expected pl, got %q", got)
@@ -55,5 +65,17 @@ func TestFilterMeasuredBestServerResultsDropsDashSpeedRows(t *testing.T) {
 	got := filterMeasuredBestServerResults(in)
 	if len(got) != 2 || got[0].ID != "good" || got[1].ID != "current" {
 		t.Fatalf("unexpected measured results: %#v", got)
+	}
+}
+
+func TestCountMeasuredBestServerAlternatives(t *testing.T) {
+	in := []bestServerQualityCandidate{
+		{ID: "one", Tested: true, DownloadMbps: 100, MediaSamples: bestServerMediaRequiredRuns},
+		{ID: "two", Tested: true, DownloadMbps: 90, MediaSamples: bestServerMediaRequiredRuns},
+		{ID: "current", Current: true, Tested: true, DownloadMbps: 120, MediaSamples: bestServerMediaRequiredRuns},
+		{ID: "dash", Tested: true},
+	}
+	if got := countMeasuredBestServerAlternatives(in); got != 2 {
+		t.Fatalf("expected 2 measured alternatives, got %d", got)
 	}
 }
