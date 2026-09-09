@@ -217,8 +217,25 @@ func parseSafeVLESSProfile(line string) (subscriptionProfile, bool) {
 	}, true
 }
 
+func regionalIndicatorLetter(r rune) (byte, bool) {
+	const first = rune(0x1F1E6)
+	const last = rune(0x1F1FF)
+	if r < first || r > last {
+		return 0, false
+	}
+	return byte('a' + (r - first)), true
+}
+
 func profileCountryCode(name string) string {
 	name = strings.TrimSpace(name)
+	runes := []rune(name)
+	if len(runes) >= 2 {
+		a, okA := regionalIndicatorLetter(runes[0])
+		b, okB := regionalIndicatorLetter(runes[1])
+		if okA && okB {
+			return string([]byte{a, b})
+		}
+	}
 	if len(name) < 3 || name[2] != ' ' {
 		return ""
 	}
@@ -227,6 +244,27 @@ func profileCountryCode(name string) string {
 		return ""
 	}
 	return strings.ToLower(name[:2])
+}
+
+// profileDisplayName removes a leading ISO marker only for presentation. The
+// raw subscription profile name remains untouched for exact filter identity.
+func profileDisplayName(name string) string {
+	name = strings.TrimSpace(sanitizeProfileName(name))
+	if name == "" {
+		return "Extra profile"
+	}
+	runes := []rune(name)
+	if len(runes) >= 2 {
+		_, okA := regionalIndicatorLetter(runes[0])
+		_, okB := regionalIndicatorLetter(runes[1])
+		if okA && okB {
+			return strings.TrimSpace(string(runes[2:]))
+		}
+	}
+	if len(name) >= 3 && name[2] == ' ' && name[0] >= 'A' && name[0] <= 'Z' && name[1] >= 'A' && name[1] <= 'Z' {
+		return strings.TrimSpace(name[3:])
+	}
+	return name
 }
 
 func sanitizeProfileName(name string) string {
