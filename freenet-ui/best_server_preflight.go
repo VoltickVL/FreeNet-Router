@@ -19,7 +19,7 @@ const (
 	bestServerPreflightWorkers          = 4
 	bestServerPreflightCandidateTimeout = 5 * time.Second
 	bestServerPreflightPhaseTimeout     = 35 * time.Second
-	bestServerPreflightShortlist        = 6
+	bestServerPreflightShortlist        = 12
 	bestServerPreflightHTTPRuns         = 2
 )
 
