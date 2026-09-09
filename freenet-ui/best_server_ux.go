@@ -164,14 +164,10 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	}
 
 	// First compare the real application path through each candidate VPN with a
-	// cheap bounded probe. Only then spend the expensive Speedtest budget on the
-	// best measured paths. This prevents shared/provider endpoint TCP latency
-	// from making distant exits dominate the shortlist.
-	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
-	response := rankBestServerQualityCandidates(
-		ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter,
-		defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
-	)
+	// cheap bounded probe. If early deep tests fail to produce three measured
+	// alternatives, one additional bounded batch is tried within the same global
+	// scan budget instead of returning only one or two rows.
+	response := a.rankBestServerForeignWithFill(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil {
 		return bestServerQualityResponse{}, ctx.Err()
 	}
