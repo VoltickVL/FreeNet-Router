@@ -17,13 +17,15 @@ import (
 )
 
 const (
-	authCookieName     = "freenet_session"
-	authAlgorithm      = "pbkdf2-sha256"
-	authIterations     = 210000
-	authSaltBytes      = 32
-	authKeyBytes       = 32
-	authSessionTTL     = 12 * time.Hour
-	authCredentialMode = 0600
+	authCookieName        = "freenet_session"
+	authAlgorithm         = "pbkdf2-sha256"
+	authIterations        = 210000
+	authSaltBytes         = 32
+	authKeyBytes          = 32
+	authSessionTTL        = 12 * time.Hour
+	authRememberSessionTTL = 30 * 24 * time.Hour
+	authCredentialMode    = 0600
+	authSessionStoreMode  = 0600
 )
 
 var (
@@ -40,6 +42,16 @@ type credentialRecord struct {
 	Hash       string `json:"hash"`
 }
 
+type persistentSessionRecord struct {
+	Hash      string    `json:"hash"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type persistentSessionStore struct {
+	Version  int                       `json:"version"`
+	Sessions []persistentSessionRecord `json:"sessions"`
+}
+
 type authState struct {
 	mu       sync.Mutex
 	sessions map[string]time.Time
@@ -52,6 +64,7 @@ type authStatusResponse struct {
 
 type passwordRequest struct {
 	Password string `json:"password"`
+	Remember bool   `json:"remember,omitempty"`
 }
 
 func (a *app) authState() *authState {
@@ -65,6 +78,10 @@ func (a *app) authState() *authState {
 
 func (a *app) authPath() string {
 	return filepath.Join(filepath.Dir(a.cfg.ConfigPath), "auth.json")
+}
+
+func (a *app) authSessionPath() string {
+	return filepath.Join(filepath.Dir(a.cfg.ConfigPath), "auth_sessions.json")
 }
 
 func (a *app) loadCredential() (credentialRecord, bool, error) {
@@ -185,6 +202,11 @@ func randomSessionToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+func sessionDigest(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
 func requestSecure(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
@@ -192,17 +214,20 @@ func requestSecure(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }
 
-func (a *app) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
-	http.SetCookie(w, &http.Cookie{
+func (a *app) setSessionCookie(w http.ResponseWriter, r *http.Request, token string, remember bool) {
+	cookie := &http.Cookie{
 		Name:     authCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   requestSecure(r),
 		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(authSessionTTL.Seconds()),
-		Expires:  time.Now().Add(authSessionTTL),
-	})
+	}
+	if remember {
+		cookie.MaxAge = int(authRememberSessionTTL.Seconds())
+		cookie.Expires = time.Now().Add(authRememberSessionTTL)
+	}
+	http.SetCookie(w, cookie)
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +243,85 @@ func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (a *app) loadPersistentSessionsLocked(now time.Time) ([]persistentSessionRecord, error) {
+	b, err := os.ReadFile(a.authSessionPath())
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var store persistentSessionStore
+	if err := json.Unmarshal(b, &store); err != nil || store.Version != 1 {
+		return nil, errInvalidCredential
+	}
+	clean := make([]persistentSessionRecord, 0, len(store.Sessions))
+	for _, rec := range store.Sessions {
+		if len(rec.Hash) == sha256.Size*2 && rec.ExpiresAt.After(now) {
+			clean = append(clean, rec)
+		}
+	}
+	return clean, nil
+}
+
+func (a *app) savePersistentSessionsLocked(records []persistentSessionRecord) error {
+	if len(records) == 0 {
+		if err := os.Remove(a.authSessionPath()); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	store := persistentSessionStore{Version: 1, Sessions: records}
+	b, err := json.Marshal(store)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(a.authSessionPath()), 0700); err != nil {
+		return err
+	}
+	if err := atomicWrite(a.authSessionPath(), append(b, '\n'), authSessionStoreMode); err != nil {
+		return err
+	}
+	return os.Chmod(a.authSessionPath(), authSessionStoreMode)
+}
+
+func (a *app) rememberSessionLocked(token string, expires time.Time) error {
+	now := time.Now()
+	records, err := a.loadPersistentSessionsLocked(now)
+	if err != nil && !errors.Is(err, errInvalidCredential) {
+		return err
+	}
+	digest := sessionDigest(token)
+	out := make([]persistentSessionRecord, 0, len(records)+1)
+	for _, rec := range records {
+		if rec.Hash != digest {
+			out = append(out, rec)
+		}
+	}
+	out = append(out, persistentSessionRecord{Hash: digest, ExpiresAt: expires})
+	return a.savePersistentSessionsLocked(out)
+}
+
+func (a *app) forgetPersistentSessionLocked(token string) {
+	records, err := a.loadPersistentSessionsLocked(time.Now())
+	if err != nil {
+		return
+	}
+	digest := sessionDigest(token)
+	out := records[:0]
+	for _, rec := range records {
+		if rec.Hash != digest {
+			out = append(out, rec)
+		}
+	}
+	_ = a.savePersistentSessionsLocked(out)
+}
+
 func (a *app) newSession(w http.ResponseWriter, r *http.Request) error {
+	return a.newSessionWithRemember(w, r, false)
+}
+
+func (a *app) newSessionWithRemember(w http.ResponseWriter, r *http.Request, remember bool) error {
 	token, err := randomSessionToken()
 	if err != nil {
 		return err
@@ -231,9 +334,21 @@ func (a *app) newSession(w http.ResponseWriter, r *http.Request) error {
 			delete(state.sessions, existing)
 		}
 	}
-	state.sessions[token] = now.Add(authSessionTTL)
+	ttl := authSessionTTL
+	if remember {
+		ttl = authRememberSessionTTL
+	}
+	expires := now.Add(ttl)
+	state.sessions[token] = expires
+	if remember {
+		if err := a.rememberSessionLocked(token, expires); err != nil {
+			delete(state.sessions, token)
+			state.mu.Unlock()
+			return err
+		}
+	}
 	state.mu.Unlock()
-	a.setSessionCookie(w, r, token)
+	a.setSessionCookie(w, r, token, remember)
 	return nil
 }
 
@@ -245,11 +360,32 @@ func (a *app) sessionToken(r *http.Request) (string, bool) {
 	state := a.authState()
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	expires, ok := state.sessions[cookie.Value]
-	if !ok || !expires.After(time.Now()) {
+	now := time.Now()
+	if expires, ok := state.sessions[cookie.Value]; ok {
+		if expires.After(now) {
+			return cookie.Value, true
+		}
 		delete(state.sessions, cookie.Value)
+	}
+
+	records, err := a.loadPersistentSessionsLocked(now)
+	if err != nil {
 		return "", false
 	}
+	digest := sessionDigest(cookie.Value)
+	found := false
+	var expires time.Time
+	for _, rec := range records {
+		if subtle.ConstantTimeCompare([]byte(rec.Hash), []byte(digest)) == 1 {
+			found = true
+			expires = rec.ExpiresAt
+			break
+		}
+	}
+	if !found || !expires.After(now) {
+		return "", false
+	}
+	state.sessions[cookie.Value] = expires
 	return cookie.Value, true
 }
 
@@ -317,7 +453,7 @@ func (a *app) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot configure authentication"})
 		return
 	}
-	if err := a.newSession(w, r); err != nil {
+	if err := a.newSessionWithRemember(w, r, req.Remember); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create session"})
 		return
 	}
@@ -337,7 +473,7 @@ func (a *app) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 		return
 	}
-	if err := a.newSession(w, r); err != nil {
+	if err := a.newSessionWithRemember(w, r, req.Remember); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "cannot create session"})
 		return
 	}
@@ -353,6 +489,7 @@ func (a *app) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
 		state := a.authState()
 		state.mu.Lock()
 		delete(state.sessions, token)
+		a.forgetPersistentSessionLocked(token)
 		state.mu.Unlock()
 	}
 	clearSessionCookie(w, r)
@@ -367,6 +504,7 @@ func (a *app) handleAuthLogoutAll(w http.ResponseWriter, r *http.Request) {
 	state := a.authState()
 	state.mu.Lock()
 	state.sessions = make(map[string]time.Time)
+	_ = a.savePersistentSessionsLocked(nil)
 	state.mu.Unlock()
 	clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, authStatusResponse{Configured: a.credentialConfigured(), Authenticated: false})

@@ -14,12 +14,15 @@ import (
 )
 
 const (
-	bestServerSpeedtestServersURL  = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=1&limit=20"
-	bestServerSpeedtestBytes       = int64(8_000_000)
-	bestServerSpeedtestListTimeout = 5 * time.Second
-	bestServerSpeedtestRunTimeout  = 8 * time.Second
-	bestServerSpeedtestServerTries = 3
-	bestServerSpeedtestServerLimit = 8
+	bestServerSpeedtestServersURL       = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=1&limit=20"
+	bestServerSpeedtestBytes            = int64(8_000_000)
+	bestServerSpeedtestPreflightBytes   = int64(256_000)
+	bestServerSpeedtestPreflightMinimum = int64(32_000)
+	bestServerSpeedtestListTimeout      = 5 * time.Second
+	bestServerSpeedtestPreflightTimeout = 4 * time.Second
+	bestServerSpeedtestRunTimeout       = 8 * time.Second
+	bestServerSpeedtestServerTries      = 3
+	bestServerSpeedtestServerLimit      = 8
 )
 
 type bestServerSpeedtestServer struct {
@@ -35,12 +38,20 @@ type bestServerSpeedtestStreamResult struct {
 	OK    bool
 }
 
-func bestServerSpeedtestDownloadURL(server bestServerSpeedtestServer, nonce int64) string {
+type bestServerSpeedtestPreflightResult struct {
+	Index int
+	OK    bool
+}
+
+func bestServerSpeedtestDownloadURLForSize(server bestServerSpeedtestServer, size, nonce int64) string {
+	if size < 1 {
+		return ""
+	}
 	raw := strings.TrimSpace(server.URL)
 	if raw != "" {
 		if parsed, err := url.Parse(raw); err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != "" {
 			parsed.Path = "/download"
-			parsed.RawQuery = "size=" + strconv.FormatInt(bestServerSpeedtestBytes, 10) + "&nocache=" + strconv.FormatInt(nonce, 10)
+			parsed.RawQuery = "size=" + strconv.FormatInt(size, 10) + "&nocache=" + strconv.FormatInt(nonce, 10)
 			parsed.Fragment = ""
 			return parsed.String()
 		}
@@ -49,7 +60,11 @@ func bestServerSpeedtestDownloadURL(server bestServerSpeedtestServer, nonce int6
 	if host == "" || strings.ContainsAny(host, " /?#") {
 		return ""
 	}
-	return "https://" + host + "/download?size=" + strconv.FormatInt(bestServerSpeedtestBytes, 10) + "&nocache=" + strconv.FormatInt(nonce, 10)
+	return "https://" + host + "/download?size=" + strconv.FormatInt(size, 10) + "&nocache=" + strconv.FormatInt(nonce, 10)
+}
+
+func bestServerSpeedtestDownloadURL(server bestServerSpeedtestServer, nonce int64) string {
+	return bestServerSpeedtestDownloadURLForSize(server, bestServerSpeedtestBytes, nonce)
 }
 
 func discoverBestServerSpeedtestServers(ctx context.Context, curlPath, socks string) ([]bestServerSpeedtestServer, string) {
@@ -85,6 +100,68 @@ func discoverBestServerSpeedtestServers(ctx context.Context, curlPath, socks str
 	return filtered, ""
 }
 
+func parseBestServerSpeedtestPreflight(output string) bool {
+	parts := strings.Split(strings.TrimSpace(output), "\t")
+	if len(parts) != 2 {
+		return false
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil || code < 200 || code >= 300 {
+		return false
+	}
+	bytes, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+	return err == nil && bytes >= bestServerSpeedtestPreflightMinimum
+}
+
+func qualifyBestServerSpeedtestServers(ctx context.Context, curlPath, socks string, servers []bestServerSpeedtestServer) []bestServerSpeedtestServer {
+	if len(servers) == 0 {
+		return nil
+	}
+	preflightCtx, cancelAll := context.WithTimeout(ctx, bestServerSpeedtestPreflightTimeout)
+	defer cancelAll()
+	results := make(chan bestServerSpeedtestPreflightResult, len(servers))
+	var wg sync.WaitGroup
+	for index, server := range servers {
+		index, server := index, server
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			nonce := time.Now().UnixNano() + int64(index)
+			downloadURL := bestServerSpeedtestDownloadURLForSize(server, bestServerSpeedtestPreflightBytes, nonce)
+			if downloadURL == "" {
+				results <- bestServerSpeedtestPreflightResult{Index: index}
+				return
+			}
+			probeCtx, cancel := context.WithTimeout(preflightCtx, bestServerSpeedtestPreflightTimeout)
+			output, err := exec.CommandContext(probeCtx, curlPath,
+				"--socks5-hostname", socks,
+				"-sS", "--connect-timeout", "2", "--max-time", "4",
+				"-o", "/dev/null",
+				"-w", "%{http_code}\t%{size_download}",
+				downloadURL,
+			).Output()
+			cancel()
+			results <- bestServerSpeedtestPreflightResult{Index: index, OK: err == nil && parseBestServerSpeedtestPreflight(string(output))}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	ok := make([]bool, len(servers))
+	for result := range results {
+		if result.Index >= 0 && result.Index < len(ok) && result.OK {
+			ok[result.Index] = true
+		}
+	}
+	qualified := make([]bestServerSpeedtestServer, 0, len(servers))
+	for i, server := range servers {
+		if ok[i] {
+			qualified = append(qualified, server)
+		}
+	}
+	return qualified
+}
+
 func bestServerSpeedtestServerIndex(serverCount, streams, attempt, stream int) int {
 	if serverCount <= 0 || streams <= 0 || attempt < 0 || stream < 0 {
 		return -1
@@ -100,10 +177,17 @@ func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks str
 	if len(servers) == 0 {
 		return nil, issue
 	}
+	servers = qualifyBestServerSpeedtestServers(ctx, curlPath, socks, servers)
+	if len(servers) == 0 {
+		return nil, "Speedtest origins unavailable through candidate VPN"
+	}
 
 	tries := bestServerSpeedtestServerTries
 	if tries > len(servers) {
 		tries = len(servers)
+	}
+	if tries < 1 {
+		tries = 1
 	}
 	bestSpeeds := []float64(nil)
 	bestIssues := []string(nil)
