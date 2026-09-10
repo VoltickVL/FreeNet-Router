@@ -1287,14 +1287,14 @@
       else clearRefreshResult();
     }, true);
 
-    const previousFetch = window.fetch.bind(window);
+    const safeBaseFetch = window.fetch.bind(window);
     window.fetch = async function(input, init) {
       const url = typeof input === 'string' ? input : (input && input.url) || '';
       const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
       const currentRefresh = method === 'POST' && url.split('?')[0] === '/api/vpn/current-refresh';
-      if (!currentRefresh) return previousFetch(input, init);
+      if (!currentRefresh) return safeBaseFetch(input, init);
       try {
-        const response = await previousFetch(input, init);
+        const response = await safeBaseFetch(input, init);
         let body = null;
         try { body = await response.clone().json(); } catch (_) {}
         const message = refreshOutcomeMessage(body, response);
