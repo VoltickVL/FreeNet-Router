@@ -25,6 +25,9 @@ func TestSafeV038PolishHasNoSelfMutatingObserver(t *testing.T) {
 	if strings.Contains(src, bad) {
 		t.Fatal("v0.3.8 self-mutating observer regression detected")
 	}
+	if !strings.Contains(safe, "const safeBaseFetch = window.fetch.bind(window);") || !strings.Contains(safe, "safeBaseFetch(input, init)") {
+		t.Fatal("safe current-refresh lifecycle must use its isolated fetch delegate")
+	}
 	for _, needle := range []string{
 		"FreeNetV038SafePolish",
 		"fn-current-refresh-visible",
