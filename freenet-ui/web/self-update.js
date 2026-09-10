@@ -464,6 +464,7 @@
     apply.disabled = !(p.success && p.ready && p.update_available && p.target_tag);
     apply.textContent = p.update_available && p.target_tag ? `Обновить до ${p.target_tag}` : 'Обновить';
     setUpdateSummary(p.update_available ? `Доступно ${p.latest_version}` : 'Актуальная версия', p.update_available ? '' : 'ok');
+    renderTopbarVersion(p.current_version, !!p.update_available, p.latest_version);
   }
 
   function openUpdateConfirmModal() {
@@ -498,6 +499,7 @@
       openModal({kicker: 'Обновление FreeNet', title: 'Не удалось проверить обновление', body: e.message || 'Ошибка проверки обновления', closable: true});
     } finally {
       btn.disabled = false;
+      qs('#webUpdateApplyBtn').disabled = !(plan && plan.success && plan.ready && plan.update_available && plan.target_tag);
     }
   }
 
@@ -779,12 +781,102 @@
     renderNetworkControls(false);
   }
 
+  function renderTopbarVersion(currentVersion, updateAvailable = false, latestVersion = '') {
+    const control = qs('#topXkeenLink');
+    if (!control) return;
+    const current = String(currentVersion || '').replace(/^v/i, '') || '—';
+    control.textContent = '';
+    control.className = 'mini-link fn-version-control' + (updateAvailable ? ' update-available' : '');
+    control.setAttribute('role', 'button');
+    control.setAttribute('aria-label', updateAvailable ? `FreeNet v${current}. Доступно обновление ${latestVersion || ''}` : `FreeNet v${current}. Проверить обновление`);
+    const icon = document.createElement('span');
+    icon.className = 'fn-version-icon';
+    icon.textContent = updateAvailable ? '↑' : '◈';
+    const copy = document.createElement('span');
+    copy.className = 'fn-version-copy';
+    const label = document.createElement('small');
+    label.textContent = updateAvailable ? 'Обновление' : 'FreeNet';
+    const value = document.createElement('strong');
+    value.textContent = `v${current}`;
+    copy.append(label, value);
+    control.append(icon, copy);
+  }
+
+  function openTopbarUpdateModal() {
+    const current = (qs('#version')?.textContent || '').replace(/^FreeNet UI\s*/i, '') || 'текущая версия';
+    openModal({
+      kicker: 'FreeNet · обновление',
+      title: `FreeNet ${current}`,
+      body: 'Проверим последний опубликованный релиз. Если новая версия доступна, FreeNet покажет изменения и предложит безопасное обновление с backup, SHA-256, staging и проверкой после перезапуска.',
+      confirmText: 'Проверить обновление',
+      cancelText: 'Закрыть',
+      onConfirm: checkUpdate
+    });
+  }
+
+  async function refreshTopbarUpdateState() {
+    try {
+      const vr = await fetch('/versionz', {cache: 'no-store'});
+      if (vr.ok) renderTopbarVersion((await vr.text()).trim());
+    } catch (_) {}
+    try {
+      if (typeof authAuthenticated !== 'undefined' && !authAuthenticated) return;
+      const r = await fetch('/api/system/update/plan', {cache: 'no-store'});
+      if (!r.ok) return;
+      const p = await r.json();
+      if (!p.success) return;
+      plan = p;
+      if (qs('#webUpdateCurrent')) renderPlan(p);
+      else renderTopbarVersion(p.current_version, !!p.update_available, p.latest_version);
+    } catch (_) {}
+  }
+
+  function mountChromeUpdateUX() {
+    if (!qs('#freenetChromeUpdateUX')) {
+      const style = document.createElement('style');
+      style.id = 'freenetChromeUpdateUX';
+      style.textContent = `
+        .side-bottom{display:none!important}
+        .nav-btn[data-page="system"]{display:none!important}
+        .nav{gap:8px}
+        .nav-btn{min-height:48px;padding:12px 14px;border-radius:12px;gap:12px;font-size:14.5px;font-weight:700}
+        .nav-icon{width:21px;height:21px;font-size:16px}
+        .fn-version-control{min-width:112px;min-height:46px;padding:6px 11px;display:flex;align-items:center;gap:9px;color:#d6e3f5!important;text-decoration:none!important;cursor:pointer}
+        .fn-version-control:hover{border-color:#456489;background:#122239;color:#fff!important}
+        .fn-version-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:8px;border:1px solid #315077;background:#0b1b2d;color:#82adff;font-size:14px;font-weight:900}
+        .fn-version-copy{display:flex;flex-direction:column;line-height:1.08;text-align:left}
+        .fn-version-copy small{font-size:9px;color:#899bb4;font-weight:700}
+        .fn-version-copy strong{font-size:12.5px;color:#f4f7fb;margin-top:2px}
+        .fn-version-control.update-available{border-color:rgba(73,218,146,.62);background:linear-gradient(180deg,rgba(18,70,55,.92),rgba(12,48,39,.92));box-shadow:inset 0 0 0 1px rgba(73,218,146,.09),0 0 18px rgba(73,218,146,.08)}
+        .fn-version-control.update-available .fn-version-icon{border-color:rgba(73,218,146,.58);background:rgba(18,86,62,.65);color:#65f0ad}
+        .fn-version-control.update-available .fn-version-copy small,.fn-version-control.update-available .fn-version-copy strong{color:#c9f7dc}
+        @media(max-width:760px){.fn-version-control{min-width:46px}.fn-version-copy small{display:none}}
+      `;
+      document.head.appendChild(style);
+    }
+    if (typeof pageLabels === 'object') delete pageLabels.system;
+    if (location.hash === '#system') setPage('overview');
+    const control = qs('#topXkeenLink');
+    if (control) {
+      control.removeAttribute('target');
+      control.removeAttribute('rel');
+      control.href = '#overview';
+      control.addEventListener('click', event => {
+        event.preventDefault();
+        openTopbarUpdateModal();
+      });
+    }
+    refreshTopbarUpdateState();
+    setInterval(refreshTopbarUpdateState, 10 * 60 * 1000);
+  }
+
   function mount() {
     mountTypographyReadability();
     mountDashboardStability();
     mountModalLayer();
     mountOverviewVPNFlow();
     mountUpdate();
+    mountChromeUpdateUX();
     mountNetworkDraftFlow();
   }
 
