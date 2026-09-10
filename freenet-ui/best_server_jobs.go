@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const bestServerAsyncJobTimeout = 165 * time.Second
+
 // One bounded, read-only quality job per app. Polling never starts a scan.
 // Retain only the latest result, with no credentials or raw probe output.
 type bestServerJob struct {
@@ -73,7 +75,7 @@ func (jobs *bestServerJobs) wrap(a *app, mode string, legacy http.HandlerFunc, s
 		job := &bestServerJob{ID: id, Mode: mode, State: "running", Stage: "discovery", StartedAt: time.Now().UTC()}
 		jobs.job = job
 		go func() {
-			timeout := bestServerQualityScanTimeout
+			timeout := bestServerAsyncJobTimeout
 			if mode == "current" { timeout = bestServerCurrentScanTimeout }
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
