@@ -44,3 +44,33 @@ func TestBestServerSpeedtestThroughputParserAcceptsUsefulPartialBody(t *testing.
 		t.Fatal("HTTP error payload must not count as Speedtest throughput")
 	}
 }
+
+func TestBestServerSpeedtestServerIndexSpreadsConcurrentStreamsAcrossServers(t *testing.T) {
+	got := []int{
+		bestServerSpeedtestServerIndex(8, 4, 0, 0),
+		bestServerSpeedtestServerIndex(8, 4, 0, 1),
+		bestServerSpeedtestServerIndex(8, 4, 0, 2),
+		bestServerSpeedtestServerIndex(8, 4, 0, 3),
+		bestServerSpeedtestServerIndex(8, 4, 1, 0),
+		bestServerSpeedtestServerIndex(8, 4, 1, 1),
+		bestServerSpeedtestServerIndex(8, 4, 1, 2),
+		bestServerSpeedtestServerIndex(8, 4, 1, 3),
+	}
+	want := []int{0, 1, 2, 3, 4, 5, 6, 7}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("server distribution[%d]=%d want %d", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBestServerSpeedtestServerIndexWrapsDeterministically(t *testing.T) {
+	if got := bestServerSpeedtestServerIndex(5, 4, 1, 3); got != 2 {
+		t.Fatalf("wrapped server index=%d want 2", got)
+	}
+	for _, tc := range [][4]int{{0, 4, 0, 0}, {4, 0, 0, 0}, {4, 4, -1, 0}, {4, 4, 0, -1}} {
+		if got := bestServerSpeedtestServerIndex(tc[0], tc[1], tc[2], tc[3]); got != -1 {
+			t.Fatalf("invalid input returned %d", got)
+		}
+	}
+}

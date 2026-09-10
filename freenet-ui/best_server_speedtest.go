@@ -14,11 +14,12 @@ import (
 )
 
 const (
-	bestServerSpeedtestServersURL   = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=1&limit=10"
-	bestServerSpeedtestBytes        = int64(8_000_000)
-	bestServerSpeedtestListTimeout  = 5 * time.Second
-	bestServerSpeedtestRunTimeout   = 8 * time.Second
-	bestServerSpeedtestServerTries  = 3
+	bestServerSpeedtestServersURL  = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=1&limit=20"
+	bestServerSpeedtestBytes       = int64(8_000_000)
+	bestServerSpeedtestListTimeout = 5 * time.Second
+	bestServerSpeedtestRunTimeout  = 8 * time.Second
+	bestServerSpeedtestServerTries = 3
+	bestServerSpeedtestServerLimit = 8
 )
 
 type bestServerSpeedtestServer struct {
@@ -74,7 +75,7 @@ func discoverBestServerSpeedtestServers(ctx context.Context, curlPath, socks str
 		if bestServerSpeedtestDownloadURL(server, 1) != "" {
 			filtered = append(filtered, server)
 		}
-		if len(filtered) >= 5 {
+		if len(filtered) >= bestServerSpeedtestServerLimit {
 			break
 		}
 	}
@@ -82,6 +83,13 @@ func discoverBestServerSpeedtestServers(ctx context.Context, curlPath, socks str
 		return nil, "Speedtest server list empty"
 	}
 	return filtered, ""
+}
+
+func bestServerSpeedtestServerIndex(serverCount, streams, attempt, stream int) int {
+	if serverCount <= 0 || streams <= 0 || attempt < 0 || stream < 0 {
+		return -1
+	}
+	return (attempt*streams + stream) % serverCount
 }
 
 func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks string, streams int) ([]float64, string) {
@@ -99,15 +107,16 @@ func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks str
 	}
 	bestSpeeds := []float64(nil)
 	bestIssues := []string(nil)
-	for serverIndex := 0; serverIndex < tries; serverIndex++ {
+	for attempt := 0; attempt < tries; attempt++ {
 		if ctx.Err() != nil {
 			break
 		}
-		server := servers[serverIndex]
 		results := make(chan bestServerSpeedtestStreamResult, streams)
 		var wg sync.WaitGroup
 		for stream := 0; stream < streams; stream++ {
 			stream := stream
+			serverIndex := bestServerSpeedtestServerIndex(len(servers), streams, attempt, stream)
+			server := servers[serverIndex]
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -151,7 +160,7 @@ func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks str
 			issues = append(issues, strconv.Itoa(count)+"× "+text)
 		}
 		sort.Strings(issues)
-		if len(speeds) > len(bestSpeeds) {
+		if len(speeds) > len(bestSpeeds) || (len(speeds) == len(bestSpeeds) && len(bestIssues) == 0 && len(issues) > 0) {
 			bestSpeeds = append([]float64(nil), speeds...)
 			bestIssues = append([]string(nil), issues...)
 		}
