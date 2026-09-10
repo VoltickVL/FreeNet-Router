@@ -13,19 +13,19 @@ const bestServerAsyncJobTimeout = 165 * time.Second
 // One bounded, read-only quality job per app. Polling never starts a scan.
 // Retain only the latest result, with no credentials or raw probe output.
 type bestServerJob struct {
-	ID string `json:"id"`
-	Mode string `json:"mode"`
-	State string `json:"state"`
-	Stage string `json:"stage"`
-	Completed int `json:"completed"`
-	Total int `json:"total"`
-	StartedAt time.Time `json:"started_at"`
-	Result *bestServerQualityResponse `json:"result,omitempty"`
-	Error string `json:"error,omitempty"`
+	ID        string                     `json:"id"`
+	Mode      string                     `json:"mode"`
+	State     string                     `json:"state"`
+	Stage     string                     `json:"stage"`
+	Completed int                        `json:"completed"`
+	Total     int                        `json:"total"`
+	StartedAt time.Time                  `json:"started_at"`
+	Result    *bestServerQualityResponse `json:"result,omitempty"`
+	Error     string                     `json:"error,omitempty"`
 }
 
 type bestServerJobs struct {
-	mu sync.Mutex
+	mu  sync.Mutex
 	job *bestServerJob
 }
 
@@ -76,7 +76,9 @@ func (jobs *bestServerJobs) wrap(a *app, mode string, legacy http.HandlerFunc, s
 		jobs.job = job
 		go func() {
 			timeout := bestServerAsyncJobTimeout
-			if mode == "current" { timeout = bestServerCurrentScanTimeout }
+			if mode == "current" {
+				timeout = bestServerCurrentScanTimeout
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			ctx = context.WithValue(ctx, bestServerProgressKey{}, func(stage string, completed, total int) {
