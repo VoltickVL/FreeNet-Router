@@ -86,6 +86,19 @@ const server = http.createServer((req,res)=>{
     await page.goto(base);
     await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
     await page.waitForTimeout(150);
+    // v0.3.8 regression guard: any ordinary DOM mutation must leave the browser event loop alive.
+    await page.evaluate(() => {
+      window.__freenetLiveness = 0;
+      const probe = document.createElement('div');
+      probe.id = 'fn-liveness-probe';
+      document.body.appendChild(probe);
+      for (let i = 0; i < 40; i++) {
+        probe.textContent = `mutation-${i}`;
+        probe.classList.toggle('tick', i % 2 === 0);
+      }
+      setTimeout(() => { window.__freenetLiveness = 1; probe.remove(); }, 60);
+    });
+    await page.waitForFunction(() => window.__freenetLiveness === 1, null, {timeout: 1500});
     const scans=()=>calls.filter(c=>c.path.startsWith('/api/vpn/')&&!c.query.includes('job=status'));
     assert.equal(scans().length,0,'opening Overview must not scan');
     assert.equal(errors.length,0,errors.join('\n'));
