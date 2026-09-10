@@ -722,7 +722,7 @@
           try {
             const r = await fetch('/api/network-profile/apply', {
               method: 'POST',
-              headers: {'Content-Type': 'application/json'},
+              headers: {'Content-Type':'application/json'},
               body: JSON.stringify({operation: 'network', isp: isp.value, dns_mode: dns.value, confirm: true})
             });
             if (r.status === 401) {
@@ -781,13 +781,27 @@
     renderNetworkControls(false);
   }
 
+  function ensureTopbarUpdateControl() {
+    let control = qs('#topFreenetUpdate');
+    if (control) return control;
+    const actions = qs('.top-actions');
+    if (!actions) return null;
+    control = document.createElement('button');
+    control.id = 'topFreenetUpdate';
+    control.type = 'button';
+    control.className = 'mini-link fn-version-control';
+    const xkeen = qs('#topXkeenLink');
+    if (xkeen && xkeen.parentNode === actions) actions.insertBefore(control, xkeen);
+    else actions.appendChild(control);
+    return control;
+  }
+
   function renderTopbarVersion(currentVersion, updateAvailable = false, latestVersion = '') {
-    const control = qs('#topXkeenLink');
+    const control = ensureTopbarUpdateControl();
     if (!control) return;
     const current = String(currentVersion || '').replace(/^v/i, '') || '—';
     control.textContent = '';
     control.className = 'mini-link fn-version-control' + (updateAvailable ? ' update-available' : '');
-    control.setAttribute('role', 'button');
     control.setAttribute('aria-label', updateAvailable ? `FreeNet v${current}. Доступно обновление ${latestVersion || ''}` : `FreeNet v${current}. Проверить обновление`);
     const icon = document.createElement('span');
     icon.className = 'fn-version-icon';
@@ -838,10 +852,7 @@
       style.textContent = `
         .side-bottom{display:none!important}
         .nav-btn[data-page="system"]{display:none!important}
-        .nav{gap:8px}
-        .nav-btn{min-height:48px;padding:12px 14px;border-radius:12px;gap:12px;font-size:14.5px;font-weight:700}
-        .nav-icon{width:21px;height:21px;font-size:16px}
-        .fn-version-control{min-width:112px;min-height:46px;padding:6px 11px;display:flex;align-items:center;gap:9px;color:#d6e3f5!important;text-decoration:none!important;cursor:pointer}
+        .fn-version-control{appearance:none;min-width:112px;min-height:46px;padding:6px 11px;display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:10px;background:#0b1523;color:#d6e3f5!important;text-decoration:none!important;cursor:pointer;font:inherit}
         .fn-version-control:hover{border-color:#456489;background:#122239;color:#fff!important}
         .fn-version-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:8px;border:1px solid #315077;background:#0b1b2d;color:#82adff;font-size:14px;font-weight:900}
         .fn-version-copy{display:flex;flex-direction:column;line-height:1.08;text-align:left}
@@ -856,11 +867,9 @@
     }
     if (typeof pageLabels === 'object') delete pageLabels.system;
     if (location.hash === '#system') setPage('overview');
-    const control = qs('#topXkeenLink');
-    if (control) {
-      control.removeAttribute('target');
-      control.removeAttribute('rel');
-      control.href = '#overview';
+    const control = ensureTopbarUpdateControl();
+    if (control && control.dataset.freenetUpdateBound !== '1') {
+      control.dataset.freenetUpdateBound = '1';
       control.addEventListener('click', event => {
         event.preventDefault();
         openTopbarUpdateModal();
