@@ -14,7 +14,7 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 	s := string(data)
 	for _, want := range []string{
 		`.side-bottom{display:none!important}`,
-		`.nav-btn[data-page=\"system\"]{display:none!important}`,
+		`.nav-btn[data-page="system"]{display:none!important}`,
 		`fn-version-control`,
 		`update-available`,
 		`renderTopbarVersion`,
