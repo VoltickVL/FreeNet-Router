@@ -207,6 +207,9 @@ func parseSafeVLESSProfile(line string) (subscriptionProfile, bool) {
 	if name == "" {
 		name = "Extra profile"
 	}
+	if !isBaseExtraProfileName(name) {
+		return subscriptionProfile{}, false
+	}
 	sum := sha256.Sum256([]byte(name + "|" + strings.ToLower(address) + "|" + strconv.Itoa(port)))
 	return subscriptionProfile{
 		ID:          hex.EncodeToString(sum[:8]),
@@ -215,6 +218,25 @@ func parseSafeVLESSProfile(line string) (subscriptionProfile, bool) {
 		Address:     address,
 		Port:        port,
 	}, true
+}
+
+// isBaseExtraProfileName is the canonical product eligibility rule for BlancVPN
+// discovery. Only the ordinary Extra family is selectable; Whitelist variants
+// are intentionally excluded from selector, Best Server and future automation.
+func isBaseExtraProfileName(name string) bool {
+	lower := strings.ToLower(strings.TrimSpace(sanitizeProfileName(name)))
+	if lower == "" || strings.Contains(lower, "expired") || strings.Contains(lower, "whitelist") {
+		return false
+	}
+	lower = strings.TrimRight(lower, " ,.;")
+	if lower == "extra" {
+		return true
+	}
+	if !strings.HasSuffix(lower, "extra") {
+		return false
+	}
+	prefix := strings.TrimSuffix(lower, "extra")
+	return strings.HasSuffix(prefix, " ") || strings.HasSuffix(prefix, ",")
 }
 
 func regionalIndicatorLetter(r rune) (byte, bool) {
