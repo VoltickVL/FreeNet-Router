@@ -10,10 +10,20 @@ import (
 )
 
 const (
-	bestServerCurrentScanTimeout  = 75 * time.Second
-	bestServerMeasuredBatchSize   = 1
-	bestServerVisibleAlternatives = 3
+	bestServerCurrentScanTimeout       = 75 * time.Second
+	bestServerMeasuredBatchSize        = 1
+	bestServerVisibleAlternatives      = 3
+	bestServerMinimumDeepAttemptBudget = 8 * time.Second
 )
+
+// bestServerAttemptContext keeps parent cancellation but hides the absolute
+// deadline from the generic quality ranker. The outer foreign-scan loop owns
+// the remaining-budget decision, so a real third candidate may still be
+// attempted with the bounded time left instead of being rejected merely
+// because a full 55 s candidate window no longer fits.
+type bestServerAttemptContext struct{ context.Context }
+
+func (bestServerAttemptContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 
 func registerBestServerUXAPI(mux *http.ServeMux, a *app) {
 	jobs := &bestServerJobs{}
@@ -58,12 +68,11 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 	return filtered
 }
 
-// The browser intentionally presents at most one comparison card per public
-// listener. This is a presentation-diversity rule only: address:port is NOT
-// logical profile identity and may legitimately be shared by VLESS/Reality
-// profiles. Seed the set with the active endpoint so a profile sharing the
-// current listener cannot make the backend believe the visible Top-3 is full
-// while the browser correctly hides it as a duplicate comparison endpoint.
+// The browser presents up to three real measured comparison cards. A card does
+// not need to be eligible to occupy a comparison slot: an incomplete/rejected
+// deep attempt is still useful diagnostic evidence and remains non-switchable.
+// Eligibility controls recommendation/apply only. Public endpoint is used here
+// solely for presentation diversity; it is not logical profile identity.
 func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate, currentEndpoint string) int {
 	seenEndpoints := map[string]struct{}{}
 	if endpoint := strings.TrimSpace(currentEndpoint); endpoint != "" {
@@ -71,7 +80,7 @@ func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate,
 	}
 	count := 0
 	for _, candidate := range candidates {
-		if candidate.Current || !candidate.Tested || !candidate.Available || !candidate.Eligible {
+		if candidate.Current || !candidate.Tested || (!candidate.Available && !candidate.Reachable) {
 			continue
 		}
 		endpoint := strings.TrimSpace(candidate.Endpoint)
@@ -134,16 +143,25 @@ func (a *app) rankMeasuredBestServerBatches(
 		if measuredBestServerAlternativeCount(aggregate.Candidates, currentEndpoint) >= bestServerVisibleAlternatives {
 			break
 		}
-		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerQualityCandidateTimeout+2*time.Second {
-			aggregate.Partial = true
-			break
+		if deadline, ok := ctx.Deadline(); ok {
+			remaining := time.Until(deadline)
+			if remaining < bestServerMinimumDeepAttemptBudget {
+				aggregate.Partial = true
+				break
+			}
+			if remaining < bestServerQualityCandidateTimeout+2*time.Second {
+				// Still run a real bounded attempt. Parent cancellation remains
+				// authoritative, but the result is partial if a full candidate
+				// window no longer fits.
+				aggregate.Partial = true
+			}
 		}
 		end := start + bestServerMeasuredBatchSize
 		if end > len(candidates) {
 			end = len(candidates)
 		}
 		batch := rankBestServerQualityCandidates(
-			ctx, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
+			bestServerAttemptContext{Context: ctx}, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
 			defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
 		)
 		aggregate.Partial = aggregate.Partial || batch.Partial
@@ -273,22 +291,11 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	candidates := filterForeignBestServerCandidates(all)
 	profilesScanned := len(candidates)
 
-	// A full comparison must always have its own current baseline. Reuse a
-	// fresh complete baseline when available; otherwise measure the active live
-	// outbound before probing alternatives. This is independent of whether the
-	// current profile belongs to the foreign alternative pool (for example a
-	// Whitelist profile). The measurement is read-only and never mutates VPN.
+	// "Проверить текущий VPN" is a separate explicit operation. Best Server may
+	// reuse a fresh complete current measurement, but it must not spend the
+	// alternatives job budget on an implicit heavy current Speedtest. This keeps
+	// the bounded 180 s browser contract focused on producing the Top-3 cards.
 	currentBaseline, currentBaselineOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
-	currentBaselineCached := currentBaselineOK
-	if !currentBaselineOK {
-		baselineCtx, cancelBaseline := context.WithTimeout(ctx, bestServerCurrentScanTimeout)
-		baselineResponse := a.scanActiveCurrentVPNQuality(baselineCtx, currentEndpoint, currentFilter)
-		cancelBaseline()
-		if candidate, ok := currentBestServerQualityCandidate(baselineResponse); ok {
-			currentBaseline = candidate
-			currentBaselineOK = true
-		}
-	}
 	if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
 		candidates = withoutBestServerCandidate(candidates, currentIndex)
 	}
@@ -300,14 +307,14 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		return bestServerQualityResponse{
 			Success: true, Available: currentBaselineOK && currentBaseline.Eligible, Candidates: currentCandidates, ProfilesScanned: profilesScanned, ProfilesTotal: profilesScanned,
 			ProfilesTruncated: truncated, Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
-			Message: "Подходящих зарубежных Extra-профилей нет; текущий VPN сохранён и проверен отдельно от списка замен.",
+			Message: "Подходящих зарубежных Extra-профилей нет; текущий VPN не изменён.",
 		}, nil
 	}
 
 	// First compare the real application path through each candidate VPN. Keep a
-	// reserve shortlist, then deep-test one logical profile per batch. Continue
-	// until the browser can actually show three eligible alternatives on three
-	// non-current listeners, or until the bounded scan budget is exhausted.
+	// reserve shortlist, then deep-test one logical profile per batch. Stop after
+	// three browser-visible measured alternatives (eligible first, diagnostics
+	// allowed), or when the bounded job budget can no longer start a real probe.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {
@@ -315,9 +322,6 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	}
 	if currentBaselineOK {
 		response.Candidates = append(response.Candidates, currentBaseline)
-		if !currentBaselineCached {
-			storeBestServerCurrentQuality(currentEndpoint, currentFilter, currentBaseline)
-		}
 	}
 	response.ProfilesScanned = profilesScanned
 	response.Success = true
@@ -328,15 +332,15 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		if response.Recommendation.Current {
 			response.Message = "Текущий VPN уже лучший среди проверенных зарубежных профилей."
 		} else {
-			response.Message = "FreeNet нашёл лучший зарубежный VPN-профиль."
+			response.Message = "FreeNet нашёл лучший зарубежный VPN-профиль среди измеренных вариантов."
 		}
 	} else {
 		response.Message = "Достоверная рекомендация среди зарубежных профилей сейчас недоступна; текущий VPN не изменён."
 	}
-	if currentBaselineCached {
+	if currentBaselineOK {
 		response.Message += " Свежий подтверждённый замер текущего VPN переиспользован без повторной тяжёлой Speedtest-проверки."
-	} else if currentBaselineOK {
-		response.Message += " Текущий VPN измерен в рамках этого полного сравнения."
+	} else {
+		response.Message += " Текущий VPN не перепроверялся автоматически: для него есть отдельная кнопка «Проверить текущий VPN»."
 	}
 	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
 		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during Best Server scan")
