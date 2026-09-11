@@ -30,7 +30,7 @@ func TestFilterMeasuredBestServerResultsKeepsRejectedDeepProbe(t *testing.T) {
 	}
 }
 
-func TestMeasuredAlternativeTargetCountsOnlyEligibleVisibleListeners(t *testing.T) {
+func TestMeasuredAlternativeTargetUsesLogicalProfileIdentity(t *testing.T) {
 	input := []bestServerQualityCandidate{
 		{ID: "eligible-a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 110, MediaSamples: bestServerMediaRequiredRuns},
 		{ID: "eligible-same-listener", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 108, MediaSamples: bestServerMediaRequiredRuns},
@@ -38,12 +38,18 @@ func TestMeasuredAlternativeTargetCountsOnlyEligibleVisibleListeners(t *testing.
 		{ID: "near-miss", Endpoint: "203.0.113.12:443", Tested: true, Available: true, Eligible: false, DownloadMbps: 130, MediaSamples: bestServerMediaRequiredRuns},
 		{ID: "current", Endpoint: "203.0.113.13:443", Current: true, Tested: true, Available: true, Eligible: true, DownloadMbps: 120, MediaSamples: bestServerMediaRequiredRuns},
 	}
-	if got := measuredBestServerAlternativeCount(input); got != 2 {
-		t.Fatalf("visible eligible listener count=%d want=2; shared listener, rejected and current candidates must not fill Top-3", got)
-	}
-	input = append(input, bestServerQualityCandidate{ID: "eligible-c", Endpoint: "203.0.113.14:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 95, MediaSamples: bestServerMediaRequiredRuns})
 	if got := measuredBestServerAlternativeCount(input); got != bestServerVisibleAlternatives {
-		t.Fatalf("visible eligible listener count=%d want=%d", got, bestServerVisibleAlternatives)
+		t.Fatalf("eligible logical profile count=%d want=%d; shared listener must not collapse profile identity", got, bestServerVisibleAlternatives)
+	}
+	input = append(input, bestServerQualityCandidate{ID: "eligible-a", Endpoint: "203.0.113.14:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 95, MediaSamples: bestServerMediaRequiredRuns})
+	if got := measuredBestServerAlternativeCount(input); got != bestServerVisibleAlternatives {
+		t.Fatalf("duplicate logical profile id must not increase count: got=%d want=%d", got, bestServerVisibleAlternatives)
+	}
+}
+
+func TestMeasuredBestServerBatchIsSingleLogicalProfile(t *testing.T) {
+	if bestServerMeasuredBatchSize != 1 {
+		t.Fatalf("deep batch size=%d want=1 so shared listeners cannot collapse distinct logical profiles", bestServerMeasuredBatchSize)
 	}
 }
 
