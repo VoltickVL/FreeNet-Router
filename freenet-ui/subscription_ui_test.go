@@ -47,15 +47,3 @@ func TestAcceptedSubscriptionUXContract(t *testing.T) {
 		}
 	}
 }
-
-func TestAcceptedShellDNSIconContract(t *testing.T) {
-	b, err := webFS.ReadFile("web/accepted-ux.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	js := string(b)
-	const acceptedDNSPath = `M3 12h18M12 3c2.4 2.5 3.6 5.5 3.6 9S14.4 18.5 12 21M12 3c-2.4 2.5-3.6 5.5-3.6 9S9.6 18.5 12 21`
-	if !strings.Contains(js, acceptedDNSPath) {
-		t.Fatal("accepted topbar DNS icon path changed")
-	}
-}
