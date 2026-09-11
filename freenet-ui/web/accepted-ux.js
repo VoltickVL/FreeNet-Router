@@ -5,6 +5,14 @@
   let updatePolling = false;
   let authFetchWrapped = false;
 
+  const visibilityRule = '#authSection[hidden],#controlCenter[hidden]{display:none!important}';
+  if (!qs('#freenetVisibilityGuard')) {
+    const visibilityGuard = document.createElement('style');
+    visibilityGuard.id = 'freenetVisibilityGuard';
+    visibilityGuard.textContent = visibilityRule;
+    document.head.appendChild(visibilityGuard);
+  }
+
   function injectStyles() {
     if (qs('#freenetAcceptedUXStyles')) return;
     const style = document.createElement('style');
