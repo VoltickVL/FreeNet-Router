@@ -43,8 +43,13 @@
     const previousFetch = window.fetch.bind(window);
     window.fetch = function(input, init) {
       const url = typeof input === 'string' ? input : (input && input.url) || '';
+      let path = url;
+      try { path = new URL(url, location.href).pathname; } catch (_) {}
       const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
-      if ((url === '/api/auth/login' || url === '/api/auth/setup') && method === 'POST' && init && typeof init.body === 'string') {
+      if (path.startsWith('/api/auth/')) {
+        init = Object.assign({}, init || {}, {credentials: 'include'});
+      }
+      if ((path === '/api/auth/login' || path === '/api/auth/setup') && method === 'POST' && init && typeof init.body === 'string') {
         try {
           const body = JSON.parse(init.body);
           body.remember = !!qs('#authRemember')?.checked;

@@ -27,8 +27,8 @@ func TestRememberedSessionSurvivesAppRestartWithoutPersistingRawToken(t *testing
 		t.Fatal(err)
 	}
 	cookie := w.Result().Cookies()[0]
-	if cookie.MaxAge <= 0 {
-		t.Fatalf("remembered cookie MaxAge=%d", cookie.MaxAge)
+	if cookie.MaxAge != int(authRememberSessionTTL.Seconds()) || cookie.Expires.IsZero() {
+		t.Fatalf("remembered cookie lifetime mismatch: MaxAge=%d Expires=%v", cookie.MaxAge, cookie.Expires)
 	}
 	b, err := os.ReadFile(a1.authSessionPath())
 	if err != nil {
@@ -67,7 +67,7 @@ func TestRememberedSessionSurvivesAppRestartWithoutPersistingRawToken(t *testing
 	}
 }
 
-func TestNonRememberedSessionRemainsBrowserSessionOnly(t *testing.T) {
+func TestNonRememberedSessionKeepsLegacyCookieLifetimeWithoutServerPersistence(t *testing.T) {
 	a := testAuthApp(t)
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/api/auth/login", nil)
@@ -75,8 +75,8 @@ func TestNonRememberedSessionRemainsBrowserSessionOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookie := w.Result().Cookies()[0]
-	if cookie.MaxAge != 0 || !cookie.Expires.IsZero() {
-		t.Fatalf("non-remembered cookie unexpectedly persisted: MaxAge=%d Expires=%v", cookie.MaxAge, cookie.Expires)
+	if cookie.MaxAge != int(authSessionTTL.Seconds()) || cookie.Expires.IsZero() {
+		t.Fatalf("normal session cookie lifetime mismatch: MaxAge=%d Expires=%v", cookie.MaxAge, cookie.Expires)
 	}
 	if _, err := os.Stat(a.authSessionPath()); !os.IsNotExist(err) {
 		t.Fatalf("non-remembered session created persistent store: %v", err)
