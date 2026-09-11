@@ -773,3 +773,34 @@
   else installFinalShellPolish();
   requestAnimationFrame(installFinalShellPolish);
 })();
+
+// Selector hygiene: deterministic CSS flags for the actual Extra catalog and a uniform topbar.
+(() => {
+  const q = (selector, root = document) => root.querySelector(selector);
+  const canonicalExtraFlagCodes = ['sk','za','si','rs','is','lu','kz','pe','my','au','ng'];
+  try { canonicalExtraFlagCodes.forEach(code => countryFlagCodes.add(code)); } catch (_) {}
+
+  if (!q('#freenetSelectorHygieneStyles')) {
+    const style = document.createElement('style');
+    style.id = 'freenetSelectorHygieneStyles';
+    style.textContent = `
+      .top-title{display:none!important}
+      #profilesMenu .flag-icon,.flag-hero{overflow:hidden!important;background-repeat:no-repeat!important;background-size:100% 100%!important;background-position:center!important}
+      #profilesMenu .flag-co,.flag-co{background:linear-gradient(to bottom,#fcd116 0 50%,#003893 50% 75%,#ce1126 75% 100%)!important}
+      #profilesMenu .flag-ae,.flag-ae{background:linear-gradient(to right,#ff0000 0 25%,transparent 25% 100%),linear-gradient(to bottom,#00732f 0 33.333%,#fff 33.333% 66.666%,#000 66.666% 100%)!important}
+      #profilesMenu .flag-kr,.flag-kr{background:radial-gradient(circle at 50% 46%,#cd2e3a 0 19%,transparent 20%),radial-gradient(circle at 50% 56%,#0047a0 0 19%,transparent 20%),#fff!important}
+      #profilesMenu .flag-kz,.flag-kz{background:linear-gradient(#00afca,#00afca)!important}
+      #profilesMenu .flag-pe,.flag-pe{background:linear-gradient(to right,#d91023 0 33.333%,#fff 33.333% 66.666%,#d91023 66.666% 100%)!important}
+      #profilesMenu .flag-my,.flag-my{background:repeating-linear-gradient(to bottom,#cc0001 0 7.14%,#fff 7.14% 14.28%)!important}
+      #profilesMenu .flag-au,.flag-au{background:radial-gradient(circle at 76% 70%,#fff 0 5%,transparent 6%),radial-gradient(circle at 68% 30%,#fff 0 4%,transparent 5%),#012169!important}
+      #profilesMenu .flag-ng,.flag-ng{background:linear-gradient(to right,#008753 0 33.333%,#fff 33.333% 66.666%,#008753 66.666% 100%)!important}
+      #profilesMenu .flag-sk,.flag-sk{background:linear-gradient(to bottom,#fff 0 33.333%,#0b4ea2 33.333% 66.666%,#ee1c25 66.666% 100%)!important}
+      #profilesMenu .flag-za,.flag-za{background:linear-gradient(150deg,#000 0 20%,#ffb612 20% 26%,#007a4d 26% 54%,#fff 54% 60%,#de3831 60% 78%,#002395 78% 100%)!important}
+      #profilesMenu .flag-si,.flag-si{background:linear-gradient(to bottom,#fff 0 33.333%,#005da4 33.333% 66.666%,#ed1c24 66.666% 100%)!important}
+      #profilesMenu .flag-rs,.flag-rs{background:linear-gradient(to bottom,#c6363c 0 33.333%,#0c4076 33.333% 66.666%,#fff 66.666% 100%)!important}
+      #profilesMenu .flag-is,.flag-is{background:linear-gradient(to right,transparent 0 28%,#fff 28% 43%,transparent 43%),linear-gradient(to bottom,transparent 0 36%,#fff 36% 64%,transparent 64%),linear-gradient(to right,transparent 0 33%,#d72828 33% 39%,transparent 39%),linear-gradient(to bottom,transparent 0 43%,#d72828 43% 57%,transparent 57%),#02529c!important}
+      #profilesMenu .flag-lu,.flag-lu{background:linear-gradient(to bottom,#ed2939 0 33.333%,#fff 33.333% 66.666%,#00a1de 66.666% 100%)!important}
+    `;
+    document.head.appendChild(style);
+  }
+})();
