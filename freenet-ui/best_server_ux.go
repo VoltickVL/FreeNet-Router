@@ -55,9 +55,10 @@ func filterForeignBestServerCandidates(candidates []bestServerInternalCandidate)
 	return filtered
 }
 
-// Keep every candidate that reached a real deep probe so the UI can explain
-// why a near-miss was rejected. Eligibility still controls recommendation and
-// apply; retaining diagnostics here never makes a failed candidate switchable.
+// Keep every candidate that completed a real deep probe so the UI can explain
+// why a measured near-miss was rejected. Eligibility still controls
+// recommendation and apply; retaining diagnostics here never makes a failed
+// candidate switchable.
 func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []bestServerQualityCandidate {
 	filtered := make([]bestServerQualityCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -69,8 +70,8 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 }
 
 // The browser presents up to three real measured comparison cards. A card does
-// not need to be eligible to occupy a comparison slot: an incomplete/rejected
-// deep attempt is still useful diagnostic evidence and remains non-switchable.
+// not need to be eligible to occupy a comparison slot: a measured rejected
+// result is still useful diagnostic evidence and remains non-switchable.
 // Eligibility controls recommendation/apply only. Public endpoint is used here
 // solely for presentation diversity; it is not logical profile identity.
 func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate, currentEndpoint string) int {
@@ -94,6 +95,15 @@ func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate,
 		count++
 	}
 	return count
+}
+
+// Partial is a user-facing completion signal, not a statement that the scan
+// was intentionally non-exhaustive. Once the browser-visible Top-3 target is
+// complete, a short remaining budget must not turn a successful result into a
+// false timeout warning. Conversely, natural candidate exhaustion below three
+// is complete (not partial) when budget did not stop the scan.
+func bestServerCompletionPartial(budgetLimited bool, candidates []bestServerQualityCandidate, currentEndpoint string) bool {
+	return budgetLimited && measuredBestServerAlternativeCount(candidates, currentEndpoint) < bestServerVisibleAlternatives
 }
 
 func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
@@ -139,22 +149,14 @@ func (a *app) rankMeasuredBestServerBatches(
 		Candidates: []bestServerQualityCandidate{}, ProfilesScanned: profilesScanned, ProfilesTotal: profilesScanned,
 		ProfilesTruncated: truncated, Mutation: "NONE",
 	}
+	budgetLimited := false
 	for start := 0; start < len(candidates); start += bestServerMeasuredBatchSize {
 		if measuredBestServerAlternativeCount(aggregate.Candidates, currentEndpoint) >= bestServerVisibleAlternatives {
 			break
 		}
-		if deadline, ok := ctx.Deadline(); ok {
-			remaining := time.Until(deadline)
-			if remaining < bestServerMinimumDeepAttemptBudget {
-				aggregate.Partial = true
-				break
-			}
-			if remaining < bestServerQualityCandidateTimeout+2*time.Second {
-				// Still run a real bounded attempt. Parent cancellation remains
-				// authoritative, but the result is partial if a full candidate
-				// window no longer fits.
-				aggregate.Partial = true
-			}
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerMinimumDeepAttemptBudget {
+			budgetLimited = true
+			break
 		}
 		end := start + bestServerMeasuredBatchSize
 		if end > len(candidates) {
@@ -164,12 +166,20 @@ func (a *app) rankMeasuredBestServerBatches(
 			bestServerAttemptContext{Context: ctx}, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
 			defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
 		)
-		aggregate.Partial = aggregate.Partial || batch.Partial
-		aggregate.Candidates = append(aggregate.Candidates, filterMeasuredBestServerResults(batch.Candidates)...)
+		// If the parent job deadline fired during this deep attempt, its final
+		// classification is not trustworthy enough for a comparison card. Drop
+		// that batch fail-closed instead of presenting a deadline interruption as
+		// an ordinary fully-tested hard failure.
 		if ctx.Err() != nil {
+			budgetLimited = true
 			break
 		}
+		if batch.Partial {
+			budgetLimited = true
+		}
+		aggregate.Candidates = append(aggregate.Candidates, filterMeasuredBestServerResults(batch.Candidates)...)
 	}
+	aggregate.Partial = bestServerCompletionPartial(budgetLimited, aggregate.Candidates, currentEndpoint)
 	sortMeasuredBestServerResults(aggregate.Candidates)
 	for _, candidate := range aggregate.Candidates {
 		if candidate.Eligible && !candidate.Current {
