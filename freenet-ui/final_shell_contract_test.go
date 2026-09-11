@@ -14,8 +14,13 @@ func TestFinalShellTopbarSidebarAndBrandContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	coordinatorAsset, err := webFS.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
 	js := string(asset)
 	html := string(index)
+	coordinator := string(coordinatorAsset)
 
 	for _, want := range []string{
 		"const shellIconPaths = {",
@@ -30,6 +35,9 @@ func TestFinalShellTopbarSidebarAndBrandContract(t *testing.T) {
 		".sidebar>.brand::before",
 		".nav-btn.active",
 		"icon.innerHTML = shellSVG(button.dataset.page || 'overview')",
+		".fn-shell-fact>.fn-top-fact-icon,.fn-version-icon",
+		"const icon = fact.querySelector(':scope > .fn-top-fact-icon');",
+		"if (icon) fact.append(icon, copy);",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("final shell contract missing %q", want)
@@ -45,6 +53,18 @@ func TestFinalShellTopbarSidebarAndBrandContract(t *testing.T) {
 		}
 	}
 
+	for _, want := range []string{
+		"span.className = 'fn-top-fact-icon'",
+		"if (!item.querySelector('.fn-top-fact-icon')) item.prepend(svgIcon(index === 0 ? 'provider' : 'dns'))",
+	} {
+		if !strings.Contains(coordinator, want) {
+			t.Fatalf("canonical topbar icon owner missing %q", want)
+		}
+	}
+
+	if strings.Contains(js, "icon.className = 'fn-shell-fact-icon'") {
+		t.Fatal("accepted UX must not create a second Provider/DNS topbar icon")
+	}
 	if strings.Contains(js, "MutationObserver") {
 		t.Fatal("final shell must remain event-driven and must not use MutationObserver")
 	}
