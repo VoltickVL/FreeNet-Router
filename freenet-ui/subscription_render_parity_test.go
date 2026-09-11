@@ -24,6 +24,7 @@ func TestSubscriptionApprovedRenderParityContracts(t *testing.T) {
 		"localStorage.getItem(subscriptionHistoryKey)",
 		`body:has([data-page-view="subscription"].active) #pageTitle`,
 		`body:has([data-page-view="subscription"].active) .footer`,
+		"#fnSubscriptionHistoryToggle[hidden]{display:none!important}",
 		"https://••••••••••••••••••••",
 		"Вручную",
 		"shellSVG('save')",
