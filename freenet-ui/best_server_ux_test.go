@@ -58,6 +58,32 @@ func TestMeasuredAlternativeTargetSkipsUntestedAndDuplicateEndpoints(t *testing.
 	}
 }
 
+func TestBestServerCompletionPartialClearsAfterVisibleTop3(t *testing.T) {
+	current := "203.0.113.9:443"
+	input := []bestServerQualityCandidate{
+		{ID: "a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
+		{ID: "b", Endpoint: "203.0.113.11:443", Tested: true, Available: true, Eligible: true},
+		{ID: "c", Endpoint: "203.0.113.12:443", Tested: true, Reachable: true, Eligible: false},
+	}
+	if bestServerCompletionPartial(true, input, current) {
+		t.Fatal("completed browser-visible Top-3 must not retain a time-limit partial warning")
+	}
+}
+
+func TestBestServerCompletionPartialOnlyWhenBudgetBlocksTarget(t *testing.T) {
+	current := "203.0.113.9:443"
+	input := []bestServerQualityCandidate{
+		{ID: "a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
+		{ID: "b", Endpoint: "203.0.113.11:443", Tested: true, Reachable: true, Eligible: false},
+	}
+	if !bestServerCompletionPartial(true, input, current) {
+		t.Fatal("budget-limited scan below the Top-3 target must remain partial")
+	}
+	if bestServerCompletionPartial(false, input, current) {
+		t.Fatal("natural candidate exhaustion below three is complete, not a time-limit partial")
+	}
+}
+
 func TestMeasuredBestServerBatchIsSingleLogicalProfile(t *testing.T) {
 	if bestServerMeasuredBatchSize != 1 {
 		t.Fatalf("deep batch size=%d want=1 so profiles sharing a listener are checked independently", bestServerMeasuredBatchSize)
