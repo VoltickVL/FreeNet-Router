@@ -25,7 +25,7 @@ func TestFinalShellPolishUsesVectorBrandAndPresentationOnlyVPNLabels(t *testing.
 		"mountVectorBrand(q('.sidebar>.brand'))",
 		"mountVectorBrand(q('#authSection .brand'))",
 		"function cleanProfileLabel(value)",
-		`text = text.replace(/^[A-Za-z]{2}\\s+/, '')`,
+		`text = text.replace(/^[A-Za-z]{2}\s+/, '')`,
 		"Выбрать VPN-сервер",
 		"renderProfileOptions.__freenetShellPolish",
 		"#profilesMenu .profile-option-main",
