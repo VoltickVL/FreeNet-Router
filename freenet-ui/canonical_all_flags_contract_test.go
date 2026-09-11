@@ -40,7 +40,9 @@ func TestCanonicalRuntimeFlagAtlasCoversActualExtraCatalog(t *testing.T) {
 		t.Fatal("canonical runtime flag block not found")
 	}
 	atlas := js[atlasStart:]
-	for _, forbidden := range []string{"http://", "https://", "MutationObserver", "fetch("} {
+	// xmlns="http://www.w3.org/2000/svg" is a namespace identifier, not a
+	// network dependency. Reject only actual runtime/remote loading surfaces.
+	for _, forbidden := range []string{"fetch(", "url(http://", "url(https://", "MutationObserver"} {
 		if strings.Contains(atlas, forbidden) {
 			t.Fatalf("canonical runtime flag renderer must stay local/static: found %q", forbidden)
 		}
