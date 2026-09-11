@@ -64,7 +64,6 @@ func TestPolicyUIPreviewExplainsDNSApplicability(t *testing.T) {
 	}
 	s := string(b)
 	for _, want := range []string{
-		"selected.kind === 'domain' || selected.kind === 'geosite'",
 		"dns-direct",
 		"dns-vless",
 		"не применяется к IP selector",
@@ -72,5 +71,8 @@ func TestPolicyUIPreviewExplainsDNSApplicability(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Fatalf("policy leg contract missing %q", want)
 		}
+	}
+	if !strings.Contains(compactJSContract(s), "selected.kind==='domain'||selected.kind==='geosite'") {
+		t.Fatal("policy leg contract missing domain/geosite DNS applicability guard")
 	}
 }
