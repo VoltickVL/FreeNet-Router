@@ -33,6 +33,15 @@ func TestFinalShellTopbarSidebarAndBrandContract(t *testing.T) {
 		"#topFreenetUpdate.update-available",
 		"#topFreenetUpdate .fn-version-copy strong",
 		".sidebar>.brand::before",
+		".fn-brand-wordmark{display:inline-flex!important",
+		".fn-brand-wordmark .fn-brand-free",
+		".fn-brand-wordmark .fn-brand-net",
+		"function mountBrandWordmark(brand)",
+		"wordmark.setAttribute('aria-label', 'FreeNet')",
+		`wordmark.innerHTML = '<span class="fn-brand-free" aria-hidden="true">Free</span><span class="fn-brand-net" aria-hidden="true">Net</span>';`,
+		"brand.replaceChildren(wordmark);",
+		"mountBrandWordmark(qs('.sidebar>.brand'));",
+		"mountBrandWordmark(qs('#authSection .brand'));",
 		".nav-btn.active",
 		"icon.innerHTML = shellSVG(button.dataset.page || 'overview')",
 		".fn-shell-fact>.fn-top-fact-icon,.fn-version-icon",
@@ -64,6 +73,9 @@ func TestFinalShellTopbarSidebarAndBrandContract(t *testing.T) {
 
 	if strings.Contains(js, "icon.className = 'fn-shell-fact-icon'") {
 		t.Fatal("accepted UX must not create a second Provider/DNS topbar icon")
+	}
+	if strings.Contains(js, "@font-face") || strings.Contains(js, "fonts.googleapis.com") {
+		t.Fatal("FreeNet wordmark must not depend on external font assets")
 	}
 	if strings.Contains(js, "MutationObserver") {
 		t.Fatal("final shell must remain event-driven and must not use MutationObserver")
