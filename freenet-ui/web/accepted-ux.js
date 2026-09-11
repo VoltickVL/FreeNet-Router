@@ -62,6 +62,11 @@
       .sidebar>.brand{padding:7px 11px 23px!important;font-size:25px!important;letter-spacing:-.045em!important}
       .sidebar>.brand::before,.auth-card>.brand::before{content:'';display:block;flex:0 0 auto;width:28px;height:28px;background:#6fa7ff;-webkit-mask:var(--fn-brand-mark) center/contain no-repeat;mask:var(--fn-brand-mark) center/contain no-repeat}
       .auth-card>.brand::before{width:27px;height:27px}
+      .fn-brand-wordmark{display:inline-flex!important;align-items:baseline!important;gap:0!important;line-height:.94!important;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif!important;font-size:24px!important;font-weight:900!important;letter-spacing:-.072em!important;text-rendering:geometricPrecision;white-space:nowrap}
+      .fn-brand-wordmark .fn-brand-free,.fn-brand-wordmark .fn-brand-net{display:inline-block!important}
+      .fn-brand-wordmark .fn-brand-free{color:#f7f9ff!important;background:linear-gradient(180deg,#ffffff 12%,#dce7f7 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+      .fn-brand-wordmark .fn-brand-net{margin-left:-.018em!important;color:#7baeff!important;background:linear-gradient(180deg,#9bc5ff 0,#6598f4 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+      .auth-card>.brand .fn-brand-wordmark{font-size:23px!important}
       .nav{gap:7px!important}
       .nav-btn{min-height:48px!important;padding:0 13px!important;border:1px solid transparent!important;border-radius:12px!important;gap:12px!important;color:#9aacc4!important;font-size:14.5px!important;line-height:1.28!important;font-weight:700!important;letter-spacing:-.005em!important;transition:background .14s ease,border-color .14s ease,color .14s ease!important}
       .nav-btn:hover{background:#0d1d30!important;border-color:#203c5c!important;color:#e9f1fc!important}
@@ -99,6 +104,17 @@
     else fact.append(copy);
   }
 
+  function mountBrandWordmark(brand) {
+    if (!brand) return;
+    brand.classList.add('fn-brand-lockup');
+    if (brand.querySelector(':scope > .fn-brand-wordmark')) return;
+    const wordmark = document.createElement('span');
+    wordmark.className = 'fn-brand-wordmark';
+    wordmark.setAttribute('aria-label', 'FreeNet');
+    wordmark.innerHTML = '<span class="fn-brand-free" aria-hidden="true">Free</span><span class="fn-brand-net" aria-hidden="true">Net</span>';
+    brand.replaceChildren(wordmark);
+  }
+
   function mountShellChrome() {
     const xkeen = qs('#topXkeenLink');
     if (xkeen) {
@@ -117,10 +133,8 @@
       if (update && update.parentNode !== summary) summary.appendChild(update);
     }
 
-    const brand = qs('.sidebar>.brand');
-    if (brand) brand.classList.add('fn-brand-lockup');
-    const authBrand = qs('#authSection .brand');
-    if (authBrand) authBrand.classList.add('fn-brand-lockup');
+    mountBrandWordmark(qs('.sidebar>.brand'));
+    mountBrandWordmark(qs('#authSection .brand'));
 
     document.querySelectorAll('.nav-btn[data-page]').forEach(button => {
       const icon = button.querySelector('.nav-icon');
