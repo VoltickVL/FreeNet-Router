@@ -101,7 +101,11 @@
 
   function mountShellChrome() {
     const xkeen = qs('#topXkeenLink');
-    if (xkeen) xkeen.remove();
+    if (xkeen) {
+      xkeen.hidden = true;
+      xkeen.tabIndex = -1;
+      xkeen.setAttribute('aria-hidden', 'true');
+    }
 
     const summary = qs('#overviewApprovedTop');
     if (summary) {
