@@ -665,3 +665,111 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, {once: true});
   else mount();
 })();
+
+// Final shell polish: deterministic vector brand + presentation-only VPN selector cleanup.
+(() => {
+  const q = (selector, root = document) => root.querySelector(selector);
+
+  const brandLockupSVG = `
+    <svg viewBox="0 0 140 28" role="img" aria-label="FreeNet" focusable="false">
+      <g fill="none" stroke="#72a8ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2.8 25.2 14 14 25.2 2.8 14 14 2.8Z"/>
+        <path d="M9.7 18.2V9.8l8.6 8.4V9.8"/>
+      </g>
+      <g fill="none" stroke="#f7f9ff" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M34 5v18M34 5h12M34 13h9.5"/>
+        <path d="M51 11.5V23M51 16c1.2-3.1 3.3-4.6 6.5-4.6"/>
+        <path d="M72.5 18H61.8c.4-4.5 2.5-7 5.6-7 3.2 0 5.2 2.4 5.2 6.2H62c.5 3.8 2.7 5.8 5.9 5.8 1.9 0 3.3-.5 4.6-1.5"/>
+        <path d="M88.5 18H77.8c.4-4.5 2.5-7 5.6-7 3.2 0 5.2 2.4 5.2 6.2H78c.5 3.8 2.7 5.8 5.9 5.8 1.9 0 3.3-.5 4.6-1.5"/>
+      </g>
+      <g fill="none" stroke="#7baeff" stroke-width="2.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M95 23V5l12 18V5"/>
+        <path d="M122.5 18h-10.7c.4-4.5 2.5-7 5.6-7 3.2 0 5.2 2.4 5.2 6.2H112c.5 3.8 2.7 5.8 5.9 5.8 1.9 0 3.3-.5 4.6-1.5"/>
+        <path d="M132 7v11.8c0 2.8 1.5 4.2 4.5 4.2M127.5 12h10"/>
+      </g>
+    </svg>`;
+
+  function installFinalPolishStyles() {
+    if (q('#freenetFinalShellPolishStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'freenetFinalShellPolishStyles';
+    style.textContent = `
+      .sidebar>.brand::before,#authSection .auth-card>.brand::before{content:none!important;display:none!important}
+      .sidebar>.brand,#authSection .auth-card>.brand{gap:0!important}
+      .fn-brand-wordmark.fn-brand-lockup-svg{display:block!important;width:126px!important;height:28px!important;flex:0 0 auto!important;margin:0!important;padding:0!important;font-size:0!important;line-height:0!important;letter-spacing:0!important;overflow:visible!important}
+      .fn-brand-wordmark.fn-brand-lockup-svg>svg{display:block!important;width:100%!important;height:100%!important;overflow:visible!important}
+      #authSection .fn-brand-wordmark.fn-brand-lockup-svg{width:122px!important;height:27px!important}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function mountVectorBrand(brand) {
+    if (!brand) return;
+    const node = document.createElement('span');
+    node.className = 'fn-brand-wordmark fn-brand-lockup-svg';
+    node.innerHTML = brandLockupSVG;
+    brand.classList.add('fn-brand-lockup');
+    brand.setAttribute('aria-label', 'FreeNet');
+    brand.replaceChildren(node);
+  }
+
+  function cleanProfileLabel(value) {
+    let text = String(value || '').trim();
+    text = text.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '');
+    text = text.replace(/^[A-Za-z]{2}\s+/, '');
+    return text.trim();
+  }
+
+  function polishProfilePresentation() {
+    const trigger = q('#profilesTriggerText');
+    if (trigger) {
+      let hasSelection = false;
+      try { hasSelection = !!selectedProviderID; } catch (_) {}
+      trigger.textContent = hasSelection ? (cleanProfileLabel(trigger.textContent) || 'Выбрать VPN-сервер') : 'Выбрать VPN-сервер';
+    }
+    document.querySelectorAll('#profilesMenu .profile-option-main').forEach(node => {
+      node.textContent = cleanProfileLabel(node.textContent) || 'VPN-сервер';
+    });
+    const selectedTitle = q('#selectedProfileCard strong');
+    if (selectedTitle) {
+      selectedTitle.textContent = selectedTitle.textContent.replace(/(^[^:]+:\s*)([A-Za-z]{2}\s+)/, '$1');
+    }
+  }
+
+  function patchProfileRenderer() {
+    try {
+      if (typeof renderProfileOptions === 'function' && !renderProfileOptions.__freenetShellPolish) {
+        const previous = renderProfileOptions;
+        const wrapped = function() {
+          const result = previous.apply(this, arguments);
+          polishProfilePresentation();
+          return result;
+        };
+        wrapped.__freenetShellPolish = true;
+        renderProfileOptions = wrapped;
+      }
+    } catch (_) {}
+    const trigger = q('#profilesTrigger');
+    if (trigger && trigger.dataset.freenetShellPolish !== '1') {
+      trigger.dataset.freenetShellPolish = '1';
+      trigger.addEventListener('click', () => queueMicrotask(polishProfilePresentation));
+    }
+    const search = q('#profileSearch');
+    if (search && search.dataset.freenetShellPolish !== '1') {
+      search.dataset.freenetShellPolish = '1';
+      search.addEventListener('input', () => queueMicrotask(polishProfilePresentation));
+    }
+    polishProfilePresentation();
+  }
+
+  function installFinalShellPolish() {
+    installFinalPolishStyles();
+    mountVectorBrand(q('.sidebar>.brand'));
+    mountVectorBrand(q('#authSection .brand'));
+    patchProfileRenderer();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', installFinalShellPolish, {once: true});
+  else installFinalShellPolish();
+  requestAnimationFrame(installFinalShellPolish);
+})();
