@@ -18,10 +18,14 @@ func TestNetworkUIHasExplicitNativeProviderSelector(t *testing.T) {
 		"Яндекс Basic",
 		"77.88.8.8",
 		"77.88.8.1",
-		"option.hidden = true",
-		"option.disabled = true",
 	} {
 		if !strings.Contains(s, want) {
+			t.Fatalf("UI contract missing %q", want)
+		}
+	}
+	compact := compactJSContract(s)
+	for _, want := range []string{"option.hidden=true", "option.disabled=true"} {
+		if !strings.Contains(compact, want) {
 			t.Fatalf("UI contract missing %q", want)
 		}
 	}
@@ -32,8 +36,8 @@ func TestNetworkUILegacyAutoAndCustomAreNotSelectable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(b)
-	if !strings.Contains(s, "for (const value of ['auto', 'custom'])") {
+	compact := compactJSContract(string(b))
+	if !strings.Contains(compact, "for(constvalueof['auto','custom'])") {
 		t.Fatal("legacy Auto/Custom selector suppression is missing")
 	}
 }
