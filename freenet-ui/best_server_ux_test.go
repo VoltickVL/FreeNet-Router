@@ -30,6 +30,22 @@ func TestFilterMeasuredBestServerResultsKeepsRejectedDeepProbe(t *testing.T) {
 	}
 }
 
+func TestMeasuredAlternativeTargetCountsOnlyEligibleCandidates(t *testing.T) {
+	input := []bestServerQualityCandidate{
+		{ID: "eligible-a", Tested: true, Available: true, Eligible: true, DownloadMbps: 110, MediaSamples: bestServerMediaRequiredRuns},
+		{ID: "eligible-b", Tested: true, Available: true, Eligible: true, DownloadMbps: 100, MediaSamples: bestServerMediaRequiredRuns},
+		{ID: "near-miss", Tested: true, Available: true, Eligible: false, DownloadMbps: 130, MediaSamples: bestServerMediaRequiredRuns},
+		{ID: "current", Current: true, Tested: true, Available: true, Eligible: true, DownloadMbps: 120, MediaSamples: bestServerMediaRequiredRuns},
+	}
+	if got := measuredBestServerAlternativeCount(input); got != 2 {
+		t.Fatalf("eligible alternative count=%d want=2; rejected/current candidates must not satisfy Top-3 target", got)
+	}
+	input = append(input, bestServerQualityCandidate{ID: "eligible-c", Tested: true, Available: true, Eligible: true, DownloadMbps: 95, MediaSamples: bestServerMediaRequiredRuns})
+	if got := measuredBestServerAlternativeCount(input); got != bestServerVisibleAlternatives {
+		t.Fatalf("eligible alternative count=%d want=%d", got, bestServerVisibleAlternatives)
+	}
+}
+
 func TestSortMeasuredBestServerResultsKeepsEligibleAheadOfDiagnostic(t *testing.T) {
 	input := []bestServerQualityCandidate{
 		{ID: "failed-fast", Tested: true, Reachable: true, Score: 9999, ApplicationMS: 90},
