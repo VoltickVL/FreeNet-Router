@@ -11,7 +11,7 @@ import (
 
 const (
 	bestServerCurrentScanTimeout  = 75 * time.Second
-	bestServerMeasuredBatchSize   = 4
+	bestServerMeasuredBatchSize   = 1
 	bestServerVisibleAlternatives = 3
 )
 
@@ -59,25 +59,24 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 }
 
 // Only a selectable, fully eligible alternative satisfies the Top-3 target.
-// The current browser intentionally shows one best logical profile per public
-// listener, so a second profile sharing address:port does not fill another
-// visible slot. Shared listeners remain distinct profile identities; this
-// count is only a display-diversity stop condition, never an identity rule.
+// Profile identity is the sanitized logical profile ID, never address:port:
+// VLESS/Reality profiles can legitimately share a public listener while using
+// different credentials/transport identity and different exits.
 func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate) int {
-	seenEndpoints := map[string]struct{}{}
+	seenProfiles := map[string]struct{}{}
 	count := 0
 	for _, candidate := range candidates {
 		if candidate.Current || !candidate.Tested || !candidate.Available || !candidate.Eligible {
 			continue
 		}
-		endpoint := strings.TrimSpace(candidate.Endpoint)
-		if endpoint == "" {
-			endpoint = "id:" + candidate.ID
-		}
-		if _, exists := seenEndpoints[endpoint]; exists {
+		id := strings.TrimSpace(candidate.ID)
+		if id == "" {
 			continue
 		}
-		seenEndpoints[endpoint] = struct{}{}
+		if _, exists := seenProfiles[id]; exists {
+			continue
+		}
+		seenProfiles[id] = struct{}{}
 		count++
 	}
 	return count
@@ -301,9 +300,10 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	}
 
 	// First compare the real application path through each candidate VPN. Keep a
-	// reserve shortlist, then deep-test it in small batches until three visible
-	// eligible alternatives are available or the global scan budget is nearly
-	// exhausted.
+	// reserve shortlist, then deep-test logical profiles one by one until three
+	// fully eligible alternatives are available or the global scan budget is
+	// genuinely exhausted. One-at-a-time deep batches intentionally prevent a
+	// shared public listener from collapsing distinct VLESS/Reality identities.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {
