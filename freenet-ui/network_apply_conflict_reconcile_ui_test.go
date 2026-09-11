@@ -5,6 +5,11 @@ import (
 	"testing"
 )
 
+func compactJSContract(s string) string {
+	r := strings.NewReplacer(" ", "", "\t", "", "\r", "", "\n", "")
+	return r.Replace(s)
+}
+
 func TestNetworkApplyConflictReconcilesByReadOnlyState(t *testing.T) {
 	data, err := webFS.ReadFile("web/vpn-ux-fix.js")
 	if err != nil {
@@ -18,11 +23,13 @@ func TestNetworkApplyConflictReconcilesByReadOnlyState(t *testing.T) {
 		"await loadStatus()",
 		"await loadNetworkPlan()",
 		"Повторный Apply автоматически не запускался",
-		"removeEventListener('click', legacyApplyNetworkProfile)",
 	} {
 		if !strings.Contains(ui, required) {
 			t.Fatalf("network apply reconciliation contract missing %q", required)
 		}
+	}
+	if !strings.Contains(compactJSContract(ui), "removeEventListener('click',legacyApplyNetworkProfile)") {
+		t.Fatal("network apply reconciliation must detach the legacy listener identity")
 	}
 
 	start := strings.Index(ui, "async function reconcileNetworkTargetAfterConflict")
