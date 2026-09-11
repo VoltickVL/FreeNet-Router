@@ -39,12 +39,22 @@ func TestMeasuredAlternativeTargetMatchesBrowserVisibleEndpoints(t *testing.T) {
 		{ID: "eligible-b", Endpoint: "203.0.113.11:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 100, MediaSamples: bestServerMediaRequiredRuns},
 		{ID: "near-miss", Endpoint: "203.0.113.12:443", Tested: true, Available: true, Eligible: false, DownloadMbps: 130, MediaSamples: bestServerMediaRequiredRuns},
 	}
-	if got := measuredBestServerAlternativeCount(input, current); got != 2 {
-		t.Fatalf("browser-visible eligible endpoint count=%d want=2; current/shared/rejected candidates must not fill Top-3", got)
-	}
-	input = append(input, bestServerQualityCandidate{ID: "eligible-c", Endpoint: "203.0.113.14:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 95, MediaSamples: bestServerMediaRequiredRuns})
 	if got := measuredBestServerAlternativeCount(input, current); got != bestServerVisibleAlternatives {
-		t.Fatalf("browser-visible eligible endpoint count=%d want=%d", got, bestServerVisibleAlternatives)
+		t.Fatalf("browser-visible measured endpoint count=%d want=%d; diagnostic deep result must occupy the third comparison slot without becoming switchable", got, bestServerVisibleAlternatives)
+	}
+}
+
+func TestMeasuredAlternativeTargetSkipsUntestedAndDuplicateEndpoints(t *testing.T) {
+	current := "203.0.113.9:443"
+	input := []bestServerQualityCandidate{
+		{ID: "a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
+		{ID: "duplicate-a", Endpoint: "203.0.113.10:443", Tested: true, Reachable: true},
+		{ID: "untested", Endpoint: "203.0.113.11:443", Tested: false, Reachable: true},
+		{ID: "current-listener", Endpoint: current, Tested: true, Reachable: true},
+		{ID: "b", Endpoint: "203.0.113.12:443", Tested: true, Reachable: true},
+	}
+	if got := measuredBestServerAlternativeCount(input, current); got != 2 {
+		t.Fatalf("browser-visible measured endpoint count=%d want=2", got)
 	}
 }
 
