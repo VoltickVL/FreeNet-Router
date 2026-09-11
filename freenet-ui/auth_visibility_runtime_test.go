@@ -27,7 +27,7 @@ func TestAuthVisibilityGuardKeepsProtectedUIHidden(t *testing.T) {
 		}
 	}
 
-	const guard = `#authSection[hidden],#controlCenter[hidden]{display:none!important}`
+	const guard = `#authSection[hidden],#controlCenter[hidden],#fnSubscriptionHistoryToggle[hidden]{display:none!important}`
 	if !strings.Contains(js, guard) {
 		t.Fatalf("authoritative auth visibility guard missing %q", guard)
 	}
