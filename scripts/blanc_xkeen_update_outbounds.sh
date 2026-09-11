@@ -76,6 +76,7 @@ show_extra_profiles() {
     grep '^vless://' "$DECODED_FILE" 2>/dev/null \
         | grep -i 'Extra' \
         | grep -vi 'Expired' \
+        | grep -vi 'Whitelist' \
         | sed -n 's/^.*#/#/p' \
         | head -n 30
 }
@@ -337,6 +338,7 @@ log "using requested filter"
 grep '^vless://' "$DECODED_FILE" \
     | grep -i 'Extra' \
     | grep -vi 'Expired' \
+    | grep -vi 'Whitelist' \
     | grep -Ei "$FILTER" > "$MATCHES_FILE" || true
 
 MATCH_COUNT="$(wc -l < "$MATCHES_FILE" | tr -d '[:space:]')"
