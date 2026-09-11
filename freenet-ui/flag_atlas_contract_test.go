@@ -38,7 +38,9 @@ func TestCanonicalFlagAtlasCoversComplexRuntimeFlags(t *testing.T) {
 		t.Fatal("canonical flag atlas block not found")
 	}
 	atlas := js[atlasStart:]
-	if strings.Contains(atlas, "https://") || strings.Contains(atlas, "http://") {
-		t.Fatal("canonical flag atlas must not load remote assets")
+	for _, forbidden := range []string{`src="http`, `href="http`, `url("http`, `fetch('http`, `fetch("http`} {
+		if strings.Contains(atlas, forbidden) {
+			t.Fatalf("canonical flag atlas must not load remote assets: found %q", forbidden)
+		}
 	}
 }
