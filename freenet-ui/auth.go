@@ -17,15 +17,15 @@ import (
 )
 
 const (
-	authCookieName        = "freenet_session"
-	authAlgorithm         = "pbkdf2-sha256"
-	authIterations        = 210000
-	authSaltBytes         = 32
-	authKeyBytes          = 32
-	authSessionTTL        = 12 * time.Hour
+	authCookieName         = "freenet_session"
+	authAlgorithm          = "pbkdf2-sha256"
+	authIterations         = 210000
+	authSaltBytes          = 32
+	authKeyBytes           = 32
+	authSessionTTL         = 12 * time.Hour
 	authRememberSessionTTL = 30 * 24 * time.Hour
-	authCredentialMode    = 0600
-	authSessionStoreMode  = 0600
+	authCredentialMode     = 0600
+	authSessionStoreMode   = 0600
 )
 
 var (
@@ -215,19 +215,20 @@ func requestSecure(r *http.Request) bool {
 }
 
 func (a *app) setSessionCookie(w http.ResponseWriter, r *http.Request, token string, remember bool) {
-	cookie := &http.Cookie{
+	ttl := authSessionTTL
+	if remember {
+		ttl = authRememberSessionTTL
+	}
+	http.SetCookie(w, &http.Cookie{
 		Name:     authCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   requestSecure(r),
 		SameSite: http.SameSiteStrictMode,
-	}
-	if remember {
-		cookie.MaxAge = int(authRememberSessionTTL.Seconds())
-		cookie.Expires = time.Now().Add(authRememberSessionTTL)
-	}
-	http.SetCookie(w, cookie)
+		MaxAge:   int(ttl.Seconds()),
+		Expires:  time.Now().Add(ttl),
+	})
 }
 
 func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
