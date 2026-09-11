@@ -46,8 +46,8 @@
       .overview-approved-fact.fn-shell-fact,#topFreenetUpdate{height:50px!important;min-height:50px!important;box-sizing:border-box!important;border:1px solid #315276!important;border-radius:11px!important;background:linear-gradient(180deg,#0d1d30,#0a1727)!important;color:#f5f8ff!important;box-shadow:inset 0 1px rgba(255,255,255,.018)!important;transition:border-color .14s ease,background .14s ease,box-shadow .14s ease!important}
       .overview-approved-fact.fn-shell-fact{display:flex!important;align-items:center!important;gap:10px!important;padding:6px 12px!important;min-width:128px}
       .overview-approved-fact.fn-shell-fact:nth-child(2){min-width:166px}
-      .fn-shell-fact-icon,.fn-version-icon{display:grid!important;place-items:center!important;flex:0 0 30px!important;width:30px!important;height:30px!important;border:0!important;border-radius:0!important;background:transparent!important;color:#64a0ff!important;box-shadow:none!important}
-      .fn-shell-fact-icon svg{display:block;width:25px;height:25px}
+      .fn-shell-fact>.fn-top-fact-icon,.fn-version-icon{display:grid!important;place-items:center!important;flex:0 0 30px!important;width:30px!important;height:30px!important;border:0!important;border-radius:0!important;background:transparent!important;color:#5ca2ff!important;box-shadow:none!important}
+      .fn-shell-fact>.fn-top-fact-icon svg{display:block;width:25px!important;height:25px!important}
       .fn-shell-fact-copy,.fn-version-copy{display:flex!important;flex-direction:column!important;justify-content:center!important;gap:2px!important;min-width:0!important;line-height:1.05!important;text-align:left!important}
       .fn-shell-fact-copy>span,.fn-version-copy small{font-size:10px!important;line-height:1.05!important;color:#8da4c2!important;font-weight:720!important;letter-spacing:0!important;text-transform:none!important;white-space:nowrap!important}
       .fn-shell-fact-copy>strong,.fn-version-copy strong{font-size:13.5px!important;line-height:1.1!important;color:#f5f8ff!important;font-weight:790!important;white-space:nowrap!important}
@@ -83,20 +83,20 @@
     document.head.appendChild(style);
   }
 
-  function decorateTopbarFact(fact, iconName) {
+  function decorateTopbarFact(fact) {
     if (!fact || fact.dataset.freenetShell === '1') return;
-    const label = fact.querySelector('span');
-    const value = fact.querySelector('strong');
+    const directChildren = Array.from(fact.children);
+    const label = directChildren.find(node => node.tagName === 'SPAN' && !node.classList.contains('fn-top-fact-icon'));
+    const value = directChildren.find(node => node.tagName === 'STRONG');
     if (!label || !value) return;
     fact.dataset.freenetShell = '1';
     fact.classList.add('fn-shell-fact');
-    const icon = document.createElement('span');
-    icon.className = 'fn-shell-fact-icon';
-    icon.innerHTML = shellSVG(iconName);
+    const icon = fact.querySelector(':scope > .fn-top-fact-icon');
     const copy = document.createElement('span');
     copy.className = 'fn-shell-fact-copy';
     copy.append(label, value);
-    fact.append(icon, copy);
+    if (icon) fact.append(icon, copy);
+    else fact.append(copy);
   }
 
   function mountShellChrome() {
@@ -111,8 +111,8 @@
     if (summary) {
       summary.classList.add('fn-shell-summary');
       const facts = summary.querySelectorAll('.overview-approved-fact');
-      decorateTopbarFact(facts[0], 'provider');
-      decorateTopbarFact(facts[1], 'dns');
+      decorateTopbarFact(facts[0]);
+      decorateTopbarFact(facts[1]);
       const update = qs('#topFreenetUpdate');
       if (update && update.parentNode !== summary) summary.appendChild(update);
     }
