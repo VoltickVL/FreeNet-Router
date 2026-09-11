@@ -8,9 +8,12 @@ import (
 	"time"
 )
 
-const bestServerAsyncJobTimeout = 165 * time.Second
+const bestServerAsyncJobTimeout = 175 * time.Second
 
 // One bounded, read-only quality job per app. Polling never starts a scan.
+// The Best Server job stays below the 180 s browser polling ceiling while
+// using that bounded window for alternatives rather than an implicit current
+// VPN recheck; current-quality is a separate explicit operation.
 // Retain only the latest result, with no credentials or raw probe output.
 type bestServerJob struct {
 	ID string `json:"id"`
