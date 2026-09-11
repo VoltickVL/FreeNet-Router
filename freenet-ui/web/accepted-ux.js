@@ -7,7 +7,7 @@
   let subscriptionMounted = false;
   let subscriptionHistoryExpanded = false;
 
-  const visibilityRule = '#authSection[hidden],#controlCenter[hidden]{display:none!important}';
+  const visibilityRule = '#authSection[hidden],#controlCenter[hidden],#fnSubscriptionHistoryToggle[hidden]{display:none!important}';
   if (!qs('#freenetVisibilityGuard')) {
     const visibilityGuard = document.createElement('style');
     visibilityGuard.id = 'freenetVisibilityGuard';
