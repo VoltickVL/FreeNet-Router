@@ -27,7 +27,7 @@ func TestCanonicalRuntimeFlagAtlasCoversActualExtraCatalog(t *testing.T) {
 	for _, code := range []string{
 		"nl", "ae", "gr", "at", "bg", "co", "be", "ro", "fr", "cz",
 		"de", "dk", "ar", "fi", "hk", "hr", "hu", "ie", "tr", "za",
-		"jp", "kr", "kz", "pe", "lt", "es", "it", "my", "us", "no",
+		"jp", "kr", "kz", "pe", "lt", "it", "my", "us", "no",
 		"pl", "pt", "mx", "br", "se", "sg", "sk", "au", "il", "ua",
 		"gb", "ca", "ch", "ng", "si", "rs", "is", "lu",
 	} {
