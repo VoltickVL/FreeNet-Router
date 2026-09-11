@@ -33,6 +33,27 @@ func TestBaseExtraPolicyExcludesWhitelistFamilies(t *testing.T) {
 	}
 }
 
+func TestForeignBestServerPoolIsBaseExtraWithoutRussia(t *testing.T) {
+	body := strings.Join([]string{
+		"vless://A@203.0.113.10:443?security=reality#DE%20Frankfurt%2C%20Germany%2C%20Extra",
+		"vless://B@203.0.113.11:443?security=reality#RU%20Moscow%2C%20Russia%2C%20Extra",
+		"vless://C@203.0.113.12:443?security=reality#PL%20Warsaw%2C%20Poland%2C%20Extra%20Whitelist",
+		"vless://D@203.0.113.13:443?security=reality#Expired%20NL%20Amsterdam%2C%20Netherlands%2C%20Extra",
+	}, "\n")
+
+	best, total, truncated, err := parseBestServerCandidates([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if truncated || total != 2 || len(best) != 2 {
+		t.Fatalf("base Extra parser total=%d len=%d truncated=%v want two base profiles before RU filter", total, len(best), truncated)
+	}
+	foreign := filterForeignBestServerCandidates(best)
+	if len(foreign) != 1 || foreign[0].Profile.CountryCode != "de" {
+		t.Fatalf("foreign base Extra pool=%+v want only DE", foreign)
+	}
+}
+
 func TestBaseExtraPolicyKeepsDistinctProfilesSharingEndpoint(t *testing.T) {
 	body := strings.Join([]string{
 		"vless://A@198.51.100.25:443?security=reality&sni=a.example#DE%20Frankfurt%2C%20Germany%2C%20Extra",
