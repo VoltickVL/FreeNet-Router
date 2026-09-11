@@ -24,13 +24,14 @@ func TestNetworkApplyUsesReplaceableSingleListenerIdentity(t *testing.T) {
 		t.Fatal("network draft listener must publish its exact function identity before registration")
 	}
 
+	compact := compactJSContract(fix)
 	for _, required := range []string{
-		"const legacyApplyNetworkProfile = applyNetworkProfile;",
-		"applyButton.removeEventListener('click', legacyApplyNetworkProfile);",
-		"applyNetworkProfile = reconciledNetworkApply;",
-		"applyButton.addEventListener('click', applyNetworkProfile);",
+		"constlegacyApplyNetworkProfile=applyNetworkProfile;",
+		"applyButton.removeEventListener('click',legacyApplyNetworkProfile);",
+		"applyNetworkProfile=reconciledNetworkApply;",
+		"applyButton.addEventListener('click',applyNetworkProfile);",
 	} {
-		if !strings.Contains(fix, required) {
+		if !strings.Contains(compact, required) {
 			t.Fatalf("network apply replacement contract missing %q", required)
 		}
 	}

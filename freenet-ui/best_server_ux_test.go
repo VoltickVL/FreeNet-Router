@@ -30,20 +30,27 @@ func TestFilterMeasuredBestServerResultsKeepsRejectedDeepProbe(t *testing.T) {
 	}
 }
 
-func TestMeasuredAlternativeTargetCountsOnlyEligibleVisibleListeners(t *testing.T) {
+func TestMeasuredAlternativeTargetMatchesBrowserVisibleEndpoints(t *testing.T) {
+	current := "203.0.113.9:443"
 	input := []bestServerQualityCandidate{
+		{ID: "eligible-current-listener", Endpoint: current, Tested: true, Available: true, Eligible: true, DownloadMbps: 115, MediaSamples: bestServerMediaRequiredRuns},
 		{ID: "eligible-a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 110, MediaSamples: bestServerMediaRequiredRuns},
 		{ID: "eligible-same-listener", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 108, MediaSamples: bestServerMediaRequiredRuns},
 		{ID: "eligible-b", Endpoint: "203.0.113.11:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 100, MediaSamples: bestServerMediaRequiredRuns},
 		{ID: "near-miss", Endpoint: "203.0.113.12:443", Tested: true, Available: true, Eligible: false, DownloadMbps: 130, MediaSamples: bestServerMediaRequiredRuns},
-		{ID: "current", Endpoint: "203.0.113.13:443", Current: true, Tested: true, Available: true, Eligible: true, DownloadMbps: 120, MediaSamples: bestServerMediaRequiredRuns},
 	}
-	if got := measuredBestServerAlternativeCount(input); got != 2 {
-		t.Fatalf("visible eligible listener count=%d want=2; shared listener, rejected and current candidates must not fill Top-3", got)
+	if got := measuredBestServerAlternativeCount(input, current); got != 2 {
+		t.Fatalf("browser-visible eligible endpoint count=%d want=2; current/shared/rejected candidates must not fill Top-3", got)
 	}
 	input = append(input, bestServerQualityCandidate{ID: "eligible-c", Endpoint: "203.0.113.14:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 95, MediaSamples: bestServerMediaRequiredRuns})
-	if got := measuredBestServerAlternativeCount(input); got != bestServerVisibleAlternatives {
-		t.Fatalf("visible eligible listener count=%d want=%d", got, bestServerVisibleAlternatives)
+	if got := measuredBestServerAlternativeCount(input, current); got != bestServerVisibleAlternatives {
+		t.Fatalf("browser-visible eligible endpoint count=%d want=%d", got, bestServerVisibleAlternatives)
+	}
+}
+
+func TestMeasuredBestServerBatchIsSingleLogicalProfile(t *testing.T) {
+	if bestServerMeasuredBatchSize != 1 {
+		t.Fatalf("deep batch size=%d want=1 so profiles sharing a listener are checked independently", bestServerMeasuredBatchSize)
 	}
 }
 

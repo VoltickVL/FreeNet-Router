@@ -11,7 +11,7 @@ import (
 
 const (
 	bestServerCurrentScanTimeout  = 75 * time.Second
-	bestServerMeasuredBatchSize   = 4
+	bestServerMeasuredBatchSize   = 1
 	bestServerVisibleAlternatives = 3
 )
 
@@ -58,13 +58,17 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 	return filtered
 }
 
-// Only a selectable, fully eligible alternative satisfies the Top-3 target.
-// The current browser intentionally shows one best logical profile per public
-// listener, so a second profile sharing address:port does not fill another
-// visible slot. Shared listeners remain distinct profile identities; this
-// count is only a display-diversity stop condition, never an identity rule.
-func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate) int {
+// The browser intentionally presents at most one comparison card per public
+// listener. This is a presentation-diversity rule only: address:port is NOT
+// logical profile identity and may legitimately be shared by VLESS/Reality
+// profiles. Seed the set with the active endpoint so a profile sharing the
+// current listener cannot make the backend believe the visible Top-3 is full
+// while the browser correctly hides it as a duplicate comparison endpoint.
+func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate, currentEndpoint string) int {
 	seenEndpoints := map[string]struct{}{}
+	if endpoint := strings.TrimSpace(currentEndpoint); endpoint != "" {
+		seenEndpoints[endpoint] = struct{}{}
+	}
 	count := 0
 	for _, candidate := range candidates {
 		if candidate.Current || !candidate.Tested || !candidate.Available || !candidate.Eligible {
@@ -72,7 +76,7 @@ func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate)
 		}
 		endpoint := strings.TrimSpace(candidate.Endpoint)
 		if endpoint == "" {
-			endpoint = "id:" + candidate.ID
+			continue
 		}
 		if _, exists := seenEndpoints[endpoint]; exists {
 			continue
@@ -127,7 +131,7 @@ func (a *app) rankMeasuredBestServerBatches(
 		ProfilesTruncated: truncated, Mutation: "NONE",
 	}
 	for start := 0; start < len(candidates); start += bestServerMeasuredBatchSize {
-		if measuredBestServerAlternativeCount(aggregate.Candidates) >= bestServerVisibleAlternatives {
+		if measuredBestServerAlternativeCount(aggregate.Candidates, currentEndpoint) >= bestServerVisibleAlternatives {
 			break
 		}
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerQualityCandidateTimeout+2*time.Second {
@@ -301,9 +305,9 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	}
 
 	// First compare the real application path through each candidate VPN. Keep a
-	// reserve shortlist, then deep-test it in small batches until three visible
-	// eligible alternatives are available or the global scan budget is nearly
-	// exhausted.
+	// reserve shortlist, then deep-test one logical profile per batch. Continue
+	// until the browser can actually show three eligible alternatives on three
+	// non-current listeners, or until the bounded scan budget is exhausted.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {
