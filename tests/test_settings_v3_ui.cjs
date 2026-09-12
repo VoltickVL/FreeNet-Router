@@ -17,9 +17,9 @@ const calls = [];
 
 const settings = {
   success: true,
-  auto_vpn: {enabled:true,country_scope:'region',countries:['pl','de'],last_health:'2026-09-12T11:35:00Z',next_health:'2026-09-12T11:40:00Z'},
+  auto_vpn: {enabled:true,country_scope:'region',countries:['pl','fr'],last_health:'2026-09-12T11:35:00Z',next_health:'2026-09-12T11:40:00Z'},
   automation: {
-    current_profile:'Варшава, Польша, Extra',current_endpoint:'192.0.2.42:443',country_code:'pl',
+    current_profile:'PL Варшава, Польша, Extra',current_endpoint:'192.0.2.42:443',country_code:'pl',
     current_quality_known:true,current_quality_checked_at:'2026-09-12T11:35:00Z',current_latency_ms:171,current_download_mbps:168,current_jitter_ms:7,
     events:[
       {at:'2026-09-12T11:35:00Z',kind:'auto_vpn',result:'success',message:'Текущий VPN работает нормально, смена не требуется.'},
@@ -36,8 +36,21 @@ const settings = {
   ]
 };
 
+const countryCatalog = {
+  success:true,
+  fresh:true,
+  selected:['pl','fr'],
+  countries:[
+    {code:'gb',name:'Великобритания',available:true},
+    {code:'nl',name:'Нидерланды',available:true},
+    {code:'pl',name:'Польша',available:true},
+    {code:'us',name:'США',available:true},
+    {code:'fr',name:'Ранее выбранная страна',available:false}
+  ]
+};
+
 const status = {
-  version:'0.3.43',country:'Польша',city:'Варшава',country_code:'pl',profile_label:'Варшава, Польша, Extra',endpoint:'192.0.2.42:443',
+  version:'0.3.43',country:'Польша',city:'Варшава',country_code:'pl',profile_label:'PL Варшава, Польша, Extra',endpoint:'192.0.2.42:443',
   xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',recommended_dns_mode:'xkeen',
   setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false,last_action:{success:true}
 };
@@ -61,6 +74,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/auth/status') return json(res, {configured:true,authenticated:true});
   if (url.pathname === '/api/status') return json(res, status);
   if (url.pathname === '/api/settings-v3') return json(res, settings);
+  if (url.pathname === '/api/settings-v3/countries') return json(res, countryCatalog);
   if (url.pathname === '/api/subscription') return json(res, {success:true,configured:true});
   if (url.pathname === '/api/geodata/files') return json(res, {success:true,files:[],search_enabled:false});
   if (url.pathname === '/api/network-profile/plan') return json(res, {success:true,supported:true,active:true,extra_profiles:[]});
@@ -73,9 +87,11 @@ const server = http.createServer((req, res) => {
 (async () => {
   const automationSource = fs.readFileSync(path.join(web, 'automation.js'), 'utf8');
   const asyncSource = fs.readFileSync(path.join(web, 'automation-async.js'), 'utf8');
+  const settingsSource = fs.readFileSync(path.join(web, 'settings-v3.js'), 'utf8');
   assert.doesNotMatch(automationSource, /dataset\.pageView\s*=\s*['"]settings['"]/, 'legacy Automation must never be renamed to Settings');
   assert.doesNotMatch(automationSource + asyncSource, /dispatchEvent\(new Event\(['"]hashchange['"]\)\)/, 'Settings lifecycle must not use synthetic hashchange');
   assert.doesNotMatch(asyncSource, /body\.fn-settings-accepted \.sidebar\{|body\.fn-settings-accepted \.nav-btn\{/, 'Settings presentation must not resize the shared shell');
+  assert.doesNotMatch(settingsSource, /\[\['pl','Польша'\]/, 'Settings country picker must not use a hardcoded country list');
 
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({headless:true});
@@ -141,7 +157,8 @@ const server = http.createServer((req, res) => {
       vpnStateVisible: !!document.querySelector('#fn3VPNState') && getComputedStyle(document.querySelector('#fn3VPNState')).display !== 'none',
       controlTitle: document.querySelector('#fn3ControlTitle')?.textContent || '',
       flagClasses: document.querySelector('#fn3Flag')?.className || '',
-      flagText: document.querySelector('#fn3Flag')?.textContent || ''
+      flagText: document.querySelector('#fn3Flag')?.textContent || '',
+      lastQuality: document.querySelector('#fn3LastQuality')?.textContent || ''
     }));
     console.log('SETTINGS_V3_RUNTIME', JSON.stringify(runtime));
     console.log('SETTINGS_V3_CALLS', JSON.stringify(calls.filter(call => call.includes('/api/'))));
@@ -151,6 +168,7 @@ const server = http.createServer((req, res) => {
     assert.equal(errors.length, 0, errors.join('\n'));
     assert.equal(consoleErrors.length, 0, consoleErrors.join('\n'));
     assert.match(runtime.profile, /Варшава/, `runtime snapshot not applied: ${JSON.stringify(runtime)}`);
+    assert.doesNotMatch(runtime.profile, /^PL\s/, `country code leaked into profile label: ${runtime.profile}`);
     assert.equal(runtime.saveDisabled, true, `save baseline not settled: ${JSON.stringify(runtime)}`);
     assert.deepEqual(runtime.nav, ['Обзор','Подписка','Настройки','Маршрутизация','Журнал']);
     assert.ok(runtime.svgWidths.every(width => width > 0 && width <= 24), `oversized action icon detected: ${runtime.svgWidths}`);
@@ -163,12 +181,14 @@ const server = http.createServer((req, res) => {
     assert.equal(runtime.controlTitle, 'Автопроверка', `unexpected AUTO VPN control copy: ${runtime.controlTitle}`);
     assert.match(runtime.flagClasses, /\bflag-icon\b.*\bflag-pl\b|\bflag-pl\b.*\bflag-icon\b/, `Settings must use CSS country flag: ${runtime.flagClasses}`);
     assert.equal(runtime.flagText, '', `Settings CSS flag must not expose platform-dependent flag text: ${runtime.flagText}`);
+    assert.match(runtime.lastQuality, /2026/, `Settings dates must include year: ${runtime.lastQuality}`);
 
     const settingsPage = page.locator('[data-page-view="settings"]');
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
     assert.equal(await settingsPage.getByText('Интернет и DNS', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Лучший VPN автоматически', {exact:true}).count(), 0);
+    assert.equal(await settingsPage.getByText('Системное обслуживание', {exact:true}).count(), 1);
     assert.equal(await settingsPage.locator('[data-scope-card]').count(), 3);
     assert.equal(await settingsPage.locator('.fn3-extra-card').count(), 4);
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="system"]').count(), 0);
@@ -181,9 +201,34 @@ const server = http.createServer((req, res) => {
     }));
     assert.equal(visibleProvider, false, 'ISP/provider must not remain visible in topbar');
 
+    await page.locator('input[name="fn3Scope"][value="allowlist"]').check();
+    await page.waitForSelector('#fn3CountryPop:not([hidden]) .fn3-country-item');
+    await page.waitForFunction(() => document.querySelector('#fn3CountryPop .flag-us'));
+    const countryPicker = await page.evaluate(() => ({
+      texts: [...document.querySelectorAll('#fn3CountryPop .fn3-country-item')].map(n => (n.textContent || '').trim()),
+      classes: [...document.querySelectorAll('#fn3CountryPop .fn3-country-flag')].map(n => n.className),
+      checked: [...document.querySelectorAll('#fn3CountryPop .fn3-country-item input:checked')].map(n => n.value).sort(),
+      itemFont: parseFloat(getComputedStyle(document.querySelector('#fn3CountryPop .fn3-country-item')).fontSize),
+      tableFont: parseFloat(getComputedStyle(document.querySelector('.fn3-table')).fontSize),
+      extraFont: parseFloat(getComputedStyle(document.querySelector('.fn3-extra-card p')).fontSize)
+    }));
+    assert.ok(countryPicker.texts.some(text => text.includes('США')), `US missing from live catalog: ${JSON.stringify(countryPicker)}`);
+    assert.ok(countryPicker.texts.some(text => text.includes('Нидерланды')), `NL missing from live catalog: ${JSON.stringify(countryPicker)}`);
+    assert.ok(countryPicker.texts.some(text => text.includes('Великобритания')), `GB missing from live catalog: ${JSON.stringify(countryPicker)}`);
+    assert.ok(countryPicker.texts.some(text => text.includes('Ранее выбранная страна')), `unavailable selected country not preserved: ${JSON.stringify(countryPicker)}`);
+    assert.ok(countryPicker.classes.some(value => /\bflag-us\b/.test(value)), `US CSS flag missing: ${countryPicker.classes}`);
+    assert.ok(countryPicker.classes.some(value => /\bflag-nl\b/.test(value)), `NL CSS flag missing: ${countryPicker.classes}`);
+    assert.ok(countryPicker.classes.some(value => /\bflag-gb\b/.test(value)), `GB CSS flag missing: ${countryPicker.classes}`);
+    assert.ok(countryPicker.texts.every(text => !/^(PL|NL|FR|GB|US)\b/.test(text)), `country code leaked into picker copy: ${countryPicker.texts}`);
+    assert.deepEqual(countryPicker.checked, ['fr','pl'], `saved selected countries were not preserved: ${countryPicker.checked}`);
+    assert.ok(countryPicker.itemFont >= 11, `country picker typography too small: ${countryPicker.itemFont}px`);
+    assert.ok(countryPicker.tableFont >= 10.5, `journal typography too small: ${countryPicker.tableFont}px`);
+    assert.ok(countryPicker.extraFont >= 10, `maintenance-card typography too small: ${countryPicker.extraFont}px`);
+    await page.locator('#fn3CountriesApply').click();
+
     const save = page.locator('#fn3Save');
-    assert.equal(await save.isDisabled(), true);
-    assert.match(await save.textContent(), /Сохранено/);
+    assert.equal(await save.isDisabled(), false);
+    assert.match(await save.textContent(), /Сохранить изменения/);
     await page.locator('input[name="fn3Scope"][value="current"]').check();
     assert.equal(await save.isDisabled(), false);
     assert.match(await save.textContent(), /Сохранить изменения/);
