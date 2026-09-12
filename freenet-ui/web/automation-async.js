@@ -67,7 +67,6 @@
   function renderProgress(button, startedAt) {
     const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
     button.textContent = `Проверяем… ${elapsed} с`;
-    setNotice(`AUTO VPN: идёт проверка · ${elapsed} с. Операция выполняется в фоне; повторно запускать её не нужно.`);
   }
 
   async function pollCheck(button, startedAt) {
@@ -94,6 +93,7 @@
     const startedAt = Date.now();
     button.disabled = true;
     button.setAttribute('aria-busy', 'true');
+    setNotice('');
     renderProgress(button, startedAt);
     try {
       const started = await startCheck();
