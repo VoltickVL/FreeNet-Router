@@ -8,6 +8,16 @@
     return mode === 'xkeen' ? 'Раздельный DNS' : 'DNS через роутер';
   }
 
+  function normalizeLegacyDNSLabels() {
+    try {
+      if (typeof dnsLabels !== 'object' || !dnsLabels) return;
+      dnsLabels.auto = 'DNS через роутер';
+      dnsLabels.firmware = 'DNS через роутер';
+      dnsLabels.xkeen = 'Раздельный DNS';
+      dnsLabels.custom = 'DNS через роутер';
+    } catch (_) {}
+  }
+
   function formatTime(value) {
     if (!value) return '—';
     const date = new Date(value);
@@ -45,6 +55,23 @@
         value.textContent = text;
       }
     });
+
+    const legacyState = q('#dnsState');
+    if (legacyState) legacyState.textContent = text;
+    const quickGuard = q('#quickNetworkGuard');
+    if (quickGuard) quickGuard.textContent = `VPN-действия не меняют ISP и DNS. Текущий DNS-режим: ${text}.`;
+  }
+
+  function syncCountryButton() {
+    const button = q('#fnCountriesBtn');
+    if (!button) return;
+    const mode = q('input[name="fnAutoMode"]:checked')?.value || 'endpoint';
+    const scope = q('input[name="fnCountryScope"]:checked')?.value || 'region';
+    button.disabled = mode !== 'best' || scope !== 'allowlist';
+    if (button.disabled) {
+      const popover = q('#fnCountryPopover');
+      if (popover) popover.hidden = true;
+    }
   }
 
   function renderCurrentQuality(auto) {
@@ -94,7 +121,11 @@
           const payload = await response.clone().json();
           setTimeout(() => {
             removeLegacyFooter();
-            if (path === '/api/automation') renderCurrentQuality(payload);
+            normalizeLegacyDNSLabels();
+            if (path === '/api/automation') {
+              renderCurrentQuality(payload);
+              syncCountryButton();
+            }
             if (path === '/api/status') syncTopbarDNS(payload?.dns_mode);
           }, 0);
         } catch (_) {}
@@ -103,6 +134,18 @@
     };
   }
 
+  function installSettingsStateGuard() {
+    document.addEventListener('change', event => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+      if (target.name === 'fnAutoMode' || target.name === 'fnCountryScope') {
+        syncCountryButton();
+      }
+    });
+  }
+
   removeLegacyFooter();
+  normalizeLegacyDNSLabels();
   installFetchTap();
+  installSettingsStateGuard();
 })();
