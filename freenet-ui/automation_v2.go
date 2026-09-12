@@ -258,6 +258,7 @@ func stripManagedAutomationCron(data []byte) []string {
 		}
 		if strings.Contains(line, "/opt/lib/freenet/auto_vpn.sh run") ||
 			strings.Contains(line, "freenet-ui automation-best-run") ||
+			strings.Contains(line, "freenet-ui automation-health-watch") ||
 			strings.Contains(line, "/opt/bin/blanc_xkeen_update_outbounds.sh") ||
 			strings.Contains(line, "/opt/bin/vpn failover") ||
 			strings.Contains(line, "/opt/sbin/xkeen -ug") {
@@ -284,22 +285,16 @@ func buildManagedAutomationCron(configPath string, settings automationSettings, 
 		}
 	}
 	if settings.Enabled && settings.Interval != "manual" && cron != "" {
+		lines = append(lines, "*/5 * * * * "+automationRunnerPath()+" automation-health-watch >> /opt/var/log/freenet-auto-vpn-health.log 2>&1")
 		if settings.Mode == automationModeBest {
 			lines = append(lines, cron+" "+automationRunnerPath()+" automation-best-run >> /opt/var/log/freenet-auto-vpn.log 2>&1")
 		} else {
 			lines = append(lines, cron+" /opt/lib/freenet/auto_vpn.sh run >> /opt/var/log/freenet-auto-vpn.log 2>&1")
 		}
 	} else {
-		lines = append(lines, "# AUTO VPN scheduler disabled by FreeNet settings")
+		lines = append(lines, "# AUTO VPN scheduler and health watchdog disabled by FreeNet settings")
 	}
-	if automationConfigValue(configPath, "AUTO_VPN_FAILOVER", "no") == "yes" {
-		failoverCron := strings.TrimSpace(automationConfigValue(configPath, "AUTO_VPN_FAILOVER_CRON", "*/5 * * * *"))
-		if failoverCron != "" {
-			lines = append(lines, failoverCron+" /opt/bin/vpn failover >> /opt/var/log/freenet-vpn-failover.log 2>&1")
-		}
-	} else {
-		lines = append(lines, "# vpn failover disabled by FreeNet settings")
-	}
+	lines = append(lines, "# legacy vpn failover superseded by AUTO VPN health watchdog")
 	lines = append(lines, "# END FREENET")
 	return []byte(strings.Join(lines, "\n") + "\n"), nil
 }
@@ -328,6 +323,7 @@ func (a *app) saveAutomationSettingsV2(settings automationSettings, geoDataEnabl
 		"AUTO_VPN_AUTO_APPLY":    map[bool]string{true: "yes", false: "no"}[settings.AutoApply],
 		"AUTO_ENDPOINT_UPDATE":   map[bool]string{true: "yes", false: "no"}[settings.Enabled && settings.Mode == automationModeEndpoint && settings.Interval != "manual"],
 		"AUTO_ENDPOINT_CRON":     cron,
+		"AUTO_VPN_FAILOVER":      "no",
 	}
 	if geoDataEnabled != nil {
 		values["AUTO_XKEEN_GEODATA"] = map[bool]string{true: "yes", false: "no"}[*geoDataEnabled]
