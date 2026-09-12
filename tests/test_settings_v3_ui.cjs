@@ -9,7 +9,12 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui', 'web');
 const artifacts = process.env.FREENET_UI_ARTIFACTS || path.join(root, 'test-artifacts');
-const scripts = ['self-update.js', 'vpn-ux-fix.js', 'operation-coordinator.js', 'accepted-ux.js', 'settings-v3.js'];
+// This mirrors the effective production order from serveAcceptedUXWithAutomation:
+// accepted shell -> runtime acceptance -> Settings v2 compatibility -> async bridge -> Settings v3.
+const scripts = [
+  'self-update.js', 'vpn-ux-fix.js', 'operation-coordinator.js', 'accepted-ux.js',
+  'runtime-acceptance.js', 'automation.js', 'automation-async.js', 'settings-v3.js'
+];
 
 const settings = {
   success: true,
@@ -60,7 +65,7 @@ function json(res, body, code = 200) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
-  if (url.pathname === '/') {
+  if (url.pathname === '/' || url.pathname === '/settings') {
     const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8')
       .replace('</body>', scripts.map(name => `<script src="/${name}"></script>`).join('') + '</body>');
     res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
@@ -92,9 +97,11 @@ const server = http.createServer((req, res) => {
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
     const base = `http://127.0.0.1:${server.address().port}`;
-    await page.goto(`${base}/#settings`);
-    await page.waitForSelector('#fn3AutoEnabled', {state:'attached'});
+
+    // Match the real reverse-proxy URL from WORK acceptance: /settings without a hash.
+    await page.goto(`${base}/settings`);
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 === '1');
+    await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
 
     assert.equal(errors.length, 0, errors.join('\n'));
     assert.equal((await page.locator('[data-page-view="settings"] h1').first().textContent()).trim(), 'Настройки / Система');
@@ -124,6 +131,17 @@ const server = http.createServer((req, res) => {
     for (const forbidden of ['hysteresis', 'cooldown', 'Eligible', 'logical-profile', 'Автоматически применять подтверждённое решение']) {
       assert.equal(pageText.includes(forbidden), false, `developer wording leaked: ${forbidden}`);
     }
+
+    // Settings must not leak over other pages after v3 replaces the legacy markup.
+    await page.locator('.nav-btn[data-page="overview"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
+    assert.equal(await page.locator('[data-page-view="settings"]').isVisible(), false, 'Settings v3 remains visible on Overview');
+
+    // Re-entering Settings via the real nav must mount/show v3 even though setPage uses replaceState.
+    await page.locator('.nav-btn[data-page="settings"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true);
+    assert.equal(await page.locator('[data-page-view="settings"] text=Только endpoint').count(), 0);
 
     fs.mkdirSync(artifacts, {recursive:true});
     await page.screenshot({path:path.join(artifacts, 'settings-v3-desktop.png'), fullPage:true});
