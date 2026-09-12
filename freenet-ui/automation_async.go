@@ -3,34 +3,30 @@ package main
 import (
 	"context"
 	"net/http"
-	"os/exec"
-	"strings"
 	"time"
 )
 
 // Manual AUTO VPN checks can legitimately take longer than the UI server's
-// normal WriteTimeout. Keep the long-running decision detached from the HTTP
-// request and expose only a short start/status protocol to the browser.
+// normal WriteTimeout. Keep the decision detached from the HTTP request and
+// expose only a short start/status protocol to the browser.
 var manualAutomationChecks operationCoordinator
 
 type automationCheckStatusResponse struct {
-	Success    bool                `json:"success"`
-	Active     bool                `json:"active"`
-	Operation *operationState     `json:"operation,omitempty"`
-	Automation *automationResponse `json:"automation,omitempty"`
-	Error      string              `json:"error,omitempty"`
+	Success    bool                 `json:"success"`
+	Active     bool                 `json:"active"`
+	Operation  *operationState      `json:"operation,omitempty"`
+	Automation *automationResponse  `json:"automation,omitempty"`
+	Error      string               `json:"error,omitempty"`
 }
 
 func (a *app) handleAutomationCheckStart(w http.ResponseWriter, _ *http.Request) {
-	settings := readAutomationSettings(a.cfg.ConfigPath)
-	target := normalizeAutomationMode(settings.Mode)
-	op, leader, conflict := manualAutomationChecks.begin("auto-vpn-check", target)
+	op, leader, conflict := manualAutomationChecks.begin("auto-vpn-check", "health")
 	if conflict != nil {
 		writeJSON(w, http.StatusConflict, automationCheckStatusResponse{
 			Success: false,
-			Active:  true,
+			Active: true,
 			Operation: conflict,
-			Error:   "Другая AUTO VPN операция уже выполняется.",
+			Error: "Другая AUTO VPN операция уже выполняется.",
 		})
 		return
 	}
@@ -40,65 +36,54 @@ func (a *app) handleAutomationCheckStart(w http.ResponseWriter, _ *http.Request)
 		return
 	}
 
-	go a.runManualAutomationCheck(op, target)
+	go a.runManualAutomationCheck(op)
 	state, active, _ := manualAutomationChecks.snapshot()
 	writeJSON(w, http.StatusAccepted, automationCheckStatusResponse{Success: true, Active: active, Operation: &state})
 }
 
-func (a *app) runManualAutomationCheck(op *coordinatedOperation, mode string) {
+func (a *app) runManualAutomationCheck(op *coordinatedOperation) {
 	status := http.StatusOK
 	success := true
-	message := "AUTO VPN проверка завершена."
+	message := "Проверка текущего VPN завершена."
 	errText := ""
 
-	if mode == automationModeBest {
-		if len(a.sem) > 0 {
-			status = http.StatusConflict
-			success = false
-			errText = "FreeNet выполняет другую подтверждённую операцию."
-		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), automationBestTimeout+15*time.Second)
-			_, err := a.runAutomationBestCycle(ctx, true)
+	if len(a.sem) > 0 {
+		status = http.StatusConflict
+		success = false
+		errText = "FreeNet выполняет другую подтверждённую операцию."
+	} else {
+		settings := readAutomationSettings(a.cfg.ConfigPath)
+		if settings.Enabled {
+			ctx, cancel := context.WithTimeout(context.Background(), automationBestTimeout+4*time.Minute)
+			result, err := a.runAutomationHealthWatch(ctx)
 			cancel()
 			if err != nil {
 				status = http.StatusBadGateway
 				success = false
-				snapshot := a.automationSnapshot()
-				if strings.TrimSpace(snapshot.LastReason) != "" {
-					errText = snapshot.LastReason
-				} else {
-					errText = "AUTO VPN проверка не завершена."
+				errText = result.Reason
+				if errText == "" {
+					errText = "AUTO VPN не смог завершить безопасную проверку."
 				}
+			} else {
+				message = result.Reason
 			}
-		}
-	} else {
-		helper, err := ensureAutomationHelper()
-		if err != nil {
-			status = http.StatusServiceUnavailable
-			success = false
-			errText = err.Error()
 		} else {
-			select {
-			case a.sem <- struct{}{}:
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-				out, runErr := exec.CommandContext(ctx, helper, "run").CombinedOutput()
-				cancel()
-				<-a.sem
-				if runErr != nil {
-					status = http.StatusBadGateway
-					success = false
-					errText = safeAutomationHelperError(out)
-				}
-			default:
-				status = http.StatusConflict
+			ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+			probe := a.probeAutomationCurrentVPN(ctx)
+			cancel()
+			result := automationHealthResult{State: probe.State, Reason: probe.Reason}
+			recordSettingsV3Health(result)
+			message = probe.Reason
+			if probe.State == automationHealthFailed {
+				status = http.StatusBadGateway
 				success = false
-				errText = "FreeNet выполняет другую подтверждённую операцию."
+				errText = probe.Reason
 			}
 		}
 	}
 
 	if !success {
-		message = "AUTO VPN проверка завершилась ошибкой."
+		message = "Проверка текущего VPN завершилась ошибкой."
 	}
 	manualAutomationChecks.finish(op, status, nil, success, message, errText)
 }
