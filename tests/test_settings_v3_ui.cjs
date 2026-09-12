@@ -82,7 +82,7 @@ const server = http.createServer((req, res) => {
     page.on('requestfailed', req => consoleErrors.push(`requestfailed ${req.method()} ${req.url()} ${req.failure()?.errorText || ''}`));
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    await page.goto(`${base}/settings`);
+    await page.goto(`${base}/#settings`);
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 === '1');
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
     await page.waitForTimeout(1000);
