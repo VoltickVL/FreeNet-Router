@@ -85,12 +85,19 @@ func TestSettingsWorkAcceptanceRuntimeAsset(t *testing.T) {
 		"fnAutoMode",
 		"fnCountryScope",
 		"mode !== 'best' || scope !== 'allowlist'",
+		"latestAutomationPayload",
+		"latestStatusPayload",
+		"reconcileRuntimePresentation",
+		"scheduleRuntimePresentation",
 		"window.fetch",
 		"response.clone()",
 	} {
 		if !strings.Contains(s, required) {
 			t.Fatalf("runtime acceptance asset missing %q", required)
 		}
+	}
+	if strings.Contains(s, "if (!auto || !auto.current_quality_known) return") {
+		t.Fatal("current-check timestamp must be rendered independently from scheduler last_run")
 	}
 	for _, forbidden := range []string{"MutationObserver", "XKeen/Xray DNS"} {
 		if strings.Contains(s, forbidden) {
