@@ -1,7 +1,8 @@
 (() => {
   'use strict';
-  // The legacy async Settings renderer is gone. This file is now a small
-  // presentation contract for the accepted Settings / System reference.
+  // Legacy async Settings renderer is retired. This file only applies the
+  // approved visual geometry after Settings v3 has mounted, so presentation
+  // cannot participate in routing or page lifecycle.
   if (window.__freenetAcceptedSettingsGeometryLoaded) return;
   window.__freenetAcceptedSettingsGeometryLoaded = true;
   window.__freenetLegacyAutomationAsyncRetired = true;
@@ -13,7 +14,6 @@
     const style = document.createElement('style');
     style.id = 'freenetAcceptedSettingsGeometry';
     style.textContent = `
-      /* Exact desktop geometry of the Management-approved Settings render. */
       body:has([data-page-view="settings"].active) .app{grid-template-columns:212px minmax(0,1fr)!important}
       body:has([data-page-view="settings"].active) .sidebar{padding:14px 9px 18px!important}
       body:has([data-page-view="settings"].active) .sidebar>.brand{padding:6px 14px 24px!important;font-size:25px!important}
@@ -24,7 +24,6 @@
       body:has([data-page-view="settings"].active) .nav-btn{min-height:43px!important;padding:0 13px!important;border-radius:10px!important;font-size:14px!important;gap:11px!important}
       body:has([data-page-view="settings"].active) .nav-icon{width:22px!important;height:22px!important;flex-basis:22px!important}
       body:has([data-page-view="settings"].active) .nav-icon svg{width:20px!important;height:20px!important}
-
       body:has([data-page-view="settings"].active) .content{width:min(1288px,calc(100% - 36px))!important;padding-top:14px!important;padding-bottom:42px!important}
       body:has([data-page-view="settings"].active) .fn3-head{margin-bottom:13px!important}
       body:has([data-page-view="settings"].active) .fn3-head h1{font-size:29px!important;line-height:1.08!important}
@@ -38,25 +37,18 @@
       body:has([data-page-view="settings"].active) .fn3-extra{min-height:299px!important;padding:11px 6px!important}
       body:has([data-page-view="settings"].active) .fn3-extra-grid{gap:10px!important}
       body:has([data-page-view="settings"].active) .fn3-extra-card{min-height:229px!important}
-
       body:has([data-page-view="settings"].active) .fn3-vpn-glyph{display:grid!important;place-items:center!important;width:30px!important;height:30px!important;border:2px solid #e8f3ff!important;border-radius:50%!important;color:#fff!important;font-size:10px!important;font-weight:800!important;letter-spacing:-.04em!important;line-height:1!important}
       body:has([data-page-view="settings"].active) .fn3-auto-actions .btn svg{width:18px!important;height:18px!important}
       body:has([data-page-view="settings"].active) .fn3-extra-action svg,
       body:has([data-page-view="settings"].active) .fn3-backup-actions .btn svg{width:16px!important;height:16px!important}
-
-      @media(max-width:1320px){
-        body:has([data-page-view="settings"].active) .fn3-grid{grid-template-columns:minmax(0,1.04fr) minmax(0,1fr)!important}
-      }
-      @media(max-width:1120px){
-        body:has([data-page-view="settings"].active) .app{grid-template-columns:var(--sidebar) minmax(0,1fr)!important}
-        body:has([data-page-view="settings"].active) .fn3-grid{grid-template-columns:1fr!important}
-      }
+      @media(max-width:1320px){body:has([data-page-view="settings"].active) .fn3-grid{grid-template-columns:minmax(0,1.04fr) minmax(0,1fr)!important}}
+      @media(max-width:1120px){body:has([data-page-view="settings"].active) .app{grid-template-columns:var(--sidebar) minmax(0,1fr)!important}body:has([data-page-view="settings"].active) .fn3-grid{grid-template-columns:1fr!important}}
     `;
     document.head.appendChild(style);
   }
 
   function tuneMarkup() {
-    const page = q('[data-page-view="settings"].fn3-page');
+    const page = q('[data-page-view="settings"][data-settings-v3="1"]');
     if (!page) return false;
     const autoIcon = q('.fn3-left .fn3-card:first-child .fn3-icon', page);
     if (autoIcon && autoIcon.dataset.acceptedGlyph !== '1') {
@@ -66,13 +58,16 @@
     return true;
   }
 
-  function settle(attempt = 0) {
+  function applyAfterMount(attempt = 0) {
+    if (!tuneMarkup()) {
+      if (attempt < 100) setTimeout(() => applyAfterMount(attempt + 1), 50);
+      return;
+    }
     installStyle();
-    if (!tuneMarkup() && attempt < 80) setTimeout(() => settle(attempt + 1), 50);
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => settle(), {once:true});
-  else settle();
-
-  window.addEventListener('hashchange', () => setTimeout(() => settle(), 0));
+  function schedule() { setTimeout(() => applyAfterMount(), 0); }
+  if (document.readyState === 'complete') schedule();
+  else window.addEventListener('load', schedule, {once:true});
+  window.addEventListener('hashchange', schedule);
 })();
