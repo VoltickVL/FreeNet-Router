@@ -45,7 +45,7 @@ func classifyAutomationHealth(first automationHealthProbe, wanHealthy bool, seco
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Состояние текущего VPN не удалось подтвердить; изменений нет."}
 	}
 	if !wanHealthy {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "WAN самого роутера не подтверждён; failover запрещён."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Обычный доступ в интернет не подтверждён; автоматическая смена VPN отменена."}
 	}
 	if second.State == automationHealthHealthy {
 		return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN восстановился на повторной проверке; изменений нет."}
@@ -53,7 +53,7 @@ func classifyAutomationHealth(first automationHealthProbe, wanHealthy bool, seco
 	if second.State != automationHealthFailed {
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Повторная проверка текущего VPN неоднозначна; изменений нет."}
 	}
-	return automationHealthProbe{State: automationHealthCritical, Reason: "Текущий VPN дважды не прошёл application-проверку при подтверждённом WAN."}
+	return automationHealthProbe{State: automationHealthCritical, Reason: "Текущий VPN дважды не прошёл проверку при рабочем обычном интернете."}
 }
 
 func automationHealthLockPath() string {
@@ -103,26 +103,26 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	outbound, activeEndpoint, ok := readBestServerActiveOutbound(a.cfg.OutPath)
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	if !ok || currentEndpoint == "" || !endpointsEqual(activeEndpoint, currentEndpoint) {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Активный VPN-профиль не удалось безопасно идентифицировать."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Текущий VPN не удалось безопасно определить."}
 	}
 	xrayPath := strings.TrimSpace(os.Getenv("FREENET_XRAY_BIN"))
 	if xrayPath == "" {
 		xrayPath = defaultBestServerXrayPath
 	}
 	if _, err := os.Stat(xrayPath); err != nil {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Xray недоступен для health-проверки."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Xray недоступен для проверки VPN."}
 	}
 	curlPath, err := exec.LookPath("curl")
 	if err != nil {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "curl недоступен для health-проверки."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Средство проверки подключения недоступно."}
 	}
 	port, err := reserveBestServerPort()
 	if err != nil {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось подготовить локальный health-probe."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось подготовить локальную проверку VPN."}
 	}
 	tmpDir, err := os.MkdirTemp("", "freenet-auto-health-")
 	if err != nil {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось подготовить временный health-probe."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось подготовить временную проверку VPN."}
 	}
 	defer os.RemoveAll(tmpDir)
 	_ = os.Chmod(tmpDir, 0700)
@@ -143,10 +143,10 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	}
 	encoded, err := json.Marshal(config)
 	if err != nil {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось собрать health-конфигурацию."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось собрать конфигурацию проверки VPN."}
 	}
 	if err := os.WriteFile(filepath.Join(tmpDir, "00_probe.json"), encoded, 0600); err != nil {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось записать health-конфигурацию."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось записать конфигурацию проверки VPN."}
 	}
 
 	env := append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir())
@@ -158,7 +158,7 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	testErr := testCmd.Run()
 	cancelTest()
 	if testErr != nil {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Health-конфигурация Xray не прошла локальную валидацию."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Конфигурация текущего VPN не прошла локальную проверку."}
 	}
 
 	runCtx, cancelRun := context.WithCancel(ctx)
@@ -168,7 +168,7 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	if err := cmd.Start(); err != nil {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось запустить изолированный health-probe Xray."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось запустить изолированную проверку VPN."}
 	}
 	defer func() {
 		cancelRun()
@@ -178,7 +178,7 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 		_ = cmd.Wait()
 	}()
 	if !waitBestServerSOCKS(ctx, port) {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Локальный SOCKS health-probe не запустился."}
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Локальная проверка VPN не запустилась."}
 	}
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
@@ -190,12 +190,12 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	).Output()
 	cancel()
 	if err != nil {
-		return automationHealthProbe{State: automationHealthFailed, Reason: "Application-путь текущего VPN недоступен."}
+		return automationHealthProbe{State: automationHealthFailed, Reason: "Текущий VPN не даёт доступ к интернету."}
 	}
 	if _, ok := parseBestServerHTTPResponseMS(string(output)); !ok {
-		return automationHealthProbe{State: automationHealthFailed, Reason: "Application-путь текущего VPN не подтвердил HTTP-доступность."}
+		return automationHealthProbe{State: automationHealthFailed, Reason: "Текущий VPN не подтвердил доступ к интернету."}
 	}
-	return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN доступен; тяжёлый Best Server scan не запускался."}
+	return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN работает стабильно."}
 }
 
 func automationCurrentCountry(a *app) string {
@@ -207,11 +207,11 @@ func automationCurrentCountry(a *app) string {
 
 func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings automationSettings) (automationBestCycleResult, error) {
 	if settings.Mode != automationModeBest {
-		return automationBestCycleResult{Result: "same", Reason: "Emergency Best failover не применим к текущему режиму."}, nil
+		return automationBestCycleResult{Result: "same", Reason: "Автоматический поиск замены не применим к текущему режиму."}, nil
 	}
 	release, err := acquireAutomationBestLock()
 	if err != nil {
-		return automationBestCycleResult{Result: "busy", Reason: "Emergency failover пропущен: другая AUTO VPN операция уже выполняется."}, nil
+		return automationBestCycleResult{Result: "busy", Reason: "Поиск замены пропущен: другая AUTO VPN операция уже выполняется."}, nil
 	}
 	defer release()
 
@@ -219,38 +219,35 @@ func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings a
 	defer cancel()
 	currentCountry := automationCurrentCountry(a)
 	if currentCountry == "" {
-		reason := "Страна текущего logical profile не подтверждена; emergency failover запрещён."
+		reason := "Страна текущего VPN не подтверждена; автоматическая замена отменена."
 		writeAutomationStateV2("uncertain", reason, "no", false)
 		appendAutomationHistoryV2("uncertain", reason)
 		return automationBestCycleResult{Result: "uncertain", Reason: reason}, nil
 	}
 	candidates, err := a.scanBestServerForeignForAutomation(ctx, settings, currentCountry)
 	if err != nil {
-		reason := "Emergency failover не смог завершить подбор Eligible-кандидатов; текущий VPN сохранён."
+		reason := "Не удалось завершить безопасный поиск проверенной замены; текущие настройки сохранены."
 		writeAutomationStateV2("failed", reason, "no", false)
 		appendAutomationHistoryV2("failed", reason)
 		return automationBestCycleResult{Result: "failed", Reason: reason}, err
 	}
 	candidate, ok := bestAutomationCandidate(candidates)
 	if !ok {
-		reason := "Для emergency failover нет полностью подтверждённого Eligible-кандидата."
+		reason := "Подходящей полностью проверенной замены сейчас нет."
 		writeAutomationStateV2("same", reason, "no", false)
 		appendAutomationHistoryV2("same", reason)
 		return automationBestCycleResult{Result: "same", Reason: reason}, nil
 	}
 	if !settings.AutoApply {
-		reason := "Emergency failover нашёл подтверждённый VPN, но автоматическое применение выключено."
+		reason := "Найдена проверенная замена, но автоматическое применение выключено."
 		writeAutomationStateV2("candidate", reason, "no", false)
 		appendAutomationHistoryV2("candidate", reason)
 		return automationBestCycleResult{Result: "candidate", Reason: reason, ProfileID: candidate.ID}, nil
 	}
 
-	// Critical health failover deliberately bypasses the 6-hour optimization
-	// cooldown. The cooldown remains in runAutomationBestCycle for healthy/degraded
-	// optimization changes and therefore still prevents flapping.
 	status, applied := a.executeProviderProfileApply(networkApplyRequest{Operation: "provider", ProfileID: candidate.ID, Confirm: true})
 	if status < 200 || status >= 300 || !applied.Success {
-		reason := "Emergency VPN не применён: " + strings.TrimSpace(applied.Error)
+		reason := "Проверенная замена VPN не применена: " + strings.TrimSpace(applied.Error)
 		rollback := applied.RollbackState
 		if rollback == "" {
 			rollback = "unknown"
@@ -259,7 +256,7 @@ func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings a
 		appendAutomationHistoryV2("failed", reason+"; rollback="+rollback)
 		return automationBestCycleResult{Result: "failed", Reason: reason, RollbackState: rollback, ProfileID: candidate.ID}, errors.New("AUTO VPN emergency apply failed")
 	}
-	reason := "Аварийный failover применил подтверждённый VPN: " + candidate.Name
+	reason := "Текущий VPN заменён на проверенный вариант: " + candidate.Name
 	writeAutomationStateV2("switched", reason, "yes", true)
 	appendAutomationHistoryV2("success", reason)
 	return automationBestCycleResult{Result: "switched", Reason: reason, Mutated: true, RollbackState: applied.RollbackState, ProfileID: candidate.ID}, nil
@@ -267,10 +264,10 @@ func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings a
 
 func (a *app) runAutomationEndpointEmergency(parent context.Context, settings automationSettings) (automationHealthResult, error) {
 	if settings.Mode != automationModeEndpoint {
-		return automationHealthResult{State: automationHealthUncertain, Reason: "Endpoint emergency не применим к текущему режиму."}, nil
+		return automationHealthResult{State: automationHealthUncertain, Reason: "Восстановление текущего VPN не применимо к текущему режиму."}, nil
 	}
 	if !settings.AutoApply {
-		return automationHealthResult{State: automationHealthCritical, Reason: "Текущий VPN недоступен, но автоматическое применение подтверждённого решения выключено."}, nil
+		return automationHealthResult{State: automationHealthCritical, Reason: "Текущий VPN недоступен, но автоматическое восстановление выключено."}, nil
 	}
 	helper, err := ensureAutomationHelper()
 	if err != nil {
@@ -286,19 +283,24 @@ func (a *app) runAutomationEndpointEmergency(parent context.Context, settings au
 	result := strings.TrimSpace(values["RESULT"])
 	reason := strings.TrimSpace(values["REASON"])
 	if reason == "" {
-		reason = "Endpoint-only emergency cycle завершён без изменения country/profile."
+		reason = "Проверка нового адреса текущего VPN завершена без изменений."
 	}
 	return automationHealthResult{State: result, Reason: reason, Mutated: result == "updated"}, nil
 }
 
+func recordAndReturnHealth(result automationHealthResult, err error) (automationHealthResult, error) {
+	recordSettingsV3Health(result)
+	return result, err
+}
+
 func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealthResult, error) {
 	settings := readAutomationSettings(a.cfg.ConfigPath)
-	if !settings.Enabled || settings.Interval == "manual" {
-		return automationHealthResult{State: "disabled", Reason: "AUTO VPN health watchdog отключён настройками."}, nil
+	if !settings.Enabled {
+		return recordAndReturnHealth(automationHealthResult{State: "disabled", Reason: "AUTO VPN выключен."}, nil)
 	}
 	release, err := acquireAutomationHealthLock()
 	if err != nil {
-		return automationHealthResult{State: "busy", Reason: "Health watchdog пропущен: предыдущая проверка ещё выполняется."}, nil
+		return recordAndReturnHealth(automationHealthResult{State: "busy", Reason: "Проверка пропущена: предыдущая AUTO VPN операция ещё выполняется."}, nil)
 	}
 	defer release()
 
@@ -306,32 +308,53 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	first := a.probeAutomationCurrentVPN(probeCtx)
 	if first.State == automationHealthHealthy || first.State == automationHealthUncertain {
 		cancel()
-		return automationHealthResult{State: first.State, Reason: first.Reason}, nil
+		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
 	}
 	wanHealthy := probeAutomationWAN(probeCtx)
 	if !wanHealthy {
 		cancel()
 		decision := classifyAutomationHealth(first, false, automationHealthProbe{})
-		return automationHealthResult{State: decision.State, Reason: decision.Reason}, nil
+		return recordAndReturnHealth(automationHealthResult{State: decision.State, Reason: decision.Reason}, nil)
 	}
 	select {
 	case <-time.After(automationHealthConfirmDelay):
 	case <-probeCtx.Done():
 		cancel()
-		return automationHealthResult{State: automationHealthUncertain, Reason: "Повторная health-проверка не успела завершиться; изменений нет."}, nil
+		return recordAndReturnHealth(automationHealthResult{State: automationHealthUncertain, Reason: "Повторная проверка VPN не успела завершиться; изменений нет."}, nil)
 	}
 	second := a.probeAutomationCurrentVPN(probeCtx)
 	cancel()
 	decision := classifyAutomationHealth(first, true, second)
 	if decision.State != automationHealthCritical {
-		return automationHealthResult{State: decision.State, Reason: decision.Reason}, nil
+		return recordAndReturnHealth(automationHealthResult{State: decision.State, Reason: decision.Reason}, nil)
 	}
 
-	if settings.Mode == automationModeEndpoint {
-		return a.runAutomationEndpointEmergency(parent, settings)
+	// Magic AUTO VPN recovery order: first try a fresh endpoint for the exact
+	// current VPN. Only when that cannot restore service do we search a fully
+	// validated replacement inside the user's allowed geography.
+	endpointSettings := settings
+	endpointSettings.Mode = automationModeEndpoint
+	endpointSettings.AutoApply = true
+	endpointResult, endpointErr := a.runAutomationEndpointEmergency(parent, endpointSettings)
+	if endpointErr == nil && endpointResult.Mutated {
+		endpointResult.Reason = "Текущий VPN восстановлен с новым адресом подключения."
+		return recordAndReturnHealth(endpointResult, nil)
 	}
-	best, err := a.runAutomationBestEmergencyCycle(parent, settings)
-	return automationHealthResult{State: best.Result, Reason: best.Reason, Mutated: best.Mutated}, err
+	if endpointErr != nil {
+		lower := strings.ToLower(endpointResult.Reason)
+		if strings.Contains(lower, "rollback failed") || strings.Contains(lower, "rollback unknown") || strings.Contains(lower, "rollback=failed") || strings.Contains(lower, "rollback=unknown") {
+			endpointResult.State = automationHealthCritical
+			return recordAndReturnHealth(endpointResult, endpointErr)
+		}
+	}
+
+	bestSettings := settings
+	bestSettings.Mode = automationModeBest
+	bestSettings.Policy = automationPolicyDegraded
+	bestSettings.AutoApply = true
+	best, bestErr := a.runAutomationBestEmergencyCycle(parent, bestSettings)
+	result := automationHealthResult{State: best.Result, Reason: best.Reason, Mutated: best.Mutated}
+	return recordAndReturnHealth(result, bestErr)
 }
 
 func init() {
