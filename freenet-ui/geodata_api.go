@@ -41,6 +41,7 @@ type geoDataSearchResponse struct {
 }
 
 func registerGeoDataAPI(mux *http.ServeMux, a *app) {
+	registerCanonicalIndexRoute(mux, a)
 	mux.HandleFunc("GET /api/geodata/files", a.requireAuth(a.handleGeoDataFiles))
 	mux.HandleFunc("GET /api/geodata/search", a.requireAuth(a.handleGeoDataSearch))
 	registerPolicyPreviewAPI(mux, a)
