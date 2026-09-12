@@ -19,9 +19,9 @@ const (
 )
 
 // The helper is shipped inside the UI binary so Web Self-Update can deploy the
-// endpoint-only AUTO VPN runtime atomically. Best-VPN mode reuses the Go Best
-// Server engine through the freenet-ui automation-best-run command.
-//go:embed web/automation.js web/automation-async.js web/runtime-acceptance.js auto_vpn.sh
+// AUTO VPN runtime atomically. Settings v3 keeps legacy assets embedded for
+// migration compatibility while presenting one human-facing automatic policy.
+//go:embed web/automation.js web/automation-async.js web/runtime-acceptance.js web/settings-v3.js auto_vpn.sh
 var automationWebFS embed.FS
 
 type automationSettings struct {
@@ -91,6 +91,8 @@ func registerAutomationAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/automation/assets/automation.js", serveAutomationAsset("web/automation.js"))
 	mux.HandleFunc("GET /api/automation/assets/automation-async.js", serveAutomationAsset("web/automation-async.js"))
 	mux.HandleFunc("GET /api/automation/assets/runtime-acceptance.js", serveAutomationAsset("web/runtime-acceptance.js"))
+	mux.HandleFunc("GET /api/automation/assets/settings-v3.js", serveAutomationAsset("web/settings-v3.js"))
+	registerSettingsV3API(mux, a)
 	mux.HandleFunc("GET /accepted-ux.js", serveAcceptedUXWithAutomation)
 }
 
@@ -105,10 +107,18 @@ func serveAcceptedUXWithAutomation(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 	_, _ = w.Write([]byte(`
 ;(() => {
+  const loadSettingsV3 = () => {
+    const v3 = document.createElement('script');
+    v3.src = '/api/automation/assets/settings-v3.js';
+    v3.async = false;
+    document.head.appendChild(v3);
+  };
   const loadAsyncAutomation = () => {
     const asyncScript = document.createElement('script');
     asyncScript.src = '/api/automation/assets/automation-async.js';
     asyncScript.async = false;
+    asyncScript.onload = loadSettingsV3;
+    asyncScript.onerror = loadSettingsV3;
     document.head.appendChild(asyncScript);
   };
   const loadAutomation = () => {
