@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -21,16 +20,22 @@ const (
 )
 
 // The helper is shipped inside the UI binary so Web Self-Update can deploy the
-// whole AUTO VPN v1 runtime atomically without introducing a second asset path.
+// endpoint-only AUTO VPN runtime atomically. Best-VPN mode reuses the Go Best
+// Server engine through the freenet-ui automation-best-run command.
 //go:embed web/automation.js auto_vpn.sh
 var automationWebFS embed.FS
 
 type automationSettings struct {
-	Enabled                bool   `json:"enabled"`
-	Interval               string `json:"interval"`
-	CurrentProfileOnly     bool   `json:"current_profile_only"`
-	AutoEndpointUpdate     bool   `json:"auto_endpoint_update"`
-	AmbiguousNeedsApproval bool   `json:"ambiguous_needs_approval"`
+	Enabled                bool     `json:"enabled"`
+	Interval               string   `json:"interval"`
+	CurrentProfileOnly     bool     `json:"current_profile_only"`
+	AutoEndpointUpdate     bool     `json:"auto_endpoint_update"`
+	AmbiguousNeedsApproval bool     `json:"ambiguous_needs_approval"`
+	Mode                   string   `json:"mode"`
+	Policy                 string   `json:"policy"`
+	CountryScope           string   `json:"country_scope"`
+	Countries              []string `json:"countries"`
+	AutoApply              bool     `json:"auto_apply"`
 }
 
 type automationEvent struct {
@@ -41,29 +46,41 @@ type automationEvent struct {
 }
 
 type automationResponse struct {
-	Success          bool               `json:"success"`
-	Settings         automationSettings `json:"settings"`
-	CurrentProfile   string             `json:"current_profile"`
-	CurrentEndpoint  string             `json:"current_endpoint"`
-	CountryCode      string             `json:"country_code,omitempty"`
-	LastRun          string             `json:"last_run,omitempty"`
-	NextRun          string             `json:"next_run,omitempty"`
-	LastResult       string             `json:"last_result,omitempty"`
-	LastReason       string             `json:"last_reason,omitempty"`
-	RollbackReady    bool               `json:"rollback_ready"`
-	SubscriptionAuto bool               `json:"subscription_auto"`
-	GeoDataAuto      bool               `json:"geodata_auto"`
-	GeoDataSchedule  string             `json:"geodata_schedule,omitempty"`
-	FreeNetAuto      bool               `json:"freenet_auto"`
-	LegacyEndpoint   bool               `json:"legacy_endpoint_scheduler"`
-	Events           []automationEvent  `json:"events"`
-	Error            string             `json:"error,omitempty"`
+	Success              bool               `json:"success"`
+	Settings             automationSettings `json:"settings"`
+	CurrentProfile       string             `json:"current_profile"`
+	CurrentEndpoint      string             `json:"current_endpoint"`
+	CountryCode          string             `json:"country_code,omitempty"`
+	LastRun              string             `json:"last_run,omitempty"`
+	NextRun              string             `json:"next_run,omitempty"`
+	LastSwitch           string             `json:"last_switch,omitempty"`
+	LastResult           string             `json:"last_result,omitempty"`
+	LastReason           string             `json:"last_reason,omitempty"`
+	RollbackReady        bool               `json:"rollback_ready"`
+	CurrentQualityKnown  bool               `json:"current_quality_known"`
+	CurrentEligible      bool               `json:"current_eligible"`
+	CurrentLatencyMS     int                `json:"current_latency_ms,omitempty"`
+	CurrentJitterMS      int                `json:"current_jitter_ms,omitempty"`
+	CurrentDownloadMbps  float64            `json:"current_download_mbps,omitempty"`
+	SubscriptionAuto     bool               `json:"subscription_auto"`
+	GeoDataAuto          bool               `json:"geodata_auto"`
+	GeoDataSchedule      string             `json:"geodata_schedule,omitempty"`
+	FreeNetAuto          bool               `json:"freenet_auto"`
+	LegacyEndpoint       bool               `json:"legacy_endpoint_scheduler"`
+	Events               []automationEvent  `json:"events"`
+	Error                string             `json:"error,omitempty"`
 }
 
 type automationUpdateRequest struct {
-	Action   string `json:"action"`
-	Enabled  *bool  `json:"enabled,omitempty"`
-	Interval string `json:"interval,omitempty"`
+	Action         string   `json:"action"`
+	Enabled        *bool    `json:"enabled,omitempty"`
+	Interval       string   `json:"interval,omitempty"`
+	Mode           string   `json:"mode,omitempty"`
+	Policy         string   `json:"policy,omitempty"`
+	CountryScope   string   `json:"country_scope,omitempty"`
+	Countries      []string `json:"countries,omitempty"`
+	AutoApply      *bool    `json:"auto_apply,omitempty"`
+	GeoDataEnabled *bool    `json:"geodata_enabled,omitempty"`
 }
 
 func registerAutomationAPI(mux *http.ServeMux, a *app) {
@@ -220,7 +237,7 @@ func parseAutomationState(path string) map[string]string {
 			continue
 		}
 		switch key {
-		case "LAST_RUN", "LAST_RESULT", "LAST_REASON", "ROLLBACK_READY":
+		case "LAST_RUN", "LAST_RESULT", "LAST_REASON", "ROLLBACK_READY", "LAST_SWITCH":
 			values[key] = strings.TrimSpace(value)
 		}
 	}
@@ -277,23 +294,16 @@ func automationNextRun(lastRun, interval string) string {
 
 func (a *app) automationSnapshot() automationResponse {
 	status := a.status()
+	settings := readAutomationSettings(a.cfg.ConfigPath)
 	enabledRaw := automationConfigValue(a.cfg.ConfigPath, "AUTO_VPN_V1", "")
-	enabled := enabledRaw == "yes"
-	interval := automationConfigValue(a.cfg.ConfigPath, "AUTO_VPN_V1_INTERVAL", "manual")
-	if _, ok := automationCron(interval); !ok {
-		interval = "manual"
-	}
 	legacyEnabled := enabledRaw == "" && automationConfigValue(a.cfg.ConfigPath, "AUTO_ENDPOINT_UPDATE", "no") == "yes"
 	state := parseAutomationState(automationStatePath())
 	geodata := automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA", "yes") == "yes"
-	return automationResponse{
+	response := automationResponse{
 		Success: true,
-		Settings: automationSettings{
-			Enabled: enabled, Interval: interval, CurrentProfileOnly: true,
-			AutoEndpointUpdate: true, AmbiguousNeedsApproval: true,
-		},
+		Settings: settings,
 		CurrentProfile: status.ProfileLabel, CurrentEndpoint: status.Endpoint, CountryCode: status.CountryCode,
-		LastRun: state["LAST_RUN"], NextRun: automationNextRun(state["LAST_RUN"], interval),
+		LastRun: state["LAST_RUN"], NextRun: automationNextRun(state["LAST_RUN"], settings.Interval), LastSwitch: state["LAST_SWITCH"],
 		LastResult: state["LAST_RESULT"], LastReason: state["LAST_REASON"], RollbackReady: state["ROLLBACK_READY"] == "yes",
 		SubscriptionAuto: false,
 		GeoDataAuto: geodata, GeoDataSchedule: automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA_CRON", "30 6 * * *"),
@@ -301,49 +311,108 @@ func (a *app) automationSnapshot() automationResponse {
 		LegacyEndpoint: legacyEnabled,
 		Events: readAutomationEvents(automationHistoryPath(), 8),
 	}
+	if quality, ok := loadBestServerCurrentQuality(status.Endpoint, readBestServerCurrentFilter(a.cfg.FilterPath)); ok {
+		response.CurrentQualityKnown = quality.Tested && quality.Available
+		response.CurrentEligible = quality.Eligible
+		response.CurrentLatencyMS = quality.ApplicationMS
+		response.CurrentJitterMS = quality.JitterMS
+		response.CurrentDownloadMbps = quality.DownloadMbps
+	}
+	return response
 }
 
 func (a *app) handleAutomationGet(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.automationSnapshot())
 }
 
+func automationSettingsFromRequest(current automationSettings, req automationUpdateRequest) (automationSettings, error) {
+	if req.Enabled == nil {
+		return current, errors.New("enabled is required")
+	}
+	current.Enabled = *req.Enabled
+	if strings.TrimSpace(req.Interval) != "" {
+		current.Interval = strings.TrimSpace(req.Interval)
+	}
+	if strings.TrimSpace(req.Mode) != "" {
+		current.Mode = normalizeAutomationMode(req.Mode)
+	}
+	if strings.TrimSpace(req.Policy) != "" {
+		current.Policy = normalizeAutomationPolicy(req.Policy)
+	}
+	if strings.TrimSpace(req.CountryScope) != "" {
+		current.CountryScope = normalizeAutomationCountryScope(req.CountryScope)
+	}
+	if req.Countries != nil {
+		current.Countries = normalizeAutomationCountries(req.Countries)
+	}
+	if req.AutoApply != nil {
+		current.AutoApply = *req.AutoApply
+	}
+	current.CurrentProfileOnly = current.Mode == automationModeEndpoint
+	current.AutoEndpointUpdate = true
+	current.AmbiguousNeedsApproval = true
+	return current, validateAutomationSettings(current)
+}
+
 func (a *app) handleAutomationPost(w http.ResponseWriter, r *http.Request) {
+	if a.mutationBlockedBySelfUpdate(w) {
+		return
+	}
 	var req automationUpdateRequest
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: "invalid automation request"})
 		return
 	}
 
-	helper, err := ensureAutomationHelper()
-	if err != nil {
-		writeJSON(w, http.StatusServiceUnavailable, automationResponse{Success: false, Error: err.Error()})
-		return
-	}
-
 	switch strings.TrimSpace(req.Action) {
 	case "save":
-		if req.Enabled == nil {
-			writeJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: "enabled is required"})
-			return
-		}
-		cron, ok := automationCron(req.Interval)
-		if !ok {
-			writeJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: "unsupported automation interval"})
-			return
-		}
-		args := []string{"configure", "--enabled", strconv.FormatBool(*req.Enabled), "--interval", req.Interval}
-		if cron != "" {
-			args = append(args, "--cron", cron)
-		}
-		out, err := exec.Command(helper, args...).CombinedOutput()
+		settings, err := automationSettingsFromRequest(readAutomationSettings(a.cfg.ConfigPath), req)
 		if err != nil {
-			writeJSON(w, http.StatusBadGateway, automationResponse{Success: false, Error: safeAutomationHelperError(out)})
+			writeJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: err.Error()})
+			return
+		}
+		if settings.Enabled && settings.Mode == automationModeEndpoint {
+			if _, err := ensureAutomationHelper(); err != nil {
+				writeJSON(w, http.StatusServiceUnavailable, automationResponse{Success: false, Error: err.Error()})
+				return
+			}
+		}
+		if err := a.saveAutomationSettingsV2(settings, req.GeoDataEnabled); err != nil {
+			writeJSON(w, http.StatusBadGateway, automationResponse{Success: false, Error: err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, a.automationSnapshot())
+
 	case "check":
+		settings := readAutomationSettings(a.cfg.ConfigPath)
+		if settings.Mode == automationModeBest {
+			if len(a.sem) > 0 {
+				writeJSON(w, http.StatusConflict, automationResponse{Success: false, Error: "another FreeNet operation is already running"})
+				return
+			}
+			_, err := a.runAutomationBestCycle(r.Context(), true)
+			snapshot := a.automationSnapshot()
+			if err != nil {
+				snapshot.Success = false
+				if snapshot.LastReason != "" {
+					snapshot.Error = snapshot.LastReason
+				} else {
+					snapshot.Error = "AUTO VPN check failed"
+				}
+				writeJSON(w, http.StatusBadGateway, snapshot)
+				return
+			}
+			writeJSON(w, http.StatusOK, snapshot)
+			return
+		}
+
+		helper, err := ensureAutomationHelper()
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, automationResponse{Success: false, Error: err.Error()})
+			return
+		}
 		select {
 		case a.sem <- struct{}{}:
 			defer func() { <-a.sem }()
@@ -360,6 +429,7 @@ func (a *app) handleAutomationPost(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, a.automationSnapshot())
+
 	default:
 		writeJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: "unsupported automation action"})
 	}
