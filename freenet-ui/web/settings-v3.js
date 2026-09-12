@@ -9,6 +9,7 @@
 
   const svg = (name) => {
     const paths = {
+      settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21H10v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/>',
       vpn: '<circle cx="12" cy="12" r="9"/><path d="M7 12h10M9 8l-2 4 2 4M15 8l2 4-2 4"/>',
       info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
       check: '<path d="m5 12 4 4L19 6"/>',
@@ -52,6 +53,28 @@
     document.head.appendChild(style);
   }
 
+  function ensureSettingsNav() {
+    const nav = q('.sidebar .nav');
+    if (!nav) return null;
+    q('.nav-btn[data-page="automation"]', nav)?.remove();
+    let button = q('.nav-btn[data-page="settings"]', nav);
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'nav-btn';
+      button.dataset.page = 'settings';
+      button.innerHTML = `<span class="nav-icon">${svg('settings')}</span><span>Настройки</span>`;
+      const routing = q('.nav-btn[data-page="routing"],.nav-btn[data-page="network"]', nav);
+      if (routing) nav.insertBefore(button, routing);
+      else nav.appendChild(button);
+      button.addEventListener('click', () => {
+        if (typeof window.setPage === 'function') window.setPage('settings');
+      });
+    }
+    try { if (typeof pageLabels === 'object' && pageLabels) pageLabels.settings = 'Настройки'; } catch (_) {}
+    return button;
+  }
+
   function hideProviderTopbar() {
     qa('.topbar *').forEach(el => {
       const text = (el.textContent || '').trim();
@@ -66,6 +89,7 @@
   function rewireNavigation() {
     const nav = q('.sidebar .nav');
     if (!nav) return;
+    ensureSettingsNav();
     qa('.nav-btn', nav).forEach(btn => {
       const page = btn.dataset.page;
       if (page === 'system') btn.remove();
@@ -78,6 +102,10 @@
       journal.dataset.page = 'journal';
       journal.innerHTML = `<span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg></span><span>Журнал</span>`;
       nav.appendChild(journal);
+      journal.addEventListener('click', () => {
+        if (typeof window.setPage === 'function') window.setPage('journal');
+        mountJournalPage();
+      });
     }
     if (!q('[data-page-view="journal"]')) {
       const page = document.createElement('section');
@@ -86,11 +114,6 @@
       const content = q('.content');
       if (content) content.appendChild(page);
     }
-    journal.onclick = () => {
-      location.hash = '#journal';
-      if (typeof window.setPage === 'function') window.setPage('journal');
-      mountJournalPage();
-    };
   }
 
   const formatDate = (value, compact = false) => {
@@ -149,7 +172,7 @@
       <div class="fn3-grid">
         <div class="fn3-left">
           <section class="fn3-card">
-            <div class="fn3-card-head"><div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>AUTO VPN</h2><div class="fn3-sub">FreeNet автоматически поддерживает рабочий VPN.</div></div></div><label class="fn3-master"><span class="fn3-switch"><input id="fn3AutoEnabled" type="checkbox"><span></span></span><span id="fn3AutoLabel">Выключено</span></label></div>
+            <div class="fn3-card-head"><div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>AUTO VPN</h2><span id="fn3AutoLabel" class="fn3-enabled-badge">Выключено</span><div class="fn3-sub">FreeNet автоматически поддерживает рабочий VPN.</div></div></div><label class="fn3-master"><span class="fn3-switch"><input id="fn3AutoEnabled" type="checkbox"><span></span></span></label></div>
             <div class="fn3-info">${svg('info')}<span>FreeNet каждые 5 минут проверяет доступность текущего VPN.<br>При сбое сначала пытается восстановить текущее подключение, а если это не помогает — автоматически выбирает проверенную замену в разрешённых странах.</span></div>
             <div class="fn3-section-label">Где искать замену VPN</div>
             <div class="fn3-scope-list">
@@ -163,7 +186,7 @@
         </div>
         <div class="fn3-right">
           <section class="fn3-card">
-            <div class="fn3-vpn-head"><h2>Текущий VPN</h2><span id="fn3VPNState" class="fn3-status-pill">Стабильно</span></div>
+            <div class="fn3-vpn-head"><h2><span class="fn3-vpn-title-icon">${svg('vpn')}</span>Текущий VPN</h2><span id="fn3VPNState" class="fn3-status-pill">Стабильно</span></div>
             <div class="fn3-profile"><div class="fn3-profile-top"><span id="fn3Flag" class="fn3-flag">🌐</span><div id="fn3Profile" class="fn3-profile-name">Определяем…</div></div><div class="fn3-profile-facts"><div class="fn3-fact"><span>Профиль</span><strong id="fn3ProfileSmall">—</strong></div><div class="fn3-fact"><span>Адрес подключения</span><div class="fn3-endpoint"><strong id="fn3Endpoint">—</strong><button id="fn3Copy" class="fn3-copy" type="button" title="Копировать">${svg('copy')}</button></div></div></div></div>
             <div class="fn3-metrics"><div class="fn3-metric"><span>${svg('clock')}Последняя проверка</span><strong id="fn3LastQuality">—</strong></div><div class="fn3-metric"><span>${svg('signal')}Отклик</span><strong id="fn3Latency">—</strong></div><div class="fn3-metric"><span>${svg('speed')}Скорость</span><strong id="fn3Speed">—</strong></div><div class="fn3-metric"><span>${svg('shield')}Стабильность</span><strong id="fn3Jitter">—</strong></div></div>
             <div class="fn3-health">${svg('check')}<div><span id="fn3HealthText">Текущий VPN работает стабильно.</span><small>При любых проблемах FreeNet автоматически восстановит подключение.</small></div></div>
@@ -366,6 +389,7 @@
     hideProviderTopbar();
     rewireNavigation();
     mountSettings();
+    if (location.hash.slice(1) === 'settings' && typeof window.setPage === 'function') window.setPage('settings');
     if (location.hash.slice(1) === 'journal') mountJournalPage();
   }
 
