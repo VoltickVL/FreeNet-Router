@@ -39,7 +39,7 @@ const (
 	defaultUpdateLock     = "/tmp/freenet-self-update.lock"
 )
 
-//go:embed web/index.html web/self-update.js web/vpn-ux-fix.js web/operation-coordinator.js web/accepted-ux.js
+//go:embed web/index.html web/self-update.js web/vpn-ux-fix.js web/operation-coordinator.js web/accepted-ux.js web/settings-v3.js
 var webFS embed.FS
 
 type config struct {
@@ -242,6 +242,7 @@ func main() {
 	mux.HandleFunc("POST /api/network-profile/apply", a.requireAuth(a.handleNetworkProfileApply))
 	registerDNSPathTrace(mux, a)
 	registerGeoDataAPI(mux, a)
+	registerSettingsV3API(mux, a)
 	mux.HandleFunc("GET /api/subscription", a.requireAuth(a.handleSubscriptionGet))
 	mux.HandleFunc("POST /api/subscription", a.requireAuth(a.handleSubscriptionPost))
 	mux.HandleFunc("POST /api/action", a.requireAuth(a.handleAction))
@@ -320,7 +321,7 @@ func securityHeaders(next http.Handler) http.Handler {
 }
 
 func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/self-update.js" || r.URL.Path == "/vpn-ux-fix.js" || r.URL.Path == "/operation-coordinator.js" || r.URL.Path == "/accepted-ux.js" {
+	if r.URL.Path == "/self-update.js" || r.URL.Path == "/vpn-ux-fix.js" || r.URL.Path == "/operation-coordinator.js" || r.URL.Path == "/accepted-ux.js" || r.URL.Path == "/settings-v3.js" {
 		assetName := strings.TrimPrefix(r.URL.Path, "/")
 		data, err := webFS.ReadFile("web/" + assetName)
 		if err != nil {
@@ -340,7 +341,7 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "UI unavailable", http.StatusInternalServerError)
 		return
 	}
-	scripts := fmt.Sprintf("<script src=\"/self-update.js?v=v%s\"></script><script src=\"/vpn-ux-fix.js?v=v%s\"></script><script src=\"/operation-coordinator.js?v=v%s\"></script><script src=\"/accepted-ux.js?v=v%s\"></script></body>", version, version, version, version)
+	scripts := fmt.Sprintf("<script src=\"/self-update.js?v=v%s\"></script><script src=\"/vpn-ux-fix.js?v=v%s\"></script><script src=\"/operation-coordinator.js?v=v%s\"></script><script src=\"/accepted-ux.js?v=v%s\"></script><script src=\"/settings-v3.js?v=v%s\"></script></body>", version, version, version, version, version)
 	html := strings.Replace(string(data), "</body>", scripts, 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, html)
