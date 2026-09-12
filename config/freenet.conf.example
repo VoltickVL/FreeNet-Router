@@ -5,16 +5,21 @@
 UI_PORT=1001
 SETUP_COMPLETE=no
 ISP_ID=auto
-# Безопасное значение по умолчанию: DNS обслуживает штатный Keenetic/ndnproxy.
-# Split DNS через XKeen/Xray включается только явным выбором в Browser Setup.
+# Пользовательские режимы: `DNS через роутер` = firmware;
+# `Раздельный DNS` = xkeen. Технические названия core в UI не показываются.
 DNS_MODE=firmware
 
-# AUTO VPN v1: только текущий logical profile/country. Страна автоматически не меняется.
-# По умолчанию выключено; Browser Automation включает режим явно.
+# AUTO VPN: endpoint-only по умолчанию. Режим best включается только явным
+# выбором пользователя и применяет только полностью подтверждённый Eligible Extra.
 AUTO_VPN_V1=no
 AUTO_VPN_V1_INTERVAL=manual
-# Legacy mirror для старых finalize/install контрактов: активен только когда AUTO VPN
-# включён с реальным расписанием. Вручную => no.
+AUTO_VPN_MODE=endpoint
+AUTO_VPN_POLICY=degraded
+AUTO_VPN_COUNTRY_SCOPE=region
+AUTO_VPN_COUNTRIES=
+AUTO_VPN_AUTO_APPLY=yes
+# Legacy mirror для старых finalize/install контрактов: активен только когда
+# endpoint-only AUTO VPN включён с реальным расписанием. Вручную => no.
 AUTO_ENDPOINT_UPDATE=no
 AUTO_ENDPOINT_CRON='0 * * * *'
 
