@@ -64,9 +64,16 @@
     return data;
   }
 
-  async function pollCheck() {
+  function renderProgress(button, startedAt) {
+    const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    button.textContent = `Проверяем… ${elapsed} с`;
+    setNotice(`AUTO VPN: идёт проверка · ${elapsed} с. Операция выполняется в фоне; повторно запускать её не нужно.`);
+  }
+
+  async function pollCheck(button, startedAt) {
     const deadline = Date.now() + 330000;
     while (Date.now() < deadline) {
+      renderProgress(button, startedAt);
       await sleep(1500);
       const response = await fetch('/api/automation/check', {cache: 'no-store'});
       const data = await readJSON(response);
@@ -82,15 +89,19 @@
     if (active) return;
     active = true;
     const oldDisabled = button.disabled;
+    const oldHTML = button.innerHTML;
+    const oldAriaBusy = button.getAttribute('aria-busy');
+    const startedAt = Date.now();
     button.disabled = true;
-    setNotice('Проверяем текущую AUTO VPN policy. Операция выполняется в фоне; страницу можно не держать открытой.');
+    button.setAttribute('aria-busy', 'true');
+    renderProgress(button, startedAt);
     try {
       const started = await startCheck();
       if (started.active === false) {
         setNotice('AUTO VPN проверка завершена.', 'ok');
         return;
       }
-      const done = await pollCheck();
+      const done = await pollCheck(button, startedAt);
       const snapshot = done.automation || {};
       const result = localizeResult(snapshot.last_result);
       const reason = localizeReason(snapshot.last_reason);
@@ -100,6 +111,9 @@
     } finally {
       active = false;
       button.disabled = oldDisabled;
+      button.innerHTML = oldHTML;
+      if (oldAriaBusy === null) button.removeAttribute('aria-busy');
+      else button.setAttribute('aria-busy', oldAriaBusy);
     }
   }
 
