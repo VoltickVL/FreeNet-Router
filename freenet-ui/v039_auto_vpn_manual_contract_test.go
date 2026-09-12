@@ -34,13 +34,19 @@ func TestAsyncManualCheckShowsLiveElapsedActivity(t *testing.T) {
 		`Проверяем… ${elapsed} с`,
 		`aria-busy`,
 		`/api/automation/check`,
-		`повторно запускать её не нужно`,
+		`setNotice('');`,
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("manual AUTO VPN progress contract missing %q", required)
 		}
 	}
-	if strings.Contains(text, `setInterval(`) {
-		t.Fatal("progress UX must reuse the existing status polling loop, not add another timer loop")
+	for _, forbidden := range []string{
+		`AUTO VPN: идёт проверка`,
+		`повторно запускать её не нужно`,
+		`setInterval(`,
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("manual AUTO VPN progress must not duplicate/flicker through settings notice: %q", forbidden)
+		}
 	}
 }
