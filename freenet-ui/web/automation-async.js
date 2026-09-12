@@ -1,8 +1,9 @@
 (() => {
   'use strict';
-  // Legacy async Settings renderer is retired. This file is presentation-only:
-  // it never owns routing or page mounting and only styles an already mounted
-  // Settings v3 page.
+  // Legacy async Settings renderer is retired. This file owns only the accepted
+  // Settings presentation plus a narrow compatibility signal for the legacy
+  // setPage() router, which changes location.hash through history.replaceState
+  // and therefore does not emit the native hashchange event Settings v3 uses.
   if (window.__freenetAcceptedSettingsGeometryLoaded) return;
   window.__freenetAcceptedSettingsGeometryLoaded = true;
   window.__freenetLegacyAutomationAsyncRetired = true;
@@ -84,6 +85,17 @@
   else window.addEventListener('load', schedule, {once:true});
   window.addEventListener('hashchange', schedule);
   document.addEventListener('click', event => {
-    if (event.target?.closest?.('.nav-btn[data-page]')) setTimeout(schedule, 0);
+    const navButton = event.target?.closest?.('.nav-btn[data-page]');
+    if (!navButton) return;
+    setTimeout(() => {
+      // index.html setPage() writes #settings with history.replaceState(), which
+      // intentionally emits no hashchange. Settings v3 listens to hashchange,
+      // so propagate the page lifecycle explicitly after the legacy router has
+      // completed the click. This does not alter the route or page content.
+      if (navButton.dataset.page === 'settings' && location.hash === '#settings') {
+        window.dispatchEvent(new Event('hashchange'));
+      }
+      schedule();
+    }, 0);
   });
 })();
