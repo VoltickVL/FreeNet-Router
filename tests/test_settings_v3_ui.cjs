@@ -75,6 +75,7 @@ const server = http.createServer((req, res) => {
   const asyncSource = fs.readFileSync(path.join(web, 'automation-async.js'), 'utf8');
   assert.doesNotMatch(automationSource, /dataset\.pageView\s*=\s*['"]settings['"]/, 'legacy Automation must never be renamed to Settings');
   assert.doesNotMatch(automationSource + asyncSource, /dispatchEvent\(new Event\(['"]hashchange['"]\)\)/, 'Settings lifecycle must not use synthetic hashchange');
+  assert.doesNotMatch(asyncSource, /body\.fn-settings-accepted \.sidebar\{|body\.fn-settings-accepted \.nav-btn\{/, 'Settings presentation must not resize the shared shell');
 
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({headless:true});
@@ -100,7 +101,10 @@ const server = http.createServer((req, res) => {
       automationPage: document.querySelector('[data-page-view="automation"]')?.dataset.pageView || '',
       settingsNavCount: document.querySelectorAll('.sidebar .nav-btn[data-page="settings"]').length,
       automationNavCount: document.querySelectorAll('.sidebar .nav-btn[data-page="automation"]').length,
-      activePage: document.querySelector('[data-page-view].active')?.dataset.pageView || ''
+      activePage: document.querySelector('[data-page-view].active')?.dataset.pageView || '',
+      sidebarWidth: Math.round(document.querySelector('.sidebar')?.getBoundingClientRect().width || 0),
+      navFontSize: getComputedStyle(document.querySelector('.nav-btn[data-page="overview"]')).fontSize,
+      navHeight: Math.round(document.querySelector('.nav-btn[data-page="overview"]')?.getBoundingClientRect().height || 0)
     }));
     assert.equal(cold.settingsCount, 1, `Settings must exist before first navigation: ${JSON.stringify(cold)}`);
     assert.equal(cold.settingsActive, false, `Settings must stay hidden on Overview: ${JSON.stringify(cold)}`);
@@ -114,6 +118,7 @@ const server = http.createServer((req, res) => {
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
+    await page.waitForFunction(() => document.querySelector('#fn3Flag')?.classList.contains('flag-pl'));
 
     const runtime = await page.evaluate(() => ({
       profile: document.querySelector('#fn3Profile')?.textContent || '',
@@ -128,7 +133,15 @@ const server = http.createServer((req, res) => {
       svgWidths: ['#fn3Save svg','#fn3Check svg','.fn3-extra-action svg'].map(s => {
         const el = document.querySelector(s); return el ? Math.round(el.getBoundingClientRect().width) : 0;
       }),
-      checkHeight: Math.round(document.querySelector('#fn3Check')?.getBoundingClientRect().height || 0)
+      checkHeight: Math.round(document.querySelector('#fn3Check')?.getBoundingClientRect().height || 0),
+      sidebarWidth: Math.round(document.querySelector('.sidebar')?.getBoundingClientRect().width || 0),
+      navFontSize: getComputedStyle(document.querySelector('.nav-btn[data-page="overview"]')).fontSize,
+      navHeight: Math.round(document.querySelector('.nav-btn[data-page="overview"]')?.getBoundingClientRect().height || 0),
+      autoLabelVisible: !!document.querySelector('#fn3AutoLabel') && getComputedStyle(document.querySelector('#fn3AutoLabel')).display !== 'none',
+      vpnStateVisible: !!document.querySelector('#fn3VPNState') && getComputedStyle(document.querySelector('#fn3VPNState')).display !== 'none',
+      controlTitle: document.querySelector('#fn3ControlTitle')?.textContent || '',
+      flagClasses: document.querySelector('#fn3Flag')?.className || '',
+      flagText: document.querySelector('#fn3Flag')?.textContent || ''
     }));
     console.log('SETTINGS_V3_RUNTIME', JSON.stringify(runtime));
     console.log('SETTINGS_V3_CALLS', JSON.stringify(calls.filter(call => call.includes('/api/'))));
@@ -142,6 +155,14 @@ const server = http.createServer((req, res) => {
     assert.deepEqual(runtime.nav, ['Обзор','Подписка','Настройки','Маршрутизация','Журнал']);
     assert.ok(runtime.svgWidths.every(width => width > 0 && width <= 24), `oversized action icon detected: ${runtime.svgWidths}`);
     assert.ok(runtime.checkHeight >= 40 && runtime.checkHeight <= 70, `check action has wrong height: ${runtime.checkHeight}`);
+    assert.equal(runtime.sidebarWidth, cold.sidebarWidth, `Settings changed sidebar width: overview=${cold.sidebarWidth}, settings=${runtime.sidebarWidth}`);
+    assert.equal(runtime.navFontSize, cold.navFontSize, `Settings changed sidebar font size: overview=${cold.navFontSize}, settings=${runtime.navFontSize}`);
+    assert.equal(runtime.navHeight, cold.navHeight, `Settings changed sidebar item height: overview=${cold.navHeight}, settings=${runtime.navHeight}`);
+    assert.equal(runtime.autoLabelVisible, false, 'duplicate AUTO VPN enabled label must be hidden');
+    assert.equal(runtime.vpnStateVisible, false, 'Current VPN observation badge must be hidden');
+    assert.equal(runtime.controlTitle, 'Автопроверка', `unexpected AUTO VPN control copy: ${runtime.controlTitle}`);
+    assert.match(runtime.flagClasses, /\bflag-icon\b.*\bflag-pl\b|\bflag-pl\b.*\bflag-icon\b/, `Settings must use CSS country flag: ${runtime.flagClasses}`);
+    assert.equal(runtime.flagText, '', `Settings CSS flag must not expose platform-dependent flag text: ${runtime.flagText}`);
 
     const settingsPage = page.locator('[data-page-view="settings"]');
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
