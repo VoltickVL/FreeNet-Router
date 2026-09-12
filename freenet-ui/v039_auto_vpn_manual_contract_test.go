@@ -60,7 +60,7 @@ func TestSettingsV3ManualCheckReloadsCanonicalCurrentQuality(t *testing.T) {
 	text := string(asset)
 	for _, required := range []string{
 		`await load();`,
-		`fetchJSON('/api/settings-v3')`,
+		`fetchJSON('/api/settings-v3', {cache:'no-store'})`,
 		`current_quality_known`,
 		`current_latency_ms`,
 		`current_download_mbps`,

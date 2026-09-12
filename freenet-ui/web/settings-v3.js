@@ -5,7 +5,10 @@
 
   const q = (s, r = document) => r.querySelector(s);
   const qa = (s, r = document) => Array.from(r.querySelectorAll(s));
-  const state = { data: null, status: null, baseline: '', dirty: false, saving: false, checking: false, countries: [] };
+  const state = {
+    data: null, status: null, baseline: '', dirty: false, saving: false, checking: false,
+    countries: [], countryCatalog: [], countryCatalogFresh: false, countryCatalogLoading: false, countryCatalogWarning: ''
+  };
 
   const svg = (name) => {
     const paths = {
@@ -39,15 +42,15 @@
     style.textContent = `
       body:has([data-page-view="settings"].active) .content{width:min(1460px,calc(100% - 48px))!important;padding-top:14px!important}
       body:has([data-page-view="settings"].active) #pageTitle{display:none!important}
-      .fn3-page{display:block!important}.fn3-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin:0 0 13px}.fn3-head h1{font-size:30px;line-height:1.05;margin:0;letter-spacing:-.04em}.fn3-head p{margin:6px 0 0;color:#8fa7c3;font-size:12px}.fn3-save{min-width:210px;min-height:42px!important;justify-content:center!important}.fn3-save[disabled]{opacity:.52;filter:saturate(.7)}
-      .fn3-grid{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,1fr);gap:14px;align-items:start}.fn3-left,.fn3-right{display:grid;gap:14px}.fn3-card{border:1px solid #244a6d;border-radius:14px;background:linear-gradient(180deg,rgba(12,31,52,.98),rgba(7,22,38,.99));padding:15px;box-shadow:0 12px 32px rgba(0,0,0,.12);min-width:0}.fn3-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.fn3-title{display:flex;align-items:flex-start;gap:11px}.fn3-icon{display:grid;place-items:center;width:36px;height:36px;flex:0 0 36px;border-radius:10px;background:linear-gradient(180deg,#1763d0,#114692);color:#b8d6ff}.fn3-icon svg{width:22px;height:22px}.fn3-card h2{font-size:19px;margin:0;letter-spacing:-.02em}.fn3-card h3{font-size:15px;margin:0}.fn3-sub{margin-top:3px;color:#8fa6c0;font-size:11px;line-height:1.4}
+      .fn3-page{display:block!important}.fn3-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin:0 0 13px}.fn3-head h1{font-size:30px;line-height:1.05;margin:0;letter-spacing:-.04em}.fn3-head p{margin:6px 0 0;color:#8fa7c3;font-size:13px}.fn3-save{min-width:210px;min-height:42px!important;justify-content:center!important}.fn3-save[disabled]{opacity:.52;filter:saturate(.7)}
+      .fn3-grid{display:grid;grid-template-columns:minmax(0,1.06fr) minmax(0,1fr);gap:14px;align-items:start}.fn3-left,.fn3-right{display:grid;gap:14px}.fn3-card{border:1px solid #244a6d;border-radius:14px;background:linear-gradient(180deg,rgba(12,31,52,.98),rgba(7,22,38,.99));padding:15px;box-shadow:0 12px 32px rgba(0,0,0,.12);min-width:0}.fn3-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.fn3-title{display:flex;align-items:flex-start;gap:11px}.fn3-icon{display:grid;place-items:center;width:36px;height:36px;flex:0 0 36px;border-radius:10px;background:linear-gradient(180deg,#1763d0,#114692);color:#b8d6ff}.fn3-icon svg{width:22px;height:22px}.fn3-card h2{font-size:19px;margin:0;letter-spacing:-.02em}.fn3-card h3{font-size:15px;margin:0}.fn3-sub{margin-top:3px;color:#8fa6c0;font-size:12px;line-height:1.4}
       .fn3-master{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:750;color:#eef5ff}.fn3-switch{position:relative;width:45px;height:24px;display:inline-block;flex:0 0 45px}.fn3-switch input{position:absolute;opacity:0;pointer-events:none}.fn3-switch span{position:absolute;inset:0;border-radius:999px;background:#3b4c61;border:1px solid #586a80;transition:.15s}.fn3-switch span:after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#eef5fc;transition:.15s;box-shadow:0 2px 5px #0006}.fn3-switch input:checked+span{background:#18c78c;border-color:#34e3a8}.fn3-switch input:checked+span:after{transform:translateX(21px);background:white}
-      .fn3-info{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:11px 12px;border:1px solid #2c6093;border-radius:10px;background:rgba(23,75,132,.23);font-size:11px;line-height:1.48;color:#bed0e4}.fn3-info svg{width:19px;height:19px;flex:0 0 19px;color:#69a9ff}.fn3-section-label{margin:13px 0 7px;color:#f1f6ff;font-size:12px;font-weight:800}.fn3-scope-list{border:1px solid #295174;border-radius:11px;overflow:hidden;background:#081b2f}.fn3-scope{display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;padding:10px 12px;border-top:1px solid #254765;cursor:pointer;min-height:58px}.fn3-scope:first-child{border-top:0}.fn3-scope.selected{background:linear-gradient(180deg,#0d345c,#0a2a4b);box-shadow:inset 0 0 0 1px #2f8cf8}.fn3-scope input{width:18px;height:18px;accent-color:#31e1a3}.fn3-scope strong{display:block;font-size:13px}.fn3-scope small{display:block;color:#9ab0c9;font-size:10.5px;margin-top:3px}.fn3-recommended{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;background:#0b6e50;color:#67f1bc;font-size:9px}.fn3-chevron{width:18px;color:#7fb7f8}.fn3-safety{display:flex;gap:9px;align-items:flex-start;margin-top:10px;padding:10px 11px;border:1px solid #2b5f91;border-radius:9px;color:#b7cbe1;font-size:10.5px;line-height:1.42}.fn3-safety svg{width:18px;flex:0 0 18px;color:#6daeff}.fn3-auto-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.78fr);gap:10px;margin-top:11px}.fn3-auto-actions .btn{min-height:44px!important;justify-content:center!important}.fn3-control{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid #275174;border-radius:10px;background:#091b2e;color:#c6d6e8}.fn3-control-dot{width:20px;height:20px;border-radius:50%;border:4px solid #0b4c3a;background:#26d69b;box-shadow:0 0 0 2px #179d76}.fn3-control strong{display:block;color:#4ee3aa;font-size:12px}.fn3-control small{display:block;color:#879eb8;font-size:9.5px;margin-top:2px}
-      .fn3-vpn-head{display:flex;align-items:center;justify-content:space-between}.fn3-status-pill{padding:5px 10px;border-radius:999px;background:#075b43;color:#55efb2;font-size:10px;font-weight:800}.fn3-profile{margin-top:10px;border:1px solid #294f70;border-radius:10px;background:#07192a;padding:12px}.fn3-profile-top{display:flex;align-items:center;gap:10px}.fn3-flag{font-size:22px;line-height:1}.fn3-profile-name{font-size:18px;font-weight:850}.fn3-profile-facts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}.fn3-fact{padding-left:10px;border-left:1px solid #315170}.fn3-fact span{display:block;color:#8ba2bd;font-size:9px}.fn3-fact strong{display:block;margin-top:4px;font-size:12px}.fn3-endpoint{display:flex;align-items:center;gap:7px}.fn3-copy{border:0;background:transparent;color:#62a6f6;padding:2px;cursor:pointer}.fn3-copy svg{width:17px;height:17px}.fn3-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:9px}.fn3-metric{border:1px solid #294f70;border-radius:9px;background:#07192a;padding:8px;min-height:55px}.fn3-metric span{display:flex;align-items:center;gap:5px;color:#8da5c0;font-size:9px}.fn3-metric svg{width:14px;color:#66a8ff}.fn3-metric strong{display:block;margin-top:4px;font-size:12px}.fn3-health{display:flex;align-items:center;gap:9px;margin-top:9px;padding:9px 11px;border:1px solid #16815e;border-radius:9px;background:#073c30;color:#5ee7af;font-size:10.5px;font-weight:700}.fn3-health svg{width:18px}.fn3-health small{display:block;color:#b1d9ca;font-weight:500;margin-top:2px}
-      .fn3-journal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}.fn3-link{border:0;background:transparent;color:#92bdeb;font-size:10px;cursor:pointer}.fn3-table{width:100%;border-collapse:collapse;font-size:9.5px}.fn3-table th{text-align:left;padding:6px 7px;background:#123655;color:#a8bdd2}.fn3-table td{padding:6px 7px;border-top:1px solid #254765;color:#d2deea;vertical-align:top}.fn3-result{display:inline-flex;align-items:center;gap:5px;color:#52e4a8}.fn3-result.neutral{color:#b9c8d7}.fn3-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
-      .fn3-extra{grid-column:1/-1}.fn3-extra-title{margin-bottom:10px}.fn3-extra-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.fn3-extra-card{border:1px solid #2c5274;border-radius:11px;background:#081b2f;padding:11px;min-width:0}.fn3-extra-head{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:start}.fn3-extra-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#1555a5;color:#b4d4ff}.fn3-extra-icon svg{width:20px;height:20px}.fn3-extra-card h3{font-size:12px}.fn3-extra-card p{margin:3px 0 0;color:#8fa5bf;font-size:9px;line-height:1.4}.fn3-extra-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center;margin-top:10px}.fn3-extra-row label{color:#9eb2c9;font-size:9.5px}.fn3-extra-row select{height:31px;border:1px solid #315777;border-radius:7px;background:#091a2b;color:#e7eff9;padding:0 8px;font-size:10px}.fn3-extra-meta{display:grid;grid-template-columns:auto 1fr;gap:7px;margin-top:7px;font-size:9px}.fn3-extra-meta span{color:#879db7}.fn3-extra-meta b{color:#dce7f2}.fn3-extra-meta b.ok{color:#4de0a5}.fn3-extra-action{width:100%;margin-top:9px;min-height:34px!important;justify-content:center!important;font-size:10px!important}.fn3-backup-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.fn3-backup-actions .btn{min-height:34px!important;justify-content:center!important;font-size:9.5px!important}.fn3-danger{border-color:#9b3b51!important;color:#ffc0cc!important;background:#351725!important}
-      .fn3-country-pop{position:fixed;z-index:1900;width:min(430px,calc(100vw - 28px));max-height:min(560px,calc(100vh - 36px));overflow:auto;padding:14px;border:1px solid #35638e;border-radius:14px;background:#091c30;box-shadow:0 24px 74px #0009}.fn3-country-pop[hidden]{display:none!important}.fn3-country-list{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:10px}.fn3-country-item{display:flex;align-items:center;gap:7px;padding:8px;border:1px solid #294f70;border-radius:8px;font-size:10px}.fn3-country-item input{accent-color:#2fdfa1}.fn3-pop-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:11px}.fn3-compat{display:none!important}
-      .fn3-journal-page .fn3-card{margin-top:12px}.fn3-journal-page h1{font-size:30px;margin:0}.fn3-journal-page p{color:#8fa6c0;margin:5px 0 0;font-size:12px}.fn3-journal-page .fn3-table{margin-top:12px;font-size:10px}
+      .fn3-info{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:11px 12px;border:1px solid #2c6093;border-radius:10px;background:rgba(23,75,132,.23);font-size:12px;line-height:1.48;color:#bed0e4}.fn3-info svg{width:19px;height:19px;flex:0 0 19px;color:#69a9ff}.fn3-section-label{margin:13px 0 7px;color:#f1f6ff;font-size:13px;font-weight:800}.fn3-scope-list{border:1px solid #295174;border-radius:11px;overflow:hidden;background:#081b2f}.fn3-scope{display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;padding:10px 12px;border-top:1px solid #254765;cursor:pointer;min-height:58px}.fn3-scope:first-child{border-top:0}.fn3-scope.selected{background:linear-gradient(180deg,#0d345c,#0a2a4b);box-shadow:inset 0 0 0 1px #2f8cf8}.fn3-scope input{width:18px;height:18px;accent-color:#31e1a3}.fn3-scope strong{display:block;font-size:13px}.fn3-scope small{display:block;color:#9ab0c9;font-size:11.5px;margin-top:3px}.fn3-recommended{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;background:#0b6e50;color:#67f1bc;font-size:10px}.fn3-chevron{width:18px;color:#7fb7f8}.fn3-safety{display:flex;gap:9px;align-items:flex-start;margin-top:10px;padding:10px 11px;border:1px solid #2b5f91;border-radius:9px;color:#b7cbe1;font-size:11.5px;line-height:1.42}.fn3-safety svg{width:18px;flex:0 0 18px;color:#6daeff}.fn3-auto-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.78fr);gap:10px;margin-top:11px}.fn3-auto-actions .btn{min-height:44px!important;justify-content:center!important}.fn3-control{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid #275174;border-radius:10px;background:#091b2e;color:#c6d6e8}.fn3-control-dot{width:20px;height:20px;border-radius:50%;border:4px solid #0b4c3a;background:#26d69b;box-shadow:0 0 0 2px #179d76}.fn3-control strong{display:block;color:#4ee3aa;font-size:12px}.fn3-control small{display:block;color:#879eb8;font-size:10.5px;margin-top:2px}
+      .fn3-vpn-head{display:flex;align-items:center;justify-content:space-between}.fn3-status-pill{padding:5px 10px;border-radius:999px;background:#075b43;color:#55efb2;font-size:10px;font-weight:800}.fn3-profile{margin-top:10px;border:1px solid #294f70;border-radius:10px;background:#07192a;padding:12px}.fn3-profile-top{display:flex;align-items:center;gap:10px}.fn3-flag{font-size:22px;line-height:1}.fn3-profile-name{font-size:18px;font-weight:850}.fn3-profile-facts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}.fn3-fact{padding-left:10px;border-left:1px solid #315170}.fn3-fact span{display:block;color:#8ba2bd;font-size:10px}.fn3-fact strong{display:block;margin-top:4px;font-size:12px}.fn3-endpoint{display:flex;align-items:center;gap:7px}.fn3-copy{border:0;background:transparent;color:#62a6f6;padding:2px;cursor:pointer}.fn3-copy svg{width:17px;height:17px}.fn3-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:9px}.fn3-metric{border:1px solid #294f70;border-radius:9px;background:#07192a;padding:8px;min-height:55px}.fn3-metric span{display:flex;align-items:center;gap:5px;color:#8da5c0;font-size:10px}.fn3-metric svg{width:14px;color:#66a8ff}.fn3-metric strong{display:block;margin-top:4px;font-size:12px}.fn3-health{display:flex;align-items:center;gap:9px;margin-top:9px;padding:9px 11px;border:1px solid #16815e;border-radius:9px;background:#073c30;color:#5ee7af;font-size:11.5px;font-weight:700}.fn3-health svg{width:18px}.fn3-health small{display:block;color:#b1d9ca;font-weight:500;margin-top:2px;font-size:10.5px}
+      .fn3-journal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}.fn3-link{border:0;background:transparent;color:#92bdeb;font-size:11px;cursor:pointer}.fn3-table{width:100%;border-collapse:collapse;font-size:10.5px}.fn3-table th{text-align:left;padding:6px 7px;background:#123655;color:#a8bdd2}.fn3-table td{padding:6px 7px;border-top:1px solid #254765;color:#d2deea;vertical-align:top}.fn3-result{display:inline-flex;align-items:center;gap:5px;color:#52e4a8}.fn3-result.neutral{color:#b9c8d7}.fn3-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+      .fn3-extra{grid-column:1/-1}.fn3-extra-title{margin-bottom:10px}.fn3-extra-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.fn3-extra-card{border:1px solid #2c5274;border-radius:11px;background:#081b2f;padding:11px;min-width:0}.fn3-extra-head{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:start}.fn3-extra-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#1555a5;color:#b4d4ff}.fn3-extra-icon svg{width:20px;height:20px}.fn3-extra-card h3{font-size:12px}.fn3-extra-card p{margin:3px 0 0;color:#8fa5bf;font-size:10px;line-height:1.4}.fn3-extra-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center;margin-top:10px}.fn3-extra-row label{color:#9eb2c9;font-size:10.5px}.fn3-extra-row select{height:31px;border:1px solid #315777;border-radius:7px;background:#091a2b;color:#e7eff9;padding:0 8px;font-size:11px}.fn3-extra-meta{display:grid;grid-template-columns:auto 1fr;gap:7px;margin-top:7px;font-size:10px}.fn3-extra-meta span{color:#879db7}.fn3-extra-meta b{color:#dce7f2}.fn3-extra-meta b.ok{color:#4de0a5}.fn3-extra-action{width:100%;margin-top:9px;min-height:34px!important;justify-content:center!important;font-size:11px!important}.fn3-backup-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.fn3-backup-actions .btn{min-height:34px!important;justify-content:center!important;font-size:10.5px!important}.fn3-danger{border-color:#9b3b51!important;color:#ffc0cc!important;background:#351725!important}
+      .fn3-country-pop{position:fixed;z-index:1900;width:min(520px,calc(100vw - 28px));max-height:min(620px,calc(100vh - 36px));overflow:auto;padding:14px;border:1px solid #35638e;border-radius:14px;background:#091c30;box-shadow:0 24px 74px #0009}.fn3-country-pop[hidden]{display:none!important}.fn3-country-list{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}.fn3-country-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border:1px solid #294f70;border-radius:8px;font-size:11.5px;min-height:42px}.fn3-country-item input{accent-color:#2fdfa1}.fn3-country-flag{width:24px!important;height:16px!important;flex:0 0 24px!important;border-radius:3px!important}.fn3-country-copy{display:flex;flex-direction:column;gap:2px;min-width:0}.fn3-country-copy small{font-size:9.5px;color:#8098b2}.fn3-country-item.unavailable{border-style:dashed;opacity:.78}.fn3-country-state{margin-top:10px;padding:10px 11px;border:1px solid #2a567d;border-radius:8px;background:#07192a;color:#9eb5cf;font-size:11px}.fn3-pop-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:11px}.fn3-compat{display:none!important}
+      .fn3-journal-page .fn3-card{margin-top:12px}.fn3-journal-page h1{font-size:30px;margin:0}.fn3-journal-page p{color:#8fa6c0;margin:5px 0 0;font-size:13px}.fn3-journal-page .fn3-table{margin-top:12px;font-size:10.5px}
       @media(max-width:1120px){.fn3-grid{grid-template-columns:1fr}.fn3-extra{grid-column:auto}.fn3-extra-grid{grid-template-columns:1fr 1fr}}@media(max-width:760px){.fn3-head{display:block}.fn3-save{width:100%;margin-top:10px}.fn3-auto-actions,.fn3-profile-facts{grid-template-columns:1fr}.fn3-metrics{grid-template-columns:1fr 1fr}.fn3-extra-grid{grid-template-columns:1fr}.fn3-country-list{grid-template-columns:1fr}}
     `;
     document.head.appendChild(style);
@@ -120,7 +123,7 @@
     if (!value) return '—';
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) return '—';
-    const p = new Intl.DateTimeFormat('ru-RU', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(d).replace(',', '');
+    const p = new Intl.DateTimeFormat('ru-RU', {day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(d).replace(',', '');
     return compact ? p : p;
   };
 
@@ -139,10 +142,32 @@
     return `через ${h} ч${m ? ` ${m} мин` : ''}`;
   }
 
-  function flag(code) {
-    const cc = String(code || '').toLowerCase();
-    if (!/^[a-z]{2}$/.test(cc)) return '🌐';
-    return String.fromCodePoint(...cc.toUpperCase().split('').map(c => 127397 + c.charCodeAt(0)));
+  function cleanProfileLabel(value) {
+    const text = String(value || '').trim();
+    const withoutISO = text.replace(/^[A-Za-z]{2}\s+/, '').trim();
+    const chars = Array.from(withoutISO);
+    if (chars.length >= 2 && chars[0].codePointAt(0) >= 0x1F1E6 && chars[0].codePointAt(0) <= 0x1F1FF && chars[1].codePointAt(0) >= 0x1F1E6 && chars[1].codePointAt(0) <= 0x1F1FF) return chars.slice(2).join('').trim();
+    return withoutISO;
+  }
+
+  function setCountryFlag(node, code) {
+    if (!node) return;
+    const cc = String(code || '').trim().toLowerCase();
+    Array.from(node.classList).filter(name => name.startsWith('flag-')).forEach(name => node.classList.remove(name));
+    if (/^[a-z]{2}$/.test(cc)) {
+      node.classList.add('flag-icon', `flag-${cc}`);
+      node.setAttribute('aria-label', cc.toUpperCase());
+      node.textContent = '';
+    } else {
+      node.classList.remove('flag-icon');
+      node.removeAttribute('aria-label');
+      node.textContent = '🌐';
+    }
+  }
+
+  function countryFlagMarkup(code) {
+    const cc = String(code || '').trim().toLowerCase();
+    return /^[a-z]{2}$/.test(cc) ? `<span class="flag-icon flag-${cc} fn3-country-flag" aria-hidden="true"></span>` : `<span class="fn3-country-flag">🌐</span>`;
   }
 
   function humanResult(result, message) {
@@ -181,19 +206,19 @@
               <label class="fn3-scope" data-scope-card="allowlist"><input type="radio" name="fn3Scope" value="allowlist"><span><strong>Выбранные страны</strong><small>Вы сами выбираете список стран.</small></span><span class="fn3-chevron">${svg('chevron')}</span></label>
             </div>
             <div class="fn3-safety">${svg('shield')}<span>Рабочий VPN не меняется без причины. Все переключения выполняются только при подтверждённом сбое, с проверкой и автоматическим возвратом при необходимости.</span></div>
-            <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Под контролем</strong><small id="fn3ControlNext">Следующая проверка: —</small></div></div></div>
+            <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small></div></div></div>
           </section>
         </div>
         <div class="fn3-right">
           <section class="fn3-card">
-            <div class="fn3-vpn-head"><h2><span class="fn3-vpn-title-icon">${svg('vpn')}</span>Текущий VPN</h2><span id="fn3VPNState" class="fn3-status-pill">Стабильно</span></div>
+            <div class="fn3-vpn-head"><h2><span class="fn3-vpn-title-icon">${svg('vpn')}</span>Текущий VPN</h2><span id="fn3VPNState" class="fn3-status-pill"></span></div>
             <div class="fn3-profile"><div class="fn3-profile-top"><span id="fn3Flag" class="fn3-flag">🌐</span><div id="fn3Profile" class="fn3-profile-name">Определяем…</div></div><div class="fn3-profile-facts"><div class="fn3-fact"><span>Профиль</span><strong id="fn3ProfileSmall">—</strong></div><div class="fn3-fact"><span>Адрес подключения</span><div class="fn3-endpoint"><strong id="fn3Endpoint">—</strong><button id="fn3Copy" class="fn3-copy" type="button" title="Копировать">${svg('copy')}</button></div></div></div></div>
             <div class="fn3-metrics"><div class="fn3-metric"><span>${svg('clock')}Последняя проверка</span><strong id="fn3LastQuality">—</strong></div><div class="fn3-metric"><span>${svg('signal')}Отклик</span><strong id="fn3Latency">—</strong></div><div class="fn3-metric"><span>${svg('speed')}Скорость</span><strong id="fn3Speed">—</strong></div><div class="fn3-metric"><span>${svg('shield')}Стабильность</span><strong id="fn3Jitter">—</strong></div></div>
             <div class="fn3-health">${svg('check')}<div><span id="fn3HealthText">Текущий VPN работает стабильно.</span><small>При любых проблемах FreeNet автоматически восстановит подключение.</small></div></div>
           </section>
           <section class="fn3-card"><div class="fn3-journal-head"><h2>Журнал AUTO VPN</h2><button id="fn3AllEvents" class="fn3-link" type="button">Все события →</button></div><table class="fn3-table"><thead><tr><th>Время</th><th>Событие</th><th>Результат</th><th>Комментарий</th></tr></thead><tbody id="fn3Journal"></tbody></table></section>
         </div>
-        <section class="fn3-card fn3-extra"><div class="fn3-extra-title"><h2>Дополнительные автоматизации</h2><div class="fn3-sub">Обновление данных, компонентов и резервное копирование.</div></div><div class="fn3-extra-grid">${extraCard('subscription','subscription','Обновление подписки','Автоматическое обновление данных подписки — списка доступных VPN.','Проверять','Проверить сейчас')}${extraCard('geodata','globe','GeoData / GeoIP','Данные геолокации, используемые для маршрутизации и фильтров.','Обновлять','Обновить сейчас')}${extraCard('freenet','box','Обновление FreeNet','Автоматическая проверка новых версий FreeNet. Установка — только после подтверждения.','Проверять','Проверить сейчас')}${backupCard()}</div></section>
+        <section class="fn3-card fn3-extra"><div class="fn3-extra-title"><h2>Системное обслуживание</h2><div class="fn3-sub">Обновления, служебные данные и резервные копии.</div></div><div class="fn3-extra-grid">${extraCard('subscription','subscription','Обновление подписки','Автоматическое обновление данных подписки — списка доступных VPN.','Проверять','Проверить сейчас')}${extraCard('geodata','globe','GeoData / GeoIP','Данные геолокации, используемые для маршрутизации и фильтров.','Обновлять','Обновить сейчас')}${extraCard('freenet','box','Обновление FreeNet','Автоматическая проверка новых версий FreeNet. Установка — только после подтверждения.','Проверять','Проверить сейчас')}${backupCard()}</div></section>
       </div>
       <div class="fn3-compat"><select id="fnISP"><option value="custom">Свой</option></select><select id="fnDNS"><option value="firmware">DNS через роутер</option><option value="xkeen">Раздельный DNS</option></select><input id="fnAutoEnabled" type="checkbox"><select id="fnAutoInterval"><option value="manual">Вручную</option></select><input id="fnAutoApply" type="checkbox"><input type="radio" name="fnAutoMode" value="best"><input type="radio" name="fnAutoPolicy" value="degraded"><input type="radio" name="fnCountryScope" value="region"><input id="fnGeoDataEnabled" type="checkbox"><span id="fnGeoDataSchedule"></span><span id="fnAutoEnabledLabel"></span><span id="fnCurrentProfile"></span><span id="fnCurrentProfileSmall"></span><span id="fnCurrentEndpoint"></span><span id="fnCurrentFlag"></span><span id="fnWatchState"></span><span id="fnLastRun"></span><span id="fnLatency"></span><span id="fnSpeed"></span><span id="fnJitter"></span><span id="fnHealthBanner"></span><tbody id="fnJournalBody"></tbody><button id="fnSaveSettings"></button><button id="fnCheckNow"></button></div>
       <div id="fn3CountryPop" class="fn3-country-pop" hidden></div>`;
@@ -208,7 +233,7 @@
   }
 
   function backupCard() {
-    return `<article class="fn3-extra-card"><div class="fn3-extra-head"><span class="fn3-extra-icon">${svg('backup')}</span><div><h3>Резервное копирование</h3><p>Автоматическое создание резервной копии настроек FreeNet.</p></div><label class="fn3-switch"><input id="fn3_backup_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_backup_interval">Создавать</label><select id="fn3_backup_interval"></select></div><div class="fn3-extra-meta"><span>Последняя копия</span><b id="fn3_backup_last">—</b><span>Следующая копия</span><b id="fn3_backup_next">—</b></div><div class="fn3-backup-actions"><button class="btn secondary" type="button" data-v3-action="backup_create">${svg('download')}Создать копию</button><button class="btn secondary fn3-danger" type="button" data-v3-action="backup_restore">${svg('upload')}Восстановить</button></div></article>`;
+    return `<article class="fn3-extra-card"><div class="fn3-extra-head"><span class="fn3-extra-icon">${svg('backup')}</span><div><h3>Резервное копирование</h3><p>Внутренние снимки настроек FreeNet хранятся на роутере.</p></div><label class="fn3-switch"><input id="fn3_backup_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_backup_interval">Создавать</label><select id="fn3_backup_interval"></select></div><div class="fn3-extra-meta"><span>Последняя копия</span><b id="fn3_backup_last">—</b><span>Следующая копия</span><b id="fn3_backup_next">—</b></div><div class="fn3-backup-actions"><button class="btn secondary" type="button" data-v3-action="backup_create" title="Создать внутренний снимок настроек на роутере">${svg('download')}Создать снимок</button><button class="btn secondary fn3-danger" type="button" data-v3-action="backup_restore" title="Восстановить последний внутренний снимок настроек на роутере">${svg('upload')}Восстановить последний</button></div></article>`;
   }
 
   function currentForm() {
@@ -254,18 +279,18 @@
     const scope = ['current','region','allowlist'].includes(auto.country_scope) ? auto.country_scope : 'region';
     const scopeInput = q(`input[name="fn3Scope"][value="${scope}"]`); if (scopeInput) scopeInput.checked = true;
     renderScope();
-    q('#fn3ControlTitle').textContent = auto.enabled ? 'Под контролем' : 'Автоматика выключена';
+    q('#fn3ControlTitle').textContent = auto.enabled ? 'Автопроверка' : 'Автоматика выключена';
     q('#fn3ControlNext').textContent = auto.enabled ? `Следующая проверка: ${nextLabel(auto.next_health)}` : 'Автоматические проверки не выполняются';
 
-    const profile = snap.current_profile || status.profile_label || 'VPN';
+    const profile = cleanProfileLabel(snap.current_profile || status.profile_label || 'VPN');
     q('#fn3Profile').textContent = profile; q('#fn3ProfileSmall').textContent = profile;
     q('#fn3Endpoint').textContent = snap.current_endpoint || status.endpoint || '—';
-    q('#fn3Flag').textContent = flag(snap.country_code || status.country_code);
+    setCountryFlag(q('#fn3Flag'), snap.country_code || status.country_code);
     q('#fn3LastQuality').textContent = snap.current_quality_checked_at ? formatDate(snap.current_quality_checked_at) : '—';
     q('#fn3Latency').textContent = snap.current_quality_known && snap.current_latency_ms ? `${snap.current_latency_ms} мс` : '—';
     q('#fn3Speed').textContent = snap.current_quality_known && snap.current_download_mbps ? `${Math.round(snap.current_download_mbps)} Мбит/с` : '—';
     q('#fn3Jitter').textContent = snap.current_quality_known && snap.current_jitter_ms ? `${snap.current_jitter_ms} мс` : '—';
-    q('#fn3VPNState').textContent = snap.current_quality_known ? 'Стабильно' : 'Под наблюдением';
+    q('#fn3VPNState').textContent = '';
     q('#fn3HealthText').textContent = snap.current_quality_known ? 'Текущий VPN работает стабильно.' : 'FreeNet контролирует доступность текущего VPN.';
     renderJournal(data.events || []);
     applySchedule('subscription', data.subscription); applySchedule('geodata', data.geodata); applySchedule('freenet', data.freenet); applySchedule('backup', data.backup);
@@ -287,7 +312,7 @@
 
   async function load() {
     try {
-      const [data,status] = await Promise.all([fetchJSON('/api/settings-v3'), fetchJSON('/api/status')]);
+      const [data,status] = await Promise.all([fetchJSON('/api/settings-v3', {cache:'no-store'}), fetchJSON('/api/status', {cache:'no-store'})]);
       applyData(data,status);
     } catch (err) {
       console.error('Settings v3 load failed', err);
@@ -300,7 +325,7 @@
     const form = currentForm();
     try {
       const data = await fetchJSON('/api/settings-v3', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',auto_vpn_enabled:form.enabled,country_scope:form.scope,countries:form.countries,subscription_enabled:form.subscription.enabled,subscription_interval:form.subscription.interval,geodata_enabled:form.geodata.enabled,geodata_interval:form.geodata.interval,freenet_enabled:form.freenet.enabled,freenet_interval:form.freenet.interval,backup_enabled:form.backup.enabled,backup_interval:form.backup.interval})});
-      const status = await fetchJSON('/api/status'); applyData(data,status);
+      const status = await fetchJSON('/api/status', {cache:'no-store'}); applyData(data,status);
     } catch (err) { alert(`Не удалось сохранить настройки: ${err.message}`); }
     finally { state.saving = false; renderSave(); }
   }
@@ -309,7 +334,7 @@
     try {
       const actionMap = {subscription:'subscription_check',geodata:'geodata_update',freenet:'freenet_check'};
       const action = actionMap[name] || name;
-      if (action === 'backup_restore' && !confirm('Восстановить последнюю резервную копию настроек FreeNet? Перед восстановлением будет создан аварийный снимок текущих файлов.')) return;
+      if (action === 'backup_restore' && !confirm('Восстановить последний внутренний снимок настроек FreeNet? Перед восстановлением будет создан аварийный снимок текущих файлов.')) return;
       const data = await fetchJSON('/api/settings-v3/action', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
       if (data.message) console.info(data.message);
       await load();
@@ -323,7 +348,7 @@
     try {
       await fetchJSON('/api/automation', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'check'})});
       for (;;) {
-        const s = await fetchJSON('/api/automation/check');
+        const s = await fetchJSON('/api/automation/check', {cache:'no-store'});
         const sec = Math.max(1, Math.floor((Date.now()-started)/1000));
         if (btn) q('span',btn).textContent = `Проверяем… ${sec} с`;
         if (!s.active) break;
@@ -334,14 +359,75 @@
     finally { state.checking = false; if (btn) q('span',btn).textContent = 'Проверить сейчас'; }
   }
 
+  function countryPopupHeader() {
+    return `<div style="display:flex;justify-content:space-between;align-items:center"><strong>Выбранные страны</strong><button type="button" id="fn3PopClose" class="fn3-link">Закрыть</button></div>`;
+  }
+
+  function positionCountryPopup(pop) {
+    const selected = q('[data-scope-card="allowlist"]'); const r = selected?.getBoundingClientRect();
+    pop.style.left = `${Math.min(window.innerWidth-540, Math.max(14, r?.left || 100))}px`;
+    pop.style.top = `${Math.min(window.innerHeight-630, Math.max(14, (r?.bottom || 100)+6))}px`;
+  }
+
+  function bindCountryPopupActions() {
+    const pop = q('#fn3CountryPop'); if (!pop) return;
+    const close = q('#fn3PopClose', pop); if (close) close.onclick = () => pop.hidden = true;
+    const apply = q('#fn3CountriesApply', pop);
+    if (apply) apply.onclick = () => {
+      state.countries = qa('.fn3-country-item input:checked',pop).map(x=>x.value);
+      pop.hidden = true;
+      markDirty();
+    };
+  }
+
+  function renderCountryPopup() {
+    const pop = q('#fn3CountryPop'); if (!pop) return;
+    if (state.countryCatalogLoading && !state.countryCatalog.length) {
+      pop.innerHTML = `${countryPopupHeader()}<div class="fn3-country-state">Получаем доступные страны из текущей подписки…</div>`;
+      bindCountryPopupActions();
+      return;
+    }
+
+    const rows = state.countryCatalog.map(option => {
+      const code = String(option?.code || '').toLowerCase();
+      if (!/^[a-z]{2}$/.test(code) || code === 'ru') return '';
+      const checked = state.countries.includes(code) ? ' checked' : '';
+      const unavailable = option.available === false;
+      const note = unavailable ? '<small>Ранее выбрана — сейчас нет активного Extra-профиля</small>' : '';
+      return `<label class="fn3-country-item${unavailable?' unavailable':''}"><input type="checkbox" value="${code}"${checked}>${countryFlagMarkup(code)}<span class="fn3-country-copy"><span>${escapeHTML(option.name || 'Страна VPN')}</span>${note}</span></label>`;
+    }).filter(Boolean).join('');
+    const warning = state.countryCatalogWarning ? `<div class="fn3-country-state">${escapeHTML(state.countryCatalogWarning)}</div>` : '';
+    const empty = rows ? '' : '<div class="fn3-country-state">Доступные страны пока не найдены. Текущий сохранённый выбор не меняется.</div>';
+    pop.innerHTML = `${countryPopupHeader()}${warning}${rows?`<div class="fn3-country-list">${rows}</div>`:''}${empty}<div class="fn3-pop-actions"><button id="fn3CountriesApply" class="btn primary" type="button"${rows?'':' disabled'}>Применить список</button></div>`;
+    bindCountryPopupActions();
+  }
+
+  async function loadCountryCatalog(force = false) {
+    if (state.countryCatalogLoading) return;
+    if (state.countryCatalog.length && !force) return;
+    state.countryCatalogLoading = true;
+    state.countryCatalogWarning = '';
+    renderCountryPopup();
+    try {
+      const data = await fetchJSON('/api/settings-v3/countries', {cache:'no-store'});
+      state.countryCatalog = Array.isArray(data.countries) ? data.countries : [];
+      state.countryCatalogFresh = !!data.fresh;
+      state.countryCatalogWarning = data.warning || '';
+      if (!state.countries.length && Array.isArray(data.selected)) state.countries = data.selected.slice();
+    } catch (_) {
+      state.countryCatalogWarning = 'Не удалось обновить каталог стран. Сохранённый выбор не изменён.';
+    } finally {
+      state.countryCatalogLoading = false;
+      renderCountryPopup();
+    }
+  }
+
   function openCountries() {
     const pop = q('#fn3CountryPop'); if (!pop) return;
-    const known = [['pl','Польша'],['de','Германия'],['nl','Нидерланды'],['fi','Финляндия'],['fr','Франция'],['se','Швеция'],['ch','Швейцария'],['at','Австрия'],['cz','Чехия'],['lt','Литва'],['lv','Латвия'],['ee','Эстония']];
-    pop.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><strong>Выбранные страны</strong><button type="button" id="fn3PopClose" class="fn3-link">Закрыть</button></div><div class="fn3-country-list">${known.map(([c,n])=>`<label class="fn3-country-item"><input type="checkbox" value="${c}"${state.countries.includes(c)?' checked':''}>${flag(c)} ${n}</label>`).join('')}</div><div class="fn3-pop-actions"><button id="fn3CountriesApply" class="btn primary" type="button">Применить список</button></div>`;
-    const selected = q('[data-scope-card="allowlist"]'); const r = selected?.getBoundingClientRect();
-    pop.style.left = `${Math.min(window.innerWidth-450, Math.max(14, r?.left || 100))}px`; pop.style.top = `${Math.min(window.innerHeight-570, Math.max(14, (r?.bottom || 100)+6))}px`; pop.hidden = false;
-    q('#fn3PopClose').onclick = () => pop.hidden = true;
-    q('#fn3CountriesApply').onclick = () => { state.countries = qa('.fn3-country-item input:checked',pop).map(x=>x.value); pop.hidden = true; markDirty(); };
+    pop.hidden = false;
+    positionCountryPopup(pop);
+    renderCountryPopup();
+    void loadCountryCatalog(true);
   }
 
   function bind() {
