@@ -651,7 +651,7 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 		appendAutomationHistoryV2("cooldown", reason)
 		return automationBestCycleResult{Result: "cooldown", Reason: reason, ProfileID: candidate.ID}, nil
 	}
-	if !settings.AutoApply || (!settings.Enabled && manual) {
+	if !settings.AutoApply {
 		reason := "Найден подтверждённый лучший VPN; автоматическое применение выключено."
 		writeAutomationStateV2("candidate", reason, "no", false)
 		appendAutomationHistoryV2("candidate", reason)
