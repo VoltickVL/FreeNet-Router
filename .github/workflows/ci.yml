@@ -270,6 +270,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/freenet-browser/node_modules
         run: node tests/test_vpn_ui.cjs
+      - name: Settings v3 browser acceptance
+        env:
+          NODE_PATH: ${{ runner.temp }}/freenet-browser/node_modules
+        run: node tests/test_settings_v3_ui.cjs
       - name: Upload VPN UI screenshots
         if: always()
         uses: actions/upload-artifact@v4
