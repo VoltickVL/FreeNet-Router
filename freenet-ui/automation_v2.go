@@ -350,7 +350,7 @@ func automationRegion(code string) string {
 	code = strings.ToLower(strings.TrimSpace(code))
 	sets := map[string]string{
 		"al":"eu","ad":"eu","at":"eu","be":"eu","bg":"eu","ba":"eu","by":"eu","ch":"eu","cy":"eu","cz":"eu","de":"eu","dk":"eu","ee":"eu","es":"eu","fi":"eu","fr":"eu","gb":"eu","gr":"eu","hr":"eu","hu":"eu","ie":"eu","is":"eu","it":"eu","li":"eu","lt":"eu","lu":"eu","lv":"eu","mc":"eu","md":"eu","me":"eu","mk":"eu","mt":"eu","nl":"eu","no":"eu","pl":"eu","pt":"eu","ro":"eu","rs":"eu","se":"eu","si":"eu","sk":"eu","ua":"eu",
-		"ae":"asia","am":"asia","az":"asia","ge":"asia","hk":"asia","id":"asia","in":"asia","jp":"asia","kr":"asia","kz":"asia","my":"asia","ph":"asia","sg":"asia","th":"asia","tr":"asia","tw":"asia","vn":"asia",
+		"ae":"asia","am":"asia","az":"asia","ge":"asia","hk":"asia","id":"asia","il":"asia","in":"asia","jp":"asia","kr":"asia","kz":"asia","my":"asia","ph":"asia","sg":"asia","th":"asia","tr":"asia","tw":"asia","vn":"asia",
 		"ar":"americas","br":"americas","ca":"americas","cl":"americas","co":"americas","mx":"americas","pe":"americas","us":"americas","uy":"americas",
 		"au":"oceania","nz":"oceania",
 		"eg":"africa","ma":"africa","za":"africa",
