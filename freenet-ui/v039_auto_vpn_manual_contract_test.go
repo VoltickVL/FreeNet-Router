@@ -23,49 +23,51 @@ func TestManualBestAutoApplyIsIndependentFromScheduler(t *testing.T) {
 	}
 }
 
-func TestAsyncManualCheckShowsLiveElapsedActivity(t *testing.T) {
-	asset, err := automationWebFS.ReadFile("web/automation-async.js")
+func TestSettingsV3ManualCheckShowsLiveElapsedActivity(t *testing.T) {
+	asset, err := automationWebFS.ReadFile("web/settings-v3.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(asset)
 	for _, required := range []string{
-		`renderProgress(button, startedAt)`,
-		`Проверяем… ${elapsed} с`,
-		`aria-busy`,
+		`const btn = q('#fn3Check'); const started = Date.now();`,
+		`Проверяем… ${sec} с`,
 		`/api/automation/check`,
-		`setNotice('');`,
+		`await new Promise(r => setTimeout(r, 1200));`,
+		`state.checking = false`,
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("manual AUTO VPN progress contract missing %q", required)
+			t.Fatalf("Settings v3 manual AUTO VPN progress contract missing %q", required)
 		}
 	}
 	for _, forbidden := range []string{
+		`#fnCheckNow`,
 		`AUTO VPN: идёт проверка`,
 		`повторно запускать её не нужно`,
 		`setInterval(`,
 	} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("manual AUTO VPN progress must not duplicate/flicker through settings notice: %q", forbidden)
+			t.Fatalf("Settings v3 manual AUTO VPN progress retained legacy behavior: %q", forbidden)
 		}
 	}
 }
 
-func TestSuccessfulManualSwitchRefreshesNewCurrentQuality(t *testing.T) {
-	asset, err := automationWebFS.ReadFile("web/automation-async.js")
+func TestSettingsV3ManualCheckReloadsCanonicalCurrentQuality(t *testing.T) {
+	asset, err := automationWebFS.ReadFile("web/settings-v3.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(asset)
 	for _, required := range []string{
-		`String(snapshot.last_result || '').toLowerCase() === 'switched'`,
-		`refreshCurrentQualityAfterSwitch(reason)`,
-		`/api/vpn/current-quality?job=start&id=`,
-		`/api/vpn/current-quality?job=status&id=`,
-		`Метрики нового текущего VPN подтверждены`,
+		`await load();`,
+		`fetchJSON('/api/settings-v3')`,
+		`current_quality_known`,
+		`current_latency_ms`,
+		`current_download_mbps`,
+		`current_jitter_ms`,
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("post-switch current quality refresh contract missing %q", required)
+			t.Fatalf("Settings v3 post-check quality refresh contract missing %q", required)
 		}
 	}
 }
