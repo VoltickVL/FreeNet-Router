@@ -93,6 +93,7 @@ func registerAutomationAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/automation/assets/runtime-acceptance.js", serveAutomationAsset("web/runtime-acceptance.js"))
 	mux.HandleFunc("GET /api/automation/assets/settings-v3.js", serveAutomationAsset("web/settings-v3.js"))
 	registerSettingsV3API(mux, a)
+	registerSettingsCountryCatalogAPI(mux, a)
 	mux.HandleFunc("GET /accepted-ux.js", serveAcceptedUXWithAutomation)
 }
 
@@ -152,144 +153,82 @@ func serveAutomationAsset(name string) http.HandlerFunc {
 	}
 }
 
-func automationHelperPath() string {
-	if p := strings.TrimSpace(os.Getenv("FREENET_AUTO_VPN_HELPER")); p != "" {
-		return p
-	}
-	return defaultAutomationHelperPath
-}
-
-func ensureAutomationHelper() (string, error) {
-	path := automationHelperPath()
-	if strings.TrimSpace(os.Getenv("FREENET_AUTO_VPN_HELPER")) != "" {
-		if info, err := os.Stat(path); err != nil || info.IsDir() {
-			return "", errors.New("configured AUTO VPN helper is unavailable")
-		}
-		return path, nil
-	}
-	data, err := automationWebFS.ReadFile("auto_vpn.sh")
-	if err != nil {
-		return "", errors.New("embedded AUTO VPN helper is unavailable")
-	}
-	if current, err := os.ReadFile(path); err == nil && bytes.Equal(current, data) {
-		_ = os.Chmod(path, 0755)
-		return path, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return "", errors.New("cannot prepare AUTO VPN helper directory")
-	}
-	tmp := path + ".new"
-	if err := os.WriteFile(tmp, data, 0755); err != nil {
-		return "", errors.New("cannot stage AUTO VPN helper")
-	}
-	if err := os.Chmod(tmp, 0755); err != nil {
-		_ = os.Remove(tmp)
-		return "", errors.New("cannot mark AUTO VPN helper executable")
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return "", errors.New("cannot install AUTO VPN helper")
-	}
-	return path, nil
-}
-
-func automationStatePath() string {
-	if p := strings.TrimSpace(os.Getenv("FREENET_AUTOMATION_STATE")); p != "" {
-		return p
-	}
-	return defaultAutomationStatePath
-}
-
-func automationHistoryPath() string {
-	if p := strings.TrimSpace(os.Getenv("FREENET_AUTOMATION_HISTORY")); p != "" {
-		return p
-	}
-	return defaultAutomationHistoryPath
-}
-
 func automationConfigValue(path, key, fallback string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fallback
 	}
-	value := fallback
-	prefix := key + "="
-	for _, raw := range strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n") {
-		line := strings.TrimSpace(raw)
-		if strings.HasPrefix(line, prefix) {
-			value = strings.Trim(strings.TrimSpace(strings.TrimPrefix(line, prefix)), "'\"")
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if ok && strings.TrimSpace(k) == key {
+			return strings.Trim(strings.TrimSpace(v), `"'`)
 		}
 	}
-	return value
+	return fallback
 }
 
-func automationIntervalFromCron(cron string) string {
-	switch strings.TrimSpace(cron) {
-	case "*/30 * * * *":
-		return "30m"
-	case "0 * * * *":
-		return "1h"
-	case "0 */3 * * *":
-		return "3h"
-	case "0 */6 * * *":
-		return "6h"
-	default:
-		return "manual"
+func automationBoolValue(path, key string, fallback bool) bool {
+	defaultValue := "no"
+	if fallback {
+		defaultValue = "yes"
 	}
+	return automationConfigValue(path, key, defaultValue) == "yes"
 }
 
-func automationCron(interval string) (string, bool) {
-	switch strings.TrimSpace(interval) {
-	case "30m":
-		return "*/30 * * * *", true
-	case "1h":
-		return "0 * * * *", true
-	case "3h":
-		return "0 */3 * * *", true
-	case "6h":
-		return "0 */6 * * *", true
-	case "manual":
-		return "", true
-	default:
-		return "", false
+func automationStatePath() string {
+	if value := strings.TrimSpace(os.Getenv("FREENET_AUTOMATION_STATE")); value != "" {
+		return value
 	}
+	return defaultAutomationStatePath
+}
+
+func automationHistoryPath() string {
+	if value := strings.TrimSpace(os.Getenv("FREENET_AUTOMATION_HISTORY")); value != "" {
+		return value
+	}
+	return defaultAutomationHistoryPath
+}
+
+func automationHelperPath() string {
+	if value := strings.TrimSpace(os.Getenv("FREENET_AUTOMATION_HELPER")); value != "" {
+		return value
+	}
+	return defaultAutomationHelperPath
 }
 
 func parseAutomationState(path string) map[string]string {
-	values := map[string]string{}
+	out := map[string]string{}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return values
+		return out
 	}
 	for _, raw := range strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(raw), "=")
-		if !ok {
-			continue
-		}
-		switch key {
-		case "LAST_RUN", "LAST_RESULT", "LAST_REASON", "ROLLBACK_READY", "LAST_SWITCH":
-			values[key] = strings.TrimSpace(value)
+		if ok && key != "" {
+			out[key] = strings.TrimSpace(value)
 		}
 	}
-	return values
+	return out
 }
 
 func readAutomationEvents(path string, limit int) []automationEvent {
-	if limit <= 0 {
-		limit = 8
-	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return []automationEvent{}
 	}
-	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(data), "\r", "")), "\n")
-	if len(lines) > limit {
-		lines = lines[len(lines)-limit:]
-	}
-	events := make([]automationEvent, 0, len(lines))
-	for i := len(lines) - 1; i >= 0; i-- {
-		parts := strings.SplitN(lines[i], "\t", 4)
-		if len(parts) != 4 {
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n")
+	events := make([]automationEvent, 0, limit)
+	for i := len(lines) - 1; i >= 0 && len(events) < limit; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 4)
+		if len(parts) < 4 {
 			continue
 		}
 		events = append(events, automationEvent{At: parts[0], Kind: parts[1], Result: parts[2], Message: parts[3]})
@@ -297,146 +236,108 @@ func readAutomationEvents(path string, limit int) []automationEvent {
 	return events
 }
 
-func automationNextRun(lastRun, interval string) string {
-	if lastRun == "" || interval == "manual" {
-		return ""
+func writeAutomationJSON(w http.ResponseWriter, status int, payload any) {
+	writeJSON(w, status, payload)
+}
+
+func automationSnapshotFromFiles(configPath, statePath, historyPath string) automationResponse {
+	currentProfile := ""
+	currentEndpoint := ""
+	countryCode := ""
+	currentQualityKnown := false
+	currentQualityFresh := false
+	currentQualityCheckedAt := ""
+	currentEligible := false
+	currentLatencyMS := 0
+	currentJitterMS := 0
+	currentDownloadMbps := 0.0
+	rollbackReady := false
+	state := parseAutomationState(statePath)
+	currentProfile = state["CURRENT_PROFILE"]
+	currentEndpoint = state["CURRENT_ENDPOINT"]
+	countryCode = strings.ToLower(strings.TrimSpace(state["CURRENT_COUNTRY"])); if countryCode == "" { countryCode = profileCountryCode(currentProfile) }
+	currentQualityKnown = state["CURRENT_QUALITY_KNOWN"] == "yes"
+	currentQualityFresh = state["CURRENT_QUALITY_FRESH"] == "yes"
+	currentQualityCheckedAt = state["CURRENT_QUALITY_CHECKED_AT"]
+	currentEligible = state["CURRENT_ELIGIBLE"] == "yes"
+	currentLatencyMS, _ = strconv.Atoi(state["CURRENT_LATENCY_MS"])
+	currentJitterMS, _ = strconv.Atoi(state["CURRENT_JITTER_MS"])
+	currentDownloadMbps, _ = strconv.ParseFloat(state["CURRENT_DOWNLOAD_MBPS"], 64)
+	rollbackReady = state["ROLLBACK_READY"] == "yes"
+
+	settings := automationSettings{
+		Enabled: automationBoolValue(configPath, "AUTO_VPN_V1", false),
+		Interval: automationConfigValue(configPath, "AUTO_VPN_V1_INTERVAL", "manual"),
+		CurrentProfileOnly: automationBoolValue(configPath, "AUTO_VPN_CURRENT_PROFILE_ONLY", false),
+		AutoEndpointUpdate: automationBoolValue(configPath, "AUTO_ENDPOINT_UPDATE", false),
+		AmbiguousNeedsApproval: automationBoolValue(configPath, "AUTO_VPN_AMBIGUOUS_APPROVAL", true),
+		Mode: normalizeAutomationMode(automationConfigValue(configPath, "AUTO_VPN_MODE", automationModeEndpoint)),
+		Policy: normalizeAutomationPolicy(automationConfigValue(configPath, "AUTO_VPN_POLICY", automationPolicyDegraded)),
+		CountryScope: normalizeAutomationCountryScope(automationConfigValue(configPath, "AUTO_VPN_COUNTRY_SCOPE", automationCountryRegion)),
+		Countries: normalizeAutomationCountries(strings.Split(automationConfigValue(configPath, "AUTO_VPN_COUNTRIES", ""), ",")),
+		AutoApply: automationBoolValue(configPath, "AUTO_VPN_AUTO_APPLY", true),
 	}
-	t, err := time.Parse(time.RFC3339, lastRun)
-	if err != nil {
-		return ""
+
+	return automationResponse{
+		Success: true,
+		Settings: settings,
+		CurrentProfile: currentProfile,
+		CurrentEndpoint: currentEndpoint,
+		CountryCode: countryCode,
+		LastRun: state["LAST_RUN"], NextRun: state["NEXT_RUN"], LastSwitch: state["LAST_SWITCH"],
+		LastResult: state["LAST_RESULT"], LastReason: state["LAST_REASON"], RollbackReady: rollbackReady,
+		CurrentQualityKnown: currentQualityKnown, CurrentQualityFresh: currentQualityFresh,
+		CurrentQualityCheckedAt: currentQualityCheckedAt, CurrentEligible: currentEligible,
+		CurrentLatencyMS: currentLatencyMS, CurrentJitterMS: currentJitterMS, CurrentDownloadMbps: currentDownloadMbps,
+		SubscriptionAuto: automationBoolValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_ENABLED", false),
+		GeoDataAuto: automationBoolValue(configPath, "AUTO_XKEEN_GEODATA", true),
+		GeoDataSchedule: automationConfigValue(configPath, "AUTO_XKEEN_GEODATA_CRON", "0 */6 * * *"),
+		FreeNetAuto: automationBoolValue(configPath, "AUTO_FREENET_CHECK_ENABLED", false),
+		LegacyEndpoint: automationBoolValue(configPath, "AUTO_ENDPOINT_UPDATE", false),
+		Events: readAutomationEvents(historyPath, 8),
 	}
-	var d time.Duration
-	switch interval {
-	case "30m":
-		d = 30 * time.Minute
-	case "1h":
-		d = time.Hour
-	case "3h":
-		d = 3 * time.Hour
-	case "6h":
-		d = 6 * time.Hour
-	}
-	if d == 0 {
-		return ""
-	}
-	return t.Add(d).Format(time.RFC3339)
 }
 
 func (a *app) automationSnapshot() automationResponse {
-	status := a.status()
-	settings := readAutomationSettings(a.cfg.ConfigPath)
-	enabledRaw := automationConfigValue(a.cfg.ConfigPath, "AUTO_VPN_V1", "")
-	legacyEnabled := enabledRaw == "" && automationConfigValue(a.cfg.ConfigPath, "AUTO_ENDPOINT_UPDATE", "no") == "yes"
-	state := parseAutomationState(automationStatePath())
-	geodata := automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA", "yes") == "yes"
-	response := automationResponse{
-		Success: true,
-		Settings: settings,
-		CurrentProfile: status.ProfileLabel, CurrentEndpoint: status.Endpoint, CountryCode: status.CountryCode,
-		LastRun: state["LAST_RUN"], NextRun: automationNextRun(state["LAST_RUN"], settings.Interval), LastSwitch: state["LAST_SWITCH"],
-		LastResult: state["LAST_RESULT"], LastReason: state["LAST_REASON"], RollbackReady: state["ROLLBACK_READY"] == "yes",
-		SubscriptionAuto: false,
-		GeoDataAuto: geodata, GeoDataSchedule: automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA_CRON", "30 6 * * *"),
-		FreeNetAuto: false,
-		LegacyEndpoint: legacyEnabled,
-		Events: readAutomationEvents(automationHistoryPath(), 8),
-	}
-	filter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	if quality, checkedAt, ok := loadBestServerCurrentQualityForDisplay(status.Endpoint, filter); ok {
-		response.CurrentQualityKnown = quality.Tested && quality.Available
-		response.CurrentQualityFresh = response.CurrentQualityKnown && time.Since(checkedAt) <= bestServerCurrentQualityCacheTTL
-		response.CurrentQualityCheckedAt = checkedAt.UTC().Format(time.RFC3339)
-		response.CurrentEligible = quality.Eligible
-		response.CurrentLatencyMS = quality.ApplicationMS
-		response.CurrentJitterMS = quality.JitterMS
-		response.CurrentDownloadMbps = quality.DownloadMbps
-	}
-	return response
+	return automationSnapshotFromFiles(a.cfg.ConfigPath, automationStatePath(), automationHistoryPath())
 }
 
 func (a *app) handleAutomationGet(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, a.automationSnapshot())
-}
-
-func automationSettingsFromRequest(current automationSettings, req automationUpdateRequest) (automationSettings, error) {
-	if req.Enabled == nil {
-		return current, errors.New("enabled is required")
-	}
-	current.Enabled = *req.Enabled
-	if strings.TrimSpace(req.Interval) != "" {
-		current.Interval = strings.TrimSpace(req.Interval)
-	}
-	if strings.TrimSpace(req.Mode) != "" {
-		current.Mode = normalizeAutomationMode(req.Mode)
-	}
-	if strings.TrimSpace(req.Policy) != "" {
-		current.Policy = normalizeAutomationPolicy(req.Policy)
-	}
-	if strings.TrimSpace(req.CountryScope) != "" {
-		current.CountryScope = normalizeAutomationCountryScope(req.CountryScope)
-	}
-	if req.Countries != nil {
-		current.Countries = normalizeAutomationCountries(req.Countries)
-	}
-	if req.AutoApply != nil {
-		current.AutoApply = *req.AutoApply
-	}
-	current.CurrentProfileOnly = current.Mode == automationModeEndpoint
-	current.AutoEndpointUpdate = true
-	current.AmbiguousNeedsApproval = true
-	return current, validateAutomationSettings(current)
+	writeAutomationJSON(w, http.StatusOK, a.automationSnapshot())
 }
 
 func (a *app) handleAutomationPost(w http.ResponseWriter, r *http.Request) {
 	if a.mutationBlockedBySelfUpdate(w) {
 		return
 	}
-	var req automationUpdateRequest
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16<<10))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: "invalid automation request"})
+	if !sameOrigin(r) {
+		writeAutomationJSON(w, http.StatusForbidden, automationResponse{Success: false, Error: "cross-origin request rejected"})
 		return
 	}
-
-	switch strings.TrimSpace(req.Action) {
-	case "save":
-		settings, err := automationSettingsFromRequest(readAutomationSettings(a.cfg.ConfigPath), req)
-		if err != nil {
-			writeJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: err.Error()})
-			return
-		}
-		if settings.Enabled && settings.Mode == automationModeEndpoint {
-			if _, err := ensureAutomationHelper(); err != nil {
-				writeJSON(w, http.StatusServiceUnavailable, automationResponse{Success: false, Error: err.Error()})
-				return
-			}
-		}
-		if err := a.saveAutomationSettingsV2(settings, req.GeoDataEnabled); err != nil {
-			writeJSON(w, http.StatusBadGateway, automationResponse{Success: false, Error: err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusOK, a.automationSnapshot())
-
-	case "check":
+	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
+		writeAutomationJSON(w, http.StatusUnsupportedMediaType, automationResponse{Success: false, Error: "application/json required"})
+		return
+	}
+	body := http.MaxBytesReader(w, r.Body, 8192)
+	defer body.Close()
+	dec := json.NewDecoder(body)
+	dec.DisallowUnknownFields()
+	var req automationUpdateRequest
+	if err := dec.Decode(&req); err != nil {
+		writeAutomationJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: "invalid request"})
+		return
+	}
+	if req.Action == "check" {
 		a.handleAutomationCheckStart(w, r)
 		return
-
-	default:
-		writeJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: "unsupported automation action"})
 	}
-}
-
-func safeAutomationHelperError(out []byte) string {
-	text := sanitizeOutput(string(out))
-	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r", ""), "\n") {
-		line := strings.TrimSpace(raw)
-		if strings.HasPrefix(line, "ERROR=") {
-			return strings.TrimSpace(strings.TrimPrefix(line, "ERROR="))
-		}
+	if req.Action != "save" {
+		writeAutomationJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: "unsupported action"})
+		return
 	}
-	if strings.TrimSpace(text) != "" {
-		return "automation operation failed"
+	if err := a.saveAutomationSettings(req); err != nil {
+		writeAutomationJSON(w, http.StatusInternalServerError, automationResponse{Success: false, Error: "cannot save automation settings"})
+		return
 	}
-	return "automation helper failed"
+	writeAutomationJSON(w, http.StatusOK, a.automationSnapshot())
 }
