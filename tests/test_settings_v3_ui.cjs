@@ -9,12 +9,11 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui', 'web');
 const artifacts = process.env.FREENET_UI_ARTIFACTS || path.join(root, 'test-artifacts');
-// This mirrors the effective production order from serveAcceptedUXWithAutomation:
-// accepted shell -> runtime acceptance -> Settings v2 compatibility -> async bridge -> Settings v3.
 const scripts = [
   'self-update.js', 'vpn-ux-fix.js', 'operation-coordinator.js', 'accepted-ux.js',
   'runtime-acceptance.js', 'automation.js', 'automation-async.js', 'settings-v3.js'
 ];
+const calls = [];
 
 const settings = {
   success: true,
@@ -50,6 +49,7 @@ function json(res, body, code = 200) {
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
+  calls.push(`${req.method} ${url.pathname}${url.search}`);
   if (url.pathname === '/' || url.pathname === '/settings') {
     const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8')
       .replace('</body>', scripts.map(name => `<script src="/${name}"></script>`).join('') + '</body>');
@@ -75,17 +75,40 @@ const server = http.createServer((req, res) => {
   const browser = await chromium.launch({headless:true});
   try {
     const page = await browser.newPage({viewport:{width:1600,height:960}});
-    const errors = []; page.on('pageerror', error => errors.push(error.message));
+    const errors = [];
+    const consoleErrors = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('console', msg => {
+      if (msg.type() === 'error') consoleErrors.push(msg.text());
+    });
+    page.on('requestfailed', req => consoleErrors.push(`requestfailed ${req.method()} ${req.url()} ${req.failure()?.errorText || ''}`));
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    // Match the real reverse-proxy URL from WORK acceptance: /settings without a hash.
     await page.goto(`${base}/settings`);
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 === '1');
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
-    // Wait for the async runtime snapshot, not merely for DOM mount.
-    await page.waitForFunction(() => document.querySelector('#fn3Profile')?.textContent.includes('Лондон') && document.querySelector('#fn3Save')?.disabled === true);
+    await page.waitForTimeout(1200);
+
+    const runtime = await page.evaluate(() => ({
+      profile: document.querySelector('#fn3Profile')?.textContent || '',
+      endpoint: document.querySelector('#fn3Endpoint')?.textContent || '',
+      saveDisabled: document.querySelector('#fn3Save')?.disabled,
+      saveText: document.querySelector('#fn3Save')?.textContent || '',
+      autoChecked: document.querySelector('#fn3AutoEnabled')?.checked,
+      scope: document.querySelector('input[name="fn3Scope"]:checked')?.value || '',
+      settingsActive: document.querySelector('[data-page-view="settings"]')?.classList.contains('active'),
+      settingsV3: document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 || ''
+    }));
+    console.log('SETTINGS_V3_RUNTIME', JSON.stringify(runtime));
+    console.log('SETTINGS_V3_CALLS', JSON.stringify(calls.filter(call => call.includes('/api/'))));
+    console.log('SETTINGS_V3_PAGE_ERRORS', JSON.stringify(errors));
+    console.log('SETTINGS_V3_CONSOLE_ERRORS', JSON.stringify(consoleErrors));
 
     assert.equal(errors.length, 0, errors.join('\n'));
+    assert.equal(consoleErrors.length, 0, consoleErrors.join('\n'));
+    assert.match(runtime.profile, /Лондон/, `runtime snapshot not applied: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.saveDisabled, true, `save baseline not settled: ${JSON.stringify(runtime)}`);
+
     const settingsPage = page.locator('[data-page-view="settings"]');
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
     assert.equal(await settingsPage.getByText('Интернет и DNS', {exact:true}).count(), 0, 'legacy ISP/DNS card must not survive Settings v3 mount');
