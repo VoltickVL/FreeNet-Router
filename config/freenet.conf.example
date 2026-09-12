@@ -8,9 +8,16 @@ ISP_ID=auto
 # Безопасное значение по умолчанию: DNS обслуживает штатный Keenetic/ndnproxy.
 # Split DNS через XKeen/Xray включается только явным выбором в Browser Setup.
 DNS_MODE=firmware
-# Endpoint cron не включается до browser setup + provider/DNS acceptance.
+
+# AUTO VPN v1: только текущий logical profile/country. Страна автоматически не меняется.
+# По умолчанию выключено; Browser Automation включает режим явно.
+AUTO_VPN_V1=no
+AUTO_VPN_V1_INTERVAL=manual
+# Legacy mirror для старых finalize/install контрактов: активен только когда AUTO VPN
+# включён с реальным расписанием. Вручную => no.
 AUTO_ENDPOINT_UPDATE=no
-AUTO_ENDPOINT_CRON='*/15 * * * *'
+AUTO_ENDPOINT_CRON='0 * * * *'
+
 # Failover — отдельная automatic mutation policy. Для существующих конфигураций
 # отсутствие этих ключей трактуется как disabled и никогда не включает failover молча.
 AUTO_VPN_FAILOVER=no
