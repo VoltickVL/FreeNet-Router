@@ -50,3 +50,22 @@ func TestAsyncManualCheckShowsLiveElapsedActivity(t *testing.T) {
 		}
 	}
 }
+
+func TestSuccessfulManualSwitchRefreshesNewCurrentQuality(t *testing.T) {
+	asset, err := automationWebFS.ReadFile("web/automation-async.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(asset)
+	for _, required := range []string{
+		`String(snapshot.last_result || '').toLowerCase() === 'switched'`,
+		`refreshCurrentQualityAfterSwitch(reason)`,
+		`/api/vpn/current-quality?job=start&id=`,
+		`/api/vpn/current-quality?job=status&id=`,
+		`Метрики нового текущего VPN подтверждены`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("post-switch current quality refresh contract missing %q", required)
+		}
+	}
+}
