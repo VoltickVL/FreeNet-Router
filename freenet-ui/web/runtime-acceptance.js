@@ -22,6 +22,29 @@
     } catch (_) {}
   }
 
+  function canonicalizeDNSCopy(value) {
+    const text = String(value ?? '').trim();
+    if (/xkeen\s*\/\s*xray/i.test(text)) return 'Раздельный DNS';
+    if (/^DNS напрямую(?: через роутер)?$/i.test(text) || /^Штатный DNS роутера$/i.test(text)) return 'DNS через роутер';
+    return text;
+  }
+
+  function protectTopbarDNSBoundary() {
+    const node = q('#topDNSValue');
+    if (!node || node.dataset.freenetDNSBoundary === '1') return;
+    const descriptor = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+    if (!descriptor || typeof descriptor.get !== 'function' || typeof descriptor.set !== 'function') return;
+
+    Object.defineProperty(node, 'textContent', {
+      configurable: true,
+      enumerable: descriptor.enumerable,
+      get() { return descriptor.get.call(this); },
+      set(value) { descriptor.set.call(this, canonicalizeDNSCopy(value)); }
+    });
+    node.dataset.freenetDNSBoundary = '1';
+    descriptor.set.call(node, canonicalizeDNSCopy(descriptor.get.call(node)));
+  }
+
   function formatTime(value) {
     if (!value) return '—';
     const date = new Date(value);
@@ -40,6 +63,7 @@
   }
 
   function syncTopbarDNS(mode) {
+    protectTopbarDNSBoundary();
     const text = dnsLabel(mode);
     const overview = q('#overviewDNS');
     if (overview) overview.textContent = text;
@@ -107,6 +131,7 @@
   function reconcileRuntimePresentation() {
     removeLegacyFooter();
     normalizeLegacyDNSLabels();
+    protectTopbarDNSBoundary();
     if (latestAutomationPayload) {
       renderCurrentQuality(latestAutomationPayload);
       syncCountryButton();
@@ -185,8 +210,19 @@
     });
   }
 
+  function installPresentationBoundaries() {
+    protectTopbarDNSBoundary();
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', () => {
+        protectTopbarDNSBoundary();
+        reconcileRuntimePresentation();
+      }, {once:true});
+    }
+  }
+
   removeLegacyFooter();
   normalizeLegacyDNSLabels();
+  installPresentationBoundaries();
   installFetchTap();
   installSettingsStateGuard();
 })();
