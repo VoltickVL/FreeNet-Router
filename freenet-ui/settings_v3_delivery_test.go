@@ -15,22 +15,21 @@ func TestSettingsV3IsDeliveredByCanonicalAutomationPipeline(t *testing.T) {
 		t.Fatalf("accepted UX status=%d want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	order := []string{
+	for _, want := range []string{
 		"/api/automation/assets/runtime-acceptance.js",
 		"/api/automation/assets/automation.js",
 		"/api/automation/assets/automation-async.js",
 		"/api/automation/assets/settings-v3.js",
-	}
-	last := -1
-	for _, want := range order {
-		idx := strings.Index(body, want)
-		if idx < 0 {
-			t.Fatalf("canonical accepted UX pipeline does not load %q", want)
+		"patch.onload = loadAutomation",
+		"patch.onerror = loadAutomation",
+		"script.onload = loadAsyncAutomation",
+		"script.onerror = loadAsyncAutomation",
+		"asyncScript.onload = loadSettingsV3",
+		"asyncScript.onerror = loadSettingsV3",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("canonical accepted UX pipeline missing %q", want)
 		}
-		if idx <= last {
-			t.Fatalf("Settings v3 pipeline order is wrong around %q", want)
-		}
-		last = idx
 	}
 
 	assetReq := httptest.NewRequest("GET", "http://router/api/automation/assets/settings-v3.js", nil)
