@@ -93,7 +93,6 @@ func registerAutomationAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/automation/assets/runtime-acceptance.js", serveAutomationAsset("web/runtime-acceptance.js"))
 	mux.HandleFunc("GET /api/automation/assets/settings-v3.js", serveAutomationAsset("web/settings-v3.js"))
 	registerSettingsV3API(mux, a)
-	registerSettingsCountryCatalogAPI(mux, a)
 	mux.HandleFunc("GET /accepted-ux.js", serveAcceptedUXWithAutomation)
 }
 
@@ -412,6 +411,7 @@ func (a *app) handleAutomationPost(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusServiceUnavailable, automationResponse{Success: false, Error: err.Error()})
 				return
 			}
+		}
 		if err := a.saveAutomationSettingsV2(settings, req.GeoDataEnabled); err != nil {
 			writeJSON(w, http.StatusBadGateway, automationResponse{Success: false, Error: err.Error()})
 			return
