@@ -143,6 +143,15 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true);
     assert.equal(await page.locator('[data-page-view="settings"] text=Только endpoint').count(), 0);
 
+    // Journal is part of the accepted sidebar contract and must be routable through the legacy page router.
+    await page.locator('.nav-btn[data-page="journal"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
+    assert.equal(await page.locator('[data-page-view="journal"]').isVisible(), true);
+    assert.match(await page.locator('[data-page-view="journal"]').innerText(), /Журнал/);
+    await page.locator('.nav-btn[data-page="settings"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true);
+
     fs.mkdirSync(artifacts, {recursive:true});
     await page.screenshot({path:path.join(artifacts, 'settings-v3-desktop.png'), fullPage:true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Settings v3 has horizontal overflow');
