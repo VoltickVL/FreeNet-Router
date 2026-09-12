@@ -61,14 +61,24 @@ func TestAutomationNextRunIsDerivedFromFact(t *testing.T) {
 }
 
 func TestLegacySettingsV2RendererIsRetired(t *testing.T) {
-	data, err := automationWebFS.ReadFile("web/automation.js")
+	bootstrapData, err := automationWebFS.ReadFile("web/automation.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(data)
+	settingsData, err := automationWebFS.ReadFile("web/settings-v3.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	asyncData, err := automationWebFS.ReadFile("web/automation-async.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap := string(bootstrapData)
+	settings := string(settingsData)
+	async := string(asyncData)
+
 	for _, required := range []string{
 		"__freenetAcceptedSettingsBootstrapLoaded",
-		"setNav(settings, 'settings', 'Настройки'",
 		"setNav(routing, 'routing', 'Маршрутизация'",
 		"ensureJournal(nav)",
 		"fn-routing-source-hidden",
@@ -76,8 +86,29 @@ func TestLegacySettingsV2RendererIsRetired(t *testing.T) {
 		"freenet:controls-busy",
 		"#fn3Save",
 	} {
-		if !strings.Contains(s, required) {
-			t.Fatalf("canonical Settings bootstrap missing %q", required)
+		if !strings.Contains(bootstrap, required) {
+			t.Fatalf("canonical shell bootstrap missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"ensureSettingsPage()",
+		"page.dataset.pageView = 'settings'",
+		"ensureSettingsNav()",
+		"pageLabels.settings = 'Настройки'",
+		"window.setPage('settings')",
+		"mountSettings();",
+	} {
+		if !strings.Contains(settings, required) {
+			t.Fatalf("Settings v3 canonical lifecycle missing %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"settingsPage.dataset.pageView = 'settings'",
+		"q('[data-page-view=\"settings\"]') || q('[data-page-view=\"automation\"]')",
+		"window.dispatchEvent(new Event('hashchange'))",
+	} {
+		if strings.Contains(bootstrap, forbidden) || strings.Contains(async, forbidden) {
+			t.Fatalf("legacy Settings lifecycle bridge survived: %q", forbidden)
 		}
 	}
 	for _, forbidden := range []string{
@@ -90,7 +121,7 @@ func TestLegacySettingsV2RendererIsRetired(t *testing.T) {
 		"fnSaveSettings",
 		"fnCheckNow",
 	} {
-		if strings.Contains(s, forbidden) {
+		if strings.Contains(bootstrap, forbidden) {
 			t.Fatalf("legacy Settings v2 renderer survived in bootstrap: %q", forbidden)
 		}
 	}

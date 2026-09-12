@@ -7,10 +7,8 @@
   const qa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
   const icons = {
-    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21H10v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>',
     routing: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h12m0 0-3-3m3 3-3 3M20 17H8m0 0 3-3m-3 3 3 3"/></svg>',
-    journal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg>',
-    vpn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-3 7.7-7 10-4-2.3-7-5.5-7-10V6l7-3Z"/><circle cx="12" cy="11" r="2.4"/></svg>'
+    journal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg>'
   };
 
   function ensureStyles() {
@@ -59,8 +57,7 @@
       journal.innerHTML = `<span class="nav-icon">${icons.journal}</span><span>Журнал</span>`;
       journal.addEventListener('click', () => {
         try { if (typeof setPage === 'function') setPage('journal'); }
-        catch (_) { location.hash = '#journal'; }
-        window.dispatchEvent(new Event('hashchange'));
+        catch (_) {}
       });
     }
     return journal;
@@ -71,27 +68,25 @@
     if (!nav) return false;
     const overview = q('.nav-btn[data-page="overview"]', nav);
     const subscription = q('.nav-btn[data-page="subscription"]', nav);
-    const settings = q('.nav-btn[data-page="settings"]', nav) || q('.nav-btn[data-page="automation"]', nav);
+    const settings = q('.nav-btn[data-page="settings"]', nav);
     const routing = q('.nav-btn[data-page="routing"]', nav) || q('.nav-btn[data-page="network"]', nav);
-    setNav(settings, 'settings', 'Настройки', icons.settings);
     setNav(routing, 'routing', 'Маршрутизация', icons.routing);
+    q('.nav-btn[data-page="automation"]', nav)?.remove();
     ['vpn','system','access'].forEach(page => q(`.nav-btn[data-page="${page}"]`, nav)?.remove());
     const journal = ensureJournal(nav);
     [overview, subscription, settings, routing, journal].filter(Boolean).forEach(node => nav.appendChild(node));
     q('.side-bottom')?.remove();
 
-    const settingsPage = q('[data-page-view="settings"]') || q('[data-page-view="automation"]');
-    if (settingsPage) settingsPage.dataset.pageView = 'settings';
     const routingPage = q('[data-page-view="routing"]') || q('[data-page-view="network"]');
     if (routingPage) routingPage.dataset.pageView = 'routing';
 
     try {
       if (typeof pageLabels === 'object' && pageLabels) {
-        pageLabels.settings = 'Настройки'; pageLabels.routing = 'Маршрутизация'; pageLabels.journal = 'Журнал';
+        pageLabels.routing = 'Маршрутизация'; pageLabels.journal = 'Журнал';
         delete pageLabels.automation; delete pageLabels.network; delete pageLabels.vpn; delete pageLabels.system; delete pageLabels.access;
       }
     } catch (_) {}
-    return !!settingsPage && !!routingPage;
+    return !!settings && !!q('[data-page-view="settings"]') && !!routingPage;
   }
 
   function canonicalRouting() {
@@ -110,23 +105,6 @@
       const text = (node.textContent || '').trim();
       if (/Провайдер|Владлинк|АльянсТелеком|Ростелеком|Подряд/.test(text)) node.remove();
     });
-  }
-
-  function decorateSettings() {
-    const page = q('[data-page-view="settings"].fn3-page');
-    if (!page) return false;
-    const autoTitle = q('.fn3-left .fn3-title > div', page);
-    const label = q('#fn3AutoLabel', page);
-    if (autoTitle && label && label.parentElement !== autoTitle) {
-      label.classList.add('fn3-enabled-badge');
-      const h2 = q('h2', autoTitle);
-      h2?.insertAdjacentElement('afterend', label);
-    }
-    const vpnHead = q('.fn3-vpn-head h2', page);
-    if (vpnHead && !q('.fn3-vpn-title-icon', vpnHead)) {
-      const icon = document.createElement('span'); icon.className = 'fn3-vpn-title-icon'; icon.innerHTML = icons.vpn; vpnHead.prepend(icon);
-    }
-    return true;
   }
 
   function requestedPage() {
@@ -157,14 +135,14 @@
   document.addEventListener('freenet:controls-busy', e => syncButtonOwnership(!!e.detail));
   window.addEventListener('hashchange', () => setTimeout(() => settle(0), 0));
   document.addEventListener('click', event => {
-    if (event.target?.closest?.('.nav-btn[data-page="settings"],.nav-btn[data-page="routing"]')) setTimeout(() => settle(0), 0);
+    if (event.target?.closest?.('.nav-btn[data-page="routing"]')) setTimeout(() => settle(0), 0);
   });
 
   function settle(attempt = 0) {
     ensureStyles();
     const shell = canonicalShell();
-    canonicalRouting(); removeProviderFact(); decorateSettings(); activateDirectRoute();
-    if ((!shell || !q('[data-page-view="settings"].fn3-page')) && attempt < 40) setTimeout(() => settle(attempt + 1), 60);
+    canonicalRouting(); removeProviderFact(); activateDirectRoute();
+    if (!shell && attempt < 40) setTimeout(() => settle(attempt + 1), 60);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => settle(), {once:true});

@@ -71,6 +71,11 @@ const server = http.createServer((req, res) => {
 });
 
 (async () => {
+  const automationSource = fs.readFileSync(path.join(web, 'automation.js'), 'utf8');
+  const asyncSource = fs.readFileSync(path.join(web, 'automation-async.js'), 'utf8');
+  assert.doesNotMatch(automationSource, /dataset\.pageView\s*=\s*['"]settings['"]/, 'legacy Automation must never be renamed to Settings');
+  assert.doesNotMatch(automationSource + asyncSource, /dispatchEvent\(new Event\(['"]hashchange['"]\)\)/, 'Settings lifecycle must not use synthetic hashchange');
+
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({headless:true});
   try {
@@ -82,16 +87,33 @@ const server = http.createServer((req, res) => {
     page.on('requestfailed', req => consoleErrors.push(`requestfailed ${req.method()} ${req.url()} ${req.failure()?.errorText || ''}`));
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    // Production-realistic cold navigation: the user lands on Overview first,
-    // then opens Settings. index.html setPage() uses history.replaceState, so
-    // Settings v3 must not depend on a native hashchange event for this path.
     await page.goto(`${base}/#overview`);
-    await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
-    assert.equal(await page.locator('[data-page-view="settings"][data-settings-v3="1"]').count(), 0, 'Settings v3 must start unmounted on Overview in this regression fixture');
-    await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 === '1');
-    await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
+    await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
     await page.waitForTimeout(1000);
+
+    const cold = await page.evaluate(() => ({
+      settingsCount: document.querySelectorAll('[data-page-view="settings"]').length,
+      settingsActive: document.querySelector('[data-page-view="settings"]')?.classList.contains('active'),
+      settingsV3: document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 || '',
+      automationCount: document.querySelectorAll('[data-page-view="automation"]').length,
+      automationPage: document.querySelector('[data-page-view="automation"]')?.dataset.pageView || '',
+      settingsNavCount: document.querySelectorAll('.sidebar .nav-btn[data-page="settings"]').length,
+      automationNavCount: document.querySelectorAll('.sidebar .nav-btn[data-page="automation"]').length,
+      activePage: document.querySelector('[data-page-view].active')?.dataset.pageView || ''
+    }));
+    assert.equal(cold.settingsCount, 1, `Settings must exist before first navigation: ${JSON.stringify(cold)}`);
+    assert.equal(cold.settingsActive, false, `Settings must stay hidden on Overview: ${JSON.stringify(cold)}`);
+    assert.equal(cold.settingsV3, '1', `Settings v3 must own the canonical page: ${JSON.stringify(cold)}`);
+    assert.equal(cold.automationCount, 1, `legacy Automation must stay separate: ${JSON.stringify(cold)}`);
+    assert.equal(cold.automationPage, 'automation', `legacy Automation was renamed: ${JSON.stringify(cold)}`);
+    assert.equal(cold.settingsNavCount, 1, `canonical Settings nav missing: ${JSON.stringify(cold)}`);
+    assert.equal(cold.automationNavCount, 0, `legacy Automation route must not remain user-facing: ${JSON.stringify(cold)}`);
+    assert.equal(cold.activePage, 'overview', `cold route changed unexpectedly: ${JSON.stringify(cold)}`);
+
+    await page.locator('.nav-btn[data-page="settings"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
 
     const runtime = await page.evaluate(() => ({
       profile: document.querySelector('#fn3Profile')?.textContent || '',
@@ -164,12 +186,13 @@ const server = http.createServer((req, res) => {
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive Routing -> Settings navigation');
 
-    await page.locator('.nav-btn[data-page="journal"]').click();
-    await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
-    assert.match(await page.locator('[data-page-view="journal"]').innerText(), /Журнал/);
-
+    await page.locator('.nav-btn[data-page="overview"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive repeated canonical navigation');
+
     fs.mkdirSync(artifacts, {recursive:true});
     await page.screenshot({path:path.join(artifacts, 'settings-v3-desktop.png'), fullPage:true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Settings has horizontal overflow');
