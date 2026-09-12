@@ -84,6 +84,37 @@
     throw new Error('AUTO VPN проверка ещё выполняется дольше ожидаемого. Результат сохранится в журнале после завершения.');
   }
 
+  function qualityJobID() {
+    const raw = globalThis.crypto?.randomUUID?.().replace(/-/g, '') || `${Date.now()}${Math.random().toString(16).slice(2)}`;
+    return `current_${raw}`.slice(0, 48);
+  }
+
+  async function refreshCurrentQualityAfterSwitch(reason) {
+    const id = qualityJobID();
+    try {
+      const startResponse = await fetch(`/api/vpn/current-quality?job=start&id=${encodeURIComponent(id)}`, {cache: 'no-store'});
+      const started = await readJSON(startResponse);
+      if (!startResponse.ok && startResponse.status !== 202) {
+        throw new Error(started.error || 'Не удалось запустить проверку нового текущего VPN.');
+      }
+      setNotice(`VPN переключён: ${reason || 'новый профиль применён'}. Проверяем метрики нового текущего VPN в фоне…`, 'ok');
+      const deadline = Date.now() + 90000;
+      while (Date.now() < deadline) {
+        await sleep(1500);
+        const response = await fetch(`/api/vpn/current-quality?job=status&id=${encodeURIComponent(id)}`, {cache: 'no-store'});
+        const job = await readJSON(response);
+        if (!response.ok) throw new Error(job.error || 'Не удалось получить метрики нового текущего VPN.');
+        if (job.state === 'running') continue;
+        if (job.state === 'failed') throw new Error(job.error || 'Проверка нового текущего VPN завершилась ошибкой.');
+        setNotice(`VPN переключён: ${reason || 'новый профиль применён'}. Метрики нового текущего VPN подтверждены.`, 'ok');
+        return;
+      }
+      throw new Error('Проверка метрик нового текущего VPN выполняется дольше ожидаемого.');
+    } catch (_) {
+      setNotice(`VPN переключён: ${reason || 'новый профиль применён'}. Метрики нового VPN можно обновить кнопкой «Проверить текущий VPN» на Обзоре.`, 'ok');
+    }
+  }
+
   async function runCheck(button) {
     if (active) return;
     active = true;
@@ -106,6 +137,9 @@
       const result = localizeResult(snapshot.last_result);
       const reason = localizeReason(snapshot.last_reason);
       setNotice(reason ? `${result}: ${reason}` : result, 'ok');
+      if (String(snapshot.last_result || '').toLowerCase() === 'switched') {
+        void refreshCurrentQualityAfterSwitch(reason);
+      }
     } catch (error) {
       setNotice(error?.message || 'AUTO VPN проверка завершилась ошибкой.', 'bad');
     } finally {
