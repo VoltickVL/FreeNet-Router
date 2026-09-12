@@ -186,12 +186,13 @@ const server = http.createServer((req, res) => {
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive Routing -> Settings navigation');
 
-    await page.locator('.nav-btn[data-page="journal"]').click();
-    await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
-    assert.match(await page.locator('[data-page-view="journal"]').innerText(), /Журнал/);
-
+    await page.locator('.nav-btn[data-page="overview"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive repeated canonical navigation');
+
     fs.mkdirSync(artifacts, {recursive:true});
     await page.screenshot({path:path.join(artifacts, 'settings-v3-desktop.png'), fullPage:true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Settings has horizontal overflow');
