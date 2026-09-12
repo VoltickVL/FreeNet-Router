@@ -3,6 +3,8 @@
 
   const q = (selector, root = document) => root.querySelector(selector);
   const qa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+  let latestAutomationPayload = null;
+  let latestStatusPayload = null;
 
   function dnsLabel(mode) {
     return mode === 'xkeen' ? 'Раздельный DNS' : 'DNS через роутер';
@@ -75,11 +77,12 @@
   }
 
   function renderCurrentQuality(auto) {
-    if (!auto || !auto.current_quality_known) return;
+    if (!auto) return;
 
     const checkedAt = auto.current_quality_checked_at || '';
     const lastCheck = q('#fnLastRun');
     if (lastCheck) lastCheck.textContent = formatTime(checkedAt);
+    if (!auto.current_quality_known) return;
 
     const latency = q('#fnLatency');
     const speed = q('#fnSpeed');
@@ -97,6 +100,20 @@
     }
     health.className = 'fn-health-banner neutral';
     health.innerHTML = `<span>Показаны последние подтверждённые метрики${checkedAt ? ` от ${formatTime(checkedAt)}` : ''}. Для актуальной оценки используйте «Проверить текущий VPN» на Обзоре.</span>`;
+  }
+
+  function reconcileRuntimePresentation() {
+    removeLegacyFooter();
+    normalizeLegacyDNSLabels();
+    if (latestAutomationPayload) {
+      renderCurrentQuality(latestAutomationPayload);
+      syncCountryButton();
+    }
+    if (latestStatusPayload) syncTopbarDNS(latestStatusPayload.dns_mode);
+  }
+
+  function scheduleRuntimePresentation() {
+    setTimeout(reconcileRuntimePresentation, 0);
   }
 
   function requestPath(input) {
@@ -119,15 +136,9 @@
       if (response.ok && (path === '/api/automation' || path === '/api/status')) {
         try {
           const payload = await response.clone().json();
-          setTimeout(() => {
-            removeLegacyFooter();
-            normalizeLegacyDNSLabels();
-            if (path === '/api/automation') {
-              renderCurrentQuality(payload);
-              syncCountryButton();
-            }
-            if (path === '/api/status') syncTopbarDNS(payload?.dns_mode);
-          }, 0);
+          if (path === '/api/automation') latestAutomationPayload = payload;
+          if (path === '/api/status') latestStatusPayload = payload;
+          scheduleRuntimePresentation();
         } catch (_) {}
       }
       return response;
