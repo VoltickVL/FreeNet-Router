@@ -22,7 +22,7 @@ const (
 
 // The helper is shipped inside the UI binary so Web Self-Update can deploy the
 // whole AUTO VPN v1 runtime atomically without introducing a second asset path.
-//go:embed web/accepted-ux-core.js web/automation.js auto_vpn.sh
+//go:embed web/automation.js auto_vpn.sh
 var automationWebFS embed.FS
 
 type automationSettings struct {
@@ -69,8 +69,27 @@ type automationUpdateRequest struct {
 func registerAutomationAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/automation", a.requireAuth(a.handleAutomationGet))
 	mux.HandleFunc("POST /api/automation", a.requireAuth(a.handleAutomationPost))
-	mux.HandleFunc("GET /api/automation/assets/accepted-ux-core.js", serveAutomationAsset("web/accepted-ux-core.js"))
 	mux.HandleFunc("GET /api/automation/assets/automation.js", serveAutomationAsset("web/automation.js"))
+	mux.HandleFunc("GET /accepted-ux.js", serveAcceptedUXWithAutomation)
+}
+
+func serveAcceptedUXWithAutomation(w http.ResponseWriter, r *http.Request) {
+	data, err := webFS.ReadFile("web/accepted-ux.js")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(data)
+	_, _ = w.Write([]byte(`
+;(() => {
+  const script = document.createElement('script');
+  script.src = '/api/automation/assets/automation.js';
+  script.async = false;
+  document.head.appendChild(script);
+})();
+`))
 }
 
 func serveAutomationAsset(name string) http.HandlerFunc {

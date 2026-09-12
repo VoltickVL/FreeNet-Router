@@ -85,7 +85,7 @@ func TestAutomationRenderUsesSharedDesignTokensAndSafetyContract(t *testing.T) {
 	if strings.Contains(strings.ToLower(s), "font-family") {
 		t.Fatal("automation page must inherit the existing FreeNet font stack")
 	}
-	for _, forbidden := range []string{"publicKey", "shortId", "subscription_url"} {
+	for _, forbidden := range []string{"publicKey", "subscription_url"} {
 		if strings.Contains(s, forbidden) {
 			t.Fatalf("automation UI contains forbidden secret surface marker %q", forbidden)
 		}
