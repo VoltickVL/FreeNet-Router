@@ -151,6 +151,65 @@
     }
   }
 
+  function hideLegacyProviderFact() {
+    const value = q('#topISPValue');
+    const fact = value?.closest?.('.overview-approved-fact');
+    if (fact) fact.remove();
+  }
+
+  function settingsRouteRequested() {
+    const hash = location.hash.slice(1);
+    const path = location.pathname.replace(/\/+$/, '').split('/').pop();
+    return hash === 'settings' || path === 'settings' || !!q('[data-page-view="settings"].active');
+  }
+
+  function ensureSettingsV3VisibilityGuard() {
+    if (q('#freenetSettingsV3VisibilityGuard')) return;
+    const style = document.createElement('style');
+    style.id = 'freenetSettingsV3VisibilityGuard';
+    style.textContent = '.fn3-page:not(.active){display:none!important}';
+    document.head.appendChild(style);
+  }
+
+  function prepareSettingsRoute() {
+    hideLegacyProviderFact();
+    ensureSettingsV3VisibilityGuard();
+    if (!settingsRouteRequested()) return;
+    const page = q('[data-page-view="settings"]');
+    if (page && !page.classList.contains('active') && typeof window.setPage === 'function') {
+      window.setPage('settings');
+    }
+  }
+
+  function settleSettingsV3(attempt = 0) {
+    hideLegacyProviderFact();
+    const page = q('[data-page-view="settings"]');
+    if (page?.dataset.settingsV3 === '1') {
+      if (settingsRouteRequested() && !page.classList.contains('active') && typeof window.setPage === 'function') {
+        window.setPage('settings');
+      }
+      return;
+    }
+    if (attempt < 30) setTimeout(() => settleSettingsV3(attempt + 1), 50);
+  }
+
+  function bridgeSettingsNavigation() {
+    prepareSettingsRoute();
+    setTimeout(() => settleSettingsV3(), 0);
+    document.addEventListener('click', event => {
+      const button = event.target?.closest?.('.nav-btn[data-page="settings"]');
+      if (!button) return;
+      setTimeout(() => {
+        hideLegacyProviderFact();
+        window.dispatchEvent(new Event('hashchange'));
+        settleSettingsV3();
+      }, 0);
+    });
+    window.addEventListener('hashchange', () => {
+      if (settingsRouteRequested()) setTimeout(() => settleSettingsV3(), 0);
+    });
+  }
+
   document.addEventListener('click', event => {
     const button = event.target?.closest?.('#fnCheckNow');
     if (!button) return;
@@ -158,4 +217,6 @@
     event.stopImmediatePropagation();
     runCheck(button);
   }, true);
+
+  bridgeSettingsNavigation();
 })();
