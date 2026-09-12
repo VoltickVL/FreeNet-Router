@@ -90,7 +90,9 @@ func TestSettingsWorkAcceptanceRuntimeAsset(t *testing.T) {
 		"reconcileRuntimePresentation",
 		"scheduleRuntimePresentation",
 		"window.fetch",
-		"response.clone()",
+		"const originalJSON = response.json.bind(response)",
+		"response.json = async",
+		"requestAnimationFrame",
 	} {
 		if !strings.Contains(s, required) {
 			t.Fatalf("runtime acceptance asset missing %q", required)
@@ -99,10 +101,22 @@ func TestSettingsWorkAcceptanceRuntimeAsset(t *testing.T) {
 	if strings.Contains(s, "if (!auto || !auto.current_quality_known) return") {
 		t.Fatal("current-check timestamp must be rendered independently from scheduler last_run")
 	}
-	for _, forbidden := range []string{"MutationObserver", "XKeen/Xray DNS"} {
+	for _, forbidden := range []string{"MutationObserver", "XKeen/Xray DNS", "response.clone()"} {
 		if strings.Contains(s, forbidden) {
-			t.Fatalf("runtime acceptance asset contains forbidden surface %q", forbidden)
+			t.Fatalf("runtime acceptance asset contains forbidden/racy surface %q", forbidden)
 		}
+	}
+
+	jsonHook := strings.Index(s, "response.json = async")
+	if jsonHook < 0 {
+		t.Fatal("consumer response.json hook is required")
+	}
+	hook := s[jsonHook:]
+	statusNormalize := strings.Index(hook, "normalizeLegacyDNSLabels();")
+	schedule := strings.Index(hook, "scheduleRuntimePresentation();")
+	returnPayload := strings.Index(hook, "return payload;")
+	if statusNormalize < 0 || schedule < 0 || returnPayload < 0 || statusNormalize > returnPayload || schedule > returnPayload {
+		t.Fatal("DNS normalization and presentation scheduling must happen from consumer response.json before payload return")
 	}
 }
 

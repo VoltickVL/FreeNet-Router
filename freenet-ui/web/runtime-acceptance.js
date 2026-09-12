@@ -5,6 +5,8 @@
   const qa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   let latestAutomationPayload = null;
   let latestStatusPayload = null;
+  let presentationHandle = null;
+  let presentationUsesRAF = false;
 
   function dnsLabel(mode) {
     return mode === 'xkeen' ? 'Раздельный DNS' : 'DNS через роутер';
@@ -113,7 +115,23 @@
   }
 
   function scheduleRuntimePresentation() {
-    setTimeout(reconcileRuntimePresentation, 0);
+    if (presentationHandle !== null) {
+      if (presentationUsesRAF && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(presentationHandle);
+      else clearTimeout(presentationHandle);
+    }
+    if (typeof requestAnimationFrame === 'function') {
+      presentationUsesRAF = true;
+      presentationHandle = requestAnimationFrame(() => {
+        presentationHandle = null;
+        reconcileRuntimePresentation();
+      });
+      return;
+    }
+    presentationUsesRAF = false;
+    presentationHandle = setTimeout(() => {
+      presentationHandle = null;
+      reconcileRuntimePresentation();
+    }, 0);
   }
 
   function requestPath(input) {
@@ -133,14 +151,26 @@
     window.fetch = async (...args) => {
       const response = await originalFetch(...args);
       const path = requestPath(args[0]);
-      if (response.ok && (path === '/api/automation' || path === '/api/status')) {
-        try {
-          const payload = await response.clone().json();
-          if (path === '/api/automation') latestAutomationPayload = payload;
-          if (path === '/api/status') latestStatusPayload = payload;
-          scheduleRuntimePresentation();
-        } catch (_) {}
+      if (!response.ok || (path !== '/api/automation' && path !== '/api/status') || typeof response.json !== 'function') {
+        return response;
       }
+
+      const originalJSON = response.json.bind(response);
+      response.json = async (...jsonArgs) => {
+        const payload = await originalJSON(...jsonArgs);
+        if (path === '/api/automation') latestAutomationPayload = payload;
+        if (path === '/api/status') {
+          latestStatusPayload = payload;
+          // This runs after the legacy inline script exists but before its
+          // updateStatusViews() consumer receives the parsed status payload.
+          normalizeLegacyDNSLabels();
+        }
+        // The consumer resumes in a microtask and performs its canonical render;
+        // reconcile on the next animation frame so our accepted presentation is
+        // the last pre-paint write rather than racing response body parsing.
+        scheduleRuntimePresentation();
+        return payload;
+      };
       return response;
     };
   }
