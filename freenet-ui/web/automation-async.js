@@ -1,9 +1,7 @@
 (() => {
   'use strict';
-  // Legacy async Settings renderer is retired. This file owns only the accepted
-  // Settings presentation plus a narrow compatibility signal for the legacy
-  // setPage() router, which changes location.hash through history.replaceState
-  // and therefore does not emit the native hashchange event Settings v3 uses.
+  // Settings v3 is the sole Settings renderer and lifecycle owner.
+  // This file preserves only the accepted presentation geometry.
   if (window.__freenetAcceptedSettingsGeometryLoaded) return;
   window.__freenetAcceptedSettingsGeometryLoaded = true;
   window.__freenetLegacyAutomationAsyncRetired = true;
@@ -50,52 +48,16 @@
     document.head.appendChild(style);
   }
 
-  function tuneMarkup() {
-    const page = q('[data-page-view="settings"][data-settings-v3="1"]');
-    if (!page) return false;
-    const autoIcon = q('.fn3-left .fn3-card:first-child .fn3-icon', page);
-    if (autoIcon && autoIcon.dataset.acceptedGlyph !== '1') {
-      autoIcon.dataset.acceptedGlyph = '1';
-      autoIcon.innerHTML = '<span class="fn3-vpn-glyph">VPN</span>';
-    }
-    const journalIcon = q('.nav-btn[data-page="journal"] .nav-icon');
-    if (journalIcon && journalIcon.dataset.acceptedGlyph !== '1') {
-      journalIcon.dataset.acceptedGlyph = '1';
-      journalIcon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg>';
-    }
-    return true;
-  }
-
-  function applyAfterMount(attempt = 0) {
-    if (!pageIsActive()) {
-      document.body?.classList.remove('fn-settings-accepted');
-      const mounted = q('[data-page-view="settings"][data-settings-v3="1"]');
-      if (!mounted && location.hash === '#settings' && attempt < 100) {
-        setTimeout(() => applyAfterMount(attempt + 1), 50);
-      }
-      return;
-    }
+  function applyPresentation() {
     installStyle();
-    tuneMarkup();
-    document.body.classList.add('fn-settings-accepted');
+    document.body?.classList.toggle('fn-settings-accepted', pageIsActive());
   }
 
-  function schedule() { setTimeout(() => applyAfterMount(), 0); }
+  function schedule() { setTimeout(applyPresentation, 0); }
   if (document.readyState === 'complete') schedule();
   else window.addEventListener('load', schedule, {once:true});
   window.addEventListener('hashchange', schedule);
   document.addEventListener('click', event => {
-    const navButton = event.target?.closest?.('.nav-btn[data-page]');
-    if (!navButton) return;
-    setTimeout(() => {
-      // index.html setPage() writes #settings with history.replaceState(), which
-      // intentionally emits no hashchange. Settings v3 listens to hashchange,
-      // so propagate the page lifecycle explicitly after the legacy router has
-      // completed the click. This does not alter the route or page content.
-      if (navButton.dataset.page === 'settings' && location.hash === '#settings') {
-        window.dispatchEvent(new Event('hashchange'));
-      }
-      schedule();
-    }, 0);
+    if (event.target?.closest?.('.nav-btn[data-page]')) schedule();
   });
 })();
