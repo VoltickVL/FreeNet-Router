@@ -60,49 +60,37 @@ func TestAutomationNextRunIsDerivedFromFact(t *testing.T) {
 	}
 }
 
-func TestSettingsV2RenderUsesApprovedNavigationAndDNSNames(t *testing.T) {
+func TestLegacySettingsV2RendererIsRetired(t *testing.T) {
 	data, err := automationWebFS.ReadFile("web/automation.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(data)
 	for _, required := range []string{
-		"Настройки",
-		"Маршрутизация",
-		"Интернет и DNS",
-		"DNS через роутер",
-		"Раздельный DNS",
-		"AUTO VPN",
-		"Только endpoint",
-		"Лучший VPN автоматически",
-		"Текущий VPN под наблюдением",
-		"Журнал автоматических операций",
-		"Дополнительные автоматизации",
-		"GeoData / GeoIP",
-		"grid-template-columns:minmax(0,1.08fr) minmax(0,1fr)",
-		".side-bottom{display:none!important}",
-		"var(--line)",
-		"var(--text)",
-		"data-page=\"system\"",
-		"access.remove()",
-		"vpn.remove()",
+		"__freenetSettingsV3BootstrapLoaded",
+		"settings.dataset.page = 'settings'",
+		"routing.dataset.page = 'routing'",
+		"delete pageLabels.system",
+		"freenet:controls-busy",
+		"#fn3Save",
 	} {
 		if !strings.Contains(s, required) {
-			t.Fatalf("Settings v2 render missing %q", required)
+			t.Fatalf("Settings v3 bootstrap missing %q", required)
 		}
 	}
 	for _, forbidden := range []string{
-		"XKeen/Xray DNS",
-		"Автоматически — рекомендуется",
-		"publicKey",
-		"subscription_url",
+		"Интернет и DNS",
+		"Только endpoint",
+		"Лучший VPN автоматически",
+		"hysteresis",
+		"cooldown",
+		"settingsMarkup()",
+		"fnSaveSettings",
+		"fnCheckNow",
 	} {
 		if strings.Contains(s, forbidden) {
-			t.Fatalf("Settings v2 contains forbidden user/security surface %q", forbidden)
+			t.Fatalf("legacy Settings v2 renderer survived in bootstrap: %q", forbidden)
 		}
-	}
-	if strings.Contains(strings.ToLower(s), "font-family") {
-		t.Fatal("Settings v2 must inherit the existing FreeNet font stack")
 	}
 }
 
