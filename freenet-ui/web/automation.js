@@ -132,9 +132,7 @@
     const ready = retireLegacyShell();
     removeProviderFact();
     activateDirectSettingsRoute();
-    if ((!ready || !removeProviderFact()) && attempt < 30) {
-      setTimeout(() => settle(attempt + 1), 75);
-    }
+    if (!ready && attempt < 30) setTimeout(() => settle(attempt + 1), 75);
   }
 
   if (document.readyState === 'loading') {
