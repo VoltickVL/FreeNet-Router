@@ -80,6 +80,11 @@ func TestSettingsWorkAcceptanceRuntimeAsset(t *testing.T) {
 		"Раздельный DNS",
 		"normalizeLegacyDNSLabels",
 		"dnsLabels.xkeen = 'Раздельный DNS'",
+		"canonicalizeDNSCopy",
+		"protectTopbarDNSBoundary",
+		"Object.getOwnPropertyDescriptor(Node.prototype, 'textContent')",
+		"Object.defineProperty(node, 'textContent'",
+		"freenetDNSBoundary",
 		"fnLastRun",
 		"fnCountriesBtn",
 		"fnAutoMode",
@@ -101,7 +106,7 @@ func TestSettingsWorkAcceptanceRuntimeAsset(t *testing.T) {
 	if strings.Contains(s, "if (!auto || !auto.current_quality_known) return") {
 		t.Fatal("current-check timestamp must be rendered independently from scheduler last_run")
 	}
-	for _, forbidden := range []string{"MutationObserver", "XKeen/Xray DNS", "response.clone()"} {
+	for _, forbidden := range []string{"MutationObserver", "XKeen/Xray DNS", "response.clone()", "setInterval("} {
 		if strings.Contains(s, forbidden) {
 			t.Fatalf("runtime acceptance asset contains forbidden/racy surface %q", forbidden)
 		}
@@ -117,6 +122,25 @@ func TestSettingsWorkAcceptanceRuntimeAsset(t *testing.T) {
 	returnPayload := strings.Index(hook, "return payload;")
 	if statusNormalize < 0 || schedule < 0 || returnPayload < 0 || statusNormalize > returnPayload || schedule > returnPayload {
 		t.Fatal("DNS normalization and presentation scheduling must happen from consumer response.json before payload return")
+	}
+}
+
+func TestSettingsDNSBoundaryCoversIndependentTopbarWriter(t *testing.T) {
+	patch, err := automationWebFS.ReadFile("web/runtime-acceptance.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := webFS.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacySource := string(legacy)
+	if !strings.Contains(legacySource, "setInterval(syncOverviewTopbar, 2500)") || !strings.Contains(legacySource, "setText(qs('#topDNSValue'), dnsLabel(status))") {
+		t.Fatal("expected independent legacy topbar writer contract changed; review DNS boundary protection")
+	}
+	patchSource := string(patch)
+	if !strings.Contains(patchSource, "protectTopbarDNSBoundary();") || !strings.Contains(patchSource, "canonicalizeDNSCopy(value)") {
+		t.Fatal("accepted DNS write boundary must protect topbar from independent legacy writes")
 	}
 }
 
