@@ -48,6 +48,31 @@ func TestLegacyAutomationAsyncBrowserRendererIsRetired(t *testing.T) {
 	}
 }
 
+func TestSettingsPresentationRefreshesLiveRuntimeOnActivation(t *testing.T) {
+	asset, err := automationWebFS.ReadFile("web/automation-async.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(asset)
+	for _, required := range []string{
+		`refreshSettingsRuntime`,
+		`fetch('/api/settings-v3', {cache:'no-store'})`,
+		`fetch('/api/status', {cache:'no-store'})`,
+		`if (active && !settingsWasActive) refreshSettingsRuntime()`,
+		`replace(/^[A-Za-z]{2}\s+/, '')`,
+		`year:'numeric'`,
+		`Системное обслуживание`,
+		`Создать внутренний снимок настроек на роутере`,
+	} {
+		if !strings.Contains(source, required) {
+			t.Fatalf("Settings runtime acceptance polish missing %q", required)
+		}
+	}
+	if strings.Contains(source, `location.reload`) {
+		t.Fatal("Settings runtime refresh must not require a full page reload")
+	}
+}
+
 func TestAutomationCheckCoordinatorDeduplicatesSameTarget(t *testing.T) {
 	var coordinator operationCoordinator
 	first, leader, conflict := coordinator.begin("auto-vpn-check", "best")
