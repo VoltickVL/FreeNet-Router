@@ -69,7 +69,6 @@ func TestSettingsV2RenderUsesApprovedNavigationAndDNSNames(t *testing.T) {
 	for _, required := range []string{
 		"Настройки",
 		"Маршрутизация",
-		"Система",
 		"Интернет и DNS",
 		"DNS через роутер",
 		"Раздельный DNS",
@@ -84,6 +83,7 @@ func TestSettingsV2RenderUsesApprovedNavigationAndDNSNames(t *testing.T) {
 		".side-bottom{display:none!important}",
 		"var(--line)",
 		"var(--text)",
+		"data-page=\"system\"",
 		"access.remove()",
 		"vpn.remove()",
 	} {
