@@ -328,16 +328,32 @@
     ['subscription','geodata','freenet','backup'].forEach(k => { q(`#fn3_${k}_enabled`).onchange = markDirty; q(`#fn3_${k}_interval`).onchange = markDirty; });
     qa('[data-v3-action]').forEach(b => b.onclick = () => action(b.dataset.v3Action));
     q('#fn3Copy').onclick = async () => { const text = q('#fn3Endpoint').textContent; try { await navigator.clipboard.writeText(text); } catch (_) {} };
-    q('#fn3AllEvents').onclick = () => { location.hash='#journal'; if (typeof window.setPage === 'function') window.setPage('journal'); mountJournalPage(); };
+    q('#fn3AllEvents').onclick = () => { if (typeof window.setPage === 'function') window.setPage('journal'); mountJournalPage(); };
     q('[data-scope-card="allowlist"]').ondblclick = openCountries;
   }
 
+  function ensureSettingsPage() {
+    let page = q('[data-page-view="settings"]');
+    if (page) return page;
+    const content = q('.content');
+    if (!content) return null;
+    page = document.createElement('section');
+    page.className = 'page fn3-page';
+    page.dataset.pageView = 'settings';
+    content.appendChild(page);
+    return page;
+  }
+
   function mountSettings() {
-    const page = q('[data-page-view="settings"]'); if (!page) return;
+    const page = ensureSettingsPage();
+    if (!page) return false;
     injectStyles(); hideProviderTopbar(); rewireNavigation();
-    if (page.dataset.settingsV3 === '1') return;
-    page.dataset.settingsV3 = '1'; page.className = 'page fn3-page'; page.innerHTML = pageMarkup();
+    if (page.dataset.settingsV3 === '1') return true;
+    page.dataset.settingsV3 = '1';
+    page.classList.add('fn3-page');
+    page.innerHTML = pageMarkup();
     bind(); load();
+    return true;
   }
 
   function mountJournalPage() {
@@ -346,14 +362,13 @@
     renderJournal(state.data?.events || [], '#fn3JournalFull');
   }
 
-  function route() {
-    hideProviderTopbar(); rewireNavigation();
-    const page = location.hash.slice(1);
-    if (page === 'settings' || (!page && q('[data-page-view="settings"].active'))) mountSettings();
-    if (page === 'journal') mountJournalPage();
+  function boot() {
+    hideProviderTopbar();
+    rewireNavigation();
+    mountSettings();
+    if (location.hash.slice(1) === 'journal') mountJournalPage();
   }
 
-  document.addEventListener('DOMContentLoaded', route, {once:true});
-  window.addEventListener('hashchange', () => setTimeout(route, 0));
-  setTimeout(route, 0);
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, {once:true});
+  else boot();
 })();
