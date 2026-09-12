@@ -82,7 +82,13 @@ const server = http.createServer((req, res) => {
     page.on('requestfailed', req => consoleErrors.push(`requestfailed ${req.method()} ${req.url()} ${req.failure()?.errorText || ''}`));
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    await page.goto(`${base}/#settings`);
+    // Production-realistic cold navigation: the user lands on Overview first,
+    // then opens Settings. index.html setPage() uses history.replaceState, so
+    // Settings v3 must not depend on a native hashchange event for this path.
+    await page.goto(`${base}/#overview`);
+    await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
+    assert.equal(await page.locator('[data-page-view="settings"][data-settings-v3="1"]').count(), 0, 'Settings v3 must start unmounted on Overview in this regression fixture');
+    await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 === '1');
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
     await page.waitForTimeout(1000);
@@ -155,6 +161,9 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive Routing -> Settings navigation');
+
     await page.locator('.nav-btn[data-page="journal"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
     assert.match(await page.locator('[data-page-view="journal"]').innerText(), /Журнал/);
