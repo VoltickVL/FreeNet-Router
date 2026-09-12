@@ -40,16 +40,30 @@ func storeBestServerCurrentQuality(endpoint, filter string, candidate bestServer
 }
 
 func loadBestServerCurrentQuality(endpoint, filter string) (bestServerQualityCandidate, bool) {
+	candidate, storedAt, ok := loadBestServerCurrentQualityForDisplay(endpoint, filter)
+	if !ok || time.Since(storedAt) > bestServerCurrentQualityCacheTTL {
+		return bestServerQualityCandidate{}, false
+	}
+	return candidate, true
+}
+
+// loadBestServerCurrentQualityForDisplay returns the last complete measurement
+// for the exact current logical identity even after the decision-cache TTL has
+// expired. It is observability-only: Best Server and AUTO VPN decisions keep
+// using loadBestServerCurrentQuality and therefore retain the strict freshness
+// window above. Callers must expose StoredAt so stale measurements are never
+// presented as a fresh validation fact.
+func loadBestServerCurrentQualityForDisplay(endpoint, filter string) (bestServerQualityCandidate, time.Time, bool) {
 	key := bestServerCurrentQualityKey(endpoint, filter)
 	bestServerCurrentQualityCache.Lock()
 	defer bestServerCurrentQualityCache.Unlock()
 	entry := bestServerCurrentQualityCache.Entry
-	if key == "|" || entry.Key != key || entry.StoredAt.IsZero() || time.Since(entry.StoredAt) > bestServerCurrentQualityCacheTTL {
-		return bestServerQualityCandidate{}, false
+	if key == "|" || entry.Key != key || entry.StoredAt.IsZero() {
+		return bestServerQualityCandidate{}, time.Time{}, false
 	}
 	candidate := entry.Candidate
 	candidate.Current = true
-	return candidate, true
+	return candidate, entry.StoredAt, true
 }
 
 func currentBestServerQualityCandidate(response bestServerQualityResponse) (bestServerQualityCandidate, bool) {
