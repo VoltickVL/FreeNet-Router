@@ -9,6 +9,14 @@
   const settingsIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21H10v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg>';
   const routingIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h12m0 0-3-3m3 3-3 3M20 17H8m0 0 3-3m-3 3 3 3"/></svg>';
 
+  function ensureVisibilityGuard() {
+    if (q('#freenetSettingsV3VisibilityGuard')) return;
+    const style = document.createElement('style');
+    style.id = 'freenetSettingsV3VisibilityGuard';
+    style.textContent = '.fn3-page:not(.active){display:none!important}';
+    document.head.appendChild(style);
+  }
+
   function setNavLabel(button, text, icon) {
     if (!button) return;
     const label = button.querySelector(':scope > span:last-child');
@@ -129,6 +137,7 @@
   });
 
   function settle(attempt = 0) {
+    ensureVisibilityGuard();
     const ready = retireLegacyShell();
     removeProviderFact();
     activateDirectSettingsRoute();
