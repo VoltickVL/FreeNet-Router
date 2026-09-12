@@ -190,6 +190,12 @@
       }
       return;
     }
+    if (page && settingsRouteRequested()) {
+      if (!page.classList.contains('active') && typeof window.setPage === 'function') {
+        window.setPage('settings');
+      }
+      window.dispatchEvent(new Event('hashchange'));
+    }
     if (attempt < 30) setTimeout(() => settleSettingsV3(attempt + 1), 50);
   }
 
