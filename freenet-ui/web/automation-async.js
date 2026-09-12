@@ -38,7 +38,8 @@
       body.fn-settings-accepted .fn3-extra{min-height:299px!important;padding:11px 6px!important}
       body.fn-settings-accepted .fn3-extra-grid{gap:10px!important}
       body.fn-settings-accepted .fn3-extra-card{min-height:229px!important}
-      body.fn-settings-accepted .fn3-vpn-glyph{display:grid!important;place-items:center!important;width:30px!important;height:30px!important;border:2px solid #e8f3ff!important;border-radius:50%!important;color:#fff!important;font-size:10px!important;font-weight:800!important;letter-spacing:-.04em!important;line-height:1!important}
+      body.fn-settings-accepted .fn3-left>.fn3-card:first-child .fn3-icon>svg{display:none!important}
+      body.fn-settings-accepted .fn3-left>.fn3-card:first-child .fn3-icon::before{content:'VPN';display:grid!important;place-items:center!important;width:30px!important;height:30px!important;border:2px solid #e8f3ff!important;border-radius:50%!important;color:#fff!important;font-size:10px!important;font-weight:800!important;letter-spacing:-.04em!important;line-height:1!important;box-sizing:border-box!important}
       body.fn-settings-accepted .fn3-auto-actions .btn svg{width:18px!important;height:18px!important}
       body.fn-settings-accepted .fn3-extra-action svg,
       body.fn-settings-accepted .fn3-backup-actions .btn svg{width:16px!important;height:16px!important}
