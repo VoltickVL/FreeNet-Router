@@ -59,7 +59,7 @@ func TestSettingsPresentationRefreshesLiveRuntimeOnActivation(t *testing.T) {
 		`fetch('/api/settings-v3', {cache:'no-store'})`,
 		`fetch('/api/status', {cache:'no-store'})`,
 		`if (active && !settingsWasActive) refreshSettingsRuntime()`,
-		`replace(/^[A-Za-z]{2}\\s+/, '')`,
+		`replace(/^[A-Za-z]{2}\s+/, '')`,
 		`year:'numeric'`,
 		`Системное обслуживание`,
 		`Создать внутренний снимок настроек на роутере`,
