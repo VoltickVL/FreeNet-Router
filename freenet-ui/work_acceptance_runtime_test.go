@@ -78,7 +78,13 @@ func TestSettingsWorkAcceptanceRuntimeAsset(t *testing.T) {
 		"current_quality_fresh",
 		"DNS через роутер",
 		"Раздельный DNS",
+		"normalizeLegacyDNSLabels",
+		"dnsLabels.xkeen = 'Раздельный DNS'",
 		"fnLastRun",
+		"fnCountriesBtn",
+		"fnAutoMode",
+		"fnCountryScope",
+		"mode !== 'best' || scope !== 'allowlist'",
 		"window.fetch",
 		"response.clone()",
 	} {
