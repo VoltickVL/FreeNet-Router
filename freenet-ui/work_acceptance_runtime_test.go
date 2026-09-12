@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -105,19 +106,11 @@ func TestAutomationAssetLoaderKeepsPatchFailOpen(t *testing.T) {
 	// patch failure, so a cosmetic/runtime-acceptance fix cannot block Settings.
 	// Keep this source contract explicit because the two scripts are embedded.
 	const bootstrapNeedle = "patch.onerror = loadAutomation"
-	source, err := osReadAutomationAPISourceForTest()
+	source, err := os.ReadFile("automation_api.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(source, bootstrapNeedle) || !strings.Contains(source, "patch.onload = loadAutomation") {
+	if !strings.Contains(string(source), bootstrapNeedle) || !strings.Contains(string(source), "patch.onload = loadAutomation") {
 		t.Fatal("runtime patch must fail open to the canonical automation UI")
 	}
-}
-
-func osReadAutomationAPISourceForTest() (string, error) {
-	data, err := os.ReadFile("automation_api.go")
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
 }
