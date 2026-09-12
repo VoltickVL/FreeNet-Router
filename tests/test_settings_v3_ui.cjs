@@ -18,44 +18,29 @@ const scripts = [
 
 const settings = {
   success: true,
-  auto_vpn: {
-    enabled: true,
-    country_scope: 'region',
-    countries: ['pl', 'de'],
-    last_health: '2026-09-12T11:35:00Z',
-    next_health: '2026-09-12T11:40:00Z'
-  },
+  auto_vpn: {enabled:true,country_scope:'region',countries:['pl','de'],last_health:'2026-09-12T11:35:00Z',next_health:'2026-09-12T11:40:00Z'},
   automation: {
-    current_profile: 'Лондон, Великобритания, Extra',
-    current_endpoint: '192.0.2.42:443',
-    country_code: 'gb',
-    current_quality_known: true,
-    current_quality_checked_at: '2026-09-12T11:35:00Z',
-    current_latency_ms: 163,
-    current_download_mbps: 111,
-    current_jitter_ms: 14,
-    events: [
+    current_profile:'Лондон, Великобритания, Extra',current_endpoint:'192.0.2.42:443',country_code:'gb',
+    current_quality_known:true,current_quality_checked_at:'2026-09-12T11:35:00Z',current_latency_ms:163,current_download_mbps:111,current_jitter_ms:14,
+    events:[
       {at:'2026-09-12T11:35:00Z',kind:'auto_vpn',result:'success',message:'Текущий VPN работает нормально, смена не требуется.'},
       {at:'2026-09-12T10:35:00Z',kind:'auto_vpn',result:'same',message:'Для текущего VPN нет нового адреса подключения.'}
     ]
   },
-  subscription: {enabled:true,interval:'6h',last_run:'2026-09-12T10:30:00Z',next_run:'2026-09-12T16:30:00Z',result:'success'},
-  geodata: {enabled:true,interval:'3h',last_run:'2026-09-12T10:05:00Z',next_run:'2026-09-12T13:05:00Z',result:'success'},
-  freenet: {enabled:true,interval:'12h',last_run:'2026-09-12T00:15:00Z',next_run:'2026-09-12T12:15:00Z',result:'success'},
-  backup: {enabled:true,interval:'24h',last_run:'2026-09-12T02:30:00Z',next_run:'2026-09-13T02:30:00Z',result:'success'},
-  events: [
+  subscription:{enabled:true,interval:'6h',last_run:'2026-09-12T10:30:00Z',next_run:'2026-09-12T16:30:00Z',result:'success'},
+  geodata:{enabled:true,interval:'3h',last_run:'2026-09-12T10:05:00Z',next_run:'2026-09-12T13:05:00Z',result:'success'},
+  freenet:{enabled:true,interval:'12h',last_run:'2026-09-12T00:15:00Z',next_run:'2026-09-12T12:15:00Z',result:'success'},
+  backup:{enabled:true,interval:'24h',last_run:'2026-09-12T02:30:00Z',next_run:'2026-09-13T02:30:00Z',result:'success'},
+  events:[
     {at:'2026-09-12T11:35:00Z',kind:'auto_vpn',result:'success',message:'Текущий VPN работает нормально, смена не требуется.'},
     {at:'2026-09-12T10:35:00Z',kind:'auto_vpn',result:'same',message:'Для текущего VPN нет нового адреса подключения.'}
   ]
 };
 
 const status = {
-  version:'0.3.42', country:'Великобритания', city:'Лондон', country_code:'gb',
-  profile_label:'Лондон, Великобритания, Extra', endpoint:'192.0.2.42:443',
-  xray_online:true, xkeen_ui_online:true, dns_out_present:true, dns_mode:'xkeen',
-  isp:'vladlink', isp_label:'Владлинк', recommended_dns_mode:'xkeen', setup_complete:true,
-  install_scenario:'existing_stack', subscription_configured:true, busy:false, updater_busy:false,
-  last_action:{success:true}
+  version:'0.3.42',country:'Великобритания',city:'Лондон',country_code:'gb',profile_label:'Лондон, Великобритания, Extra',endpoint:'192.0.2.42:443',
+  xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',recommended_dns_mode:'xkeen',
+  setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false,last_action:{success:true}
 };
 
 function json(res, body, code = 200) {
@@ -68,25 +53,21 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/' || url.pathname === '/settings') {
     const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8')
       .replace('</body>', scripts.map(name => `<script src="/${name}"></script>`).join('') + '</body>');
-    res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
-    res.end(html);
-    return;
+    res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'}); res.end(html); return;
   }
   if (scripts.some(name => url.pathname === `/${name}`)) {
-    res.writeHead(200, {'Content-Type':'application/javascript; charset=utf-8'});
-    res.end(fs.readFileSync(path.join(web, url.pathname.slice(1)), 'utf8'));
-    return;
+    res.writeHead(200, {'Content-Type':'application/javascript; charset=utf-8'}); res.end(fs.readFileSync(path.join(web, url.pathname.slice(1)), 'utf8')); return;
   }
-  if (url.pathname === '/api/auth/status') return json(res, {configured:true, authenticated:true});
+  if (url.pathname === '/api/auth/status') return json(res, {configured:true,authenticated:true});
   if (url.pathname === '/api/status') return json(res, status);
   if (url.pathname === '/api/settings-v3') return json(res, settings);
-  if (url.pathname === '/api/subscription') return json(res, {success:true, configured:true});
-  if (url.pathname === '/api/geodata/files') return json(res, {success:true, files:[], search_enabled:false});
-  if (url.pathname === '/api/network-profile/plan') return json(res, {success:true, supported:true, active:true, extra_profiles:[]});
-  if (url.pathname === '/api/automation') return json(res, {success:true, settings:{enabled:true}, events:[]});
-  if (url.pathname === '/api/automation/check') return json(res, {success:true, active:false});
-  if (url.pathname === '/api/operation/state') return json(res, {success:true, active:false});
-  return json(res, {success:true, available:false, configured:true, active:false});
+  if (url.pathname === '/api/subscription') return json(res, {success:true,configured:true});
+  if (url.pathname === '/api/geodata/files') return json(res, {success:true,files:[],search_enabled:false});
+  if (url.pathname === '/api/network-profile/plan') return json(res, {success:true,supported:true,active:true,extra_profiles:[]});
+  if (url.pathname === '/api/automation') return json(res, {success:true,settings:{enabled:true},events:[]});
+  if (url.pathname === '/api/automation/check') return json(res, {success:true,active:false});
+  if (url.pathname === '/api/operation/state') return json(res, {success:true,active:false});
+  return json(res, {success:true,available:false,configured:true,active:false});
 });
 
 (async () => {
@@ -94,14 +75,15 @@ const server = http.createServer((req, res) => {
   const browser = await chromium.launch({headless:true});
   try {
     const page = await browser.newPage({viewport:{width:1600,height:960}});
-    const errors = [];
-    page.on('pageerror', error => errors.push(error.message));
+    const errors = []; page.on('pageerror', error => errors.push(error.message));
     const base = `http://127.0.0.1:${server.address().port}`;
 
     // Match the real reverse-proxy URL from WORK acceptance: /settings without a hash.
     await page.goto(`${base}/settings`);
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 === '1');
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
+    // Wait for the async runtime snapshot, not merely for DOM mount.
+    await page.waitForFunction(() => document.querySelector('#fn3Profile')?.textContent.includes('Лондон') && document.querySelector('#fn3Save')?.disabled === true);
 
     assert.equal(errors.length, 0, errors.join('\n'));
     const settingsPage = page.locator('[data-page-view="settings"]');
@@ -129,22 +111,19 @@ const server = http.createServer((req, res) => {
     assert.match(await save.textContent(), /Сохранить изменения/);
 
     const pageText = await settingsPage.innerText();
-    for (const forbidden of ['hysteresis', 'cooldown', 'Eligible', 'logical-profile', 'Автоматически применять подтверждённое решение']) {
+    for (const forbidden of ['hysteresis','cooldown','Eligible','logical-profile','Автоматически применять подтверждённое решение']) {
       assert.equal(pageText.includes(forbidden), false, `developer wording leaked: ${forbidden}`);
     }
 
-    // Settings must not leak over other pages after v3 replaces the legacy markup.
     await page.locator('.nav-btn[data-page="overview"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
     assert.equal(await settingsPage.isVisible(), false, 'Settings v3 remains visible on Overview');
 
-    // Re-entering Settings via the real nav must mount/show v3 even though setPage uses replaceState.
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true);
     assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
 
-    // Journal is part of the accepted sidebar contract and must be routable through the legacy page router.
     await page.locator('.nav-btn[data-page="journal"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
     assert.equal(await page.locator('[data-page-view="journal"]').isVisible(), true);
@@ -157,10 +136,6 @@ const server = http.createServer((req, res) => {
     await page.screenshot({path:path.join(artifacts, 'settings-v3-desktop.png'), fullPage:true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Settings v3 has horizontal overflow');
   } finally {
-    await browser.close();
-    server.close();
+    await browser.close(); server.close();
   }
-})().catch(error => {
-  console.error(error);
-  process.exitCode = 1;
-});
+})().catch(error => { console.error(error); process.exitCode = 1; });
