@@ -49,6 +49,21 @@
     if (holder) holder.innerHTML = icon;
   }
 
+  function ensureSettingsNav(nav) {
+    let settings = q('.nav-btn[data-page="settings"]', nav);
+    if (settings) return settings;
+    settings = document.createElement('button');
+    settings.type = 'button';
+    settings.className = 'nav-btn';
+    settings.dataset.page = 'settings';
+    settings.innerHTML = `<span class="nav-icon">${icons.settings}</span><span>Настройки</span>`;
+    settings.addEventListener('click', () => {
+      try { if (typeof setPage === 'function') setPage('settings'); }
+      catch (_) {}
+    });
+    return settings;
+  }
+
   function ensureJournal(nav) {
     let journal = q('.nav-btn[data-page="journal"]', nav);
     if (!journal) {
@@ -59,8 +74,7 @@
       journal.innerHTML = `<span class="nav-icon">${icons.journal}</span><span>Журнал</span>`;
       journal.addEventListener('click', () => {
         try { if (typeof setPage === 'function') setPage('journal'); }
-        catch (_) { location.hash = '#journal'; }
-        window.dispatchEvent(new Event('hashchange'));
+        catch (_) {}
       });
     }
     return journal;
@@ -71,27 +85,28 @@
     if (!nav) return false;
     const overview = q('.nav-btn[data-page="overview"]', nav);
     const subscription = q('.nav-btn[data-page="subscription"]', nav);
-    const settings = q('.nav-btn[data-page="settings"]', nav) || q('.nav-btn[data-page="automation"]', nav);
+    const settingsPage = q('[data-page-view="settings"]');
+    const settings = settingsPage ? ensureSettingsNav(nav) : q('.nav-btn[data-page="settings"]', nav);
     const routing = q('.nav-btn[data-page="routing"]', nav) || q('.nav-btn[data-page="network"]', nav);
-    setNav(settings, 'settings', 'Настройки', icons.settings);
+    q('.nav-btn[data-page="automation"]', nav)?.remove();
+    if (settings) setNav(settings, 'settings', 'Настройки', icons.settings);
     setNav(routing, 'routing', 'Маршрутизация', icons.routing);
     ['vpn','system','access'].forEach(page => q(`.nav-btn[data-page="${page}"]`, nav)?.remove());
     const journal = ensureJournal(nav);
     [overview, subscription, settings, routing, journal].filter(Boolean).forEach(node => nav.appendChild(node));
     q('.side-bottom')?.remove();
 
-    const settingsPage = q('[data-page-view="settings"]') || q('[data-page-view="automation"]');
-    if (settingsPage) settingsPage.dataset.pageView = 'settings';
+    q('[data-page-view="automation"]')?.classList.remove('active');
     const routingPage = q('[data-page-view="routing"]') || q('[data-page-view="network"]');
     if (routingPage) routingPage.dataset.pageView = 'routing';
 
     try {
       if (typeof pageLabels === 'object' && pageLabels) {
-        pageLabels.settings = 'Настройки'; pageLabels.routing = 'Маршрутизация'; pageLabels.journal = 'Журнал';
+        pageLabels.routing = 'Маршрутизация'; pageLabels.journal = 'Журнал';
         delete pageLabels.automation; delete pageLabels.network; delete pageLabels.vpn; delete pageLabels.system; delete pageLabels.access;
       }
     } catch (_) {}
-    return !!settingsPage && !!routingPage;
+    return !!settingsPage && !!settings && !!routingPage;
   }
 
   function canonicalRouting() {
