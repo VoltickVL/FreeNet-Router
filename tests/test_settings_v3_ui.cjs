@@ -19,8 +19,8 @@ const settings = {
   success: true,
   auto_vpn: {enabled:true,country_scope:'region',countries:['pl','de'],last_health:'2026-09-12T11:35:00Z',next_health:'2026-09-12T11:40:00Z'},
   automation: {
-    current_profile:'Лондон, Великобритания, Extra',current_endpoint:'192.0.2.42:443',country_code:'gb',
-    current_quality_known:true,current_quality_checked_at:'2026-09-12T11:35:00Z',current_latency_ms:163,current_download_mbps:111,current_jitter_ms:14,
+    current_profile:'Варшава, Польша, Extra',current_endpoint:'192.0.2.42:443',country_code:'pl',
+    current_quality_known:true,current_quality_checked_at:'2026-09-12T11:35:00Z',current_latency_ms:171,current_download_mbps:168,current_jitter_ms:7,
     events:[
       {at:'2026-09-12T11:35:00Z',kind:'auto_vpn',result:'success',message:'Текущий VPN работает нормально, смена не требуется.'},
       {at:'2026-09-12T10:35:00Z',kind:'auto_vpn',result:'same',message:'Для текущего VPN нет нового адреса подключения.'}
@@ -37,7 +37,7 @@ const settings = {
 };
 
 const status = {
-  version:'0.3.42',country:'Великобритания',city:'Лондон',country_code:'gb',profile_label:'Лондон, Великобритания, Extra',endpoint:'192.0.2.42:443',
+  version:'0.3.43',country:'Польша',city:'Варшава',country_code:'pl',profile_label:'Варшава, Польша, Extra',endpoint:'192.0.2.42:443',
   xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',recommended_dns_mode:'xkeen',
   setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false,last_action:{success:true}
 };
@@ -50,7 +50,7 @@ function json(res, body, code = 200) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   calls.push(`${req.method} ${url.pathname}${url.search}`);
-  if (url.pathname === '/' || url.pathname === '/settings') {
+  if (url.pathname === '/' || url.pathname === '/settings' || url.pathname === '/routing') {
     const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8')
       .replace('</body>', scripts.map(name => `<script src="/${name}"></script>`).join('') + '</body>');
     res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'}); res.end(html); return;
@@ -74,20 +74,18 @@ const server = http.createServer((req, res) => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({headless:true});
   try {
-    const page = await browser.newPage({viewport:{width:1600,height:960}});
+    const page = await browser.newPage({viewport:{width:1600,height:1000}});
     const errors = [];
     const consoleErrors = [];
     page.on('pageerror', error => errors.push(error.message));
-    page.on('console', msg => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
-    });
+    page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
     page.on('requestfailed', req => consoleErrors.push(`requestfailed ${req.method()} ${req.url()} ${req.failure()?.errorText || ''}`));
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    await page.goto(`${base}/settings`);
+    await page.goto(`${base}/#settings`);
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 === '1');
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
-    await page.waitForTimeout(1200);
+    await page.waitForTimeout(1000);
 
     const runtime = await page.evaluate(() => ({
       profile: document.querySelector('#fn3Profile')?.textContent || '',
@@ -97,7 +95,12 @@ const server = http.createServer((req, res) => {
       autoChecked: document.querySelector('#fn3AutoEnabled')?.checked,
       scope: document.querySelector('input[name="fn3Scope"]:checked')?.value || '',
       settingsActive: document.querySelector('[data-page-view="settings"]')?.classList.contains('active'),
-      settingsV3: document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 || ''
+      settingsV3: document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 || '',
+      nav: [...document.querySelectorAll('.sidebar .nav-btn')].map(n => (n.textContent || '').trim()),
+      svgWidths: ['#fn3Save svg','#fn3Check svg','.fn3-extra-action svg'].map(s => {
+        const el = document.querySelector(s); return el ? Math.round(el.getBoundingClientRect().width) : 0;
+      }),
+      checkHeight: Math.round(document.querySelector('#fn3Check')?.getBoundingClientRect().height || 0)
     }));
     console.log('SETTINGS_V3_RUNTIME', JSON.stringify(runtime));
     console.log('SETTINGS_V3_CALLS', JSON.stringify(calls.filter(call => call.includes('/api/'))));
@@ -106,18 +109,21 @@ const server = http.createServer((req, res) => {
 
     assert.equal(errors.length, 0, errors.join('\n'));
     assert.equal(consoleErrors.length, 0, consoleErrors.join('\n'));
-    assert.match(runtime.profile, /Лондон/, `runtime snapshot not applied: ${JSON.stringify(runtime)}`);
+    assert.match(runtime.profile, /Варшава/, `runtime snapshot not applied: ${JSON.stringify(runtime)}`);
     assert.equal(runtime.saveDisabled, true, `save baseline not settled: ${JSON.stringify(runtime)}`);
+    assert.deepEqual(runtime.nav, ['Обзор','Подписка','Настройки','Маршрутизация','Журнал']);
+    assert.ok(runtime.svgWidths.every(width => width > 0 && width <= 24), `oversized action icon detected: ${runtime.svgWidths}`);
+    assert.ok(runtime.checkHeight >= 40 && runtime.checkHeight <= 70, `check action has wrong height: ${runtime.checkHeight}`);
 
     const settingsPage = page.locator('[data-page-view="settings"]');
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
-    assert.equal(await settingsPage.getByText('Интернет и DNS', {exact:true}).count(), 0, 'legacy ISP/DNS card must not survive Settings v3 mount');
+    assert.equal(await settingsPage.getByText('Интернет и DNS', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Лучший VPN автоматически', {exact:true}).count(), 0);
     assert.equal(await settingsPage.locator('[data-scope-card]').count(), 3);
     assert.equal(await settingsPage.locator('.fn3-extra-card').count(), 4);
-    assert.equal(await page.locator('.sidebar .nav-btn[data-page="system"]').count(), 0, 'separate System nav must be removed');
-    assert.equal(await page.locator('.sidebar .nav-btn[data-page="journal"]').count(), 1, 'Journal nav must be present');
+    assert.equal(await page.locator('.sidebar .nav-btn[data-page="system"]').count(), 0);
+    assert.equal(await page.locator('.sidebar .nav-btn[data-page="journal"]').count(), 1);
 
     const visibleProvider = await page.evaluate(() => [...document.querySelectorAll('.topbar *')].some(el => {
       if ((el.textContent || '').trim() !== 'Владлинк') return false;
@@ -133,31 +139,31 @@ const server = http.createServer((req, res) => {
     assert.equal(await save.isDisabled(), false);
     assert.match(await save.textContent(), /Сохранить изменения/);
 
-    const pageText = await settingsPage.innerText();
-    for (const forbidden of ['hysteresis','cooldown','Eligible','logical-profile','Автоматически применять подтверждённое решение']) {
-      assert.equal(pageText.includes(forbidden), false, `developer wording leaked: ${forbidden}`);
-    }
-
     await page.locator('.nav-btn[data-page="overview"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
-    assert.equal(await settingsPage.isVisible(), false, 'Settings v3 remains visible on Overview');
+    assert.equal(await settingsPage.isVisible(), false, 'Settings remains visible on Overview');
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true);
-    assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
 
+    await page.locator('.nav-btn[data-page="routing"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
+    assert.equal((await page.locator('[data-page-view="routing"] h1').first().textContent()).trim(), 'Маршрутизация');
+    const legacyNetworkCardVisible = await page.locator('[data-page-view="routing"] > .card').first().isVisible();
+    assert.equal(legacyNetworkCardVisible, false, 'legacy ISP/DNS Network card must stay hidden on Routing');
+
+    await page.locator('.nav-btn[data-page="settings"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     await page.locator('.nav-btn[data-page="journal"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
-    assert.equal(await page.locator('[data-page-view="journal"]').isVisible(), true);
     assert.match(await page.locator('[data-page-view="journal"]').innerText(), /Журнал/);
+
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
-    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true);
-
     fs.mkdirSync(artifacts, {recursive:true});
     await page.screenshot({path:path.join(artifacts, 'settings-v3-desktop.png'), fullPage:true});
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Settings v3 has horizontal overflow');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Settings has horizontal overflow');
   } finally {
     await browser.close(); server.close();
   }

@@ -67,15 +67,17 @@ func TestLegacySettingsV2RendererIsRetired(t *testing.T) {
 	}
 	s := string(data)
 	for _, required := range []string{
-		"__freenetSettingsV3BootstrapLoaded",
-		"settings.dataset.page = 'settings'",
-		"routing.dataset.page = 'routing'",
+		"__freenetAcceptedSettingsBootstrapLoaded",
+		"setNav(settings, 'settings', 'Настройки'",
+		"setNav(routing, 'routing', 'Маршрутизация'",
+		"ensureJournal(nav)",
+		"fn-routing-source-hidden",
 		"delete pageLabels.system",
 		"freenet:controls-busy",
 		"#fn3Save",
 	} {
 		if !strings.Contains(s, required) {
-			t.Fatalf("Settings v3 bootstrap missing %q", required)
+			t.Fatalf("canonical Settings bootstrap missing %q", required)
 		}
 	}
 	for _, forbidden := range []string{
