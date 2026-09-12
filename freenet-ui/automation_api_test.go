@@ -84,6 +84,8 @@ func TestSettingsV2RenderUsesApprovedNavigationAndDNSNames(t *testing.T) {
 		".side-bottom{display:none!important}",
 		"var(--line)",
 		"var(--text)",
+		"access.remove()",
+		"vpn.remove()",
 	} {
 		if !strings.Contains(s, required) {
 			t.Fatalf("Settings v2 render missing %q", required)
@@ -92,7 +94,6 @@ func TestSettingsV2RenderUsesApprovedNavigationAndDNSNames(t *testing.T) {
 	for _, forbidden := range []string{
 		"XKeen/Xray DNS",
 		"Автоматически — рекомендуется",
-		"data-page=\"access\"",
 		"publicKey",
 		"subscription_url",
 	} {
