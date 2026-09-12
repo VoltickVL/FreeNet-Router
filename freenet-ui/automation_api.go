@@ -22,7 +22,7 @@ const (
 // The helper is shipped inside the UI binary so Web Self-Update can deploy the
 // endpoint-only AUTO VPN runtime atomically. Best-VPN mode reuses the Go Best
 // Server engine through the freenet-ui automation-best-run command.
-//go:embed web/automation.js auto_vpn.sh
+//go:embed web/automation.js web/runtime-acceptance.js auto_vpn.sh
 var automationWebFS embed.FS
 
 type automationSettings struct {
@@ -46,29 +46,31 @@ type automationEvent struct {
 }
 
 type automationResponse struct {
-	Success              bool               `json:"success"`
-	Settings             automationSettings `json:"settings"`
-	CurrentProfile       string             `json:"current_profile"`
-	CurrentEndpoint      string             `json:"current_endpoint"`
-	CountryCode          string             `json:"country_code,omitempty"`
-	LastRun              string             `json:"last_run,omitempty"`
-	NextRun              string             `json:"next_run,omitempty"`
-	LastSwitch           string             `json:"last_switch,omitempty"`
-	LastResult           string             `json:"last_result,omitempty"`
-	LastReason           string             `json:"last_reason,omitempty"`
-	RollbackReady        bool               `json:"rollback_ready"`
-	CurrentQualityKnown  bool               `json:"current_quality_known"`
-	CurrentEligible      bool               `json:"current_eligible"`
-	CurrentLatencyMS     int                `json:"current_latency_ms,omitempty"`
-	CurrentJitterMS      int                `json:"current_jitter_ms,omitempty"`
-	CurrentDownloadMbps  float64            `json:"current_download_mbps,omitempty"`
-	SubscriptionAuto     bool               `json:"subscription_auto"`
-	GeoDataAuto          bool               `json:"geodata_auto"`
-	GeoDataSchedule      string             `json:"geodata_schedule,omitempty"`
-	FreeNetAuto          bool               `json:"freenet_auto"`
-	LegacyEndpoint       bool               `json:"legacy_endpoint_scheduler"`
-	Events               []automationEvent  `json:"events"`
-	Error                string             `json:"error,omitempty"`
+	Success                 bool               `json:"success"`
+	Settings                automationSettings `json:"settings"`
+	CurrentProfile          string             `json:"current_profile"`
+	CurrentEndpoint         string             `json:"current_endpoint"`
+	CountryCode             string             `json:"country_code,omitempty"`
+	LastRun                 string             `json:"last_run,omitempty"`
+	NextRun                 string             `json:"next_run,omitempty"`
+	LastSwitch              string             `json:"last_switch,omitempty"`
+	LastResult              string             `json:"last_result,omitempty"`
+	LastReason              string             `json:"last_reason,omitempty"`
+	RollbackReady           bool               `json:"rollback_ready"`
+	CurrentQualityKnown     bool               `json:"current_quality_known"`
+	CurrentQualityFresh     bool               `json:"current_quality_fresh"`
+	CurrentQualityCheckedAt string             `json:"current_quality_checked_at,omitempty"`
+	CurrentEligible         bool               `json:"current_eligible"`
+	CurrentLatencyMS        int                `json:"current_latency_ms,omitempty"`
+	CurrentJitterMS         int                `json:"current_jitter_ms,omitempty"`
+	CurrentDownloadMbps     float64            `json:"current_download_mbps,omitempty"`
+	SubscriptionAuto        bool               `json:"subscription_auto"`
+	GeoDataAuto             bool               `json:"geodata_auto"`
+	GeoDataSchedule         string             `json:"geodata_schedule,omitempty"`
+	FreeNetAuto             bool               `json:"freenet_auto"`
+	LegacyEndpoint          bool               `json:"legacy_endpoint_scheduler"`
+	Events                  []automationEvent  `json:"events"`
+	Error                   string             `json:"error,omitempty"`
 }
 
 type automationUpdateRequest struct {
@@ -87,6 +89,7 @@ func registerAutomationAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/automation", a.requireAuth(a.handleAutomationGet))
 	mux.HandleFunc("POST /api/automation", a.requireAuth(a.handleAutomationPost))
 	mux.HandleFunc("GET /api/automation/assets/automation.js", serveAutomationAsset("web/automation.js"))
+	mux.HandleFunc("GET /api/automation/assets/runtime-acceptance.js", serveAutomationAsset("web/runtime-acceptance.js"))
 	mux.HandleFunc("GET /accepted-ux.js", serveAcceptedUXWithAutomation)
 }
 
@@ -101,10 +104,18 @@ func serveAcceptedUXWithAutomation(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 	_, _ = w.Write([]byte(`
 ;(() => {
-  const script = document.createElement('script');
-  script.src = '/api/automation/assets/automation.js';
-  script.async = false;
-  document.head.appendChild(script);
+  const loadAutomation = () => {
+    const script = document.createElement('script');
+    script.src = '/api/automation/assets/automation.js';
+    script.async = false;
+    document.head.appendChild(script);
+  };
+  const patch = document.createElement('script');
+  patch.src = '/api/automation/assets/runtime-acceptance.js';
+  patch.async = false;
+  patch.onload = loadAutomation;
+  patch.onerror = loadAutomation;
+  document.head.appendChild(patch);
 })();
 `))
 }
@@ -311,8 +322,11 @@ func (a *app) automationSnapshot() automationResponse {
 		LegacyEndpoint: legacyEnabled,
 		Events: readAutomationEvents(automationHistoryPath(), 8),
 	}
-	if quality, ok := loadBestServerCurrentQuality(status.Endpoint, readBestServerCurrentFilter(a.cfg.FilterPath)); ok {
+	filter := readBestServerCurrentFilter(a.cfg.FilterPath)
+	if quality, checkedAt, ok := loadBestServerCurrentQualityForDisplay(status.Endpoint, filter); ok {
 		response.CurrentQualityKnown = quality.Tested && quality.Available
+		response.CurrentQualityFresh = response.CurrentQualityKnown && time.Since(checkedAt) <= bestServerCurrentQualityCacheTTL
+		response.CurrentQualityCheckedAt = checkedAt.UTC().Format(time.RFC3339)
 		response.CurrentEligible = quality.Eligible
 		response.CurrentLatencyMS = quality.ApplicationMS
 		response.CurrentJitterMS = quality.JitterMS
