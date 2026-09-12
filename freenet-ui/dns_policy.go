@@ -1,16 +1,17 @@
 package main
 
 // enforceSafeDNSProductPolicy отделяет выбор интернет-провайдера от DNS.
-// После v0.2.8 безопасный продуктовый default одинаков для любого ISP:
-// штатный DNS Keenetic. Split DNS остаётся доступным только как явный выбор.
+// Безопасный product default одинаков для любого ISP: DNS через роутер.
+// Раздельный DNS остаётся доступным только как явный выбор пользователя.
 func init() {
 	for id, meta := range ispProfiles {
 		meta.RecommendedDNSMode = "firmware"
 		ispProfiles[id] = meta
 	}
 
-	// API-метки также должны описывать фактическую семантику режима.
-	dnsModes["auto"] = "Авто (штатный DNS)"
-	dnsModes["firmware"] = "Штатный DNS роутера"
-	dnsModes["xkeen"] = "Split DNS через VPN (XKeen/Xray)"
+	// `auto` остаётся legacy-внутренним alias штатного DNS. Пользовательский UI
+	// Settings v2 показывает только два фактических режима: firmware и xkeen.
+	dnsModes["auto"] = "DNS через роутер"
+	dnsModes["firmware"] = "DNS через роутер"
+	dnsModes["xkeen"] = "Раздельный DNS"
 }
