@@ -194,6 +194,12 @@
   }
 
   function bridgeSettingsNavigation() {
+    try {
+      if (typeof pageLabels === 'object' && pageLabels) {
+        pageLabels.journal = 'Журнал';
+        delete pageLabels.system;
+      }
+    } catch (_) {}
     prepareSettingsRoute();
     setTimeout(() => settleSettingsV3(), 0);
     document.addEventListener('click', event => {
