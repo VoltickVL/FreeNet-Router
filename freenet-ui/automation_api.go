@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -22,7 +21,7 @@ const (
 // The helper is shipped inside the UI binary so Web Self-Update can deploy the
 // endpoint-only AUTO VPN runtime atomically. Best-VPN mode reuses the Go Best
 // Server engine through the freenet-ui automation-best-run command.
-//go:embed web/automation.js web/runtime-acceptance.js auto_vpn.sh
+//go:embed web/automation.js web/automation-async.js web/runtime-acceptance.js auto_vpn.sh
 var automationWebFS embed.FS
 
 type automationSettings struct {
@@ -88,7 +87,9 @@ type automationUpdateRequest struct {
 func registerAutomationAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/automation", a.requireAuth(a.handleAutomationGet))
 	mux.HandleFunc("POST /api/automation", a.requireAuth(a.handleAutomationPost))
+	mux.HandleFunc("GET /api/automation/check", a.requireAuth(a.handleAutomationCheckStatus))
 	mux.HandleFunc("GET /api/automation/assets/automation.js", serveAutomationAsset("web/automation.js"))
+	mux.HandleFunc("GET /api/automation/assets/automation-async.js", serveAutomationAsset("web/automation-async.js"))
 	mux.HandleFunc("GET /api/automation/assets/runtime-acceptance.js", serveAutomationAsset("web/runtime-acceptance.js"))
 	mux.HandleFunc("GET /accepted-ux.js", serveAcceptedUXWithAutomation)
 }
@@ -104,10 +105,18 @@ func serveAcceptedUXWithAutomation(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 	_, _ = w.Write([]byte(`
 ;(() => {
+  const loadAsyncAutomation = () => {
+    const asyncScript = document.createElement('script');
+    asyncScript.src = '/api/automation/assets/automation-async.js';
+    asyncScript.async = false;
+    document.head.appendChild(asyncScript);
+  };
   const loadAutomation = () => {
     const script = document.createElement('script');
     script.src = '/api/automation/assets/automation.js';
     script.async = false;
+    script.onload = loadAsyncAutomation;
+    script.onerror = loadAsyncAutomation;
     document.head.appendChild(script);
   };
   const patch = document.createElement('script');
@@ -400,49 +409,8 @@ func (a *app) handleAutomationPost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, a.automationSnapshot())
 
 	case "check":
-		settings := readAutomationSettings(a.cfg.ConfigPath)
-		if settings.Mode == automationModeBest {
-			if len(a.sem) > 0 {
-				writeJSON(w, http.StatusConflict, automationResponse{Success: false, Error: "another FreeNet operation is already running"})
-				return
-			}
-			_, err := a.runAutomationBestCycle(r.Context(), true)
-			snapshot := a.automationSnapshot()
-			if err != nil {
-				snapshot.Success = false
-				if snapshot.LastReason != "" {
-					snapshot.Error = snapshot.LastReason
-				} else {
-					snapshot.Error = "AUTO VPN check failed"
-				}
-				writeJSON(w, http.StatusBadGateway, snapshot)
-				return
-			}
-			writeJSON(w, http.StatusOK, snapshot)
-			return
-		}
-
-		helper, err := ensureAutomationHelper()
-		if err != nil {
-			writeJSON(w, http.StatusServiceUnavailable, automationResponse{Success: false, Error: err.Error()})
-			return
-		}
-		select {
-		case a.sem <- struct{}{}:
-			defer func() { <-a.sem }()
-		default:
-			writeJSON(w, http.StatusConflict, automationResponse{Success: false, Error: "another FreeNet operation is already running"})
-			return
-		}
-		out, err := exec.Command(helper, "run").CombinedOutput()
-		if err != nil {
-			snapshot := a.automationSnapshot()
-			snapshot.Success = false
-			snapshot.Error = safeAutomationHelperError(out)
-			writeJSON(w, http.StatusBadGateway, snapshot)
-			return
-		}
-		writeJSON(w, http.StatusOK, a.automationSnapshot())
+		a.handleAutomationCheckStart(w, r)
+		return
 
 	default:
 		writeJSON(w, http.StatusBadRequest, automationResponse{Success: false, Error: "unsupported automation action"})
