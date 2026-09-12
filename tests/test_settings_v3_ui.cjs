@@ -104,12 +104,13 @@ const server = http.createServer((req, res) => {
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
 
     assert.equal(errors.length, 0, errors.join('\n'));
-    assert.equal((await page.locator('[data-page-view="settings"] h1').first().textContent()).trim(), 'Настройки / Система');
-    assert.equal(await page.locator('[data-page-view="settings"] text=Интернет и DNS').count(), 0, 'legacy ISP/DNS card must not survive Settings v3 mount');
-    assert.equal(await page.locator('[data-page-view="settings"] text=Только endpoint').count(), 0);
-    assert.equal(await page.locator('[data-page-view="settings"] text=Лучший VPN автоматически').count(), 0);
-    assert.equal(await page.locator('[data-page-view="settings"] [data-scope-card]').count(), 3);
-    assert.equal(await page.locator('[data-page-view="settings"] .fn3-extra-card').count(), 4);
+    const settingsPage = page.locator('[data-page-view="settings"]');
+    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
+    assert.equal(await settingsPage.getByText('Интернет и DNS', {exact:true}).count(), 0, 'legacy ISP/DNS card must not survive Settings v3 mount');
+    assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
+    assert.equal(await settingsPage.getByText('Лучший VPN автоматически', {exact:true}).count(), 0);
+    assert.equal(await settingsPage.locator('[data-scope-card]').count(), 3);
+    assert.equal(await settingsPage.locator('.fn3-extra-card').count(), 4);
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="system"]').count(), 0, 'separate System nav must be removed');
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="journal"]').count(), 1, 'Journal nav must be present');
 
@@ -127,7 +128,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await save.isDisabled(), false);
     assert.match(await save.textContent(), /Сохранить изменения/);
 
-    const pageText = await page.locator('[data-page-view="settings"]').innerText();
+    const pageText = await settingsPage.innerText();
     for (const forbidden of ['hysteresis', 'cooldown', 'Eligible', 'logical-profile', 'Автоматически применять подтверждённое решение']) {
       assert.equal(pageText.includes(forbidden), false, `developer wording leaked: ${forbidden}`);
     }
@@ -135,13 +136,13 @@ const server = http.createServer((req, res) => {
     // Settings must not leak over other pages after v3 replaces the legacy markup.
     await page.locator('.nav-btn[data-page="overview"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
-    assert.equal(await page.locator('[data-page-view="settings"]').isVisible(), false, 'Settings v3 remains visible on Overview');
+    assert.equal(await settingsPage.isVisible(), false, 'Settings v3 remains visible on Overview');
 
     // Re-entering Settings via the real nav must mount/show v3 even though setPage uses replaceState.
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true);
-    assert.equal(await page.locator('[data-page-view="settings"] text=Только endpoint').count(), 0);
+    assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
 
     // Journal is part of the accepted sidebar contract and must be routable through the legacy page router.
     await page.locator('.nav-btn[data-page="journal"]').click();
