@@ -26,26 +26,25 @@ func TestAutomationManualCheckUsesAsyncTransport(t *testing.T) {
 	}
 }
 
-func TestAutomationAsyncBrowserAssetPollsAndRejectsHTML(t *testing.T) {
+func TestLegacyAutomationAsyncBrowserRendererIsRetired(t *testing.T) {
 	asset, err := automationWebFS.ReadFile("web/automation-async.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	source := string(asset)
-	for _, required := range []string{
+	if !strings.Contains(source, `__freenetLegacyAutomationAsyncRetired = true`) {
+		t.Fatal("legacy automation async asset must remain only as an explicit retired compatibility boundary")
+	}
+	for _, forbidden := range []string{
 		`#fnCheckNow`,
 		`/api/automation/check`,
-		`response.headers.get('content-type')`,
-		`application/json`,
-		`event.stopImmediatePropagation()`,
-		`setTimeout`,
+		`stopImmediatePropagation`,
+		`pollCheck`,
+		`bridgeSettingsNavigation`,
 	} {
-		if !strings.Contains(source, required) {
-			t.Fatalf("async browser contract missing %q", required)
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("legacy Settings async behavior survived retirement: %q", forbidden)
 		}
-	}
-	if strings.Contains(source, `Unexpected token`) {
-		t.Fatal("raw JSON parser errors must not be user-facing")
 	}
 }
 
