@@ -52,7 +52,7 @@ func TestSettingsDNSRuntimeHelpersKeepTransactionalContract(t *testing.T) {
 		"https://dns.yandex.ru/dns-query",
 		"https://dns.google/dns-query",
 		"активная Split DNS resolver-схема неизвестна; STOP",
-		"xray-split-candidate.log",
+		"xray-test.log",
 		"snapshot",
 		"ROLLBACK ERROR/STATE: FAILED/UNKNOWN",
 		"post-apply resolver acceptance failed",
