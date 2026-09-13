@@ -26,6 +26,8 @@ type settingsCountryCatalogResponse struct {
 
 func registerSettingsCountryCatalogAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/settings-v3/countries", a.requireAuth(a.handleSettingsCountryCatalog))
+	registerSettingsDNSAPI(mux, a)
+	registerSettingsDNSControlAPI(mux, a)
 }
 
 func settingsCountryNameFromProfile(profile subscriptionProfile) string {
