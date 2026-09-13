@@ -138,32 +138,20 @@ func registerSettingsDNSAPI(mux *http.ServeMux, a *app) {
 }
 
 func (a *app) handleSettingsDNSGet(w http.ResponseWriter, _ *http.Request) {
-	_, mode := readNetworkProfileConfig(a.cfg.ConfigPath)
-	directDesired := settingsDNSDesiredProvider(a.cfg.ConfigPath, "SPLIT_DIRECT_DNS_PROVIDER", settingsDNSDirectProviderYandex)
-	vpnDesired := settingsDNSDesiredProvider(a.cfg.ConfigPath, "SPLIT_VPN_DNS_PROVIDER", settingsDNSVPNProviderGoogle)
-	activeDirect, activeVPN, runtimeKnown := readSettingsSplitDNSRuntime()
-
+	control := settingsDNSControlSnapshot(a.cfg.ConfigPath)
 	response := settingsDNSResponse{
-		Success:           true,
-		Mode:              mode,
-		ActiveMode:        mode,
-		DirectProvider:    directDesired,
-		VPNProvider:       vpnDesired,
-		DirectOptions:     settingsDNSProviderOptions(),
-		VPNOptions:        settingsDNSProviderOptions(),
-		SplitRuntimeKnown: mode != "xkeen" || runtimeKnown,
-		ApplySupported:    false,
-	}
-	if mode == "xkeen" {
-		response.ActiveDirect = activeDirect
-		response.ActiveVPN = activeVPN
-		if !runtimeKnown {
-			response.Warning = "Активный Split DNS использует старую или неизвестную схему resolver-ов. Изменение DNS заблокировано до безопасной миграции."
-		} else {
-			response.Warning = "Выбор resolver-ов подготовлен к миграции; mutation пока заблокирована до transactional apply contract."
-		}
-	} else {
-		response.Warning = "Resolver-ы Split DNS будут применяться только после безопасного переключения в режим «Раздельный DNS»."
+		Success:           control.Success,
+		Mode:              control.Mode,
+		ActiveMode:        control.ActiveMode,
+		DirectProvider:    control.DirectProvider,
+		VPNProvider:       control.VPNProvider,
+		ActiveDirect:      control.ActiveDirect,
+		ActiveVPN:         control.ActiveVPN,
+		DirectOptions:     control.DirectOptions,
+		VPNOptions:        control.VPNOptions,
+		SplitRuntimeKnown: control.ActiveMode != "xkeen" || control.RuntimeState != "unknown",
+		ApplySupported:    control.ApplySupported,
+		Warning:           control.Warning,
 	}
 	writeJSON(w, http.StatusOK, response)
 }
