@@ -57,6 +57,14 @@ let localPending=`
 	// The canonical bootstrap later adds Settings/Routing/Journal and their labels.
 	canonicalLabels := `const pageLabels={overview:'Обзор',subscription:'Подписка'}`
 	raw = raw[:labelsAt] + canonicalLabels + raw[labelsEndAt:]
+
+	// Settings DNS is a canonical progressive enhancement. It waits for Settings v3
+	// to mount and therefore may be delivered after the accepted UX bootstrap without
+	// reintroducing a legacy first paint.
+	if !strings.Contains(raw, `</body>`) {
+		return "", errors.New("control center body end marker is missing")
+	}
+	raw = strings.Replace(raw, `</body>`, `<script src="/api/settings-v3/assets/dns-ui.js"></script></body>`, 1)
 	return raw, nil
 }
 
