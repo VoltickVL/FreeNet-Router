@@ -26,11 +26,20 @@ func TestReadBestServerActiveOutbound(t *testing.T) {
 }
 
 func TestBestServerCountryCodeFromLabel(t *testing.T) {
-	if got := bestServerCountryCodeFromLabel("PL Варшава, Польша, Extra"); got != "pl" {
-		t.Fatalf("expected pl, got %q", got)
+	cases := []struct {
+		label string
+		want  string
+	}{
+		{label: "PL Варшава, Польша, Extra", want: "pl"},
+		{label: "🇧🇪 Belgium, Brussels, Extra", want: "be"},
+		{label: "🇮🇹 Italy, Milan, Extra", want: "it"},
+		{label: "be Belgium, Brussels, Extra", want: "be"},
+		{label: "Текущий VPN", want: ""},
 	}
-	if got := bestServerCountryCodeFromLabel("Текущий VPN"); got != "" {
-		t.Fatalf("unexpected code %q", got)
+	for _, tc := range cases {
+		if got := bestServerCountryCodeFromLabel(tc.label); got != tc.want {
+			t.Fatalf("label %q: expected %q, got %q", tc.label, tc.want, got)
+		}
 	}
 }
 
