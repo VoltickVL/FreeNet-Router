@@ -47,6 +47,12 @@ func readBestServerActiveOutbound(outPath string) (map[string]any, string, bool)
 }
 
 func bestServerCountryCodeFromLabel(label string) string {
+	// Exact provider labels use the same country identity as subscription
+	// discovery, including regional-indicator flags such as 🇧🇪 and 🇮🇹.
+	// Keep the legacy two-letter fallback for older exact labels.
+	if code := profileCountryCode(label); code != "" {
+		return code
+	}
 	fields := strings.Fields(strings.TrimSpace(label))
 	if len(fields) == 0 || len(fields[0]) != 2 {
 		return ""
