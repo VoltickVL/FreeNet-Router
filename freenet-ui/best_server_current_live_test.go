@@ -34,6 +34,17 @@ func TestBestServerCountryCodeFromLabel(t *testing.T) {
 	}
 }
 
+func TestMarkBestServerCurrentProbeFailureIsExplicit(t *testing.T) {
+	candidate := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 125.4}
+	markBestServerCurrentProbeFailure(&candidate)
+	if candidate.Available || candidate.Eligible || candidate.DownloadMbps != 0 {
+		t.Fatalf("dead current VPN must not retain healthy quality: %#v", candidate)
+	}
+	if candidate.DownloadIssue == "" || candidate.Reason == "" {
+		t.Fatalf("dead current VPN must expose an explicit diagnostic: %#v", candidate)
+	}
+}
+
 func TestFilterForeignBestServerCandidatesExcludesRussianAndWhitelist(t *testing.T) {
 	in := []bestServerInternalCandidate{
 		{Profile: subscriptionProfile{ID: "1", Name: "SK Bratislava, Slovakia, Extra", CountryCode: "sk"}},
