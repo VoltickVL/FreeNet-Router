@@ -35,6 +35,42 @@ func TestCanonicalizeControlCenterIndexRemovesLegacyFirstPaint(t *testing.T) {
 	}
 }
 
+func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t *testing.T) {
+	rawBytes, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html, err := canonicalizeControlCenterIndex(string(rawBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{
+		`<html lang="ru" class="freenet-canonical-boot">`,
+		`id="freenetCanonicalBootStyle"`,
+		`html.freenet-canonical-boot body>*{visibility:hidden!important}`,
+		`radial-gradient(circle at 68% -15%,#17345c 0,#0d1d32 42%,#081523 72%,#07101b 100%)`,
+		`id="freenetCanonicalBootRelease"`,
+		`document.getElementById('freenetAcceptedUXStyles')`,
+		`document.getElementById('freenetFinalShellPolishStyles')`,
+		`document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')`,
+		`root.classList.remove('freenet-canonical-boot')`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("canonical boot gate missing %q", want)
+		}
+	}
+
+	bootStyleAt := strings.Index(html, `id="freenetCanonicalBootStyle"`)
+	legacyStyleAt := strings.Index(html, `<style>`) // static legacy stylesheet from index.html
+	if bootStyleAt < 0 || legacyStyleAt < 0 || bootStyleAt > legacyStyleAt {
+		t.Fatalf("boot gate must be delivered before legacy stylesheet: boot=%d legacy=%d", bootStyleAt, legacyStyleAt)
+	}
+	if strings.Contains(html, `setTimeout(()=>{root.classList.remove('freenet-canonical-boot')`) {
+		t.Fatal("boot gate must not fail-open to a legacy shell on a timer")
+	}
+}
+
 func TestCanonicalIndexExactRootKeepsAssetFallback(t *testing.T) {
 	a := &app{}
 	mux := http.NewServeMux()
@@ -53,6 +89,14 @@ func TestCanonicalIndexExactRootKeepsAssetFallback(t *testing.T) {
 	}
 	if !strings.Contains(body, `/accepted-ux.js?v=v`) {
 		t.Fatal("root lost accepted UX delivery chain")
+	}
+	if !strings.Contains(body, `class="freenet-canonical-boot"`) {
+		t.Fatal("root must start behind canonical boot gate")
+	}
+	acceptedAt := strings.Index(body, `/accepted-ux.js?v=v`)
+	releaseAt := strings.Index(body, `id="freenetCanonicalBootRelease"`)
+	if acceptedAt < 0 || releaseAt < 0 || releaseAt < acceptedAt {
+		t.Fatalf("boot release must execute after accepted UX delivery: accepted=%d release=%d", acceptedAt, releaseAt)
 	}
 
 	assetReq := httptest.NewRequest("GET", "http://router/accepted-ux.js", nil)
