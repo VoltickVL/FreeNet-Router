@@ -37,7 +37,7 @@ func TestReconcileSettingsV3SchedulerRepairsStaleAutoVPNWatchdog(t *testing.T) {
 	t.Setenv("FREENET_UI_BIN", "/opt/sbin/freenet-ui")
 
 	configPath := filepath.Join(dir, "freenet.conf")
-	config := strings.Join([]string{
+	configBody := strings.Join([]string{
 		"AUTO_VPN_V1=yes",
 		"AUTO_SUBSCRIPTION_REFRESH_ENABLED=no",
 		"AUTO_GEODATA_ENABLED=no",
@@ -45,7 +45,7 @@ func TestReconcileSettingsV3SchedulerRepairsStaleAutoVPNWatchdog(t *testing.T) {
 		"AUTO_BACKUP_ENABLED=no",
 		"",
 	}, "\n")
-	if err := os.WriteFile(configPath, []byte(config), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte(configBody), 0600); err != nil {
 		t.Fatal(err)
 	}
 	legacy := "17 2 * * * /opt/bin/custom-job\n# BEGIN FREENET\n*/5 * * * * /opt/bin/vpn failover\n# END FREENET\n"
