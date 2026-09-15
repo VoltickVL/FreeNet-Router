@@ -188,6 +188,18 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 	return result
 }
 
+func markBestServerCurrentProbeFailure(candidate *bestServerQualityCandidate) {
+	if candidate == nil {
+		return
+	}
+	candidate.Available = false
+	candidate.Eligible = false
+	candidate.DownloadMbps = 0
+	candidate.DownloadIssue = "Активный VPN-путь не подтвердил доступ к интернету"
+	candidate.MediaIssue = candidate.DownloadIssue
+	candidate.Reason = "Активный VPN-путь не подтвердил доступ к интернету"
+}
+
 func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, currentFilter string) bestServerQualityResponse {
 	outbound, activeEndpoint, ok := readBestServerActiveOutbound(a.cfg.OutPath)
 	if !ok || !endpointsEqual(activeEndpoint, currentEndpoint) {
@@ -203,7 +215,7 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 	}
 	candidate := bestServerQualityCandidate{
 		Tested: true, ID: "current-live", Name: label, CountryCode: bestServerCountryCodeFromLabel(label),
-		Endpoint: currentEndpoint, Current: true, Reachable: true,
+		Endpoint: currentEndpoint, Current: true,
 	}
 	if host, portText, err := net.SplitHostPort(currentEndpoint); err == nil {
 		if port, convErr := strconv.Atoi(portText); convErr == nil && port > 0 && port <= 65535 {
@@ -211,6 +223,7 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 			tcp := defaultBestServerQualityTCPProbe(tcpCtx, subscriptionProfile{Address: host, Port: port})
 			cancelTCP()
 			if tcp.OK {
+				candidate.Reachable = true
 				candidate.TCPRTTMS = tcp.Median
 				candidate.TCPJitterMS = tcp.Jitter
 			}
@@ -220,13 +233,14 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 	probe := a.probeBestServerActiveOutbound(probeCtx, outbound)
 	cancel()
 	if !probe.OK {
-		candidate.Reason = "Проверка активного VPN-пути не завершена"
+		markBestServerCurrentProbeFailure(&candidate)
 		return bestServerQualityResponse{
 			Success: true, Available: false, Candidates: []bestServerQualityCandidate{candidate}, ProfilesScanned: 1, ProfilesTotal: 1,
 			Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
-			Message: "Текущий VPN найден, но проверка качества не завершена; другие VPN не проверялись.",
+			Message: "Текущий VPN найден, но активный VPN-путь не подтвердил доступ к интернету; скорость недоступна. Другие VPN не проверялись.",
 		}
 	}
+	candidate.Reachable = true
 	candidate.Available = true
 	candidate.ApplicationMS = probe.HTTP.Median
 	candidate.JitterMS = probe.HTTP.Jitter
