@@ -575,6 +575,9 @@ func bestAutomationCandidate(response bestServerQualityResponse) (bestServerQual
 		if candidate.Current || !candidate.Eligible || !candidate.Available || !validProfileID(candidate.ID) {
 			continue
 		}
+		if display := profileDisplayName(candidate.Name); display != "" {
+			candidate.Name = display
+		}
 		return candidate, true
 	}
 	return bestServerQualityCandidate{}, false
