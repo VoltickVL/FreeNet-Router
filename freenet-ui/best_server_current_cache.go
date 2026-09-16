@@ -24,10 +24,13 @@ func bestServerCurrentQualityKey(endpoint, filter string) string {
 }
 
 func storeBestServerCurrentQuality(endpoint, filter string, candidate bestServerQualityCandidate) {
-	// Do not let an incomplete current-only run become the baseline for a later
-	// full comparison. A reusable baseline must include the same complete speed,
-	// service and stability evidence required for a switchable candidate.
-	if !candidate.Current || !candidate.Tested || !candidate.Eligible || candidate.DownloadMbps <= 0 || strings.TrimSpace(endpoint) == "" {
+	// Keep real current-only measurements for observability even when the strict
+	// Best Server eligibility contract is incomplete. Decision callers remain
+	// fail-closed in loadBestServerCurrentQuality below.
+	if !candidate.Current || !candidate.Tested || !candidate.Available || strings.TrimSpace(endpoint) == "" {
+		return
+	}
+	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 {
 		return
 	}
 	bestServerCurrentQualityCache.Lock()
@@ -41,18 +44,17 @@ func storeBestServerCurrentQuality(endpoint, filter string, candidate bestServer
 
 func loadBestServerCurrentQuality(endpoint, filter string) (bestServerQualityCandidate, bool) {
 	candidate, storedAt, ok := loadBestServerCurrentQualityForDisplay(endpoint, filter)
-	if !ok || time.Since(storedAt) > bestServerCurrentQualityCacheTTL {
+	if !ok || time.Since(storedAt) > bestServerCurrentQualityCacheTTL || !candidate.Eligible || candidate.DownloadMbps <= 0 {
 		return bestServerQualityCandidate{}, false
 	}
 	return candidate, true
 }
 
-// loadBestServerCurrentQualityForDisplay returns the last complete measurement
-// for the exact current logical identity even after the decision-cache TTL has
-// expired. It is observability-only: Best Server and AUTO VPN decisions keep
-// using loadBestServerCurrentQuality and therefore retain the strict freshness
-// window above. Callers must expose StoredAt so stale measurements are never
-// presented as a fresh validation fact.
+// loadBestServerCurrentQualityForDisplay returns the last measured current-only
+// result for the exact logical identity, including partial evidence that is not
+// eligible for decisions. It is observability-only: Best Server and AUTO VPN
+// decisions use loadBestServerCurrentQuality and therefore still require a
+// fresh, fully eligible measurement.
 func loadBestServerCurrentQualityForDisplay(endpoint, filter string) (bestServerQualityCandidate, time.Time, bool) {
 	key := bestServerCurrentQualityKey(endpoint, filter)
 	bestServerCurrentQualityCache.Lock()
