@@ -187,6 +187,13 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 		result.DownloadMbps = result.Media.MedianMbps
 	} else {
 		result.DownloadIssue = result.Media.Issue
+		if fallbackMbps, fallbackIssue := probeBestServerCurrentFallbackDownload(ctx, curlPath, socks); fallbackMbps > 0 {
+			result.DownloadOK = true
+			result.DownloadMbps = fallbackMbps
+			result.DownloadIssue = ""
+		} else if result.DownloadIssue == "" {
+			result.DownloadIssue = fallbackIssue
+		}
 		if result.DownloadIssue == "" {
 			result.DownloadIssue = "Speedtest throughput unavailable"
 		}
