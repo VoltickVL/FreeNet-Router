@@ -16,19 +16,19 @@ const bestServerAsyncJobTimeout = 175 * time.Second
 // VPN recheck; current-quality is a separate explicit operation.
 // Retain only the latest result, with no credentials or raw probe output.
 type bestServerJob struct {
-	ID string `json:"id"`
-	Mode string `json:"mode"`
-	State string `json:"state"`
-	Stage string `json:"stage"`
-	Completed int `json:"completed"`
-	Total int `json:"total"`
-	StartedAt time.Time `json:"started_at"`
-	Result *bestServerQualityResponse `json:"result,omitempty"`
-	Error string `json:"error,omitempty"`
+	ID        string                     `json:"id"`
+	Mode      string                     `json:"mode"`
+	State     string                     `json:"state"`
+	Stage     string                     `json:"stage"`
+	Completed int                        `json:"completed"`
+	Total     int                        `json:"total"`
+	StartedAt time.Time                  `json:"started_at"`
+	Result    *bestServerQualityResponse `json:"result,omitempty"`
+	Error     string                     `json:"error,omitempty"`
 }
 
 type bestServerJobs struct {
-	mu sync.Mutex
+	mu  sync.Mutex
 	job *bestServerJob
 }
 
@@ -50,6 +50,14 @@ func (jobs *bestServerJobs) wrap(a *app, mode string, legacy http.HandlerFunc, s
 			return
 		}
 		w.Header().Set("Cache-Control", "no-store")
+		if action == "cache" {
+			if mode != "current" {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Display cache is only available for current VPN quality"})
+				return
+			}
+			writeJSON(w, http.StatusOK, a.currentVPNQualityCacheResponse())
+			return
+		}
 		id := r.URL.Query().Get("id")
 		if !bestServerJobID.MatchString(id) || (action != "start" && action != "status") {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Invalid quality job request"})
@@ -79,7 +87,9 @@ func (jobs *bestServerJobs) wrap(a *app, mode string, legacy http.HandlerFunc, s
 		jobs.job = job
 		go func() {
 			timeout := bestServerAsyncJobTimeout
-			if mode == "current" { timeout = bestServerCurrentScanTimeout }
+			if mode == "current" {
+				timeout = bestServerCurrentScanTimeout
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			ctx = context.WithValue(ctx, bestServerProgressKey{}, func(stage string, completed, total int) {
