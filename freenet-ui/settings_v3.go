@@ -274,6 +274,35 @@ func v3HealthTimes(enabled bool) (string, string) {
 	return last, t.Add(5 * time.Minute).Format(time.RFC3339)
 }
 
+func v3MergeEvents(limit int, groups ...[]automationEvent) []automationEvent {
+	total := 0
+	for _, group := range groups {
+		total += len(group)
+	}
+	events := make([]automationEvent, 0, total)
+	for _, group := range groups {
+		events = append(events, group...)
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		left, leftErr := time.Parse(time.RFC3339, events[i].At)
+		right, rightErr := time.Parse(time.RFC3339, events[j].At)
+		switch {
+		case leftErr == nil && rightErr == nil:
+			return left.After(right)
+		case leftErr == nil:
+			return true
+		case rightErr == nil:
+			return false
+		default:
+			return false
+		}
+	})
+	if limit > 0 && len(events) > limit {
+		events = events[:limit]
+	}
+	return events
+}
+
 func (a *app) settingsV3Snapshot() settingsV3Response {
 	auto := a.automationSnapshot()
 	scope := normalizeAutomationCountryScope(auto.Settings.CountryScope)
@@ -281,11 +310,7 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 		scope = automationCountryRegion
 	}
 	lastHealth, nextHealth := v3HealthTimes(auto.Settings.Enabled)
-	events := append([]automationEvent{}, auto.Events...)
-	events = append(events, readAutomationEvents(settingsV3HistoryPath(), 8)...)
-	if len(events) > 12 {
-		events = events[:12]
-	}
+	events := v3MergeEvents(12, auto.Events, readAutomationEvents(settingsV3HistoryPath(), 8))
 	return settingsV3Response{
 		Success: true,
 		AutoVPN: settingsV3AutoVPN{Enabled: auto.Settings.Enabled, CountryScope: scope, Countries: auto.Settings.Countries, LastHealth: lastHealth, NextHealth: nextHealth},
