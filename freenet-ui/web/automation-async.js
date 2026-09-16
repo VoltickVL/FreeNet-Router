@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   // Settings v3 is the sole Settings renderer and lifecycle owner.
-  // This file owns presentation/read-only acceptance polish only; it must not alter routing or runtime state.
+  // This file owns presentation/lifecycle acceptance polish only; it must not mutate runtime state.
   if (window.__freenetAcceptedSettingsGeometryLoaded) return;
   window.__freenetAcceptedSettingsGeometryLoaded = true;
   window.__freenetLegacyAutomationAsyncRetired = true;
@@ -9,6 +9,7 @@
   const q = (selector, root = document) => root.querySelector(selector);
   const qa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const pageIsActive = () => !!q('[data-page-view="settings"][data-settings-v3="1"].active');
+  const routeName = () => String(location.hash || '').replace(/^#\/?/, '').split(/[/?]/, 1)[0].trim().toLowerCase();
   let settingsWasActive = false;
   let runtimeRefreshInFlight = false;
 
@@ -236,8 +237,19 @@
     normalizeSettingsCopy();
   }
 
+  function ensureJournalPresentation() {
+    if (routeName() !== 'journal') return false;
+    const page = q('[data-page-view="journal"]');
+    const trigger = q('#fn3AllEvents');
+    if (!page || !trigger) return false;
+    if (q('h1', page)) return true;
+    trigger.click();
+    return !!q('h1', page);
+  }
+
   function applyPresentation() {
     installStyle();
+    ensureJournalPresentation();
     const active = pageIsActive();
     document.body?.classList.toggle('fn-settings-accepted', active);
     installSettingsPresentationObservers();
@@ -246,6 +258,12 @@
   }
 
   function schedule() { setTimeout(applyPresentation, 0); }
+  const settingsMountObserver = new MutationObserver(() => {
+    if (!q('#fn3AllEvents')) return;
+    settingsMountObserver.disconnect();
+    schedule();
+  });
+  if (document.documentElement) settingsMountObserver.observe(document.documentElement, {childList:true,subtree:true});
   if (document.readyState === 'complete') schedule();
   else window.addEventListener('load', schedule, {once:true});
   window.addEventListener('hashchange', schedule);
