@@ -7,6 +7,8 @@ DNS_FILE="$CONFIG_DIR/02_dns.json"
 XRAY_BIN="${FREENET_XRAY_BIN:-$ROOT/sbin/xray}"
 XRAY_ASSET_DIR="${FREENET_XRAY_ASSET_DIR:-$ROOT/etc/xray/dat}"
 RUNTIME_TIMEOUT="${FREENET_XKEEN_RUNTIME_TIMEOUT:-75}"
+DNS_READY_TIMEOUT="${FREENET_SETTINGS_DNS_READY_TIMEOUT:-30}"
+DNS_READY_INTERVAL="${FREENET_SETTINGS_DNS_READY_INTERVAL:-2}"
 TEST_MODE="${FREENET_SETTINGS_DNS_TEST_MODE:-no}"
 BACKUP="${1:-}"
 
@@ -47,18 +49,34 @@ restart_xkeen() {
     run_bounded "$RUNTIME_TIMEOUT" "/tmp/freenet-settings-dns-restore.$$.log" "$init" restart on
 }
 
-dns_query_ok() {
+test_query_once() {
+    mode="${FREENET_SETTINGS_DNS_TEST_QUERY:-success}"
+    case "$mode" in
+        success) return 0 ;;
+        fail) return 1 ;;
+        delayed)
+            state="${FREENET_SETTINGS_DNS_TEST_QUERY_STATE:-}"
+            [ -n "$state" ] || return 1
+            count=0
+            if [ -f "$state" ]; then
+                IFS= read -r count <"$state" || count=0
+            fi
+            case "$count" in ''|*[!0-9]*) count=0 ;; esac
+            count=$((count + 1))
+            printf '%s\n' "$count" >"$state" || return 1
+            [ "$count" -ge "${FREENET_SETTINGS_DNS_TEST_QUERY_SUCCEED_AFTER:-2}" ]
+            return
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+dns_query_once() {
     if [ "$TEST_MODE" = yes ]; then
-        [ "${FREENET_SETTINGS_DNS_TEST_QUERY:-success}" = success ]
+        test_query_once
         return
     fi
-    n=0
-    while [ "$n" -lt 3 ]; do
-        nslookup example.com 127.0.0.1 >/tmp/freenet-settings-dns-restore-query.$$.log 2>&1 && return 0
-        sleep 2
-        n=$((n + 1))
-    done
-    return 1
+    nslookup example.com 127.0.0.1 >/tmp/freenet-settings-dns-restore-query.$$.log 2>&1
 }
 
 runtime_ok() {
@@ -68,6 +86,18 @@ runtime_ok() {
     fi
     pidof xray >/dev/null 2>&1 || return 1
     netstat -lnptu 2>/dev/null | grep ':53[[:space:]]' | grep -q '/xray'
+}
+
+dns_runtime_ready() {
+    elapsed=0
+    while :; do
+        if runtime_ok && dns_query_once; then
+            return 0
+        fi
+        [ "$elapsed" -ge "$DNS_READY_TIMEOUT" ] && return 1
+        sleep "$DNS_READY_INTERVAL"
+        elapsed=$((elapsed + DNS_READY_INTERVAL))
+    done
 }
 
 for cmd in jq cp mv sha256sum; do
@@ -80,6 +110,6 @@ cp -p "$BACKUP" "$DNS_FILE.restore.$$" || { err 'PRIMARY ERROR: cannot stage res
 mv -f "$DNS_FILE.restore.$$" "$DNS_FILE" || { err 'PRIMARY ERROR: cannot install resolver restore'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
 restart_xkeen || { err 'PRIMARY ERROR: XKeen/Xray restart failed during resolver restore'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
 actual="$(sha256sum "$DNS_FILE" | awk '{print $1}')"
-[ "$actual" = "$expected" ] && runtime_ok && dns_query_ok || { err 'PRIMARY ERROR: resolver restore acceptance failed'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+[ "$actual" = "$expected" ] && dns_runtime_ready || { err 'PRIMARY ERROR: resolver restore acceptance failed'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
 printf '%s\n' 'RESULT=RESTORED'
 printf '%s\n' 'ROLLBACK=SUCCESS'

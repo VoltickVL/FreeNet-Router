@@ -8,6 +8,8 @@ XRAY_BIN="${FREENET_XRAY_BIN:-$ROOT/sbin/xray}"
 XRAY_ASSET_DIR="${FREENET_XRAY_ASSET_DIR:-$ROOT/etc/xray/dat}"
 BACKUP_ROOT="${FREENET_SETTINGS_DNS_BACKUP_ROOT:-$ROOT/backups}"
 RUNTIME_TIMEOUT="${FREENET_XKEEN_RUNTIME_TIMEOUT:-75}"
+DNS_READY_TIMEOUT="${FREENET_SETTINGS_DNS_READY_TIMEOUT:-30}"
+DNS_READY_INTERVAL="${FREENET_SETTINGS_DNS_READY_INTERVAL:-2}"
 MODE="${1:-plan}"
 DIRECT_PROVIDER="${2:-yandex-doh}"
 VPN_PROVIDER="${3:-google-doh}"
@@ -79,18 +81,34 @@ restart_xkeen() {
     run_bounded "$RUNTIME_TIMEOUT" "/tmp/freenet-settings-dns-restart.$$.log" "$init" restart on
 }
 
-dns_query_ok() {
+test_query_once() {
+    mode="${FREENET_SETTINGS_DNS_TEST_QUERY:-success}"
+    case "$mode" in
+        success) return 0 ;;
+        fail) return 1 ;;
+        delayed)
+            state="${FREENET_SETTINGS_DNS_TEST_QUERY_STATE:-}"
+            [ -n "$state" ] || return 1
+            count=0
+            if [ -f "$state" ]; then
+                IFS= read -r count <"$state" || count=0
+            fi
+            case "$count" in ''|*[!0-9]*) count=0 ;; esac
+            count=$((count + 1))
+            printf '%s\n' "$count" >"$state" || return 1
+            [ "$count" -ge "${FREENET_SETTINGS_DNS_TEST_QUERY_SUCCEED_AFTER:-2}" ]
+            return
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+dns_query_once() {
     if [ "$TEST_MODE" = yes ]; then
-        [ "${FREENET_SETTINGS_DNS_TEST_QUERY:-success}" = success ]
+        test_query_once
         return
     fi
-    n=0
-    while [ "$n" -lt 3 ]; do
-        nslookup example.com 127.0.0.1 >/tmp/freenet-settings-dns-query.$$.log 2>&1 && return 0
-        sleep 2
-        n=$((n + 1))
-    done
-    return 1
+    nslookup example.com 127.0.0.1 >/tmp/freenet-settings-dns-query.$$.log 2>&1
 }
 
 xray_runtime_ok() {
@@ -100,6 +118,18 @@ xray_runtime_ok() {
     fi
     pidof xray >/dev/null 2>&1 || return 1
     netstat -lnptu 2>/dev/null | grep ':53[[:space:]]' | grep -q '/xray'
+}
+
+dns_runtime_ready() {
+    elapsed=0
+    while :; do
+        if xray_runtime_ok && dns_query_once; then
+            return 0
+        fi
+        [ "$elapsed" -ge "$DNS_READY_TIMEOUT" ] && return 1
+        sleep "$DNS_READY_INTERVAL"
+        elapsed=$((elapsed + DNS_READY_INTERVAL))
+    done
 }
 
 pair_value() {
@@ -175,8 +205,7 @@ verify_target() {
     vpn="$(provider_endpoint "$VPN_PROVIDER")" || return 1
     [ "$(pair_value dns-direct 2>/dev/null || true)" = "$direct" ] || return 1
     [ "$(pair_value dns-vless 2>/dev/null || true)" = "$vpn" ] || return 1
-    xray_runtime_ok || return 1
-    dns_query_ok || return 1
+    dns_runtime_ready || return 1
 }
 
 snapshot() {
@@ -194,8 +223,7 @@ rollback() {
     restart_xkeen || return 1
     after="$(sha256sum "$DNS_FILE" | awk '{print $1}')"
     [ "$before" = "$after" ] || return 1
-    xray_runtime_ok || return 1
-    dns_query_ok || return 1
+    dns_runtime_ready || return 1
 }
 
 plan() {
