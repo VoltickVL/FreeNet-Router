@@ -1,9 +1,9 @@
 name: One-shot subscription state source fix
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/459-subscription-authoritative-state
+      - main
 
 permissions:
   contents: write
@@ -15,6 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
       - name: Replace self-referential subscription state logic
         shell: bash
@@ -72,7 +73,7 @@ func TestAcceptedUXSubscriptionConfiguredUsesBackendStatus(t *testing.T) {
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add freenet-ui/web/accepted-ux.js freenet-ui/accepted_ux_subscription_state.go freenet-ui/accepted_ux_subscription_state_test.go
+          git add -A freenet-ui/web/accepted-ux.js freenet-ui/accepted_ux_subscription_state.go freenet-ui/accepted_ux_subscription_state_test.go
           git diff --cached --check
           git commit -m "fix: use backend subscription configured state"
-          git push origin HEAD:fix/459-subscription-authoritative-state
+          git push origin HEAD:${{ github.head_ref }}
