@@ -7,12 +7,6 @@ import (
 	"testing"
 )
 
-func resetBestServerCurrentQualityCacheForTest() {
-	bestServerCurrentQualityCache.Lock()
-	bestServerCurrentQualityCache.Entry = bestServerCurrentQualityCacheEntry{}
-	bestServerCurrentQualityCache.Unlock()
-}
-
 func TestCurrentVPNFallbackDownloadProducesDisplayableSpeed(t *testing.T) {
 	dir := t.TempDir()
 	curl := filepath.Join(dir, "curl")
