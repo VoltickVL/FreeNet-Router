@@ -1,0 +1,78 @@
+name: One-shot subscription state source fix
+
+on:
+  push:
+    branches:
+      - fix/459-subscription-authoritative-state
+
+permissions:
+  contents: write
+
+jobs:
+  apply-source-fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Replace self-referential subscription state logic
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          asset = Path('freenet-ui/web/accepted-ux.js')
+          source = asset.read_text(encoding='utf-8')
+          old = """  function subscriptionConfigured() {
+            const text = qs('#subscriptionState')?.textContent || '';
+            return /Настроена|Активна/i.test(text) && !/Не настроена/i.test(text);
+          }"""
+          new = """  function subscriptionConfigured() {
+            return !!(lastStatus && lastStatus.subscription_configured === true);
+          }"""
+          if source.count(old) != 1:
+              raise SystemExit('canonical subscriptionConfigured block did not match exactly once')
+          asset.write_text(source.replace(old, new, 1), encoding='utf-8')
+
+          legacy_patch = Path('freenet-ui/accepted_ux_subscription_state.go')
+          if legacy_patch.exists():
+              legacy_patch.unlink()
+
+          test = Path('freenet-ui/accepted_ux_subscription_state_test.go')
+          test.write_text('''package main
+
+import (
+    "os"
+    "strings"
+    "testing"
+)
+
+func TestAcceptedUXSubscriptionConfiguredUsesBackendStatus(t *testing.T) {
+    data, err := os.ReadFile("web/accepted-ux.js")
+    if err != nil {
+        t.Fatal(err)
+    }
+    source := string(data)
+    authoritative := `function subscriptionConfigured() {
+    return !!(lastStatus && lastStatus.subscription_configured === true);
+  }`
+    legacy := `const text = qs('#subscriptionState')?.textContent || '';`
+    if strings.Count(source, authoritative) != 1 {
+        t.Fatal("accepted UX must contain exactly one authoritative subscriptionConfigured function")
+    }
+    if strings.Contains(source, legacy) {
+        t.Fatal("accepted UX still derives subscription configured state from its own DOM text")
+    }
+}
+''', encoding='utf-8')
+          PY
+      - name: Commit canonical source fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add freenet-ui/web/accepted-ux.js freenet-ui/accepted_ux_subscription_state.go freenet-ui/accepted_ux_subscription_state_test.go
+          git diff --cached --check
+          git commit -m "fix: use backend subscription configured state"
+          git push origin HEAD:fix/459-subscription-authoritative-state
