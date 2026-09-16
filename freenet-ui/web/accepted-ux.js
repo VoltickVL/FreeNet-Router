@@ -290,8 +290,7 @@
   }
 
   function subscriptionConfigured() {
-    const text = qs('#subscriptionState')?.textContent || '';
-    return /Настроена|Активна/i.test(text) && !/Не настроена/i.test(text);
+    return !!(lastStatus && lastStatus.subscription_configured === true);
   }
 
   function syncSubscriptionPage() {
