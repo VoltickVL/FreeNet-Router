@@ -293,6 +293,7 @@
     q('#fn3VPNState').textContent = '';
     q('#fn3HealthText').textContent = snap.current_quality_known ? 'Текущий VPN работает стабильно.' : 'FreeNet контролирует доступность текущего VPN.';
     renderJournal(data.events || []);
+    renderJournal(data.events || [], '#fn3JournalFull');
     applySchedule('subscription', data.subscription); applySchedule('geodata', data.geodata); applySchedule('freenet', data.freenet); applySchedule('backup', data.backup);
     state.baseline = formKey(); state.dirty = false; renderSave();
   }
