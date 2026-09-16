@@ -1,36 +1,25 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
 
 func TestAcceptedUXSubscriptionConfiguredUsesBackendStatus(t *testing.T) {
-	if strings.Contains(acceptedUXJS, acceptedUXSubscriptionConfiguredLegacy) {
-		t.Fatal("served accepted UX still derives subscription state from its own DOM text")
+	data, err := os.ReadFile("web/accepted-ux.js")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(acceptedUXJS, acceptedUXSubscriptionConfiguredAuthoritative) {
-		t.Fatal("served accepted UX does not use authoritative subscription_configured status")
+	source := string(data)
+	authoritative := `function subscriptionConfigured() {
+    return !!(lastStatus && lastStatus.subscription_configured === true);
+  }`
+	legacy := `const text = qs('#subscriptionState')?.textContent || '';`
+	if strings.Count(source, authoritative) != 1 {
+		t.Fatal("accepted UX must contain exactly one authoritative subscriptionConfigured function")
 	}
-}
-
-func TestAcceptedUXSubscriptionConfiguredPatchIsExact(t *testing.T) {
-	source := "before\n" + acceptedUXSubscriptionConfiguredLegacy + "\nafter"
-	patched := patchAcceptedUXSubscriptionConfigured(source)
-	if strings.Count(patched, acceptedUXSubscriptionConfiguredAuthoritative) != 1 {
-		t.Fatalf("expected exactly one authoritative subscription state function: %q", patched)
-	}
-	if strings.Contains(patched, acceptedUXSubscriptionConfiguredLegacy) {
-		t.Fatal("legacy self-referential subscription state function survived patch")
-	}
-	if patched != "before\n"+acceptedUXSubscriptionConfiguredAuthoritative+"\nafter" {
-		t.Fatal("patch changed content outside the targeted function")
-	}
-}
-
-func TestAcceptedUXSubscriptionConfiguredPatchFailsClosedOnDrift(t *testing.T) {
-	source := "unrelated accepted UX"
-	if got := patchAcceptedUXSubscriptionConfigured(source); got != source {
-		t.Fatalf("unexpected mutation when canonical source guard does not match: %q", got)
+	if strings.Contains(source, legacy) {
+		t.Fatal("accepted UX still derives subscription configured state from its own DOM text")
 	}
 }
