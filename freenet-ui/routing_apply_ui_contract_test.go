@@ -6,6 +6,30 @@ import (
 	"testing"
 )
 
+func TestCanonicalRoutingV2ScriptFixesProductionDefects(t *testing.T) {
+	raw := string(routingV2Asset)
+	if !strings.Contains(raw, "`04_outbounds.json`") {
+		t.Fatal("production syntax regression fixture changed; review sanitizer intentionally")
+	}
+
+	canonical := canonicalRoutingV2Script()
+	if strings.Contains(canonical, "`04_outbounds.json`") {
+		t.Fatal("canonical Routing v2 still contains template-literal breaking backticks")
+	}
+	for _, required := range []string{
+		`[data-page-view="routing"]`,
+		`[data-page-view="network"]`,
+		`const page = qs('[data-page-view="routing"],[data-page-view="network"]');`,
+		`:is([data-page-view="routing"],[data-page-view="network"]).fn-routing-v2>.card.fn-routing-v2-legacy`,
+		`routingV2Workspace`,
+		`Config Studio`,
+	} {
+		if !strings.Contains(canonical, required) {
+			t.Fatalf("canonical Routing v2 source missing %q", required)
+		}
+	}
+}
+
 func TestRoutingApplyUIClosesCanonicalRouteRace(t *testing.T) {
 	automation, err := automationWebFS.ReadFile("web/automation.js")
 	if err != nil {
@@ -19,13 +43,17 @@ func TestRoutingApplyUIClosesCanonicalRouteRace(t *testing.T) {
 	for _, required := range []string{
 		`[data-page-view="routing"]`,
 		`[data-page-view="network"]`,
-		`/routing-v2.js?canonical-retry=1`,
 		`routingV2Workspace`,
 		`policyBuilderPreview`,
+		`showMountFailure`,
+		`Live routing не изменён. Применение заблокировано.`,
 	} {
 		if !strings.Contains(js, required) {
 			t.Fatalf("routing canonical compatibility layer missing %q", required)
 		}
+	}
+	if strings.Contains(js, `/routing-v2.js?canonical-retry=1`) {
+		t.Fatal("canonical apply layer must not retry the historical raw Routing v2 asset")
 	}
 }
 
@@ -66,7 +94,7 @@ func TestCanonicalIndexEmbedsRoutingApplyUI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	routingAt := strings.Index(html, `<script src="/routing-v2.js"></script>`)
+	routingAt := strings.Index(html, `<script id="freenetRoutingV2">`)
 	applyAt := strings.Index(html, `<script id="freenetRoutingApplyUI">`)
 	releaseAt := strings.Index(html, `id="freenetCanonicalBootRelease"`)
 	if routingAt < 0 || applyAt < 0 || releaseAt < 0 {
@@ -74,5 +102,8 @@ func TestCanonicalIndexEmbedsRoutingApplyUI(t *testing.T) {
 	}
 	if !(routingAt < applyAt && applyAt < releaseAt) {
 		t.Fatalf("routing apply compatibility must load after Routing v2 and before boot release: routing=%d apply=%d release=%d", routingAt, applyAt, releaseAt)
+	}
+	if strings.Contains(html, `<script src="/routing-v2.js"></script>`) {
+		t.Fatal("canonical shell must not depend on the historical raw Routing v2 asset")
 	}
 }
