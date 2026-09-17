@@ -104,15 +104,16 @@ let localPending=`
 	canonicalLabels := `const pageLabels={overview:'Обзор',subscription:'Подписка'}`
 	raw = raw[:labelsAt] + canonicalLabels + raw[labelsEndAt:]
 
-	// Settings DNS, Routing v2, VPN-state reconciliation, Settings profile-label
-	// hygiene and Overview quality memory are canonical progressive enhancements.
-	// The production shell receives a sanitized inline Routing v2 source: it parses
-	// correctly and mounts against either `routing` or the legacy `network` anchor.
+	// Settings DNS, Routing v2, Config Studio parity, VPN-state reconciliation,
+	// Settings profile-label hygiene and Overview quality memory are canonical
+	// progressive enhancements. The production shell receives a sanitized inline
+	// Routing v2 source, then the Config Studio layer upgrades only its config panel.
 	if !strings.Contains(raw, `</body>`) {
 		return "", errors.New("control center body end marker is missing")
 	}
 	routingV2 := `<script id="freenetRoutingV2">` + canonicalRoutingV2Script() + `</script>`
-	progressive := `<script src="/api/settings-v3/assets/dns-ui.js"></script>` + routingV2
+	configStudio := `<script id="freenetConfigStudioParity">` + string(configStudioParityAsset) + `</script>`
+	progressive := `<script src="/api/settings-v3/assets/dns-ui.js"></script>` + routingV2 + configStudio
 	vpnReconcile := `<script id="freenetVPNSelectorReconcile">` + string(vpnSelectorReconcileAsset) + `</script>`
 	routingApply := `<script id="freenetRoutingApplyUI">` + string(routingApplyUIAsset) + `</script>`
 	profileHygiene := `<script id="freenetProfileLabelHygiene">` + string(profileLabelHygieneAsset) + `</script>`
