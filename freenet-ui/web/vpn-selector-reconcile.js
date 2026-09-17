@@ -1,5 +1,6 @@
 (() => {
   const pendingTitles = new Set(['Требуется проверка состояния', 'Связь прервалась']);
+  const flagPrefix = /^[\u{1F1E6}-\u{1F1FF}]{2}\s+/u;
 
   function qs(selector, root = document) {
     return root.querySelector(selector);
@@ -122,32 +123,54 @@
     });
   }
 
+  function settingsGearSVG() {
+    return '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"></path><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4a1.65 1.65 0 0 0-1 .6 1.65 1.65 0 0 0-.36 1.05V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 8.6 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-.6-1 1.65 1.65 0 0 0-1.05-.36H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 8.6a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6c.38-.16.72-.39 1-.7A1.65 1.65 0 0 0 10.36 3V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 15.4 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.16.38.39.72.7 1 .31.28.69.44 1.1.44H21a2 2 0 1 1 0 4h-.09A1.65 1.65 0 0 0 19.4 15Z"></path></svg>';
+  }
+
   function ensureSettingsNavStable() {
     const nav = qs('.nav');
     if (!nav) return;
-    const settings = qs('.nav-btn[data-page="settings"]', nav);
-    if (settings) {
-      settings.hidden = false;
-      settings.removeAttribute('aria-hidden');
-      settings.style.removeProperty('display');
-      return;
+    let settings = qs('.nav-btn[data-page="settings"]', nav);
+    if (!settings) {
+      const before = qs('.nav-btn[data-page="network"]', nav) || qs('.nav-btn[data-page="routing"]', nav);
+      settings = document.createElement('button');
+      settings.type = 'button';
+      settings.className = 'nav-btn';
+      settings.dataset.page = 'settings';
+      settings.innerHTML = `<span class="nav-icon">${settingsGearSVG()}</span><span>Настройки</span>`;
+      settings.addEventListener('click', () => {
+        location.hash = '#settings';
+        if (typeof showPage === 'function') showPage('settings');
+      });
+      nav.insertBefore(settings, before || null);
     }
-    const before = qs('.nav-btn[data-page="network"]', nav) || qs('.nav-btn[data-page="routing"]', nav);
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'nav-btn';
-    button.dataset.page = 'settings';
-    button.innerHTML = '<span class="nav-icon">⚙</span><span>Настройки</span>';
-    button.addEventListener('click', () => {
-      location.hash = '#settings';
-      if (typeof showPage === 'function') showPage('settings');
+    settings.hidden = false;
+    settings.removeAttribute('aria-hidden');
+    settings.style.removeProperty('display');
+    const icon = qs('.nav-icon', settings);
+    if (icon) icon.innerHTML = settingsGearSVG();
+  }
+
+  function stripLeadingFlagText(node) {
+    if (!node || !node.childNodes || node.querySelector?.('.flag-icon')) return;
+    node.childNodes.forEach(child => {
+      if (child.nodeType === Node.TEXT_NODE && flagPrefix.test(child.textContent || '')) {
+        child.textContent = String(child.textContent || '').replace(flagPrefix, '');
+      }
     });
-    nav.insertBefore(button, before || null);
+  }
+
+  function normalizeCurrentVPNFlags() {
+    qsa('.card, .hero, #settingsPage, [data-page-view="settings"], [data-page-view="overview"]').forEach(root => {
+      if (!String(root.textContent || '').includes('Текущий VPN')) return;
+      qsa('h1,h2,h3,h4,strong,b,.country-name,.profile-name,.current-vpn-name,.fn-current-vpn-title', root).forEach(stripLeadingFlagText);
+    });
   }
 
   function mountGuards() {
     patchSubscriptionCopy();
     ensureSettingsNavStable();
+    normalizeCurrentVPNFlags();
   }
 
   if (typeof updateStatusViews === 'function') {
