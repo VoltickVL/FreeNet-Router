@@ -29,6 +29,8 @@ type xrayServiceResponse struct {
 func registerXrayServiceAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/xray/service", a.requireAuth(a.handleXrayServiceGet))
 	mux.HandleFunc("POST /api/xray/service", a.requireAuth(a.handleXrayServicePost))
+	mux.HandleFunc("GET /api/xray/core/catalog", a.requireAuth(a.handleXrayCoreCatalog))
+	mux.HandleFunc("POST /api/xray/core/apply", a.requireAuth(a.handleXrayCoreApply))
 }
 
 func xrayServiceEvents(limit int) []automationEvent {
