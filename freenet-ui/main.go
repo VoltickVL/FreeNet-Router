@@ -275,7 +275,7 @@ func main() {
 		loopbackListener, err := net.Listen("tcp", loopbackAddr)
 		if err != nil {
 			_ = lanListener.Close()
-			log.Fatalf("cannot listen on %s: %v", loopbackAddr)
+			log.Fatalf("cannot listen on %s: %v", loopbackAddr, err)
 		}
 		listeners = append(listeners, loopbackListener)
 	}
