@@ -46,6 +46,7 @@ func registerGeoDataAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/geodata/search", a.requireAuth(a.handleGeoDataSearch))
 	registerPolicyPreviewAPI(mux, a)
 	registerRoutingConfigAPI(mux, a)
+	registerConfigStudioAPI(mux, a)
 	registerHardwareCapabilityAPI(mux, a)
 	registerBestServerQualityAPI(mux, a)
 	registerBestServerUXAPI(mux, a)
