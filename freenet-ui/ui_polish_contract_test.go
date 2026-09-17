@@ -17,12 +17,7 @@ func TestUIPolishContract(t *testing.T) {
 		"settingsGearSVG",
 		"normalizeCurrentVPNFlags",
 		"flagPrefix",
-		"frnRoutingApplyPanel",
-		"/api/routing/config",
-		"/api/routing/validate",
-		"/api/routing/apply",
-		"ROLLBACK FAILED",
-		"STOP",
+		"stripLeadingFlagText",
 	}
 	for _, token := range required {
 		if !strings.Contains(js, token) {
@@ -31,6 +26,9 @@ func TestUIPolishContract(t *testing.T) {
 	}
 
 	forbidden := []string{
+		"method: 'POST'",
+		"/api/routing/apply",
+		"/api/network-profile/apply",
 		"subscription_url",
 		"vless://",
 		"shortId",
@@ -38,7 +36,7 @@ func TestUIPolishContract(t *testing.T) {
 	}
 	for _, token := range forbidden {
 		if strings.Contains(js, token) {
-			t.Fatalf("vpn selector reconcile asset must not expose secret token %q", token)
+			t.Fatalf("vpn selector reconcile asset must not contain %q", token)
 		}
 	}
 }
