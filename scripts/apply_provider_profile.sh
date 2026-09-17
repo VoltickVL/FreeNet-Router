@@ -9,6 +9,7 @@ ASSET_DIR="${FREENET_ASSET_DIR:-/opt/etc/xray/dat}"
 OUT_FILE="$CONFIG_DIR/04_outbounds.json"
 PROFILE_FILE="${FREENET_PROFILE_FILE:-/opt/etc/freenet/vpn_profile_name}"
 FILTER_FILE="${FREENET_FILTER_FILE:-/opt/etc/xray/blanc_profile_filter.regex}"
+HISTORY_FILE="${FREENET_AUTOMATION_HISTORY:-/opt/var/log/freenet-automation.history}"
 XRAY_BIN="${FREENET_XRAY_BIN:-/opt/sbin/xray}"
 XKEEN_BIN="${FREENET_XKEEN_BIN:-/opt/sbin/xkeen}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
@@ -113,6 +114,19 @@ sanitize_name() {
             ;;
         *)
             printf '%s\n' "$NAME_OUT"
+            ;;
+    esac
+}
+
+sanitize_history() {
+    TEXT="$(printf '%s' "$1" | tr '\r\n\t' '   ')"
+    LOWER="$(printf '%s' "$TEXT" | tr '[:upper:]' '[:lower:]')"
+    case "$LOWER" in
+        *vless://*|*https://*|*http://*|*uuid=*|*pbk=*|*sid=*|*publickey=*|*private-token*)
+            printf '%s\n' 'redacted provider switch event'
+            ;;
+        *)
+            printf '%s\n' "$TEXT"
             ;;
     esac
 }
@@ -333,9 +347,22 @@ rollback_state() {
     [ "$RB" -eq 0 ]
 }
 
+append_provider_history() {
+    RESULT="$(sanitize_history "$1")"
+    MESSAGE="$(sanitize_history "$2")"
+    [ -n "$RESULT" ] || RESULT='unknown'
+    [ -n "$MESSAGE" ] || MESSAGE='provider VPN switch'
+    mkdir -p "$(dirname "$HISTORY_FILE")" 2>/dev/null || return 0
+    printf '%s\t%s\t%s\t%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" 'VPN switch' "$RESULT" "$MESSAGE" >> "$HISTORY_FILE" 2>/dev/null || return 0
+    if [ -f "$HISTORY_FILE" ]; then
+        awk 'NF { lines[++n]=$0 } END { start=n-49; if (start<1) start=1; for (i=start;i<=n;i++) print lines[i] }' "$HISTORY_FILE" > "$HISTORY_FILE.trim.$$" 2>/dev/null && mv -f "$HISTORY_FILE.trim.$$" "$HISTORY_FILE" 2>/dev/null || rm -f "$HISTORY_FILE.trim.$$" 2>/dev/null || true
+    fi
+}
+
 fail_apply() {
     MESSAGE="$1"
     err "PRIMARY ERROR: $MESSAGE"
+    append_provider_history 'failed' "VPN server apply failed: $MESSAGE"
     if [ "$APPLIED" -eq 1 ] && [ "$ROLLBACK_ACTIVE" -eq 0 ]; then
         if rollback_state; then
             err 'ROLLBACK ERROR/STATE: rollback success'
@@ -356,7 +383,7 @@ case "$REQUESTED_ID" in
 esac
 [ "${#REQUESTED_ID}" -eq 16 ] || { err 'PROFILE_ID must be 16 lowercase hex characters'; exit 2; }
 
-for C in jq sed awk grep tr head base64 sha256sum mktemp cp mv mkdir dirname pidof; do
+for C in jq sed awk grep tr head base64 sha256sum mktemp cp mv mkdir dirname pidof date; do
     command -v "$C" >/dev/null 2>&1 || { err "required command missing: $C"; exit 1; }
 done
 [ -x "$XRAY_BIN" ] || { err 'Xray binary is missing'; exit 1; }
@@ -433,5 +460,6 @@ restart_if_needed || fail_apply 'Xray/XKeen runtime acceptance failed after prov
 XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
     || fail_apply 'live Xray configuration validation failed after provider apply'
 
+append_provider_history 'success' "VPN server applied: $SELECTED_NAME · $SELECTED_ADDRESS:$SELECTED_PORT"
 say '[FreeNet Provider] RESULT=SUCCESS'
 say '[FreeNet Provider] ROLLBACK=NOT_NEEDED'
