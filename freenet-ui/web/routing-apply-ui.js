@@ -31,8 +31,8 @@
     if (!page || !q('#routingV2Workspace', page)) return;
     page.classList.add('fn-routing-v2');
     const head = q('.page-head', page);
-    if (head) {
-      head.innerHTML = '<div><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Правила DIRECT / VPN / BLOCK, Config Studio и безопасное применение с проверкой и откатом.</p></div>';
+    if (head && !q('[data-routing-v2-head="1"]', head)) {
+      head.innerHTML = '<div data-routing-v2-head="1"><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Правила DIRECT / VPN / BLOCK, Config Studio и безопасное применение с проверкой и откатом.</p></div>';
     }
   }
 
@@ -282,7 +282,9 @@
     const page = routingPage();
     const head = page && q('.page-head', page);
     if (head && typeof MutationObserver === 'function') {
-      new MutationObserver(() => canonicalHead(page)).observe(head, {childList:true,subtree:true,characterData:true});
+      new MutationObserver(() => {
+        if (!q('[data-routing-v2-head="1"]', head)) canonicalHead(page);
+      }).observe(head, {childList:true,subtree:true,characterData:true});
     }
   }
 
