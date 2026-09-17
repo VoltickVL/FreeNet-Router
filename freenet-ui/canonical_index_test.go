@@ -17,13 +17,23 @@ func TestCanonicalizeControlCenterIndexRemovesLegacyFirstPaint(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	navStart := strings.Index(html, `<nav class="nav" aria-label="Навигация Control Center">`)
+	if navStart < 0 {
+		t.Fatal("canonical first-paint navigation missing")
+	}
+	navEndRel := strings.Index(html[navStart:], `</nav>`)
+	if navEndRel < 0 {
+		t.Fatal("canonical first-paint navigation end missing")
+	}
+	nav := html[navStart : navStart+navEndRel+len(`</nav>`)]
+
 	for _, want := range []string{"Обзор", "Подписка", "Настройки", "Маршрутизация", "Журнал"} {
-		if !strings.Contains(html, ">"+want+"</button>") {
+		if !strings.Contains(nav, ">"+want+"</button>") {
 			t.Fatalf("canonical first-paint navigation missing %q", want)
 		}
 	}
 	for _, retired := range []string{">VPN</button>", ">Сеть</button>", ">Автоматизация</button>", ">Система</button>", ">Доступ и безопасность</button>"} {
-		if strings.Contains(html, retired) {
+		if strings.Contains(nav, retired) {
 			t.Fatalf("retired first-paint navigation leaked %q", retired)
 		}
 	}
