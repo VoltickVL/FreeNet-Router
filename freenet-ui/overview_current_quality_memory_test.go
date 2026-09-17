@@ -26,11 +26,11 @@ func TestOverviewCurrentQualityMemoryDeliveredAfterAcceptedUX(t *testing.T) {
 			t.Fatalf("overview quality memory contract missing %q", want)
 		}
 	}
-	acceptedAt := strings.Index(html, `/operation-coordinator.js?v=v`)
+	acceptedAt := strings.Index(html, `/accepted-ux.js?v=v`)
 	memoryAt := strings.Index(html, `id="freenetOverviewCurrentQualityMemory"`)
 	releaseAt := strings.Index(html, `id="freenetCanonicalBootRelease"`)
 	if acceptedAt < 0 || memoryAt < acceptedAt || releaseAt < memoryAt {
-		t.Fatalf("quality memory delivery order invalid: coordinator=%d memory=%d release=%d", acceptedAt, memoryAt, releaseAt)
+		t.Fatalf("quality memory delivery order invalid: accepted=%d memory=%d release=%d", acceptedAt, memoryAt, releaseAt)
 	}
 }
 
