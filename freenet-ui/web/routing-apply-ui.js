@@ -4,12 +4,10 @@
   window.__freenetRoutingApplyUILoaded = true;
 
   const q = (selector, root = document) => root.querySelector(selector);
-  const qa = (selector, root = document) => Array.from(root.querySelectorAll(selector));
   const originalFetch = window.fetch.bind(window);
   let validatedCandidate = null;
   let liveBaseline = null;
   let stopLatched = false;
-  let fallbackLoading = false;
 
   function routingPage() {
     return q('[data-page-view="routing"]') || q('[data-page-view="network"]');
@@ -242,36 +240,24 @@
     return true;
   }
 
-  function loadRoutingV2Fallback() {
-    if (fallbackLoading || q('#routingV2Workspace')) return;
+  function showMountFailure() {
     const page = routingPage();
-    if (!page) return;
-    fallbackLoading = true;
-    const canonicalValue = page.dataset.pageView;
-    if (canonicalValue === 'routing') page.dataset.pageView = 'network';
-    const script = document.createElement('script');
-    script.src = '/routing-v2.js?canonical-retry=1';
-    script.async = false;
-    script.onload = () => {
-      page.dataset.pageView = 'routing';
-      fallbackLoading = false;
-      enhanceWorkspace();
-    };
-    script.onerror = () => {
-      page.dataset.pageView = canonicalValue || 'routing';
-      fallbackLoading = false;
-      q('#policyBuilderPreview', page)?.remove();
-      const head = q('.page-head', page);
-      if (head) head.insertAdjacentHTML('afterend', '<div class="card"><div class="notice show bad">Routing v2 UI не загрузился. Live routing не изменён.</div></div>');
-    };
-    document.head.appendChild(script);
+    if (!page || q('#routingV2MountFailure', page)) return;
+    q('#policyBuilderPreview', page)?.remove();
+    const failure = document.createElement('div');
+    failure.id = 'routingV2MountFailure';
+    failure.className = 'card';
+    failure.innerHTML = '<div class="notice show bad">Routing v2 UI не загрузился. Live routing не изменён. Применение заблокировано.</div>';
+    const head = q('.page-head', page);
+    if (head) head.insertAdjacentElement('afterend', failure);
+    else page.prepend(failure);
   }
 
   function settle() {
     installCompatibilityStyle();
     const page = routingPage();
     if (!page) return;
-    if (!enhanceWorkspace()) loadRoutingV2Fallback();
+    if (!enhanceWorkspace()) showMountFailure();
     canonicalHead(page);
   }
 
