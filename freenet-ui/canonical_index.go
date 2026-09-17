@@ -111,8 +111,9 @@ let localPending=`
 	if !strings.Contains(raw, `</body>`) {
 		return "", errors.New("control center body end marker is missing")
 	}
-	progressive := `<script src="/api/settings-v3/assets/dns-ui.js"></script><script src="/routing-v2.js"></script><script src="/vpn-selector-reconcile.js?v=v` + version + `"></script>`
-	raw = strings.Replace(raw, `</body>`, progressive+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
+	progressive := `<script src="/api/settings-v3/assets/dns-ui.js"></script><script src="/routing-v2.js"></script>`
+	vpnReconcile := `<script id="freenetVPNSelectorReconcile">` + string(vpnSelectorReconcileAsset) + `</script>`
+	raw = strings.Replace(raw, `</body>`, progressive+vpnReconcile+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
 	return raw, nil
 }
 
