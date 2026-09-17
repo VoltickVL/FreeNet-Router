@@ -80,7 +80,8 @@ func buildPolicyISPPresets() ([]policyISPPresetTemplate, error) {
 		if !ok {
 			return nil, errors.New("policy ISP preset references unknown ISP")
 		}
-		compiled, err := CompilePolicy(spec.Rules)
+		rules := append([]PolicyRule{}, spec.Rules...)
+		compiled, err := CompilePolicy(rules)
 		if err != nil {
 			return nil, err
 		}
@@ -88,7 +89,7 @@ func buildPolicyISPPresets() ([]policyISPPresetTemplate, error) {
 			ID:           spec.ID,
 			Name:         meta.Label,
 			YouTubeRoute: spec.YouTubeRoute,
-			Rules:        spec.Rules,
+			Rules:        rules,
 			Compiled:     compiled,
 			Message:      spec.Message,
 		})
