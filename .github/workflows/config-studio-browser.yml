@@ -6,6 +6,7 @@ on:
       - 'freenet-ui/**'
       - 'tests/test_config_studio_parity.cjs'
       - 'tests/test_config_studio_ux.cjs'
+      - 'tests/test_xray_core_manager_ui.cjs'
       - '.github/workflows/config-studio-browser.yml'
 
 permissions:
@@ -32,3 +33,7 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/freenet-config-studio-browser/node_modules
         run: node tests/test_config_studio_ux.cjs
+      - name: Xray Core Manager selector and clean Config Studio UX
+        env:
+          NODE_PATH: ${{ runner.temp }}/freenet-config-studio-browser/node_modules
+        run: node tests/test_xray_core_manager_ui.cjs
