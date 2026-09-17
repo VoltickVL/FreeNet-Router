@@ -7,6 +7,10 @@
   let busy = false;
   let service = null;
 
+  function setText(node, text) {
+    if (node && node.textContent !== text) node.textContent = text;
+  }
+
   function installStyles() {
     if (qs('#configStudioUXStyles')) return;
     const style = document.createElement('style');
@@ -46,8 +50,9 @@
   function setNotice(text, type = '') {
     const box = qs('#csNotice');
     if (!box) return;
-    box.textContent = text || '';
-    box.className = `cs-notice${text ? ' show' : ''}${type ? ' ' + type : ''}`;
+    setText(box, text || '');
+    const nextClass = `cs-notice${text ? ' show' : ''}${type ? ' ' + type : ''}`;
+    if (box.className !== nextClass) box.className = nextClass;
   }
 
   function renderService(body) {
@@ -56,11 +61,12 @@
     const version = qs('#csServiceVersion');
     const restart = qs('#csRestartXray');
     if (status) {
-      status.textContent = service.online ? 'Работает' : 'Остановлен';
-      status.className = `cs-service-status ${service.online ? 'ok' : 'bad'}`;
+      setText(status, service.online ? 'Работает' : 'Остановлен');
+      const nextClass = `cs-service-status ${service.online ? 'ok' : 'bad'}`;
+      if (status.className !== nextClass) status.className = nextClass;
     }
-    if (version) version.textContent = service.version ? `v${String(service.version).replace(/^v/i,'')}` : 'Версия неизвестна';
-    if (restart) restart.disabled = busy;
+    if (version) setText(version, service.version ? `v${String(service.version).replace(/^v/i,'')}` : 'Версия неизвестна');
+    if (restart && restart.disabled !== busy) restart.disabled = busy;
     const list = qs('#csServiceJournalList');
     if (list) {
       list.textContent = '';
@@ -93,7 +99,7 @@
   async function restartXray() {
     if (busy) return;
     busy = true; renderService(service || {});
-    const button = qs('#csRestartXray'); if (button) button.textContent = 'Перезапускаю…';
+    const button = qs('#csRestartXray'); setText(button, 'Перезапускаю…');
     setNotice('Проверяю конфигурацию и перезапускаю Xray…');
     try {
       const response = await fetch('/api/xray/service', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'restart'}),cache:'no-store'});
@@ -106,7 +112,7 @@
       await loadService();
     } finally {
       busy = false;
-      if (button) button.textContent = 'Перезапустить';
+      setText(button, 'Перезапустить');
       renderService(service || {});
     }
   }
@@ -120,12 +126,12 @@
   function simplifyControls() {
     const shell = qs('.cs-shell');
     if (!shell) return false;
-    const title = qs('.cs-title h2', shell); if (title) title.textContent = 'Конфигурация Xray';
-    const copy = qs(':scope > .rv2-copy', shell); if (copy) copy.textContent = 'Редактирование конфигов Xray и списков XKeen.';
-    const format = qs('#csFormat'); if (format) format.textContent = 'Формат';
-    const validate = qs('#csValidate'); if (validate) validate.textContent = 'Проверить';
-    const reset = qs('#csReset'); if (reset) reset.textContent = 'Отменить';
-    const apply = qs('#csApply'); if (apply) apply.textContent = 'Сохранить';
+    setText(qs('.cs-title h2', shell), 'Конфигурация Xray');
+    setText(qs(':scope > .rv2-copy', shell), 'Редактирование конфигов Xray и списков XKeen.');
+    setText(qs('#csFormat'), 'Формат');
+    setText(qs('#csValidate'), 'Проверить');
+    setText(qs('#csReset'), 'Отменить');
+    setText(qs('#csApply'), 'Сохранить');
     qsa('.cs-safe-note').forEach(node => node.remove());
     const xray = qs('#csXray'); if (xray) xray.remove();
     if (!qs('#csService', shell)) {
@@ -143,7 +149,8 @@
   function syncActiveKind() {
     const shell = qs('.cs-shell'); if (!shell) return;
     const name = qs('.cs-tab.active')?.dataset.tab || '';
-    shell.classList.toggle('cs-list-view', LIST_TABS.has(name));
+    const shouldList = LIST_TABS.has(name);
+    if (shell.classList.contains('cs-list-view') !== shouldList) shell.classList.toggle('cs-list-view', shouldList);
   }
 
   function polish() {
@@ -152,8 +159,17 @@
     syncActiveKind();
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', polish, {once:true});
-  else polish();
-  const observer = new MutationObserver(() => polish());
-  observer.observe(document.documentElement, {childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+  function start() {
+    polish();
+    document.addEventListener('click', event => {
+      if (!event.target.closest?.('.cs-tab')) return;
+      setTimeout(syncActiveKind, 0);
+    });
+    const root = document.body || document.documentElement;
+    const observer = new MutationObserver(() => polish());
+    observer.observe(root, {childList:true, subtree:true});
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, {once:true});
+  else start();
 })();

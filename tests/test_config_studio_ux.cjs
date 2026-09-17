@@ -70,6 +70,12 @@ const server = http.createServer((req, res) => {
     await page.waitForSelector('#csServiceVersion');
     await page.waitForFunction(() => document.querySelector('#csServiceVersion')?.textContent.includes('26.9.9'));
 
+    const browserAlive = await Promise.race([
+      page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('alive'), 60))),
+      new Promise(resolve => setTimeout(() => resolve('starved'), 1200))
+    ]);
+    assert.equal(browserAlive, 'alive', 'Config Studio observer must not starve the browser event loop');
+
     const visibleText = await page.locator('body').innerText();
     assert(!visibleText.includes('READ ONLY'), 'technical READ ONLY status must not be visible');
     assert(!visibleText.includes('DRAFT'), 'technical DRAFT status must not be visible');
@@ -87,6 +93,14 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('#csReset').textContent(), 'Отменить');
     assert.equal(await page.locator('#csApply').textContent(), 'Сохранить');
 
+    await page.evaluate(() => {
+      document.querySelectorAll('.cs-tab').forEach(node => node.classList.remove('active'));
+      const tab = document.querySelector('[data-tab="ip_exclude"]');
+      tab.classList.add('active');
+      tab.click();
+    });
+    await page.waitForFunction(() => document.querySelector('.cs-shell')?.classList.contains('cs-list-view'));
+
     await page.locator('#csToggleJournal').click();
     await page.waitForFunction(() => document.querySelector('#csServiceJournal')?.classList.contains('show'));
     assert((await page.locator('#csServiceJournal').innerText()).includes('Предыдущая операция Xray завершена.'));
@@ -97,9 +111,18 @@ const server = http.createServer((req, res) => {
     assert((await page.locator('#csServiceStatus').innerText()).includes('Работает'));
     assert((await page.locator('#csServiceJournal').innerText()).includes('Xray перезапущен через FreeNet.'));
 
-    await page.waitForTimeout(150);
+    const afterMutationAlive = await Promise.race([
+      page.evaluate(() => new Promise(resolve => {
+        const probe = document.createElement('div');
+        probe.textContent = 'observer-probe';
+        document.body.appendChild(probe);
+        setTimeout(() => resolve('alive'), 60);
+      })),
+      new Promise(resolve => setTimeout(() => resolve('starved'), 1200))
+    ]);
+    assert.equal(afterMutationAlive, 'alive', 'unrelated DOM mutation must not trigger a runaway observer loop');
     assert.equal(restartPosts, 1, 'observer/rerender must not repeat restart automatically');
-    console.log('Config Studio simplified UX + Xray restart journal: OK');
+    console.log('Config Studio simplified UX + responsive observer + Xray restart journal: OK');
   } finally {
     await browser.close();
     server.close();
