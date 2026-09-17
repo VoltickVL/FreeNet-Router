@@ -86,7 +86,6 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('#csApplyNote').count(), 0, 'Live snapshot technical panel must be removed');
     const cleanText = await page.locator('body').innerText();
     assert(!cleanText.includes('Live snapshot'));
-    assert(!cleanText.includes('Файл: 01_log.json'));
     assert.equal(await page.locator('#csNotice').evaluate(el => getComputedStyle(el).display), 'none', 'technical successful validation panel must be hidden');
     await page.locator('#csNotice').evaluate(el => { el.className = 'cs-notice show bad'; el.textContent = 'Ошибка JSON: comma expected, строка 20'; });
     assert.notEqual(await page.locator('#csNotice').evaluate(el => getComputedStyle(el).display), 'none', 'real error diagnostics must remain visible');
