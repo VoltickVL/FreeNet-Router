@@ -110,6 +110,9 @@ func validXrayCoreTag(tag string) bool {
 	if len(tag) < 2 || len(tag) > 48 || tag[0] != 'v' {
 		return false
 	}
+	if tag[1] < '0' || tag[1] > '9' {
+		return false
+	}
 	for _, r := range tag[1:] {
 		if (r >= '0' && r <= '9') || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '.' || r == '-' || r == '+' {
 			continue
