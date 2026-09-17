@@ -16,13 +16,16 @@ func TestCanonicalIndexDeliversRoutingV2BeforeBootRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	routingAt := strings.Index(html, `<script src="/routing-v2.js"></script>`)
+	routingAt := strings.Index(html, `<script id="freenetRoutingV2">`)
 	releaseAt := strings.Index(html, `id="freenetCanonicalBootRelease"`)
 	if routingAt < 0 {
 		t.Fatal("canonical shell does not deliver Routing v2")
 	}
 	if releaseAt < 0 || routingAt > releaseAt {
 		t.Fatalf("Routing v2 must load before canonical boot release: routing=%d release=%d", routingAt, releaseAt)
+	}
+	if strings.Contains(html, `<script src="/routing-v2.js"></script>`) {
+		t.Fatal("canonical shell must not request the historical raw Routing v2 asset")
 	}
 }
 

@@ -105,15 +105,17 @@ let localPending=`
 	raw = raw[:labelsAt] + canonicalLabels + raw[labelsEndAt:]
 
 	// Settings DNS, Routing v2, delayed VPN-state reconciliation and Overview
-	// quality memory are canonical progressive enhancements. Routing v2 mounts on
-	// the existing network page before the boot gate is released, so the user never
-	// sees the retired routing card first.
+	// quality memory are canonical progressive enhancements. The production shell
+	// receives a sanitized inline Routing v2 source: it parses correctly and mounts
+	// against either the canonical `routing` route or the legacy `network` anchor.
 	if !strings.Contains(raw, `</body>`) {
 		return "", errors.New("control center body end marker is missing")
 	}
-	progressive := `<script src="/api/settings-v3/assets/dns-ui.js"></script><script src="/routing-v2.js"></script>`
+	routingV2 := `<script id="freenetRoutingV2">` + canonicalRoutingV2Script() + `</script>`
+	progressive := `<script src="/api/settings-v3/assets/dns-ui.js"></script>` + routingV2
 	vpnReconcile := `<script id="freenetVPNSelectorReconcile">` + string(vpnSelectorReconcileAsset) + `</script>`
-	raw = strings.Replace(raw, `</body>`, progressive+vpnReconcile+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
+	routingApply := `<script id="freenetRoutingApplyUI">` + string(routingApplyUIAsset) + `</script>`
+	raw = strings.Replace(raw, `</body>`, progressive+vpnReconcile+routingApply+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
 	return raw, nil
 }
 

@@ -1,0 +1,29 @@
+name: FreeNet Routing v2 Browser CI
+
+on:
+  pull_request:
+    paths:
+      - 'freenet-ui/**'
+      - 'tests/test_routing_v2_ui.cjs'
+      - '.github/workflows/routing-v2-browser.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  routing-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/freenet-routing-browser" --no-package-lock --ignore-scripts playwright@1.51.1
+          node "$RUNNER_TEMP/freenet-routing-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Routing v2 canonical mount and controlled apply
+        env:
+          NODE_PATH: ${{ runner.temp }}/freenet-routing-browser/node_modules
+        run: node tests/test_routing_v2_ui.cjs
