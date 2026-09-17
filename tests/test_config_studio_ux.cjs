@@ -75,8 +75,12 @@ const server = http.createServer((req, res) => {
     assert(!visibleText.includes('DRAFT'), 'technical DRAFT status must not be visible');
     assert(!visibleText.includes('MUTATION'), 'technical MUTATION status must not be visible');
     assert(visibleText.includes('Конфигурация Xray'));
-    assert(visibleText.includes('Конфиги Xray'));
-    assert(visibleText.includes('Списки XKeen'));
+    const groupLabels = await page.evaluate(() => ({
+      main: getComputedStyle(document.querySelector('#csTabsMain'), '::before').content,
+      lists: getComputedStyle(document.querySelector('#csTabsLists'), '::before').content
+    }));
+    assert(groupLabels.main.includes('Конфиги Xray'));
+    assert(groupLabels.lists.includes('Списки XKeen'));
     assert(visibleText.includes('v26.9.9'));
     assert.equal(await page.locator('#csFormat').textContent(), 'Формат');
     assert.equal(await page.locator('#csValidate').textContent(), 'Проверить');
