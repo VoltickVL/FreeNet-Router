@@ -9,6 +9,11 @@
     return Array.from(root.querySelectorAll(selector));
   }
 
+  function deferMountGuards() {
+    if (typeof queueMicrotask === 'function') queueMicrotask(mountGuards);
+    else Promise.resolve().then(mountGuards).catch(() => {});
+  }
+
   function pendingEndpoint() {
     const card = qs('#selectedProfileCard');
     if (!card) return '';
@@ -158,12 +163,12 @@
 
   document.addEventListener('click', event => {
     if (!event.target?.closest?.('#profilesTrigger, #profilesMenu')) return;
-    setTimeout(mountGuards, 0);
+    deferMountGuards();
   }, true);
   document.addEventListener('input', event => {
-    if (event.target?.matches?.('#profileSearch')) setTimeout(mountGuards, 0);
+    if (event.target?.matches?.('#profileSearch')) deferMountGuards();
   }, true);
-  window.addEventListener('hashchange', () => setTimeout(mountGuards, 0));
+  window.addEventListener('hashchange', deferMountGuards);
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountGuards, {once: true});
   else mountGuards();
