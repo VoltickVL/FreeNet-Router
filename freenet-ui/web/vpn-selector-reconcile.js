@@ -1,9 +1,6 @@
 (() => {
   const pendingTitles = new Set(['Требуется проверка состояния', 'Связь прервалась']);
   const flagPrefix = /^[\u{1F1E6}-\u{1F1FF}]{2}\s+/u;
-  let routingPanelMounted = false;
-  let routingDraft = null;
-  let routingValidated = false;
 
   function qs(selector, root = document) {
     return root.querySelector(selector);
@@ -170,161 +167,10 @@
     });
   }
 
-  async function apiJSON(path, options = {}) {
-    const response = await fetch(path, Object.assign({cache: 'no-store'}, options));
-    let body = {};
-    try { body = await response.json(); } catch (_) {}
-    if (!response.ok || body.success === false) throw new Error(body.error || `HTTP ${response.status}`);
-    return body;
-  }
-
-  function routingPage() {
-    const byHash = location.hash === '#routing' || location.hash === '#network';
-    const candidates = qsa('.page.active, [data-page-view="network"], [data-page-view="routing"], .page');
-    return candidates.find(page => byHash && String(page.textContent || '').includes('Маршрутизация')) || null;
-  }
-
-  function routingNotice(text, type = '') {
-    const node = qs('#frnRoutingApplyNotice');
-    if (!node) return;
-    node.textContent = text || '';
-    node.className = `notice show${type ? ' ' + type : ''}`;
-  }
-
-  function routingSetBusy(busy) {
-    qsa('#frnRoutingLoad,#frnRoutingValidate,#frnRoutingApply').forEach(button => { button.disabled = !!busy; });
-  }
-
-  function syncRoutingApplyButtons() {
-    const apply = qs('#frnRoutingApply');
-    const validate = qs('#frnRoutingValidate');
-    if (apply) apply.disabled = !routingValidated;
-    if (validate) validate.disabled = !routingDraft;
-  }
-
-  function renderRoutingDraft(body) {
-    routingDraft = {
-      routing: body.routing || {routing: {domainStrategy: 'AsIs', rules: []}},
-      policy: body.policy || {policy: {}}
-    };
-    routingValidated = false;
-    const preview = qs('#frnRoutingPreview');
-    if (preview) {
-      const routingHash = body.routing_sha256 ? String(body.routing_sha256).slice(0, 12) : 'new';
-      const policyHash = body.policy_sha256 ? String(body.policy_sha256).slice(0, 12) : 'new';
-      preview.textContent = `Managed sections loaded: 05_routing.json ${routingHash} · 06_policy.json ${policyHash}\nRaw 04_outbounds and credentials are not shown. Apply requires validation first.`;
-    }
-    routingNotice('Live managed routing/policy загружены. Это preview: live config ещё не изменён.', 'ok');
-    syncRoutingApplyButtons();
-  }
-
-  async function routingLoad() {
-    routingSetBusy(true);
-    routingNotice('Загружаю managed routing/policy…');
-    try {
-      const body = await apiJSON('/api/routing/config');
-      if (body.mutation !== 'NONE') throw new Error('routing config read contract violated');
-      renderRoutingDraft(body);
-    } catch (error) {
-      routingNotice(`Не удалось загрузить routing config: ${error.message || error}`, 'bad');
-    } finally {
-      routingSetBusy(false);
-      syncRoutingApplyButtons();
-    }
-  }
-
-  async function routingValidate() {
-    if (!routingDraft) return routingLoad();
-    routingSetBusy(true);
-    routingNotice('Проверяю candidate через Xray validation…');
-    try {
-      const body = await apiJSON('/api/routing/validate', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(routingDraft)
-      });
-      if (body.mutation !== 'NONE' || body.xray_valid !== true) throw new Error('candidate validation was not accepted');
-      routingDraft = {routing: body.routing || routingDraft.routing, policy: body.policy || routingDraft.policy};
-      routingValidated = true;
-      routingNotice('Candidate валиден. Можно применить через controlled apply: snapshot → atomic write → post-check → rollback при failure.', 'ok');
-    } catch (error) {
-      routingValidated = false;
-      routingNotice(`Candidate не принят: ${error.message || error}. Live config не изменён.`, 'bad');
-    } finally {
-      routingSetBusy(false);
-      syncRoutingApplyButtons();
-    }
-  }
-
-  function describeApplyResult(body) {
-    const mutation = body.mutation || (body.success ? 'APPLIED' : 'FAILED');
-    const rollback = body.rollback || 'NOT_NEEDED';
-    const snapshot = body.snapshot || body.snapshot_path || '';
-    const parts = [`Result: ${mutation}`, `Rollback: ${rollback}`];
-    if (snapshot) parts.push(`Snapshot: ${snapshot}`);
-    if (body.error) parts.push(`Error: ${body.error}`);
-    if (body.message) parts.push(String(body.message));
-    if (mutation === 'STOP' || rollback === 'FAILED' || rollback === 'UNKNOWN') parts.push('STOP: дальнейшие routing/DNS/VPN mutation запрещены до проверки состояния.');
-    return parts.join('\n');
-  }
-
-  async function routingApply() {
-    if (!routingDraft || !routingValidated) { routingNotice('Сначала загрузите и проверьте candidate.', 'bad'); return; }
-    routingSetBusy(true);
-    routingNotice('Применяю routing transaction…');
-    try {
-      const body = await apiJSON('/api/routing/apply', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(routingDraft)
-      });
-      routingValidated = false;
-      routingNotice(describeApplyResult(body), body.success === false || body.mutation === 'STOP' ? 'bad' : 'ok');
-    } catch (error) {
-      routingNotice(`Apply failed: ${error.message || error}. Если rollback неизвестен — STOP до проверки фактического состояния.`, 'bad');
-    } finally {
-      routingSetBusy(false);
-      syncRoutingApplyButtons();
-    }
-  }
-
-  function mountRoutingApplyPanel() {
-    const page = routingPage();
-    if (!page || qs('#frnRoutingApplyPanel', page)) return;
-    routingPanelMounted = true;
-    const panel = document.createElement('div');
-    panel.id = 'frnRoutingApplyPanel';
-    panel.className = 'card flat';
-    panel.style.marginTop = '14px';
-    panel.innerHTML = `
-      <div class="card-head">
-        <div>
-          <h2 class="card-title-lg">Routing v2 apply</h2>
-          <p class="hint">Controlled apply поверх backend transaction: preview → validation → snapshot → apply → post-check → rollback/STOP.</p>
-        </div>
-        <span class="page-kicker">LIVE MUTATION: CONTROLLED</span>
-      </div>
-      <div class="quick-layout" style="grid-template-columns:repeat(3,minmax(0,1fr));margin-top:10px">
-        <button type="button" class="btn secondary" id="frnRoutingLoad">Загрузить preview</button>
-        <button type="button" class="btn secondary" id="frnRoutingValidate" disabled>Проверить candidate</button>
-        <button type="button" class="btn primary" id="frnRoutingApply" disabled>Применить routing</button>
-      </div>
-      <div id="frnRoutingPreview" class="endpoint" style="align-items:flex-start;white-space:pre-wrap;font-size:12px;color:var(--muted);margin-top:12px">Нажмите «Загрузить preview». Raw outbounds, subscription URL, UUID и Reality credentials не выводятся.</div>
-      <div id="frnRoutingApplyNotice" class="notice show">Backend apply уже доступен; эта панель подключает его к пользовательскому UI.</div>
-    `;
-    const firstCard = qs('.card', page);
-    if (firstCard && firstCard.parentNode) firstCard.parentNode.insertBefore(panel, firstCard.nextSibling);
-    else page.appendChild(panel);
-    qs('#frnRoutingLoad', panel)?.addEventListener('click', routingLoad);
-    qs('#frnRoutingValidate', panel)?.addEventListener('click', routingValidate);
-    qs('#frnRoutingApply', panel)?.addEventListener('click', routingApply);
-  }
-
   function mountGuards() {
     patchSubscriptionCopy();
     ensureSettingsNavStable();
     normalizeCurrentVPNFlags();
-    mountRoutingApplyPanel();
   }
 
   if (typeof updateStatusViews === 'function') {
