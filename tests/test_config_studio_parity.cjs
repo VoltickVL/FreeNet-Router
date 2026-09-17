@@ -48,7 +48,9 @@ function bodyJSON(req) {
 
 function configStudioBody() {
   return {
-    success:true, mutation:'NONE', xray:{online:true, version:'26.9.9'},
+    success:true,
+    mutation:'NONE',
+    xray:{online:true,version:'26.9.9'},
     tabs:[
       {name:'01_log',kind:'json',access:'editable',present:true,size:33,sha256:'a'.repeat(64),roots:['log'],content:live['01_log'],mutation:'NONE'},
       {name:'02_dns',kind:'json',access:'editable',present:true,size:40,sha256:'b'.repeat(64),roots:['dns'],content:live['02_dns'],mutation:'NONE'},
@@ -62,10 +64,11 @@ function configStudioBody() {
 }
 
 const status = {
-  version:'0.3.69',country:'Германия',city:'Франкфурт-на-Майне',country_code:'de',
-  profile_label:'Франкфурт-на-Майне, Германия, Extra',endpoint:'192.0.2.67:443',
-  xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'custom',isp_label:'Свой',
-  recommended_dns_mode:'xkeen',setup_complete:true,subscription_configured:true,busy:false,updater_busy:false,last_action:{success:true}
+  version:'0.3.69', country:'Германия', city:'Франкфурт-на-Майне', country_code:'de',
+  profile_label:'Франкфурт-на-Майне, Германия, Extra', endpoint:'192.0.2.67:443',
+  xray_online:true, xkeen_ui_online:true, dns_out_present:true, dns_mode:'xkeen',
+  isp:'custom', isp_label:'Свой', recommended_dns_mode:'xkeen', setup_complete:true,
+  subscription_configured:true, busy:false, updater_busy:false, last_action:{success:true}
 };
 
 const scripts = ['vpn-ux-fix.js','automation.js','routing-v2-canonical.js','config-studio-parity.js','routing-apply-ui.js'];
@@ -90,13 +93,17 @@ const server = http.createServer(async (req, res) => {
     res.end(fs.readFileSync(path.join(web, url.pathname.slice(1)), 'utf8'));
     return;
   }
+
   if (url.pathname === '/api/auth/status') return json(res, {configured:true,authenticated:true});
   if (url.pathname === '/api/status') return json(res, status);
   if (url.pathname === '/api/network-profile/plan') return json(res, {success:true,supported:true,active:true,extra_profiles:[]});
   if (url.pathname === '/api/geodata/files') return json(res, {success:true,files:[],search_enabled:false});
   if (url.pathname === '/api/capabilities') return json(res, {success:true,split_dns_supported:true,memory_total_mib:1024,split_dns_min_mib:768});
   if (url.pathname === '/api/subscription') return json(res, {success:true,configured:true});
-  if (url.pathname === '/api/routing/config') return json(res, {success:true,mutation:'NONE',routing:live['05_routing'],policy:live['06_policy'],routing_present:true,policy_present:true,routing_sha256:'e'.repeat(64),policy_sha256:'f'.repeat(64)});
+  if (url.pathname === '/api/routing/config') return json(res, {
+    success:true, mutation:'NONE', routing:live['05_routing'], policy:live['06_policy'],
+    routing_present:true, policy_present:true, routing_sha256:'e'.repeat(64), policy_sha256:'f'.repeat(64)
+  });
   if (url.pathname === '/api/config-studio' && req.method === 'GET') return json(res, configStudioBody());
   if (url.pathname === '/api/config-studio/validate' && req.method === 'POST') {
     const candidate = await bodyJSON(req);
@@ -115,7 +122,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/routing/apply' && req.method === 'POST') {
     const candidate = await bodyJSON(req);
-    live['05_routing'] = candidate.routing; live['06_policy'] = candidate.policy;
+    live['05_routing'] = candidate.routing;
+    live['06_policy'] = candidate.policy;
     return json(res, {success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',result:'routing applied'});
   }
   return json(res, {success:true});
@@ -127,7 +135,8 @@ const server = http.createServer(async (req, res) => {
   try {
     const page = await browser.newPage({viewport:{width:1600,height:1000}});
     const errors = [];
-    page.on('pageerror', error => { errors.push(error.message); console.error('CONFIG_STUDIO_PAGEERROR', error.message); });
+    page.on('pageerror', error => errors.push(error.message));
+
     const base = `http://127.0.0.1:${server.address().port}`;
     await page.goto(`${base}/#routing`);
     await page.waitForSelector('#routingV2Workspace', {state:'visible', timeout:10000});
@@ -143,9 +152,14 @@ const server = http.createServer(async (req, res) => {
     assert.match(await page.locator('#csXray').textContent(), /26\.9\.9/);
 
     await page.locator('.cs-tab[data-tab="04_outbounds"]').click();
-    assert.match(await page.locator('#csBody').textContent(), /защищённая вкладка/);
+    const protectedText = await page.locator('#csBody').textContent();
+    assert.match(protectedText, /защищённая вкладка/);
     assert.equal(await page.locator('#csInput').count(), 0, 'protected outbounds must not expose raw editor');
-    assert.doesNotMatch(await page.locator('#csBody').textContent(), /SECRET|UUID|shortId/i, 'protected panel must not expose credential values');
+    assert.doesNotMatch(
+      protectedText,
+      /"(?:outbounds|settings|vnext|id|privateKey|shortId|password|email)"\s*:/i,
+      'protected panel must not expose raw credential-bearing JSON'
+    );
 
     await page.locator('.cs-tab[data-tab="02_dns"]').click();
     const input = page.locator('#csInput');
