@@ -90,14 +90,35 @@ const server = http.createServer(async (req, res) => {
     const page = await browser.newPage({viewport:{width:1600,height:1000}});
     const errors = [];
     const consoleErrors = [];
-    page.on('pageerror', error => errors.push(error.message));
-    page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
-    page.on('requestfailed', req => consoleErrors.push(`requestfailed ${req.method()} ${req.url()} ${req.failure()?.errorText || ''}`));
+    page.on('pageerror', error => { errors.push(error.message); console.error('ROUTING_PAGEERROR', error.message); });
+    page.on('console', msg => { if (msg.type() === 'error') { consoleErrors.push(msg.text()); console.error('ROUTING_CONSOLE_ERROR', msg.text()); } });
+    page.on('requestfailed', req => {
+      const item = `requestfailed ${req.method()} ${req.url()} ${req.failure()?.errorText || ''}`;
+      consoleErrors.push(item); console.error('ROUTING_REQUEST_FAILED', item);
+    });
     page.on('dialog', dialog => dialog.accept());
 
     const base = `http://127.0.0.1:${server.address().port}`;
     await page.goto(`${base}/#routing`);
-    await page.waitForSelector('#routingV2Workspace', {state:'visible', timeout:10000});
+    try {
+      await page.waitForSelector('#routingV2Workspace', {state:'visible', timeout:10000});
+    } catch (error) {
+      const debug = await page.evaluate(() => ({
+        readyState: document.readyState,
+        hash: location.hash,
+        pageViews: [...document.querySelectorAll('[data-page-view]')].map(n => ({view:n.dataset.pageView,active:n.classList.contains('active'),routingV2:n.dataset.routingV2 || ''})),
+        routingLoaded: !!window.__freenetRoutingApplyUILoaded,
+        workspaceCount: document.querySelectorAll('#routingV2Workspace').length,
+        oldPreviewCount: document.querySelectorAll('#policyBuilderPreview').length,
+        retryScripts: [...document.scripts].map(s => s.src).filter(src => src.includes('routing-v2')),
+        bodyText: (document.body?.innerText || '').slice(0,1200)
+      }));
+      console.error('ROUTING_MOUNT_DEBUG', JSON.stringify(debug));
+      console.error('ROUTING_CALLS_DEBUG', JSON.stringify(calls));
+      console.error('ROUTING_ERRORS_DEBUG', JSON.stringify(errors));
+      console.error('ROUTING_CONSOLE_DEBUG', JSON.stringify(consoleErrors));
+      throw error;
+    }
     await page.waitForFunction(() => document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
 
     const mounted = await page.evaluate(() => ({
