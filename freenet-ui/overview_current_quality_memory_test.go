@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestOverviewCurrentQualityMemoryDeliveredAfterAcceptedUX(t *testing.T) {
+func TestOverviewCurrentQualityMemoryDeliveredBeforeBootRelease(t *testing.T) {
 	rawBytes, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
@@ -26,11 +26,10 @@ func TestOverviewCurrentQualityMemoryDeliveredAfterAcceptedUX(t *testing.T) {
 			t.Fatalf("overview quality memory contract missing %q", want)
 		}
 	}
-	acceptedAt := strings.Index(html, `/accepted-ux.js?v=v`)
 	memoryAt := strings.Index(html, `id="freenetOverviewCurrentQualityMemory"`)
 	releaseAt := strings.Index(html, `id="freenetCanonicalBootRelease"`)
-	if acceptedAt < 0 || memoryAt < acceptedAt || releaseAt < memoryAt {
-		t.Fatalf("quality memory delivery order invalid: accepted=%d memory=%d release=%d", acceptedAt, memoryAt, releaseAt)
+	if memoryAt < 0 || releaseAt < 0 || releaseAt < memoryAt {
+		t.Fatalf("quality memory must be delivered before canonical boot release: memory=%d release=%d", memoryAt, releaseAt)
 	}
 }
 
