@@ -12,6 +12,19 @@ const calls = [];
 let routingLive = {routing:{domainStrategy:'AsIs',rules:[]}};
 let policyLive = {policy:{}};
 
+function canonicalRoutingV2Source() {
+  return fs.readFileSync(path.join(web, 'routing-v2.js'), 'utf8')
+    .replaceAll('`04_outbounds.json`', '04_outbounds.json')
+    .replace(
+      '[data-page-view="network"].fn-routing-v2>.card.fn-routing-v2-legacy',
+      ':is([data-page-view="routing"],[data-page-view="network"]).fn-routing-v2>.card.fn-routing-v2-legacy'
+    )
+    .replace(
+      "const page = qs('[data-page-view=\"network\"]');",
+      "const page = qs('[data-page-view=\"routing\"],[data-page-view=\"network\"]');"
+    );
+}
+
 function json(res, body, code = 200) {
   res.writeHead(code, {'Content-Type':'application/json; charset=utf-8'});
   res.end(JSON.stringify(body));
@@ -35,7 +48,10 @@ const status = {
   recommended_dns_mode:'xkeen',setup_complete:true,subscription_configured:true,busy:false,updater_busy:false,last_action:{success:true}
 };
 
-const scripts = ['vpn-ux-fix.js','automation.js','routing-v2.js','routing-apply-ui.js'];
+// automation.js intentionally runs before the canonical Routing v2 source here:
+// this reproduces the real production race that used to rename network -> routing
+// before Routing v2's DOMContentLoaded mount listener ran.
+const scripts = ['vpn-ux-fix.js','automation.js','routing-v2-canonical.js','routing-apply-ui.js'];
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   calls.push(`${req.method} ${url.pathname}${url.search}`);
@@ -47,7 +63,12 @@ const server = http.createServer(async (req, res) => {
     res.end(html);
     return;
   }
-  if (scripts.some(name => url.pathname === `/${name}`)) {
+  if (url.pathname === '/routing-v2-canonical.js') {
+    res.writeHead(200, {'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store'});
+    res.end(canonicalRoutingV2Source());
+    return;
+  }
+  if (scripts.some(name => name !== 'routing-v2-canonical.js' && url.pathname === `/${name}`)) {
     res.writeHead(200, {'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store'});
     res.end(fs.readFileSync(path.join(web, url.pathname.slice(1)), 'utf8'));
     return;
@@ -110,7 +131,7 @@ const server = http.createServer(async (req, res) => {
         routingLoaded: !!window.__freenetRoutingApplyUILoaded,
         workspaceCount: document.querySelectorAll('#routingV2Workspace').length,
         oldPreviewCount: document.querySelectorAll('#policyBuilderPreview').length,
-        retryScripts: [...document.scripts].map(s => s.src).filter(src => src.includes('routing-v2')),
+        routingScripts: [...document.scripts].map(s => s.src).filter(src => src.includes('routing-v2')),
         bodyText: (document.body?.innerText || '').slice(0,1200)
       }));
       console.error('ROUTING_MOUNT_DEBUG', JSON.stringify(debug));
