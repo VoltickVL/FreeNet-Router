@@ -53,6 +53,27 @@ type routingValidateResponse struct {
 	Error     string          `json:"error,omitempty"`
 }
 
+type routingApplyResponse struct {
+	Success           bool              `json:"success"`
+	Mutation          string            `json:"mutation"`
+	XrayValid         bool              `json:"xray_valid"`
+	Applied           bool              `json:"applied"`
+	Rollback          string            `json:"rollback"`
+	Snapshot          string            `json:"snapshot,omitempty"`
+	Before            map[string]string `json:"before,omitempty"`
+	After             map[string]string `json:"after,omitempty"`
+	Result            string            `json:"result,omitempty"`
+	Error             string            `json:"error,omitempty"`
+}
+
+type routingManagedBackup struct {
+	Routing        []byte
+	Policy         []byte
+	RoutingPresent bool
+	PolicyPresent  bool
+	Snapshot        string
+}
+
 var (
 	errRoutingXrayUnavailable = errors.New("routing Xray validator unavailable")
 	errRoutingXrayInvalid     = errors.New("routing Xray candidate invalid")
@@ -67,6 +88,7 @@ func registerRoutingConfigAPI(mux *http.ServeMux, a *app) {
 	})
 	mux.HandleFunc("GET /api/routing/config", a.requireAuth(a.handleRoutingConfigGet))
 	mux.HandleFunc("POST /api/routing/validate", a.requireAuth(a.handleRoutingConfigValidate))
+	mux.HandleFunc("POST /api/routing/apply", a.requireAuth(a.handleRoutingConfigApply))
 }
 
 func (a *app) routingConfigDir() string {
@@ -233,14 +255,14 @@ func (a *app) validateRoutingCandidate(parent context.Context, routing, policy j
 	return nil
 }
 
-func (a *app) handleRoutingConfigValidate(w http.ResponseWriter, r *http.Request) {
+func decodeRoutingCandidateRequest(w http.ResponseWriter, r *http.Request, mutation string) (routingValidateRequest, bool) {
 	if !sameOrigin(r) {
-		writeJSON(w, http.StatusForbidden, routingValidateResponse{Success: false, Mutation: "NONE", Error: "cross-origin request rejected"})
-		return
+		writeJSON(w, http.StatusForbidden, routingValidateResponse{Success: false, Mutation: mutation, Error: "cross-origin request rejected"})
+		return routingValidateRequest{}, false
 	}
 	if ct := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))); !strings.HasPrefix(ct, "application/json") {
-		writeJSON(w, http.StatusUnsupportedMediaType, routingValidateResponse{Success: false, Mutation: "NONE", Error: "application/json required"})
-		return
+		writeJSON(w, http.StatusUnsupportedMediaType, routingValidateResponse{Success: false, Mutation: mutation, Error: "application/json required"})
+		return routingValidateRequest{}, false
 	}
 	body := http.MaxBytesReader(w, r.Body, maxRoutingConfigBodyBytes)
 	defer body.Close()
@@ -248,39 +270,235 @@ func (a *app) handleRoutingConfigValidate(w http.ResponseWriter, r *http.Request
 	dec.DisallowUnknownFields()
 	var req routingValidateRequest
 	if err := dec.Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, routingValidateResponse{Success: false, Mutation: "NONE", Error: "invalid routing candidate request"})
-		return
+		writeJSON(w, http.StatusBadRequest, routingValidateResponse{Success: false, Mutation: mutation, Error: "invalid routing candidate request"})
+		return routingValidateRequest{}, false
 	}
 	var trailing any
 	if err := dec.Decode(&trailing); err != io.EOF {
-		writeJSON(w, http.StatusBadRequest, routingValidateResponse{Success: false, Mutation: "NONE", Error: "invalid routing candidate request"})
-		return
+		writeJSON(w, http.StatusBadRequest, routingValidateResponse{Success: false, Mutation: mutation, Error: "invalid routing candidate request"})
+		return routingValidateRequest{}, false
 	}
+	return req, true
+}
 
+func normalizeRoutingCandidate(req routingValidateRequest) (json.RawMessage, json.RawMessage, error) {
 	routing, err := normalizeRoutingSectionJSON(req.Routing, "routing", true)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, routingValidateResponse{Success: false, Mutation: "NONE", Error: "05_routing.json candidate is not a valid routing object"})
-		return
+		return nil, nil, errors.New("05_routing.json candidate is not a valid routing object")
 	}
 	policy, err := normalizeRoutingSectionJSON(req.Policy, "policy", true)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, routingValidateResponse{Success: false, Mutation: "NONE", Error: "06_policy.json candidate is not a valid policy object"})
+		return nil, nil, errors.New("06_policy.json candidate is not a valid policy object")
+	}
+	return routing, policy, nil
+}
+
+func routingValidationFailureStatus(err error) (int, string) {
+	message := "candidate Xray configuration validation failed"
+	status := http.StatusUnprocessableEntity
+	switch {
+	case errors.Is(err, errRoutingXrayUnavailable):
+		message = "Xray candidate validator is unavailable"
+		status = http.StatusServiceUnavailable
+	case errors.Is(err, errRoutingXrayTimeout):
+		message = "Xray candidate validation timed out"
+		status = http.StatusGatewayTimeout
+	}
+	return status, message
+}
+
+func (a *app) handleRoutingConfigValidate(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeRoutingCandidateRequest(w, r, "NONE")
+	if !ok {
+		return
+	}
+	routing, policy, err := normalizeRoutingCandidate(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, routingValidateResponse{Success: false, Mutation: "NONE", Error: err.Error()})
 		return
 	}
 
 	if err := a.validateRoutingCandidate(r.Context(), routing, policy); err != nil {
-		message := "candidate Xray configuration validation failed"
-		status := http.StatusUnprocessableEntity
-		switch {
-		case errors.Is(err, errRoutingXrayUnavailable):
-			message = "Xray candidate validator is unavailable"
-			status = http.StatusServiceUnavailable
-		case errors.Is(err, errRoutingXrayTimeout):
-			message = "Xray candidate validation timed out"
-			status = http.StatusGatewayTimeout
-		}
+		status, message := routingValidationFailureStatus(err)
 		writeJSON(w, status, routingValidateResponse{Success: false, Mutation: "NONE", XrayValid: false, Error: message})
 		return
 	}
 	writeJSON(w, http.StatusOK, routingValidateResponse{Success: true, Mutation: "NONE", XrayValid: true, Routing: routing, Policy: policy})
+}
+
+func readRoutingManagedBackup(dir string) (routingManagedBackup, error) {
+	var b routingManagedBackup
+	for _, item := range []struct {
+		name    string
+		target  *[]byte
+		present *bool
+	}{
+		{name: "05_routing.json", target: &b.Routing, present: &b.RoutingPresent},
+		{name: "06_policy.json", target: &b.Policy, present: &b.PolicyPresent},
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, item.name))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return b, err
+		}
+		*item.target = append([]byte{}, data...)
+		*item.present = true
+	}
+	return b, nil
+}
+
+func createRoutingManagedSnapshot(dir string, b routingManagedBackup) (routingManagedBackup, error) {
+	snapshot := filepath.Join(dir, ".freenet-backups", "routing-"+time.Now().UTC().Format("20060102T150405.000000000Z"))
+	if err := os.MkdirAll(snapshot, 0700); err != nil {
+		return b, err
+	}
+	if b.RoutingPresent {
+		if err := os.WriteFile(filepath.Join(snapshot, "05_routing.json"), b.Routing, 0600); err != nil {
+			return b, err
+		}
+	} else if err := os.WriteFile(filepath.Join(snapshot, "05_routing.absent"), []byte("absent\n"), 0600); err != nil {
+		return b, err
+	}
+	if b.PolicyPresent {
+		if err := os.WriteFile(filepath.Join(snapshot, "06_policy.json"), b.Policy, 0600); err != nil {
+			return b, err
+		}
+	} else if err := os.WriteFile(filepath.Join(snapshot, "06_policy.absent"), []byte("absent\n"), 0600); err != nil {
+		return b, err
+	}
+	b.Snapshot = snapshot
+	return b, nil
+}
+
+func atomicWriteRoutingManagedFile(dir, name string, data []byte) error {
+	tmp, err := os.CreateTemp(dir, "."+name+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, filepath.Join(dir, name))
+}
+
+func writeRoutingManagedCandidate(dir string, routing, policy json.RawMessage) error {
+	if err := atomicWriteRoutingManagedFile(dir, "05_routing.json", routing); err != nil {
+		return err
+	}
+	if err := atomicWriteRoutingManagedFile(dir, "06_policy.json", policy); err != nil {
+		return err
+	}
+	return nil
+}
+
+func restoreRoutingManagedBackup(dir string, b routingManagedBackup) error {
+	if b.RoutingPresent {
+		if err := atomicWriteRoutingManagedFile(dir, "05_routing.json", b.Routing); err != nil {
+			return err
+		}
+	} else if err := os.Remove(filepath.Join(dir, "05_routing.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if b.PolicyPresent {
+		if err := atomicWriteRoutingManagedFile(dir, "06_policy.json", b.Policy); err != nil {
+			return err
+		}
+	} else if err := os.Remove(filepath.Join(dir, "06_policy.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func routingApplyHashes(before routingManagedBackup, routing, policy json.RawMessage) (map[string]string, map[string]string) {
+	beforeHashes := map[string]string{}
+	if before.RoutingPresent {
+		beforeHashes["05_routing.json"] = sha256Hex(before.Routing)
+	}
+	if before.PolicyPresent {
+		beforeHashes["06_policy.json"] = sha256Hex(before.Policy)
+	}
+	afterHashes := map[string]string{
+		"05_routing.json": sha256Hex(routing),
+		"06_policy.json":  sha256Hex(policy),
+	}
+	return beforeHashes, afterHashes
+}
+
+func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
+	req, ok := decodeRoutingCandidateRequest(w, r, "NONE")
+	if !ok {
+		return
+	}
+	routing, policy, err := normalizeRoutingCandidate(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, routingApplyResponse{Success: false, Mutation: "NONE", Rollback: "NOT_NEEDED", Error: err.Error()})
+		return
+	}
+	if err := a.validateRoutingCandidate(r.Context(), routing, policy); err != nil {
+		status, message := routingValidationFailureStatus(err)
+		writeJSON(w, status, routingApplyResponse{Success: false, Mutation: "NONE", XrayValid: false, Rollback: "NOT_NEEDED", Error: message})
+		return
+	}
+
+	dir := a.routingConfigDir()
+	backup, err := readRoutingManagedBackup(dir)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, routingApplyResponse{Success: false, Mutation: "NONE", XrayValid: true, Rollback: "NOT_NEEDED", Error: "routing managed files are unavailable"})
+		return
+	}
+	backup, err = createRoutingManagedSnapshot(dir, backup)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, routingApplyResponse{Success: false, Mutation: "NONE", XrayValid: true, Rollback: "NOT_NEEDED", Error: "cannot create routing snapshot"})
+		return
+	}
+	before, after := routingApplyHashes(backup, routing, policy)
+
+	if err := writeRoutingManagedCandidate(dir, routing, policy); err != nil {
+		_ = restoreRoutingManagedBackup(dir, backup)
+		writeJSON(w, http.StatusInternalServerError, routingApplyResponse{Success: false, Mutation: "ROLLED_BACK", XrayValid: true, Rollback: "SUCCESS", Snapshot: backup.Snapshot, Before: before, After: after, Error: "routing apply write failed; backup restored"})
+		return
+	}
+
+	if err := a.validateRoutingCandidate(r.Context(), routing, policy); err != nil {
+		if restoreErr := restoreRoutingManagedBackup(dir, backup); restoreErr != nil {
+			writeJSON(w, http.StatusInternalServerError, routingApplyResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: true, Rollback: "FAILED", Snapshot: backup.Snapshot, Before: before, After: after, Error: "post-apply validation failed and rollback restore failed; STOP"})
+			return
+		}
+		rollbackRouting, rollbackPolicy, rollbackErr := routingRollbackCandidate(backup)
+		if rollbackErr != nil || a.validateRoutingCandidate(r.Context(), rollbackRouting, rollbackPolicy) != nil {
+			writeJSON(w, http.StatusInternalServerError, routingApplyResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: true, Rollback: "FAILED", Snapshot: backup.Snapshot, Before: before, After: after, Error: "post-apply validation failed and rollback validation failed; STOP"})
+			return
+		}
+		writeJSON(w, http.StatusConflict, routingApplyResponse{Success: false, Mutation: "ROLLED_BACK", XrayValid: false, Applied: false, Rollback: "SUCCESS", Snapshot: backup.Snapshot, Before: before, After: after, Error: "post-apply validation failed; backup restored"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, routingApplyResponse{Success: true, Mutation: "APPLIED", XrayValid: true, Applied: true, Rollback: "NOT_NEEDED", Snapshot: backup.Snapshot, Before: before, After: after, Result: "routing policy applied to managed sections"})
+}
+
+func routingRollbackCandidate(b routingManagedBackup) (json.RawMessage, json.RawMessage, error) {
+	if !b.RoutingPresent || !b.PolicyPresent {
+		return nil, nil, errors.New("rollback candidate is incomplete")
+	}
+	routing, err := normalizeRoutingSectionJSON(b.Routing, "routing", true)
+	if err != nil {
+		return nil, nil, err
+	}
+	policy, err := normalizeRoutingSectionJSON(b.Policy, "policy", true)
+	if err != nil {
+		return nil, nil, err
+	}
+	return routing, policy, nil
 }
