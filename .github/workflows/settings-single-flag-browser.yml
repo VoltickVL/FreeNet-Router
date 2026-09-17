@@ -1,0 +1,32 @@
+name: FreeNet Settings Single-Flag Browser CI
+
+on:
+  pull_request:
+    paths:
+      - 'freenet-ui/web/profile-label-hygiene.js'
+      - 'freenet-ui/profile_label_hygiene_asset.go'
+      - 'freenet-ui/profile_label_hygiene_test.go'
+      - 'freenet-ui/canonical_index.go'
+      - 'tests/test_settings_single_flag_ui.cjs'
+      - '.github/workflows/settings-single-flag-browser.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  settings-single-flag-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/freenet-settings-browser" --no-package-lock --ignore-scripts playwright@1.51.1
+          node "$RUNNER_TEMP/freenet-settings-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Settings Current VPN single-flag regression
+        env:
+          NODE_PATH: ${{ runner.temp }}/freenet-settings-browser/node_modules
+        run: node tests/test_settings_single_flag_ui.cjs

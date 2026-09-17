@@ -104,10 +104,10 @@ let localPending=`
 	canonicalLabels := `const pageLabels={overview:'Обзор',subscription:'Подписка'}`
 	raw = raw[:labelsAt] + canonicalLabels + raw[labelsEndAt:]
 
-	// Settings DNS, Routing v2, delayed VPN-state reconciliation and Overview
-	// quality memory are canonical progressive enhancements. The production shell
-	// receives a sanitized inline Routing v2 source: it parses correctly and mounts
-	// against either the canonical `routing` route or the legacy `network` anchor.
+	// Settings DNS, Routing v2, VPN-state reconciliation, Settings profile-label
+	// hygiene and Overview quality memory are canonical progressive enhancements.
+	// The production shell receives a sanitized inline Routing v2 source: it parses
+	// correctly and mounts against either `routing` or the legacy `network` anchor.
 	if !strings.Contains(raw, `</body>`) {
 		return "", errors.New("control center body end marker is missing")
 	}
@@ -115,7 +115,8 @@ let localPending=`
 	progressive := `<script src="/api/settings-v3/assets/dns-ui.js"></script>` + routingV2
 	vpnReconcile := `<script id="freenetVPNSelectorReconcile">` + string(vpnSelectorReconcileAsset) + `</script>`
 	routingApply := `<script id="freenetRoutingApplyUI">` + string(routingApplyUIAsset) + `</script>`
-	raw = strings.Replace(raw, `</body>`, progressive+vpnReconcile+routingApply+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
+	profileHygiene := `<script id="freenetProfileLabelHygiene">` + string(profileLabelHygieneAsset) + `</script>`
+	raw = strings.Replace(raw, `</body>`, progressive+vpnReconcile+routingApply+profileHygiene+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
 	return raw, nil
 }
 
