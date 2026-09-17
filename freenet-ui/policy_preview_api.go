@@ -24,6 +24,7 @@ type policyPreviewResponse struct {
 }
 
 func registerPolicyPreviewAPI(mux *http.ServeMux, a *app) {
+	mux.HandleFunc("GET /api/policy/isp-presets", a.requireAuth(a.handlePolicyISPPresets))
 	mux.HandleFunc("POST /api/policy/compile", a.requireAuth(a.handlePolicyCompilePreview))
 }
 
