@@ -29,6 +29,33 @@ func TestAutomationHealthRequiresConfirmedWANAndTwoVPNFailures(t *testing.T) {
 	}
 }
 
+func TestAutomationRecoveryStageJournalUsesStageResults(t *testing.T) {
+	history := filepath.Join(t.TempDir(), "freenet-automation.history")
+	t.Setenv("FREENET_AUTOMATION_HISTORY", history)
+
+	appendAutomationRecoveryStage("endpoint_refresh", "failed", "endpoint refresh failed; rollback=unknown")
+	appendAutomationRecoveryStage("candidate_selection", "start", "Endpoint refresh did not recover VPN; scanning checked candidates.")
+	events := readAutomationEvents(history, 4)
+	if len(events) != 2 {
+		t.Fatalf("events=%d want 2", len(events))
+	}
+	if events[0].Kind != "AUTO VPN" || events[0].Result != "candidate_selection:start" {
+		t.Fatalf("latest stage event not rendered as stage result: %+v", events[0])
+	}
+	if events[1].Kind != "AUTO VPN" || events[1].Result != "endpoint_refresh:failed" {
+		t.Fatalf("endpoint stage event not rendered as stage result: %+v", events[1])
+	}
+	text, err := os.ReadFile(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"vless://", "publicKey=", "private-token", "TEST-UUID"} {
+		if strings.Contains(string(text), forbidden) {
+			t.Fatalf("stage journal leaked forbidden token %q in %s", forbidden, string(text))
+		}
+	}
+}
+
 func TestManagedCronSeparatesHealthWatchdogFromHeavyBestScan(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
 	if err := os.WriteFile(path, []byte("AUTO_XKEEN_GEODATA=no\nAUTO_VPN_FAILOVER=yes\nAUTO_VPN_FAILOVER_CRON='*/5 * * * *'\n"), 0600); err != nil {
@@ -98,7 +125,7 @@ func TestEndpointEmergencyStaysOnEndpointOnlyHelper(t *testing.T) {
 	}
 	text := string(data)
 	start := strings.Index(text, "func (a *app) runAutomationEndpointEmergency")
-	end := strings.Index(text, "func (a *app) runAutomationHealthWatch")
+	end := strings.Index(text, "func recordAndReturnHealth")
 	if start < 0 || end <= start {
 		t.Fatal("endpoint emergency contract is missing")
 	}
