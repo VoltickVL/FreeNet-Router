@@ -11,6 +11,8 @@ import (
 
 const xrayRestartTimeout = 45 * time.Second
 
+var xrayServiceProcessRunning = processRunning
+
 type xrayServiceActionRequest struct {
 	Action string `json:"action"`
 }
@@ -47,12 +49,7 @@ func xrayServiceEvents(limit int) []automationEvent {
 
 func (a *app) xrayServiceSnapshot(ctx context.Context) xrayServiceResponse {
 	status := a.configStudioXrayStatus(ctx)
-	return xrayServiceResponse{
-		Success: true,
-		Online:  status.Online,
-		Version: status.Version,
-		Events:  xrayServiceEvents(8),
-	}
+	return xrayServiceResponse{Success: true, Online: status.Online, Version: status.Version, Events: xrayServiceEvents(8)}
 }
 
 func (a *app) handleXrayServiceGet(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +85,7 @@ func waitForXrayOnline(ctx context.Context) bool {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if processRunning("xray") {
+		if xrayServiceProcessRunning("xray") {
 			return true
 		}
 		select {
@@ -102,7 +99,6 @@ func waitForXrayOnline(ctx context.Context) bool {
 func (a *app) restartXrayControlled(parent context.Context) error {
 	ctx, cancel := context.WithTimeout(parent, xrayRestartTimeout)
 	defer cancel()
-
 	if err := a.validateConfigStudioLive(ctx); err != nil {
 		return errors.New("текущая конфигурация Xray не прошла проверку; перезапуск отменён")
 	}
@@ -119,13 +115,8 @@ func (a *app) restartXrayControlled(parent context.Context) error {
 }
 
 func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
-	if a.mutationBlockedBySelfUpdate(w) {
-		return
-	}
-	if _, ok := decodeXrayServiceAction(w, r); !ok {
-		return
-	}
-
+	if a.mutationBlockedBySelfUpdate(w) { return }
+	if _, ok := decodeXrayServiceAction(w, r); !ok { return }
 	select {
 	case a.sem <- struct{}{}:
 		defer func() { <-a.sem }()
@@ -133,7 +124,6 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, xrayServiceResponse{Success: false, Events: xrayServiceEvents(8), Error: "другая операция FreeNet уже выполняется"})
 		return
 	}
-
 	if err := a.restartXrayControlled(r.Context()); err != nil {
 		message := sanitizeAutomationReason(err.Error())
 		v3AppendEvent("xray", "failed", message)
@@ -143,7 +133,6 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, resp)
 		return
 	}
-
 	v3AppendEvent("xray", "success", "Xray перезапущен через FreeNet.")
 	resp := a.xrayServiceSnapshot(r.Context())
 	resp.Message = "Xray перезапущен и снова работает."
