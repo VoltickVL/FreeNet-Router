@@ -340,7 +340,8 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "UI unavailable", http.StatusInternalServerError)
 		return
 	}
-	scripts := fmt.Sprintf("<script src=\"/self-update.js?v=v%s\"></script><script src=\"/vpn-ux-fix.js?v=v%s\"></script><script src=\"/operation-coordinator.js?v=v%s\"></script><script src=\"/accepted-ux.js?v=v%s\"></script></body>", version, version, version, version)
+	selectorReconcileScript := `<script id="freenetVPNSelectorReconcile">` + string(vpnSelectorReconcileAsset) + `</script>`
+	scripts := fmt.Sprintf("<script src=\"/self-update.js?v=v%s\"></script><script src=\"/vpn-ux-fix.js?v=v%s\"></script>%s<script src=\"/operation-coordinator.js?v=v%s\"></script><script src=\"/accepted-ux.js?v=v%s\"></script></body>", version, version, selectorReconcileScript, version, version)
 	html := strings.Replace(string(data), "</body>", scripts, 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, html)
