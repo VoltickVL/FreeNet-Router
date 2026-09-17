@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func writeExecutableTestFile(t *testing.T, path, body string) {
+func writeXrayServiceExecutable(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0755); err != nil { t.Fatal(err) }
 }
@@ -20,10 +20,10 @@ func prepareXrayServiceTest(t *testing.T, validatorExit int) (*app, string) {
 	if err := os.MkdirAll(configDir, 0755); err != nil { t.Fatal(err) }
 	if err := os.WriteFile(filepath.Join(configDir, "01_log.json"), []byte("{\"log\":{}}\n"), 0600); err != nil { t.Fatal(err) }
 	validator := filepath.Join(root, "xray")
-	writeExecutableTestFile(t, validator, "#!/bin/sh\nexit "+string(rune('0'+validatorExit))+"\n")
+	writeXrayServiceExecutable(t, validator, "#!/bin/sh\nexit "+string(rune('0'+validatorExit))+"\n")
 	marker := filepath.Join(root, "xkeen.calls")
 	xkeen := filepath.Join(root, "xkeen")
-	writeExecutableTestFile(t, xkeen, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \""+marker+"\"\nexit 0\n")
+	writeXrayServiceExecutable(t, xkeen, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \""+marker+"\"\nexit 0\n")
 	t.Setenv("FREENET_XRAY_BIN", validator)
 	t.Setenv("FREENET_ROUTING_CONFIG_DIR", configDir)
 	t.Setenv("FREENET_SETTINGS_V3_HISTORY", filepath.Join(root, "history"))
