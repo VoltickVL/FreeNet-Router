@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -85,6 +86,38 @@ func TestParseXrayCoreCatalog(t *testing.T) {
 	}
 	if strings.Contains(catalog.Releases[0].Description, "\n") {
 		t.Fatal("release description must be compact for browser UI")
+	}
+}
+
+func TestReadXrayCoreCatalogBodyAcceptsValidPayloadOverLegacy2MiBLimit(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	upstream := []xrayCoreGitHubRelease{{
+		TagName: "v26.9.9",
+		PublishedAt: "2026-09-09T00:00:00Z",
+		Body: strings.Repeat("x", (2<<20)+(96<<10)),
+		Assets: []struct {
+			Name string `json:"name"`; URL string `json:"browser_download_url"`; Digest string `json:"digest"`; Size int64 `json:"size"`
+		}{{Name: "Xray-linux-arm64-v8a.zip", URL: "https://github.com/XTLS/Xray-core/releases/download/v26.9.9/Xray-linux-arm64-v8a.zip", Digest: "sha256:" + digest, Size: 12345}},
+	}}
+	raw, err := json.Marshal(upstream)
+	if err != nil { t.Fatal(err) }
+	if len(raw) <= 2<<20 {
+		t.Fatalf("fixture must exceed legacy 2 MiB limit, got %d bytes", len(raw))
+	}
+	body, err := readXrayCoreCatalogBody(bytes.NewReader(raw))
+	if err != nil { t.Fatalf("bounded reader rejected valid catalog: %v", err) }
+	catalog, err := parseXrayCoreCatalog(body, "v26.9.9", "Xray-linux-arm64-v8a.zip")
+	if err != nil { t.Fatalf("catalog parse failed: %v", err) }
+	if len(catalog.Releases) != 1 || !catalog.Releases[0].Current {
+		t.Fatalf("unexpected catalog: %+v", catalog)
+	}
+}
+
+func TestReadXrayCoreCatalogBodyRejectsOversizePayload(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), xrayCoreMaxCatalogBytes+1)
+	_, err := readXrayCoreCatalogBody(bytes.NewReader(payload))
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("oversize catalog must fail closed, err=%v", err)
 	}
 }
 
