@@ -104,14 +104,14 @@ let localPending=`
 	canonicalLabels := `const pageLabels={overview:'Обзор',subscription:'Подписка'}`
 	raw = raw[:labelsAt] + canonicalLabels + raw[labelsEndAt:]
 
-	// Settings DNS is a canonical progressive enhancement. It waits for Settings v3
-	// to mount and therefore may be delivered after the accepted UX bootstrap without
+	// Settings DNS and Overview quality memory are canonical progressive
+	// enhancements. They are injected after the accepted UX bootstrap without
 	// reintroducing a legacy first paint. The boot release waits for the accepted
 	// shell itself, so a slow client sees only the canonical FreeNet background.
 	if !strings.Contains(raw, `</body>`) {
 		return "", errors.New("control center body end marker is missing")
 	}
-	raw = strings.Replace(raw, `</body>`, `<script src="/api/settings-v3/assets/dns-ui.js"></script>`+canonicalBootReleaseScript+`</body>`, 1)
+	raw = strings.Replace(raw, `</body>`, `<script src="/api/settings-v3/assets/dns-ui.js"></script>`+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
 	return raw, nil
 }
 
