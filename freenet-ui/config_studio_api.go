@@ -53,16 +53,16 @@ type configStudioCandidateRequest struct {
 }
 
 type configStudioMutationResponse struct {
-	Success      bool   `json:"success"`
-	Mutation     string `json:"mutation"`
-	XrayValid    bool   `json:"xray_valid"`
-	Applied      bool   `json:"applied"`
-	Rollback     string `json:"rollback"`
-	Snapshot     string `json:"snapshot,omitempty"`
-	SHA256       string `json:"sha256,omitempty"`
-	CoreRestart  bool   `json:"core_restart"`
-	Result       string `json:"result,omitempty"`
-	Error        string `json:"error,omitempty"`
+	Success     bool   `json:"success"`
+	Mutation    string `json:"mutation"`
+	XrayValid   bool   `json:"xray_valid"`
+	Applied     bool   `json:"applied"`
+	Rollback    string `json:"rollback"`
+	Snapshot    string `json:"snapshot,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	CoreRestart bool   `json:"core_restart"`
+	Result      string `json:"result,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type configStudioBackup struct {
@@ -83,13 +83,13 @@ func configStudioEditableRoot(name string) (string, bool) {
 		return "log", true
 	case "02_dns.json":
 		return "dns", true
+	case "03_inbounds.json":
+		return "inbounds", true
+	case "04_outbounds.json":
+		return "outbounds", true
 	default:
 		return "", false
 	}
-}
-
-func configStudioProtected(name string) bool {
-	return name == "03_inbounds.json" || name == "04_outbounds.json"
 }
 
 func configStudioRoutingManaged(name string) (string, bool) {
@@ -127,10 +127,6 @@ func readConfigStudioJSONFile(dir, name, access string) configStudioTab {
 			tab.Roots = append(tab.Roots, key)
 		}
 		sort.Strings(tab.Roots)
-	}
-
-	if access == "protected" {
-		return tab
 	}
 
 	var root string
@@ -195,8 +191,8 @@ func (a *app) handleConfigStudioGet(w http.ResponseWriter, r *http.Request) {
 	tabs := []configStudioTab{
 		readConfigStudioJSONFile(dir, "01_log.json", "editable"),
 		readConfigStudioJSONFile(dir, "02_dns.json", "editable"),
-		readConfigStudioJSONFile(dir, "03_inbounds.json", "protected"),
-		readConfigStudioJSONFile(dir, "04_outbounds.json", "protected"),
+		readConfigStudioJSONFile(dir, "03_inbounds.json", "editable"),
+		readConfigStudioJSONFile(dir, "04_outbounds.json", "editable"),
 		readConfigStudioJSONFile(dir, "05_routing.json", "routing-managed"),
 		readConfigStudioJSONFile(dir, "06_policy.json", "routing-managed"),
 		readConfigStudioListFile("ip_exclude.lst"),
@@ -224,9 +220,16 @@ func normalizeConfigStudioJSON(raw []byte, root string) (json.RawMessage, error)
 	if !ok {
 		return nil, errors.New("config file has unexpected root")
 	}
-	var nestedObj map[string]json.RawMessage
-	if err := json.Unmarshal(nested, &nestedObj); err != nil || nestedObj == nil {
-		return nil, errors.New("config root must be a JSON object")
+	if root == "inbounds" || root == "outbounds" {
+		var nestedArray []json.RawMessage
+		if err := json.Unmarshal(nested, &nestedArray); err != nil || nestedArray == nil {
+			return nil, errors.New("config root must be a JSON array")
+		}
+	} else {
+		var nestedObj map[string]json.RawMessage
+		if err := json.Unmarshal(nested, &nestedObj); err != nil || nestedObj == nil {
+			return nil, errors.New("config root must be a JSON object")
+		}
 	}
 	formatted, err := json.MarshalIndent(obj, "", "  ")
 	if err != nil {
