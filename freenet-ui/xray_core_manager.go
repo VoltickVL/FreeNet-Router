@@ -21,6 +21,7 @@ import (
 const (
 	xrayCoreReleasesURL      = "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=20"
 	xrayCoreMaxCatalogItems  = 16
+	xrayCoreMaxCatalogBytes  = 8 << 20
 	xrayCoreMaxArchiveBytes  = 128 << 20
 	xrayCoreMaxBinaryBytes   = 160 << 20
 	xrayCoreOperationTimeout = 95 * time.Second
@@ -166,6 +167,17 @@ func xrayCoreReleaseSummary(body string) string {
 	return body
 }
 
+func readXrayCoreCatalogBody(reader io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(reader, xrayCoreMaxCatalogBytes+1))
+	if err != nil {
+		return nil, errors.New("cannot read Xray release catalog")
+	}
+	if len(body) > xrayCoreMaxCatalogBytes {
+		return nil, errors.New("Xray release catalog is too large")
+	}
+	return body, nil
+}
+
 func parseXrayCoreCatalog(raw []byte, current, assetName string) (xrayCoreCatalogResponse, error) {
 	var upstream []xrayCoreGitHubRelease
 	if err := json.Unmarshal(raw, &upstream); err != nil {
@@ -260,9 +272,9 @@ func (a *app) fetchXrayCoreCatalog(ctx context.Context) (xrayCoreCatalogResponse
 	if response.StatusCode != http.StatusOK {
 		return xrayCoreCatalogResponse{}, errors.New("Xray release catalog is unavailable")
 	}
-	body, err := io.ReadAll(io.LimitReader(response.Body, 2<<20))
+	body, err := readXrayCoreCatalogBody(response.Body)
 	if err != nil {
-		return xrayCoreCatalogResponse{}, errors.New("cannot read Xray release catalog")
+		return xrayCoreCatalogResponse{}, err
 	}
 	return parseXrayCoreCatalog(body, current, assetName)
 }

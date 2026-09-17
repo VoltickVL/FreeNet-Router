@@ -169,15 +169,15 @@ const server = http.createServer(async (req, res) => {
     await outInput.fill('{"outbounds":[{"tag":"test-out","settings":{"id":"TEST-UUID-NEW"}}]}');
     await page.locator('#csFormat').click();
     assert.match(await outInput.inputValue(),/\n  "outbounds": \[/);
-    await page.locator('#csValidate').click();
-    await page.waitForFunction(() => document.querySelector('#csState')?.textContent.includes('XRAY VALID'));
-    assert.equal(await page.locator('#csApply').isDisabled(),false);
-
+    assert.equal(await page.locator('#csValidate').count(),0,'manual Xray validation button must not be present');
+    assert.equal(await page.locator('#csApply').isDisabled(),false,'valid dirty draft must be saveable; backend validates during apply');
+    const beforeValidate = calls.filter(x => x === 'POST /api/config-studio/validate').length;
     const beforeOut = calls.filter(x => x === 'POST /api/config-studio/apply').length;
     await page.locator('#csApply').click();
     await page.waitForFunction(() => (document.querySelector('#csNotice')?.textContent || '').includes('post-validation'));
     const afterOut = calls.filter(x => x === 'POST /api/config-studio/apply').length;
     assert.equal(afterOut,beforeOut+1,'04_outbounds must issue exactly one controlled apply');
+    assert.equal(calls.filter(x => x === 'POST /api/config-studio/validate').length,beforeValidate,'Save must not require a separate validation POST');
     assert.equal(await page.locator('.cs-tab[data-tab="04_outbounds"] .dirty').count(),0);
 
     // 03_inbounds is also a normal authenticated editor.
@@ -189,7 +189,7 @@ const server = http.createServer(async (req, res) => {
     await page.locator('.cs-tab[data-tab="port_proxying"]').click();
     assert.equal(await page.locator('#csInput').count(),0,'list artifacts remain read-only in #533');
     assert.match(await page.locator('#csBody').textContent(),/596:599/);
-    assert.equal(await page.locator('#csValidate').isDisabled(),true);
+    assert.equal(await page.locator('#csValidate').count(),0);
     assert.equal(await page.locator('#csApply').isDisabled(),true);
 
     assert.equal(errors.length,0,errors.join('\n'));

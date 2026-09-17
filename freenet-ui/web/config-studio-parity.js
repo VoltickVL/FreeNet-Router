@@ -224,14 +224,12 @@
     const listTab = tab && tab.kind === 'list';
     const hasError = state.errors.has(state.active);
     const dirty = isDirty(state.active);
-    const valid = state.valid.has(state.active);
-    const format = qs('#csFormat'), validate = qs('#csValidate'), reset = qs('#csReset'), apply = qs('#csApply');
+    const format = qs('#csFormat'), reset = qs('#csReset'), apply = qs('#csApply');
     if (format) format.disabled = !jsonEditable || listTab;
-    if (validate) validate.disabled = !jsonEditable || listTab || hasError;
     if (reset) reset.disabled = !jsonEditable || !dirty;
     if (apply) {
-      apply.disabled = !jsonEditable || !dirty || !valid || hasError;
-      apply.textContent = ROUTING_TABS.has(state.active) ? 'Применить 05/06' : 'Применить проверенный файл';
+      apply.disabled = !jsonEditable || !dirty || hasError;
+      apply.textContent = 'Сохранить';
     }
   }
 
@@ -381,9 +379,9 @@
 
   async function applyActive() {
     const tab = activeTab();
-    if (!tab || !state.valid.has(tab.name) || !isDirty(tab.name)) return;
+    if (!tab || !isDirty(tab.name) || state.errors.has(tab.name)) return;
     const button = qs('#csApply');
-    if (button) { button.disabled = true; button.textContent = 'Применяю…'; }
+    if (button) { button.disabled = true; button.textContent = 'Сохраняю…'; }
     try {
       let body;
       if (ROUTING_TABS.has(tab.name)) {
@@ -396,15 +394,14 @@
     } catch (error) {
       setNotice(`Apply не завершён: ${error.message || 'неизвестная ошибка'}. Blind retry не запускается. Проверьте результат/rollback перед повтором.`, 'bad');
     } finally {
-      if (button) button.textContent = 'Применить';
+      if (button) button.textContent = 'Сохранить';
       renderStatusAndActions();
     }
   }
 
   function mountMarkup(panel) {
-    panel.innerHTML = `<div class="rv2-card"><div class="cs-shell"><div class="cs-head"><div class="cs-title"><h2>Config Studio</h2><span id="csState" class="cs-state">Загрузка</span></div><div id="csXray" class="cs-xray"></div></div><p class="rv2-copy">Полный Xray workspace после авторизации FreeNet: syntax highlight, dirty-state, diagnostics, validation и controlled apply.</p><div class="cs-tab-groups"><div id="csTabsMain" class="cs-tabs cs-tabs-main" aria-label="Xray config files"></div><div id="csTabsLists" class="cs-tabs cs-tabs-lists" aria-label="XKeen list files"></div></div><div class="cs-toolbar"><div class="cs-actions"><button id="csFormat" class="cs-btn" type="button">Формат</button><button id="csValidate" class="cs-btn" type="button">Проверить Xray</button><button id="csReset" class="cs-btn" type="button">Сбросить</button></div><button id="csApply" class="cs-btn primary" type="button">Применить</button></div><div id="csBody"></div><div id="csMeta" class="cs-meta"></div><div class="cs-safe-note">01–06 доступны владельцу после авторизации FreeNet. Credential-bearing значения остаются только в authenticated browser session и не должны попадать в Journal, GitHub или CI logs. Apply: validation → snapshot → atomic write → post-check → rollback/STOP.</div><div id="csNotice" class="cs-notice"></div></div></div>`;
+    panel.innerHTML = `<div class="rv2-card"><div class="cs-shell"><div class="cs-head"><div class="cs-title"><h2>Config Studio</h2><span id="csState" class="cs-state">Загрузка</span></div><div id="csXray" class="cs-xray"></div></div><p class="rv2-copy">Полный Xray workspace после авторизации FreeNet: syntax highlight, dirty-state, diagnostics, validation и controlled apply.</p><div class="cs-tab-groups"><div id="csTabsMain" class="cs-tabs cs-tabs-main" aria-label="Xray config files"></div><div id="csTabsLists" class="cs-tabs cs-tabs-lists" aria-label="XKeen list files"></div></div><div class="cs-toolbar"><div class="cs-actions"><button id="csFormat" class="cs-btn" type="button">Форматировать</button><button id="csReset" class="cs-btn" type="button">Отменить</button></div><button id="csApply" class="cs-btn primary" type="button">Сохранить</button></div><div id="csBody"></div><div id="csMeta" class="cs-meta"></div><div class="cs-safe-note">01–06 доступны владельцу после авторизации FreeNet. Credential-bearing значения остаются только в authenticated browser session и не должны попадать в Journal, GitHub или CI logs. Apply: validation → snapshot → atomic write → post-check → rollback/STOP.</div><div id="csNotice" class="cs-notice"></div></div></div>`;
     qs('#csFormat')?.addEventListener('click', formatActive);
-    qs('#csValidate')?.addEventListener('click', validateActive);
     qs('#csReset')?.addEventListener('click', resetActive);
     qs('#csApply')?.addEventListener('click', applyActive);
   }

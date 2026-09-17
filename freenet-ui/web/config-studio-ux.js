@@ -22,9 +22,8 @@
     const style = document.createElement('style');
     style.id = 'configStudioUXStyles';
     style.textContent = `
-      #rv2WorkspaceState,.rv2-modebar>.rv2-state,#csState,.cs-safe-note,#csApplyNote,.cs-notice.ok{display:none!important}
+      #rv2WorkspaceState,.rv2-modebar>.rv2-state,#csState,.cs-safe-note,#csApplyNote,#csMeta,#rv2ConfigPanel #rv2ApplyPreview,#rv2ConfigPanel #rv2ApplyResult,#rv2ConfigPanel #rv2ApplyConfig,.cs-notice.ok{display:none!important}
       .cs-shell>.rv2-copy{margin:0;color:#8fa4bf}
-      .cs-meta span:last-child{display:none!important}
       .cs-service{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 13px;border:1px solid #294360;border-radius:13px;background:#081726}
       .cs-service-main{display:flex;align-items:center;gap:9px;min-width:0;flex-wrap:wrap}.cs-service-title{font-size:13px;font-weight:850;color:#f2f6fc}.cs-service-status{display:inline-flex;align-items:center;gap:6px;color:#8ea4c0;font-size:11px;font-weight:750}.cs-service-status::before{content:'';width:8px;height:8px;border-radius:50%;background:#7d91aa}.cs-service-status.ok{color:#67e6aa}.cs-service-status.ok::before{background:#36e3a2}.cs-service-status.bad{color:#ff929d}.cs-service-status.bad::before{background:#ff6773}
       .cs-version{appearance:none;border:1px solid #2d4665;background:#0c1d31;color:#cbd8e9;border-radius:9px;padding:7px 10px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}.cs-version:hover{border-color:#5b8cff;background:#183253;color:#fff}.cs-service-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.cs-service-btn{appearance:none;border:1px solid #334f70;background:#10243b;color:#eaf2fd;border-radius:9px;padding:8px 11px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}.cs-service-btn:hover:not(:disabled){border-color:#5b8cff;background:#183253}.cs-service-btn:disabled{opacity:.45;cursor:not-allowed}
@@ -138,11 +137,11 @@
     if (!shell) return false;
     setText(qs('.cs-title h2', shell), 'Конфигурация Xray');
     setText(qs(':scope > .rv2-copy', shell), 'Редактирование конфигов Xray и списков XKeen.');
-    setText(qs('#csFormat'), 'Формат');
-    setText(qs('#csValidate'), 'Проверить');
+    setText(qs('#csFormat'), 'Форматировать');
     setText(qs('#csReset'), 'Отменить');
     setText(qs('#csApply'), 'Сохранить');
-    qsa('.cs-safe-note').forEach(node => node.remove());
+    qs('#csValidate')?.remove();
+    qsa('.cs-safe-note,#csMeta,#csApplyNote,#rv2ApplyPreview,#rv2ApplyResult,#rv2ApplyConfig').forEach(node => node.remove());
     const xray = qs('#csXray'); if (xray) xray.remove();
     if (!qs('#csService', shell)) {
       const groups = qs('.cs-tab-groups', shell) || qs('#csTabsMain', shell);

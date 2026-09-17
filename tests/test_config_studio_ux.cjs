@@ -22,6 +22,9 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>Config Stu
     <div id="csTabsLists" class="cs-tabs cs-tabs-lists"><button class="cs-tab" data-tab="ip_exclude">ip_exclude</button><button class="cs-tab" data-tab="port_exclude">port_exclude</button><button class="cs-tab" data-tab="port_proxying">port_proxying</button></div>
   </div>
   <div class="cs-toolbar"><div class="cs-actions"><button id="csFormat" class="cs-btn">Форматировать</button><button id="csValidate" class="cs-btn">Проверить Xray</button><button id="csReset" class="cs-btn">Сбросить draft</button></div><button id="csApply" class="cs-btn primary">Применить проверенный файл</button></div>
+  <div id="csMeta" class="cs-meta"><span>Файл: 06_policy.json</span><span>live · deadbeef</span></div>
+  <div id="csApplyNote">Live snapshot: 05_routing deadbeef · 06_policy cafebabe</div>
+  <div id="rv2ApplyPreview">Live snapshot: legacy routing preview</div><div id="rv2ApplyResult"></div><button id="rv2ApplyConfig">Применить проверенный candidate</button>
   <span id="csState" class="cs-state readonly">READ ONLY</span>
   <div class="cs-safe-note">ROLLBACK / STOP / MUTATION technical prose</div>
   <div id="csNotice" class="cs-notice"></div>
@@ -88,10 +91,17 @@ const server = http.createServer((req, res) => {
     assert(groupLabels.main.includes('Конфиги Xray'));
     assert(groupLabels.lists.includes('Списки XKeen'));
     assert(visibleText.includes('v26.9.9'));
-    assert.equal(await page.locator('#csFormat').textContent(), 'Формат');
-    assert.equal(await page.locator('#csValidate').textContent(), 'Проверить');
+    assert.equal(await page.locator('#csFormat').textContent(), 'Форматировать');
+    assert.equal(await page.locator('#csValidate').count(), 0, 'manual validation control must be removed');
     assert.equal(await page.locator('#csReset').textContent(), 'Отменить');
     assert.equal(await page.locator('#csApply').textContent(), 'Сохранить');
+    assert.equal(await page.locator('#csMeta').count(), 0, 'file/hash metadata must be removed from normal UI');
+    assert.equal(await page.locator('#csApplyNote').count(), 0, 'Live snapshot note must be removed');
+    assert.equal(await page.locator('#rv2ApplyPreview').count(), 0, 'legacy routing preview must be removed');
+    assert.equal(await page.locator('#rv2ApplyConfig').count(), 0, 'legacy manual-validation apply control must be removed');
+    const cleanText = await page.locator('body').innerText();
+    assert(!cleanText.includes('Live snapshot'));
+    assert(!cleanText.includes('Файл: 06_policy.json'));
 
     await page.evaluate(() => {
       document.querySelectorAll('.cs-tab').forEach(node => node.classList.remove('active'));
