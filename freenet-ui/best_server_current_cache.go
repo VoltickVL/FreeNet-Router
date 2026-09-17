@@ -99,7 +99,7 @@ func loadBestServerCurrentQualityPersistent(endpoint, filter string) (bestServer
 	if !candidate.Current || !candidate.Tested || !candidate.Available || strings.TrimSpace(candidate.Endpoint) == "" {
 		return bestServerQualityCandidate{}, time.Time{}, false
 	}
-	if !endpointsEqual(candidate.Endpoint, endpoint) {
+	if strings.TrimSpace(candidate.Endpoint) != strings.TrimSpace(endpoint) {
 		return bestServerQualityCandidate{}, time.Time{}, false
 	}
 	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 {
