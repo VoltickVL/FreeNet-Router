@@ -270,6 +270,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/freenet-browser/node_modules
         run: node tests/test_vpn_ui.cjs
+      - name: VPN selector delayed-state reconciliation
+        env:
+          NODE_PATH: ${{ runner.temp }}/freenet-browser/node_modules
+        run: node tests/test_vpn_selector_reconcile_ui.cjs
       - name: Settings v3 browser acceptance
         env:
           NODE_PATH: ${{ runner.temp }}/freenet-browser/node_modules

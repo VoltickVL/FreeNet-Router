@@ -104,14 +104,16 @@ let localPending=`
 	canonicalLabels := `const pageLabels={overview:'Обзор',subscription:'Подписка'}`
 	raw = raw[:labelsAt] + canonicalLabels + raw[labelsEndAt:]
 
-	// Settings DNS, Routing v2 and Overview quality memory are canonical progressive
-	// enhancements. Routing v2 mounts on the existing network page before the boot
-	// gate is released, so the user never sees the retired routing card first.
+	// Settings DNS, Routing v2, delayed VPN-state reconciliation and Overview
+	// quality memory are canonical progressive enhancements. Routing v2 mounts on
+	// the existing network page before the boot gate is released, so the user never
+	// sees the retired routing card first.
 	if !strings.Contains(raw, `</body>`) {
 		return "", errors.New("control center body end marker is missing")
 	}
 	progressive := `<script src="/api/settings-v3/assets/dns-ui.js"></script><script src="/routing-v2.js"></script>`
-	raw = strings.Replace(raw, `</body>`, progressive+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
+	vpnReconcile := `<script id="freenetVPNSelectorReconcile">` + string(vpnSelectorReconcileAsset) + `</script>`
+	raw = strings.Replace(raw, `</body>`, progressive+vpnReconcile+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
 	return raw, nil
 }
 
