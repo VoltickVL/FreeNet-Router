@@ -94,7 +94,7 @@
     summary.className = 'xcm-summary';
     const current = catalog.current_version || 'не определена';
     const latest = catalog.latest_version || 'не определена';
-    summary.innerHTML = `Установлено: <b>${current}</b> · Последняя стабильная: <b>${latest}</b><br>Платформа: ${catalog.architecture || '—'}. Выбор версии сам по себе ничего не изменяет.`;
+    summary.innerHTML = `Текущая версия: <b>${current}</b> · Последняя стабильная: <b>${latest}</b><br>Предрелизы отмечены отдельно. Платформа: ${catalog.architecture || '—'}. Выбор версии сам по себе ничего не изменяет.`;
     target.appendChild(summary);
 
     const list = document.createElement('div'); list.className = 'xcm-list'; target.appendChild(list);
