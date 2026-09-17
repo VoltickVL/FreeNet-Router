@@ -104,16 +104,16 @@ func startNamedXrayProcess(t *testing.T, root string) {
 }
 
 type xrayCoreScenario struct {
-	name               string
-	badDigest          bool
+	name                 string
+	badDigest            bool
 	targetFailsInstalled bool
-	xkeenExit          int
-	wantSuccess        bool
-	wantRollback       string
-	wantCurrent        string
-	wantErrorContains  string
-	wantRestartCalls   int
-	wantStopEvent      bool
+	xkeenExit            int
+	wantSuccess          bool
+	wantRollback         string
+	wantCurrent          string
+	wantErrorContains    string
+	wantRestartCalls     int
+	wantStopEvent        bool
 }
 
 func TestXrayCoreTransactionalApply(t *testing.T) {
@@ -122,43 +122,43 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 
 	scenarios := []xrayCoreScenario{
 		{
-			name: "integrity failure is no-mutation preflight",
-			badDigest: true,
-			xkeenExit: 0,
-			wantSuccess: false,
-			wantRollback: "NOT_NEEDED",
-			wantCurrent: previous,
+			name:              "integrity failure is no-mutation preflight",
+			badDigest:         true,
+			xkeenExit:         0,
+			wantSuccess:       false,
+			wantRollback:      "NOT_NEEDED",
+			wantCurrent:       previous,
 			wantErrorContains: "SHA-256 verification failed",
-			wantRestartCalls: 0,
+			wantRestartCalls:  0,
 		},
 		{
-			name: "success installs target once",
-			xkeenExit: 0,
-			wantSuccess: true,
-			wantRollback: "NOT_NEEDED",
-			wantCurrent: target,
+			name:             "success installs target once",
+			xkeenExit:        0,
+			wantSuccess:      true,
+			wantRollback:     "NOT_NEEDED",
+			wantCurrent:      target,
 			wantRestartCalls: 1,
 		},
 		{
-			name: "apply failure rolls back previous core",
+			name:                 "apply failure rolls back previous core",
 			targetFailsInstalled: true,
-			xkeenExit: 0,
-			wantSuccess: false,
-			wantRollback: "SUCCESS",
-			wantCurrent: previous,
-			wantErrorContains: "previous version restored",
-			wantRestartCalls: 1,
+			xkeenExit:            0,
+			wantSuccess:          false,
+			wantRollback:         "SUCCESS",
+			wantCurrent:          previous,
+			wantErrorContains:    "предыдущая версия восстановлена",
+			wantRestartCalls:     1,
 		},
 		{
-			name: "rollback failure enters STOP",
+			name:                 "rollback failure enters STOP",
 			targetFailsInstalled: true,
-			xkeenExit: 1,
-			wantSuccess: false,
-			wantRollback: "FAILED",
-			wantCurrent: previous,
-			wantErrorContains: "rollback failed",
-			wantRestartCalls: 1,
-			wantStopEvent: true,
+			xkeenExit:            1,
+			wantSuccess:          false,
+			wantRollback:         "FAILED",
+			wantCurrent:          previous,
+			wantErrorContains:    "rollback failed",
+			wantRestartCalls:     1,
+			wantStopEvent:        true,
 		},
 	}
 
@@ -243,12 +243,12 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 
 			a := &app{cfg: config{
 				FilterPath: filepath.Join(root, "profile.regex"),
-				OutPath: outPath,
+				OutPath:    outPath,
 				GeoDataDir: filepath.Join(root, "assets"),
-				XKeenPath: xkeenPath,
-				LockPath: filepath.Join(root, "updater.lock"),
+				XKeenPath:  xkeenPath,
+				LockPath:   filepath.Join(root, "updater.lock"),
 				ConfigPath: configPath,
-				SubPath: filepath.Join(root, "subscription.url"),
+				SubPath:    filepath.Join(root, "subscription.url"),
 				UpdateLock: filepath.Join(root, "self-update.lock"),
 			}, sem: make(chan struct{}, 1)}
 
