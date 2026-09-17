@@ -69,10 +69,10 @@ let localPending=`
 	}
 	// A cold load must never paint the legacy static shell while accepted UX
 	// assets are still executing. The server therefore sends the canonical
-	// background gate in the first HTML bytes. It is removed only after the
-	// accepted shell styles and vector brand are mounted.
+	// background gate and shared page geometry in the first HTML bytes. The gate
+	// is removed only after the accepted shell styles and vector brand are mounted.
 	raw = strings.Replace(raw, htmlStart, `<html lang="ru" class="freenet-canonical-boot">`, 1)
-	raw = strings.Replace(raw, headStart, headStart+canonicalBootStyle, 1)
+	raw = strings.Replace(raw, headStart, headStart+canonicalBootStyle+controlCenterLayoutCoherenceStyle, 1)
 
 	start := strings.Index(raw, navStart)
 	if start < 0 {
