@@ -1,0 +1,159 @@
+(() => {
+  'use strict';
+
+  const qs = (s, root = document) => root.querySelector(s);
+  const qsa = (s, root = document) => Array.from(root.querySelectorAll(s));
+  const LIST_TABS = new Set(['ip_exclude', 'port_exclude', 'port_proxying']);
+  let busy = false;
+  let service = null;
+
+  function installStyles() {
+    if (qs('#configStudioUXStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'configStudioUXStyles';
+    style.textContent = `
+      #rv2WorkspaceState,.rv2-modebar>.rv2-state,#csState,.cs-safe-note{display:none!important}
+      .cs-shell>.rv2-copy{margin:0;color:#8fa4bf}
+      .cs-meta span:last-child{display:none!important}
+      .cs-service{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 13px;border:1px solid #294360;border-radius:13px;background:#081726}
+      .cs-service-main{display:flex;align-items:center;gap:9px;min-width:0;flex-wrap:wrap}.cs-service-title{font-size:13px;font-weight:850;color:#f2f6fc}.cs-service-status{display:inline-flex;align-items:center;gap:6px;color:#8ea4c0;font-size:11px;font-weight:750}.cs-service-status::before{content:'';width:8px;height:8px;border-radius:50%;background:#7d91aa}.cs-service-status.ok{color:#67e6aa}.cs-service-status.ok::before{background:#36e3a2}.cs-service-status.bad{color:#ff929d}.cs-service-status.bad::before{background:#ff6773}
+      .cs-version{appearance:none;border:1px solid #2d4665;background:#0c1d31;color:#cbd8e9;border-radius:9px;padding:7px 10px;font:inherit;font-size:11px;font-weight:800;cursor:default}.cs-service-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.cs-service-btn{appearance:none;border:1px solid #334f70;background:#10243b;color:#eaf2fd;border-radius:9px;padding:8px 11px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}.cs-service-btn:hover:not(:disabled){border-color:#5b8cff;background:#183253}.cs-service-btn:disabled{opacity:.45;cursor:not-allowed}
+      .cs-journal{display:none;grid-column:1/-1;border-top:1px solid #203952;padding-top:10px}.cs-journal.show{display:block}.cs-journal-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}.cs-journal-title{font-size:11px;font-weight:850;color:#dce8f8}.cs-journal-list{display:grid;gap:6px}.cs-journal-row{display:grid;grid-template-columns:130px 82px minmax(0,1fr);gap:9px;align-items:start;padding:7px 9px;border-radius:9px;background:#07131f;color:#9fb2ca;font-size:10px}.cs-journal-row b{color:#dce8f8;font-weight:800}.cs-journal-row.ok b{color:#68e8ad}.cs-journal-row.bad b{color:#ff929c}.cs-journal-empty{color:#8398b4;font-size:11px;padding:5px 0}
+      .cs-tabs-main::before{content:'Конфиги Xray';display:flex;align-items:center;padding:0 6px;color:#7890ad;font-size:9px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}.cs-tabs-lists::before{content:'Списки XKeen';display:flex;align-items:center;padding:0 6px;color:#8799b1;font-size:9px;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+      .cs-toolbar{padding-top:2px}.cs-btn{font-size:11px}.cs-btn.primary{min-width:110px}.cs-list-view .cs-toolbar{display:none!important}.cs-list-view .cs-meta{margin-top:-3px}
+      @media(max-width:760px){.cs-service{grid-template-columns:1fr}.cs-service-actions{width:100%}.cs-service-btn{flex:1}.cs-journal-row{grid-template-columns:1fr}.cs-tabs-main::before,.cs-tabs-lists::before{display:none}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function friendlyTime(raw) {
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw || '');
+    return d.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  }
+
+  function serviceMarkup() {
+    const node = document.createElement('div');
+    node.id = 'csService';
+    node.className = 'cs-service';
+    node.innerHTML = `
+      <div class="cs-service-main"><span class="cs-service-title">Xray</span><span id="csServiceStatus" class="cs-service-status">Проверяю…</span><span id="csServiceVersion" class="cs-version">Версия…</span></div>
+      <div class="cs-service-actions"><button id="csRestartXray" type="button" class="cs-service-btn">Перезапустить</button><button id="csToggleJournal" type="button" class="cs-service-btn">Журнал</button></div>
+      <div id="csServiceJournal" class="cs-journal"><div class="cs-journal-head"><span class="cs-journal-title">Последние действия Xray</span><button id="csOpenFullJournal" type="button" class="cs-service-btn">Все события</button></div><div id="csServiceJournalList" class="cs-journal-list"></div></div>`;
+    return node;
+  }
+
+  function setNotice(text, type = '') {
+    const box = qs('#csNotice');
+    if (!box) return;
+    box.textContent = text || '';
+    box.className = `cs-notice${text ? ' show' : ''}${type ? ' ' + type : ''}`;
+  }
+
+  function renderService(body) {
+    service = body || service || {};
+    const status = qs('#csServiceStatus');
+    const version = qs('#csServiceVersion');
+    const restart = qs('#csRestartXray');
+    if (status) {
+      status.textContent = service.online ? 'Работает' : 'Остановлен';
+      status.className = `cs-service-status ${service.online ? 'ok' : 'bad'}`;
+    }
+    if (version) version.textContent = service.version ? `v${String(service.version).replace(/^v/i,'')}` : 'Версия неизвестна';
+    if (restart) restart.disabled = busy;
+    const list = qs('#csServiceJournalList');
+    if (list) {
+      list.textContent = '';
+      const events = Array.isArray(service.events) ? service.events.slice(0, 5) : [];
+      if (!events.length) {
+        const empty = document.createElement('div'); empty.className = 'cs-journal-empty'; empty.textContent = 'Действий Xray пока нет.'; list.appendChild(empty);
+      } else events.forEach(event => {
+        const row = document.createElement('div');
+        const ok = String(event.result || '').toLowerCase() === 'success';
+        row.className = `cs-journal-row ${ok ? 'ok' : 'bad'}`;
+        const time = document.createElement('span'); time.textContent = friendlyTime(event.at);
+        const result = document.createElement('b'); result.textContent = ok ? 'Успешно' : 'Ошибка';
+        const message = document.createElement('span'); message.textContent = String(event.message || '');
+        row.append(time, result, message); list.appendChild(row);
+      });
+    }
+  }
+
+  async function loadService() {
+    try {
+      const response = await fetch('/api/xray/service', {cache:'no-store'});
+      const body = await response.json();
+      if (!response.ok || !body.success) throw new Error(body.error || `HTTP ${response.status}`);
+      renderService(body);
+    } catch (_) {
+      renderService({online:false,version:'',events:[]});
+    }
+  }
+
+  async function restartXray() {
+    if (busy) return;
+    busy = true; renderService(service || {});
+    const button = qs('#csRestartXray'); if (button) button.textContent = 'Перезапускаю…';
+    setNotice('Проверяю конфигурацию и перезапускаю Xray…');
+    try {
+      const response = await fetch('/api/xray/service', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'restart'}),cache:'no-store'});
+      let body = {}; try { body = await response.json(); } catch (_) {}
+      if (!response.ok || !body.success) throw new Error(body.error || 'Не удалось перезапустить Xray');
+      renderService(body);
+      setNotice(body.message || 'Xray перезапущен.', 'ok');
+    } catch (error) {
+      setNotice(error.message || 'Не удалось перезапустить Xray.', 'bad');
+      await loadService();
+    } finally {
+      busy = false;
+      if (button) button.textContent = 'Перезапустить';
+      renderService(service || {});
+    }
+  }
+
+  function openFullJournal() {
+    const button = qs('[data-page="access"]');
+    if (button) { button.click(); return; }
+    location.hash = '#journal';
+  }
+
+  function simplifyControls() {
+    const shell = qs('.cs-shell');
+    if (!shell) return false;
+    const title = qs('.cs-title h2', shell); if (title) title.textContent = 'Конфигурация Xray';
+    const copy = qs(':scope > .rv2-copy', shell); if (copy) copy.textContent = 'Редактирование конфигов Xray и списков XKeen.';
+    const format = qs('#csFormat'); if (format) format.textContent = 'Формат';
+    const validate = qs('#csValidate'); if (validate) validate.textContent = 'Проверить';
+    const reset = qs('#csReset'); if (reset) reset.textContent = 'Отменить';
+    const apply = qs('#csApply'); if (apply) apply.textContent = 'Сохранить';
+    qsa('.cs-safe-note').forEach(node => node.remove());
+    const xray = qs('#csXray'); if (xray) xray.remove();
+    if (!qs('#csService', shell)) {
+      const groups = qs('.cs-tab-groups', shell) || qs('#csTabsMain', shell);
+      if (groups) groups.parentNode.insertBefore(serviceMarkup(), groups);
+      else shell.prepend(serviceMarkup());
+      qs('#csRestartXray')?.addEventListener('click', restartXray);
+      qs('#csToggleJournal')?.addEventListener('click', () => qs('#csServiceJournal')?.classList.toggle('show'));
+      qs('#csOpenFullJournal')?.addEventListener('click', openFullJournal);
+      loadService();
+    }
+    return true;
+  }
+
+  function syncActiveKind() {
+    const shell = qs('.cs-shell'); if (!shell) return;
+    const name = qs('.cs-tab.active')?.dataset.tab || '';
+    shell.classList.toggle('cs-list-view', LIST_TABS.has(name));
+  }
+
+  function polish() {
+    installStyles();
+    if (!simplifyControls()) return;
+    syncActiveKind();
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', polish, {once:true});
+  else polish();
+  const observer = new MutationObserver(() => polish());
+  observer.observe(document.documentElement, {childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+})();
