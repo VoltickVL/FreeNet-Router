@@ -1,0 +1,119 @@
+'use strict';
+
+const assert = require('assert/strict');
+const fs = require('fs');
+const http = require('http');
+const path = require('path');
+const { chromium } = require('playwright');
+
+const uxScript = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'config-studio-ux.js'), 'utf8');
+const managerScript = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'xray-core-manager.js'), 'utf8');
+let catalogGets = 0;
+let applyPosts = 0;
+let applyBody = null;
+
+const html = `<!doctype html><html><head><meta charset="utf-8"><title>Xray Core Manager fixture</title>
+<style>
+.cs-notice{display:block}.cs-notice.show{display:block}.cs-notice.bad{display:block}
+</style></head><body>
+<button data-page="access" id="journalNav">Журнал</button>
+<div class="rv2-modebar"><span id="rv2WorkspaceState" class="rv2-state">DRAFT · MUTATION: NONE</span></div>
+<section id="configStudioWorkspace" class="cs-shell">
+  <div class="cs-title"><h2>Config Studio</h2></div><p class="rv2-copy">Technical copy.</p><div id="csXray">technical xray</div>
+  <div class="cs-tab-groups"><div id="csTabsMain" class="cs-tabs cs-tabs-main"><button class="cs-tab active" data-tab="01_log">01_log</button></div><div id="csTabsLists" class="cs-tabs cs-tabs-lists"><button class="cs-tab" data-tab="ip_exclude">ip_exclude</button></div></div>
+  <div class="cs-toolbar"><button id="csFormat" class="cs-btn">Форматировать</button><button id="csValidate" class="cs-btn">Проверить Xray</button><button id="csReset" class="cs-btn">Сбросить draft</button><button id="csApply" class="cs-btn primary">Применить проверенный файл</button></div>
+  <div class="cs-meta"><span>Файл: 01_log.json</span><span>hash</span></div>
+  <span id="csState">READ ONLY</span><div class="cs-safe-note">ROLLBACK STOP</div>
+  <div id="csNotice" class="cs-notice show ok">Candidate прошёл xray run -test -confdir. Live config не изменён. MUTATION: NONE</div>
+  <div id="csApplyNote">Live snapshot: 05_routing deadbeef · 06_policy cafebabe<br>Чтобы применить изменения, сначала выполните Проверить Xray.</div>
+</section>
+<script src="/config-studio-ux.js"></script><script src="/xray-core-manager.js"></script>
+</body></html>`;
+
+const catalog = {
+  success: true,
+  current_version: 'v26.9.9',
+  latest_version: 'v26.10.1',
+  architecture: 'arm64',
+  asset_name: 'Xray-linux-arm64-v8a.zip',
+  releases: [
+    {version:'v26.10.1', published_at:'2026-09-15T00:00:00Z', prerelease:false, current:false, latest:true, description:'Последний стабильный релиз с исправлениями XTLS.', asset:{available:true}},
+    {version:'v26.9.9', published_at:'2026-09-09T00:00:00Z', prerelease:false, current:true, latest:false, description:'Установленная версия.', asset:{available:true}},
+    {version:'v26.8.1', published_at:'2026-08-01T00:00:00Z', prerelease:false, current:false, latest:false, description:'Предыдущая стабильная версия для отката.', asset:{available:true}},
+    {version:'v26.11.0-beta.1', published_at:'2026-09-16T00:00:00Z', prerelease:true, current:false, latest:false, description:'Предварительная версия.', asset:{available:true}}
+  ]
+};
+
+const server = http.createServer((req, res) => {
+  if (req.url === '/') { res.writeHead(200, {'content-type':'text/html; charset=utf-8'}); res.end(html); return; }
+  if (req.url === '/config-studio-ux.js') { res.writeHead(200, {'content-type':'application/javascript'}); res.end(uxScript); return; }
+  if (req.url === '/xray-core-manager.js') { res.writeHead(200, {'content-type':'application/javascript'}); res.end(managerScript); return; }
+  if (req.url === '/api/xray/service' && req.method === 'GET') {
+    res.writeHead(200, {'content-type':'application/json'});
+    res.end(JSON.stringify({success:true, online:true, version:'26.9.9 (Xray, Penetrates Everything.) 52a412d (go1.27.1 linux/arm64)', events:[]}));
+    return;
+  }
+  if (req.url === '/api/xray/core/catalog' && req.method === 'GET') {
+    catalogGets += 1; res.writeHead(200, {'content-type':'application/json'}); res.end(JSON.stringify(catalog)); return;
+  }
+  if (req.url === '/api/xray/core/apply' && req.method === 'POST') {
+    applyPosts += 1; let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      applyBody = JSON.parse(raw);
+      res.writeHead(200, {'content-type':'application/json'});
+      res.end(JSON.stringify({success:true, previous_version:'v26.9.9', current_version:applyBody.target_version, target_version:applyBody.target_version, rollback:'NOT_NEEDED', message:`Xray переключён: v26.9.9 → ${applyBody.target_version}.`, events:[]}));
+    });
+    return;
+  }
+  if (req.url === '/api/xray/service' && req.method === 'POST') {
+    res.writeHead(200, {'content-type':'application/json'}); res.end(JSON.stringify({success:true,online:true,version:'26.9.9',message:'ok',events:[]})); return;
+  }
+  res.writeHead(404); res.end('not found');
+});
+
+(async () => {
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const browser = await chromium.launch({headless:true});
+  const page = await browser.newPage();
+  try {
+    await page.goto(`http://127.0.0.1:${port}/`);
+    await page.waitForFunction(() => document.querySelector('#csServiceVersion')?.textContent.includes('v26.9.9'));
+    assert.equal((await page.locator('#csServiceVersion').textContent()).trim(), 'v26.9.9 ▾', 'version chip must be compact');
+    assert.equal(await page.locator('#csApplyNote').evaluate(el => getComputedStyle(el).display), 'none', 'Live snapshot technical panel must be hidden');
+    assert.equal(await page.locator('#csNotice').evaluate(el => getComputedStyle(el).display), 'none', 'technical successful validation panel must be hidden');
+    await page.locator('#csNotice').evaluate(el => { el.className = 'cs-notice show bad'; el.textContent = 'Ошибка JSON: comma expected, строка 20'; });
+    assert.notEqual(await page.locator('#csNotice').evaluate(el => getComputedStyle(el).display), 'none', 'real error diagnostics must remain visible');
+
+    assert.equal(catalogGets, 0, 'catalog must not load until explicit version click');
+    assert.equal(applyPosts, 0, 'page load must not mutate Xray');
+    await page.locator('#csServiceVersion').click();
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager') && !document.querySelector('#xrayCoreManager').hidden && document.querySelector('#xrayCoreManager').innerText.includes('v26.10.1'));
+    assert.equal(catalogGets, 1, 'one click should load catalog once');
+    assert.equal(applyPosts, 0, 'catalog load must be read-only');
+    const modalText = await page.locator('#xrayCoreManager').innerText();
+    assert(modalText.includes('Текущая'));
+    assert(modalText.includes('Последняя'));
+    assert(modalText.includes('Предрелиз'));
+    assert(modalText.includes('Последний стабильный релиз с исправлениями XTLS.'));
+
+    await page.locator('.xcm-release[data-version="v26.8.1"]').click();
+    assert.equal(applyPosts, 0, 'selecting an older release must not apply it');
+    const downgradeButton = page.getByRole('button', {name:'Откатить до v26.8.1'});
+    assert.equal(await downgradeButton.count(), 1, 'older release must be presented as rollback/downgrade');
+    await downgradeButton.click();
+    assert.equal(applyPosts, 0, 'opening confirmation must remain read-only');
+    const confirm = page.getByRole('button', {name:'Откатить до v26.8.1'});
+    await confirm.click();
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray переключён'));
+    assert.equal(applyPosts, 1, 'explicit confirmation must issue exactly one apply POST');
+    assert.deepEqual(applyBody, {target_version:'v26.8.1'});
+
+    const responsive = await page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('alive'), 20)));
+    assert.equal(responsive, 'alive', 'Xray manager UI must not starve browser event loop');
+    console.log('Xray Core Manager selector + clean Config Studio UX: OK');
+  } finally {
+    await browser.close(); server.close();
+  }
+})().catch(error => { console.error(error); server.close(); process.exit(1); });
