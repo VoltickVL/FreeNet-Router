@@ -70,6 +70,7 @@ EOF
 
 PROFILE_NAME='Frankfurt, Germany, Extra'
 PROFILE_ID="$(printf '%s|%s|%s' "$PROFILE_NAME" '203.0.113.10' '443' | sha256sum | awk '{print substr($1,1,16)}')"
+HISTORY_FILE="$TMP/history.log"
 
 run_helper() {
     PATH="$TMP/bin:$PATH" \
@@ -78,6 +79,7 @@ run_helper() {
     FREENET_ASSET_DIR="$TMP/dat" \
     FREENET_PROFILE_FILE="$TMP/etc/vpn_profile_name" \
     FREENET_FILTER_FILE="$TMP/profile.filter" \
+    FREENET_AUTOMATION_HISTORY="$HISTORY_FILE" \
     FREENET_XRAY_BIN="$TMP/bin/xray" \
     FREENET_XKEEN_BIN="$TMP/bin/xkeen" \
     FREENET_CURL_BIN="$TMP/bin/curl" \
@@ -92,6 +94,7 @@ OUT_HASH_AFTER="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')
 [ "$OUT_HASH_BEFORE" = "$OUT_HASH_AFTER" ] || fail 'plan mutated 04_outbounds.json'
 [ "$FILTER_BEFORE" = "$(cat "$TMP/profile.filter")" ] || fail 'plan mutated active profile filter'
 [ ! -e "$TMP/etc/vpn_profile_name" ] || fail 'plan persisted preferred profile'
+[ ! -e "$HISTORY_FILE" ] || fail 'plan wrote provider switch journal event'
 grep -Fq "PROFILE_ID=$PROFILE_ID" "$TMP/plan.out" || fail 'plan id missing'
 grep -Fq "PROFILE_NAME=$PROFILE_NAME" "$TMP/plan.out" || fail 'plan name missing'
 grep -Fq 'ENDPOINT=203.0.113.10:443' "$TMP/plan.out" || fail 'safe endpoint missing'
@@ -110,7 +113,11 @@ jq -e '([.outbounds[] | select(.tag=="vless-reality")] | length)==1' "$TMP/confi
 jq -e 'any(.outbounds[]; .tag=="direct") and any(.outbounds[]; .tag=="block") and any(.outbounds[]; .tag=="keep-me")' "$TMP/configs/04_outbounds.json" >/dev/null || fail 'non-VLESS outbounds not preserved'
 [ "$(cat "$TMP/etc/vpn_profile_name")" = "$PROFILE_NAME" ] || fail 'safe preferred profile name not persisted'
 [ "$(cat "$TMP/profile.filter")" = "$PROFILE_NAME" ] || fail 'exact active profile filter not committed'
-if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/apply.out" "$TMP/apply.err"; then
+grep -Fq 'VPN switch' "$HISTORY_FILE" || fail 'provider switch journal kind missing'
+grep -Fq 'success' "$HISTORY_FILE" || fail 'provider switch journal result missing'
+grep -Fq "$PROFILE_NAME" "$HISTORY_FILE" || fail 'provider switch journal profile missing'
+grep -Fq '203.0.113.10:443' "$HISTORY_FILE" || fail 'provider switch journal endpoint missing'
+if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/apply.out" "$TMP/apply.err" "$HISTORY_FILE"; then
     fail 'apply leaked provider/subscription credentials'
 fi
 
@@ -155,7 +162,9 @@ fi
 [ "$(cat "$TMP/profile.filter")" = 'OLD|FILTER' ] || fail 'rollback did not restore active profile filter'
 grep -Fq 'PRIMARY ERROR:' "$TMP/rb.err" || fail 'primary error not separated'
 grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/rb.err" || fail 'rollback success not reported'
-if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/rb.out" "$TMP/rb.err"; then
+grep -Fq 'failed' "$HISTORY_FILE" || fail 'failed provider switch journal result missing'
+grep -Fq 'Xray/XKeen runtime acceptance failed after provider apply' "$HISTORY_FILE" || fail 'failed provider switch journal reason missing'
+if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/rb.out" "$TMP/rb.err" "$HISTORY_FILE"; then
     fail 'rollback path leaked credentials'
 fi
 
