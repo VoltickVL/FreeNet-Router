@@ -293,6 +293,22 @@ func recordAndReturnHealth(result automationHealthResult, err error) (automation
 	return result, err
 }
 
+func appendAutomationRecoveryStage(stage, result, reason string) {
+	stage = sanitizeAutomationReason(stage)
+	result = sanitizeAutomationReason(result)
+	reason = sanitizeAutomationReason(reason)
+	if stage == "" {
+		stage = "stage"
+	}
+	if result == "" {
+		result = "unknown"
+	}
+	if reason == "" {
+		reason = "без подробностей"
+	}
+	appendAutomationHistoryV2(stage+":"+result, reason)
+}
+
 func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealthResult, error) {
 	settings := readAutomationSettings(a.cfg.ConfigPath)
 	if !settings.Enabled {
@@ -310,21 +326,27 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		cancel()
 		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
 	}
+	appendAutomationRecoveryStage("detect", first.State, first.Reason)
 	wanHealthy := probeAutomationWAN(probeCtx)
 	if !wanHealthy {
 		cancel()
 		decision := classifyAutomationHealth(first, false, automationHealthProbe{})
+		appendAutomationRecoveryStage("wan", decision.State, decision.Reason)
 		return recordAndReturnHealth(automationHealthResult{State: decision.State, Reason: decision.Reason}, nil)
 	}
+	appendAutomationRecoveryStage("wan", "healthy", "Обычный интернет подтверждён; AUTO VPN продолжает восстановление.")
 	select {
 	case <-time.After(automationHealthConfirmDelay):
 	case <-probeCtx.Done():
 		cancel()
-		return recordAndReturnHealth(automationHealthResult{State: automationHealthUncertain, Reason: "Повторная проверка VPN не успела завершиться; изменений нет."}, nil)
+		reason := "Повторная проверка VPN не успела завершиться; изменений нет."
+		appendAutomationRecoveryStage("confirm", automationHealthUncertain, reason)
+		return recordAndReturnHealth(automationHealthResult{State: automationHealthUncertain, Reason: reason}, nil)
 	}
 	second := a.probeAutomationCurrentVPN(probeCtx)
 	cancel()
 	decision := classifyAutomationHealth(first, true, second)
+	appendAutomationRecoveryStage("confirm", decision.State, decision.Reason)
 	if decision.State != automationHealthCritical {
 		return recordAndReturnHealth(automationHealthResult{State: decision.State, Reason: decision.Reason}, nil)
 	}
@@ -335,15 +357,19 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	endpointSettings := settings
 	endpointSettings.Mode = automationModeEndpoint
 	endpointSettings.AutoApply = true
+	appendAutomationRecoveryStage("endpoint_refresh", "start", "Пробуем обновить endpoint текущего VPN перед заменой сервера.")
 	endpointResult, endpointErr := a.runAutomationEndpointEmergency(parent, endpointSettings)
+	appendAutomationRecoveryStage("endpoint_refresh", endpointResult.State, endpointResult.Reason)
 	if endpointErr == nil && endpointResult.Mutated {
 		endpointResult.Reason = "Текущий VPN восстановлен с новым адресом подключения."
+		appendAutomationRecoveryStage("post_check", "success", endpointResult.Reason)
 		return recordAndReturnHealth(endpointResult, nil)
 	}
 	if endpointErr != nil {
 		lower := strings.ToLower(endpointResult.Reason)
 		if strings.Contains(lower, "rollback failed") || strings.Contains(lower, "rollback unknown") || strings.Contains(lower, "rollback=failed") || strings.Contains(lower, "rollback=unknown") {
 			endpointResult.State = automationHealthCritical
+			appendAutomationRecoveryStage("rollback", "failed", endpointResult.Reason)
 			return recordAndReturnHealth(endpointResult, endpointErr)
 		}
 	}
@@ -352,7 +378,12 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	bestSettings.Mode = automationModeBest
 	bestSettings.Policy = automationPolicyDegraded
 	bestSettings.AutoApply = true
+	appendAutomationRecoveryStage("candidate_selection", "start", "Endpoint refresh не восстановил VPN; ищем полностью проверенную замену.")
 	best, bestErr := a.runAutomationBestEmergencyCycle(parent, bestSettings)
+	appendAutomationRecoveryStage("apply", best.Result, best.Reason)
+	if best.RollbackState != "" && best.RollbackState != "NOT_NEEDED" && best.RollbackState != "yes" {
+		appendAutomationRecoveryStage("rollback", best.RollbackState, best.Reason)
+	}
 	result := automationHealthResult{State: best.Result, Reason: best.Reason, Mutated: best.Mutated}
 	return recordAndReturnHealth(result, bestErr)
 }
