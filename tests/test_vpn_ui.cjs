@@ -106,9 +106,28 @@ const server = http.createServer((req,res)=>{
     });
     await page.waitForFunction(() => window.__freenetLiveness === 1, null, {timeout: 1500});
     const scans=()=>calls.filter(c=>c.path.startsWith('/api/vpn/')&&!c.query.includes('job=status'));
+    async function openPicker() {
+      const popover = page.locator('#fnVpnPickerPopover');
+      if (await popover.isHidden()) await page.locator('#fnVpnPickerToggle').click();
+      await popover.waitFor({state:'visible'});
+    }
     assert.equal(scans().length,0,'opening Overview must not scan');
     assert.equal(errors.length,0,errors.join('\n'));
     assert.equal(await page.locator('#bestServerShell').count(),1);
+    assert.equal(await page.locator('#fnVpnPickerToggle').isVisible(),true,'topbar must expose one stable VPN selector control');
+    assert.equal(await page.locator('#fnVpnPickerPopover').isHidden(),true,'VPN selector popover must be closed by default');
+    const topbarHeightClosed = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
+    await openPicker();
+    const topbarHeightOpen = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
+    assert.equal(topbarHeightOpen, topbarHeightClosed, 'opening VPN selector must not change topbar height');
+    assert.equal(await page.locator('#bestServerAdvanced').evaluate(node => node.parentElement?.id), 'fnVpnPickerBody', 'exact selector must live inside the popover body');
+    await page.locator('#profileSearch').fill('Литва');
+    await page.waitForFunction(() => !document.querySelector('#profilesMenu').hidden);
+    assert.equal(await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height)), topbarHeightClosed, 'search/list state must not change topbar height');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#fnVpnPickerPopover').isHidden(),true,'Escape must close VPN selector popover');
+    assert.equal(await page.locator('#profileSearch').inputValue(),'Литва','closing popover must not silently discard the user search');
+    await page.locator('#profileSearch').fill('');
     status={...status,country:'',city:'',country_code:'',profile_label:'BE Brussels, Belgium, Extra'};
     await page.evaluate(()=>loadStatus());
     await page.waitForFunction(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-be'));
@@ -203,7 +222,7 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('.vpn-option').nth(2).textContent(),/Скорость −11.1.*Отклик медленнее на 40 мс/,'slower alternatives must disclose both drawbacks');
     assert.equal(calls.filter(c=>c.method==='POST').length,0,'checks never mutate VPN');
     assert.equal(await page.locator('.vpn-option').count(),3,'show up to three distinct measured foreign comparisons');
-    assert.equal(await page.locator('#profilesTrigger').isVisible(),true,'manual choice is always open');
+    assert.equal(await page.locator('#fnVpnPickerToggle').isVisible(),true,'manual choice is always available through the stable topbar selector');
     assert.equal(await page.locator('#bestCurrentMetrics').isVisible(),true);
     for(const row of await page.locator('.vpn-option').all()) {
       assert.equal(await row.locator('.best-v4-metrics').isVisible(),true,'all comparison metrics visible without disclosure');
@@ -211,6 +230,14 @@ const server = http.createServer((req,res)=>{
     }
     await page.setViewportSize({width:1366,height:768});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-result.png'),fullPage:true});
+    await openPicker();
+    const pickerRect = await page.locator('#fnVpnPickerPopover').evaluate(node => {
+      const r = node.getBoundingClientRect();
+      return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height,viewportWidth:innerWidth,viewportHeight:innerHeight};
+    });
+    assert.ok(pickerRect.left >= 0 && pickerRect.right <= pickerRect.viewportWidth + 1, `VPN selector popover escaped viewport horizontally: ${JSON.stringify(pickerRect)}`);
+    assert.ok(pickerRect.bottom <= pickerRect.viewportHeight + 1, `VPN selector popover escaped viewport vertically: ${JSON.stringify(pickerRect)}`);
+    await page.keyboard.press('Escape');
     const containment = await page.evaluate(() => {
       const panel = document.querySelector('.vpn-alternatives-panel').getBoundingClientRect();
       return [...document.querySelectorAll('#bestServerResult .vpn-option')].map(node => {
@@ -221,14 +248,16 @@ const server = http.createServer((req,res)=>{
     assert.ok(containment.length > 0, 'comparison cards missing');
     assert.ok(containment.every(x => x.left >= x.panelLeft - 1 && x.right <= x.panelRight + 1), `comparison card escaped alternatives pane: ${JSON.stringify(containment)}`);
     assert.ok(containment.every(x => x.scroll <= x.client + 1), `comparison card content overflowed its surface: ${JSON.stringify(containment)}`);
-    assert.equal(await page.evaluate(()=>document.querySelector('#bestServerAdvanced').getBoundingClientRect().bottom <= innerHeight),true,'desktop comparison and manual controls fit viewport');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'desktop comparison and selector shell have no horizontal overflow');
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:path.join(artifacts,'vpn-mobile-result.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no horizontal overflow on mobile');
     assert.equal(await page.locator('.best-v4-pill:visible').evaluateAll(nodes=>nodes.every(n=>n.scrollWidth<=n.clientWidth)),true,'metric values must not overlap adjacent metrics on mobile');
+    await openPicker();
     await page.locator('#profilesTrigger').click();
     assert.doesNotMatch(await page.locator('#profilesMenu').textContent(),/Россия/);
     await page.locator('#profilesTrigger').click();
+    await page.keyboard.press('Escape');
     for(const kind of ['ru']){
       bestMode=kind;await page.locator('#bestServerRefresh').click();
       await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
@@ -279,6 +308,7 @@ const server = http.createServer((req,res)=>{
     await page.goto(base);
     await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
     const providerErrorPosts=calls.filter(c=>c.method==='POST').length;
+    await openPicker();
     await page.locator('#profilesTrigger').click();
     await page.locator('[data-profile-id="fixture-lt"]').click();
     await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-error'));
@@ -301,6 +331,7 @@ const server = http.createServer((req,res)=>{
       await page.goto(base);
       await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
       const postsBefore=calls.filter(c=>c.method==='POST').length;
+      await openPicker();
       await page.locator('#profilesTrigger').click();
       await page.locator('[data-profile-id="fixture-lt"]').click();
       await page.waitForFunction(()=>!document.querySelector('#exactConnectBtn').disabled);
