@@ -92,6 +92,7 @@
 
     closeTopbarSelector();
     if (typeof closeProfileMenu === 'function') closeProfileMenu();
+    if (window.FreeNetVPNPicker && typeof window.FreeNetVPNPicker.close === 'function') window.FreeNetVPNPicker.close();
     hideStaleNotice('providerNotice');
     hideStaleNotice('notice');
   }
@@ -107,6 +108,7 @@
 
   function clearSelectorAfterSuccessfulStatus(status) {
     if (!status || status.xray_online !== true || status.busy || status.updater_busy) return;
+    if (window.FreeNetVPNPicker && typeof window.FreeNetVPNPicker.isOpen === 'function' && window.FreeNetVPNPicker.isOpen()) return;
     const menu = qs('#profilesMenu');
     const search = qs('#profileSearch');
     const hasOpenMenu = !!(menu && !menu.hidden && getComputedStyle(menu).display !== 'none');

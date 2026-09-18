@@ -17,6 +17,9 @@ const expected = '192.0.2.40:443';
         <div id="exactConnectRow" class="action-row"><button id="exactConnectBtn">Подключиться</button></div>
         <div id="routineRow" class="action-row" hidden><button>Обновить профиль</button></div>
       </div>
+      <input id="profileSearch" value="Литва">
+      <button id="profilesTrigger" aria-expanded="true"><span id="profilesTriggerText">Литва</span></button>
+      <div id="profilesMenu">server list</div>
       <div id="selectedProfileCard"></div>
       <div id="providerNotice"></div>
       <div id="notice"></div>
@@ -29,6 +32,12 @@ const expected = '192.0.2.40:443';
       window.__renderOptions = 0;
       window.__closeMenu = 0;
       window.__baseUpdates = 0;
+      window.__pickerOpen = true;
+      window.__pickerClosed = 0;
+      window.FreeNetVPNPicker = {
+        isOpen: () => window.__pickerOpen,
+        close: () => { window.__pickerOpen = false; window.__pickerClosed += 1; }
+      };
       window.updateStatusViews = function() { window.__baseUpdates += 1; };
       window.renderProfileOptions = function() { window.__renderOptions += 1; };
       window.renderSelectedProfile = function(profile) {
@@ -42,6 +51,10 @@ const expected = '192.0.2.40:443';
       window.hideBox = function(id) { document.getElementById(id).hidden = true; };
     });
     await page.addScriptTag({path:script});
+
+    await page.evaluate(() => updateStatusViews({endpoint:'192.0.2.99:443',xray_online:true,busy:false,updater_busy:false}));
+    assert.equal(await page.locator('#profileSearch').inputValue(), 'Литва', 'periodic healthy status must not clear an open popover search');
+    assert.equal(await page.locator('#profilesMenu').isVisible(), true, 'periodic healthy status must not collapse the open popover server list');
 
     async function setPending(title) {
       await page.evaluate(({title, expected}) => {
@@ -88,6 +101,7 @@ const expected = '192.0.2.40:443';
     assert.equal(await page.evaluate(() => selectedProviderID), '', 'stale selected profile id must be cleared');
     assert.equal(await page.evaluate(() => providerApplied), true, 'confirmed status marks manual switch accepted');
     assert.equal(await page.evaluate(() => window.__closeMenu), 1, 'selector menu must close');
+    assert.equal(await page.evaluate(() => window.__pickerClosed), 1, 'confirmed exact switch must close the stable selector popover');
     assert.equal(await page.locator('#notice').isVisible(), false, 'stale warning notice must close');
 
     await setPending('Связь прервалась');
