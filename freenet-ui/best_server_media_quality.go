@@ -113,11 +113,51 @@ func applyBestServerMediaGrade(result *bestServerMediaQualityResult, serviceOK, 
 	}
 }
 
-func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) bestServerMediaQualityResult {
-	mediaCtx, cancelMedia := context.WithTimeout(ctx, bestServerMediaTimeout)
-	speeds, issue := probeBestServerSpeedtestConcurrent(mediaCtx, curlPath, socks, bestServerMediaChunkRuns)
-	cancelMedia()
+type bestServerMediaStageResult struct {
+	speeds       []float64
+	issue        string
+	serviceOK    int
+	serviceTotal int
+}
 
+func runBestServerMediaStages(
+	ctx context.Context,
+	speedStage func(context.Context) ([]float64, string),
+	serviceStage func(context.Context) (int, int),
+) bestServerMediaStageResult {
+	speedCh := make(chan struct {
+		speeds []float64
+		issue  string
+	}, 1)
+	serviceCh := make(chan struct {
+		ok    int
+		total int
+	}, 1)
+
+	go func() {
+		speeds, issue := speedStage(ctx)
+		speedCh <- struct {
+			speeds []float64
+			issue  string
+		}{speeds: speeds, issue: issue}
+	}()
+	go func() {
+		ok, total := serviceStage(ctx)
+		serviceCh <- struct {
+			ok    int
+			total int
+		}{ok: ok, total: total}
+	}()
+
+	speed := <-speedCh
+	services := <-serviceCh
+	return bestServerMediaStageResult{
+		speeds: speed.speeds, issue: speed.issue,
+		serviceOK: services.ok, serviceTotal: services.total,
+	}
+}
+
+func probeBestServerServiceReachability(ctx context.Context, curlPath, socks string) (int, int) {
 	serviceCtx, cancelServices := context.WithTimeout(ctx, bestServerServiceTimeout)
 	defer cancelServices()
 	serviceOK := 0
@@ -142,13 +182,28 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 			serviceOK++
 		}
 	}
+	return serviceOK, len(bestServerMediaServiceURLs)
+}
 
-	result := summarizeBestServerAggregateMediaQuality(speeds, serviceOK, len(bestServerMediaServiceURLs))
-	result.Issue = issue
+func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) bestServerMediaQualityResult {
+	stages := runBestServerMediaStages(
+		ctx,
+		func(parent context.Context) ([]float64, string) {
+			mediaCtx, cancelMedia := context.WithTimeout(parent, bestServerMediaTimeout)
+			defer cancelMedia()
+			return probeBestServerSpeedtestConcurrent(mediaCtx, curlPath, socks, bestServerMediaChunkRuns)
+		},
+		func(parent context.Context) (int, int) {
+			return probeBestServerServiceReachability(parent, curlPath, socks)
+		},
+	)
+
+	result := summarizeBestServerAggregateMediaQuality(stages.speeds, stages.serviceOK, stages.serviceTotal)
+	result.Issue = stages.issue
 	// A single failed transfer is diagnostic noise, not an automatic stall.
 	// 3/4 completed streams are enough for bounded aggregate evidence.
-	if len(speeds) < bestServerMediaRequiredRuns {
-		result.Stalls += bestServerMediaRequiredRuns - len(speeds)
+	if len(stages.speeds) < bestServerMediaRequiredRuns {
+		result.Stalls += bestServerMediaRequiredRuns - len(stages.speeds)
 	}
 	return result
 }
