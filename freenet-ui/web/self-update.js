@@ -518,8 +518,14 @@
       });
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || 'Не удалось запустить обновление');
+      const activeTarget = String(j.operation_id || plan.target_tag || '').trim();
+      if (j.message && /уже выполняется/i.test(j.message)) {
+        setUpdateSummary('Обновление уже выполняется');
+        updateNotice('Подключаемся к текущей операции обновления. Повторный запуск не выполняется.');
+        modalStatus('Обновление уже выполняется. Показываем его фактический прогресс.', '');
+      }
       polling = true;
-      pollState(plan.target_tag);
+      pollState(activeTarget);
     } catch (e) {
       setUpdateSummary('Не запущено', 'bad');
       updateNotice(e.message || 'Ошибка запуска обновления', 'bad');
@@ -534,7 +540,18 @@
       const r = await fetch('/api/system/update/state', {cache: 'no-store'});
       if (!r.ok) return;
       const s = await r.json();
-      if (s.state && s.state !== 'IDLE') renderState(s);
+      const activeState = ['CHECKING','SNAPSHOT','UPDATING','RECONNECTING','BUSY'].includes(String(s.state || ''));
+      if (s.state === 'ROLLBACK_FAILED') {
+        renderState(s);
+        return;
+      }
+      if (s.update_lock_held || activeState) {
+        renderState(s);
+        if (!polling) {
+          polling = true;
+          pollState(String(s.target_version || '').trim());
+        }
+      }
     } catch (_) {}
   }
 
@@ -565,17 +582,38 @@
       }
       if (r.ok) {
         const state = await r.json();
-        renderState(state);
-        if (state.state === 'SUCCESS') {
-          polling = false;
-          await waitForVersion(target);
-          return;
-        }
-        if (state.state === 'FAILED' || state.state === 'ROLLBACK_FAILED') {
-          polling = false;
-          modalResult('Обновление не принято', [stateText(state.state), state.message || '', state.primary_error || '', state.rollback_state ? 'Откат: ' + state.rollback_state : ''].filter(Boolean).join('\n'), 'bad');
-          qs('#webUpdateCheckBtn').disabled = false;
-          return;
+        const stateTarget = String(state.target_version || '').trim();
+        const requestedTarget = String(target || '').trim();
+        const targetMismatch = !!(requestedTarget && stateTarget && requestedTarget !== stateTarget);
+        const staleTerminalWhileRunning = !!state.update_lock_held && (state.state === 'FAILED' || state.state === 'SUCCESS');
+
+        if (targetMismatch || staleTerminalWhileRunning) {
+          setUpdateSummary('Обновление выполняется…');
+          updateNotice(
+            targetMismatch
+              ? 'Ждём состояние текущей операции обновления. Предыдущий результат больше не используется.'
+              : 'Операция ещё выполняется. Игнорируем устаревший terminal state до подтверждения текущего запуска.'
+          );
+          modalStatus('Ждём фактическое состояние текущего обновления…', '');
+        } else {
+          renderState(state);
+          if (state.state === 'SUCCESS') {
+            polling = false;
+            await waitForVersion(stateTarget || requestedTarget);
+            return;
+          }
+          if (state.state === 'ROLLBACK_FAILED') {
+            polling = false;
+            modalResult('Обновление остановлено', [stateText(state.state), state.message || '', state.primary_error || '', state.rollback_state ? 'Откат: ' + state.rollback_state : ''].filter(Boolean).join('\n'), 'bad');
+            qs('#webUpdateCheckBtn').disabled = false;
+            return;
+          }
+          if (state.state === 'FAILED') {
+            polling = false;
+            modalResult('Обновление не принято', [stateText(state.state), state.message || '', state.primary_error || '', state.rollback_state ? 'Откат: ' + state.rollback_state : ''].filter(Boolean).join('\n'), 'bad');
+            qs('#webUpdateCheckBtn').disabled = false;
+            return;
+          }
         }
       }
     } catch (_) {
