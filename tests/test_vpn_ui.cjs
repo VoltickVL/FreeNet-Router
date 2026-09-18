@@ -313,6 +313,7 @@ const server = http.createServer((req,res)=>{
     await openPicker();
     await page.locator('#profilesTrigger').click();
     await page.locator('[data-profile-id="fixture-lt"]').click();
+    assert.equal(await page.locator('#fnVpnPickerPopover').isVisible(),true,'profile selection rerender must not be mistaken for an outside click');
     await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-error'));
     assert.equal(await page.locator('#exactConnectBtn').isDisabled(),true,'failed provider plan cannot connect');
     assert.equal(await page.locator('#exactConnectBtn').textContent(),'Сервер недоступен');
@@ -336,6 +337,7 @@ const server = http.createServer((req,res)=>{
       await openPicker();
       await page.locator('#profilesTrigger').click();
       await page.locator('[data-profile-id="fixture-lt"]').click();
+      assert.equal(await page.locator('#fnVpnPickerPopover').isVisible(),true,'exact candidate checking must remain inside the open popover');
       await page.waitForFunction(()=>!document.querySelector('#exactConnectBtn').disabled);
       assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore,'manual selection only validates');
       await page.locator('#exactConnectBtn').click();
