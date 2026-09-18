@@ -1604,3 +1604,75 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
   else install();
 })();
+
+
+// Issue #568: final Overview hierarchy polish.
+// Presentation-only: current-VPN identity, quality and action semantics are unchanged.
+(() => {
+  const q = (selector, root = document) => root.querySelector(selector);
+  function install() {
+    if (q('#FreeNetIssue568OverviewPolish')) return;
+    const style = document.createElement('style');
+    style.id = 'FreeNetIssue568OverviewPolish';
+    style.textContent = `
+      .page[data-page-view="overview"] #setupSummary{
+        display:inline-flex!important;align-items:center!important;gap:7px!important;
+        min-height:30px!important;padding:5px 10px!important;border:1px solid #36536f!important;
+        border-radius:999px!important;background:rgba(13,31,50,.82)!important;
+        color:#9fb4cb!important;font-size:10.5px!important;font-weight:760!important;
+        white-space:nowrap!important;text-align:left!important
+      }
+      .page[data-page-view="overview"] #setupSummary.ok{
+        border-color:rgba(52,226,160,.36)!important;background:rgba(16,91,68,.20)!important;color:#8ce7bd!important
+      }
+      .page[data-page-view="overview"] #setupSummary.ok::before{
+        content:'✓';display:grid;place-items:center;width:17px;height:17px;border-radius:50%;
+        background:#2ed99a;color:#073326;font-size:11px;font-weight:950
+      }
+
+      .vpn-current-panel{padding-top:4px!important}
+      .best-v4-current{
+        display:grid!important;grid-template-columns:32px minmax(0,1fr) auto!important;
+        align-items:center!important;column-gap:10px!important;row-gap:0!important;
+        padding:2px 2px 0!important;border:0!important;border-radius:0!important;
+        background:transparent!important;box-shadow:none!important
+      }
+      .vpn-current-panel #bestCurrentFlag{
+        grid-column:1!important;width:31px!important;height:21px!important;margin:0!important;
+        align-self:center!important;border-radius:4px!important
+      }
+      .best-v4-current-main{grid-column:2!important;min-width:0!important}
+      .best-v4-label{font-size:10px!important;line-height:1.1!important;color:#8ea6c2!important}
+      .best-v4-name{
+        margin-top:3px!important;font-size:20px!important;line-height:1.18!important;
+        letter-spacing:-.015em!important;overflow-wrap:anywhere!important
+      }
+      .best-v4-current .fn-current-connected{
+        grid-column:3!important;align-self:center!important;margin:0 2px 0 8px!important;
+        min-height:26px!important;padding:4px 9px!important
+      }
+      .best-v4-endpoint{
+        margin:0 0 12px!important;padding:6px 2px 12px 44px!important;
+        border:0!important;border-radius:0!important;background:transparent!important;
+        color:#8fa8c6!important
+      }
+      @media(max-width:1180px){
+        .best-v4-current{grid-template-columns:30px minmax(0,1fr)!important}
+        .vpn-current-panel #bestCurrentFlag{grid-column:1!important;grid-row:1 / span 2!important}
+        .best-v4-current-main{grid-column:2!important;grid-row:1!important}
+        .best-v4-current .fn-current-connected{
+          grid-column:2!important;grid-row:2!important;justify-self:start!important;
+          margin:7px 0 0!important
+        }
+        .best-v4-endpoint{padding-left:42px!important}
+      }
+      @media(max-width:820px){
+        .page[data-page-view="overview"] .page-head{gap:10px!important}
+        .page[data-page-view="overview"] #setupSummary{align-self:flex-start!important}
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
+  else install();
+})();

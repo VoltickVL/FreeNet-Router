@@ -98,6 +98,8 @@ const server = http.createServer((req, res) => {
       const restart = getComputedStyle(document.querySelector('#csRestartXray'));
       const journal = getComputedStyle(document.querySelector('#csToggleJournal'));
       const format = getComputedStyle(document.querySelector('#csFormat'));
+      const reset = getComputedStyle(document.querySelector('#csReset'));
+      const apply = getComputedStyle(document.querySelector('#csApply'));
       return {
         mainBorder: getComputedStyle(main).borderTopStyle,
         listsBorder: getComputedStyle(lists).borderTopStyle,
@@ -107,7 +109,12 @@ const server = http.createServer((req, res) => {
         listLabelBackground: listLabel.backgroundImage,
         restartBackground: restart.backgroundImage,
         journalBackground: journal.backgroundImage,
-        formatBackground: format.backgroundImage
+        formatBackground: format.backgroundImage,
+        formatColor: format.color,
+        resetBackground: reset.backgroundImage,
+        resetColor: reset.color,
+        applyBackground: apply.backgroundImage,
+        toolbarBorder: getComputedStyle(document.querySelector('.cs-toolbar')).borderTopStyle
       };
     });
     assert.equal(visual.mainBorder, 'none', 'Xray tabs must not sit inside a nested frame');
@@ -115,9 +122,13 @@ const server = http.createServer((req, res) => {
     assert.notEqual(visual.mainLabelColor, visual.listLabelColor, 'Xray and XKeen group labels need distinct accents');
     assert.match(visual.mainLabelBackground, /gradient/i);
     assert.match(visual.listLabelBackground, /gradient/i);
-    assert.match(visual.restartBackground, /gradient/i, 'Xray operational controls should use the blue control treatment');
-    assert.match(visual.journalBackground, /gradient/i, 'Journal control should use the blue control treatment');
-    assert.match(visual.formatBackground, /gradient/i, 'Config toolbar controls should use the blue control treatment');
+    assert.equal(visual.restartBackground, 'none', 'Xray operational controls should use the neutral treatment');
+    assert.equal(visual.journalBackground, 'none', 'Journal control should use the neutral treatment');
+    assert.equal(visual.formatBackground, 'none', 'Format must be a tertiary action, not another blue primary');
+    assert.equal(visual.resetBackground, 'none', 'Reset must use its own neutral/warn treatment');
+    assert.notEqual(visual.formatColor, visual.resetColor, 'Format and reset need distinct visual meaning');
+    assert.match(visual.applyBackground, /gradient/i, 'Save must remain the only primary blue editor action');
+    assert.equal(visual.toolbarBorder, 'solid', 'Editor footer actions need a separator below the editor body');
     assert(visibleText.includes('v26.9.9'));
     assert.equal(await page.locator('#csFormat').textContent(), 'Форматировать');
     assert.equal(await page.locator('#csValidate').count(), 0, 'manual validation control must be removed');

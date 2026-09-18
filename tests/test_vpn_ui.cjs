@@ -142,6 +142,27 @@ const server = http.createServer((req,res)=>{
     status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};
     await page.evaluate(()=>loadStatus());
     await page.waitForFunction(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-pl'));
+    const overviewPolish = await page.evaluate(() => {
+      const header = document.querySelector('.best-v4-current');
+      const flag = document.querySelector('#bestCurrentFlag');
+      const name = document.querySelector('#bestCurrentName');
+      const badge = document.querySelector('.fn-current-connected');
+      const setup = document.querySelector('#setupSummary');
+      const fr = flag.getBoundingClientRect(), nr = name.getBoundingClientRect();
+      return {
+        headerDisplay: getComputedStyle(header).display,
+        headerBackground: getComputedStyle(header).backgroundColor,
+        flagRight: fr.right,
+        nameLeft: nr.left,
+        badgeMarginLeft: badge ? parseFloat(getComputedStyle(badge).marginLeft) : 0,
+        setupRadius: setup ? parseFloat(getComputedStyle(setup).borderRadius) : 0,
+        setupDisplay: setup ? getComputedStyle(setup).display : ''
+      };
+    });
+    assert.equal(overviewPolish.headerDisplay, 'grid', `current VPN identity must use the unified grid header: ${JSON.stringify(overviewPolish)}`);
+    assert.ok(overviewPolish.flagRight <= overviewPolish.nameLeft + 1, `flag must sit immediately before current VPN copy: ${JSON.stringify(overviewPolish)}`);
+    assert.ok(overviewPolish.badgeMarginLeft >= 7, `connected badge needs breathing room: ${JSON.stringify(overviewPolish)}`);
+    assert.ok(overviewPolish.setupRadius >= 14 && ['flex','inline-flex'].includes(overviewPolish.setupDisplay), `setup complete state must render as a status chip: ${JSON.stringify(overviewPolish)}`);
     fs.mkdirSync(artifacts,{recursive:true});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-initial.png'),fullPage:true});
 

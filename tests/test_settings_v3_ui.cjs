@@ -32,7 +32,11 @@ const settings = {
   backup:{enabled:true,interval:'24h',last_run:'2026-09-12T02:30:00Z',next_run:'2026-09-13T02:30:00Z',result:'success'},
   events:[
     {at:'2026-09-12T11:35:00Z',kind:'auto_vpn',result:'success',message:'Текущий VPN работает нормально, смена не требуется.'},
-    {at:'2026-09-12T10:35:00Z',kind:'auto_vpn',result:'same',message:'Для текущего VPN нет нового адреса подключения.'}
+    {at:'2026-09-12T10:35:00Z',kind:'auto_vpn',result:'same',message:'Для текущего VPN нет нового адреса подключения.'},
+    {at:'2026-09-12T09:35:00Z',kind:'geodata',result:'updated',message:'GeoData / GeoIP обновлены.'},
+    {at:'2026-09-12T08:35:00Z',kind:'backup',result:'success',message:'Резервная копия FreeNet создана.'},
+    {at:'2026-09-12T07:35:00Z',kind:'freenet',result:'failed',message:'Проверка обновления FreeNet завершилась ошибкой.'},
+    {at:'2026-09-12T06:35:00Z',kind:'subscription',result:'updated',message:'Список Extra-профилей обновлён.'}
   ]
 };
 
@@ -193,6 +197,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await settingsPage.locator('.fn3-extra-card').count(), 4);
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="system"]').count(), 0);
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="journal"]').count(), 1);
+    assert.equal(await page.locator('#fn3Journal tr').count(), 4, 'Settings mini-journal must stay compact at four rows');
 
     const visibleProvider = await page.evaluate(() => [...document.querySelectorAll('.topbar *')].some(el => {
       if ((el.textContent || '').trim() !== 'Владлинк') return false;
@@ -259,6 +264,26 @@ const server = http.createServer((req, res) => {
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive repeated canonical navigation');
 
+    await page.locator('.nav-btn[data-page="journal"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
+    await page.waitForSelector('#fn3JournalSummary');
+    const journalPage = await page.evaluate(() => ({
+      rows: document.querySelectorAll('#fn3JournalFull tr').length,
+      stats: [...document.querySelectorAll('#fn3JournalSummary .fn3-journal-stat strong')].map(node => node.textContent.trim()),
+      tableFont: parseFloat(getComputedStyle(document.querySelector('.fn3-journal-page .fn3-table')).fontSize),
+      kindBadges: document.querySelectorAll('#fn3JournalFull .fn3-kind').length,
+      resultBadges: document.querySelectorAll('#fn3JournalFull .fn3-result').length,
+      badBadges: document.querySelectorAll('#fn3JournalFull .fn3-result.bad').length
+    }));
+    assert.equal(journalPage.rows, 6, `full Journal must show all fixture events: ${JSON.stringify(journalPage)}`);
+    assert.deepEqual(journalPage.stats, ['6','4','1','1'], `Journal summary counts are wrong: ${JSON.stringify(journalPage)}`);
+    assert.ok(journalPage.tableFont >= 13.5, `full Journal typography is still too small: ${journalPage.tableFont}px`);
+    assert.equal(journalPage.kindBadges, 6, 'Journal event kinds must use badges');
+    assert.equal(journalPage.resultBadges, 6, 'Journal results must use badges');
+    assert.equal(journalPage.badBadges, 1, 'failed Journal event must use error treatment');
+
+    await page.locator('.nav-btn[data-page="settings"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     fs.mkdirSync(artifacts, {recursive:true});
     await page.screenshot({path:path.join(artifacts, 'settings-v3-desktop.png'), fullPage:true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Settings has horizontal overflow');
