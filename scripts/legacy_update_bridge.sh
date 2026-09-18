@@ -34,6 +34,24 @@ make_tmp() {
     [ -d "$TMP_DIR" ]
 }
 
+bootstrap_ip() {
+    H="$1"
+    command -v nslookup >/dev/null 2>&1 || return 1
+    for DNS in 77.88.8.8 8.8.8.8; do
+        IP="$(nslookup "$H" "$DNS" 2>/dev/null | awk '
+            /^Name:/ {seen=1; next}
+            seen && /^Address [0-9]+:/ {if ($3 ~ /^[0-9]+\./) {print $3; exit}}
+            seen && /^Address:/ {if ($2 ~ /^[0-9]+\./) {print $2; exit}}
+        ')"
+        [ -n "$IP" ] && { printf '%s\n' "$IP"; return 0; }
+    done
+    return 1
+}
+
+url_host() {
+    printf '%s\n' "$1" | sed -n 's#^https://\([^/]*\)/.*#\1#p'
+}
+
 download_once() {
     URL="$1"
     OUT="$2"
@@ -56,13 +74,68 @@ download_once() {
         return 0
     fi
 
-    curl -fsSL --connect-timeout 20 --max-time 180 "$URL" -o "$OUT" 2>"$TMP_DIR/curl.$NAME.err"
-    RC=$?
-    if [ "$RC" -ne 0 ]; then
-        LAST_ERROR="download failed for $NAME"
-        return 1
-    fi
-    return 0
+    CUR="$URL"
+    HOP=0
+    while [ "$HOP" -lt 8 ]; do
+        HOP=$((HOP + 1))
+        HOST="$(url_host "$CUR")"
+        [ -n "$HOST" ] || {
+            LAST_ERROR="invalid HTTPS URL for $NAME"
+            return 1
+        }
+
+        HDR="$TMP_DIR/headers.$NAME.$HOP"
+        BODY="$TMP_DIR/body.$NAME.$HOP"
+        ERRFILE="$TMP_DIR/curl.$NAME.$HOP.err"
+        rm -f "$HDR" "$BODY" "$ERRFILE"
+
+        IP="$(bootstrap_ip "$HOST" 2>/dev/null || true)"
+        if [ -n "$IP" ]; then
+            curl -fsS --connect-timeout 20 --max-time 180 --resolve "$HOST:443:$IP" -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
+            RC=$?
+        else
+            curl -fsS --connect-timeout 20 --max-time 180 -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
+            RC=$?
+        fi
+
+        if [ "$RC" -ne 0 ]; then
+            LAST_ERROR="download failed for $NAME from $HOST"
+            return 1
+        fi
+
+        CODE="$(awk '/^HTTP\// {code=$2} END {print code}' "$HDR")"
+        case "$CODE" in
+            200|206)
+                mv -f "$BODY" "$OUT" || {
+                    LAST_ERROR="cannot save downloaded asset: $NAME"
+                    return 1
+                }
+                return 0
+                ;;
+            301|302|303|307|308)
+                LOC="$(sed -n 's/^[Ll]ocation:[[:space:]]*//p' "$HDR" | tr -d '\r' | tail -n 1)"
+                [ -n "$LOC" ] || {
+                    LAST_ERROR="redirect without Location for $NAME"
+                    return 1
+                }
+                case "$LOC" in
+                    https://*) CUR="$LOC" ;;
+                    /*) CUR="https://$HOST$LOC" ;;
+                    *)
+                        LAST_ERROR="unsupported redirect for $NAME"
+                        return 1
+                        ;;
+                esac
+                ;;
+            *)
+                LAST_ERROR="HTTP ${CODE:-UNKNOWN} while downloading $NAME from $HOST"
+                return 1
+                ;;
+        esac
+    done
+
+    LAST_ERROR="too many redirects while downloading $NAME"
+    return 1
 }
 
 download_with_retry() {
@@ -118,7 +191,7 @@ valid_tag "$TARGET_TAG" || {
     exit 2
 }
 
-for T in curl sha256sum awk grep mktemp cp chmod; do
+for T in curl sha256sum awk grep sed tr tail mktemp cp chmod mv sleep; do
     command -v "$T" >/dev/null 2>&1 || {
         err "required command missing: $T"
         exit 2
