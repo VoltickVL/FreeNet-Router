@@ -48,3 +48,25 @@ func TestOverviewCurrentQualityMemoryDoesNotHideMutation(t *testing.T) {
 		t.Fatal("silent current-VPN seed must run only when exact cached display data is missing")
 	}
 }
+
+
+func TestOverviewCurrentQualityMemoryBridgesCoordinatorState(t *testing.T) {
+	if !strings.Contains(overviewCurrentQualityMemoryScript, "freenet:current-quality-display") {
+		t.Fatal("persisted current-quality renderer must publish the exact measured candidate to the Overview coordinator")
+	}
+	data, err := webFS.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"installCurrentQualityMemoryBridge",
+		"freenet:current-quality-display",
+		"currentQuality = Object.assign({}, candidate, {current:true})",
+		"currentMetrics.children.length === 0",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("Overview current-quality bridge contract missing %q", want)
+		}
+	}
+}
