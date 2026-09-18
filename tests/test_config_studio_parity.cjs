@@ -155,6 +155,21 @@ const server = http.createServer(async (req, res) => {
     await page.locator('.cs-tab[data-tab="04_outbounds"]').click();
     const outInput = page.locator('#csInput');
     await outInput.waitFor({state:'visible'});
+    const editorFooter = await page.evaluate(() => {
+      const body = document.querySelector('#csBody');
+      const toolbar = document.querySelector('.cs-toolbar');
+      const bodyRect = body.getBoundingClientRect();
+      const toolbarRect = toolbar.getBoundingClientRect();
+      return {
+        follows: !!(body.compareDocumentPosition(toolbar) & Node.DOCUMENT_POSITION_FOLLOWING),
+        bodyBottom: Math.round(bodyRect.bottom),
+        toolbarTop: Math.round(toolbarRect.top),
+        footerClass: toolbar.classList.contains('cs-editor-footer')
+      };
+    });
+    assert.equal(editorFooter.follows, true, `Config Studio actions must follow the editor body: ${JSON.stringify(editorFooter)}`);
+    assert.equal(editorFooter.footerClass, true, 'Config Studio toolbar must use the editor-footer treatment');
+    assert.ok(editorFooter.toolbarTop >= editorFooter.bodyBottom - 1, `Config Studio actions must render below the editor: ${JSON.stringify(editorFooter)}`);
     assert.match(await outInput.inputValue(), /TEST-UUID-00000000/);
     assert.match(await outInput.inputValue(), /"outbounds"/);
     assert.equal(await page.locator('.cs-editor').evaluate(node => getComputedStyle(node).resize), 'vertical', 'Config Studio editor must be vertically resizable');
