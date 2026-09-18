@@ -568,7 +568,11 @@ func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 		kv := readStateFile(a.cfg.UpdateState)
 		target := strings.TrimSpace(kv["TARGET_VERSION"])
 		state := strings.TrimSpace(kv["STATE"])
-		_, staleSafe := a.updateLockStatus()
+		staleSafe := false
+		if staleUpdateUnlockSafe(kv) {
+			active, observable := a.selfUpdateProcessActivity()
+			staleSafe = observable && !active
+		}
 		a.updateMu.Unlock()
 		if state == "ROLLBACK_FAILED" {
 			writeJSON(w, http.StatusConflict, actionResult{
