@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -365,6 +366,45 @@ func buildManagedAutomationCronV3(a *app, existing []byte, values map[string]str
 	}
 	lines = append(lines, "# END FREENET")
 	return []byte(strings.TrimRight(strings.Join(lines, "\n"), "\n") + "\n"), nil
+}
+
+func settingsV3ManagedCronValuesFromConfig(configPath string) map[string]string {
+	geodataDefault := automationConfigValue(configPath, "AUTO_XKEEN_GEODATA", "yes")
+	return map[string]string{
+		"AUTO_VPN_V1": automationConfigValue(configPath, "AUTO_VPN_V1", "no"),
+		"AUTO_SUBSCRIPTION_REFRESH_ENABLED": automationConfigValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_ENABLED", "no"),
+		"AUTO_SUBSCRIPTION_REFRESH_INTERVAL": v3NormalizeInterval(automationConfigValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_INTERVAL", v3DefaultInterval("subscription")), "subscription"),
+		"AUTO_GEODATA_ENABLED": automationConfigValue(configPath, "AUTO_GEODATA_ENABLED", geodataDefault),
+		"AUTO_GEODATA_INTERVAL": v3NormalizeInterval(automationConfigValue(configPath, "AUTO_GEODATA_INTERVAL", v3DefaultInterval("geodata")), "geodata"),
+		"AUTO_FREENET_CHECK_ENABLED": automationConfigValue(configPath, "AUTO_FREENET_CHECK_ENABLED", "no"),
+		"AUTO_FREENET_CHECK_INTERVAL": v3NormalizeInterval(automationConfigValue(configPath, "AUTO_FREENET_CHECK_INTERVAL", v3DefaultInterval("freenet")), "freenet"),
+		"AUTO_BACKUP_ENABLED": automationConfigValue(configPath, "AUTO_BACKUP_ENABLED", "no"),
+		"AUTO_BACKUP_INTERVAL": v3NormalizeInterval(automationConfigValue(configPath, "AUTO_BACKUP_INTERVAL", v3DefaultInterval("backup")), "backup"),
+	}
+}
+
+func (a *app) reconcileManagedAutomationCronV3() (bool, error) {
+	if _, err := os.Stat(a.cfg.ConfigPath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, errors.New("cannot inspect FreeNet config for scheduler reconcile")
+	}
+	before := readAutomationCrontab()
+	managed, err := buildManagedAutomationCronV3(a, before, settingsV3ManagedCronValuesFromConfig(a.cfg.ConfigPath))
+	if err != nil {
+		return false, errors.New("cannot build managed FreeNet scheduler")
+	}
+	if bytes.Equal(before, managed) {
+		return false, nil
+	}
+	if err := installAutomationCrontab(managed); err != nil {
+		if rollbackErr := installAutomationCrontab(before); rollbackErr != nil {
+			return false, errors.New("managed scheduler reconcile failed; rollback failed or is unknown")
+		}
+		return false, errors.New("managed scheduler reconcile failed; previous crontab restored")
+	}
+	return true, nil
 }
 
 func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
