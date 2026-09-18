@@ -127,7 +127,9 @@ const server = http.createServer((req,res)=>{
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#fnVpnPickerPopover').isHidden(),true,'Escape must close VPN selector popover');
     assert.equal(await page.locator('#profileSearch').inputValue(),'Литва','closing popover must not silently discard the user search');
+    await openPicker();
     await page.locator('#profileSearch').fill('');
+    await page.keyboard.press('Escape');
     status={...status,country:'',city:'',country_code:'',profile_label:'BE Brussels, Belgium, Extra'};
     await page.evaluate(()=>loadStatus());
     await page.waitForFunction(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-be'));
