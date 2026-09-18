@@ -881,7 +881,9 @@
     const summary = q('#overviewApprovedTop');
     const actions = q('.top-actions');
     if (manual) manual.classList.add('fn-topbar-vpn-picker');
-    if (manual && topbar && manual.parentNode !== topbar) topbar.insertBefore(manual, summary || actions || null);
+    const pickerBody = q('#fnVpnPickerBody');
+    if (manual && pickerBody && manual.parentNode !== pickerBody) pickerBody.appendChild(manual);
+    else if (manual && !pickerBody && topbar && manual.parentNode !== topbar) topbar.insertBefore(manual, summary || actions || null);
     const exact = q('#exactConnectRow'); if (manual && exact && exact.parentNode !== manual) manual.appendChild(exact);
   }
 
