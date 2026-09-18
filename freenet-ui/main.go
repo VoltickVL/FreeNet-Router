@@ -153,14 +153,15 @@ type selfUpdateApplyRequest struct {
 }
 
 type selfUpdateStateResponse struct {
-	State          string `json:"state"`
-	FromVersion    string `json:"from_version,omitempty"`
-	TargetVersion  string `json:"target_version,omitempty"`
-	Message        string `json:"message,omitempty"`
-	PrimaryError   string `json:"primary_error,omitempty"`
-	RollbackState  string `json:"rollback_state,omitempty"`
-	UpdatedAt      string `json:"updated_at,omitempty"`
-	UpdateLockHeld bool   `json:"update_lock_held"`
+	State           string `json:"state"`
+	FromVersion     string `json:"from_version,omitempty"`
+	TargetVersion   string `json:"target_version,omitempty"`
+	Message         string `json:"message,omitempty"`
+	PrimaryError    string `json:"primary_error,omitempty"`
+	RollbackState   string `json:"rollback_state,omitempty"`
+	UpdatedAt       string `json:"updated_at,omitempty"`
+	UpdateLockHeld  bool   `json:"update_lock_held"`
+	UpdateLockStale bool   `json:"update_lock_stale"`
 }
 
 type xrayConfig struct {
@@ -369,14 +370,8 @@ func (a *app) handleNetworkProfileGet(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *app) updateLockHeld() bool {
-	a.updateMu.Lock()
-	launching := a.updateLaunching
-	a.updateMu.Unlock()
-	if launching {
-		return true
-	}
-	_, err := os.Stat(a.cfg.UpdateLock)
-	return err == nil
+	held, _ := a.updateLockStatus()
+	return held
 }
 
 func (a *app) currentUpdateActivity() (bool, string, string) {
@@ -573,11 +568,23 @@ func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 		kv := readStateFile(a.cfg.UpdateState)
 		target := strings.TrimSpace(kv["TARGET_VERSION"])
 		state := strings.TrimSpace(kv["STATE"])
+		staleSafe := false
+		if staleUpdateUnlockSafe(kv) {
+			active, observable := a.selfUpdateProcessActivity()
+			staleSafe = observable && !active
+		}
 		a.updateMu.Unlock()
 		if state == "ROLLBACK_FAILED" {
 			writeJSON(w, http.StatusConflict, actionResult{
 				Success: false,
 				Error:   "Предыдущее обновление остановлено после неподтверждённого отката. Новое обновление заблокировано до диагностики.",
+			})
+			return
+		}
+		if staleSafe {
+			writeJSON(w, http.StatusConflict, actionResult{
+				Success: false,
+				Error:   "Обнаружена зависшая блокировка updater. Откройте /recovery и снимите её безопасной кнопкой перед повтором обновления.",
 			})
 			return
 		}
@@ -634,15 +641,17 @@ func (a *app) handleSelfUpdateState(w http.ResponseWriter, _ *http.Request) {
 	if state == "" {
 		state = "IDLE"
 	}
+	held, stale := a.updateLockStatus()
 	writeJSON(w, http.StatusOK, selfUpdateStateResponse{
-		State:          state,
-		FromVersion:    kv["FROM_VERSION"],
-		TargetVersion:  kv["TARGET_VERSION"],
-		Message:        kv["MESSAGE"],
-		PrimaryError:   kv["PRIMARY_ERROR"],
-		RollbackState:  kv["ROLLBACK_STATE"],
-		UpdatedAt:      kv["UPDATED_AT"],
-		UpdateLockHeld: a.updateLockHeld(),
+		State:           state,
+		FromVersion:     kv["FROM_VERSION"],
+		TargetVersion:   kv["TARGET_VERSION"],
+		Message:         kv["MESSAGE"],
+		PrimaryError:    kv["PRIMARY_ERROR"],
+		RollbackState:   kv["ROLLBACK_STATE"],
+		UpdatedAt:       kv["UPDATED_AT"],
+		UpdateLockHeld:  held,
+		UpdateLockStale: stale,
 	})
 }
 

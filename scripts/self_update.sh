@@ -647,6 +647,8 @@ run_apply() {
         exit 3
     fi
     LOCK_HELD=1
+    printf '%s\n' "$" > "$LOCK_DIR/owner.pid" 2>/dev/null || true
+    printf '%s\n' "$TARGET_TAG" > "$LOCK_DIR/target" 2>/dev/null || true
     write_state CHECKING "$TARGET_TAG" 'Проверяем exact release и SHA-256' '' NOT_NEEDED '' || true
 
     make_tmp || fail_before_mutation 'cannot create staging directory'

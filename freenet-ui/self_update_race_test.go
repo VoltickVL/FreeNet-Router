@@ -35,10 +35,19 @@ func TestSelfUpdateApplyAttachesToRunningOperation(t *testing.T) {
 	if err := os.Mkdir(lockDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(stateFile, []byte("STATE=CHECKING\nTARGET_VERSION=v0.3.81\n"), 0o600); err != nil {
+	if err := os.WriteFile(stateFile, []byte("STATE=CHECKING\nTARGET_VERSION=v0.3.81\nROLLBACK_STATE=NOT_NEEDED\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(helper, []byte("#!/bin/sh\nprintf started > '"+marker+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	proc := filepath.Join(dir, "proc")
+	if err := os.MkdirAll(proc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FREENET_PROC_ROOT", proc)
+	writeFakeProcCmdline(t, proc, 222, "/bin/sh", helper, "apply", "v0.3.81")
+	if err := os.WriteFile(filepath.Join(lockDir, "owner.pid"), []byte("222\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

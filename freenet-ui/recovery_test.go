@@ -63,6 +63,11 @@ func TestRecoveryPageIsIndependentFromMainAssets(t *testing.T) {
 	if recoveryBodyContainsMainAssets(body) {
 		t.Fatalf("recovery page depends on main frontend assets: %s", body)
 	}
+	for _, want := range []string{"rel=\"icon\"", "M14 2.8 25.2 14 14 25.2 2.8 14 14 2.8Z", `aria-label="FreeNet"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("recovery brand/favicon parity missing %q: %s", want, body)
+		}
+	}
 }
 
 func TestRegisterGeoDataAPIRegistersRecoverySurface(t *testing.T) {
@@ -102,6 +107,81 @@ func TestRecoveryLoginUsesCanonicalCredentialAndSession(t *testing.T) {
 	a.handleRecovery(viewW, view)
 	if viewW.Code != http.StatusOK || !strings.Contains(viewW.Body.String(), "Состояние updater") {
 		t.Fatalf("authenticated recovery unavailable: status=%d body=%s", viewW.Code, viewW.Body.String())
+	}
+}
+
+func TestRecoveryUnlockClearsOnlyProvenStalePreMutationLock(t *testing.T) {
+	a := recoveryTestApp(t)
+	proc := filepath.Join(filepath.Dir(a.cfg.ConfigPath), "proc")
+	if err := os.MkdirAll(proc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FREENET_PROC_ROOT", proc)
+	a.cfg.SelfUpdatePath = "/opt/lib/freenet/self_update.sh"
+	if err := os.Mkdir(a.cfg.UpdateLock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.cfg.UpdateState, []byte("STATE=CHECKING\nFROM_VERSION=v0.3.79\nTARGET_VERSION=v0.3.82\nROLLBACK_STATE=NOT_NEEDED\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cookie := recoverySessionCookie(t, a)
+
+	view := recoveryRequest(http.MethodGet, "https://freenet.example:8443/recovery", nil)
+	view.AddCookie(cookie)
+	viewW := httptest.NewRecorder()
+	a.handleRecovery(viewW, view)
+	if !strings.Contains(viewW.Body.String(), "Снять зависшую блокировку") {
+		t.Fatalf("stale lock action missing: %s", viewW.Body.String())
+	}
+
+	r := recoveryRequest(http.MethodPost, "https://freenet.example:8443/recovery/unlock-update", nil)
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	a.handleRecoveryUnlockUpdate(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("unlock status=%d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(a.cfg.UpdateLock); !os.IsNotExist(err) {
+		t.Fatalf("stale lock still exists: %v", err)
+	}
+	state, err := os.ReadFile(a.cfg.UpdateState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(state), "STATE=IDLE") || !strings.Contains(string(state), "ROLLBACK_STATE=NOT_NEEDED") {
+		t.Fatalf("unlock state not normalized safely: %s", state)
+	}
+}
+
+func TestRecoveryUnlockRefusesActiveUpdater(t *testing.T) {
+	a := recoveryTestApp(t)
+	dir := filepath.Dir(a.cfg.ConfigPath)
+	proc := filepath.Join(dir, "proc")
+	if err := os.MkdirAll(proc, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FREENET_PROC_ROOT", proc)
+	a.cfg.SelfUpdatePath = "/opt/lib/freenet/self_update.sh"
+	if err := os.Mkdir(a.cfg.UpdateLock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.cfg.UpdateState, []byte("STATE=CHECKING\nTARGET_VERSION=v0.3.83\nROLLBACK_STATE=NOT_NEEDED\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeProcCmdline(t, proc, 333, "/bin/sh", a.cfg.SelfUpdatePath, "apply", "v0.3.83")
+	if err := os.WriteFile(filepath.Join(a.cfg.UpdateLock, "owner.pid"), []byte("333\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cookie := recoverySessionCookie(t, a)
+	r := recoveryRequest(http.MethodPost, "https://freenet.example:8443/recovery/unlock-update", nil)
+	r.AddCookie(cookie)
+	w := httptest.NewRecorder()
+	a.handleRecoveryUnlockUpdate(w, r)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("active updater unlock status=%d body=%s", w.Code, w.Body.String())
+	}
+	if _, err := os.Stat(a.cfg.UpdateLock); err != nil {
+		t.Fatalf("active updater lock was removed: %v", err)
 	}
 }
 
