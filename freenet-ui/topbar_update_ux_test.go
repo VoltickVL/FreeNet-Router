@@ -29,6 +29,20 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 			t.Fatalf("missing topbar/sidebar contract marker %q", want)
 		}
 	}
+	for _, want := range []string{
+		`j.operation_id || plan.target_tag`,
+		`state.target_version`,
+		`state.update_lock_held`,
+		`targetMismatch`,
+		`staleTerminalWhileRunning`,
+		`activeState = ['CHECKING','SNAPSHOT','UPDATING','RECONNECTING','BUSY']`,
+		`Подключаемся к текущей операции обновления`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("missing updater stale-state/reconnect marker %q", want)
+		}
+	}
+
 	for _, unwanted := range []string{
 		`const control = qs('#topXkeenLink')`,
 		`control.removeAttribute('target')`,
