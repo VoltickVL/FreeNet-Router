@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func selfUpdateApplyRequest(t *testing.T, a *app, target string) (*httptest.ResponseRecorder, actionResult) {
+func performSelfUpdateApplyRequest(t *testing.T, a *app, target string) (*httptest.ResponseRecorder, actionResult) {
 	t.Helper()
 	body := []byte(`{"target_tag":"` + target + `"}`)
 	req := httptest.NewRequest(http.MethodPost, "http://router.test/api/system/update/apply", bytes.NewReader(body))
@@ -43,7 +43,7 @@ func TestSelfUpdateApplyAttachesToRunningOperation(t *testing.T) {
 	}
 
 	a := &app{cfg: config{SelfUpdatePath: helper, UpdateLock: lockDir, UpdateState: stateFile}}
-	rr, result := selfUpdateApplyRequest(t, a, "v0.3.82")
+	rr, result := performSelfUpdateApplyRequest(t, a, "v0.3.82")
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("running update should attach with 202, got %d body=%s", rr.Code, rr.Body.String())
 	}
@@ -74,7 +74,7 @@ func TestSelfUpdateApplyKeepsRollbackFailedStopGate(t *testing.T) {
 	}
 
 	a := &app{cfg: config{SelfUpdatePath: helper, UpdateLock: lockDir, UpdateState: stateFile}}
-	rr, result := selfUpdateApplyRequest(t, a, "v0.3.82")
+	rr, result := performSelfUpdateApplyRequest(t, a, "v0.3.82")
 	if rr.Code != http.StatusConflict {
 		t.Fatalf("rollback-failed lock must remain a hard stop, got %d body=%s", rr.Code, rr.Body.String())
 	}
