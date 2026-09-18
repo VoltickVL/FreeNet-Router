@@ -155,6 +155,25 @@ fi
 [ "$(cat "$R/bin/vpn")" = OLD_VPN ] || fail 'checksum failure mutated VPN helper'
 grep -Fq 'STATE=FAILED' "$R/var/run/update.state" || fail 'checksum failure state missing'
 grep -Fq 'ROLLBACK_STATE=NOT_NEEDED' "$R/var/run/update.state" || fail 'checksum failure should not need rollback'
+grep -Fq 'PRIMARY_ERROR=SHA-256 mismatch for vpn after 3 attempts' "$R/var/run/update.state" || fail 'checksum failure must identify the concrete asset'
+
+# Transient asset download failure is retried before declaring a pre-mutation failure.
+make_root "$R"
+make_release "$D"
+run_apply "$R" "$D" "FREENET_TEST_DOWNLOAD_FAIL_ONCE=vpn" > "$TMP/transient-download.out" 2>&1 || {
+    cat "$TMP/transient-download.out" >&2
+    fail 'single transient asset download failure was not recovered'
+}
+grep -Fq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'transient download retry did not finish successfully'
+
+# Transient SHA mismatch is also retried from a fresh copy of the same exact release asset.
+make_root "$R"
+make_release "$D"
+run_apply "$R" "$D" "FREENET_TEST_VERIFY_FAIL_ONCE=vpn" > "$TMP/transient-sha.out" 2>&1 || {
+    cat "$TMP/transient-sha.out" >&2
+    fail 'single transient SHA verification failure was not recovered'
+}
+grep -Fq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'transient SHA retry did not finish successfully'
 
 # Staging failure also stops before mutation.
 make_root "$R"
