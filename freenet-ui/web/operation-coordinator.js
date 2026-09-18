@@ -642,7 +642,11 @@
     if (manual && guard && guard.parentNode !== manual) manual.appendChild(guard);
     const searchField = profilesList && profilesList.querySelector('.field');
     if (searchField && !searchField.querySelector('.manual-search-icon')) searchField.prepend(makeIcon('search', 'manual-search-icon'));
-    renderMetrics(qs('#bestCurrentMetrics'), currentQuality); renderCurrentHealth(currentQuality);
+    const currentMetrics = qs('#bestCurrentMetrics');
+    if (currentQuality || !currentMetrics || currentMetrics.children.length === 0) {
+      renderMetrics(currentMetrics, currentQuality);
+      renderCurrentHealth(currentQuality);
+    }
     try { if (typeof lastStatus !== 'undefined' && lastStatus) renderCurrentIdentity(lastStatus); } catch (_) {}
     return qs('#bestServerShell');
   }
@@ -806,8 +810,18 @@
     document.addEventListener('click',event=>{const origin=event.target;if(!origin||typeof origin.closest!=='function')return;const button=origin.closest('#bestServerCheckCurrent,#bestServerRefresh,.vpn-option-apply,.vpn-option-retry');if(!button||button.disabled)return;event.preventDefault();if(button.id==='bestServerCheckCurrent'){void scanCurrentVPN();return}if(button.id==='bestServerRefresh'){void scanBestServer();return}if(button.matches('.vpn-option-retry')){const candidate=alternatives.find(item=>item.id===button.dataset.candidateId);if(candidate)void retryCandidate(candidate,button);return}if(button.matches('.vpn-option-apply')){const candidate=alternatives.find(item=>item.eligible&&item.id===button.dataset.candidateId);if(candidate)void applyCandidate(candidate);}},true);
   }
 
+  function installCurrentQualityMemoryBridge() {
+    document.addEventListener('freenet:current-quality-display', event => {
+      const candidate = event && event.detail && event.detail.candidate;
+      if (!candidate || candidate.current !== true || !candidate.endpoint) return;
+      const liveEndpoint = String(qs('#bestCurrentEndpoint')?.textContent || '').trim();
+      if (liveEndpoint && liveEndpoint !== '—' && liveEndpoint !== candidate.endpoint) return;
+      currentQuality = Object.assign({}, candidate, {current:true});
+    });
+  }
+
   function start() {
-    installRussianProfileFilter();patchCrossPlatformFlags();installBestServerActionDelegation();installUpdateQualityFollowup();mountOverviewTopbar();installOverviewStatusHook();mountBestServerUI();syncOverviewTopbar();
+    installRussianProfileFilter();patchCrossPlatformFlags();installBestServerActionDelegation();installUpdateQualityFollowup();installCurrentQualityMemoryBridge();mountOverviewTopbar();installOverviewStatusHook();mountBestServerUI();syncOverviewTopbar();
   }
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start,{once:true});else start();
