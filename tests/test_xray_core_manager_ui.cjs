@@ -16,6 +16,7 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>Xray Core 
 <style>
 .cs-notice{display:block}.cs-notice.show{display:block}.cs-notice.bad{display:block}
 </style></head><body>
+<header class="topbar overview-approved"><div id="overviewApprovedTop" class="overview-approved-top fn-render-facts"><div id="dnsFact">DNS</div><div id="freenetFact">FreeNet</div></div><div class="top-actions"></div></header>
 <button data-page="access" id="journalNav">Журнал</button>
 <div class="rv2-modebar"><span id="rv2WorkspaceState" class="rv2-state">DRAFT · MUTATION: NONE</span></div>
 <section id="configStudioWorkspace" class="cs-shell">
@@ -80,7 +81,10 @@ const server = http.createServer((req, res) => {
   try {
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.waitForFunction(() => document.querySelector('#csServiceVersion')?.textContent.includes('v26.9.9'));
-    assert.equal((await page.locator('#csServiceVersion').textContent()).trim(), 'v26.9.9 ▾', 'version chip must be compact');
+    await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.includes('v26.9.9'));
+    assert.equal((await page.locator('#csServiceVersion').textContent()).trim(), 'v26.9.9 ▾', 'Config Studio compatibility version chip must stay compact');
+    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'topbar Xray version must be compact');
+    assert.equal(await page.locator('#overviewApprovedTop > :first-child').getAttribute('id'), 'xrayTopbarChip', 'Xray must appear before DNS / FreeNet facts in the topbar');
     assert.equal(await page.locator('#csValidate').count(), 0, 'manual validation control must be removed');
     assert.equal(await page.locator('#csMeta').count(), 0, 'file/hash metadata must be removed');
     assert.equal(await page.locator('#csApplyNote').count(), 0, 'Live snapshot technical panel must be removed');
@@ -92,7 +96,7 @@ const server = http.createServer((req, res) => {
 
     assert.equal(catalogGets, 0, 'catalog must not load until explicit version click');
     assert.equal(applyPosts, 0, 'page load must not mutate Xray');
-    await page.locator('#csServiceVersion').click();
+    await page.locator('#xrayTopbarChip').click();
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager') && !document.querySelector('#xrayCoreManager').hidden && document.querySelector('#xrayCoreManager').innerText.includes('v26.10.1'));
     assert.equal(catalogGets, 1, 'one click should load catalog once');
     assert.equal(applyPosts, 0, 'catalog load must be read-only');
@@ -113,6 +117,7 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray переключён'));
     assert.equal(applyPosts, 1, 'explicit confirmation must issue exactly one apply POST');
     assert.deepEqual(applyBody, {target_version:'v26.8.1'});
+    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'successful Xray apply must update the topbar version immediately');
 
     const responsive = await page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('alive'), 20)));
     assert.equal(responsive, 'alive', 'Xray manager UI must not starve browser event loop');
