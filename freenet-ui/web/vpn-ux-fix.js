@@ -196,7 +196,7 @@
       selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), 'Не удалось получить результат проверки. Текущий VPN не изменён.', 'error');
       if (controls && controls.connect) {
         controls.connect.disabled = true;
-        controls.connect.textContent = 'Подключение недоступно';
+        controls.connect.textContent = 'Сервер недоступен';
       }
     } finally {
       exactChecking = false;
