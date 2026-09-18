@@ -109,6 +109,13 @@ const server = http.createServer((req,res)=>{
     assert.equal(scans().length,0,'opening Overview must not scan');
     assert.equal(errors.length,0,errors.join('\n'));
     assert.equal(await page.locator('#bestServerShell').count(),1);
+    status={...status,country:'',city:'',country_code:'',profile_label:'BE Brussels, Belgium, Extra'};
+    await page.evaluate(()=>loadStatus());
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-be'));
+    assert.equal(await page.locator('#bestCurrentFlag').isVisible(),true,'current VPN flag must be derived from exact profile label when status country_code is absent');
+    status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};
+    await page.evaluate(()=>loadStatus());
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-pl'));
     fs.mkdirSync(artifacts,{recursive:true});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-initial.png'),fullPage:true});
     async function currentCheck(){
@@ -204,6 +211,16 @@ const server = http.createServer((req,res)=>{
     }
     await page.setViewportSize({width:1366,height:768});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-result.png'),fullPage:true});
+    const containment = await page.evaluate(() => {
+      const panel = document.querySelector('.vpn-alternatives-panel').getBoundingClientRect();
+      return [...document.querySelectorAll('#bestServerResult .vpn-option')].map(node => {
+        const box = node.getBoundingClientRect();
+        return {left:box.left,right:box.right,panelLeft:panel.left,panelRight:panel.right,scroll:node.scrollWidth,client:node.clientWidth};
+      });
+    });
+    assert.ok(containment.length > 0, 'comparison cards missing');
+    assert.ok(containment.every(x => x.left >= x.panelLeft - 1 && x.right <= x.panelRight + 1), `comparison card escaped alternatives pane: ${JSON.stringify(containment)}`);
+    assert.ok(containment.every(x => x.scroll <= x.client + 1), `comparison card content overflowed its surface: ${JSON.stringify(containment)}`);
     assert.equal(await page.evaluate(()=>document.querySelector('#bestServerAdvanced').getBoundingClientRect().bottom <= innerHeight),true,'desktop comparison and manual controls fit viewport');
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:path.join(artifacts,'vpn-mobile-result.png'),fullPage:true});
