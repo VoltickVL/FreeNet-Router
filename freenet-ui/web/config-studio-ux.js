@@ -140,6 +140,9 @@
     setText(qs('#csFormat'), 'Форматировать');
     setText(qs('#csReset'), 'Отменить');
     setText(qs('#csApply'), 'Сохранить');
+    qs('#csFormat')?.classList.add('cs-btn-tertiary');
+    qs('#csReset')?.classList.add('cs-btn-reset');
+    qs('.cs-toolbar', shell)?.classList.add('cs-editor-footer');
     qs('#csValidate')?.remove();
     qsa('.cs-safe-note,#csMeta,#csApplyNote,#rv2ApplyPreview,#rv2ApplyResult,#rv2ApplyConfig').forEach(node => node.remove());
     const xray = qs('#csXray'); if (xray) xray.remove();
