@@ -20,7 +20,7 @@ const (
 	bestServerPreflightCandidateTimeout = 5 * time.Second
 	bestServerPreflightPhaseTimeout     = 35 * time.Second
 	bestServerPreflightShortlist        = 12
-	bestServerPreflightHTTPRuns         = 2
+	bestServerPreflightHTTPRuns         = 1
 )
 
 type bestServerPreflightResult struct {
@@ -29,8 +29,10 @@ type bestServerPreflightResult struct {
 }
 
 // applicationAwareBestServerShortlist measures the real VPN application path
-// before the expensive throughput stage. Provider endpoint TCP latency alone is
-// not a reliable proxy for the geographic/exit path of an Extra profile.
+// before the expensive throughput stage. This is ranking-only evidence: one
+// bounded HTTP sample is enough to order the shortlist because strict acceptance
+// is performed later by the deep quality probe. Provider endpoint TCP latency
+// alone is not a reliable proxy for the geographic/exit path of an Extra profile.
 func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) []bestServerInternalCandidate {
 	if len(candidates) <= bestServerPreflightShortlist {
 		return candidates

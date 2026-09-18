@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+)
 
 func TestBestServerAggregateMediaQualityUsesCombinedCapacity(t *testing.T) {
 	result := summarizeBestServerAggregateMediaQuality([]float64{44, 46, 45, 43}, 4, 4)
@@ -45,5 +49,28 @@ func TestBestServerAggregateMediaQualityPenalizesServicePathFailures(t *testing.
 	}
 	if partial.Grade == "excellent" || partial.Grade == "good" {
 		t.Fatalf("service path failures must reduce grade: %+v", partial)
+	}
+}
+
+
+func TestRunBestServerMediaStagesOverlap(t *testing.T) {
+	started := time.Now()
+	result := runBestServerMediaStages(
+		context.Background(),
+		func(context.Context) ([]float64, string) {
+			time.Sleep(120 * time.Millisecond)
+			return []float64{40, 41, 42, 43}, "speed-note"
+		},
+		func(context.Context) (int, int) {
+			time.Sleep(120 * time.Millisecond)
+			return 4, 4
+		},
+	)
+	elapsed := time.Since(started)
+	if elapsed >= 200*time.Millisecond {
+		t.Fatalf("media/service stages look sequential: elapsed=%s", elapsed)
+	}
+	if len(result.speeds) != 4 || result.issue != "speed-note" || result.serviceOK != 4 || result.serviceTotal != 4 {
+		t.Fatalf("unexpected overlapped stage result: %+v", result)
 	}
 }

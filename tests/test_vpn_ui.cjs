@@ -70,7 +70,12 @@ const server = http.createServer((req,res)=>{
           {...third,tested:false,eligible:false}],profiles_scanned:4});
         const best=url.pathname.endsWith('best-foreign');
         const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
-        return answer(route,{success:true,available:true,candidates:best?(bestMode==='ru'?[current,{...winner,country_code:'ru'}]:[current,winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}]):[current],recommendation:best?recommendation:null,profiles_scanned:best?6:1,scanned_at:'2026-09-08T03:00:00Z'});
+        const bestCandidates = bestMode==='ru'
+          ? [current,{...winner,country_code:'ru'}]
+          : bestMode==='no-current'
+            ? [winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}]
+            : [current,winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}];
+        return answer(route,{success:true,available:true,candidates:best?bestCandidates:[current],recommendation:best?recommendation:null,profiles_scanned:best?6:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
       }
       if(url.pathname==='/api/network-profile/apply'){
         assert.deepEqual(JSON.parse(req.postData()),{operation:'provider',profile_id:expectedApply.id,confirm:true});
@@ -139,6 +144,24 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-pl'));
     fs.mkdirSync(artifacts,{recursive:true});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-initial.png'),fullPage:true});
+
+    // Persisted first-paint quality is rendered by a separate bootstrap script.
+    // Its bridge must also hydrate the coordinator closure so a broad Best
+    // Server remount cannot replace confirmed current metrics with dashes.
+    await page.evaluate(candidate => {
+      document.dispatchEvent(new CustomEvent('freenet:current-quality-display', {
+        detail: {candidate, scanned_at:'2026-09-08T03:00:00Z'}
+      }));
+    }, current);
+    bestMode='no-current';
+    await page.locator('#bestServerRefresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    assert.match(await page.locator('#bestCurrentMetrics').textContent(),/42\.5 Мбит\/с/,'broad scan without a current candidate must preserve bridged current metrics');
+    assert.match(await page.locator('#bestServerReason').textContent(),/Скорость \+25\.7/,'comparison deltas must still use the bridged current baseline');
+    bestMode='winner';
+    await page.goto(base);
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
+
     async function currentCheck(){
       const before=scans().length;
       await page.locator('#bestServerCheckCurrent').click();
