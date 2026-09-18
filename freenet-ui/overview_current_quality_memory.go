@@ -97,6 +97,9 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
         ? 'Текущий VPN работает стабильно.\nПоказан последний подтверждённый замер.'
         : 'Показан последний подтверждённый замер.\nДля свежей оценки можно запустить проверку вручную.';
     }
+    document.dispatchEvent(new CustomEvent('freenet:current-quality-display', {
+      detail: {candidate: Object.assign({}, candidate, {current:true}), scanned_at: data.scanned_at || ''}
+    }));
     return true;
   }
 
