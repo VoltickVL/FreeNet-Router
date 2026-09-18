@@ -157,6 +157,16 @@ const server = http.createServer(async (req, res) => {
     await outInput.waitFor({state:'visible'});
     assert.match(await outInput.inputValue(), /TEST-UUID-00000000/);
     assert.match(await outInput.inputValue(), /"outbounds"/);
+    assert.equal(await page.locator('.cs-editor').evaluate(node => getComputedStyle(node).resize), 'vertical', 'Config Studio editor must be vertically resizable');
+    await page.evaluate(() => { document.querySelector('.cs-editor').style.height = '620px'; });
+    await page.waitForTimeout(80);
+    await page.locator('.cs-tab[data-tab="03_inbounds"]').click();
+    await page.waitForSelector('#csInput', {state:'visible'});
+    const persistedEditorHeight = await page.locator('.cs-editor').evaluate(node => Math.round(node.getBoundingClientRect().height));
+    assert.ok(persistedEditorHeight >= 610 && persistedEditorHeight <= 630, `editor height was not preserved across file switch: ${persistedEditorHeight}px`);
+    await page.locator('.cs-tab[data-tab="04_outbounds"]').click();
+    await page.waitForSelector('#csInput', {state:'visible'});
+    assert.match(await outInput.inputValue(), /TEST-UUID-00000000/);
 
     await outInput.fill('{\n  "outbounds": [\n    {"tag": "test-out", "settings": {"id": "TEST-UUID-NEW"}}\n  ]\n');
     await page.waitForSelector('#csDiagnostic.show');
