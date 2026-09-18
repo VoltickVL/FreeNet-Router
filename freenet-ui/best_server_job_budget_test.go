@@ -73,3 +73,18 @@ func TestBestServerBrowserTimeoutContract(t *testing.T) {
 		t.Fatal("browser Best Server timeout marker changed; update the server/browser budget contract together")
 	}
 }
+
+
+func TestBestServerPreflightIsSingleSampleRankingOnly(t *testing.T) {
+	if bestServerPreflightHTTPRuns != 1 {
+		t.Fatalf("preflight HTTP runs=%d want=1; deep quality owns strict acceptance", bestServerPreflightHTTPRuns)
+	}
+	data, err := os.ReadFile("best_server_preflight.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "ranking-only evidence") || !strings.Contains(src, "strict acceptance") {
+		t.Fatal("preflight must remain explicitly ranking-only; acceptance belongs to deep quality")
+	}
+}
