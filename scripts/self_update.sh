@@ -18,6 +18,12 @@ TEST_RELEASE_DIR="${FREENET_TEST_RELEASE_DIR:-}"
 LATEST_OVERRIDE="${FREENET_LATEST_TAG:-}"
 FAIL_STAGE="${FREENET_TEST_FAIL_STAGE:-}"
 ROLLBACK_FAIL="${FREENET_TEST_ROLLBACK_FAIL:-no}"
+TEST_DOWNLOAD_FAIL_ONCE="${FREENET_TEST_DOWNLOAD_FAIL_ONCE:-}"
+TEST_VERIFY_FAIL_ONCE="${FREENET_TEST_VERIFY_FAIL_ONCE:-}"
+DOWNLOAD_RETRIES="${FREENET_UPDATE_DOWNLOAD_RETRIES:-3}"
+case "$DOWNLOAD_RETRIES" in
+    ''|*[!0-9]*|0) DOWNLOAD_RETRIES=3 ;;
+esac
 MODE="${1:-plan}"
 TARGET_TAG="${2:-}"
 TMP_DIR=""
@@ -186,6 +192,11 @@ download_url() {
 
     if [ -n "$TEST_RELEASE_DIR" ]; then
         NAME="${URL##*/}"
+        if [ -n "$TEST_DOWNLOAD_FAIL_ONCE" ] && [ "$NAME" = "$TEST_DOWNLOAD_FAIL_ONCE" ] && [ ! -f "$TMP_DIR/.download-failed-once-$NAME" ]; then
+            : > "$TMP_DIR/.download-failed-once-$NAME"
+            LAST_DOWNLOAD_ERROR="temporary download failure for $NAME"
+            return 1
+        fi
         [ -f "$TEST_RELEASE_DIR/$NAME" ] || { LAST_DOWNLOAD_ERROR="test asset missing: $NAME"; return 1; }
         cp "$TEST_RELEASE_DIR/$NAME" "$OUT" || { LAST_DOWNLOAD_ERROR="cannot copy test asset: $NAME"; return 1; }
         return 0
@@ -332,17 +343,76 @@ fetch_manifest() {
     TAG="$1"
     make_tmp || return 1
     BASE="https://github.com/$REPO/releases/download/$TAG"
-    download_url "$BASE/SHA256SUMS" "$TMP_DIR/SHA256SUMS" || return 1
-    manifest_complete
+    download_file_with_retry "SHA256SUMS" "$BASE/SHA256SUMS" "$TMP_DIR/SHA256SUMS" || return 1
+    if ! manifest_complete; then
+        LAST_DOWNLOAD_ERROR="release SHA256SUMS is incomplete"
+        return 1
+    fi
+    return 0
 }
 
 verify_asset() {
     NAME="$1"
     FILE="$2"
     EXPECTED="$(manifest_expected "$NAME")"
-    [ -n "$EXPECTED" ] || return 1
+    if [ -z "$EXPECTED" ]; then
+        LAST_DOWNLOAD_ERROR="SHA-256 manifest entry missing for $NAME"
+        return 1
+    fi
+    if [ -n "$TEST_VERIFY_FAIL_ONCE" ] && [ "$NAME" = "$TEST_VERIFY_FAIL_ONCE" ] && [ ! -f "$TMP_DIR/.verify-failed-once-$NAME" ]; then
+        : > "$TMP_DIR/.verify-failed-once-$NAME"
+        LAST_DOWNLOAD_ERROR="SHA-256 mismatch for $NAME"
+        return 1
+    fi
     ACTUAL="$(sha256sum "$FILE" | awk '{print $1}')"
-    [ "$EXPECTED" = "$ACTUAL" ]
+    if [ "$EXPECTED" != "$ACTUAL" ]; then
+        LAST_DOWNLOAD_ERROR="SHA-256 mismatch for $NAME"
+        return 1
+    fi
+    return 0
+}
+
+retry_pause() {
+    [ "$TEST_MODE" = yes ] && return 0
+    sleep "$1"
+}
+
+download_file_with_retry() {
+    NAME="$1"
+    URL="$2"
+    OUT="$3"
+    ATTEMPT=1
+    LAST=""
+    while [ "$ATTEMPT" -le "$DOWNLOAD_RETRIES" ]; do
+        rm -f "$OUT" 2>/dev/null || true
+        if download_url "$URL" "$OUT"; then
+            return 0
+        fi
+        LAST="$LAST_DOWNLOAD_ERROR"
+        [ "$ATTEMPT" -lt "$DOWNLOAD_RETRIES" ] && retry_pause "$ATTEMPT"
+        ATTEMPT=$((ATTEMPT + 1))
+    done
+    LAST_DOWNLOAD_ERROR="${LAST:-download failed for $NAME} after $DOWNLOAD_RETRIES attempts"
+    return 1
+}
+
+download_verified_asset() {
+    NAME="$1"
+    URL="$2"
+    OUT="$3"
+    ATTEMPT=1
+    LAST=""
+    while [ "$ATTEMPT" -le "$DOWNLOAD_RETRIES" ]; do
+        rm -f "$OUT" 2>/dev/null || true
+        if download_url "$URL" "$OUT" && verify_asset "$NAME" "$OUT"; then
+            return 0
+        fi
+        LAST="$LAST_DOWNLOAD_ERROR"
+        [ "$ATTEMPT" -lt "$DOWNLOAD_RETRIES" ] && retry_pause "$ATTEMPT"
+        ATTEMPT=$((ATTEMPT + 1))
+    done
+    LAST_DOWNLOAD_ERROR="${LAST:-download or SHA-256 verification failed for $NAME} after $DOWNLOAD_RETRIES attempts"
+    return 1
 }
 
 download_assets() {
@@ -350,11 +420,14 @@ download_assets() {
     fetch_manifest "$TAG" || return 1
     BASE="https://github.com/$REPO/releases/download/$TAG"
     for NAME in $(asset_list); do
-        download_url "$BASE/$NAME" "$TMP_DIR/$NAME" || return 1
-        verify_asset "$NAME" "$TMP_DIR/$NAME" || return 1
+        download_verified_asset "$NAME" "$BASE/$NAME" "$TMP_DIR/$NAME" || return 1
         MODE_NOW="$(asset_mode "$NAME")"
-        chmod "$MODE_NOW" "$TMP_DIR/$NAME" 2>/dev/null || return 1
+        if ! chmod "$MODE_NOW" "$TMP_DIR/$NAME" 2>/dev/null; then
+            LAST_DOWNLOAD_ERROR="cannot set staged mode for $NAME"
+            return 1
+        fi
     done
+    return 0
 }
 
 validate_stage() {
@@ -577,7 +650,7 @@ run_apply() {
     write_state CHECKING "$TARGET_TAG" 'Проверяем exact release и SHA-256' '' NOT_NEEDED '' || true
 
     make_tmp || fail_before_mutation 'cannot create staging directory'
-    download_assets "$TARGET_TAG" || fail_before_mutation 'release asset download or SHA-256 verification failed'
+    download_assets "$TARGET_TAG" || fail_before_mutation "${LAST_DOWNLOAD_ERROR:-release asset download or SHA-256 verification failed}"
     validate_stage || fail_before_mutation 'staging validation failed'
     write_state SNAPSHOT "$TARGET_TAG" 'Создаём snapshot FreeNet-owned файлов' '' NOT_NEEDED '' || true
     prepare_backup || fail_before_mutation 'cannot create pre-update snapshot'

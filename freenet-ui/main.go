@@ -59,10 +59,13 @@ type config struct {
 }
 
 type app struct {
-	cfg  config
-	sem  chan struct{}
-	mu   sync.RWMutex
-	last actionResult
+	cfg             config
+	sem             chan struct{}
+	mu              sync.RWMutex
+	last            actionResult
+	updateMu        sync.Mutex
+	updateLaunching bool
+	updateTarget    string
 }
 
 type statusResponse struct {
@@ -366,8 +369,29 @@ func (a *app) handleNetworkProfileGet(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *app) updateLockHeld() bool {
+	a.updateMu.Lock()
+	launching := a.updateLaunching
+	a.updateMu.Unlock()
+	if launching {
+		return true
+	}
 	_, err := os.Stat(a.cfg.UpdateLock)
 	return err == nil
+}
+
+func (a *app) currentUpdateActivity() (bool, string, string) {
+	a.updateMu.Lock()
+	launching := a.updateLaunching
+	target := a.updateTarget
+	a.updateMu.Unlock()
+	if launching {
+		return true, target, ""
+	}
+	if _, err := os.Stat(a.cfg.UpdateLock); err != nil {
+		return false, "", ""
+	}
+	kv := readStateFile(a.cfg.UpdateState)
+	return true, strings.TrimSpace(kv["TARGET_VERSION"]), strings.TrimSpace(kv["STATE"])
 }
 
 func (a *app) mutationBlockedBySelfUpdate(w http.ResponseWriter) bool {
@@ -517,10 +541,6 @@ func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, actionResult{Success: false, Error: "cross-origin request rejected"})
 		return
 	}
-	if a.updateLockHeld() {
-		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "another FreeNet update is already running"})
-		return
-	}
 	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
 		writeJSON(w, http.StatusUnsupportedMediaType, actionResult{Success: false, Error: "application/json required"})
 		return
@@ -538,16 +558,66 @@ func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, actionResult{Success: false, Error: "self update helper is not installed"})
 		return
 	}
+
+	a.updateMu.Lock()
+	if a.updateLaunching {
+		target := a.updateTarget
+		a.updateMu.Unlock()
+		writeJSON(w, http.StatusAccepted, actionResult{
+			Success: true, Action: "self-update", OperationID: target,
+			Message: "Обновление FreeNet уже выполняется. Показываем текущий прогресс.",
+		})
+		return
+	}
+	if _, err := os.Stat(a.cfg.UpdateLock); err == nil {
+		kv := readStateFile(a.cfg.UpdateState)
+		target := strings.TrimSpace(kv["TARGET_VERSION"])
+		state := strings.TrimSpace(kv["STATE"])
+		a.updateMu.Unlock()
+		if state == "ROLLBACK_FAILED" {
+			writeJSON(w, http.StatusConflict, actionResult{
+				Success: false,
+				Error:   "Предыдущее обновление остановлено после неподтверждённого отката. Новое обновление заблокировано до диагностики.",
+			})
+			return
+		}
+		writeJSON(w, http.StatusAccepted, actionResult{
+			Success: true, Action: "self-update", OperationID: target,
+			Message: "Обновление FreeNet уже выполняется. Показываем текущий прогресс.",
+		})
+		return
+	}
+
 	cmd := a.selfUpdateCommand("apply", req.TargetTag)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
+	a.updateLaunching = true
+	a.updateTarget = req.TargetTag
 	if err := cmd.Start(); err != nil {
+		a.updateLaunching = false
+		a.updateTarget = ""
+		a.updateMu.Unlock()
 		writeJSON(w, http.StatusInternalServerError, actionResult{Success: false, Error: "cannot start FreeNet update"})
 		return
 	}
-	_ = cmd.Process.Release()
-	writeJSON(w, http.StatusAccepted, actionResult{Success: true, Action: "self-update", Message: "Обновление запущено. FreeNet кратко перезапустится."})
+	target := req.TargetTag
+	a.updateMu.Unlock()
+
+	go func() {
+		_ = cmd.Wait()
+		a.updateMu.Lock()
+		if a.updateTarget == target {
+			a.updateLaunching = false
+			a.updateTarget = ""
+		}
+		a.updateMu.Unlock()
+	}()
+
+	writeJSON(w, http.StatusAccepted, actionResult{
+		Success: true, Action: "self-update", OperationID: target,
+		Message: "Обновление запущено. FreeNet кратко перезапустится.",
+	})
 }
 
 func readStateFile(path string) map[string]string {
