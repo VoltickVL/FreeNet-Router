@@ -159,6 +159,8 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('#bestCurrentMetrics').textContent(),/42\.5 Мбит\/с/,'broad scan without a current candidate must preserve bridged current metrics');
     assert.match(await page.locator('#bestServerReason').textContent(),/Скорость \+25\.7/,'comparison deltas must still use the bridged current baseline');
     bestMode='winner';
+    await page.goto(base);
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
 
     async function currentCheck(){
       const before=scans().length;
