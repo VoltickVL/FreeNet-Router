@@ -158,10 +158,11 @@ chmod 755 "$TMP_DIR/self_update.sh" || {
 
 say "UPDATER_VERIFIED=yes"
 
-if sh "$TMP_DIR/self_update.sh" "$MODE" "$TARGET_TAG"; then
+sh "$TMP_DIR/self_update.sh" "$MODE" "$TARGET_TAG"
+RC=$?
+if [ "$RC" -eq 0 ]; then
     exit 0
 fi
 
-RC=$?
 err "verified updater returned exit code $RC"
 exit "$RC"
