@@ -44,4 +44,18 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 	if strings.Contains(s, "MutationObserver") {
 		t.Fatal("topbar/sidebar implementation must not introduce MutationObserver")
 	}
+
+	accepted, err := os.ReadFile("web/accepted-ux.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ux := string(accepted)
+	for _, want := range []string{"fnUpdateNotesTitle", "fnUpdateNotes", "Что нового в", "release_notes", "fn-update-safety"} {
+		if !strings.Contains(ux, want) {
+			t.Fatalf("missing updater release-notes UX marker %q", want)
+		}
+	}
+	if strings.Contains(ux, "Обновление безопасно") {
+		t.Fatal("static safety card must not replace release notes in updater")
+	}
 }

@@ -89,6 +89,27 @@ func TestParseXrayCoreCatalog(t *testing.T) {
 	}
 }
 
+func TestXrayCoreReleaseSummaryHidesSponsorAndMarkdownNoise(t *testing.T) {
+	body := "## Sponsors\n[![Remnawave](https://example.invalid/image)](https://example.invalid)\n## Donation & NFTs\n- **BTC: `secret-looking-address`**"
+	got := xrayCoreReleaseSummary(body)
+	if got != "Описание изменений upstream не опубликовано." {
+		t.Fatalf("unexpected sponsor-only summary: %q", got)
+	}
+	if strings.Contains(got, "http") || strings.Contains(got, "BTC") || strings.Contains(got, "**") {
+		t.Fatalf("summary leaked raw upstream noise: %q", got)
+	}
+}
+
+func TestXrayCoreReleaseSummaryRedirectAndUsefulNotes(t *testing.T) {
+	if got := xrayCoreReleaseSummary("See https://github.com/XTLS/Xray-core/releases/tag/v26.9.9"); got != "Описание изменений объединено с релизом v26.9.9 upstream." {
+		t.Fatalf("redirect summary: %q", got)
+	}
+	got := xrayCoreReleaseSummary("## Changes\n- **Transport:** fixed timeout handling\n- [Routing](https://example.invalid): improved matching")
+	if strings.Contains(got, "https://") || strings.Contains(got, "**") || !strings.Contains(got, "Transport: fixed timeout handling") || !strings.Contains(got, "Routing: improved matching") {
+		t.Fatalf("useful notes were not normalized: %q", got)
+	}
+}
+
 func TestReadXrayCoreCatalogBodyAcceptsValidPayloadOverLegacy2MiBLimit(t *testing.T) {
 	digest := strings.Repeat("a", 64)
 	upstream := []xrayCoreGitHubRelease{{

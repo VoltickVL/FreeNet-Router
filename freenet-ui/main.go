@@ -140,6 +140,7 @@ type selfUpdatePlanResponse struct {
 	ManifestVerified bool   `json:"manifest_verified"`
 	ExpectedDelta    string `json:"expected_delta,omitempty"`
 	ExpectedNoDelta  string `json:"expected_no_delta,omitempty"`
+	ReleaseNotes     string `json:"release_notes,omitempty"`
 	Details          string `json:"details,omitempty"`
 	Error            string `json:"error,omitempty"`
 }
@@ -469,6 +470,7 @@ func (a *app) handleSelfUpdatePlan(w http.ResponseWriter, _ *http.Request) {
 		ManifestVerified: boolKV(kv["MANIFEST_VERIFIED"]),
 		ExpectedDelta:    kv["EXPECTED_DELTA"],
 		ExpectedNoDelta:  kv["EXPECTED_NO_DELTA"],
+		ReleaseNotes:     kv["RELEASE_NOTES"],
 		Details:          sanitizeOutput(string(out)),
 		Error:            kv["ERROR"],
 	}
