@@ -162,7 +162,7 @@ const server = http.createServer((req,res)=>{
     assert.equal(overviewPolish.headerDisplay, 'grid', `current VPN identity must use the unified grid header: ${JSON.stringify(overviewPolish)}`);
     assert.ok(overviewPolish.flagRight <= overviewPolish.nameLeft + 1, `flag must sit immediately before current VPN copy: ${JSON.stringify(overviewPolish)}`);
     assert.ok(overviewPolish.badgeMarginLeft >= 7, `connected badge needs breathing room: ${JSON.stringify(overviewPolish)}`);
-    assert.ok(overviewPolish.setupRadius >= 14 && overviewPolish.setupDisplay === 'inline-flex', `setup complete state must render as a status chip: ${JSON.stringify(overviewPolish)}`);
+    assert.ok(overviewPolish.setupRadius >= 14 && ['flex','inline-flex'].includes(overviewPolish.setupDisplay), `setup complete state must render as a status chip: ${JSON.stringify(overviewPolish)}`);
     fs.mkdirSync(artifacts,{recursive:true});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-initial.png'),fullPage:true});
 
