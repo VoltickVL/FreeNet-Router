@@ -1573,7 +1573,9 @@
       const interactive = event.target?.closest?.('.profile-option,#exactCancelBtn,#exactConnectBtn,#profilesTrigger');
       if (interactive) requestAnimationFrame(syncToggle);
       const host = q('#fnVpnPickerHost');
-      if (!host || host.contains(event.target)) return;
+      if (!host) return;
+      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+      if (path.includes(host) || host.contains(event.target)) return;
       setOpen(false);
     });
 
