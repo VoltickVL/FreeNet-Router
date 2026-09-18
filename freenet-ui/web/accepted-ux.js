@@ -88,7 +88,7 @@
       .fn-update-popover[hidden]{display:none!important}.fn-update-arrow{position:absolute;top:-7px;right:29px;width:13px;height:13px;transform:rotate(45deg);background:#102746;border-left:1px solid #31577d;border-top:1px solid #31577d}
       .fn-update-head{display:flex;align-items:center;justify-content:space-between;gap:12px;position:relative}.fn-update-title{display:flex;align-items:center;gap:9px;font-size:16px;font-weight:800}.fn-update-badge{display:grid;place-items:center;width:27px;height:27px;border-radius:50%;background:#31e5a2;color:#052319;font-size:18px;font-weight:900}
       .fn-update-close{appearance:none;border:0;background:transparent;color:#aac0dc;font-size:23px;line-height:1;cursor:pointer;padding:2px 4px}.fn-update-versions{display:grid;grid-template-columns:auto 1fr;gap:7px 13px;margin-top:16px;font-size:13px}.fn-update-versions span{color:#b3c2d6}.fn-update-versions strong{color:#f7f9fd}.fn-update-versions strong.available{color:#36e3a2}
-      .fn-update-copy{margin:11px 0 0;color:#c6d2e2;font-size:12.5px;line-height:1.5}.fn-update-safe{display:flex;align-items:flex-start;gap:9px;margin-top:12px;padding:10px 11px;border:1px solid rgba(54,227,162,.32);border-radius:11px;background:rgba(20,112,81,.18);color:#d7faec;font-size:11.5px;line-height:1.4}.fn-update-safe b{display:block;color:#42e7aa}.fn-update-safe-icon{font-size:18px;line-height:1}
+      .fn-update-copy{margin:11px 0 0;color:#c6d2e2;font-size:12.5px;line-height:1.5}.fn-update-notes{margin-top:12px;padding:11px 12px;border:1px solid rgba(54,227,162,.32);border-radius:11px;background:rgba(20,112,81,.18);color:#d7faec;font-size:11.5px;line-height:1.48;white-space:pre-line}.fn-update-notes b{display:block;margin-bottom:5px;color:#42e7aa;font-size:12px}.fn-update-safety{margin:8px 2px 0;color:#8fa6c2;font-size:10.5px;line-height:1.45}
       .fn-update-status{margin-top:11px;padding:9px 10px;border:1px solid #294969;border-radius:10px;background:#09192b;color:#b9c9dc;font-size:11.5px;line-height:1.45;white-space:pre-line}.fn-update-status.ok{border-color:rgba(54,227,162,.32);color:#c9f6e4}.fn-update-status.bad{border-color:rgba(255,92,106,.38);color:#ffd1d6}.fn-update-progress{width:100%;margin-top:10px;accent-color:#36e3a2}
       .fn-update-actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:12px}.fn-update-actions button{min-height:40px;justify-content:center;text-align:center}.fn-update-actions .fn-update-apply{background:linear-gradient(180deg,#32e5a2,#20c88a);border-color:#4cf0b2;color:#06251a}.fn-update-actions .fn-update-apply:disabled{background:#173329;border-color:#28533f;color:#6f9b88}
       body:has([data-page-view="subscription"].active) #pageTitle{display:none!important}
@@ -471,7 +471,8 @@
       <div class="fn-update-head"><div class="fn-update-title"><span class="fn-update-badge">↑</span><span>Обновление FreeNet</span></div><button id="fnUpdateClose" class="fn-update-close" type="button" aria-label="Закрыть">×</button></div>
       <div class="fn-update-versions"><span>Текущая версия:</span><strong id="fnUpdateCurrent">—</strong><span>Доступна новая версия:</span><strong id="fnUpdateLatest" class="available">проверяем…</strong></div>
       <p class="fn-update-copy">Проверка и обновление выполняются прямо здесь, без отдельной страницы.</p>
-      <div class="fn-update-safe"><span class="fn-update-safe-icon">◆</span><span><b>Обновление безопасно</b>Backup, SHA-256, staging и проверка после перезапуска сохраняются. VPN, DNS и routing не меняются.</span></div>
+      <div class="fn-update-notes"><b id="fnUpdateNotesTitle">Что нового</b><span id="fnUpdateNotes">Проверяем описание релиза…</span></div>
+      <p class="fn-update-safety">Backup, SHA-256, staging и post-check выполняются автоматически. VPN, DNS и routing этим обновлением не меняются.</p>
       <div id="fnUpdateStatus" class="fn-update-status">Нажмите «Проверить», чтобы сверить последний опубликованный релиз.</div>
       <progress id="fnUpdateProgress" class="fn-update-progress" hidden></progress>
       <div class="fn-update-actions"><button id="fnUpdateCheck" class="btn secondary" type="button">Проверить</button><button id="fnUpdateApply" class="btn fn-update-apply" type="button" disabled>Обновить</button></div>`;
@@ -522,6 +523,14 @@
     const latest = qs('#fnUpdateLatest');
     latest.textContent = value.update_available ? (value.latest_version || value.target_tag || 'доступна') : 'не требуется';
     latest.className = value.update_available ? 'available' : '';
+    const version = value.latest_version || value.target_tag || value.current_version || 'релиз';
+    const title = qs('#fnUpdateNotesTitle');
+    const notes = qs('#fnUpdateNotes');
+    if (title) title.textContent = value.update_available ? `Что нового в ${version}` : `Что вошло в ${version}`;
+    if (notes) {
+      const items = String(value.release_notes || '').split(' | ').map(item => item.trim()).filter(Boolean);
+      notes.textContent = items.length ? items.map(item => `• ${item}`).join('\n') : 'Для этого релиза отдельное описание не опубликовано.';
+    }
     qs('#fnUpdateApply').disabled = !(value.success && value.ready && value.update_available && value.target_tag);
     qs('#topFreenetUpdate')?.classList.toggle('update-available', !!value.update_available);
   }

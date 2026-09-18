@@ -154,17 +154,93 @@ func normalizeXrayCoreDigest(raw string) (string, bool) {
 	return raw, true
 }
 
+func stripXrayCoreMarkdownLinks(line string) string {
+	for {
+		open := strings.Index(line, "[")
+		if open < 0 {
+			break
+		}
+		midRel := strings.Index(line[open:], "](")
+		if midRel < 0 {
+			break
+		}
+		mid := open + midRel
+		closeRel := strings.Index(line[mid+2:], ")")
+		if closeRel < 0 {
+			break
+		}
+		close := mid + 2 + closeRel
+		label := line[open+1 : mid]
+		if strings.HasPrefix(label, "!") || strings.Contains(strings.ToLower(label), "<img") {
+			label = ""
+		}
+		line = line[:open] + label + line[close+1:]
+	}
+	return strings.TrimSpace(strings.NewReplacer("**", "", "__", "", "`", "", "<br>", " ", "<br/>", " ").Replace(line))
+}
+
 func xrayCoreReleaseSummary(body string) string {
-	body = strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(body)
-	body = strings.Join(strings.Fields(body), " ")
-	if body == "" {
-		return ""
+	body = strings.ReplaceAll(body, "\r", "")
+	lines := strings.Split(body, "\n")
+	parts := make([]string, 0, 3)
+	blockedSection := false
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			heading := strings.ToLower(strings.TrimSpace(strings.TrimLeft(line, "#")))
+			blockedSection = strings.Contains(heading, "sponsor") || strings.Contains(heading, "donation") || strings.Contains(heading, "nft")
+			if blockedSection {
+				continue
+			}
+			line = strings.TrimSpace(strings.TrimLeft(line, "#"))
+		}
+		if blockedSection || strings.HasPrefix(line, "[![") || strings.HasPrefix(line, "[<img") || strings.HasPrefix(strings.ToLower(line), "<img") {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if strings.HasPrefix(lower, "see http://") || strings.HasPrefix(lower, "see https://") {
+			target := line
+			if i := strings.LastIndex(target, "/"); i >= 0 && i+1 < len(target) {
+				target = strings.TrimSpace(target[i+1:])
+			}
+			if validXrayCoreTag(target) {
+				return "Описание изменений объединено с релизом " + target + " upstream."
+			}
+			return "Описание изменений upstream опубликовано в связанном релизе."
+		}
+		line = stripXrayCoreMarkdownLinks(line)
+		line = strings.TrimSpace(strings.TrimLeft(line, "-*•> "))
+		lower = strings.ToLower(line)
+		if line == "" || strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") ||
+			strings.Contains(lower, "sponsor xray") || strings.Contains(lower, "trx(") || strings.Contains(lower, "usdt") ||
+			strings.Contains(lower, "btc:") || strings.Contains(lower, "xmr:") || strings.Contains(lower, "nft") {
+			continue
+		}
+		if i := strings.Index(line, " http://"); i > 0 {
+			line = strings.TrimSpace(line[:i])
+		} else if i := strings.Index(line, " https://"); i > 0 {
+			line = strings.TrimSpace(line[:i])
+		}
+		if line == "" {
+			continue
+		}
+		parts = append(parts, line)
+		if len(parts) >= 3 {
+			break
+		}
 	}
-	runes := []rune(body)
-	if len(runes) > 420 {
-		return strings.TrimSpace(string(runes[:417])) + "…"
+	if len(parts) == 0 {
+		return "Описание изменений upstream не опубликовано."
 	}
-	return body
+	summary := strings.Join(parts, " • ")
+	runes := []rune(summary)
+	if len(runes) > 360 {
+		return strings.TrimSpace(string(runes[:357])) + "…"
+	}
+	return summary
 }
 
 func readXrayCoreCatalogBody(reader io.Reader) ([]byte, error) {

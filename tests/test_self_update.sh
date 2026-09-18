@@ -55,6 +55,9 @@ EOF
     done
     cp "$SCRIPT" "$D/self_update.sh"
     printf '%s\n' 'PIN_POLICY_VERSION=TEST' > "$D/upstream-pins.env"
+    cat > "$D/release.json" <<'EOF'
+{"tag_name":"v0.2.28","body":"## What's Changed\n* Исправлено отображение release notes by @VoltickVL in https://github.com/VoltickVL/FreeNet-Router/pull/551\n* release: v0.2.28 by @VoltickVL in https://github.com/VoltickVL/FreeNet-Router/pull/552\n\n**Full Changelog**: https://example.invalid"}
+EOF
     chmod 755 "$D/freenet-ui-arm64-v8a" "$D/freenet" "$D/vpn" "$D/blanc_xkeen_update_outbounds.sh" \
         "$D/migrate_split_dns.sh" "$D/apply_network_profile.sh" "$D/apply_provider_profile.sh" \
         "$D/finalize_setup.sh" "$D/bootstrap_entware.sh" "$D/self_update.sh"
@@ -130,6 +133,8 @@ grep -Fq 'CURRENT_VERSION=v0.2.27' "$TMP/plan.out" || fail 'current version miss
 grep -Fq 'LATEST_VERSION=v0.2.28' "$TMP/plan.out" || fail 'latest version missing'
 grep -Fq 'UPDATE_AVAILABLE=yes' "$TMP/plan.out" || fail 'update availability missing'
 grep -Fq 'MANIFEST_VERIFIED=yes' "$TMP/plan.out" || fail 'manifest verification missing'
+grep -Fq 'RELEASE_NOTES=Исправлено отображение release notes' "$TMP/plan.out" || fail 'human release notes missing'
+if grep -Fq 'release: v0.2.28' "$TMP/plan.out"; then fail 'version-bump PR must not pollute release notes'; fi
 grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must be read-only'
 [ "$(cat "$R/sbin/freenet-ui")" = "$BEFORE_UI" ] || fail 'plan mutated live UI'
 [ "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')" = "$BEFORE_XRAY" ] || fail 'plan mutated Xray'

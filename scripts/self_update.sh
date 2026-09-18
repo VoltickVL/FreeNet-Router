@@ -250,6 +250,36 @@ latest_tag() {
     printf '%s\n' "$TAG"
 }
 
+release_notes() {
+    TAG="$1"
+    make_tmp || return 1
+    META="$TMP_DIR/release-notes.json"
+    if [ -n "$TEST_RELEASE_DIR" ]; then
+        [ -f "$TEST_RELEASE_DIR/release.json" ] || { printf '%s\n' ""; return 0; }
+        cp "$TEST_RELEASE_DIR/release.json" "$META" || return 1
+    else
+        download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META" || return 1
+    fi
+    jq -r '.body // ""' "$META" 2>/dev/null | awk '
+        BEGIN { out=""; count=0 }
+        /^[*-][[:space:]]+/ {
+            line=$0
+            sub(/^[*-][[:space:]]+/, "", line)
+            if (line ~ /^release:[[:space:]]*v[0-9]/) next
+            sub(/[[:space:]]+by[[:space:]]+@[^[:space:]]+[[:space:]]+in[[:space:]]+https?:\/\/[^[:space:]]+.*/, "", line)
+            sub(/[[:space:]]+in[[:space:]]+https?:\/\/[^[:space:]]+.*/, "", line)
+            gsub(/[*_`]/, "", line)
+            gsub(/[[:space:]]+/, " ", line)
+            if (line == "") next
+            if (count > 0) out = out " | "
+            out = out line
+            count++
+            if (count >= 4) { print out; exit }
+        }
+        END { if (count > 0 && count < 4) print out }
+    '
+}
+
 asset_list() {
     echo "freenet-ui-$ARCH"
     echo "freenet"
@@ -486,6 +516,7 @@ run_plan() {
     LATEST="$(latest_tag)" || { plan_error 'cannot determine latest FreeNet release'; return 1; }
     valid_tag "$LATEST" || { plan_error 'latest release tag is invalid'; return 1; }
     fetch_manifest "$LATEST" || { plan_error 'release manifest is unavailable or incomplete'; return 1; }
+    RELEASE_NOTES="$(release_notes "$LATEST" 2>/dev/null || true)"
 
     AVAILABLE=no
     version_gt "$LATEST" "$CURRENT_VERSION" && AVAILABLE=yes
@@ -498,6 +529,7 @@ run_plan() {
     say "UPDATE_AVAILABLE=$AVAILABLE"
     say "ARCH=$ARCH"
     say 'MANIFEST_VERIFIED=yes'
+    say "RELEASE_NOTES=$RELEASE_NOTES"
     say 'COMPONENTS=FreeNet UI; manager; VPN/updater helpers; network/provider/finalize helpers; bootstrap helper; self-update helper; upstream pins'
     if [ "$AVAILABLE" = yes ]; then
         say "EXPECTED_DELTA=replace verified FreeNet-owned application assets with exact release $LATEST; restart FreeNet UI; validate target version and unchanged Xray state"
