@@ -59,6 +59,54 @@ func TestProviderPlanRejectsMutationAndInvalidID(t *testing.T) {
 	}
 }
 
+func TestRunProviderPlanPreservesSafeHelperFailure(t *testing.T) {
+	provider := writeFakeNetworkHelper(t, "echo '[FreeNet Provider] ERROR: candidate Xray configuration validation failed' >&2\nexit 1")
+	t.Setenv("FREENET_PROVIDER_HELPER", provider)
+	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+
+	_, err := a.runProviderPlan(testProviderID)
+	if err == nil {
+		t.Fatal("provider helper failure must be returned")
+	}
+	if got := err.Error(); got != "Конфигурация выбранного VPN-сервера не прошла проверку Xray." {
+		t.Fatalf("helper failure was masked or not normalized: %q", got)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "incomplete provider plan") {
+		t.Fatalf("secondary parser failure masked primary helper failure: %q", err)
+	}
+}
+
+func TestRunProviderPlanNeverLeaksSecretBearingHelperFailure(t *testing.T) {
+	provider := writeFakeNetworkHelper(t, "echo '[FreeNet Provider] ERROR: bad vless://secret-user@example.invalid:443?pbk=secret' >&2\nexit 1")
+	t.Setenv("FREENET_PROVIDER_HELPER", provider)
+	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+
+	_, err := a.runProviderPlan(testProviderID)
+	if err == nil {
+		t.Fatal("provider helper failure must be returned")
+	}
+	got := err.Error()
+	for _, forbidden := range []string{"vless://", "secret-user", "pbk=", "example.invalid"} {
+		if strings.Contains(strings.ToLower(got), strings.ToLower(forbidden)) {
+			t.Fatalf("provider failure leaked %q: %q", forbidden, got)
+		}
+	}
+	if got != "Не удалось подготовить выбранный VPN-сервер." {
+		t.Fatalf("unexpected safe fallback: %q", got)
+	}
+}
+
+func TestRunProviderPlanMalformedSuccessUsesHumanError(t *testing.T) {
+	provider := writeFakeNetworkHelper(t, "echo 'PROFILE_ID="+testProviderID+"'\nexit 0")
+	t.Setenv("FREENET_PROVIDER_HELPER", provider)
+	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+
+	_, err := a.runProviderPlan(testProviderID)
+	if err == nil || err.Error() != "FreeNet получил неполный ответ проверки VPN-сервера." {
+		t.Fatalf("unexpected malformed-plan result: %v", err)
+	}
+}
+
 func TestNetworkPlanCanAttachProviderPlanWithoutChangingNetworkPlan(t *testing.T) {
 	provider := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\n[ \"$2\" = \""+testProviderID+"\" ] || exit 8\ncat <<'EOF'\n"+providerPlanOutput(testProviderID)+"\nEOF")
 	network := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF")

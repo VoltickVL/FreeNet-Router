@@ -30,7 +30,7 @@ const server = http.createServer((req,res)=>{
     const page=await browser.newPage({viewport:{width:1440,height:1000}});
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     const calls=[];let pending=[];let mode='ok';let bestMode='winner';
-    let applyMode='ok', operation=null, operationReads=0;
+    let applyMode='ok', operation=null, operationReads=0, providerPlanMode='ok';
     const answer = (route,body,code=200)=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
     await page.route('**/api/**',async route=>{
       const req=route.request(),url=new URL(req.url());
@@ -42,7 +42,13 @@ const server = http.createServer((req,res)=>{
         if(operationReads===1)return answer(route,{success:true,active:true,operation:{...operation,state:'running',result:''}});
         return answer(route,{success:true,active:false,operation});
       }
-      if(url.pathname==='/api/network-profile/plan')return answer(route,{success:true,supported:true,active:true,provider_plan:url.searchParams.has('provider_profile_id')?{success:true,candidate_xray_valid:true,mutation:'NONE',endpoint:expectedApply.endpoint}:undefined,extra_profiles:[{...current,address:'192.0.2.10',port:443},{...winner,address:'192.0.2.20',port:443},{...second,address:'192.0.2.40',port:443},{id:'fixture-ru',name:'Россия',country_code:'ru',address:'192.0.2.30',port:443}]});
+      if(url.pathname==='/api/network-profile/plan'){
+        const hasProvider=url.searchParams.has('provider_profile_id');
+        const providerPlan=!hasProvider?undefined:providerPlanMode==='error'
+          ?{success:false,candidate_xray_valid:false,mutation:'NONE',error:'FreeNet получил неполный ответ проверки VPN-сервера.'}
+          :{success:true,candidate_xray_valid:true,mutation:'NONE',endpoint:expectedApply.endpoint};
+        return answer(route,{success:true,supported:true,active:true,provider_plan:providerPlan,extra_profiles:[{...current,address:'192.0.2.10',port:443},{...winner,address:'192.0.2.20',port:443},{...second,address:'192.0.2.40',port:443},{id:'fixture-ru',name:'Россия',country_code:'ru',address:'192.0.2.30',port:443}]});
+      }
       if(url.pathname==='/api/vpn/current-quality'||url.pathname==='/api/vpn/best-foreign'){
         if(mode==='job') {
           const job={id:url.searchParams.get('id'),mode:url.pathname.endsWith('best-foreign')?'best':'current'};
@@ -251,6 +257,27 @@ const server = http.createServer((req,res)=>{
       assert.ok(operationReads>=1,scenario+': operation state was read');
       assert.equal(await page.locator('#bestServerApply').isVisible(),false,scenario+': stale apply cannot be repeated');
     }
+    expectedApply=second;providerPlanMode='error';applyMode='ok';operationReads=0;
+    status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};
+    await page.goto(base);
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
+    const providerErrorPosts=calls.filter(c=>c.method==='POST').length;
+    await page.locator('#profilesTrigger').click();
+    await page.locator('[data-profile-id="fixture-lt"]').click();
+    await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-error'));
+    assert.equal(await page.locator('#exactConnectBtn').isDisabled(),true,'failed provider plan cannot connect');
+    assert.equal(await page.locator('#exactConnectBtn').textContent(),'Сервер недоступен');
+    assert.match(await page.locator('#selectedProfileCard').textContent(),/FreeNet не получил полный результат проверки этого сервера/);
+    assert.doesNotMatch(await page.locator('#selectedProfileCard').textContent(),/incomplete provider plan/i);
+    assert.equal(await page.locator('#selectedProfileCard .fn-selector-state-badge').textContent(),'Ошибка');
+    assert.equal(calls.filter(c=>c.method==='POST').length,providerErrorPosts,'provider plan failure stays read-only');
+    await page.setViewportSize({width:1366,height:768});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'modern selector has no desktop horizontal overflow');
+    await page.setViewportSize({width:390,height:844});
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'modern selector has no mobile horizontal overflow');
+    await page.setViewportSize({width:1440,height:1000});
+    providerPlanMode='ok';
+
     for(const scenario of ['manual-ok','gateway','other']) {
       expectedApply=second;applyMode=scenario;operationReads=0;
       status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};

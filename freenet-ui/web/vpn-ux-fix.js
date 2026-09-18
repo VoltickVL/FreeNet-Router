@@ -19,19 +19,80 @@
     return '—';
   }
 
-  function selectedCardText(title, endpoint, note) {
+  function mountExactSelectorStyles() {
+    if (qs('#freenetExactSelectorStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'freenetExactSelectorStyles';
+    style.textContent = `
+      #profilesList .field{border:0!important;background:transparent!important;padding:0!important}
+      #profilesList .field>label{display:none!important}
+      #profileSearch,#profilesTrigger{min-height:44px!important;border-radius:12px!important;border:1px solid #315273!important;background:linear-gradient(180deg,#0d2035,#0a192a)!important;box-shadow:inset 0 1px rgba(255,255,255,.025)!important}
+      #profileSearch{padding:0 14px!important;color:#eef5ff!important}
+      #profileSearch:focus,#profilesTrigger:focus-visible{border-color:#5b93dc!important;box-shadow:0 0 0 3px rgba(91,147,220,.13)!important;outline:0!important}
+      #profilesTrigger{padding:0 14px!important}
+      #profilesMenu{top:calc(100% + 8px)!important;border-radius:14px!important;border-color:#345878!important;background:rgba(6,19,33,.98)!important;box-shadow:0 24px 60px rgba(0,0,0,.48)!important;padding:7px!important}
+      #profilesMenu .profile-option{min-height:50px!important;border:1px solid transparent!important;border-radius:10px!important;padding:8px 10px!important}
+      #profilesMenu .profile-option:hover,#profilesMenu .profile-option[aria-selected="true"]{border-color:#2d567b!important;background:linear-gradient(180deg,#15304d,#102640)!important}
+      #selectedProfileCard.fn-selector-state{position:relative!important;margin-top:8px!important;min-height:68px!important;padding:10px 12px 10px 16px!important;border:1px solid #315273!important;border-radius:14px!important;background:linear-gradient(180deg,rgba(13,34,56,.98),rgba(8,25,42,.98))!important;box-shadow:0 14px 34px rgba(0,0,0,.18)!important;color:#aebfd4!important;overflow:hidden!important}
+      #selectedProfileCard.fn-selector-state:before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#6685aa}
+      #selectedProfileCard.fn-selector-state.is-checking:before{background:#5b8cff}
+      #selectedProfileCard.fn-selector-state.is-ready{border-color:rgba(73,218,146,.46)!important;background:linear-gradient(180deg,rgba(13,54,48,.96),rgba(8,37,36,.96))!important}
+      #selectedProfileCard.fn-selector-state.is-ready:before{background:#49da92}
+      #selectedProfileCard.fn-selector-state.is-error{border-color:rgba(255,112,112,.46)!important;background:linear-gradient(180deg,rgba(58,26,34,.96),rgba(38,19,29,.96))!important}
+      #selectedProfileCard.fn-selector-state.is-error:before{background:#ff7070}
+      #selectedProfileCard.fn-selector-state.is-applying:before{background:#81a7ff}
+      .fn-selector-state-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important}
+      .fn-selector-state-head strong{margin:0!important;min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;font-size:12.5px!important;color:#f4f8ff!important}
+      .fn-selector-state-badge{flex:0 0 auto;display:inline-flex;align-items:center;min-height:22px;padding:3px 8px;border:1px solid rgba(129,167,255,.26);border-radius:999px;background:rgba(91,140,255,.09);color:#bcd1f5;font-size:9.5px;font-weight:800;letter-spacing:.02em}
+      .is-ready .fn-selector-state-badge{border-color:rgba(73,218,146,.32);background:rgba(73,218,146,.09);color:#9aebbf}
+      .is-error .fn-selector-state-badge{border-color:rgba(255,112,112,.32);background:rgba(255,112,112,.08);color:#ffc0c0}
+      #selectedProfileCard.fn-selector-state .selected-endpoint{margin-top:5px!important;color:#d4e1f3!important;font-size:10.5px!important}
+      #selectedProfileCard.fn-selector-state .selected-note{margin-top:4px!important;color:#93a8c2!important;font-size:10.5px!important;line-height:1.35!important}
+      #exactConnectRow{margin-top:8px!important;grid-template-columns:minmax(150px,1fr) auto!important;gap:8px!important}
+      #exactConnectRow .btn{min-height:40px!important;border-radius:11px!important;padding:9px 14px!important;font-size:11.5px!important}
+      #exactCancelBtn{min-width:118px!important}
+      @media(max-width:760px){
+        #exactConnectRow{grid-template-columns:1fr!important}
+        #exactCancelBtn{min-width:0!important}
+        #selectedProfileCard.fn-selector-state{min-height:0!important}
+      }`;
+    document.head.appendChild(style);
+  }
+
+  function humanProviderPlanError(value) {
+    const text = String(value || '').trim();
+    const lower = text.toLowerCase();
+    if (!text || lower.includes('incomplete provider plan') || lower.includes('неполный ответ проверки vpn-сервера')) return 'FreeNet не получил полный результат проверки этого сервера. Обновите список и попробуйте выбрать его ещё раз.';
+    if (lower.includes('candidate xray') || lower.includes('проверку xray')) return 'Конфигурация этого сервера не прошла проверку Xray.';
+    if (lower.includes('subscription') || lower.includes('подпис')) return 'Не удалось обновить список VPN-серверов из подписки.';
+    if (lower.includes('not present') || lower.includes('больше не найден')) return 'Этот сервер исчез из свежего списка подписки. Обновите список серверов.';
+    if (lower.includes('timed out') || lower.includes('не завершилась вовремя')) return 'Проверка сервера заняла слишком много времени. Текущий VPN не изменён.';
+    return text;
+  }
+
+  function selectedCardText(title, endpoint, note, state = 'neutral') {
     const card = qs('#selectedProfileCard');
     if (!card) return;
+    mountExactSelectorStyles();
+    card.hidden = false;
+    card.className = 'selected-profile fn-selector-state is-' + state;
     card.textContent = '';
+    const head = document.createElement('div');
     const strong = document.createElement('strong');
+    const badge = document.createElement('span');
     const ep = document.createElement('span');
     const hint = document.createElement('span');
+    head.className = 'fn-selector-state-head';
     strong.textContent = title;
+    badge.className = 'fn-selector-state-badge';
+    badge.textContent = state === 'ready' ? 'Готово' : state === 'error' ? 'Ошибка' : state === 'applying' ? 'Подключение' : state === 'checking' ? 'Проверка' : 'VPN';
     ep.className = 'selected-endpoint';
     ep.textContent = endpoint || '—';
     hint.className = 'selected-note';
     hint.textContent = note || '';
-    card.appendChild(strong);
+    head.appendChild(strong);
+    head.appendChild(badge);
+    card.appendChild(head);
     card.appendChild(ep);
     card.appendChild(hint);
   }
@@ -110,32 +171,32 @@
       controls.connect.disabled = true;
       controls.connect.textContent = 'Проверяем…';
     }
-    selectedCardText(`Выбрано: ${selectedProviderName}`, profileEndpoint(p), 'FreeNet проверяет VPN-сервер перед подключением. ISP и DNS при этом не изменяются.');
+    selectedCardText(`Проверяем: ${selectedProviderName}`, profileEndpoint(p), 'Проверяем доступность и конфигурацию сервера перед подключением.', 'checking');
 
     try {
       await loadNetworkPlan(selectedProviderID);
       const pp = lastNetworkPlan && lastNetworkPlan.provider_plan;
       if (!providerPlanReady || !pp || !pp.success || !pp.candidate_xray_valid || pp.mutation !== 'NONE' || pp.error) {
-        const reason = (pp && pp.error) || 'сервер не прошёл безопасную read-only проверку';
-        selectedCardText(`Не удалось подготовить: ${selectedProviderName}`, profileEndpoint(p), reason);
+        const reason = humanProviderPlanError((pp && pp.error) || 'Сервер не прошёл проверку перед подключением.');
+        selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), reason, 'error');
         if (controls && controls.connect) {
           controls.connect.disabled = true;
-          controls.connect.textContent = 'Подключение недоступно';
+          controls.connect.textContent = 'Сервер недоступен';
         }
         if (typeof showBox === 'function') showBox('providerNotice', `Не удалось проверить выбранный VPN-сервер: ${reason}`, 'bad');
         return;
       }
       exactPlan = pp;
-      selectedCardText(`Выбрано для подключения: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Готово. Нажмите «Подключиться». ISP и текущий DNS-режим сохранятся.');
+      selectedCardText(`Готов к подключению: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Проверка пройдена. Можно подключаться. ISP и DNS при этом не изменяются.', 'ready');
       if (controls && controls.connect) {
         controls.connect.disabled = false;
         controls.connect.textContent = 'Подключиться';
       }
     } catch (_) {
-      selectedCardText(`Не удалось подготовить: ${selectedProviderName}`, profileEndpoint(p), 'Нет связи с FreeNet или подпиской. Текущий VPN не изменён.');
+      selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), 'Не удалось получить результат проверки. Текущий VPN не изменён.', 'error');
       if (controls && controls.connect) {
         controls.connect.disabled = true;
-        controls.connect.textContent = 'Подключение недоступно';
+        controls.connect.textContent = 'Сервер недоступен';
       }
     } finally {
       exactChecking = false;
@@ -174,7 +235,7 @@
     }
     if (typeof buttonsBusy === 'function') buttonsBusy(true);
     if (typeof hideBox === 'function') hideBox('notice');
-    selectedCardText(`Подключаем: ${p.name || 'Extra-профиль'}`, expectedEndpoint, 'Применяем VPN-профиль и подтверждаем фактический endpoint. ISP/DNS остаются без изменений.');
+    selectedCardText(`Подключаем: ${p.name || 'Extra-профиль'}`, expectedEndpoint, 'Применяем профиль и подтверждаем фактическое соединение.', 'applying');
 
     try {
       const r = await fetch('/api/network-profile/apply', {
@@ -191,7 +252,7 @@
         const parts = [j.error || 'VPN-профиль не подключён'];
         if (j.primary_error) parts.push('Основная ошибка: ' + j.primary_error);
         if (j.rollback_state) parts.push('Откат: ' + j.rollback_state);
-        selectedCardText(`${j.result_unknown ? 'Результат не подтверждён' : 'Не подключено'}: ${p.name || 'Extra-профиль'}`, expectedEndpoint, parts.join(' · '));
+        selectedCardText(`${j.result_unknown ? 'Результат не подтверждён' : 'Не подключено'}: ${p.name || 'Extra-профиль'}`, expectedEndpoint, humanProviderPlanError(parts.join(' · ')), 'error');
         if (typeof showBox === 'function') showBox('notice', parts.join('\n'), 'bad');
         return;
       }
@@ -200,7 +261,7 @@
       const accepted = !!(s && s.endpoint === expectedEndpoint && !s.busy && !s.updater_busy && s.xray_online);
       if (!accepted) {
         const actual = s ? `${s.country || 'страна не определена'} · ${s.endpoint || 'endpoint неизвестен'}` : 'фактический статус недоступен';
-        selectedCardText('Требуется проверка состояния', expectedEndpoint, `FreeNet завершил apply, но live-state VPN не совпал: ${actual}. Повторное подключение автоматически не запускается.`);
+        selectedCardText('Требуется проверка состояния', expectedEndpoint, `Фактическое соединение пока не подтверждено: ${actual}. Повтор автоматически не запускается.`, 'error');
         if (typeof showBox === 'function') showBox('notice', 'Фактическое состояние VPN после подключения не подтверждено. Не повторяйте операцию вслепую.', 'bad');
         return;
       }
@@ -217,7 +278,7 @@
       if (typeof loadNetworkPlan === 'function') await loadNetworkPlan('');
       if (typeof showBox === 'function') showBox('notice', `Подключено: ${s.profile_label || p.name || s.country || 'VPN'}${s.city ? ' · ' + s.city : ''}\n${s.endpoint}`, 'ok');
     } catch (_) {
-      selectedCardText('Связь прервалась', expectedEndpoint, 'FreeNet мог кратко перезапустить VPN. Сначала дождитесь фактического статуса; повторное подключение автоматически не запускается.');
+      selectedCardText('Связь прервалась', expectedEndpoint, 'Ждём фактический статус VPN. Повторное подключение автоматически не запускается.', 'error');
       if (typeof showBox === 'function') showBox('notice', 'Связь прервалась во время переключения. Проверяем фактическое состояние перед любым повтором.', 'bad');
     } finally {
       exactProfile = null;
@@ -415,7 +476,7 @@
   function showSplitDNSMemoryNotice(text){let notice=qs('#splitDNSMemoryNotice');const hint=qs('#networkHint');if(!notice&&hint&&hint.parentNode){notice=document.createElement('div');notice.id='splitDNSMemoryNotice';notice.className='notice show bad';notice.style.marginTop='10px';hint.parentNode.insertBefore(notice,hint.nextSibling);}if(notice){notice.textContent=text;notice.className='notice show bad';}}
   async function mountSplitDNSMemoryGate(){const select=qs('#dnsModeSelect');if(!select)return;const option=select.querySelector('option[value="xkeen"]');if(!option)return;option.disabled=true;option.textContent='XKeen/Xray DNS — проверка ОЗУ…';try{const r=await fetch('/api/capabilities',{cache:'no-store'});if(r.status===401){if(typeof loadAuthStatus==='function')await loadAuthStatus();splitDNSCapabilityAttempts++;if(splitDNSCapabilityAttempts<20)setTimeout(mountSplitDNSMemoryGate,1500);return;}const capability=await r.json();const supported=!!(r.ok&&capability&&capability.success&&capability.split_dns_supported);const oldNotice=qs('#splitDNSMemoryNotice');if(supported){option.disabled=false;option.textContent='XKeen/Xray DNS';if(oldNotice)oldNotice.remove();return;}option.disabled=true;option.textContent='XKeen/Xray DNS — недоступно (мало ОЗУ)';const mem=Number(capability&&capability.memory_total_mib)||0;const min=Number(capability&&capability.split_dns_min_mib)||768;const reason=String((capability&&capability.reason)||'').trim();showSplitDNSMemoryNotice(reason||(mem?`XKeen/Xray DNS недоступен: обнаружено ${mem} MiB RAM, требуется не менее ${min} MiB. Используйте DNS напрямую через роутер.`:'XKeen/Xray DNS недоступен: объём RAM не удалось безопасно определить. Используйте DNS напрямую через роутер.'));}catch(_){option.disabled=true;option.textContent='XKeen/Xray DNS — недоступно';showSplitDNSMemoryNotice('FreeNet не смог подтвердить достаточный объём RAM. XKeen/Xray DNS заблокирован; используйте DNS напрямую через роутер.');}}
 
-  function mount(){patchNavigation();patchStatusRendering();mountExactConnectControls();patchProfileSelection();patchNativeEngineMigrationFlow();mountPolicyPreview();mountSplitDNSMemoryGate();}
+  function mount(){mountExactSelectorStyles();patchNavigation();patchStatusRendering();mountExactConnectControls();patchProfileSelection();patchNativeEngineMigrationFlow();mountPolicyPreview();mountSplitDNSMemoryGate();}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount);else mount();
 })();
 
