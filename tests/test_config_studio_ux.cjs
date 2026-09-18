@@ -90,6 +90,34 @@ const server = http.createServer((req, res) => {
     }));
     assert(groupLabels.main.includes('Конфиги Xray'));
     assert(groupLabels.lists.includes('Списки XKeen'));
+    const visual = await page.evaluate(() => {
+      const main = document.querySelector('#csTabsMain');
+      const lists = document.querySelector('#csTabsLists');
+      const mainLabel = getComputedStyle(main, '::before');
+      const listLabel = getComputedStyle(lists, '::before');
+      const restart = getComputedStyle(document.querySelector('#csRestartXray'));
+      const journal = getComputedStyle(document.querySelector('#csToggleJournal'));
+      const format = getComputedStyle(document.querySelector('#csFormat'));
+      return {
+        mainBorder: getComputedStyle(main).borderTopStyle,
+        listsBorder: getComputedStyle(lists).borderTopStyle,
+        mainLabelColor: mainLabel.color,
+        listLabelColor: listLabel.color,
+        mainLabelBackground: mainLabel.backgroundImage,
+        listLabelBackground: listLabel.backgroundImage,
+        restartBackground: restart.backgroundImage,
+        journalBackground: journal.backgroundImage,
+        formatBackground: format.backgroundImage
+      };
+    });
+    assert.equal(visual.mainBorder, 'none', 'Xray tabs must not sit inside a nested frame');
+    assert.equal(visual.listsBorder, 'none', 'XKeen tabs must not sit inside a nested frame');
+    assert.notEqual(visual.mainLabelColor, visual.listLabelColor, 'Xray and XKeen group labels need distinct accents');
+    assert.match(visual.mainLabelBackground, /gradient/i);
+    assert.match(visual.listLabelBackground, /gradient/i);
+    assert.match(visual.restartBackground, /gradient/i, 'Xray operational controls should use the blue control treatment');
+    assert.match(visual.journalBackground, /gradient/i, 'Journal control should use the blue control treatment');
+    assert.match(visual.formatBackground, /gradient/i, 'Config toolbar controls should use the blue control treatment');
     assert(visibleText.includes('v26.9.9'));
     assert.equal(await page.locator('#csFormat').textContent(), 'Форматировать');
     assert.equal(await page.locator('#csValidate').count(), 0, 'manual validation control must be removed');

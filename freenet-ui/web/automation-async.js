@@ -46,8 +46,8 @@
       body.fn-settings-accepted .fn3-fact span{font-size:10px!important}
       body.fn-settings-accepted .fn3-metric span{font-size:10px!important}
       body.fn-settings-accepted .fn3-health{font-size:11.5px!important}
-      body.fn-settings-accepted .fn3-link{font-size:11px!important}
-      body.fn-settings-accepted .fn3-table{font-size:10.5px!important}
+      body.fn-settings-accepted .fn3-link{font-size:12px!important}
+      body.fn-settings-accepted .fn3-table{font-size:12.5px!important;line-height:1.42!important}
       body.fn-settings-accepted .fn3-extra-card p{font-size:10px!important}
       body.fn-settings-accepted .fn3-extra-row label{font-size:10.5px!important}
       body.fn-settings-accepted .fn3-extra-row select{font-size:11px!important}

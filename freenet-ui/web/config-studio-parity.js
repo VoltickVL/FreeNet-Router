@@ -16,8 +16,14 @@
     draft: new Map(),
     valid: new Set(),
     errors: new Map(),
-    xray: {online: false, version: ''}
+    xray: {online: false, version: ''},
+    editorHeight: 0
   };
+  let editorResizeObserver = null;
+  try {
+    const savedHeight = Number(sessionStorage.getItem('freenet.configStudio.editorHeight') || 0);
+    if (savedHeight >= 340 && savedHeight <= 920) state.editorHeight = savedHeight;
+  } catch (_) {}
 
   function installStyles() {
     if (qs('#configStudioParityStyles')) return;
@@ -27,9 +33,9 @@
       .cs-shell{display:grid;gap:12px}.cs-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}.cs-title{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.cs-title h2{margin:0;color:#f4f7fb;font-size:17px}.cs-xray{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.cs-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #2c4564;background:#0a1829;border-radius:999px;padding:6px 9px;color:#aebed3;font-size:10px;font-weight:800}.cs-chip::before{content:'';width:7px;height:7px;border-radius:50%;background:#8397b0}.cs-chip.ok{border-color:rgba(54,227,162,.4);color:#72edb4}.cs-chip.ok::before{background:#36e3a2}.cs-chip.bad{border-color:rgba(255,103,115,.42);color:#ffadb4}.cs-chip.bad::before{background:#ff6773}
       .cs-tab-groups{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.cs-tabs{display:flex;align-items:center;gap:7px;overflow:auto;padding:4px;scrollbar-width:thin;border-radius:12px}.cs-tabs-main{background:#091625;border:1px solid #213955}.cs-tabs-lists{background:#101a2b;border:1px solid #32425d}.cs-tab{position:relative;flex:0 0 auto;appearance:none;border:1px solid #2a405d;background:#0b1726;color:#9eafc5;border-radius:9px;padding:9px 13px;cursor:pointer;font:inherit;font-size:12px;font-weight:800}.cs-tab:hover{border-color:#5077a8;color:#eef5ff}.cs-tab.active{border-color:#5b8cff;background:#18325a;color:#fff}.cs-tabs-lists .cs-tab{background:#111d30}.cs-tabs-lists .cs-tab.active{background:#1b2943}.cs-tab .dirty{position:absolute;right:6px;top:5px;width:6px;height:6px;border-radius:50%;background:#ffc33f;box-shadow:0 0 0 2px #18325a}
       .cs-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.cs-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.cs-btn{appearance:none;border:1px solid #304966;background:#0d1b2d;color:#e8f0fb;border-radius:10px;padding:9px 12px;cursor:pointer;font:inherit;font-size:12px;font-weight:800}.cs-btn:hover:not(:disabled){border-color:#5b8cff;background:#142b49}.cs-btn.primary{border-color:#4f82ff;background:linear-gradient(180deg,#347dff,#2869df);color:white}.cs-btn:disabled{opacity:.42;cursor:not-allowed}.cs-state{display:inline-flex;align-items:center;gap:7px;border:1px solid #324a68;border-radius:999px;padding:6px 9px;color:#a8b9ce;font-size:10px;font-weight:900;letter-spacing:.035em;text-transform:uppercase}.cs-state::before{content:'';width:7px;height:7px;border-radius:50%;background:#8799ae}.cs-state.live,.cs-state.valid{border-color:rgba(54,227,162,.38);color:#72edb4}.cs-state.live::before,.cs-state.valid::before{background:#36e3a2}.cs-state.draft{border-color:rgba(255,190,67,.4);color:#ffd06d}.cs-state.draft::before{background:#ffbe43}.cs-state.error{border-color:rgba(255,103,115,.44);color:#ffabb3}.cs-state.error::before{background:#ff6773}.cs-state.readonly{color:#b6c4d5}
-      .cs-editor{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr);min-height:470px;border:1px solid #263d5a;border-radius:12px;overflow:hidden;background:#07111f}.cs-lines{min-width:48px;padding:14px 9px 14px 7px;background:#081422;border-right:1px solid #223650;color:#536784;text-align:right;font:500 12px/1.62 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;user-select:none;overflow:hidden}.cs-lines span{display:block;height:1.62em}.cs-lines span.error{color:#ff5968;font-weight:900}.cs-code{position:relative;min-width:0;overflow:hidden}.cs-highlight,.cs-input{position:absolute;inset:0;margin:0;padding:14px 15px;border:0;outline:0;box-sizing:border-box;overflow:auto;white-space:pre;tab-size:2;font:500 12px/1.62 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace}.cs-highlight{pointer-events:none;color:#dce7f7}.cs-input{resize:none;background:transparent;color:transparent;caret-color:#f6f8fc;-webkit-text-fill-color:transparent}.cs-input::selection{background:rgba(91,140,255,.34)}.cs-input:focus{box-shadow:inset 0 0 0 1px rgba(91,140,255,.58)}.cs-key{color:#86b6ff}.cs-string{color:#9de27c}.cs-number{color:#ffae69}.cs-bool{color:#c9a7ff}.cs-null{color:#ff8d9a}.cs-punct{color:#90a5c0}.cs-editor.readonly .cs-input{display:none}.cs-editor.readonly .cs-highlight{position:relative;min-height:470px}
+      .cs-editor{position:relative;display:grid;grid-template-columns:auto minmax(0,1fr);height:470px;min-height:340px;max-height:min(78vh,920px);border:1px solid #263d5a;border-radius:12px;overflow:hidden;background:#07111f;resize:vertical}.cs-editor::after{content:'⋮';position:absolute;right:6px;bottom:1px;color:#557493;font-size:14px;line-height:1;pointer-events:none;opacity:.75}.cs-lines{min-width:48px;padding:14px 9px 14px 7px;background:#081422;border-right:1px solid #223650;color:#536784;text-align:right;font:500 12px/1.62 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;user-select:none;overflow:hidden}.cs-lines span{display:block;height:1.62em}.cs-lines span.error{color:#ff5968;font-weight:900}.cs-code{position:relative;min-width:0;overflow:hidden}.cs-highlight,.cs-input{position:absolute;inset:0;margin:0;padding:14px 15px;border:0;outline:0;box-sizing:border-box;overflow:auto;white-space:pre;tab-size:2;font:500 12px/1.62 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace}.cs-highlight{pointer-events:none;color:#dce7f7}.cs-input{resize:none;background:transparent;color:transparent;caret-color:#f6f8fc;-webkit-text-fill-color:transparent}.cs-input::selection{background:rgba(91,140,255,.34)}.cs-input:focus{box-shadow:inset 0 0 0 1px rgba(91,140,255,.58)}.cs-key{color:#86b6ff}.cs-string{color:#9de27c}.cs-number{color:#ffae69}.cs-bool{color:#c9a7ff}.cs-null{color:#ff8d9a}.cs-punct{color:#90a5c0}.cs-editor.readonly .cs-input{display:none}.cs-editor.readonly .cs-highlight{position:absolute;inset:0;min-height:0}
       .cs-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;color:#8196b2;font-size:10px}.cs-meta code{color:#b9cae0}.cs-diagnostic{display:none;border:1px solid rgba(255,103,115,.44);border-radius:11px;background:#321923;color:#ffd6d9;padding:10px 12px;font-size:11px;line-height:1.45}.cs-diagnostic.show{display:block}.cs-diagnostic strong{color:#ff9ca6}.cs-notice{display:none;border:1px solid #315071;border-radius:11px;background:#0c2138;color:#b9cbe1;padding:10px 12px;font-size:11px;line-height:1.5;white-space:pre-wrap}.cs-notice.show{display:block}.cs-notice.ok{border-color:rgba(54,227,162,.36);background:#0f2b24;color:#d3fae9}.cs-notice.bad{border-color:rgba(255,103,115,.45);background:#321923;color:#ffd4d7}.cs-safe-note{border:1px solid rgba(91,140,255,.28);border-radius:11px;background:rgba(25,57,98,.18);color:#aebfd5;padding:10px 12px;font-size:11px;line-height:1.5}
-      @media(max-width:760px){.cs-editor{min-height:380px}.cs-btn{flex:1}.cs-actions{width:100%}.cs-tab-groups{display:grid}.cs-tabs{width:100%}}
+      @media(max-width:760px){.cs-editor{height:430px;min-height:300px;max-height:72vh}.cs-btn{flex:1}.cs-actions{width:100%}.cs-tab-groups{display:grid}.cs-tabs{width:100%}}
     `;
     document.head.appendChild(style);
   }
@@ -233,6 +239,23 @@
     }
   }
 
+  function bindEditorResize(editor) {
+    if (!editor) return;
+    if (editorResizeObserver) {
+      editorResizeObserver.disconnect();
+      editorResizeObserver = null;
+    }
+    if (state.editorHeight >= 340 && state.editorHeight <= 920) editor.style.height = state.editorHeight + 'px';
+    if (typeof ResizeObserver !== 'function') return;
+    editorResizeObserver = new ResizeObserver(entries => {
+      const height = Math.round(entries[0]?.contentRect?.height || 0);
+      if (height < 340 || height > 920 || Math.abs(height - state.editorHeight) < 2) return;
+      state.editorHeight = height;
+      try { sessionStorage.setItem('freenet.configStudio.editorHeight', String(height)); } catch (_) {}
+    });
+    editorResizeObserver.observe(editor);
+  }
+
   function renderReadOnly(tab) {
     const host = qs('#csBody');
     if (!host) return;
@@ -241,6 +264,7 @@
     const hi = qs('#csHighlight');
     if (hi) hi.textContent = text;
     renderLineNumbers(text, 0);
+    bindEditorResize(qs('.cs-editor', host));
   }
 
   function renderEditor(tab) {
@@ -264,6 +288,7 @@
         input.dispatchEvent(new Event('input', {bubbles:true}));
       }
     });
+    bindEditorResize(qs('.cs-editor', host));
     updateEditorVisuals();
   }
 

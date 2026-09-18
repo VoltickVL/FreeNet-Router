@@ -390,8 +390,9 @@
     setText(qs('#bestCurrentEndpoint'), status.endpoint || '—');
     const flag = qs('#bestCurrentFlag');
     if (flag) {
-      flag.className = `flag-icon ${flagClass(status.country_code)}`;
-      flag.hidden = !status.country_code;
+      const currentCode = String(status.country_code || '').trim().toLowerCase() || profileCode({name: status.profile_label || ''});
+      flag.className = `flag-icon ${flagClass(currentCode)}`;
+      flag.hidden = !currentCode;
     }
     if (!applyBusy && currentQuality && currentQuality.endpoint !== status.endpoint) {
       currentQuality = null;
@@ -618,7 +619,7 @@
     if (currentPanel && !qs('#bestCurrentHealth')) {
       const health = document.createElement('div'); health.id = 'bestCurrentHealth'; health.className = 'current-health neutral'; health.textContent = 'Проверка качества ещё не выполнялась.';
       currentPanel.appendChild(health);
-      const help = document.createElement('p'); help.id = 'bestCurrentHelp'; help.className = 'current-help'; help.textContent = 'FreeNet сравнивает реальный отклик через каждый VPN, затем глубоко проверяет лучшие варианты. Скорость — короткий тест загрузки, не скорость тарифа. Российские серверы исключены из поиска.';
+      const help = document.createElement('p'); help.id = 'bestCurrentHelp'; help.className = 'current-help'; help.textContent = 'Проверка качества запускается вручную. Автовосстановление VPN контролирует доступность отдельно и при необходимости подбирает проверенную замену.';
       currentPanel.appendChild(help);
     }
     const measureNote = qs('.vpn-measure-note'); if (measureNote) measureNote.remove();
@@ -1306,6 +1307,93 @@
         throw error;
       }
     };
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
+  else install();
+})();
+
+
+// Issue #559: final visual hierarchy for Overview after v0.3.78 runtime acceptance.
+// Presentation-only. VPN quality, apply, recovery and operation semantics are unchanged.
+(() => {
+  const q = (selector, root = document) => root.querySelector(selector);
+
+  function syncCurrentFlagFallback() {
+    const flag = q('#bestCurrentFlag');
+    if (!flag || !flag.hidden) return;
+    let label = '';
+    try { label = String(lastStatus && lastStatus.profile_label || ''); } catch (_) {}
+    const code = profileCode({name: label});
+    if (!code) return;
+    flag.className = `flag-icon ${flagClass(code)}`;
+    flag.hidden = false;
+  }
+
+  function install() {
+    if (q('#FreeNetIssue559VisualPolish')) return;
+    const style = document.createElement('style');
+    style.id = 'FreeNetIssue559VisualPolish';
+    style.textContent = `
+      #quickActionsSection{overflow:hidden!important}
+      .best-v4-shell,.vpn-current-panel,.vpn-alternatives-panel,.best-v4-result,.best-v4-result.show,.vpn-option,.vpn-option-head,.vpn-option-title,.vpn-option-actions,.vpn-option .best-v4-metrics{min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+      .best-v4-shell{width:100%!important}
+      .vpn-alternatives-panel{overflow:hidden!important}
+      .best-v4-result,.best-v4-result.show,.vpn-option{width:100%!important}
+      .vpn-option{overflow:hidden!important}
+      .vpn-option-title{flex:1 1 250px!important}
+      .vpn-option-title h4{min-width:0!important;max-width:100%!important}
+      .vpn-option-actions{flex:0 1 auto!important;flex-wrap:wrap!important;justify-content:flex-end!important}
+      .vpn-option .best-v4-metrics{overflow:hidden!important}
+      .vpn-option .best-v4-pill{min-width:0!important;overflow:hidden!important}
+      .vpn-option .metric-copy,.vpn-option .metric-value-line{min-width:0!important;max-width:100%!important}
+      .vpn-option .best-v4-pill b{max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important}
+
+      .vpn-current-panel{overflow:hidden!important}
+      .best-v4-current{align-items:center!important;gap:12px!important;padding:12px 12px 7px!important;border:1px solid #315777!important;border-bottom:0!important;border-radius:14px 14px 0 0!important;background:linear-gradient(180deg,#102941,#0c2035)!important}
+      .vpn-current-panel #bestCurrentFlag{display:inline-block!important;flex:0 0 38px!important;width:38px!important;height:26px!important;margin:0!important;border-radius:5px!important}
+      .best-v4-current-main{flex:1 1 auto!important;min-width:0!important}
+      .best-v4-label{font-size:11px!important;letter-spacing:.02em!important;color:#89a3c1!important}
+      .best-v4-name{margin-top:3px!important;font-size:21px!important;line-height:1.18!important;white-space:normal!important;overflow-wrap:anywhere!important}
+      .fn-current-connected{margin-left:auto!important;align-self:flex-start!important}
+      .best-v4-endpoint{margin:0 0 15px!important;padding:0 12px 11px!important;border:1px solid #315777!important;border-top:0!important;border-radius:0 0 14px 14px!important;background:#0c2035!important;color:#9bb2ce!important;font-size:11.5px!important}
+      .current-help{margin-top:10px!important;color:#8fa6c1!important;font-size:11.5px!important;line-height:1.45!important}
+
+      #bestServerAdvanced.fn-topbar-vpn-picker{align-self:center!important;min-width:0!important;max-width:680px!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{gap:8px!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #profileSearch,#bestServerAdvanced.fn-topbar-vpn-picker #profilesTrigger{height:40px!important;min-height:40px!important;border-radius:10px!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard.fn-selector-state{min-height:0!important;margin-top:0!important;padding:8px 10px 8px 13px!important;border-radius:10px!important;box-shadow:none!important;background:#0a1b2d!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .fn-selector-state-head{gap:8px!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .fn-selector-state-head strong{font-size:11px!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .fn-selector-state-badge{min-height:20px!important;padding:2px 7px!important;font-size:8.5px!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .selected-endpoint{margin-top:3px!important;font-size:9.5px!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .selected-note{margin-top:2px!important;font-size:9.5px!important;line-height:1.3!important;display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;overflow:hidden!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #exactConnectRow{gap:7px!important;margin-top:0!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #exactConnectRow .btn{min-height:36px!important;padding:7px 12px!important;border-radius:9px!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #exactConnectBtn{background:linear-gradient(180deg,#347eff,#2367e7)!important;border-color:#69a0ff!important}
+      #bestServerAdvanced.fn-topbar-vpn-picker #exactCancelBtn{background:#10243b!important;border-color:#345b84!important;color:#dbe8f8!important}
+
+      @media(min-width:821px) and (max-width:1500px){
+        .vpn-option .best-v4-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important}
+        .vpn-option .best-v4-pill{min-height:48px!important;border:1px solid #294966!important;border-radius:9px!important;padding:7px 8px!important}
+        .vpn-option .best-v4-pill:last-child{border-right:1px solid #294966!important}
+        .vpn-option-head{align-items:flex-start!important;flex-wrap:wrap!important}
+      }
+      @media(max-width:1180px){
+        .best-v4-name{font-size:19px!important}
+        #bestServerAdvanced.fn-topbar-vpn-picker{max-width:600px!important}
+      }
+      @media(max-width:820px){
+        #quickActionsSection{overflow:visible!important}
+        .best-v4-current{border-radius:12px 12px 0 0!important}
+        .best-v4-endpoint{border-radius:0 0 12px 12px!important}
+        #bestServerAdvanced.fn-topbar-vpn-picker{max-width:none!important;width:100%!important}
+        #bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{grid-template-columns:1fr!important}
+      }
+    `;
+    document.head.appendChild(style);
+    syncCurrentFlagFallback();
+    document.addEventListener('freenet:status-updated', syncCurrentFlagFallback);
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
