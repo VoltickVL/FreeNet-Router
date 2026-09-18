@@ -62,7 +62,7 @@
   function humanProviderPlanError(value) {
     const text = String(value || '').trim();
     const lower = text.toLowerCase();
-    if (!text || lower.includes('incomplete provider plan')) return 'FreeNet не получил полный результат проверки этого сервера. Обновите список и попробуйте выбрать его ещё раз.';
+    if (!text || lower.includes('incomplete provider plan') || lower.includes('неполный ответ проверки vpn-сервера')) return 'FreeNet не получил полный результат проверки этого сервера. Обновите список и попробуйте выбрать его ещё раз.';
     if (lower.includes('candidate xray') || lower.includes('проверку xray')) return 'Конфигурация этого сервера не прошла проверку Xray.';
     if (lower.includes('subscription') || lower.includes('подпис')) return 'Не удалось обновить список VPN-серверов из подписки.';
     if (lower.includes('not present') || lower.includes('больше не найден')) return 'Этот сервер исчез из свежего списка подписки. Обновите список серверов.';
