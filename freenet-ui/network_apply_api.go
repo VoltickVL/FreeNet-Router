@@ -663,6 +663,43 @@ func (a *app) runNetworkPlan() (networkPlanResponse, error) {
 	return plan, err
 }
 
+func providerPlanFailureReason(output []byte) string {
+	lines := strings.Split(strings.ReplaceAll(string(output), "\r", ""), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		const prefix = "[FreeNet Provider] ERROR:"
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		reason := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		lower := strings.ToLower(reason)
+		if reason == "" || strings.Contains(lower, "vless://") || strings.Contains(lower, "http://") ||
+			strings.Contains(lower, "https://") || strings.Contains(lower, "uuid=") ||
+			strings.Contains(lower, "pbk=") || strings.Contains(lower, "sid=") {
+			return ""
+		}
+		switch {
+		case strings.Contains(lower, "subscription fetch failed"):
+			return "Не удалось обновить список VPN-серверов из подписки."
+		case strings.Contains(lower, "requested extra profile is not present"):
+			return "Выбранный VPN-сервер больше не найден в свежем списке подписки."
+		case strings.Contains(lower, "cannot build selected vless profile"):
+			return "Не удалось подготовить конфигурацию выбранного VPN-сервера."
+		case strings.Contains(lower, "candidate xray configuration validation failed"):
+			return "Конфигурация выбранного VPN-сервера не прошла проверку Xray."
+		case strings.Contains(lower, "selected profile is missing required fields"):
+			return "В выбранном VPN-сервере не хватает обязательных параметров подключения."
+		default:
+			runes := []rune(reason)
+			if len(runes) > 240 {
+				reason = strings.TrimSpace(string(runes[:237])) + "…"
+			}
+			return reason
+		}
+	}
+	return ""
+}
+
 func (a *app) runProviderPlan(profileID string) (providerPlanResponse, error) {
 	if !validProfileID(profileID) {
 		return providerPlanResponse{ProfileID: profileID}, errors.New("invalid provider profile id")
@@ -671,14 +708,17 @@ func (a *app) runProviderPlan(profileID string) (providerPlanResponse, error) {
 	defer cancel()
 	output, err := runCommand(ctx, providerHelperPath(), "plan", profileID)
 	if ctx.Err() == context.DeadlineExceeded {
-		return providerPlanResponse{ProfileID: profileID}, errors.New("provider plan timed out")
+		return providerPlanResponse{ProfileID: profileID}, errors.New("Проверка выбранного VPN-сервера не завершилась вовремя.")
+	}
+	if err != nil {
+		if reason := providerPlanFailureReason(output); reason != "" {
+			return providerPlanResponse{ProfileID: profileID}, errors.New(reason)
+		}
+		return providerPlanResponse{ProfileID: profileID}, errors.New("Не удалось подготовить выбранный VPN-сервер.")
 	}
 	plan, parseErr := parseProviderPlan(string(output))
 	if parseErr != nil {
-		return plan, parseErr
-	}
-	if err != nil {
-		return plan, errors.New("provider plan helper failed")
+		return plan, errors.New("FreeNet получил неполный ответ проверки VPN-сервера.")
 	}
 	return plan, nil
 }
