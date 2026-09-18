@@ -50,12 +50,14 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	ux := string(accepted)
-	for _, want := range []string{"fnUpdateNotesTitle", "fnUpdateNotes", "Что нового в", "release_notes", "fn-update-safety"} {
+	for _, want := range []string{"fnUpdateNotesTitle", "fnUpdateNotes", "Что нового в", "release_notes"} {
 		if !strings.Contains(ux, want) {
 			t.Fatalf("missing updater release-notes UX marker %q", want)
 		}
 	}
-	if strings.Contains(ux, "Обновление безопасно") {
-		t.Fatal("static safety card must not replace release notes in updater")
+	for _, unwanted := range []string{"Обновление безопасно", "Backup, SHA-256, staging и post-check выполняются автоматически", "fn-update-safety"} {
+		if strings.Contains(ux, unwanted) {
+			t.Fatalf("redundant updater safety copy must stay removed: %q", unwanted)
+		}
 	}
 }
