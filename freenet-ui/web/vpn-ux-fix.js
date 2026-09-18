@@ -187,7 +187,7 @@
         return;
       }
       exactPlan = pp;
-      selectedCardText(`Готов к подключению: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Проверка пройдена. Можно подключаться.', 'ready');
+      selectedCardText(`Готов к подключению: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Проверка пройдена. Можно подключаться. ISP и DNS при этом не изменяются.', 'ready');
       if (controls && controls.connect) {
         controls.connect.disabled = false;
         controls.connect.textContent = 'Подключиться';
