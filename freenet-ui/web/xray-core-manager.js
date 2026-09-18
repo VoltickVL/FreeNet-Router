@@ -87,13 +87,13 @@
     topbarVersionLoading = true;
     topbarVersionAttempts += 1;
     try {
-      const response = await fetch('/api/xray/core/catalog', {cache:'no-store'});
+      const response = await fetch('/api/xray/service', {cache:'no-store'});
       if (response.status === 401) {
         if (topbarVersionAttempts < 4) setTimeout(refreshTopbarVersion, 900);
         return;
       }
       const result = await response.json();
-      if (response.ok && result && result.success) syncTopbarVersion(result.current_version);
+      if (response.ok && result && result.success) syncTopbarVersion(result.version || result.current_version);
     } catch (_) {
       if (topbarVersionAttempts < 3) setTimeout(refreshTopbarVersion, 1200);
     } finally {
