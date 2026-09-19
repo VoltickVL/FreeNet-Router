@@ -423,12 +423,14 @@
       <p class="hint" style="margin-top:0">FreeNet проверит точный GitHub Release, создаст резервную копию, проверит SHA-256 и staging, обновит только файлы FreeNet, перезапустит Control Center и подтвердит фактическую версию. XKeen/Xray, подписка и сетевые настройки этим действием не изменяются.</p>
       <div class="action-row">
         <button id="webUpdateCheckBtn" class="btn secondary" type="button">Проверить обновление</button>
+        <button id="webUpdateRecoverBtn" class="btn secondary" type="button" hidden>Восстановить обновление</button>
         <button id="webUpdateApplyBtn" class="btn primary" type="button" disabled>Обновить</button>
       </div>
       <details class="details" id="webUpdateDetails"><summary>Что изменится</summary><div id="webUpdatePlan" class="notice"></div></details>
       <div id="webUpdateNotice" class="notice"></div>`;
 
     qs('#webUpdateCheckBtn').addEventListener('click', checkUpdate);
+    qs('#webUpdateRecoverBtn').addEventListener('click', openUpdaterRecoveryModal);
     qs('#webUpdateApplyBtn').addEventListener('click', openUpdateConfirmModal);
     loadState();
   }
@@ -449,6 +451,8 @@
 
   function renderPlan(p) {
     plan = p;
+    const recover = qs('#webUpdateRecoverBtn');
+    if (recover) recover.hidden = true;
     qs('#webUpdateCurrent').textContent = p.current_version || '—';
     qs('#webUpdateLatest').textContent = p.latest_version || '—';
     qs('#webUpdateManifest').textContent = p.manifest_verified ? 'проверен' : 'нет';
@@ -479,6 +483,52 @@
     });
   }
 
+  function openUpdaterRecoveryModal() {
+    openModal({
+      kicker: 'FreeNet · восстановление updater',
+      title: 'Восстановить механизм обновления?',
+      body: 'FreeNet независимо от установленного updater скачает только metadata релиза, SHA256SUMS и новый self_update.sh. Новый helper будет запущен только после SHA-256 проверки и собственного read-only plan.',
+      meta: 'VPN, DNS, routing, Xray и подписка на этапе восстановления updater не изменяются. Live updater, неизвестный rollback или неподтверждённая SHA-проверка остановят операцию.',
+      confirmText: 'Восстановить и обновить',
+      cancelText: 'Отмена',
+      onConfirm: startUpdateRecovery
+    });
+  }
+
+  async function startUpdateRecovery() {
+    const check = qs('#webUpdateCheckBtn');
+    const recover = qs('#webUpdateRecoverBtn');
+    const apply = qs('#webUpdateApplyBtn');
+    if (check) check.disabled = true;
+    if (recover) recover.disabled = true;
+    if (apply) apply.disabled = true;
+    setUpdateSummary('Восстанавливаем updater…');
+    updateNotice('Проверяем release manifest и новый updater независимо от установленного helper.');
+    modalProgress('Восстанавливаем механизм обновления…', 'FreeNet проверяет exact release и SHA-256. До подтверждения нового updater persistent mutation не выполняется.');
+    try {
+      const r = await fetch('/api/system/update/recover', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+      });
+      const j = await r.json();
+      if (!r.ok || !j.success) throw new Error(j.error || 'Не удалось восстановить updater');
+      const target = String(j.operation_id || '').trim();
+      setUpdateSummary('Updater восстановлен — обновляем…');
+      updateNotice(j.message || 'Проверенный updater запущен.');
+      polling = true;
+      pollState(target);
+    } catch (e) {
+      setUpdateSummary('Восстановление остановлено', 'bad');
+      updateNotice(e.message || 'Не удалось восстановить updater', 'bad');
+      modalResult('Updater не восстановлен', e.message || 'Операция остановлена до изменений.', 'bad');
+      if (check) check.disabled = false;
+      if (recover) {
+        recover.hidden = false;
+        recover.disabled = false;
+      }
+    }
+  }
+
   async function checkUpdate() {
     const btn = qs('#webUpdateCheckBtn');
     btn.disabled = true;
@@ -496,7 +546,17 @@
     } catch (e) {
       setUpdateSummary('Проверка не удалась', 'bad');
       updateNotice(e.message || 'Ошибка проверки обновления', 'bad');
-      openModal({kicker: 'Обновление FreeNet', title: 'Не удалось проверить обновление', body: e.message || 'Ошибка проверки обновления', closable: true});
+      const recover = qs('#webUpdateRecoverBtn');
+      if (recover) recover.hidden = false;
+      openModal({
+        kicker: 'Обновление FreeNet',
+        title: 'Штатный updater не подтвердил обновление',
+        body: e.message || 'Ошибка проверки обновления',
+        meta: 'Можно запустить независимое восстановление updater прямо из браузера. FreeNet сначала проверит SHA-256 нового helper и только затем передаст ему обновление.',
+        confirmText: 'Восстановить updater',
+        cancelText: 'Закрыть',
+        onConfirm: startUpdateRecovery
+      });
     } finally {
       btn.disabled = false;
       qs('#webUpdateApplyBtn').disabled = !(plan && plan.success && plan.ready && plan.update_available && plan.target_tag);
