@@ -105,6 +105,7 @@
       #fnVpnPickerV2Country{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .fnv2-flag{position:relative;display:inline-block;flex:0 0 auto;width:27px;height:18px;border:1px solid #ffffff24;border-radius:3px;background-color:#24344c!important;background-size:100% 100%!important;background-repeat:no-repeat!important;overflow:hidden;box-shadow:none!important}
       .fnv2-flag::before,.fnv2-flag::after{display:none!important;content:none!important}
+      html body #controlCenter #fnVpnPickerV2Toggle .fnv2-flag svg,html body #fnVpnPickerV2Panel .fnv2-flag svg{display:none!important}
       #fnVpnPickerV2Toggle .fnv2-flag{width:20px;height:14px}
       #fnVpnPickerV2Panel{position:fixed;z-index:2600;box-sizing:border-box;display:flex;flex-direction:column;gap:0;width:540px;max-width:calc(100vw - 24px);max-height:var(--fnv2-space,680px);margin:0;padding:0;color:#eef4ff;background:#0c1c2e;border:1px solid #355473;border-radius:16px;box-shadow:0 24px 70px #0009;font-family:Inter,ui-sans-serif,system-ui,sans-serif;overflow:hidden}
       #fnVpnPickerV2Panel[hidden]{display:none!important}
