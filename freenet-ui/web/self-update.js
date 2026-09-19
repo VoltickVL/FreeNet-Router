@@ -1174,7 +1174,7 @@
         if (qs('#fnModalClose')?.hidden || qs('#fnModalClose')?.disabled) return;
         if (event.target.closest?.('#topFreenetUpdate') || event.target.closest?.('#fnModalRoot .fn-modal')) return;
         closeModal();
-      });
+      }, true);
       document.addEventListener('keydown', event => {
         const root = qs('#fnModalRoot');
         if (event.key !== 'Escape' || !root || root.hidden || !root.classList.contains('fn-version-picker-mode')) return;
