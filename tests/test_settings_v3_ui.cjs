@@ -134,6 +134,7 @@ const server = http.createServer((req, res) => {
   assert.doesNotMatch(automationSource + asyncSource, /dispatchEvent\(new Event\(['"]hashchange['"]\)\)/, 'Settings lifecycle must not use synthetic hashchange');
   assert.doesNotMatch(asyncSource, /body\.fn-settings-accepted \.sidebar\{|body\.fn-settings-accepted \.nav-btn\{/, 'Settings presentation must not resize the shared shell');
   assert.doesNotMatch(settingsSource, /\[\['pl','Польша'\]/, 'Settings country picker must not use a hardcoded country list');
+  assert.doesNotMatch(settingsSource, /<div class="fn3-right">|id="fn3Profile"|id="fn3Endpoint"|id="fn3VPNState"/, 'Settings must not ship a duplicate Current VPN card');
 
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const browser = await chromium.launch({headless:true});
@@ -176,11 +177,8 @@ const server = http.createServer((req, res) => {
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
-    await page.waitForFunction(() => document.querySelector('#fn3Flag')?.classList.contains('flag-pl'));
 
     const runtime = await page.evaluate(() => ({
-      profile: document.querySelector('#fn3Profile')?.textContent || '',
-      endpoint: document.querySelector('#fn3Endpoint')?.textContent || '',
       saveDisabled: document.querySelector('#fn3Save')?.disabled,
       saveText: document.querySelector('#fn3Save')?.textContent || '',
       autoChecked: document.querySelector('#fn3AutoEnabled')?.checked,
@@ -196,11 +194,8 @@ const server = http.createServer((req, res) => {
       navFontSize: getComputedStyle(document.querySelector('.nav-btn[data-page="overview"]')).fontSize,
       navHeight: Math.round(document.querySelector('.nav-btn[data-page="overview"]')?.getBoundingClientRect().height || 0),
       autoLabelVisible: !!document.querySelector('#fn3AutoLabel') && getComputedStyle(document.querySelector('#fn3AutoLabel')).display !== 'none',
-      vpnStateVisible: !!document.querySelector('#fn3VPNState') && getComputedStyle(document.querySelector('#fn3VPNState')).display !== 'none',
-      controlTitle: document.querySelector('#fn3ControlTitle')?.textContent || '',
-      flagClasses: document.querySelector('#fn3Flag')?.className || '',
-      flagText: document.querySelector('#fn3Flag')?.textContent || '',
-      lastQuality: document.querySelector('#fn3LastQuality')?.textContent || ''
+      currentVpnCardCount: document.querySelectorAll('.fn3-right, #fn3Profile, #fn3Endpoint, #fn3LastQuality, #fn3VPNState').length,
+      controlTitle: document.querySelector('#fn3ControlTitle')?.textContent || ''
     }));
     console.log('SETTINGS_V3_RUNTIME', JSON.stringify(runtime));
     console.log('SETTINGS_V3_CALLS', JSON.stringify(calls.filter(call => call.includes('/api/'))));
@@ -209,8 +204,6 @@ const server = http.createServer((req, res) => {
 
     assert.equal(errors.length, 0, errors.join('\n'));
     assert.equal(consoleErrors.length, 0, consoleErrors.join('\n'));
-    assert.match(runtime.profile, /Варшава/, `runtime snapshot not applied: ${JSON.stringify(runtime)}`);
-    assert.doesNotMatch(runtime.profile, /^PL\s/, `country code leaked into profile label: ${runtime.profile}`);
     assert.equal(runtime.saveDisabled, true, `save baseline not settled: ${JSON.stringify(runtime)}`);
     assert.deepEqual(runtime.nav, ['Обзор','Подписка','Настройки','Маршрутизация','Журнал']);
     assert.ok(runtime.svgWidths.every(width => width > 0 && width <= 24), `oversized action icon detected: ${runtime.svgWidths}`);
@@ -219,11 +212,8 @@ const server = http.createServer((req, res) => {
     assert.equal(runtime.navFontSize, cold.navFontSize, `Settings changed sidebar font size: overview=${cold.navFontSize}, settings=${runtime.navFontSize}`);
     assert.equal(runtime.navHeight, cold.navHeight, `Settings changed sidebar item height: overview=${cold.navHeight}, settings=${runtime.navHeight}`);
     assert.equal(runtime.autoLabelVisible, false, 'duplicate AUTO VPN enabled label must be hidden');
-    assert.equal(runtime.vpnStateVisible, false, 'Current VPN observation badge must be hidden');
+    assert.equal(runtime.currentVpnCardCount, 0, 'Settings must not render the duplicate Current VPN card or its metrics');
     assert.equal(runtime.controlTitle, 'Автопроверка', `unexpected AUTO VPN control copy: ${runtime.controlTitle}`);
-    assert.match(runtime.flagClasses, /\bflag-icon\b.*\bflag-pl\b|\bflag-pl\b.*\bflag-icon\b/, `Settings must use CSS country flag: ${runtime.flagClasses}`);
-    assert.equal(runtime.flagText, '', `Settings CSS flag must not expose platform-dependent flag text: ${runtime.flagText}`);
-    assert.match(runtime.lastQuality, /2026/, `Settings dates must include year: ${runtime.lastQuality}`);
 
     const settingsPage = page.locator('[data-page-view="settings"]');
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
@@ -237,21 +227,21 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="journal"]').count(), 1);
     assert.equal(await page.locator('#fn3Journal').count(), 0, 'Settings must not duplicate the AUTO VPN journal table');
     assert.equal(await page.locator('#fn3AllEvents').count(), 1, 'Settings must keep one compact link to the shared Journal');
+    assert.equal(await settingsPage.getByText('Текущий VPN', {exact:true}).count(), 0, 'duplicate Current VPN title must be removed from Settings');
+    assert.equal(await settingsPage.locator('.fn3-right').count(), 0, 'Current VPN layout column must be removed from Settings');
     const settingsGeometry = await page.evaluate(() => {
       const auto = document.querySelector('.fn3-left .fn3-card')?.getBoundingClientRect();
-      const current = document.querySelector('.fn3-right .fn3-card')?.getBoundingClientRect();
       const maintenance = document.querySelector('.fn3-extra')?.getBoundingClientRect();
       return {
         autoWidth: Math.round(auto?.width || 0),
-        currentWidth: Math.round(current?.width || 0),
+        maintenanceWidth: Math.round(maintenance?.width || 0),
         autoTop: Math.round(auto?.top || 0),
-        currentTop: Math.round(current?.top || 0),
+        autoBottom: Math.round(auto?.bottom || 0),
         maintenanceTop: Math.round(maintenance?.top || 0)
       };
     });
-    assert.ok(Math.abs(settingsGeometry.autoWidth - settingsGeometry.currentWidth) <= 2, `AUTO VPN and Current VPN must use the same full width: ${JSON.stringify(settingsGeometry)}`);
-    assert.ok(settingsGeometry.currentTop > settingsGeometry.autoTop, `Current VPN must follow AUTO VPN vertically: ${JSON.stringify(settingsGeometry)}`);
-    assert.ok(settingsGeometry.maintenanceTop > settingsGeometry.currentTop, `System maintenance must follow Current VPN: ${JSON.stringify(settingsGeometry)}`);
+    assert.ok(Math.abs(settingsGeometry.autoWidth - settingsGeometry.maintenanceWidth) <= 2, `AUTO VPN and System maintenance must use the same full width: ${JSON.stringify(settingsGeometry)}`);
+    assert.ok(settingsGeometry.maintenanceTop > settingsGeometry.autoBottom, `System maintenance must follow AUTO VPN without a duplicate Current VPN block: ${JSON.stringify(settingsGeometry)}`);
 
     const visibleProvider = await page.evaluate(() => [...document.querySelectorAll('.topbar *')].some(el => {
       if ((el.textContent || '').trim() !== 'Владлинк') return false;

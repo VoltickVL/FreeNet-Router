@@ -52,7 +52,7 @@ func TestSettingsV3ManualCheckShowsLiveElapsedActivity(t *testing.T) {
 	}
 }
 
-func TestSettingsV3ManualCheckReloadsCanonicalCurrentQuality(t *testing.T) {
+func TestSettingsV3ManualCheckReloadsCanonicalSettingsState(t *testing.T) {
 	asset, err := automationWebFS.ReadFile("web/settings-v3.js")
 	if err != nil {
 		t.Fatal(err)
@@ -61,13 +61,21 @@ func TestSettingsV3ManualCheckReloadsCanonicalCurrentQuality(t *testing.T) {
 	for _, required := range []string{
 		`await load();`,
 		`fetchJSON('/api/settings-v3', {cache:'no-store'})`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Settings v3 post-check canonical reload contract missing %q", required)
+		}
+	}
+	for _, removedPresentation := range []string{
 		`current_quality_known`,
 		`current_latency_ms`,
 		`current_download_mbps`,
 		`current_jitter_ms`,
+		`#fn3Profile`,
+		`#fn3Endpoint`,
 	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("Settings v3 post-check quality refresh contract missing %q", required)
+		if strings.Contains(text, removedPresentation) {
+			t.Fatalf("Settings v3 still renders removed Current VPN presentation field %q", removedPresentation)
 		}
 	}
 }

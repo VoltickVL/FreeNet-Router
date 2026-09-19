@@ -44,7 +44,7 @@
       body:has([data-page-view="journal"].active) .content{width:min(1460px,calc(100% - 48px))!important;padding-top:20px!important}
       body:has([data-page-view="settings"].active) #pageTitle{display:none!important}
       .fn3-page{display:block!important}.fn3-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin:0 0 13px}.fn3-head h1{font-size:30px;line-height:1.05;margin:0;letter-spacing:-.04em}.fn3-head p{margin:6px 0 0;color:#8fa7c3;font-size:13px}.fn3-save{min-width:210px;min-height:42px!important;justify-content:center!important}.fn3-save[disabled]{opacity:.52;filter:saturate(.7)}
-      .fn3-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}.fn3-left,.fn3-right{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.fn3-left,.fn3-right,.fn3-extra{width:100%;min-width:0}.fn3-left,.fn3-right{grid-column:1/-1}.fn3-card{border:1px solid #244a6d;border-radius:14px;background:linear-gradient(180deg,rgba(12,31,52,.98),rgba(7,22,38,.99));padding:15px;box-shadow:0 12px 32px rgba(0,0,0,.12);min-width:0}.fn3-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.fn3-title{display:flex;align-items:flex-start;gap:11px}.fn3-icon{display:grid;place-items:center;width:36px;height:36px;flex:0 0 36px;border-radius:10px;background:linear-gradient(180deg,#1763d0,#114692);color:#b8d6ff}.fn3-icon svg{width:22px;height:22px}.fn3-card h2{font-size:19px;margin:0;letter-spacing:-.02em}.fn3-card h3{font-size:15px;margin:0}.fn3-sub{margin-top:3px;color:#8fa6c0;font-size:12px;line-height:1.4}
+      .fn3-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}.fn3-left{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;width:100%;min-width:0;grid-column:1/-1}.fn3-extra{width:100%;min-width:0}.fn3-card{border:1px solid #244a6d;border-radius:14px;background:linear-gradient(180deg,rgba(12,31,52,.98),rgba(7,22,38,.99));padding:15px;box-shadow:0 12px 32px rgba(0,0,0,.12);min-width:0}.fn3-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.fn3-title{display:flex;align-items:flex-start;gap:11px}.fn3-icon{display:grid;place-items:center;width:36px;height:36px;flex:0 0 36px;border-radius:10px;background:linear-gradient(180deg,#1763d0,#114692);color:#b8d6ff}.fn3-icon svg{width:22px;height:22px}.fn3-card h2{font-size:19px;margin:0;letter-spacing:-.02em}.fn3-card h3{font-size:15px;margin:0}.fn3-sub{margin-top:3px;color:#8fa6c0;font-size:12px;line-height:1.4}
       .fn3-master{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:750;color:#eef5ff}.fn3-switch{position:relative;width:45px;height:24px;display:inline-block;flex:0 0 45px}.fn3-switch input{position:absolute;opacity:0;pointer-events:none}.fn3-switch span{position:absolute;inset:0;border-radius:999px;background:#3b4c61;border:1px solid #586a80;transition:.15s}.fn3-switch span:after{content:'';position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#eef5fc;transition:.15s;box-shadow:0 2px 5px #0006}.fn3-switch input:checked+span{background:#18c78c;border-color:#34e3a8}.fn3-switch input:checked+span:after{transform:translateX(21px);background:white}
       .fn3-info{display:flex;gap:10px;align-items:flex-start;margin-top:12px;padding:11px 12px;border:1px solid #2c6093;border-radius:10px;background:rgba(23,75,132,.23);font-size:12px;line-height:1.48;color:#bed0e4}.fn3-info svg{width:19px;height:19px;flex:0 0 19px;color:#69a9ff}.fn3-section-label{margin:13px 0 7px;color:#f1f6ff;font-size:13px;font-weight:800}.fn3-scope-list{border:1px solid #295174;border-radius:11px;overflow:hidden;background:#081b2f}.fn3-scope{display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;padding:10px 12px;border-top:1px solid #254765;cursor:pointer;min-height:58px}.fn3-scope:first-child{border-top:0}.fn3-scope.selected{background:linear-gradient(180deg,#0d345c,#0a2a4b);box-shadow:inset 0 0 0 1px #2f8cf8}.fn3-scope input{width:18px;height:18px;accent-color:#31e1a3}.fn3-scope strong{display:block;font-size:13px}.fn3-scope small{display:block;color:#9ab0c9;font-size:11.5px;margin-top:3px}.fn3-recommended{display:inline-block;margin-left:6px;padding:2px 6px;border-radius:999px;background:#0b6e50;color:#67f1bc;font-size:10px}.fn3-chevron{width:18px;color:#7fb7f8}.fn3-safety{display:flex;gap:9px;align-items:flex-start;margin-top:10px;padding:10px 11px;border:1px solid #2b5f91;border-radius:9px;color:#b7cbe1;font-size:11.5px;line-height:1.42}.fn3-safety svg{width:18px;flex:0 0 18px;color:#6daeff}.fn3-auto-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.78fr);gap:10px;margin-top:11px}.fn3-auto-actions .btn{min-height:44px!important;justify-content:center!important}.fn3-control{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid #275174;border-radius:10px;background:#091b2e;color:#c6d6e8}.fn3-control-dot{width:20px;height:20px;border-radius:50%;border:4px solid #0b4c3a;background:#26d69b;box-shadow:0 0 0 2px #179d76}.fn3-control strong{display:block;color:#4ee3aa;font-size:12px}.fn3-control small{display:block;color:#879eb8;font-size:10.5px;margin-top:2px}
       .fn3-vpn-head{display:flex;align-items:center;justify-content:space-between}.fn3-status-pill{padding:5px 10px;border-radius:999px;background:#075b43;color:#55efb2;font-size:10px;font-weight:800}.fn3-profile{margin-top:10px;border:1px solid #294f70;border-radius:10px;background:#07192a;padding:12px}.fn3-profile-top{display:flex;align-items:center;gap:10px}.fn3-flag{font-size:22px;line-height:1}.fn3-profile-name{font-size:18px;font-weight:850}.fn3-profile-facts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}.fn3-fact{padding-left:10px;border-left:1px solid #315170}.fn3-fact span{display:block;color:#8ba2bd;font-size:10px}.fn3-fact strong{display:block;margin-top:4px;font-size:12px}.fn3-endpoint{display:flex;align-items:center;gap:7px}.fn3-copy{border:0;background:transparent;color:#62a6f6;padding:2px;cursor:pointer}.fn3-copy svg{width:17px;height:17px}.fn3-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:9px}.fn3-metric{border:1px solid #294f70;border-radius:9px;background:#07192a;padding:8px;min-height:55px}.fn3-metric span{display:flex;align-items:center;gap:5px;color:#8da5c0;font-size:10px}.fn3-metric svg{width:14px;color:#66a8ff}.fn3-metric strong{display:block;margin-top:4px;font-size:12px}.fn3-health{display:flex;align-items:center;gap:9px;margin-top:9px;padding:9px 11px;border:1px solid #16815e;border-radius:9px;background:#073c30;color:#5ee7af;font-size:11.5px;font-weight:700}.fn3-health svg{width:18px}.fn3-health small{display:block;color:#b1d9ca;font-weight:500;margin-top:2px;font-size:10.5px}
@@ -208,14 +208,6 @@
             </div>
             <div class="fn3-safety">${svg('shield')}<span>Рабочий VPN не меняется без причины. Все переключения выполняются только при подтверждённом сбое, с проверкой и автоматическим возвратом при необходимости.</span></div>
             <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small></div></div></div>
-          </section>
-        </div>
-        <div class="fn3-right">
-          <section class="fn3-card">
-            <div class="fn3-vpn-head"><h2><span class="fn3-vpn-title-icon">${svg('vpn')}</span>Текущий VPN</h2><span id="fn3VPNState" class="fn3-status-pill"></span></div>
-            <div class="fn3-profile"><div class="fn3-profile-top"><span id="fn3Flag" class="fn3-flag">🌐</span><div id="fn3Profile" class="fn3-profile-name">Определяем…</div></div><div class="fn3-profile-facts"><div class="fn3-fact"><span>Профиль</span><strong id="fn3ProfileSmall">—</strong></div><div class="fn3-fact"><span>Адрес подключения</span><div class="fn3-endpoint"><strong id="fn3Endpoint">—</strong><button id="fn3Copy" class="fn3-copy" type="button" title="Копировать">${svg('copy')}</button></div></div></div></div>
-            <div class="fn3-metrics"><div class="fn3-metric"><span>${svg('clock')}Последняя проверка</span><strong id="fn3LastQuality">—</strong></div><div class="fn3-metric"><span>${svg('signal')}Отклик</span><strong id="fn3Latency">—</strong></div><div class="fn3-metric"><span>${svg('speed')}Скорость</span><strong id="fn3Speed">—</strong></div><div class="fn3-metric"><span>${svg('shield')}Стабильность</span><strong id="fn3Jitter">—</strong></div></div>
-            <div class="fn3-health">${svg('check')}<div><span id="fn3HealthText">Текущий VPN работает стабильно.</span><small>При любых проблемах FreeNet автоматически восстановит подключение.</small></div></div>
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
         </div>
@@ -271,9 +263,9 @@
     if (next) next.textContent = data?.enabled ? (data?.next_run ? formatDate(data.next_run) : 'после первого запуска') : 'выключено';
   }
 
-  function applyData(data, status) {
-    state.data = data; state.status = status;
-    const auto = data.auto_vpn || {}, snap = data.automation || {};
+  function applyData(data) {
+    state.data = data;
+    const auto = data.auto_vpn || {};
     q('#fn3AutoEnabled').checked = !!auto.enabled;
     q('#fn3AutoLabel').textContent = auto.enabled ? 'Включено' : 'Выключено';
     state.countries = Array.isArray(auto.countries) ? auto.countries.slice() : [];
@@ -283,16 +275,6 @@
     q('#fn3ControlTitle').textContent = auto.enabled ? 'Автопроверка' : 'Автоматика выключена';
     q('#fn3ControlNext').textContent = auto.enabled ? `Следующая проверка: ${nextLabel(auto.next_health)}` : 'Автоматические проверки не выполняются';
 
-    const profile = cleanProfileLabel(snap.current_profile || status.profile_label || 'VPN');
-    q('#fn3Profile').textContent = profile; q('#fn3ProfileSmall').textContent = profile;
-    q('#fn3Endpoint').textContent = snap.current_endpoint || status.endpoint || '—';
-    setCountryFlag(q('#fn3Flag'), snap.country_code || status.country_code);
-    q('#fn3LastQuality').textContent = snap.current_quality_checked_at ? formatDate(snap.current_quality_checked_at) : '—';
-    q('#fn3Latency').textContent = snap.current_quality_known && snap.current_latency_ms ? `${snap.current_latency_ms} мс` : '—';
-    q('#fn3Speed').textContent = snap.current_quality_known && snap.current_download_mbps ? `${Math.round(snap.current_download_mbps)} Мбит/с` : '—';
-    q('#fn3Jitter').textContent = snap.current_quality_known && snap.current_jitter_ms ? `${snap.current_jitter_ms} мс` : '—';
-    q('#fn3VPNState').textContent = '';
-    q('#fn3HealthText').textContent = snap.current_quality_known ? 'Текущий VPN работает стабильно.' : 'FreeNet контролирует доступность текущего VPN.';
     renderJournal(data.events || [], '#fn3JournalFull');
     renderJournalSummary(data.events || []);
     applySchedule('subscription', data.subscription); applySchedule('geodata', data.geodata); applySchedule('freenet', data.freenet); applySchedule('backup', data.backup);
@@ -318,8 +300,8 @@
 
   async function load() {
     try {
-      const [data,status] = await Promise.all([fetchJSON('/api/settings-v3', {cache:'no-store'}), fetchJSON('/api/status', {cache:'no-store'})]);
-      applyData(data,status);
+      const data = await fetchJSON('/api/settings-v3', {cache:'no-store'});
+      applyData(data);
     } catch (err) {
       console.error('Settings v3 load failed', err);
     }
@@ -331,7 +313,7 @@
     const form = currentForm();
     try {
       const data = await fetchJSON('/api/settings-v3', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',auto_vpn_enabled:form.enabled,country_scope:form.scope,countries:form.countries,subscription_enabled:form.subscription.enabled,subscription_interval:form.subscription.interval,geodata_enabled:form.geodata.enabled,geodata_interval:form.geodata.interval,freenet_enabled:form.freenet.enabled,freenet_interval:form.freenet.interval,backup_enabled:form.backup.enabled,backup_interval:form.backup.interval})});
-      const status = await fetchJSON('/api/status', {cache:'no-store'}); applyData(data,status);
+      applyData(data);
     } catch (err) { alert(`Не удалось сохранить настройки: ${err.message}`); }
     finally { state.saving = false; renderSave(); }
   }
@@ -442,7 +424,6 @@
     qa('input[name="fn3Scope"]').forEach(i => i.onchange = () => { if (i.value === 'allowlist') openCountries(); markDirty(); });
     ['subscription','geodata','freenet','backup'].forEach(k => { q(`#fn3_${k}_enabled`).onchange = markDirty; q(`#fn3_${k}_interval`).onchange = markDirty; });
     qa('[data-v3-action]').forEach(b => b.onclick = () => action(b.dataset.v3Action));
-    q('#fn3Copy').onclick = async () => { const text = q('#fn3Endpoint').textContent; try { await navigator.clipboard.writeText(text); } catch (_) {} };
     q('#fn3AllEvents').onclick = () => { if (typeof window.setPage === 'function') window.setPage('journal'); mountJournalPage(); };
     q('[data-scope-card="allowlist"]').ondblclick = openCountries;
   }
