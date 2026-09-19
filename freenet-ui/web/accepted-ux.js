@@ -324,20 +324,37 @@
   async function checkSubscription(label = 'Проверка подписки') {
     setSubscriptionNotice('Проверяем подписку и список Extra-профилей…');
     try {
-      if (typeof window.loadNetworkPlan !== 'function') throw new Error('read-only check unavailable');
-      await window.loadNetworkPlan();
+      const response = await fetch('/api/settings-v3/action', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'subscription_check'})
+      });
+      const actionData = await response.json().catch(() => ({}));
+      if (!response.ok || actionData.success === false) throw new Error(actionData.error || 'subscription check failed');
+      if (typeof window.loadNetworkPlan === 'function') await window.loadNetworkPlan();
       const count = qs('#extraCount')?.textContent || '—';
-      const profileError = qs('#profilesError')?.textContent || '';
-      if (count === '—' || profileError) {
-        setSubscriptionNotice(profileError || 'Extra-профили не получены. Конфигурация не изменена.', 'bad');
-        addSubscriptionHistory(label, 'Не пройдена', {kind: 'check', ok: false});
-      } else {
-        setSubscriptionNotice(`Подписка доступна. Получено Extra-профилей: ${count}.`, 'ok');
-        addSubscriptionHistory(label, `Доступна (${count})`, {kind: 'check', ok: true});
-      }
+      setSubscriptionNotice(`Подписка доступна. Получено Extra-профилей: ${count}.`, 'ok');
+      addSubscriptionHistory(label, `Доступна (${count})`, {kind: 'check', ok: true});
+      try {
+        const stateResponse = await fetch('/api/settings-v3', {cache:'no-store'});
+        const stateData = await stateResponse.json();
+        if (stateResponse.ok && stateData && stateData.success !== false) {
+          document.dispatchEvent(new CustomEvent('freenet:settings-v3-updated', {detail:stateData}));
+        }
+      } catch (_) {}
     } catch (_) {
-      setSubscriptionNotice('Не удалось проверить подписку. Конфигурация не изменена.', 'bad');
+      if (typeof window.loadNetworkPlan === 'function') {
+        try { await window.loadNetworkPlan(); } catch (_) {}
+      }
+      setSubscriptionNotice('Свежий список получить не удалось. Рабочее VPN-подключение не изменено; последний успешный список сохранён.', 'bad');
       addSubscriptionHistory(label, 'Ошибка', {kind: 'check', ok: false});
+      try {
+        const stateResponse = await fetch('/api/settings-v3', {cache:'no-store'});
+        const stateData = await stateResponse.json();
+        if (stateResponse.ok && stateData && stateData.success !== false) {
+          document.dispatchEvent(new CustomEvent('freenet:settings-v3-updated', {detail:stateData}));
+        }
+      } catch (_) {}
     }
     syncSubscriptionPage();
   }
