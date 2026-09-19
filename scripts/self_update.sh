@@ -32,6 +32,8 @@ LOCK_HELD=0
 KEEP_LOCK=0
 MUTATED=0
 LAST_DOWNLOAD_ERROR=""
+RELEASE_META_TAG=""
+RELEASE_META_FILE=""
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Web Update] ERROR: %s\n' "$*" >&2; }
@@ -261,16 +263,34 @@ latest_tag() {
     printf '%s\n' "$TAG"
 }
 
-release_notes() {
+fetch_release_metadata() {
     TAG="$1"
+    if [ "$RELEASE_META_TAG" = "$TAG" ] && [ -n "$RELEASE_META_FILE" ] && [ -s "$RELEASE_META_FILE" ]; then
+        return 0
+    fi
     make_tmp || return 1
-    META="$TMP_DIR/release-notes.json"
+    META="$TMP_DIR/release-meta.json"
     if [ -n "$TEST_RELEASE_DIR" ]; then
-        [ -f "$TEST_RELEASE_DIR/release.json" ] || { printf '%s\n' ""; return 0; }
+        [ -f "$TEST_RELEASE_DIR/release.json" ] || return 1
         cp "$TEST_RELEASE_DIR/release.json" "$META" || return 1
     else
         download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META" || return 1
     fi
+    META_TAG="$(jq -r '.tag_name // empty' "$META" 2>/dev/null)"
+    META_DRAFT="$(jq -r '.draft // false' "$META" 2>/dev/null)"
+    META_PRE="$(jq -r '.prerelease // false' "$META" 2>/dev/null)"
+    [ "$META_TAG" = "$TAG" ] || return 1
+    [ "$META_DRAFT" != true ] || return 1
+    [ "$META_PRE" != true ] || return 1
+    RELEASE_META_TAG="$TAG"
+    RELEASE_META_FILE="$META"
+    return 0
+}
+
+release_notes() {
+    TAG="$1"
+    fetch_release_metadata "$TAG" || return 1
+    META="$RELEASE_META_FILE"
     jq -r '.body // ""' "$META" 2>/dev/null | awk '
         BEGIN { out=""; count=0 }
         /^[*-][[:space:]]+/ {
@@ -588,26 +608,39 @@ run_plan() {
     done
     LATEST="$(latest_tag)" || { plan_error 'cannot determine latest FreeNet release'; return 1; }
     valid_tag "$LATEST" || { plan_error 'latest release tag is invalid'; return 1; }
-    fetch_manifest "$LATEST" || { plan_error 'release manifest is unavailable or incomplete'; return 1; }
-    RELEASE_NOTES="$(release_notes "$LATEST" 2>/dev/null || true)"
 
-    AVAILABLE=no
-    version_gt "$LATEST" "$CURRENT_VERSION" && AVAILABLE=yes
+    PLAN_TARGET="${TARGET_TAG:-$LATEST}"
+    valid_tag "$PLAN_TARGET" || { plan_error 'target release tag is invalid'; return 1; }
+    fetch_release_metadata "$PLAN_TARGET" || { plan_error 'target release is not a published stable FreeNet release'; return 1; }
+    fetch_manifest "$PLAN_TARGET" || { plan_error 'release manifest is unavailable or incomplete'; return 1; }
+    RELEASE_NOTES="$(release_notes "$PLAN_TARGET" 2>/dev/null || true)"
+
+    AVAILABLE=yes
+    DIRECTION=upgrade
+    if [ "$PLAN_TARGET" = "$CURRENT_VERSION" ]; then
+        AVAILABLE=no
+        DIRECTION=same
+    elif version_gt "$PLAN_TARGET" "$CURRENT_VERSION"; then
+        DIRECTION=upgrade
+    else
+        DIRECTION=downgrade
+    fi
 
     say 'SUCCESS=yes'
     say 'READY=yes'
     say "CURRENT_VERSION=$CURRENT_VERSION"
     say "LATEST_VERSION=$LATEST"
-    say "TARGET_TAG=$LATEST"
+    say "TARGET_TAG=$PLAN_TARGET"
     say "UPDATE_AVAILABLE=$AVAILABLE"
+    say "DIRECTION=$DIRECTION"
     say "ARCH=$ARCH"
     say 'MANIFEST_VERIFIED=yes'
     say "RELEASE_NOTES=$RELEASE_NOTES"
     say 'COMPONENTS=FreeNet UI; manager; VPN/updater helpers; network/provider/finalize helpers; bootstrap helper; self-update helper; upstream pins'
     if [ "$AVAILABLE" = yes ]; then
-        say "EXPECTED_DELTA=replace verified FreeNet-owned application assets with exact release $LATEST; restart FreeNet UI; validate target version and unchanged Xray state"
+        say "EXPECTED_DELTA=replace verified FreeNet-owned application assets with exact release $PLAN_TARGET; restart FreeNet UI; validate target version and unchanged Xray state"
     else
-        say 'EXPECTED_DELTA=NONE; installed FreeNet version is current or newer'
+        say 'EXPECTED_DELTA=NONE; selected FreeNet version is already installed'
     fi
     say 'EXPECTED_NO_DELTA=subscription secret; Xray credentials/config; ISP/DNS/routing state; XKeen/Xray/XKeen UI core; cron'
     say 'MUTATION=NONE'
@@ -636,7 +669,8 @@ fail_after_mutation() {
 run_apply() {
     detect_current || fail_before_mutation 'current FreeNet version is invalid'
     valid_tag "$TARGET_TAG" || fail_before_mutation 'target release tag is invalid'
-    version_gt "$TARGET_TAG" "$CURRENT_VERSION" || fail_before_mutation 'target release is not newer than current FreeNet'
+    [ "$TARGET_TAG" != "$CURRENT_VERSION" ] || fail_before_mutation 'target FreeNet version is already installed'
+    fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release is not a published stable FreeNet release'
     get_arch || fail_before_mutation 'unsupported Entware architecture'
     for T in curl sha256sum sed awk grep cmp mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || fail_before_mutation "required command missing: $T"
@@ -649,7 +683,7 @@ run_apply() {
     LOCK_HELD=1
     printf '%s\n' "$" > "$LOCK_DIR/owner.pid" 2>/dev/null || true
     printf '%s\n' "$TARGET_TAG" > "$LOCK_DIR/target" 2>/dev/null || true
-    write_state CHECKING "$TARGET_TAG" 'Проверяем exact release и SHA-256' '' NOT_NEEDED '' || true
+    write_state CHECKING "$TARGET_TAG" 'Проверяем выбранный exact release и SHA-256' '' NOT_NEEDED '' || true
 
     make_tmp || fail_before_mutation 'cannot create staging directory'
     download_assets "$TARGET_TAG" || fail_before_mutation "${LAST_DOWNLOAD_ERROR:-release asset download or SHA-256 verification failed}"
@@ -667,7 +701,7 @@ run_apply() {
     persist_version "$TARGET_TAG" || fail_after_mutation 'cannot persist installed version marker'
 
     MUTATED=0
-    write_state SUCCESS "$TARGET_TAG" 'FreeNet успешно обновлён и проверен' '' NOT_NEEDED "$BACKUP_DIR" || true
+    write_state SUCCESS "$TARGET_TAG" 'Выбранная версия FreeNet установлена и проверена' '' NOT_NEEDED "$BACKUP_DIR" || true
     say "RESULT=SUCCESS"
     say "TARGET_VERSION=$TARGET_TAG"
     say "BACKUP_DIR=$BACKUP_DIR"
@@ -680,5 +714,5 @@ case "$MODE" in
         [ -n "$TARGET_TAG" ] || { err 'usage: self_update.sh apply <vX.Y.Z>'; exit 2; }
         run_apply
         ;;
-    *) err 'usage: self_update.sh [plan|apply <vX.Y.Z>]'; exit 2 ;;
+    *) err 'usage: self_update.sh [plan [vX.Y.Z]|apply <vX.Y.Z>]'; exit 2 ;;
 esac
