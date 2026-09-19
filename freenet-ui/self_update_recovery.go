@@ -227,6 +227,15 @@ func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	stateKV := readStateFile(a.cfg.UpdateState)
+	state := strings.TrimSpace(stateKV["STATE"])
+	rollback := strings.TrimSpace(stateKV["ROLLBACK_STATE"])
+	if state == "ROLLBACK_FAILED" || rollback == "FAILED_UNKNOWN" || rollback == "PENDING" {
+		v3AppendEvent("freenet_update_recovery", "blocked", "Browser recovery остановлен hard-stop состоянием предыдущего обновления.")
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "Предыдущее обновление имеет неподтверждённый rollback. Browser recovery заблокирован до диагностики фактического состояния."})
+		return
+	}
+
 	held, stale := a.updateLockStatus()
 	if held {
 		if !stale {
