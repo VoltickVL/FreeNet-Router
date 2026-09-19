@@ -670,11 +670,11 @@ run_apply() {
     detect_current || fail_before_mutation 'current FreeNet version is invalid'
     valid_tag "$TARGET_TAG" || fail_before_mutation 'target release tag is invalid'
     [ "$TARGET_TAG" != "$CURRENT_VERSION" ] || fail_before_mutation 'target FreeNet version is already installed'
-    fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release is not a published stable FreeNet release'
     get_arch || fail_before_mutation 'unsupported Entware architecture'
     for T in curl sha256sum sed awk grep cmp mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || fail_before_mutation "required command missing: $T"
     done
+    fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release is not a published stable FreeNet release'
 
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
         write_state BUSY "$TARGET_TAG" 'Другая операция обновления уже выполняется' 'update lock is already held' NOT_NEEDED '' || true
