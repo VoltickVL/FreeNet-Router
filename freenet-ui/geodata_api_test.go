@@ -80,7 +80,7 @@ func TestGeoDataFilesAPIIsMetadataOnlyAndDeterministic(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatal(err)
 	}
-	if !resp.Success || resp.SearchEnabled || len(resp.Files) != 3 {
+	if !resp.Success || !resp.SearchEnabled || len(resp.Files) != 3 {
 		t.Fatalf("response=%+v", resp)
 	}
 	if resp.Files[0].Name != "broken.dat" || resp.Files[1].Name != "geoip.dat" || resp.Files[2].Name != "geosite.dat" {
@@ -125,29 +125,110 @@ func TestGeoDataFilesAPIDoesNotRejectOversizeContent(t *testing.T) {
 	}
 }
 
-func TestGeoDataSearchAPIFailsFastForMemorySafety(t *testing.T) {
+func TestGeoDataSearchAPIReturnsBoundedResultsAndWarnings(t *testing.T) {
+	_, mux, cookie, dir := testGeoDataAPIApp(t)
+	writeTestGeoDataFiles(t, dir)
+
+	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/search?kind=geosite&q=youtube")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp geoDataSearchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Success || resp.Mutation != "NONE" || resp.Kind != GeoDataSite || resp.Query != "youtube" {
+		t.Fatalf("response=%+v", resp)
+	}
+	if len(resp.Matches) != 1 || resp.Matches[0].File != "geosite.dat" || len(resp.Matches[0].Categories) != 1 || resp.Matches[0].Categories[0] != "youtube" {
+		t.Fatalf("matches=%+v", resp.Matches)
+	}
+	if len(resp.Warnings) != 1 || !strings.Contains(resp.Warnings[0], "broken.dat") {
+		t.Fatalf("broken optional file warning missing: %+v", resp.Warnings)
+	}
+	if strings.Contains(w.Body.String(), dir) {
+		t.Fatalf("filesystem path leaked: %s", w.Body.String())
+	}
+}
+
+func TestGeoDataSearchAPIGeoIPAndExplicitFile(t *testing.T) {
+	_, mux, cookie, dir := testGeoDataAPIApp(t)
+	writeTestGeoDataFiles(t, dir)
+
+	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/search?kind=geoip&q=1.1.1.7&file=geoip.dat")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp geoDataSearchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Success || len(resp.Warnings) != 0 || len(resp.Matches) != 1 {
+		t.Fatalf("response=%+v", resp)
+	}
+	if got := resp.Matches[0].Categories; len(got) != 1 || got[0] != "cloudflare" {
+		t.Fatalf("categories=%v", got)
+	}
+}
+
+func TestGeoDataSearchAPIRejectsTraversalAndInvalidQuery(t *testing.T) {
 	_, mux, cookie, dir := testGeoDataAPIApp(t)
 	writeTestGeoDataFiles(t, dir)
 
 	cases := []string{
-		"/api/geodata/search?kind=geosite&q=youtube",
-		"/api/geodata/search?kind=geoip&q=1.1.1.1",
 		"/api/geodata/search?kind=geosite&q=youtube&file=../geosite.dat",
+		"/api/geodata/search?kind=geosite&q=",
+		"/api/geodata/search?kind=geoip&q=example.com",
+		"/api/geodata/search?kind=unknown&q=youtube",
 	}
 	for _, rawURL := range cases {
 		w := doGeoDataAPIRequest(mux, cookie, rawURL)
-		if w.Code != http.StatusServiceUnavailable {
+		if w.Code != http.StatusBadRequest {
 			t.Fatalf("url=%s code=%d body=%s", rawURL, w.Code, w.Body.String())
-		}
-		var resp geoDataSearchResponse
-		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-			t.Fatal(err)
-		}
-		if resp.Success || resp.Error != geoDataSearchDisabledError || len(resp.Matches) != 0 {
-			t.Fatalf("url=%s response=%+v", rawURL, resp)
 		}
 		if strings.Contains(w.Body.String(), dir) {
 			t.Fatalf("filesystem path leaked: %s", w.Body.String())
 		}
 	}
 }
+
+func TestGeoDataSearchAPISkipsOversizeWithoutReading(t *testing.T) {
+	_, mux, cookie, dir := testGeoDataAPIApp(t)
+	path := filepath.Join(dir, "geosite-large.dat")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(maxGeoDataFileSize + 1); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/search?kind=geosite&q=youtube&file=geosite-large.dat")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp geoDataSearchResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Success || len(resp.Matches) != 0 || len(resp.Warnings) != 1 || !strings.Contains(resp.Warnings[0], "safe search size") {
+		t.Fatalf("response=%+v", resp)
+	}
+	if strings.Contains(w.Body.String(), dir) {
+		t.Fatalf("filesystem path leaked: %s", w.Body.String())
+	}
+}
+
+func TestGeoDataSearchAPIRequiresAuthentication(t *testing.T) {
+	_, mux, _, dir := testGeoDataAPIApp(t)
+	writeTestGeoDataFiles(t, dir)
+	w := doGeoDataAPIRequest(mux, nil, "/api/geodata/search?kind=geosite&q=youtube")
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+}
+

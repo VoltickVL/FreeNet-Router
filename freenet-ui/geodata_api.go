@@ -37,6 +37,7 @@ type geoDataSearchResponse struct {
 	Query    string               `json:"query"`
 	Matches  []geoDataSearchMatch `json:"matches"`
 	Warnings []string             `json:"warnings,omitempty"`
+	Mutation string               `json:"mutation"`
 	Error    string               `json:"error,omitempty"`
 }
 
@@ -112,19 +113,96 @@ func (a *app) handleGeoDataFiles(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, geoDataFilesResponse{Success: false, Files: []GeoDataFile{}, SearchEnabled: false, Error: "geodata directory is unavailable"})
 		return
 	}
-	writeJSON(w, http.StatusOK, geoDataFilesResponse{Success: true, Files: files, SearchEnabled: false})
+	writeJSON(w, http.StatusOK, geoDataFilesResponse{Success: true, Files: files, SearchEnabled: true})
 }
 
-func (a *app) handleGeoDataSearch(w http.ResponseWriter, _ *http.Request) {
-	// P0 containment for 512 MiB routers: the legacy parser reads a complete
-	// .dat file into memory. Do not touch the asset directory at all from this
-	// endpoint until the search implementation is replaced by a bounded-memory
-	// streaming parser with cancellation and total decode limits.
-	writeJSON(w, http.StatusServiceUnavailable, geoDataSearchResponse{
-		Success: false,
-		Kind:    GeoDataUnknown,
-		Matches: []geoDataSearchMatch{},
-		Error:   geoDataSearchDisabledError,
+func (a *app) handleGeoDataSearch(w http.ResponseWriter, r *http.Request) {
+	kind, err := parseGeoDataSearchKind(r.URL.Query().Get("kind"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: GeoDataUnknown, Matches: []geoDataSearchMatch{}, Mutation: "NONE", Error: err.Error()})
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if len(query) > maxGeoDataQueryLength {
+		writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Mutation: "NONE", Error: "invalid geodata query"})
+		return
+	}
+	if err := validateGeoDataSearchQuery(kind, query); err != nil {
+		writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Mutation: "NONE", Error: "invalid geodata query"})
+		return
+	}
+
+	requested := r.URL.Query()["file"]
+	for _, name := range requested {
+		if !validGeoDataFileSelector(name) {
+			writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Mutation: "NONE", Error: "invalid geodata file selector"})
+			return
+		}
+	}
+
+	installed, err := listGeoDataFileMetadata(a.geoDataAssetDir())
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Mutation: "NONE", Error: "geodata directory is unavailable"})
+		return
+	}
+	byName := make(map[string]GeoDataFile, len(installed))
+	for _, file := range installed {
+		byName[file.Name] = file
+	}
+	selected, err := selectGeoDataFiles(kind, requested, installed, byName)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Mutation: "NONE", Error: err.Error()})
+		return
+	}
+
+	ctx, cancel := geoDataSearchContext(r.Context())
+	defer cancel()
+
+	matches := make([]geoDataSearchMatch, 0, len(selected))
+	warnings := make([]string, 0)
+	var budgetUsed int64
+	for _, file := range selected {
+		if err := geoDataContextErr(ctx); err != nil {
+			writeJSON(w, http.StatusRequestTimeout, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Mutation: "NONE", Error: "geodata search timed out"})
+			return
+		}
+		if file.Size < 0 || file.Size > maxGeoDataFileSize {
+			warnings = append(warnings, geoDataWarning(file.Name, "file exceeds safe search size"))
+			continue
+		}
+		if file.Size > maxGeoDataSearchTotalBytes-budgetUsed {
+			warnings = append(warnings, geoDataWarning(file.Name, "request byte budget exceeded; file skipped"))
+			continue
+		}
+		budgetUsed += file.Size
+
+		path := filepath.Join(a.geoDataAssetDir(), file.Name)
+		result, err := searchGeoDataFileStream(ctx, path, kind, query, maxGeoDataCategoriesPerFile)
+		if err != nil {
+			if isGeoDataTimeout(err) {
+				writeJSON(w, http.StatusRequestTimeout, geoDataSearchResponse{Success: false, Kind: kind, Query: query, Matches: []geoDataSearchMatch{}, Mutation: "NONE", Error: "geodata search timed out"})
+				return
+			}
+			warnings = append(warnings, geoDataWarning(file.Name, geoDataGenericFileError))
+			continue
+		}
+		if len(result.Categories) == 0 {
+			continue
+		}
+		match := geoDataSearchMatch{File: file.Name, Kind: kind, Categories: result.Categories, Truncated: result.Truncated}
+		matches = append(matches, match)
+		if result.Truncated {
+			warnings = append(warnings, geoDataWarning(file.Name, fmt.Sprintf("results limited to %d categories", maxGeoDataCategoriesPerFile)))
+		}
+	}
+	sortGeoDataMatches(matches)
+	writeJSON(w, http.StatusOK, geoDataSearchResponse{
+		Success: true,
+		Kind: kind,
+		Query: query,
+		Matches: matches,
+		Warnings: warnings,
+		Mutation: "NONE",
 	})
 }
 
@@ -182,6 +260,9 @@ func selectGeoDataFiles(kind GeoDataKind, requested []string, installed []GeoDat
 			continue
 		}
 		seen[name] = struct{}{}
+		if len(seen) > maxGeoDataSelectedFiles {
+			return nil, fmt.Errorf("select up to %d geodata files", maxGeoDataSelectedFiles)
+		}
 		file, ok := byName[name]
 		if !ok {
 			return nil, fmt.Errorf("selected geodata file is not installed")

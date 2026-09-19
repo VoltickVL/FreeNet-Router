@@ -278,11 +278,14 @@
     const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
     try {
       const body = await api(`/api/geodata/search?kind=${encodeURIComponent(state.kind)}&q=${encodeURIComponent(query)}`);
+      if (body.mutation !== 'NONE') throw new Error('Нарушен read-only GeoData contract.');
+      const warnings = Array.isArray(body.warnings) ? body.warnings.map(value => String(value || '').trim()).filter(Boolean) : [];
       let count = 0;
       (body.matches || []).forEach(match => (match.categories || []).forEach(category => {
         count++;
         const button = document.createElement('button'); button.type = 'button'; button.className = 'rv2-search-result';
-        button.innerHTML = `<b>${state.kind}:${String(category)}</b><span>${String(match.file || 'geodata')} · выбрать category</span>`;
+        const bounded = match.truncated ? ' · результат ограничен безопасным лимитом' : '';
+        button.innerHTML = `<b>${state.kind}:${String(category)}</b><span>${String(match.file || 'geodata')} · выбрать category${bounded}</span>`;
         button.addEventListener('click', () => {
           const input = qs('#rv2Value'); if (input) input.value = String(category);
           state.selectedSource = String(match.file || '');
@@ -291,7 +294,13 @@
         });
         results?.appendChild(button);
       }));
-      if (!count) setNotice('rv2RuleNotice', 'Совпадений нет. Category можно ввести вручную; server compiler всё равно проверит selector.');
+      if (warnings.length) {
+        setNotice('rv2RuleNotice', `${count ? `Найдено: ${count}. ` : ''}Поиск завершён с предупреждениями: ${warnings.join(' · ')}. MUTATION: NONE`, 'warn');
+      } else if (!count) {
+        setNotice('rv2RuleNotice', 'Совпадений нет. Category можно ввести вручную; server compiler всё равно проверит selector. MUTATION: NONE');
+      } else {
+        setNotice('rv2RuleNotice', `Найдено: ${count}. Поиск read-only; live config не изменён. MUTATION: NONE`, 'ok');
+      }
     } catch (error) {
       setNotice('rv2RuleNotice', `Поиск geodata сейчас недоступен: ${safeError(error, 'ошибка')}. Category можно ввести вручную; live config не меняется.`, 'bad');
     }
