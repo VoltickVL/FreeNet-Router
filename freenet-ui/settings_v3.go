@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -387,30 +386,6 @@ func settingsV3ManagedCronValuesFromConfig(configPath string) map[string]string 
 	}
 }
 
-func (a *app) reconcileManagedAutomationCronV3() (bool, error) {
-	if _, err := os.Stat(a.cfg.ConfigPath); err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, errors.New("cannot inspect FreeNet config for scheduler reconcile")
-	}
-	before := readAutomationCrontab()
-	managed, err := buildManagedAutomationCronV3(a, before, settingsV3ManagedCronValuesFromConfig(a.cfg.ConfigPath))
-	if err != nil {
-		return false, errors.New("cannot build managed FreeNet scheduler")
-	}
-	if bytes.Equal(before, managed) {
-		return false, nil
-	}
-	if err := installAutomationCrontab(managed); err != nil {
-		if rollbackErr := installAutomationCrontab(before); rollbackErr != nil {
-			return false, errors.New("managed scheduler reconcile failed; rollback failed or is unknown")
-		}
-		return false, errors.New("managed scheduler reconcile failed; previous crontab restored")
-	}
-	return true, nil
-}
-
 func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 	if req.AutoVPNEnabled == nil || req.SubscriptionEnabled == nil || req.GeoDataEnabled == nil || req.FreeNetEnabled == nil || req.BackupEnabled == nil {
 		return errors.New("all automation switches are required")
@@ -549,44 +524,25 @@ func (a *app) runV3FreeNetCheck(ctx context.Context) error {
 	return nil
 }
 
-func v3CopyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, 0600)
-}
-
 func (a *app) createV3Backup(updateLatest bool) (string, error) {
 	root := settingsV3BackupRoot()
 	if err := os.MkdirAll(root, 0700); err != nil {
-		return "", err
+		return "", errors.New("cannot prepare backup storage")
 	}
-	name := "backup-" + time.Now().Format("20060102-150405")
+	name := "backup-" + time.Now().Format("20060102-150405.000000000")
 	dir := filepath.Join(root, name)
 	if err := os.Mkdir(dir, 0700); err != nil {
+		return "", errors.New("cannot create backup directory")
+	}
+	if err := v3CaptureBackupSnapshot(dir, a.v3BackupTrackedFiles()); err != nil {
+		_ = os.RemoveAll(dir)
 		return "", err
 	}
-	files := []struct{ src, name string }{
-		{a.cfg.ConfigPath, "freenet.conf"},
-		{a.cfg.SubPath, "subscription.url"},
-		{a.cfg.FilterPath, "profile_filter.regex"},
-		{a.cfg.OutPath, "04_outbounds.json"},
-	}
-	for _, file := range files {
-		if err := v3CopyFile(file.src, filepath.Join(dir, file.name)); err != nil {
-			_ = os.RemoveAll(dir)
-			return "", err
-		}
-	}
 	if updateLatest {
-		_ = os.WriteFile(filepath.Join(root, "latest"), []byte(name+"\n"), 0600)
+		if err := atomicWrite(filepath.Join(root, "latest"), []byte(name+"\n"), 0600); err != nil {
+			_ = os.RemoveAll(dir)
+			return "", errors.New("cannot commit backup restore reference")
+		}
 	}
 	return dir, nil
 }
@@ -599,24 +555,6 @@ func (a *app) runV3Backup() error {
 	}
 	v3Mark("backup", "success", "Резервная копия настроек FreeNet создана.")
 	return nil
-}
-
-func v3AtomicRestore(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
-	}
-	tmp := dst + ".restore-new"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dst)
 }
 
 func (a *app) restoreV3Backup() error {
@@ -634,25 +572,25 @@ func (a *app) restoreV3Backup() error {
 	if err != nil || !info.IsDir() {
 		return errors.New("backup directory is unavailable")
 	}
+
 	rollback, err := a.createV3Backup(false)
 	if err != nil {
 		return errors.New("cannot create pre-restore snapshot")
 	}
-	pairs := []struct{ name, dst string }{
-		{"freenet.conf", a.cfg.ConfigPath},
-		{"subscription.url", a.cfg.SubPath},
-		{"profile_filter.regex", a.cfg.FilterPath},
-		{"04_outbounds.json", a.cfg.OutPath},
+	files := a.v3BackupTrackedFiles()
+
+	restoreErr := v3ApplyBackupSnapshotForRestore(source, files, false)
+	if restoreErr == nil {
+		restoreErr = v3VerifyBackupSnapshotForRestore(source, files, false)
 	}
-	for _, pair := range pairs {
-		if err := v3AtomicRestore(filepath.Join(source, pair.name), pair.dst); err != nil {
-			for _, rb := range pairs {
-				_ = v3AtomicRestore(filepath.Join(rollback, rb.name), rb.dst)
-			}
-			return errors.New("backup restore failed; previous files restored")
-		}
+	if restoreErr == nil {
+		return nil
 	}
-	return nil
+
+	if rollbackErr := v3RollbackBackupSnapshot(rollback, files); rollbackErr != nil {
+		return errors.New("backup restore failed; rollback failed or is unknown")
+	}
+	return errors.New("backup restore failed; previous files restored and verified")
 }
 
 func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {

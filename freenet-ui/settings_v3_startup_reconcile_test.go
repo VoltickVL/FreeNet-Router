@@ -62,7 +62,7 @@ func TestSettingsV3StartupReconcilesVPNWatchdogIdempotently(t *testing.T) {
 	writeSettingsV3FakeCrontab(t, statePath, countPath)
 	a := &app{cfg: config{ConfigPath: configPath}}
 
-	changed, err := a.reconcileManagedAutomationCronV3()
+	changed, err := a.reconcileSettingsV3Scheduler()
 	if err != nil || !changed {
 		t.Fatalf("startup reconcile changed=%v err=%v", changed, err)
 	}
@@ -81,7 +81,7 @@ func TestSettingsV3StartupReconcilesVPNWatchdogIdempotently(t *testing.T) {
 		t.Fatalf("startup reconcile restored obsolete scheduler entries:\n%s", text)
 	}
 
-	changed, err = a.reconcileManagedAutomationCronV3()
+	changed, err = a.reconcileSettingsV3Scheduler()
 	if err != nil || changed {
 		t.Fatalf("second reconcile must be idempotent changed=%v err=%v", changed, err)
 	}
@@ -111,11 +111,11 @@ func TestSettingsV3StartupCronFailureRestoresPreviousCrontab(t *testing.T) {
 	t.Setenv("FREENET_TEST_CRON_FAIL_MARKER", failMarker)
 	a := &app{cfg: config{ConfigPath: configPath}}
 
-	changed, err := a.reconcileManagedAutomationCronV3()
+	changed, err := a.reconcileSettingsV3Scheduler()
 	if err == nil || changed {
 		t.Fatalf("failed install must report error without success changed=%v err=%v", changed, err)
 	}
-	if !strings.Contains(err.Error(), "previous crontab restored") {
+	if !strings.Contains(err.Error(), "previous scheduler restored") {
 		t.Fatalf("rollback result not explicit: %v", err)
 	}
 	after, readErr := os.ReadFile(statePath)

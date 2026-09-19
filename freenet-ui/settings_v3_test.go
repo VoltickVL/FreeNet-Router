@@ -118,11 +118,15 @@ func TestSettingsV3FreeNetAutomationIsCheckOnly(t *testing.T) {
 	}
 	text := string(data)
 	start := strings.Index(text, "func (a *app) runV3FreeNetCheck")
-	end := strings.Index(text[start:], "func v3CopyFile")
-	if start < 0 || end < 0 {
+	if start < 0 {
 		t.Fatal("FreeNet update check implementation not found")
 	}
-	segment := text[start : start+end]
+	rest := text[start+len("func (a *app) runV3FreeNetCheck"):]
+	next := strings.Index(rest, "\nfunc ")
+	if next < 0 {
+		t.Fatal("FreeNet update check implementation end not found")
+	}
+	segment := text[start : start+len("func (a *app) runV3FreeNetCheck")+next]
 	if !strings.Contains(segment, `a.cfg.SelfUpdatePath, "plan"`) {
 		t.Fatal("automatic FreeNet update must use read-only plan mode")
 	}
