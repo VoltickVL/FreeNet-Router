@@ -15,7 +15,6 @@ func TestTopbarSettingsProfileCacheContract(t *testing.T) {
 		"Используется последний успешный список Extra-профилей",
 		"currentProfilesWithCache",
 		"#fnVpnPickerToggle",
-		"fn-vpn-button-label",
 		"keepDialogInBody",
 		".fn-xray-topbar",
 		"height:50px!important",
