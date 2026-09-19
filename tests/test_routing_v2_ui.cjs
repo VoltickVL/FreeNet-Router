@@ -36,8 +36,8 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/auth/status')return json(res,{configured:true,authenticated:true});
   if(url.pathname==='/api/status')return json(res,status);
   if(url.pathname==='/api/network-profile/plan')return json(res,{success:true,supported:true,active:true,extra_profiles:[]});
-  if(url.pathname==='/api/geodata/files')return json(res,{success:true,files:[],search_enabled:false});
-  if(url.pathname==='/api/geodata/search')return json(res,{success:false,matches:[],error:'GeoData search temporarily disabled for memory safety'},503);
+  if(url.pathname==='/api/geodata/files')return json(res,{success:true,files:[{name:'geosite.dat',kind:'geosite',size:4096}],search_enabled:true});
+  if(url.pathname==='/api/geodata/search')return json(res,{success:true,kind:'geosite',query:url.searchParams.get('q')||'',mutation:'NONE',matches:[{file:'geosite.dat',kind:'geosite',categories:['youtube'],truncated:true}],warnings:['broken.dat: geodata file is unreadable or invalid']});
   if(url.pathname==='/api/capabilities')return json(res,{success:true,split_dns_supported:true,memory_total_mib:1024,split_dns_min_mib:768});
   if(url.pathname==='/api/subscription')return json(res,{success:true,configured:true});
   if(url.pathname==='/api/routing/config')return json(res,{success:true,mutation:'NONE',routing:routingLive,policy:policyLive,routing_present:true,policy_present:true,routing_sha256:'1'.repeat(64),policy_sha256:'2'.repeat(64)});
@@ -77,6 +77,21 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForSelector('#routingV2Workspace',{state:'visible'});
     await page.waitForFunction(()=>document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
     assert.match(await page.locator('[data-page-view="routing"] .page-head').textContent(),/Config Studio/);
+
+    // Bounded GeoData search is read-only and surfaces partial-file warnings.
+    await page.locator('#rv2Kind').selectOption('geosite');
+    await page.locator('#rv2Value').fill('youtube');
+    await page.locator('#rv2GeoSearch').click();
+    await page.waitForSelector('.rv2-search-result');
+    assert.match(await page.locator('.rv2-search-result').first().textContent(),/geosite:youtube/);
+    assert.match(await page.locator('.rv2-search-result').first().textContent(),/ограничен безопасным лимитом/);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/предупреждениями/);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/broken\.dat/);
+    const geoMutationCalls = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
+    assert.equal(geoMutationCalls,0,'GeoData search must not mutate runtime state');
+    await page.locator('.rv2-search-result').first().click();
+    assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/MUTATION: NONE/);
 
     await page.locator('.rv2-mode[data-mode="config"]').click();
     await page.waitForSelector('#rv2ConfigEditor',{state:'visible'});
