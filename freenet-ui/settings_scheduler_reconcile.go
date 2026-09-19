@@ -102,7 +102,13 @@ func (a *app) reconcileSettingsV3Scheduler() (bool, error) {
 	if rollbackErr != nil {
 		return false, errors.New("scheduler reconcile failed; rollback failed or is unknown")
 	}
-	return false, fmt.Errorf("scheduler reconcile failed; previous scheduler restored: %w", err)
+	rollbackVerifyCtx, cancelRollbackVerify := context.WithTimeout(context.Background(), settingsSchedulerReconcileTimeout)
+	rolledBack, rollbackVerifyErr := readAutomationCrontabStrict(rollbackVerifyCtx)
+	cancelRollbackVerify()
+	if rollbackVerifyErr != nil || !bytes.Equal(rolledBack, existing) {
+		return false, errors.New("scheduler reconcile failed; rollback failed or is unknown")
+	}
+	return false, fmt.Errorf("scheduler reconcile failed; previous scheduler restored and verified: %w", err)
 }
 
 func settingsV3SchedulerStartupEligible() bool {
