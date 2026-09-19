@@ -1423,6 +1423,7 @@
 // The topbar keeps one fixed-height control. Search, profile list, read-only
 // checking state and explicit connect actions live in an anchored overlay.
 (() => {
+  if (window.__freenetVPNPickerV2) return;
   const q = (selector, root = document) => root.querySelector(selector);
   function pickerIcon() {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.3 2.5 3.5 5.5 3.5 9S14.3 18.5 12 21M12 3C9.7 5.5 8.5 8.5 8.5 12S9.7 18.5 12 21"/></svg>';
