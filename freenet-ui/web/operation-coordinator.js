@@ -686,7 +686,7 @@
         if(job.state!=='running')throw new Error('Invalid quality job state');
         stage.textContent=job.stage==='quality'?`Глубоко проверяем лучшие VPN · завершено ${job.completed} из ${job.total}`:job.stage==='preflight'?`Сравниваем реальный отклик через VPN · завершено ${job.completed} из ${job.total}`:job.stage==='tcp'?'Проверяем доступность серверов…':'Получаем профили подписки…';
         if((job.stage==='quality'||job.stage==='preflight')&&job.total>0){progress.max=job.total;progress.value=job.completed}else progress.removeAttribute('value');
-        if(Date.now()-started>180000)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
+        if(Date.now()-started>240000)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
       }
       return response;
     } finally {clearInterval(ticker);panel.remove();if(controls)controls.inert=wasInert;if(focused?.isConnected)focused.focus();}
@@ -712,7 +712,7 @@
         setText(qs('#bestServerStatus'),`Подбор не завершён (HTTP ${response.status}). ${detail}`);return;
       }
       renderBestResult(body);if(body.partial)setText(qs('#bestServerStatus'),'Проверка завершена в пределах лимита времени. Показаны только измеренные варианты; часть кандидатов не проверена.');
-    } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено время ожидания ответа (180 с).':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
+    } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено время ожидания ответа (240 с).':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
   }
 
   async function waitForEndpoint(expected) {

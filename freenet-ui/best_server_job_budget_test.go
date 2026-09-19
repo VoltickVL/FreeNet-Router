@@ -9,8 +9,8 @@ import (
 )
 
 func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
-	const browserBudget = 180 * time.Second
-	const minimumSlack = 5 * time.Second
+	const browserBudget = 240 * time.Second
+	const minimumSlack = 10 * time.Second
 	if bestServerAsyncJobTimeout >= browserBudget {
 		t.Fatalf("Best Server async job timeout %s must be below browser budget %s", bestServerAsyncJobTimeout, browserBudget)
 	}
@@ -19,14 +19,19 @@ func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
 	}
 }
 
-func TestBestServerJobReservesThirdVisibleAttempt(t *testing.T) {
-	// The foreign scan no longer spends this job on an implicit heavy current
-	// quality measurement. After the bounded preflight it must have room for two
-	// complete deep candidates plus a real third attempt. A partial third result
-	// remains diagnostic/non-switchable rather than disappearing from the UI.
-	minimum := bestServerPreflightPhaseTimeout + 2*bestServerQualityCandidateTimeout + bestServerMinimumDeepAttemptBudget
+func TestBestServerJobBudgetCompletesThreeVisibleAttempts(t *testing.T) {
+	// The UI promises up to three real measured alternatives. Reserving only
+	// enough time to START the third deep probe is insufficient: parent deadline
+	// cancellation makes that batch untrusted and it is intentionally dropped.
+	// Cover bounded preflight plus three complete deep windows and their TCP
+	// probes, with a small scheduler/process-cleanup reserve.
+	tcpWindow := time.Duration(bestServerQualityTCPRuns) * bestServerQualityTCPTimeout
+	const completionReserve = 5 * time.Second
+	minimum := bestServerPreflightPhaseTimeout +
+		time.Duration(bestServerVisibleAlternatives)*(bestServerQualityCandidateTimeout+tcpWindow) +
+		completionReserve
 	if bestServerAsyncJobTimeout < minimum {
-		t.Fatalf("Best Server async job %s is below Top-3 attempt floor %s", bestServerAsyncJobTimeout, minimum)
+		t.Fatalf("Best Server async job %s is below Top-3 completion floor %s", bestServerAsyncJobTimeout, minimum)
 	}
 }
 
@@ -69,7 +74,7 @@ func TestBestServerBrowserTimeoutContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "Date.now()-started>180000") {
+	if !strings.Contains(string(data), "Date.now()-started>240000") {
 		t.Fatal("browser Best Server timeout marker changed; update the server/browser budget contract together")
 	}
 }
