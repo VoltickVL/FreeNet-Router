@@ -94,7 +94,7 @@
     if (q('#freenetVPNPickerV2Styles')) return;
     const style = document.createElement('style'); style.id = 'freenetVPNPickerV2Styles';
     style.textContent = `
-      html body #bestServerAdvanced,html body #exactConnectRow,html body #profilesList{display:none!important}
+      html body #controlCenter #bestServerAdvanced,html body #controlCenter #exactConnectRow,html body #controlCenter #profilesList,html body #controlCenter #selectedProfileCard,html body #controlCenter #profileSearch,html body #controlCenter #profilesTrigger,html body #controlCenter .field:has(#profileSearch),html body #controlCenter .profile-combobox:has(#profilesTrigger){display:none!important}
       #fnVpnPickerV2Host{flex:0 0 auto;min-width:0;margin:0}
       #fnVpnPickerV2Toggle{appearance:none;display:grid;grid-template-columns:22px minmax(0,1fr);gap:9px;align-items:center;text-align:left;width:157px;height:50px;padding:6px 11px;border:1px solid #315276;border-radius:11px;background:linear-gradient(180deg,#0d1d30,#0a1727);color:#f3f7ff;font:inherit;cursor:pointer}
       #fnVpnPickerV2Toggle:hover,#fnVpnPickerV2Toggle[aria-expanded=true]{border-color:#6597d9;background:#10243c}

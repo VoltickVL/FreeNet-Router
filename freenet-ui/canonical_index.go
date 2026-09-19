@@ -89,6 +89,11 @@ let localPending=`
 		return "", errors.New("legacy sidebar footer marker is missing")
 	}
 	raw = strings.Replace(raw, sideBottom, "", 1)
+	// The canonical shell removes the legacy footer, so its old renderer must
+	// not dereference those absent nodes. Otherwise loadStatus() catches a DOM
+	// exception and returns nil to exact-connect verification despite valid JSON.
+	raw = strings.Replace(raw, "el('version').textContent=", "if(el('version'))el('version').textContent=", 1)
+	raw = strings.Replace(raw, "el('xkeenLink').href=xkeen;", "if(el('xkeenLink'))el('xkeenLink').href=xkeen;", 1)
 
 	labelsAt := strings.Index(raw, labelsStart)
 	if labelsAt < 0 {

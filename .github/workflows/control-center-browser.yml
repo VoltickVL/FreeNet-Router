@@ -36,6 +36,7 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/freenet-production-browser/node_modules
         run: |
+          set -o pipefail
           node tests/test_control_center_production.cjs 2>&1 | tee test-artifacts/control-center/browser.log
       - name: Upload synthetic UI screenshots and reproduction bundle
         if: always()
