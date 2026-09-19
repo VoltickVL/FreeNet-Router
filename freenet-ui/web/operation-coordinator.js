@@ -1701,3 +1701,120 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
   else install();
 })();
+
+
+// Issue #609: real-router final VPN selector polish.
+// One compact topbar cluster in the exact order Xray -> VPN -> DNS -> FreeNet,
+// plus full-width selector geometry without horizontal overflow.
+(() => {
+  'use strict';
+  if (window.__freenetIssue609VpnPolish) return;
+  window.__freenetIssue609VpnPolish = true;
+  const q = (selector, root = document) => root.querySelector(selector);
+
+  function installStyles() {
+    if (q('#freenetIssue609VpnPolishStyles')) return;
+    const style = document.createElement('style');
+    style.id = 'freenetIssue609VpnPolishStyles';
+    style.textContent = `
+      .topbar.overview-approved{justify-content:flex-end!important;gap:9px!important}
+      .overview-approved-top.fn-shell-summary{margin-left:auto!important;display:flex!important;align-items:center!important;gap:9px!important;flex:0 0 auto!important}
+      #fnVpnPickerHost{margin:0!important;flex:0 0 auto!important;width:auto!important;min-width:0!important;max-width:none!important}
+      #fnVpnPickerToggle{width:138px!important;min-width:138px!important;max-width:138px!important}
+      #fnVpnPickerToggle .fn-vpn-picker-icon{display:grid!important}
+      #fnVpnPickerToggle .fn-vpn-chip-copy{display:grid!important}
+
+      #fnVpnPickerPopover{width:min(760px,calc(100vw - 36px))!important;max-height:min(86vh,780px)!important;overflow:hidden!important}
+      #fnVpnPickerPopover .fn-vpn-picker-body{padding:18px 20px 20px!important;max-height:calc(86vh - 78px)!important;overflow:hidden!important}
+      #fnVpnPickerPopover #bestServerAdvanced.fn-topbar-vpn-picker{width:100%!important;max-width:none!important;min-width:0!important;overflow:hidden!important}
+      #fnVpnPickerPopover #profilesList.profiles,
+      #fnVpnPickerPopover #profilesList.profiles.show{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:10px!important;width:100%!important;max-width:none!important;min-width:0!important;overflow:visible!important}
+      #fnVpnPickerPopover #profilesList>*{grid-column:1!important;width:100%!important;max-width:none!important;min-width:0!important;box-sizing:border-box!important}
+      #fnVpnPickerPopover #profilesList .field{width:100%!important;max-width:none!important}
+      #fnVpnPickerPopover #profileSearch{display:block!important;width:100%!important;max-width:none!important;min-width:0!important;box-sizing:border-box!important}
+      #fnVpnPickerPopover .profile-combobox{width:100%!important;max-width:none!important;min-width:0!important;margin:0!important}
+      #fnVpnPickerPopover #profilesMenu{position:static!important;display:block!important;width:100%!important;max-width:none!important;min-width:0!important;max-height:300px!important;margin:0!important;overflow-x:hidden!important;overflow-y:auto!important;box-sizing:border-box!important}
+      #fnVpnPickerPopover #profilesMenu[hidden]{display:none!important}
+      #fnVpnPickerPopover #profilesMenu .profile-option{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;overflow:hidden!important}
+      #fnVpnPickerPopover #profilesMenu .profile-option>span:not(.flag-icon){min-width:0!important;overflow:hidden!important}
+      #fnVpnPickerPopover #profilesMenu .profile-option-main,#fnVpnPickerPopover #profilesMenu .profile-option-endpoint{max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
+      #fnVpnPickerPopover #selectedProfileCard,
+      #fnVpnPickerPopover #selectedProfileCard.fn-selector-state{width:100%!important;max-width:none!important;min-width:0!important;box-sizing:border-box!important;margin:0!important}
+      #fnVpnPickerPopover #exactConnectRow{display:grid!important;width:100%!important;max-width:none!important;grid-template-columns:minmax(0,1fr) 170px!important;gap:10px!important;margin:10px 0 0!important}
+      #fnVpnPickerPopover #exactConnectRow .btn{width:100%!important;min-width:0!important;min-height:46px!important}
+
+      @media(max-width:820px){
+        #fnVpnPickerToggle{width:118px!important;min-width:118px!important;max-width:118px!important}
+        #fnVpnPickerPopover{width:min(760px,calc(100vw - 18px))!important;max-height:calc(100vh - 24px)!important}
+        #fnVpnPickerPopover .fn-vpn-picker-body{max-height:calc(100vh - 102px)!important}
+        #fnVpnPickerPopover #exactConnectRow{grid-template-columns:1fr!important}
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  function dnsFact(summary) {
+    if (!summary) return null;
+    return Array.from(summary.querySelectorAll('.overview-approved-fact.fn-shell-fact')).find(node => /DNS/i.test(node.textContent || '')) || null;
+  }
+
+  function orderTopbar() {
+    const summary = q('.overview-approved-top.fn-shell-summary') || q('#overviewApprovedTop');
+    const vpn = q('#fnVpnPickerHost');
+    const xray = q('.fn-xray-topbar');
+    const dns = dnsFact(summary);
+    const freenet = q('#topFreenetUpdate');
+    if (!summary || !vpn || !xray || !dns || !freenet) return false;
+    [xray, vpn, dns, freenet].forEach(node => summary.appendChild(node));
+    summary.dataset.vpnOrder = 'xray-vpn-dns-freenet';
+    return true;
+  }
+
+  function syncChip(status) {
+    const name = q('#fnVpnPickerCountryName');
+    const flag = q('#fnVpnPickerCountryFlag');
+    if (!name || !flag || !status) return;
+    const country = String(status.country || '').trim();
+    let code = String(status.country_code || '').trim().toLowerCase();
+    if (!code) {
+      try {
+        if (typeof profileCode === 'function') code = profileCode({name: status.profile_label || ''});
+      } catch (_) {}
+    }
+    name.textContent = country || (code ? code.toUpperCase() : 'VPN');
+    flag.className = 'flag-icon fn-vpn-chip-flag' + (code ? ' flag-' + code : ' flag-unknown');
+    flag.hidden = !code;
+  }
+
+  function patchStatusHook() {
+    if (typeof updateStatusViews !== 'function' || updateStatusViews.__freenetIssue609Hook) return;
+    const previous = updateStatusViews;
+    const wrapped = function(status) {
+      const result = previous.apply(this, arguments);
+      queueMicrotask(() => { syncChip(status); orderTopbar(); });
+      return result;
+    };
+    wrapped.__freenetIssue609Hook = true;
+    updateStatusViews = wrapped;
+  }
+
+  let orderAttempts = 0;
+  function reconcileOrder() {
+    if (orderTopbar()) return;
+    orderAttempts += 1;
+    if (orderAttempts < 40) setTimeout(reconcileOrder, 100);
+  }
+
+  function mount() {
+    installStyles();
+    patchStatusHook();
+    reconcileOrder();
+    try { if (typeof lastStatus !== 'undefined' && lastStatus) syncChip(lastStatus); } catch (_) {}
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, {once:true});
+  else mount();
+  requestAnimationFrame(mount);
+  document.addEventListener('freenet:controls-busy', mount);
+  document.addEventListener('freenet:settings-v3-updated', mount);
+})();
