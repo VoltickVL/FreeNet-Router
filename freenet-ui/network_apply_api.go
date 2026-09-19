@@ -220,7 +220,7 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 		}
 		if profileErr != nil {
 			if catalog.Stale && len(catalog.Profiles) > 0 {
-				plan.ProfilesError = "fresh subscription catalog unavailable; using last known good profiles"
+				plan.ProfilesError = "Свежий список Extra-профилей не получен; используется последний успешный список."
 				plan.ProfilesStale = true
 			} else {
 				plan.ProfilesError = profileErr.Error()
