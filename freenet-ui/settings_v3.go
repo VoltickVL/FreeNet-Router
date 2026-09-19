@@ -387,30 +387,6 @@ func settingsV3ManagedCronValuesFromConfig(configPath string) map[string]string 
 	}
 }
 
-func (a *app) reconcileManagedAutomationCronV3() (bool, error) {
-	if _, err := os.Stat(a.cfg.ConfigPath); err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, errors.New("cannot inspect FreeNet config for scheduler reconcile")
-	}
-	before := readAutomationCrontab()
-	managed, err := buildManagedAutomationCronV3(a, before, settingsV3ManagedCronValuesFromConfig(a.cfg.ConfigPath))
-	if err != nil {
-		return false, errors.New("cannot build managed FreeNet scheduler")
-	}
-	if bytes.Equal(before, managed) {
-		return false, nil
-	}
-	if err := installAutomationCrontab(managed); err != nil {
-		if rollbackErr := installAutomationCrontab(before); rollbackErr != nil {
-			return false, errors.New("managed scheduler reconcile failed; rollback failed or is unknown")
-		}
-		return false, errors.New("managed scheduler reconcile failed; previous crontab restored")
-	}
-	return true, nil
-}
-
 func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 	if req.AutoVPNEnabled == nil || req.SubscriptionEnabled == nil || req.GeoDataEnabled == nil || req.FreeNetEnabled == nil || req.BackupEnabled == nil {
 		return errors.New("all automation switches are required")
