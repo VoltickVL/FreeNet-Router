@@ -17,10 +17,10 @@ let status = {version:'0.2.88',country:'Польша',city:'Варшава',coun
 const server = http.createServer((req,res)=>{
   const url = new URL(req.url,'http://localhost');
   if(url.pathname==='/') {
-    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>', ['self-update.js','vpn-ux-fix.js','operation-coordinator.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
+    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>', ['self-update.js','vpn-ux-fix.js','operation-coordinator.js','topbar-settings-profile-cache.js','xray-core-manager.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
     res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);return;
   }
-  if(['/self-update.js','/vpn-ux-fix.js','/operation-coordinator.js'].includes(url.pathname)){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(path.join(web,url.pathname.slice(1))));return;}
+  if(['/self-update.js','/vpn-ux-fix.js','/operation-coordinator.js','/topbar-settings-profile-cache.js','/xray-core-manager.js'].includes(url.pathname)){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(path.join(web,url.pathname.slice(1))));return;}
   res.writeHead(404);res.end();
 });
 (async()=>{
@@ -37,6 +37,7 @@ const server = http.createServer((req,res)=>{
       calls.push({path:url.pathname,query:url.search,method:req.method(),body:req.postData()});
       if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
       if(url.pathname==='/api/status')return answer(route,status);
+      if(url.pathname==='/api/xray/service')return answer(route,{success:true,version:'v26.9.9',current_version:'v26.9.9'});
       if(url.pathname==='/api/operation/state'){
         operationReads++;
         if(operationReads===1)return answer(route,{success:true,active:true,operation:{...operation,state:'running',result:''}});
