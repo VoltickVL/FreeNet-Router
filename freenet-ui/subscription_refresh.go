@@ -24,6 +24,10 @@ type subscriptionRefreshResult struct {
 	Stale     bool
 }
 
+var subscriptionProfileDiscovery = func(a *app, ctx context.Context) ([]subscriptionProfile, error) {
+	return a.discoverSubscriptionProfiles(ctx)
+}
+
 var subscriptionRefreshGroup struct {
 	mu       sync.Mutex
 	inFlight bool
@@ -105,7 +109,7 @@ func saveSubscriptionProfilesCache(profiles []subscriptionProfile, updatedAt str
 }
 
 func (a *app) performSubscriptionRefresh(ctx context.Context) (subscriptionRefreshResult, error) {
-	profiles, err := a.discoverSubscriptionProfiles(ctx)
+	profiles, err := subscriptionProfileDiscovery(a, ctx)
 	if err != nil {
 		if cached, cacheErr := loadSubscriptionProfilesCache(); cacheErr == nil {
 			return cached, err
