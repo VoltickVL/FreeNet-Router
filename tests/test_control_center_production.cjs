@@ -1,5 +1,5 @@
 // End-to-end presentation gate against REAL Go canonical HTML and shipped assets.
-// Every runtime API is intercepted. Only RFC 5737 fixtures; never a real router.
+// Runtime APIs use synthetic fixtures; asset requests reach the production handlers.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -62,13 +62,16 @@ async function capture(label){
   const answer=(route,body,code=200)=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
   await page.route('**/api/**',async route=>{
     const req=route.request(),url=new URL(req.url());
-    // JavaScript is served by the REAL Go asset handlers, never by mocks.
     if(url.pathname.includes('/assets/'))return route.continue();
     calls.push({path:url.pathname,method:req.method(),query:url.search,body:req.postData()});
     if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
     if(url.pathname==='/api/status')return answer(route,status);
     if(url.pathname==='/api/operation/state')return answer(route,{success:true,active:false});
     if(url.pathname==='/api/subscription')return answer(route,{success:true,configured:true});
+    if(url.pathname==='/api/vpn/current-quality'&&url.searchParams.get('job')==='cache'){
+      const p=profiles.find(p=>ep(p)===status.endpoint)||current;
+      return answer(route,{success:true,available:true,scanned_at:new Date().toISOString(),candidates:[{...p,endpoint:status.endpoint,current:true,tested:true,eligible:true,available:true,reachable:true,download_mbps:55,application_rtt_ms:105,tcp_rtt_ms:70,jitter_ms:5,media_samples:4,media_stalls:0,service_ok:4,service_total:4}]});
+    }
     if(url.pathname==='/api/network-profile/plan'){
       const id=url.searchParams.get('provider_profile_id');
       if(planMode==='offline')return answer(route,{success:false,error:'Fixture subscription unavailable'},503);
@@ -105,11 +108,12 @@ async function capture(label){
   assert.equal(await page.locator(T).count(),1,'exactly one current control');
   assert.equal(await page.locator(P).isHidden(),true,'closed by default');
   assert.equal(countApply(),0,'opening Control Center never applies VPN');
-  assert.equal(calls.filter(c=>c.path.startsWith('/api/vpn/')).length,0,'no startup speed scan');
+  assert.equal(calls.filter(c=>c.path.startsWith('/api/vpn/')&&!c.query.includes('job=cache')).length,0,'saved quality is read without starting a speed scan');
   assert.deepEqual(errors,[],'production script load must be error-free');
   status={...status,country:'',country_code:'',city:''};
   await page.evaluate(()=>loadStatus());
   await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Flag')?.dataset.country==='be');
+  await page.waitForFunction(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-be'));
   assert.equal(await page.locator('#fnVpnPickerV2Country').textContent(),'Бельгия','current label identity handles missing country fields');
   const order=await page.locator('#overviewApprovedTop').evaluate(n=>Array.from(n.children).map(x=>x.matches('.fn-xray-topbar')?'xray':x.id==='fnVpnPickerV2Host'?'vpn':x.id==='topFreenetUpdate'?'freenet':/DNS/i.test(x.textContent||'')?'dns':'other').filter(x=>x!=='other'));
   assert.deepEqual(order,['xray','vpn','dns','freenet']);
@@ -130,40 +134,31 @@ async function capture(label){
     assert.equal(await page.locator(R+' .fnv2-flag:not([data-country="de"])').count(),0);
   }
   await page.locator(S).fill('nonexistent-fixture');assert.equal(await page.locator(R+' button').count(),0);assert.equal(await page.locator(R+' .fnv2-empty').isVisible(),true);
-  await page.locator(S).fill('DE');
-  planDelay=1300;
+  await page.locator(S).fill('DE');planDelay=1300;
   await page.locator(R+' button[data-profile-id="fixture-1"]').click();
   await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='checking');
   assert.equal(await page.locator(C).isDisabled(),true);assert.equal(await page.locator(C).textContent(),'Подключиться');
   assert.equal(await page.locator('#fnVpnPickerV2Country').textContent(),'Бельгия','selection must not be shown as connected');
   await geometry('checking');
   await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready');
-  await geometry('ready');await capture('desktop-ready');
-  assert.equal(countApply(),0,'plan/check is read-only');
-  await page.locator(C).click();
-  await page.locator(C).dispatchEvent('click');
+  await geometry('ready');await capture('desktop-ready');assert.equal(countApply(),0,'plan/check is read-only');
+  await page.locator(C).click();await page.locator(C).dispatchEvent('click');
   await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия');
   await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='success');
-  assert.equal(countApply(),1,'double click cannot create a second apply');
-  assert.equal(await page.locator(C).isDisabled(),true);
-  await page.locator('#fnVpnPickerV2Reset').click();
-  planDelay=0;planMode='error';
+  assert.equal(countApply(),1,'double click cannot create a second apply');assert.equal(await page.locator(C).isDisabled(),true);
+  await page.locator('#fnVpnPickerV2Reset').click();planDelay=0;planMode='error';
   await page.locator(S).fill('NL');await page.locator(R+' button').first().click();
   await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error');
   assert.equal(await page.locator(C).isDisabled(),true);assert.match(await page.locator('#fnVpnPickerV2Detail').textContent(),/Xray/);
   await geometry('validation-error');assert.equal(countApply(),1);
-  await page.locator('#fnVpnPickerV2Reset').click();
-  planMode='offline';await page.evaluate(()=>loadNetworkPlan());
-  await page.locator(S).fill('');
-  await page.waitForFunction(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49);
+  await page.locator('#fnVpnPickerV2Reset').click();planMode='offline';await page.evaluate(()=>loadNetworkPlan());
+  await page.locator(S).fill('');await page.waitForFunction(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49);
   await page.waitForFunction(()=>!document.querySelector('#fnVpnPickerV2Stale').hidden);
-  assert.equal(countApply(),1,'failed refresh preserves last good list without mutation');
-  planMode='ok';
+  assert.equal(countApply(),1,'failed refresh preserves last good list without mutation');planMode='ok';
   await page.keyboard.press('Escape');
   for(const viewport of [{width:1440,height:900},{width:980,height:800},{width:760,height:700},{width:390,height:844},{width:844,height:390}]){
     await page.setViewportSize(viewport);await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await delay(100);
-    await geometry(`${viewport.width}x${viewport.height}`);
-    if(viewport.width===390)await capture('mobile-list');
+    await geometry(`${viewport.width}x${viewport.height}`);if(viewport.width===390)await capture('mobile-list');
     await page.keyboard.press('Escape');assert.equal(await page.locator(P).isHidden(),true);
   }
   await page.setViewportSize({width:1440,height:1000});
@@ -189,7 +184,7 @@ async function capture(label){
   console.log('Other mocked GET surfaces: '+JSON.stringify([...new Set(unhandled)]));
 })().catch(async error=>{
   console.error(error);
-  if(page){try{fs.mkdirSync(artifacts,{recursive:true});await page.screenshot({path:path.join(artifacts,'failure.png')});console.error('BODY '+(await page.locator('body').innerText()).slice(0,1500));console.error('PAGE ERRORS '+JSON.stringify(errors));}catch(_){}}
+  if(page){try{fs.mkdirSync(artifacts,{recursive:true});await page.screenshot({path:path.join(artifacts,'failure.png')});console.error('BODY '+(await page.locator('body').innerText()).slice(0,2000));console.error('PAGE ERRORS '+JSON.stringify(errors));console.error('VPN REQUESTS '+JSON.stringify(calls.filter(c=>c.path.startsWith('/api/vpn/'))));}catch(_){}}
   process.exitCode=1;
 }).finally(async()=>{
   if(browser)await browser.close();
