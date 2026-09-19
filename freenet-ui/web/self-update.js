@@ -1119,6 +1119,7 @@
     if (typeof pageLabels === 'object') delete pageLabels.system;
     if (location.hash === '#system') setPage('overview');
     const control = ensureTopbarUpdateControl();
+    if (control) control.dataset.freenetVersionManager = '1';
     if (control && control.dataset.freenetUpdateBound !== '1') {
       control.dataset.freenetUpdateBound = '1';
       control.addEventListener('click', event => {
