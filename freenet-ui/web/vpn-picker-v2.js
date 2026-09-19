@@ -147,7 +147,7 @@
       #fnVpnPickerV2Footer button{height:41px;appearance:none;border:1px solid #3b638c;border-radius:9px;color:#edf5ff;background:#12283f;cursor:pointer;font-size:12px;font-weight:750}
       #fnVpnPickerV2Connect{background:linear-gradient(180deg,#347eff,#2465dc)!important;border-color:#6d9ee9!important}
       #fnVpnPickerV2Footer button:disabled{opacity:.45;cursor:not-allowed}
-      @media(max-width:760px){#fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;max-height:calc(100dvh - 24px)}#fnVpnPickerV2Toggle{width:146px}#fnVpnPickerV2Results{max-height:32dvh}#fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}}
+      @media(max-width:760px){#fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;max-height:calc(100dvh - 24px)}#fnVpnPickerV2Toggle{width:174px}#fnVpnPickerV2Results{max-height:32dvh}#fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}}
       @media(max-height:580px){#fnVpnPickerV2Panel .fnv2-current{padding-top:6px;padding-bottom:6px}#fnVpnPickerV2Panel .fnv2-current-copy span{display:none}#fnVpnPickerV2Results{min-height:55px}#fnVpnPickerV2Footer{padding-top:6px;gap:5px;margin-top:5px}}
     `;
     document.head.appendChild(style);
@@ -277,8 +277,10 @@
     if (vw<=760) { panel.style.setProperty('--fnv2-space',Math.max(260,vh-24)+'px'); return; }
     const r=toggle.getBoundingClientRect(), width=Math.min(540,vw-24);
     panel.style.left=Math.max(12,Math.min(vw-width-12,r.right-width))+'px';
-    const below=vh-r.bottom-22, above=r.top-22;
-    const top=below>=340 || below>=above ? r.bottom+10 : 12;
+    // A short landscape viewport cannot fit the fixed header/footer below
+    // the topbar. Use the whole viewport, rather than clipping the action.
+    const below=vh-r.bottom-22;
+    const top=below>=380 ? r.bottom+10 : 12;
     panel.style.top=top+'px'; panel.style.bottom='auto';
     panel.style.setProperty('--fnv2-space',Math.max(240,vh-top-12)+'px');
   }
