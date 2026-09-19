@@ -257,6 +257,7 @@ func main() {
 	mux.HandleFunc("POST /api/system/update/apply", a.requireAuth(a.handleSelfUpdateApply))
 	mux.HandleFunc("POST /api/system/update/recover", a.requireAuth(a.handleSelfUpdateRecover))
 	mux.HandleFunc("GET /api/system/update/state", a.requireAuth(a.handleSelfUpdateState))
+	registerRebootAcceptanceAPI(mux, a)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = io.WriteString(w, "ok\n")
