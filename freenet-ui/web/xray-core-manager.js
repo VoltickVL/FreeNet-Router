@@ -14,16 +14,25 @@
     style.id = 'xrayCoreManagerStyles';
     style.textContent = `
       .cs-version{cursor:pointer!important}.cs-version:hover{border-color:#5b8cff!important;background:#183253!important;color:#fff!important}
-      .fn-xray-topbar{appearance:none;display:grid;grid-template-columns:25px auto;grid-template-rows:auto auto;column-gap:8px;align-items:center;min-width:112px;min-height:45px;padding:7px 11px;border:1px solid #294b70;border-radius:11px;background:linear-gradient(180deg,#0d2135,#0a1929);color:#eaf2fb;text-align:left;cursor:pointer;font:inherit}
-      .fn-xray-topbar:hover{border-color:#4d7aa6;background:linear-gradient(180deg,#12304e,#0d2238)}.fn-xray-topbar:focus-visible{outline:0;border-color:#69a0ff;box-shadow:0 0 0 3px rgba(74,139,255,.15)}
-      .fn-xray-topbar-icon{grid-row:1/3;display:grid;place-items:center;width:22px;height:22px;color:#76aaff}.fn-xray-topbar-icon svg{width:22px;height:22px}.fn-xray-topbar>span:not(.fn-xray-topbar-icon){font-size:9px;line-height:1.05;color:#829ab9}.fn-xray-topbar>strong{font-size:11px;line-height:1.15;color:#f2f7ff;white-space:nowrap}
-      @media(max-width:1180px){.fn-xray-topbar{min-width:102px;padding-left:9px;padding-right:9px}}
-      .xcm-root{position:fixed;inset:0;z-index:1450;display:grid;place-items:center;padding:22px}.xcm-root[hidden]{display:none!important}.xcm-backdrop{position:absolute;inset:0;background:rgba(2,8,16,.78);backdrop-filter:blur(14px)}
-      .xcm-modal{position:relative;width:min(760px,calc(100vw - 32px));max-height:min(86vh,820px);overflow:auto;border:1px solid #355273;border-radius:18px;background:linear-gradient(180deg,#11243a,#091725);box-shadow:0 34px 110px rgba(0,0,0,.58);padding:20px}.xcm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.xcm-kicker{color:#70a1ff;font-size:10px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.xcm-head h3{margin:4px 0 0;color:#f4f8ff;font-size:22px;letter-spacing:-.02em}.xcm-close{appearance:none;width:36px;height:36px;border:1px solid #314a69;border-radius:10px;background:#0a1827;color:#dce8f7;font-size:20px;cursor:pointer}.xcm-summary{margin-top:14px;padding:11px 13px;border:1px solid #28425f;border-radius:12px;background:#091827;color:#aabdd5;font-size:12px;line-height:1.5}.xcm-summary b{color:#eef5ff}
-      .xcm-list{display:grid;gap:8px;margin-top:14px}.xcm-release{appearance:none;width:100%;display:grid;grid-template-columns:minmax(105px,.55fr) minmax(0,2fr);gap:12px;text-align:left;border:1px solid #263f5c;border-radius:12px;background:#081625;color:#dbe7f6;padding:12px;cursor:pointer}.xcm-release:hover:not(:disabled),.xcm-release.selected{border-color:#5b8cff;background:#102844}.xcm-release:disabled{cursor:not-allowed;opacity:.48}.xcm-release-main{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.xcm-release-version{font-size:13px;font-weight:900;color:#f5f8fd}.xcm-badge{display:inline-flex;align-items:center;padding:3px 6px;border-radius:999px;background:#163552;color:#a9caff;font-size:8px;font-weight:900;letter-spacing:.04em;text-transform:uppercase}.xcm-badge.current{background:rgba(52,221,159,.14);color:#65e3aa}.xcm-badge.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.xcm-badge.preview{background:rgba(255,190,74,.13);color:#ffd17a}.xcm-release-date{margin-top:6px;color:#839ab7;font-size:10px}.xcm-release-desc{color:#a9bad0;font-size:11px;line-height:1.5}.xcm-empty{padding:18px;border:1px dashed #2c4664;border-radius:12px;color:#8da3bf;text-align:center;font-size:12px}
-      .xcm-error{margin-top:14px;padding:11px 13px;border:1px solid rgba(255,101,112,.42);border-radius:11px;background:rgba(83,21,31,.28);color:#ffc8cd;font-size:12px;line-height:1.5}.xcm-confirm{margin-top:14px;padding:14px;border:1px solid #315071;border-radius:12px;background:#091a2a;color:#c8d7e9}.xcm-confirm strong{color:#fff}.xcm-progress{margin-top:14px;padding:15px;border:1px solid #315071;border-radius:12px;background:#091a2a;color:#c6d5e7;font-size:12px;line-height:1.6}.xcm-progress::before{content:'';display:inline-block;width:9px;height:9px;margin-right:8px;border:2px solid #6b93d0;border-top-color:transparent;border-radius:50%;animation:xcm-spin .8s linear infinite}@keyframes xcm-spin{to{transform:rotate(360deg)}}
-      .xcm-result{margin-top:14px;padding:14px;border-radius:12px;font-size:12px;line-height:1.55}.xcm-result.ok{border:1px solid rgba(58,220,158,.4);background:rgba(18,83,60,.28);color:#c9f5df}.xcm-result.bad{border:1px solid rgba(255,104,115,.42);background:rgba(83,21,31,.28);color:#ffd0d4}.xcm-result.stop{border-color:#ff6571;color:#fff0f1}.xcm-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:16px}.xcm-btn{appearance:none;border:1px solid #365473;border-radius:10px;background:#10233a;color:#eaf2fb;padding:9px 13px;font:inherit;font-size:11px;font-weight:850;cursor:pointer}.xcm-btn:hover:not(:disabled){border-color:#6593ff}.xcm-btn.primary{border-color:#5d8dff;background:#3974ee;color:#fff}.xcm-btn:disabled{opacity:.42;cursor:not-allowed}
-      @media(max-width:620px){.xcm-modal{padding:16px}.xcm-release{grid-template-columns:1fr}.xcm-actions{display:grid;grid-template-columns:1fr}.xcm-btn{width:100%}}
+      .fn-xray-topbar{appearance:none;display:grid;grid-template-columns:22px minmax(0,1fr);gap:9px;align-items:center;text-align:left;width:112px;height:50px;padding:6px 10px;border:1px solid #315276;border-radius:11px;background:linear-gradient(180deg,#0d1d30,#0a1727);color:#f3f7ff;font:inherit;cursor:pointer}
+      .fn-xray-topbar:hover,.fn-xray-topbar[aria-expanded="true"]{border-color:#6597d9;background:#10243c}.fn-xray-topbar:focus-visible{outline:2px solid #80adff;outline-offset:2px}
+      .fn-xray-topbar-icon{display:grid;place-items:center;width:22px;height:22px;color:#72a8ff}.fn-xray-topbar-icon svg{width:22px;height:22px}
+      .fn-xray-chip{display:grid;gap:3px;min-width:0}.fn-xray-chip small{font-weight:750;color:#8da4c2;font-size:9px;line-height:1.1}.fn-xray-chip strong{font-size:12px;line-height:1.25;font-weight:750;color:#f3f7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .xcm-root{position:fixed;inset:0;z-index:2700;display:block;pointer-events:none}.xcm-root[hidden]{display:none!important}.xcm-root.xcm-open{pointer-events:auto}
+      .xcm-backdrop{position:absolute;inset:0;background:rgba(2,8,16,.68);backdrop-filter:blur(6px)}
+      .xcm-modal{position:fixed;box-sizing:border-box;display:flex;flex-direction:column;width:540px;max-width:calc(100vw - 24px);max-height:min(82vh,700px);overflow:hidden;border:1px solid #355473;border-radius:16px;background:#0c1c2e;box-shadow:0 24px 70px #0009;color:#eef4ff;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
+      .xcm-modal *{box-sizing:border-box}.xcm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:15px 16px;border-bottom:1px solid #28415b;flex:none}
+      .xcm-kicker{color:#8da4c2;font-size:9px;font-weight:750;line-height:1.1}.xcm-head h3{margin:3px 0 0;color:#f4f8ff;font-size:17px;line-height:1.3;font-weight:750}
+      .xcm-close{appearance:none;display:grid;place-items:center;flex:none;width:30px;height:30px;border:1px solid #365674;border-radius:8px;background:#11273e;color:#b3c5da;cursor:pointer;font-size:20px}.xcm-close:hover{border-color:#6597d9;color:#fff}.xcm-close:focus-visible,.xcm-btn:focus-visible,.xcm-release:focus-visible{outline:2px solid #80adff;outline-offset:2px}
+      #xcmBody{min-height:0;overflow:auto;padding:0 16px 12px;overscroll-behavior:contain}.xcm-summary{position:sticky;top:0;z-index:2;margin:0 -16px 12px;padding:12px 16px;border-bottom:1px solid #28415b;background:#0c1c2ef2;color:#92a8c3;font-size:11px;line-height:1.45;backdrop-filter:blur(10px)}.xcm-summary b{color:#eef5ff}
+      .xcm-current{display:flex;align-items:center;gap:10px;margin:12px 0;padding:11px 12px;border:1px solid #284863;border-radius:12px;background:#0b2238}.xcm-current-icon{display:grid;place-items:center;width:34px;height:34px;flex:none;border-radius:9px;background:#12345a;color:#72a8ff}.xcm-current-copy{display:grid;gap:2px;min-width:0}.xcm-current-copy small{color:#8da4c2;font-size:9px}.xcm-current-copy strong{font-size:14px;color:#f4f8ff}.xcm-current-copy span{font-size:10px;color:#90a8c5}
+      .xcm-list{display:grid;gap:7px;margin-top:10px}.xcm-release{appearance:none;width:100%;display:grid;grid-template-columns:minmax(105px,.65fr) minmax(0,1.8fr);gap:10px;text-align:left;border:1px solid #263f5c;border-radius:10px;background:#081827;color:#dbe7f6;padding:10px 11px;cursor:pointer}.xcm-release:hover:not(:disabled),.xcm-release.selected{border-color:#4f82bf;background:#15304d}.xcm-release.selected{box-shadow:inset 3px 0 #5b9cff}.xcm-release:disabled{cursor:not-allowed;opacity:.48}
+      .xcm-release-main{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.xcm-release-version{font-size:12px;font-weight:800;color:#f5f8fd}.xcm-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:#163552;color:#a9caff;font-size:8px;font-weight:800}.xcm-badge.current{background:rgba(52,221,159,.14);color:#65e3aa}.xcm-badge.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.xcm-badge.preview{background:rgba(255,190,74,.13);color:#ffd17a}.xcm-release-date{margin-top:5px;color:#839ab7;font-size:9px}.xcm-release-desc{color:#9db0c7;font-size:10px;line-height:1.4}
+      .xcm-empty{padding:16px;border:1px dashed #2c4664;border-radius:11px;color:#8da3bf;text-align:center;font-size:11px}.xcm-error,.xcm-confirm,.xcm-progress,.xcm-result{margin-top:14px;padding:12px 13px;border-radius:11px;font-size:11px;line-height:1.5}.xcm-error{border:1px solid rgba(255,101,112,.42);background:rgba(83,21,31,.28);color:#ffc8cd}.xcm-confirm,.xcm-progress{border:1px solid #315071;background:#091a2a;color:#c8d7e9}.xcm-confirm strong{color:#fff}.xcm-progress::before{content:'';display:inline-block;width:9px;height:9px;margin-right:8px;border:2px solid #6b93d0;border-top-color:transparent;border-radius:50%;animation:xcm-spin .8s linear infinite}@keyframes xcm-spin{to{transform:rotate(360deg)}}.xcm-result.ok{border:1px solid rgba(58,220,158,.4);background:rgba(18,83,60,.28);color:#c9f5df}.xcm-result.bad{border:1px solid rgba(255,104,115,.42);background:rgba(83,21,31,.28);color:#ffd0d4}.xcm-result.stop{border-color:#ff6571;color:#fff0f1}
+      .xcm-actions{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:10px 12px;border-top:1px solid #28415b;background:#0b1b2d}.xcm-btn{appearance:none;min-height:38px;border:1px solid #365473;border-radius:9px;background:#10233a;color:#eaf2fb;padding:8px 13px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}.xcm-btn:hover:not(:disabled){border-color:#6593ff}.xcm-btn.primary{min-width:180px;border-color:#5d8dff;background:linear-gradient(180deg,#347eff,#2367e7);color:#fff}.xcm-btn:disabled{opacity:.42;cursor:not-allowed}
+      html.xcm-open,html.xcm-open body{overflow:hidden!important}
+      @media(max-width:760px){.fn-xray-topbar{width:50px;min-width:50px;padding:0;place-items:center}.fn-xray-chip{display:none}.xcm-modal{left:12px!important;right:12px!important;top:12px!important;width:auto!important;max-width:none;max-height:calc(100vh - 24px)}.xcm-release{grid-template-columns:1fr}.xcm-actions{display:grid;grid-template-columns:1fr}.xcm-btn,.xcm-btn.primary{width:100%;min-width:0}}
+      @media(max-height:580px) and (min-width:761px){.xcm-modal{max-height:calc(100vh - 16px)}.xcm-head{padding-top:9px;padding-bottom:9px}.xcm-current{margin:8px 0;padding:8px 10px}.xcm-release{padding-top:7px;padding-bottom:7px}.xcm-release-desc{display:none}}
     `;
     document.head.appendChild(style);
   }
@@ -35,8 +44,8 @@
     root.hidden = true;
     root.innerHTML = `
       <div class="xcm-backdrop"></div>
-      <section class="xcm-modal" role="dialog" aria-modal="true" aria-labelledby="xcmTitle">
-        <div class="xcm-head"><div><div class="xcm-kicker">Xray Core Manager</div><h3 id="xcmTitle">Версия Xray</h3></div><button id="xcmClose" class="xcm-close" type="button" aria-label="Закрыть">×</button></div>
+      <section class="xcm-modal" role="dialog" aria-modal="true" aria-labelledby="xcmTitle" tabindex="-1">
+        <div class="xcm-head"><div><div class="xcm-kicker">Xray</div><h3 id="xcmTitle">Версия Xray Core</h3></div><button id="xcmClose" class="xcm-close" type="button" aria-label="Закрыть">×</button></div>
         <div id="xcmBody"></div>
         <div id="xcmActions" class="xcm-actions"></div>
       </section>`;
@@ -68,7 +77,10 @@
       chip.type = 'button';
       chip.className = 'fn-xray-topbar';
       chip.title = 'Версия и обновление Xray Core';
-      chip.innerHTML = `<span class="fn-xray-topbar-icon">${topbarIcon()}</span><span>Xray</span><strong id="xrayTopbarVersion">версия…</strong>`;
+      chip.setAttribute('aria-haspopup', 'dialog');
+      chip.setAttribute('aria-controls', 'xrayCoreManager');
+      chip.setAttribute('aria-expanded', 'false');
+      chip.innerHTML = `<span class="fn-xray-topbar-icon">${topbarIcon()}</span><span class="fn-xray-chip"><small>Xray</small><strong id="xrayTopbarVersion">версия…</strong></span>`;
       chip.addEventListener('click', event => { event.preventDefault(); openManager(); });
     }
     const facts = qs('#overviewApprovedTop');
@@ -128,10 +140,33 @@
     return date.toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric'});
   }
 
+  let focusBeforeOpen = null;
+
+  function positionManager() {
+    const modal = qs('#xrayCoreManager .xcm-modal');
+    const chip = qs('#xrayTopbarChip');
+    if (!modal || !chip || qs('#xrayCoreManager')?.hidden) return;
+    const vw = window.visualViewport?.width || window.innerWidth;
+    const vh = window.visualViewport?.height || window.innerHeight;
+    if (vw <= 760) return;
+    const rect = chip.getBoundingClientRect();
+    const width = Math.min(540, vw - 24);
+    const left = Math.max(12, Math.min(vw - width - 12, rect.right - width));
+    const top = Math.max(12, Math.min(vh - Math.min(700, vh - 24) - 12, rect.bottom + 8));
+    modal.style.left = left + 'px';
+    modal.style.top = top + 'px';
+  }
+
   function closeManager() {
     if (applying) return;
     const root = qs('#xrayCoreManager');
-    if (root) root.hidden = true;
+    if (!root || root.hidden) return;
+    root.hidden = true;
+    root.classList.remove('xcm-open');
+    document.documentElement.classList.remove('xcm-open');
+    qs('#xrayTopbarChip')?.setAttribute('aria-expanded', 'false');
+    if (focusBeforeOpen?.isConnected) focusBeforeOpen.focus({preventScroll:true});
+    focusBeforeOpen = null;
   }
 
   function actionLabel(release) {
@@ -157,6 +192,10 @@
     syncTopbarVersion(catalog.current_version || '');
     summary.innerHTML = `Текущая версия: <b>${current}</b> · Последняя стабильная: <b>${latest}</b><br>Предрелизы отмечены отдельно. Платформа: ${catalog.architecture || '—'}. Выбор версии сам по себе ничего не изменяет.`;
     target.appendChild(summary);
+    const currentCard = document.createElement('div');
+    currentCard.className = 'xcm-current';
+    currentCard.innerHTML = `<span class="xcm-current-icon">${topbarIcon()}</span><span class="xcm-current-copy"><small>Текущий Xray</small><strong>${current}</strong><span>Рабочая версия не изменится до подтверждённого apply и post-check.</span></span>`;
+    target.appendChild(currentCard);
 
     const list = document.createElement('div'); list.className = 'xcm-list'; target.appendChild(list);
     const releases = Array.isArray(catalog.releases) ? catalog.releases : [];
@@ -235,7 +274,15 @@
 
   async function openManager() {
     installStyles();
-    const root = ensureRoot(); root.hidden = false;
+    const root = ensureRoot();
+    if (!root.hidden) return;
+    focusBeforeOpen = document.activeElement;
+    root.hidden = false;
+    root.classList.add('xcm-open');
+    document.documentElement.classList.add('xcm-open');
+    qs('#xrayTopbarChip')?.setAttribute('aria-expanded', 'true');
+    positionManager();
+    requestAnimationFrame(() => qs('.xcm-modal', root)?.focus({preventScroll:true}));
     selectedVersion = '';
     const target = body(); const footer = actions(); clearNode(target); clearNode(footer);
     const progress = document.createElement('div'); progress.className = 'xcm-progress'; progress.textContent = 'Получаю список официальных версий Xray…'; target.appendChild(progress);
@@ -269,4 +316,11 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootTopbar, {once:true});
   else bootTopbar();
   window.addEventListener('hashchange', mountTopbarChip);
+  window.addEventListener('resize', positionManager);
+  window.visualViewport?.addEventListener('resize', positionManager);
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || qs('#xrayCoreManager')?.hidden || applying) return;
+    event.preventDefault();
+    closeManager();
+  });
 })();
