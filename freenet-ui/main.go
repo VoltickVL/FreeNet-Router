@@ -231,15 +231,7 @@ func main() {
 	flag.Parse()
 
 	a := &app{cfg: cfg, sem: make(chan struct{}, 1)}
-	if changed, reconcileErr := a.reconcileManagedAutomationCronV3(); reconcileErr != nil {
-		reason := "Не удалось синхронизировать планировщик AUTO VPN при запуске: " + reconcileErr.Error()
-		log.Printf("%s", reason)
-		v3AppendEvent("auto_vpn_scheduler", "failed", reason)
-	} else if changed {
-		reason := "Планировщик FreeNet синхронизирован с сохранёнными настройками; watchdog VPN активирован по текущей конфигурации."
-		log.Printf("%s", reason)
-		v3AppendEvent("auto_vpn_scheduler", "reconciled", reason)
-	}
+	reconcileSettingsV3SchedulerOnStartup(a)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", a.handleIndex)
