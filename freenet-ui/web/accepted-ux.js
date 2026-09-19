@@ -661,6 +661,7 @@
     document.addEventListener('click', event => {
       const control = event.target?.closest?.('#topFreenetUpdate');
       if (!control) return;
+      if (control.dataset.freenetVersionManager === '1') return;
       event.preventDefault();
       event.stopImmediatePropagation();
       openPopover();
