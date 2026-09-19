@@ -57,7 +57,10 @@ normalize_current() {
 }
 
 valid_tag() {
-    printf '%s\n' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
+    TAG="$1"
+    printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || return 1
+    PATCH="${TAG##*.}"
+    [ "$PATCH" -le 99 ]
 }
 
 version_gt() {
