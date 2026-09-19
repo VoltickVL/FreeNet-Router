@@ -109,6 +109,12 @@ run_apply() {
         sh "$SCRIPT" apply "$TARGET"
 }
 
+# Release numbering contract: patch stops at 99, then minor rolls over.
+if env FREENET_CURRENT_VERSION=v0.3.99 FREENET_ARCH=arm64-v8a FREENET_LATEST_TAG=v0.3.100 FREENET_SELF_UPDATE_TEST_MODE=yes sh "$SCRIPT" plan > "$TMP/invalid-100.out" 2>&1; then
+    fail 'v0.3.100 must be rejected by release tag validation'
+fi
+grep -Fq 'latest release tag is invalid' "$TMP/invalid-100.out" || fail 'v0.3.100 rejection reason missing'
+
 # Regression: application self-update acceptance must not require Split-DNS dns-out.
 if grep -Fq 'select(.tag == "dns-out")' "$SCRIPT"; then
     fail 'self-update acceptance must be independent from dns-out topology'
