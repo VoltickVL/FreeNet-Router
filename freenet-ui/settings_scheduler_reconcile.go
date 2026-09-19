@@ -15,21 +15,6 @@ import (
 
 const settingsSchedulerReconcileTimeout = 5 * time.Second
 
-func settingsV3SchedulerValuesFromConfig(configPath string) map[string]string {
-	geoEnabled := automationConfigValue(configPath, "AUTO_GEODATA_ENABLED", automationConfigValue(configPath, "AUTO_XKEEN_GEODATA", "yes"))
-	return map[string]string{
-		"AUTO_VPN_V1":                         automationConfigValue(configPath, "AUTO_VPN_V1", "no"),
-		"AUTO_SUBSCRIPTION_REFRESH_ENABLED":   automationConfigValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_ENABLED", "no"),
-		"AUTO_SUBSCRIPTION_REFRESH_INTERVAL":  v3NormalizeInterval(automationConfigValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_INTERVAL", v3DefaultInterval("subscription")), "subscription"),
-		"AUTO_GEODATA_ENABLED":                geoEnabled,
-		"AUTO_GEODATA_INTERVAL":               v3NormalizeInterval(automationConfigValue(configPath, "AUTO_GEODATA_INTERVAL", v3DefaultInterval("geodata")), "geodata"),
-		"AUTO_FREENET_CHECK_ENABLED":          automationConfigValue(configPath, "AUTO_FREENET_CHECK_ENABLED", "no"),
-		"AUTO_FREENET_CHECK_INTERVAL":         v3NormalizeInterval(automationConfigValue(configPath, "AUTO_FREENET_CHECK_INTERVAL", v3DefaultInterval("freenet")), "freenet"),
-		"AUTO_BACKUP_ENABLED":                 automationConfigValue(configPath, "AUTO_BACKUP_ENABLED", "no"),
-		"AUTO_BACKUP_INTERVAL":                v3NormalizeInterval(automationConfigValue(configPath, "AUTO_BACKUP_INTERVAL", v3DefaultInterval("backup")), "backup"),
-	}
-}
-
 func crontabMeansEmpty(output string) bool {
 	lower := strings.ToLower(strings.TrimSpace(output))
 	return strings.Contains(lower, "no crontab") || strings.Contains(lower, "no such file or directory")
@@ -86,7 +71,7 @@ func (a *app) reconcileSettingsV3Scheduler() (bool, error) {
 		return false, err
 	}
 
-	desired, err := buildManagedAutomationCronV3(a, existing, settingsV3SchedulerValuesFromConfig(a.cfg.ConfigPath))
+	desired, err := buildManagedAutomationCronV3(a, existing, settingsV3ManagedCronValuesFromConfig(a.cfg.ConfigPath))
 	if err != nil {
 		return false, fmt.Errorf("cannot build canonical scheduler: %w", err)
 	}
@@ -148,11 +133,11 @@ func reconcileSettingsV3SchedulerOnStartup(a *app) {
 	changed, err := a.reconcileSettingsV3Scheduler()
 	if err != nil {
 		log.Printf("FreeNet AUTO scheduler reconcile skipped: %v", err)
-		v3AppendEvent("auto_vpn", "failed", "Планировщик AUTO VPN не удалось безопасно синхронизировать. Настройки не изменены.")
+		v3AppendEvent("auto_vpn_scheduler", "failed", "Планировщик FreeNet не удалось безопасно синхронизировать. Настройки не изменены.")
 		return
 	}
 	if changed {
 		log.Printf("FreeNet AUTO scheduler reconciled with current Settings policy")
-		v3AppendEvent("auto_vpn", "success", "Планировщик AUTO VPN синхронизирован с текущими настройками FreeNet.")
+		v3AppendEvent("auto_vpn_scheduler", "reconciled", "Планировщик FreeNet синхронизирован с текущими настройками.")
 	}
 }
