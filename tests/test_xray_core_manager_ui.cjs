@@ -107,12 +107,21 @@ const server = http.createServer((req, res) => {
     assert(modalText.includes('Последний стабильный релиз с исправлениями XTLS.'));
     assert.equal(await page.locator('#xrayTopbarChip').getAttribute('aria-expanded'), 'true', 'Xray chip must expose open dialog state');
     assert.equal((await page.locator('.xcm-current-copy strong').textContent()).trim(), 'v26.9.9', 'current card must show actual running Xray');
+    assert.equal(await page.locator('.xcm-backdrop').evaluate(el => getComputedStyle(el).display), 'none', 'Xray browse flow must not dim the whole page');
+    assert.equal(await page.locator('.xcm-search').count(), 1, 'Xray dropdown must expose compact version search');
     const desktopGeometry = await page.evaluate(() => {
       const modal = document.querySelector('#xrayCoreManager .xcm-modal').getBoundingClientRect();
-      return {width:modal.width,right:modal.right,bottom:modal.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth};
+      const chip = document.querySelector('#xrayTopbarChip').getBoundingClientRect();
+      return {width:modal.width,right:modal.right,top:modal.top,chipBottom:chip.bottom,bottom:modal.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,rootPointer:getComputedStyle(document.querySelector('#xrayCoreManager')).pointerEvents,modalPointer:getComputedStyle(document.querySelector('#xrayCoreManager .xcm-modal')).pointerEvents};
     });
-    assert.ok(desktopGeometry.width <= 540.5 && desktopGeometry.right <= desktopGeometry.viewportWidth, 'Xray panel must stay compact and inside desktop viewport');
+    assert.ok(desktopGeometry.width <= 500.5 && desktopGeometry.right <= desktopGeometry.viewportWidth, 'Xray dropdown must stay compact and inside desktop viewport');
+    assert.ok(desktopGeometry.top >= 0 && desktopGeometry.bottom <= desktopGeometry.viewportHeight, 'Xray dropdown must stay inside desktop viewport');
+    assert.equal(desktopGeometry.rootPointer, 'none', 'Xray dropdown root must not block the page');
+    assert.notEqual(desktopGeometry.modalPointer, 'none', 'Xray dropdown panel must remain interactive');
     assert.equal(desktopGeometry.overflow, false, 'Xray panel must not create horizontal overflow');
+    await page.locator('.xcm-search').fill('v26.8');
+    assert.equal(await page.locator('.xcm-release:not([hidden])').count(), 1, 'Xray version search must filter catalog without mutation');
+    await page.locator('.xcm-search').fill('');
 
     await page.locator('.xcm-release[data-version="v26.8.1"]').click();
     assert.equal(applyPosts, 0, 'selecting an older release must not apply it');

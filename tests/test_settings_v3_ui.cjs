@@ -347,6 +347,19 @@ const server = http.createServer((req, res) => {
     await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.42"]');
     assert.equal(versionApplyPosts, 0, 'opening FreeNet version catalog must be read-only');
     assert.match(await page.locator('#topFreenetUpdate').textContent(), /v0\.3\.43/, 'catalog open must not change current topbar version');
+    assert.equal(await page.locator('#fnModalRoot').evaluate(el => el.classList.contains('fn-version-picker-mode')), true, 'FreeNet versions must use anchored dropdown mode');
+    assert.equal(await page.locator('#fnModalRoot .fn-modal-backdrop').evaluate(el => getComputedStyle(el).display), 'none', 'FreeNet version browse must not dim the whole page');
+    assert.equal(await page.locator('#topFreenetUpdate').getAttribute('aria-expanded'), 'true', 'FreeNet chip must expose dropdown state');
+    const freeNetPickerGeometry = await page.evaluate(() => {
+      const panel = document.querySelector('#fnModalRoot .fn-modal').getBoundingClientRect();
+      const chip = document.querySelector('#topFreenetUpdate').getBoundingClientRect();
+      return {width:panel.width,right:panel.right,bottom:panel.bottom,top:panel.top,chipBottom:chip.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,rootPointer:getComputedStyle(document.querySelector('#fnModalRoot')).pointerEvents,panelPointer:getComputedStyle(document.querySelector('#fnModalRoot .fn-modal')).pointerEvents};
+    });
+    assert.ok(freeNetPickerGeometry.width <= 500.5, `FreeNet version dropdown too wide: ${JSON.stringify(freeNetPickerGeometry)}`);
+    assert.ok(freeNetPickerGeometry.right <= freeNetPickerGeometry.viewportWidth && freeNetPickerGeometry.bottom <= freeNetPickerGeometry.viewportHeight, `FreeNet dropdown must stay inside viewport: ${JSON.stringify(freeNetPickerGeometry)}`);
+    assert.equal(freeNetPickerGeometry.rootPointer, 'none', 'FreeNet dropdown root must not block the page');
+    assert.notEqual(freeNetPickerGeometry.panelPointer, 'none', 'FreeNet dropdown panel must remain interactive');
+    assert.equal(freeNetPickerGeometry.overflow, false, 'FreeNet dropdown must not create horizontal overflow');
     await page.locator('#fnVersionList .fn-version-release[data-version="v0.3.42"]').click();
     await page.waitForFunction(() => document.querySelector('#fnVersionDetail')?.textContent.includes('Откатить до v0.3.42'));
     assert.equal(versionApplyPosts, 0, 'target compatibility plan must remain read-only');
