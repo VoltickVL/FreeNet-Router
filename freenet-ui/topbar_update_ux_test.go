@@ -22,6 +22,10 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		`renderTopbarVersion`,
 		`openTopbarUpdateModal`,
 		`/api/system/update/plan`,
+		`/api/system/update/releases`,
+		`fnVersionList`,
+		`versionActionLabel`,
+		`Откатить до`,
 		`/api/system/update/apply`,
 		`location.hash === '#system'`,
 	} {

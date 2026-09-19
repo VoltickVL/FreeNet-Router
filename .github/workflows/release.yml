@@ -31,6 +31,11 @@ jobs:
             v[0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "Invalid VERSION: $VERSION" >&2; exit 1 ;;
           esac
+          PATCH="${VERSION##*.}"
+          case "$PATCH" in
+            ''|*[!0-9]*) echo "Invalid VERSION patch: $VERSION" >&2; exit 1 ;;
+          esac
+          [ "$PATCH" -le 99 ] || { echo "Invalid VERSION: patch .100+ is forbidden; roll minor version (v0.3.99 -> v0.4.0)" >&2; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Stamp UI version from VERSION

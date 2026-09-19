@@ -40,6 +40,7 @@ make_root() {
 
 make_release() {
     D="$1"
+    RELEASE_TAG="${2:-v0.2.28}"
     rm -rf "$D"
     mkdir -p "$D"
 
@@ -55,9 +56,7 @@ EOF
     done
     cp "$SCRIPT" "$D/self_update.sh"
     printf '%s\n' 'PIN_POLICY_VERSION=TEST' > "$D/upstream-pins.env"
-    cat > "$D/release.json" <<'EOF'
-{"tag_name":"v0.2.28","body":"## What's Changed\n* Исправлено отображение release notes by @VoltickVL in https://github.com/VoltickVL/FreeNet-Router/pull/551\n* release: v0.2.28 by @VoltickVL in https://github.com/VoltickVL/FreeNet-Router/pull/552\n\n**Full Changelog**: https://example.invalid"}
-EOF
+    printf '%s\n' "{\"tag_name\":\"$RELEASE_TAG\",\"draft\":false,\"prerelease\":false,\"body\":\"## What's Changed\\n* Исправлено отображение release notes by @VoltickVL in https://github.com/VoltickVL/FreeNet-Router/pull/551\\n* release: $RELEASE_TAG by @VoltickVL in https://github.com/VoltickVL/FreeNet-Router/pull/552\\n\\n**Full Changelog**: https://example.invalid\"}" > "$D/release.json"
     chmod 755 "$D/freenet-ui-arm64-v8a" "$D/freenet" "$D/vpn" "$D/blanc_xkeen_update_outbounds.sh" \
         "$D/migrate_split_dns.sh" "$D/apply_network_profile.sh" "$D/apply_provider_profile.sh" \
         "$D/finalize_setup.sh" "$D/bootstrap_entware.sh" "$D/self_update.sh"
@@ -77,6 +76,7 @@ run_plan() {
     D="$2"
     CURRENT="$3"
     LATEST="$4"
+    TARGET="${5:-}"
     FREENET_ROOT="$R" \
     FREENET_CURRENT_VERSION="$CURRENT" \
     FREENET_ARCH=arm64-v8a \
@@ -85,26 +85,35 @@ run_plan() {
     FREENET_UPDATE_STATE_FILE="$R/var/run/update.state" \
     FREENET_UPDATE_LOCK_DIR="$R/var/run/update.lock" \
     FREENET_SELF_UPDATE_TEST_MODE=yes \
-    sh "$SCRIPT" plan
+    sh "$SCRIPT" plan "$TARGET"
 }
 
 run_apply() {
     R="$1"
     D="$2"
     EXTRA_ENV="$3"
+    CURRENT="${4:-v0.2.27}"
+    TARGET="${5:-v0.2.28}"
+    LATEST="${6:-v0.2.28}"
     rm -rf "$R/var/run/update.lock"
     env \
         FREENET_ROOT="$R" \
-        FREENET_CURRENT_VERSION=v0.2.27 \
+        FREENET_CURRENT_VERSION="$CURRENT" \
         FREENET_ARCH=arm64-v8a \
-        FREENET_LATEST_TAG=v0.2.28 \
+        FREENET_LATEST_TAG="$LATEST" \
         FREENET_TEST_RELEASE_DIR="$D" \
         FREENET_UPDATE_STATE_FILE="$R/var/run/update.state" \
         FREENET_UPDATE_LOCK_DIR="$R/var/run/update.lock" \
         FREENET_SELF_UPDATE_TEST_MODE=yes \
         $EXTRA_ENV \
-        sh "$SCRIPT" apply v0.2.28
+        sh "$SCRIPT" apply "$TARGET"
 }
+
+# Release numbering contract: patch stops at 99, then minor rolls over.
+if env FREENET_CURRENT_VERSION=v0.3.99 FREENET_ARCH=arm64-v8a FREENET_LATEST_TAG=v0.3.100 FREENET_SELF_UPDATE_TEST_MODE=yes sh "$SCRIPT" plan > "$TMP/invalid-100.out" 2>&1; then
+    fail 'v0.3.100 must be rejected by release tag validation'
+fi
+grep -Fq 'latest release tag is invalid' "$TMP/invalid-100.out" || fail 'v0.3.100 rejection reason missing'
 
 # Regression: application self-update acceptance must not require Split-DNS dns-out.
 if grep -Fq 'select(.tag == "dns-out")' "$SCRIPT"; then
@@ -143,6 +152,18 @@ grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must be read-only'
 run_plan "$R" "$D" v0.2.28 v0.2.28 > "$TMP/current.out" || fail 'already-current plan should succeed'
 grep -Fq 'UPDATE_AVAILABLE=no' "$TMP/current.out" || fail 'already-current must be no-op'
 grep -Fq 'EXPECTED_DELTA=NONE' "$TMP/current.out" || fail 'already-current delta must be none'
+
+# Exact older target plan is read-only, manifest-verified, and classified as downgrade.
+make_release "$D" v0.2.26
+run_plan "$R" "$D" v0.2.27 v0.2.28 v0.2.26 > "$TMP/downgrade-plan.out" || fail 'downgrade target plan should succeed'
+grep -Fq 'TARGET_TAG=v0.2.26' "$TMP/downgrade-plan.out" || fail 'downgrade target tag missing'
+grep -Fq 'DIRECTION=downgrade' "$TMP/downgrade-plan.out" || fail 'downgrade direction missing'
+grep -Fq 'UPDATE_AVAILABLE=yes' "$TMP/downgrade-plan.out" || fail 'downgrade target must be actionable'
+grep -Fq 'MANIFEST_VERIFIED=yes' "$TMP/downgrade-plan.out" || fail 'downgrade manifest verification missing'
+grep -Fq 'MUTATION=NONE' "$TMP/downgrade-plan.out" || fail 'downgrade plan mutated state'
+
+# Restore normal newer fixture for update-path regressions.
+make_release "$D" v0.2.28
 
 # Checksum mismatch stops before live mutation.
 make_root "$R"
@@ -227,16 +248,37 @@ grep -Fq 'ROLLBACK_STATE=FAILED_UNKNOWN' "$R/var/run/update.state" || fail 'roll
 [ -d "$R/var/run/update.lock" ] || fail 'rollback failed/unknown must keep stop lock'
 rm -rf "$R/var/run/update.lock"
 
-# Invalid/downgrade target is rejected before mutation.
+# Exact published stable downgrade uses the same transactional engine and preserves user/Xray state.
 make_root "$R"
-make_release "$D"
-if env \
-    FREENET_ROOT="$R" FREENET_CURRENT_VERSION=v0.2.27 FREENET_ARCH=arm64-v8a \
-    FREENET_TEST_RELEASE_DIR="$D" FREENET_UPDATE_STATE_FILE="$R/var/run/update.state" \
-    FREENET_UPDATE_LOCK_DIR="$R/var/run/update.lock" FREENET_SELF_UPDATE_TEST_MODE=yes \
-    sh "$SCRIPT" apply v0.2.26 > "$TMP/downgrade.out" 2>&1; then
-    fail 'downgrade unexpectedly succeeded'
+make_release "$D" v0.2.26
+XRAY_BEFORE="$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')"
+run_apply "$R" "$D" "" v0.2.27 v0.2.26 v0.2.28 > "$TMP/downgrade.out" 2>&1 || {
+    cat "$TMP/downgrade.out" >&2
+    fail 'compatible exact-tag downgrade failed'
+}
+grep -Fq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'downgrade success state missing'
+grep -Fq 'TARGET_VERSION=v0.2.26' "$R/var/run/update.state" || fail 'downgrade target state missing'
+cmp "$R/sbin/freenet-ui" "$D/freenet-ui-arm64-v8a" >/dev/null || fail 'downgrade target UI not installed'
+[ "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')" = "$XRAY_BEFORE" ] || fail 'downgrade changed Xray config'
+[ ! -e "$R/var/run/update.lock" ] || fail 'downgrade left update lock'
+
+# Same-version reinstall is rejected before mutation.
+make_root "$R"
+make_release "$D" v0.2.27
+if run_apply "$R" "$D" "" v0.2.27 v0.2.27 v0.2.28 > "$TMP/same.out" 2>&1; then
+    fail 'same-version reinstall unexpectedly succeeded'
 fi
-[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'downgrade rejection mutated UI'
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'same-version rejection mutated UI'
+grep -Fq 'target FreeNet version is already installed' "$R/var/run/update.state" || fail 'same-version reason missing'
+
+# Prerelease metadata is rejected before mutation even when the tag is syntactically valid.
+make_root "$R"
+make_release "$D" v0.2.26
+sed -i 's/"prerelease":false/"prerelease":true/' "$D/release.json"
+if run_apply "$R" "$D" "" v0.2.27 v0.2.26 v0.2.28 > "$TMP/prerelease.out" 2>&1; then
+    fail 'prerelease target unexpectedly succeeded'
+fi
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'prerelease rejection mutated UI'
+grep -Fq 'target release is not a published stable FreeNet release' "$R/var/run/update.state" || fail 'prerelease rejection reason missing'
 
 echo 'web self update transactional contract: PASS'

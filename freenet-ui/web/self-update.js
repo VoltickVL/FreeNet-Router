@@ -5,6 +5,8 @@
   let activeModalConfirm = null;
   let updateProgressTimer = null;
   let updateProgressStarted = 0;
+  let versionCatalog = null;
+  let versionTargetPlan = null;
 
   function stopUpdateProgress() {
     clearInterval(updateProgressTimer);
@@ -566,11 +568,14 @@
 
   async function startUpdate() {
     if (!plan || !plan.update_available || !plan.target_tag) return;
-    qs('#webUpdateCheckBtn').disabled = true;
-    qs('#webUpdateApplyBtn').disabled = true;
-    setUpdateSummary('Запускаем обновление…');
-    updateNotice('Запускаем безопасное обновление. FreeNet кратко перезапустится.');
-    modalProgress(`Устанавливаем ${plan.target_tag}…`, 'Создаём backup, проверяем staging и применяем обновление. Краткая потеря связи/502 во время перезапуска ожидаема и сама по себе не считается ошибкой.');
+    const checkBtn = qs('#webUpdateCheckBtn');
+    const applyBtn = qs('#webUpdateApplyBtn');
+    if (checkBtn) checkBtn.disabled = true;
+    if (applyBtn) applyBtn.disabled = true;
+    const isDowngrade = plan.direction === 'downgrade';
+    setUpdateSummary(isDowngrade ? 'Запускаем откат версии…' : 'Запускаем обновление…');
+    updateNotice(isDowngrade ? 'Запускаем безопасный downgrade. FreeNet кратко перезапустится.' : 'Запускаем безопасное обновление. FreeNet кратко перезапустится.');
+    modalProgress(`Устанавливаем ${plan.target_tag}…`, 'Создаём backup, проверяем exact staging и применяем выбранную версию. Краткая потеря связи/502 во время перезапуска ожидаема и сама по себе не считается ошибкой.');
     try {
       const r = await fetch('/api/system/update/apply', {
         method: 'POST',
@@ -591,8 +596,8 @@
       setUpdateSummary('Не запущено', 'bad');
       updateNotice(e.message || 'Ошибка запуска обновления', 'bad');
       modalResult('Обновление не запущено', e.message || 'Ошибка запуска обновления', 'bad');
-      qs('#webUpdateCheckBtn').disabled = false;
-      qs('#webUpdateApplyBtn').disabled = false;
+      if (checkBtn) checkBtn.disabled = false;
+      if (applyBtn) applyBtn.disabled = false;
     }
   }
 
@@ -915,16 +920,159 @@
     control.append(icon, copy);
   }
 
-  function openTopbarUpdateModal() {
-    const current = (qs('#version')?.textContent || '').replace(/^FreeNet UI\s*/i, '') || 'текущая версия';
+  function versionActionLabel(p) {
+    if (!p || !p.target_tag) return 'Установить версию';
+    if (p.direction === 'downgrade') return `Откатить до ${p.target_tag}`;
+    if (p.direction === 'upgrade') return `Обновить до ${p.target_tag}`;
+    return `Установлено ${p.target_tag}`;
+  }
+
+  function openVersionTargetConfirmation(p) {
+    if (!p || !p.success || !p.ready || !p.update_available || !p.manifest_verified) return;
+    const label = versionActionLabel(p);
+    const downgrade = p.direction === 'downgrade';
     openModal({
-      kicker: 'FreeNet · обновление',
-      title: `FreeNet ${current}`,
-      body: 'Проверим последний опубликованный релиз. Если новая версия доступна, FreeNet покажет изменения и предложит безопасное обновление с backup, SHA-256, staging и проверкой после перезапуска.',
-      confirmText: 'Проверить обновление',
-      cancelText: 'Закрыть',
-      onConfirm: checkUpdate
+      kicker: 'FreeNet · версии',
+      title: label,
+      body: `${p.current_version || 'текущая версия'} → ${p.target_tag}\n\nFreeNet установит только exact release после проверки SHA-256 и staging. Перед изменением будет создан snapshot FreeNet-owned файлов. После перезапуска FreeNet подтвердит выбранную версию и неизменность Xray-конфигурации.`,
+      meta: downgrade
+        ? 'Это downgrade. При любой ошибке применяется автоматический rollback. ROLLBACK FAILED/UNKNOWN блокирует дальнейшие изменения.'
+        : 'Это upgrade. При любой ошибке применяется автоматический rollback. Пользовательские VPN/DNS/routing настройки не входят в expected delta.',
+      confirmText: label,
+      cancelText: 'Отмена',
+      onConfirm: async () => {
+        plan = p;
+        await startUpdate();
+      }
     });
+  }
+
+  async function selectVersionTarget(release, detail) {
+    versionTargetPlan = null;
+    detail.className = 'fn-version-detail checking';
+    detail.textContent = `Проверяем exact release ${release.version}: manifest, SHA-256 и обязательные assets…`;
+    try {
+      const r = await fetch(`/api/system/update/plan?target=${encodeURIComponent(release.version)}`, {cache:'no-store'});
+      const p = await r.json().catch(() => ({}));
+      if (!r.ok || !p.success || !p.ready || !p.manifest_verified) {
+        throw new Error(p.error || 'Этот релиз не прошёл compatibility plan');
+      }
+      if (p.target_tag !== release.version) throw new Error('FreeNet вернул другой target release');
+      versionTargetPlan = p;
+      detail.className = 'fn-version-detail ready';
+      detail.textContent = '';
+      const title = document.createElement('strong');
+      title.textContent = p.direction === 'same' ? `${p.target_tag} уже установлена` : versionActionLabel(p);
+      const text = document.createElement('span');
+      text.textContent = p.direction === 'same'
+        ? 'Текущая версия. Повторная установка не выполняется.'
+        : `Manifest SHA-256 подтверждён. ${p.expected_no_delta || 'VPN/DNS/routing и Xray-конфигурация не должны измениться.'}`;
+      detail.append(title, text);
+      if (p.update_available) {
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'btn primary fn-version-apply';
+        action.textContent = versionActionLabel(p);
+        action.addEventListener('click', () => openVersionTargetConfirmation(p));
+        detail.appendChild(action);
+      }
+    } catch (e) {
+      detail.className = 'fn-version-detail bad';
+      detail.textContent = `Эту версию нельзя применить безопасно: ${e.message || 'compatibility plan не подтверждён'}.`;
+    }
+  }
+
+  function renderVersionManager(catalog) {
+    const body = qs('#fnModalBody');
+    body.textContent = '';
+    body.className = 'fn-modal-body fn-version-manager-body';
+
+    const summary = document.createElement('div');
+    summary.className = 'fn-version-summary';
+    summary.innerHTML = '<span>Текущая</span><strong></strong><span>Последняя стабильная</span><strong></strong>';
+    const strongs = summary.querySelectorAll('strong');
+    strongs[0].textContent = catalog.current_version || '—';
+    strongs[1].textContent = catalog.latest_version || '—';
+
+    const search = document.createElement('input');
+    search.id = 'fnVersionSearch';
+    search.className = 'fn-version-search';
+    search.type = 'search';
+    search.autocomplete = 'off';
+    search.placeholder = 'Поиск версии, например v0.3.94';
+    search.setAttribute('aria-label', 'Поиск версии FreeNet');
+
+    const list = document.createElement('div');
+    list.id = 'fnVersionList';
+    list.className = 'fn-version-list';
+    const detail = document.createElement('div');
+    detail.id = 'fnVersionDetail';
+    detail.className = 'fn-version-detail';
+    detail.textContent = 'Выберите версию. Сам выбор ничего не меняет.';
+
+    const releases = Array.isArray(catalog.releases) ? catalog.releases : [];
+    const draw = () => {
+      const q = search.value.trim().toLowerCase();
+      list.textContent = '';
+      const filtered = releases.filter(item => !q || String(item.version || '').toLowerCase().includes(q));
+      if (!filtered.length) {
+        const empty = document.createElement('div');
+        empty.className = 'fn-version-empty';
+        empty.textContent = 'Версии по этому фильтру не найдены.';
+        list.appendChild(empty);
+        return;
+      }
+      filtered.forEach(item => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'fn-version-release';
+        button.dataset.version = item.version || '';
+        if (item.current) button.classList.add('current');
+        const main = document.createElement('span');
+        main.className = 'fn-version-release-main';
+        const v = document.createElement('strong');
+        v.textContent = item.version || '—';
+        main.appendChild(v);
+        if (item.current) {
+          const badge = document.createElement('em'); badge.textContent = 'Текущая'; badge.className = 'current'; main.appendChild(badge);
+        }
+        if (item.latest) {
+          const badge = document.createElement('em'); badge.textContent = 'Последняя'; badge.className = 'latest'; main.appendChild(badge);
+        }
+        const date = document.createElement('small');
+        date.textContent = item.published_at ? new Date(item.published_at).toLocaleDateString('ru-RU') : '';
+        button.append(main, date);
+        button.addEventListener('click', () => {
+          list.querySelectorAll('.fn-version-release.selected').forEach(n => n.classList.remove('selected'));
+          button.classList.add('selected');
+          selectVersionTarget(item, detail);
+        });
+        list.appendChild(button);
+      });
+    };
+    search.addEventListener('input', draw);
+    body.append(summary, search, list, detail);
+    draw();
+  }
+
+  async function openTopbarUpdateModal() {
+    openModal({
+      kicker: 'FreeNet · версии',
+      title: 'Версии FreeNet',
+      body: 'Загружаем опубликованные стабильные релизы…',
+      closable: true
+    });
+    try {
+      const r = await fetch('/api/system/update/releases', {cache:'no-store'});
+      const catalog = await r.json().catch(() => ({}));
+      if (!r.ok || !catalog.success || !Array.isArray(catalog.releases)) throw new Error(catalog.error || 'Каталог релизов недоступен');
+      versionCatalog = catalog;
+      renderVersionManager(catalog);
+    } catch (e) {
+      qs('#fnModalBody').className = 'fn-modal-body';
+      qs('#fnModalBody').textContent = e.message || 'Не удалось загрузить каталог версий.';
+      modalStatus('Никаких изменений не выполнено.', 'bad');
+    }
   }
 
   async function refreshTopbarUpdateState() {
@@ -960,13 +1108,18 @@
         .fn-version-control.update-available{border-color:rgba(73,218,146,.62);background:linear-gradient(180deg,rgba(18,70,55,.92),rgba(12,48,39,.92));box-shadow:inset 0 0 0 1px rgba(73,218,146,.09),0 0 18px rgba(73,218,146,.08)}
         .fn-version-control.update-available .fn-version-icon{border-color:rgba(73,218,146,.58);background:rgba(18,86,62,.65);color:#65f0ad}
         .fn-version-control.update-available .fn-version-copy small,.fn-version-control.update-available .fn-version-copy strong{color:#c9f7dc}
-        @media(max-width:760px){.fn-version-control{min-width:46px}.fn-version-copy small{display:none}}
+        .fn-version-manager-body{white-space:normal!important}.fn-version-summary{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;padding:11px 12px;border:1px solid #29445f;border-radius:11px;background:#0a1929;font-size:11px}.fn-version-summary span{color:#8fa4bf}.fn-version-summary strong{color:#f2f7ff}
+        .fn-version-search{width:100%;margin-top:12px;padding:10px 11px;border:1px solid #315070;border-radius:10px;background:#081624;color:#eef5ff;font:inherit;font-size:12px;outline:none}.fn-version-search:focus{border-color:#6094df;box-shadow:0 0 0 2px rgba(96,148,223,.12)}
+        .fn-version-list{display:grid;gap:6px;max-height:300px;overflow:auto;margin-top:10px;padding-right:2px}.fn-version-release{appearance:none;display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 11px;border:1px solid #29445f;border-radius:9px;background:#0a1929;color:#dbe8f8;text-align:left;cursor:pointer}.fn-version-release:hover,.fn-version-release.selected{border-color:#5a8dcc;background:#12304d}.fn-version-release.current{box-shadow:inset 3px 0 #39d79a}.fn-version-release-main{display:flex;align-items:center;gap:7px}.fn-version-release-main strong{font-size:12.5px}.fn-version-release em{padding:2px 6px;border-radius:999px;background:#173652;color:#a9caff;font-size:8px;font-style:normal;font-weight:800}.fn-version-release em.current{background:rgba(52,221,159,.14);color:#65e3aa}.fn-version-release em.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.fn-version-release small{color:#8198b5;font-size:9px}
+        .fn-version-detail{display:grid;gap:8px;margin-top:12px;padding:12px;border:1px solid #29445f;border-radius:11px;background:#091827;color:#9fb2ca;font-size:11.5px;line-height:1.5}.fn-version-detail strong{color:#f2f7ff;font-size:13px}.fn-version-detail.ready{border-color:#35658e}.fn-version-detail.bad{border-color:rgba(255,104,115,.45);color:#ffd0d4}.fn-version-detail.checking{color:#c4d7ee}.fn-version-apply{margin-top:4px;width:100%}.fn-version-empty{padding:14px;text-align:center;color:#839ab8;border:1px dashed #29445f;border-radius:9px;font-size:11px}
+        @media(max-width:760px){.fn-version-control{min-width:46px}.fn-version-copy small{display:none}.fn-version-list{max-height:250px}}
       `;
       document.head.appendChild(style);
     }
     if (typeof pageLabels === 'object') delete pageLabels.system;
     if (location.hash === '#system') setPage('overview');
     const control = ensureTopbarUpdateControl();
+    if (control) control.dataset.freenetVersionManager = '1';
     if (control && control.dataset.freenetUpdateBound !== '1') {
       control.dataset.freenetUpdateBound = '1';
       control.addEventListener('click', event => {
