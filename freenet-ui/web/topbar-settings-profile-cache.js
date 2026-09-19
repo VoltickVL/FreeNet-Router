@@ -212,6 +212,7 @@
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'profile-option';
+      button.dataset.profileId = profile.id;
       button.setAttribute('role', 'option');
       button.setAttribute('aria-selected', profile.id === selectedID ? 'true' : 'false');
       if (profile.id === selectedID) button.classList.add('selected');

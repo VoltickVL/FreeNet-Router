@@ -17,10 +17,10 @@ let status = {version:'0.2.88',country:'Польша',city:'Варшава',coun
 const server = http.createServer((req,res)=>{
   const url = new URL(req.url,'http://localhost');
   if(url.pathname==='/') {
-    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>', ['self-update.js','vpn-ux-fix.js','operation-coordinator.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
+    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>', ['self-update.js','vpn-ux-fix.js','operation-coordinator.js','topbar-settings-profile-cache.js','xray-core-manager.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
     res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);return;
   }
-  if(['/self-update.js','/vpn-ux-fix.js','/operation-coordinator.js'].includes(url.pathname)){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(path.join(web,url.pathname.slice(1))));return;}
+  if(['/self-update.js','/vpn-ux-fix.js','/operation-coordinator.js','/topbar-settings-profile-cache.js','/xray-core-manager.js'].includes(url.pathname)){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(path.join(web,url.pathname.slice(1))));return;}
   res.writeHead(404);res.end();
 });
 (async()=>{
@@ -37,6 +37,7 @@ const server = http.createServer((req,res)=>{
       calls.push({path:url.pathname,query:url.search,method:req.method(),body:req.postData()});
       if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
       if(url.pathname==='/api/status')return answer(route,status);
+      if(url.pathname==='/api/xray/service')return answer(route,{success:true,version:'v26.9.9',current_version:'v26.9.9'});
       if(url.pathname==='/api/operation/state'){
         operationReads++;
         if(operationReads===1)return answer(route,{success:true,active:true,operation:{...operation,state:'running',result:''}});
@@ -120,10 +121,28 @@ const server = http.createServer((req,res)=>{
     assert.equal(errors.length,0,errors.join('\n'));
     assert.equal(await page.locator('#bestServerShell').count(),1);
     assert.equal(await page.locator('#fnVpnPickerToggle').isVisible(),true,'topbar must expose one stable VPN selector control');
+    await page.waitForFunction(()=>document.querySelector('#overviewApprovedTop')?.dataset.vpnOrder==='xray-vpn-dns-freenet');
+    const topbarOrder = await page.evaluate(() => {
+      const summary=document.querySelector('#overviewApprovedTop');
+      return Array.from(summary.children).map(node => node.matches('.fn-xray-topbar')?'xray':node.id==='fnVpnPickerHost'?'vpn':node.id==='topFreenetUpdate'?'freenet':/DNS/i.test(node.textContent||'')?'dns':'other').filter(x=>x!=='other');
+    });
+    assert.deepEqual(topbarOrder,['xray','vpn','dns','freenet'],'topbar order must be Xray -> VPN -> DNS -> FreeNet');
+    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerCountryName')?.textContent==='Польша');
+    assert.equal(await page.locator('#fnVpnPickerCountryFlag').evaluate(node=>node.classList.contains('flag-pl')),true,'VPN chip must expose current country flag');
     assert.equal(await page.locator('#fnVpnPickerPopover').isHidden(),true,'VPN selector popover must be closed by default');
     const topbarHeightClosed = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
     await openPicker();
+    await page.locator('#profilesMenu').waitFor({state:'visible'});
     const topbarHeightOpen = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
+    const selectorGeometry = await page.evaluate(() => {
+      const pop=document.querySelector('#fnVpnPickerPopover').getBoundingClientRect();
+      const search=document.querySelector('#profileSearch').getBoundingClientRect();
+      const menu=document.querySelector('#profilesMenu').getBoundingClientRect();
+      return {popWidth:pop.width,searchWidth:search.width,menuWidth:menu.width,menuScrollWidth:document.querySelector('#profilesMenu').scrollWidth};
+    });
+    assert.ok(selectorGeometry.searchWidth > selectorGeometry.popWidth*0.85, 'search must use modal width: '+JSON.stringify(selectorGeometry));
+    assert.ok(selectorGeometry.menuWidth > selectorGeometry.popWidth*0.85, 'profile list must use modal width: '+JSON.stringify(selectorGeometry));
+    assert.ok(selectorGeometry.menuScrollWidth <= selectorGeometry.menuWidth + 1, 'profile list must not have horizontal scroll: '+JSON.stringify(selectorGeometry));
     assert.equal(topbarHeightOpen, topbarHeightClosed, 'opening VPN selector must not change topbar height');
     assert.equal(await page.locator('#bestServerAdvanced').evaluate(node => node.parentElement?.id), 'fnVpnPickerBody', 'exact selector must live inside the popover body');
     await page.locator('#profileSearch').fill('Литва');
