@@ -227,6 +227,20 @@ func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	held, stale := a.updateLockStatus()
+	if held {
+		if !stale {
+			v3AppendEvent("freenet_update_recovery", "blocked", "Browser recovery остановлен: updater активен либо lock/state нельзя безопасно снять.")
+			writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "Updater ещё активен либо его состояние нельзя безопасно подтвердить. Recovery ничего не изменил."})
+			return
+		}
+		if err := a.unlockStaleUpdateLock(); err != nil {
+			v3AppendEvent("freenet_update_recovery", "failed", "Browser recovery не смог безопасно снять подтверждённую stale-lock.")
+			writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "Не удалось безопасно снять зависшую блокировку updater: " + err.Error()})
+			return
+		}
+	}
+
 	a.updateMu.Lock()
 	if a.updateLaunching {
 		target := a.updateTarget
@@ -237,25 +251,14 @@ func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if _, err := os.Stat(a.cfg.UpdateLock); err == nil {
+		a.updateMu.Unlock()
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "Updater начал другую операцию. Recovery ничего не изменил."})
+		return
+	}
 	a.updateLaunching = true
 	a.updateTarget = "recovery"
 	a.updateMu.Unlock()
-
-	held, stale := a.updateLockStatus()
-	if held {
-		if !stale {
-			a.releaseRecoveryLaunch()
-			v3AppendEvent("freenet_update_recovery", "blocked", "Browser recovery остановлен: updater активен либо lock/state нельзя безопасно снять.")
-			writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "Updater ещё активен либо его состояние нельзя безопасно подтвердить. Recovery ничего не изменил."})
-			return
-		}
-		if err := a.unlockStaleUpdateLock(); err != nil {
-			a.releaseRecoveryLaunch()
-			v3AppendEvent("freenet_update_recovery", "failed", "Browser recovery не смог безопасно снять подтверждённую stale-lock.")
-			writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "Не удалось безопасно снять зависшую блокировку updater: " + err.Error()})
-			return
-		}
-	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 80*time.Second)
 	defer cancel()
