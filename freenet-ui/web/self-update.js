@@ -7,6 +7,7 @@
   let updateProgressStarted = 0;
   let versionCatalog = null;
   let versionTargetPlan = null;
+  let modalFocusBeforeOpen = null;
 
   function stopUpdateProgress() {
     clearInterval(updateProgressTimer);
@@ -130,7 +131,8 @@
       .fn-modal-actions.one{grid-template-columns:1fr}
       .fn-modal-status{display:none;margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid #2b405e;background:#0a1624;font-size:13px;line-height:1.55;white-space:pre-line}
       .fn-modal-status.show{display:block}.fn-modal-status.ok{border-color:rgba(73,218,146,.38);color:#c9f7dc}.fn-modal-status.bad{border-color:rgba(255,112,112,.4);color:#ffd0d0}
-      @media(max-width:600px){.fn-modal{padding:17px}.fn-modal h2{font-size:21px}.fn-modal-actions{grid-template-columns:1fr}}
+      .fn-modal-root.fn-version-picker-mode{display:block;padding:0;pointer-events:none}.fn-modal-root.fn-version-picker-mode .fn-modal-backdrop{display:none!important}.fn-modal-root.fn-version-picker-mode .fn-modal{position:fixed;pointer-events:auto;width:500px;max-width:calc(100vw - 24px);max-height:min(78vh,650px);overflow:auto;padding:0;border-radius:12px;background:#0c1c2e;box-shadow:0 18px 46px rgba(0,0,0,.52)}.fn-modal-root.fn-version-picker-mode .fn-modal-head{padding:14px 16px;border-bottom:1px solid #28415b}.fn-modal-root.fn-version-picker-mode .fn-modal-kicker{font-size:9px;letter-spacing:0;text-transform:none;color:#8da4c2}.fn-modal-root.fn-version-picker-mode .fn-modal h2{margin-top:3px;font-size:17px}.fn-modal-root.fn-version-picker-mode .fn-modal-close{width:30px;height:30px;border-radius:8px;font-size:20px}.fn-modal-root.fn-version-picker-mode .fn-modal-body{margin:0;padding:12px 16px;color:#c4d1e4;font-size:11.5px;line-height:1.5}.fn-modal-root.fn-version-picker-mode .fn-modal-meta,.fn-modal-root.fn-version-picker-mode .fn-modal-status{margin:0 16px 12px;padding:11px 12px;border-radius:10px;font-size:11px}.fn-modal-root.fn-version-picker-mode .fn-modal-actions{margin:0;padding:10px 12px;border-top:1px solid #28415b;background:#0b1b2d}.fn-modal-root.fn-version-picker-mode #fnUpdateProgress{margin:0 16px 12px;color:#9fb2ca;font-size:11px}
+      @media(max-width:600px){.fn-modal{padding:17px}.fn-modal h2{font-size:21px}.fn-modal-actions{grid-template-columns:1fr}.fn-modal-root.fn-version-picker-mode .fn-modal{width:calc(100vw - 24px)!important;max-width:none}.fn-modal-root.fn-version-picker-mode .fn-modal h2{font-size:17px}}
     `;
     document.head.appendChild(style);
 
@@ -168,9 +170,29 @@
     });
   }
 
-  function openModal({kicker = 'FreeNet', title, body = '', meta = '', confirmText = 'Применить', cancelText = 'Отмена', onConfirm = null, closable = true}) {
+  function positionVersionPicker() {
+    const root = qs('#fnModalRoot');
+    const modal = qs('#fnModalRoot .fn-modal');
+    const control = qs('#topFreenetUpdate');
+    if (!root || root.hidden || !root.classList.contains('fn-version-picker-mode') || !modal || !control) return;
+    const vw = window.visualViewport?.width || window.innerWidth;
+    const vh = window.visualViewport?.height || window.innerHeight;
+    const rect = control.getBoundingClientRect();
+    const width = Math.min(500, vw - 24);
+    modal.style.width = width + 'px';
+    modal.style.left = Math.max(12, Math.min(vw - width - 12, rect.right - width)) + 'px';
+    const desiredTop = rect.bottom + 8;
+    const modalHeight = Math.min(modal.scrollHeight || 650, Math.max(220, vh - 24));
+    modal.style.top = Math.max(12, Math.min(desiredTop, vh - modalHeight - 12)) + 'px';
+  }
+
+  function openModal({kicker = 'FreeNet', title, body = '', meta = '', confirmText = 'Применить', cancelText = 'Отмена', onConfirm = null, closable = true, anchored = false}) {
     mountModalLayer();
     const root = qs('#fnModalRoot');
+    if (root.hidden) modalFocusBeforeOpen = document.activeElement;
+    root.classList.toggle('fn-version-picker-mode', !!anchored);
+    qs('.fn-modal', root)?.setAttribute('aria-modal', anchored ? 'false' : 'true');
+    qs('#topFreenetUpdate')?.setAttribute('aria-expanded', anchored ? 'true' : 'false');
     qs('#fnModalKicker').textContent = kicker;
     qs('#fnModalTitle').textContent = title || 'FreeNet';
     qs('#fnModalBody').textContent = body;
@@ -191,6 +213,7 @@
     qs('#fnModalActions').className = 'fn-modal-actions' + (onConfirm ? '' : ' one');
     activeModalConfirm = onConfirm;
     root.hidden = false;
+    if (anchored) requestAnimationFrame(positionVersionPicker);
   }
 
   function modalStatus(text, type = '') {
@@ -236,8 +259,13 @@
   function closeModal() {
     const root = qs('#fnModalRoot');
     if (!root || root.hidden) return;
+    const anchored = root.classList.contains('fn-version-picker-mode');
     activeModalConfirm = null;
     root.hidden = true;
+    root.classList.remove('fn-version-picker-mode');
+    if (anchored) qs('#topFreenetUpdate')?.setAttribute('aria-expanded', 'false');
+    if (anchored && modalFocusBeforeOpen?.isConnected) modalFocusBeforeOpen.focus({preventScroll:true});
+    modalFocusBeforeOpen = null;
   }
 
   function profileCountryCode(p) {
@@ -894,6 +922,9 @@
     control.id = 'topFreenetUpdate';
     control.type = 'button';
     control.className = 'mini-link fn-version-control';
+    control.setAttribute('aria-haspopup', 'dialog');
+    control.setAttribute('aria-controls', 'fnModalRoot');
+    control.setAttribute('aria-expanded', 'false');
     const xkeen = qs('#topXkeenLink');
     if (xkeen && xkeen.parentNode === actions) actions.insertBefore(control, xkeen);
     else actions.appendChild(control);
@@ -906,7 +937,8 @@
     const current = String(currentVersion || '').replace(/^v/i, '') || '—';
     control.textContent = '';
     control.className = 'mini-link fn-version-control' + (updateAvailable ? ' update-available' : '');
-    control.setAttribute('aria-label', updateAvailable ? `FreeNet v${current}. Доступно обновление ${latestVersion || ''}` : `FreeNet v${current}. Проверить обновление`);
+    control.setAttribute('aria-label', updateAvailable ? `FreeNet v${current}. Доступно обновление ${latestVersion || ''}` : `FreeNet v${current}. Управление версиями`);
+    control.setAttribute('aria-expanded', String(!!(qs('#fnModalRoot') && !qs('#fnModalRoot').hidden && qs('#fnModalRoot').classList.contains('fn-version-picker-mode'))));
     const icon = document.createElement('span');
     icon.className = 'fn-version-icon';
     icon.textContent = updateAvailable ? '↑' : '◈';
@@ -943,7 +975,8 @@
       onConfirm: async () => {
         plan = p;
         await startUpdate();
-      }
+      },
+      anchored: true
     });
   }
 
@@ -1056,11 +1089,17 @@
   }
 
   async function openTopbarUpdateModal() {
+    const root = qs('#fnModalRoot');
+    if (root && !root.hidden && root.classList.contains('fn-version-picker-mode')) {
+      closeModal();
+      return;
+    }
     openModal({
-      kicker: 'FreeNet · версии',
+      kicker: 'FreeNet',
       title: 'Версии FreeNet',
       body: 'Загружаем опубликованные стабильные релизы…',
-      closable: true
+      closable: true,
+      anchored: true
     });
     try {
       const r = await fetch('/api/system/update/releases', {cache:'no-store'});
@@ -1108,7 +1147,7 @@
         .fn-version-control.update-available{border-color:rgba(73,218,146,.62);background:linear-gradient(180deg,rgba(18,70,55,.92),rgba(12,48,39,.92));box-shadow:inset 0 0 0 1px rgba(73,218,146,.09),0 0 18px rgba(73,218,146,.08)}
         .fn-version-control.update-available .fn-version-icon{border-color:rgba(73,218,146,.58);background:rgba(18,86,62,.65);color:#65f0ad}
         .fn-version-control.update-available .fn-version-copy small,.fn-version-control.update-available .fn-version-copy strong{color:#c9f7dc}
-        .fn-version-manager-body{white-space:normal!important}.fn-version-summary{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;padding:11px 12px;border:1px solid #29445f;border-radius:11px;background:#0a1929;font-size:11px}.fn-version-summary span{color:#8fa4bf}.fn-version-summary strong{color:#f2f7ff}
+        .fn-version-manager-body{white-space:normal!important}.fn-modal-root.fn-version-picker-mode .fn-version-manager-body:before{content:'Выбор версии, затем проверка и установка';display:block;margin:-4px 0 10px;color:#8198b5;font-size:9px}.fn-version-summary{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;padding:10px 11px;border:1px solid #29445f;border-radius:10px;background:#0a1929;font-size:11px}.fn-version-summary span{color:#8fa4bf}.fn-version-summary strong{color:#f2f7ff}
         .fn-version-search{width:100%;margin-top:12px;padding:10px 11px;border:1px solid #315070;border-radius:10px;background:#081624;color:#eef5ff;font:inherit;font-size:12px;outline:none}.fn-version-search:focus{border-color:#6094df;box-shadow:0 0 0 2px rgba(96,148,223,.12)}
         .fn-version-list{display:grid;gap:6px;max-height:300px;overflow:auto;margin-top:10px;padding-right:2px}.fn-version-release{appearance:none;display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:9px 11px;border:1px solid #29445f;border-radius:9px;background:#0a1929;color:#dbe8f8;text-align:left;cursor:pointer}.fn-version-release:hover,.fn-version-release.selected{border-color:#5a8dcc;background:#12304d}.fn-version-release.current{box-shadow:inset 3px 0 #39d79a}.fn-version-release-main{display:flex;align-items:center;gap:7px}.fn-version-release-main strong{font-size:12.5px}.fn-version-release em{padding:2px 6px;border-radius:999px;background:#173652;color:#a9caff;font-size:8px;font-style:normal;font-weight:800}.fn-version-release em.current{background:rgba(52,221,159,.14);color:#65e3aa}.fn-version-release em.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.fn-version-release small{color:#8198b5;font-size:9px}
         .fn-version-detail{display:grid;gap:8px;margin-top:12px;padding:12px;border:1px solid #29445f;border-radius:11px;background:#091827;color:#9fb2ca;font-size:11.5px;line-height:1.5}.fn-version-detail strong{color:#f2f7ff;font-size:13px}.fn-version-detail.ready{border-color:#35658e}.fn-version-detail.bad{border-color:rgba(255,104,115,.45);color:#ffd0d4}.fn-version-detail.checking{color:#c4d7ee}.fn-version-apply{margin-top:4px;width:100%}.fn-version-empty{padding:14px;text-align:center;color:#839ab8;border:1px dashed #29445f;border-radius:9px;font-size:11px}
@@ -1126,6 +1165,25 @@
         event.preventDefault();
         openTopbarUpdateModal();
       });
+    }
+    if (document.documentElement.dataset.freenetVersionPickerEvents !== '1') {
+      document.documentElement.dataset.freenetVersionPickerEvents = '1';
+      document.addEventListener('click', event => {
+        const root = qs('#fnModalRoot');
+        if (!root || root.hidden || !root.classList.contains('fn-version-picker-mode')) return;
+        if (qs('#fnModalClose')?.hidden || qs('#fnModalClose')?.disabled) return;
+        if (event.target.closest?.('#topFreenetUpdate') || event.target.closest?.('#fnModalRoot .fn-modal')) return;
+        closeModal();
+      });
+      document.addEventListener('keydown', event => {
+        const root = qs('#fnModalRoot');
+        if (event.key !== 'Escape' || !root || root.hidden || !root.classList.contains('fn-version-picker-mode')) return;
+        if (qs('#fnModalClose')?.hidden || qs('#fnModalClose')?.disabled) return;
+        event.preventDefault();
+        closeModal();
+      });
+      window.addEventListener('resize', positionVersionPicker);
+      window.visualViewport?.addEventListener('resize', positionVersionPicker);
     }
     refreshTopbarUpdateState();
     setInterval(refreshTopbarUpdateState, 10 * 60 * 1000);
