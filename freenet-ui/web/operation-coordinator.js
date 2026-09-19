@@ -1436,10 +1436,30 @@
     return '';
   }
 
-  function syncToggle() {
+  function activeCountry(status) {
+    const s = status || {};
+    const name = String(s.country || '').trim();
+    const code = String(s.country_code || '').trim().toLowerCase() || (typeof profileCode === 'function' ? profileCode({name: s.profile_label || ''}) : '');
+    return {name: name || (code ? code.toUpperCase() : 'VPN'), code};
+  }
+
+  function syncToggle(status) {
     const toggle = q('#fnVpnPickerToggle');
     if (!toggle) return;
     toggle.dataset.state = selectedName() ? 'selected' : '';
+    let live = status || null;
+    if (!live) {
+      try { live = typeof lastStatus !== 'undefined' ? lastStatus : null; } catch (_) {}
+    }
+    const current = activeCountry(live);
+    const flag = q('#fnVpnPickerCountryFlag');
+    const name = q('#fnVpnPickerCountryName');
+    if (flag) {
+      flag.className = 'flag-icon fn-vpn-chip-flag' + (current.code ? ' flag-' + current.code : ' flag-unknown');
+      flag.hidden = !current.code;
+    }
+    if (name) name.textContent = current.name;
+    toggle.setAttribute('aria-label', current.name && current.name !== 'VPN' ? 'VPN · ' + current.name : 'Открыть выбор VPN');
   }
 
   function setOpen(open, focusSearch = false) {
@@ -1482,7 +1502,10 @@
       host.innerHTML = `
         <button id="fnVpnPickerToggle" class="fn-vpn-picker-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Открыть выбор VPN">
           <span class="fn-vpn-picker-icon">${pickerIcon()}</span>
-          <strong class="fn-vpn-button-label">VPN</strong>
+          <span class="fn-vpn-chip-copy">
+            <small>VPN</small>
+            <strong><span id="fnVpnPickerCountryFlag" class="flag-icon fn-vpn-chip-flag flag-unknown" hidden aria-hidden="true"></span><span id="fnVpnPickerCountryName">VPN</span></strong>
+          </span>
         </button>
         <section id="fnVpnPickerPopover" class="fn-vpn-picker-popover" role="dialog" aria-label="Выбор VPN-сервера" hidden>
           <header class="fn-vpn-picker-head">
@@ -1525,11 +1548,11 @@
     style.textContent = `
       .topbar.overview-approved{overflow:visible!important}
       #fnVpnPickerHost{position:relative;flex:0 0 auto;min-width:0;max-width:none;margin-left:0;align-self:center;z-index:auto}
-      #fnVpnPickerToggle{appearance:none;width:96px;height:50px;min-height:50px;display:flex;align-items:center;justify-content:center;gap:9px;padding:0 14px;border:1px solid #315678;border-radius:11px;background:linear-gradient(180deg,#0d2136,#0a1b2d);color:#eef5ff;cursor:pointer;text-align:center;box-shadow:inset 0 1px rgba(255,255,255,.025)}
+      #fnVpnPickerToggle{appearance:none;width:138px;height:50px;min-height:50px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:9px;padding:6px 11px;border:1px solid #315678;border-radius:11px;background:linear-gradient(180deg,#0d2136,#0a1b2d);color:#eef5ff;cursor:pointer;text-align:left;box-shadow:inset 0 1px rgba(255,255,255,.025)}
       #fnVpnPickerToggle:hover,#fnVpnPickerToggle.open{border-color:#5e9cff;background:linear-gradient(180deg,#12305a,#0d2442)}
       #fnVpnPickerToggle:focus-visible{outline:0;border-color:#69a0ff;box-shadow:0 0 0 3px rgba(74,139,255,.16)}
       .fn-vpn-picker-icon{display:grid;place-items:center;width:23px;height:23px;color:#70a8f5}.fn-vpn-picker-icon svg{width:23px;height:23px}
-      .fn-vpn-button-label{font-size:13px;line-height:1;color:#f5f8ff;font-weight:800;letter-spacing:.01em}
+      .fn-vpn-chip-copy{display:grid;gap:2px;min-width:0}.fn-vpn-chip-copy small{font-size:9.5px;line-height:1;color:#8da4c2;font-weight:760}.fn-vpn-chip-copy strong{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;line-height:1.1;color:#f5f8ff;font-weight:800}.fn-vpn-chip-copy strong>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fn-vpn-chip-flag{flex:0 0 20px;width:20px;height:14px;border-radius:2px}
       #fnVpnPickerPopover{position:fixed;top:50%;left:50%;right:auto;transform:translate(-50%,-50%);width:min(660px,calc(100vw - 34px));max-height:min(82vh,700px);overflow:hidden;overscroll-behavior:contain;padding:0;border:1px solid #31597e;border-radius:16px;background:linear-gradient(180deg,rgba(10,28,47,.995),rgba(7,21,36,.995));box-shadow:0 28px 80px rgba(0,0,0,.58);z-index:1400}
       #fnVpnPickerPopover[hidden]{display:none!important}
       .fn-vpn-picker-head{position:sticky;top:0;z-index:3;display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:14px 15px 12px;border-bottom:1px solid #244563;background:rgba(10,28,47,.98);backdrop-filter:blur(12px)}
@@ -1562,7 +1585,7 @@
 
       @media(max-width:820px){
         #fnVpnPickerHost{position:relative;order:0;flex:0 0 auto;width:auto;min-width:0;max-width:none;margin:0}
-        #fnVpnPickerToggle{width:82px;height:46px;min-height:46px;padding:0 11px}
+        #fnVpnPickerToggle{width:118px;height:46px;min-height:46px;padding:5px 9px}
         #fnVpnPickerPopover{left:50%;right:auto;top:50%;width:min(660px,calc(100vw - 20px));max-height:calc(100vh - 28px);border-radius:15px}
         .fn-vpn-picker-head{padding:13px}
         .fn-vpn-picker-body{padding:12px}
