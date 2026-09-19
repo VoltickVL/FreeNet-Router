@@ -533,7 +533,8 @@ func validReleaseTag(tag string) bool {
 			return false
 		}
 	}
-	return true
+	patch, _ := strconv.Atoi(parts[2])
+	return patch >= 0 && patch <= 99
 }
 
 func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
