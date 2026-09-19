@@ -74,7 +74,7 @@ func TestVPNTopbarSimpleButtonBodyModalContract(t *testing.T) {
 		`document.body.appendChild(popover)`,
 		`path.includes(popover)`,
 		`Promise.resolve(loadNetworkPlan())`,
-		`#fnVpnPickerToggle{appearance:none;width:96px`,
+		`#fnVpnPickerToggle{appearance:none;width:138px`,
 	} {
 		if !strings.Contains(ux, required) {
 			t.Fatalf("VPN simple-button/body-modal contract missing %q", required)
@@ -84,7 +84,7 @@ func TestVPNTopbarSimpleButtonBodyModalContract(t *testing.T) {
 
 
 func TestVPNFinalPolishContract(t *testing.T) {
-	data, err := webFS.ReadFile("web/topbar-settings-profile-cache.js")
+	data, err := webFS.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
