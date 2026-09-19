@@ -20,6 +20,8 @@ func TestVPNSelectorModalSearchContract(t *testing.T) {
 		"selectProviderProfile(profile)",
 		"freenetIssue601Styles",
 		"keepDialogInsideHost",
+		".topbar.overview-approved{justify-content:flex-end!important}",
+		"html.fn-vpn-picker-open #fnVpnPickerHost{z-index:1400!important}",
 		"overview-approved-top.fn-shell-summary{margin-left:0!important",
 		"grid-template-columns:1fr!important",
 		"#fnVpnPickerPopover #profilesTrigger{display:none!important",

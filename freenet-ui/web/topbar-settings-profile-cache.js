@@ -514,8 +514,9 @@
     style.id = 'freenetIssue601Styles';
     style.textContent = `
       /* One right-side topbar cluster: only the VPN host consumes free space. */
-      .topbar.overview-approved{justify-content:flex-start!important}
-      #fnVpnPickerHost{margin-left:auto!important;flex:0 0 220px!important;width:220px!important;min-width:220px!important;max-width:220px!important}
+      .topbar.overview-approved{justify-content:flex-end!important}
+      #fnVpnPickerHost{margin-left:0!important;flex:0 0 220px!important;width:220px!important;min-width:220px!important;max-width:220px!important}
+      html.fn-vpn-picker-open #fnVpnPickerHost{z-index:1400!important}
       #fnVpnPickerToggle{width:220px!important;min-width:220px!important;max-width:220px!important}
       .overview-approved-top.fn-shell-summary{margin-left:0!important;gap:9px!important;flex:0 0 auto!important}
 
