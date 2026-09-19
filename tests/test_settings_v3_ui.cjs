@@ -14,6 +14,9 @@ const scripts = [
   'runtime-acceptance.js', 'automation.js', 'automation-async.js', 'settings-v3.js'
 ];
 const calls = [];
+let versionApplyPosts = 0;
+let installedFreeNetVersion = 'v0.3.43';
+let activeFreeNetTarget = '';
 
 const settings = {
   success: true,
@@ -85,6 +88,41 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/automation') return json(res, {success:true,settings:{enabled:true},events:[]});
   if (url.pathname === '/api/automation/check') return json(res, {success:true,active:false});
   if (url.pathname === '/api/operation/state') return json(res, {success:true,active:false});
+  if (url.pathname === '/versionz') {
+    res.writeHead(200, {'Content-Type':'text/plain; charset=utf-8'}); res.end(installedFreeNetVersion + '\n'); return;
+  }
+  if (url.pathname === '/api/system/update/releases') return json(res, {
+    success:true,current_version:installedFreeNetVersion,latest_version:'v0.3.98',
+    releases:[
+      {version:'v0.3.98',published_at:'2026-09-19T00:00:00Z',current:false,latest:true},
+      {version:'v0.3.43',published_at:'2026-08-19T00:00:00Z',current:installedFreeNetVersion==='v0.3.43',latest:false},
+      {version:'v0.3.42',published_at:'2026-08-18T00:00:00Z',current:installedFreeNetVersion==='v0.3.42',latest:false}
+    ]
+  });
+  if (url.pathname === '/api/system/update/plan' && req.method === 'GET') {
+    const target = url.searchParams.get('target') || 'v0.3.98';
+    const direction = target === installedFreeNetVersion ? 'same' : target === 'v0.3.42' ? 'downgrade' : 'upgrade';
+    return json(res, {
+      success:true,ready:true,current_version:installedFreeNetVersion,latest_version:'v0.3.98',
+      target_tag:target,update_available:direction!=='same',direction,manifest_verified:true,
+      expected_no_delta:'subscription secret; Xray credentials/config; ISP/DNS/routing state'
+    });
+  }
+  if (url.pathname === '/api/system/update/apply' && req.method === 'POST') {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      const body = JSON.parse(raw || '{}');
+      versionApplyPosts += 1;
+      activeFreeNetTarget = body.target_tag || '';
+      installedFreeNetVersion = activeFreeNetTarget || installedFreeNetVersion;
+      return json(res, {success:true,action:'self-update',operation_id:activeFreeNetTarget,message:'Изменение версии FreeNet запущено.'}, 202);
+    });
+    return;
+  }
+  if (url.pathname === '/api/system/update/state') return json(res, activeFreeNetTarget ? {
+    state:'SUCCESS',from_version:'v0.3.43',target_version:activeFreeNetTarget,message:'Выбранная версия FreeNet установлена и проверена',rollback_state:'NOT_NEEDED',update_lock_held:false,update_lock_stale:false
+  } : {state:'IDLE',update_lock_held:false,update_lock_stale:false});
   return json(res, {success:true,available:false,configured:true,active:false});
 });
 
@@ -300,6 +338,27 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+
+    // FreeNet topbar version manager: selecting an older stable release is read-only
+    // until exact target plan passes and explicit downgrade confirmation is clicked.
+    await page.waitForSelector('#topFreenetUpdate');
+    await page.waitForFunction(() => document.querySelector('#topFreenetUpdate')?.textContent.includes('v0.3.43'));
+    await page.locator('#topFreenetUpdate').click();
+    await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.42"]');
+    assert.equal(versionApplyPosts, 0, 'opening FreeNet version catalog must be read-only');
+    assert.match(await page.locator('#topFreenetUpdate').textContent(), /v0\.3\.43/, 'catalog open must not change current topbar version');
+    await page.locator('#fnVersionList .fn-version-release[data-version="v0.3.42"]').click();
+    await page.waitForFunction(() => document.querySelector('#fnVersionDetail')?.textContent.includes('Откатить до v0.3.42'));
+    assert.equal(versionApplyPosts, 0, 'target compatibility plan must remain read-only');
+    assert.match(await page.locator('#topFreenetUpdate').textContent(), /v0\.3\.43/, 'selected downgrade target must not replace current version');
+    await page.locator('#fnVersionDetail .fn-version-apply').click();
+    await page.waitForFunction(() => document.querySelector('#fnModalTitle')?.textContent.includes('Откатить до v0.3.42'));
+    assert.equal(versionApplyPosts, 0, 'opening downgrade confirmation must not mutate FreeNet');
+    await page.locator('#fnModalConfirm').click();
+    await page.waitForFunction(() => window.location.href && document.querySelector('#fnModalTitle')?.textContent.includes('Обновление установлено'), null, {timeout:5000});
+    assert.equal(versionApplyPosts, 1, 'explicit confirmation must start exactly one version mutation');
+    assert.equal(installedFreeNetVersion, 'v0.3.42', 'fixture target must become installed only after apply');
+
     fs.mkdirSync(artifacts, {recursive:true});
     await page.screenshot({path:path.join(artifacts, 'settings-v3-desktop.png'), fullPage:true});
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Settings has horizontal overflow');
