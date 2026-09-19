@@ -24,10 +24,22 @@ func TestNormalizeSelfUpdateReleasesStableSemanticOrder(t *testing.T) {
 }
 
 func TestReleaseVersionGreaterIsNumeric(t *testing.T) {
-	if !releaseVersionGreater("v0.3.100", "v0.3.99") {
-		t.Fatal("numeric patch comparison must not be lexical")
+	if !releaseVersionGreater("v0.4.0", "v0.3.99") {
+		t.Fatal("v0.4.0 must sort after v0.3.99")
 	}
 	if releaseVersionGreater("v0.3.9", "v0.3.10") {
 		t.Fatal("v0.3.9 must not sort after v0.3.10")
+	}
+}
+
+func TestReleaseTagPatchRolloverContract(t *testing.T) {
+	if !validReleaseTag("v0.3.99") {
+		t.Fatal("v0.3.99 must remain valid")
+	}
+	if !validReleaseTag("v0.4.0") {
+		t.Fatal("v0.4.0 must be valid after v0.3.99")
+	}
+	if validReleaseTag("v0.3.100") {
+		t.Fatal("v0.3.100 must be rejected; FreeNet rolls over to v0.4.0 after v0.3.99")
 	}
 }
