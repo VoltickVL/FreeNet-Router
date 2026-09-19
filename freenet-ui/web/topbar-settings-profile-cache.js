@@ -451,12 +451,22 @@
     const enabled = !!(schedule && schedule.enabled);
     if (!enabled) {
       value.textContent = 'Вручную';
-      meta.textContent = 'Автообновление списка Extra-профилей выключено';
-      return;
+      meta.textContent = 'Автопроверка списка Extra-профилей выключена';
+    } else {
+      const next = formatNextRun(schedule.next_run);
+      value.textContent = next || 'Включено';
+      meta.textContent = `Автопроверка · ${intervalCopy(schedule.interval)}`;
     }
-    const next = formatNextRun(schedule.next_run);
-    value.textContent = next || 'Включено';
-    meta.textContent = `Автообновление · ${intervalCopy(schedule.interval)}`;
+    const lastNode = q('#fnSubscriptionLastAction');
+    if (lastNode) {
+      const strong = q('strong', lastNode);
+      if (strong) {
+        const last = formatNextRun(schedule && schedule.last_run);
+        const result = String(schedule && schedule.result || '');
+        const resultText = result === 'success' ? ' · Успешно' : result === 'failed' ? ' · Ошибка' : '';
+        strong.textContent = last ? last + resultText : 'Нет данных';
+      }
+    }
   }
 
   async function refreshSubscriptionSchedule() {
