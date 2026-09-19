@@ -135,6 +135,15 @@ const server = http.createServer((req,res)=>{
     const topbarHeightClosed = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
     await openPicker();
     await page.locator('#profilesMenu').waitFor({state:'visible'});
+    await page.waitForFunction(() => {
+      const pop = document.querySelector('#fnVpnPickerPopover')?.getBoundingClientRect();
+      const search = document.querySelector('#profileSearch')?.getBoundingClientRect();
+      const menu = document.querySelector('#profilesMenu')?.getBoundingClientRect();
+      if (!pop || !search || !menu || pop.width <= 0) return false;
+      return search.width > pop.width * 0.85 &&
+        menu.width > pop.width * 0.85 &&
+        document.querySelector('#profilesMenu').scrollWidth <= menu.width + 1;
+    }, null, {timeout: 2000});
     const topbarHeightOpen = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
     const selectorGeometry = await page.evaluate(() => {
       const pop=document.querySelector('#fnVpnPickerPopover').getBoundingClientRect();
