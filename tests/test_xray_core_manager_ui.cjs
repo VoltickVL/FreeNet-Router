@@ -105,9 +105,19 @@ const server = http.createServer((req, res) => {
     assert(modalText.includes('Последняя'));
     assert(modalText.includes('Предрелиз'));
     assert(modalText.includes('Последний стабильный релиз с исправлениями XTLS.'));
+    assert.equal(await page.locator('#xrayTopbarChip').getAttribute('aria-expanded'), 'true', 'Xray chip must expose open dialog state');
+    assert.equal((await page.locator('.xcm-current-copy strong').textContent()).trim(), 'v26.9.9', 'current card must show actual running Xray');
+    const desktopGeometry = await page.evaluate(() => {
+      const modal = document.querySelector('#xrayCoreManager .xcm-modal').getBoundingClientRect();
+      return {width:modal.width,right:modal.right,bottom:modal.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth};
+    });
+    assert.ok(desktopGeometry.width <= 540.5 && desktopGeometry.right <= desktopGeometry.viewportWidth, 'Xray panel must stay compact and inside desktop viewport');
+    assert.equal(desktopGeometry.overflow, false, 'Xray panel must not create horizontal overflow');
 
     await page.locator('.xcm-release[data-version="v26.8.1"]').click();
     assert.equal(applyPosts, 0, 'selecting an older release must not apply it');
+    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'selecting a target must not replace current topbar version');
+    assert.equal((await page.locator('.xcm-current-copy strong').textContent()).trim(), 'v26.9.9', 'selecting a target must not replace current card version');
     const downgradeButton = page.getByRole('button', {name:'Откатить до v26.8.1'});
     assert.equal(await downgradeButton.count(), 1, 'older release must be presented as rollback/downgrade');
     await downgradeButton.click();
@@ -118,6 +128,23 @@ const server = http.createServer((req, res) => {
     assert.equal(applyPosts, 1, 'explicit confirmation must issue exactly one apply POST');
     assert.deepEqual(applyBody, {target_version:'v26.8.1'});
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'successful Xray apply must update the topbar version immediately');
+
+    await page.locator('#xcmClose').click();
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.hidden === true);
+    assert.equal(await page.locator('#xrayTopbarChip').getAttribute('aria-expanded'), 'false', 'closing Xray panel must reset chip state');
+    await page.locator('#xrayTopbarChip').click();
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.hidden === false);
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.hidden === true);
+    assert.equal(await page.locator('#xrayTopbarChip').evaluate(el => document.activeElement === el), true, 'Escape must return focus to Xray chip');
+
+    await page.setViewportSize({width:390,height:844});
+    await page.locator('#xrayTopbarChip').click();
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.hidden === false);
+    const mobileGeometry = await page.evaluate(() => ({overflow:document.documentElement.scrollWidth>innerWidth,modal:document.querySelector('#xrayCoreManager .xcm-modal').getBoundingClientRect().width,viewport:innerWidth}));
+    assert.equal(mobileGeometry.overflow, false, 'mobile Xray panel must not create horizontal overflow');
+    assert.ok(mobileGeometry.modal <= mobileGeometry.viewport - 20, 'mobile Xray panel must fit viewport');
+    await page.keyboard.press('Escape');
 
     const responsive = await page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('alive'), 20)));
     assert.equal(responsive, 'alive', 'Xray manager UI must not starve browser event loop');
