@@ -531,6 +531,7 @@
 
   async function checkUpdate() {
     const btn = qs('#webUpdateCheckBtn');
+    plan = null;
     btn.disabled = true;
     qs('#webUpdateApplyBtn').disabled = true;
     updateNotice('Проверяем последний опубликованный релиз FreeNet…');
