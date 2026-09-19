@@ -44,6 +44,9 @@ func TestSettingsV3IsDeliveredByCanonicalAutomationPipeline(t *testing.T) {
 	if !strings.Contains(assetRec.Body.String(), "Настройки / Система") {
 		t.Fatal("served settings-v3 asset is not the accepted render")
 	}
+	if !strings.Contains(assetRec.Body.String(), "freenet:settings-v3-updated") {
+		t.Fatal("settings-v3 must publish saved schedule state to the accepted shell")
+	}
 }
 
 func TestSettingsV3RoutesAreRegisteredThroughProductionGeoDataChain(t *testing.T) {

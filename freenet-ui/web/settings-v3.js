@@ -298,6 +298,8 @@
     renderJournalSummary(data.events || []);
     applySchedule('subscription', data.subscription); applySchedule('geodata', data.geodata); applySchedule('freenet', data.freenet); applySchedule('backup', data.backup);
     state.baseline = formKey(); state.dirty = false; renderSave();
+    window.__freenetSettingsV3Snapshot = data;
+    document.dispatchEvent(new CustomEvent('freenet:settings-v3-updated', {detail:data}));
   }
 
   function renderJournal(events, target = '#fn3Journal') {
