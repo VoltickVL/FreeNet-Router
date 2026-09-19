@@ -48,6 +48,7 @@ func registerRecoveryRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /recovery", a.handleRecovery)
 	mux.HandleFunc("POST /recovery/login", a.handleRecoveryLogin)
 	mux.HandleFunc("POST /recovery/update", a.handleRecoveryUpdate)
+	mux.HandleFunc("POST /recovery/repair-update", a.handleRecoveryRepairUpdate)
 	mux.HandleFunc("POST /recovery/unlock-update", a.handleRecoveryUnlockUpdate)
 }
 
@@ -188,6 +189,39 @@ func (a *app) handleRecoveryUnlockUpdate(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	http.Redirect(w, r, "/recovery?check=1&unlocked=1", http.StatusSeeOther)
+}
+
+func (a *app) handleRecoveryRepairUpdate(w http.ResponseWriter, r *http.Request) {
+	if !a.isAuthenticated(r) {
+		a.renderRecovery(w, http.StatusUnauthorized, recoveryPageData{Version: "v" + version, Configured: a.credentialConfigured(), Error: "Для восстановления updater требуется вход администратора."})
+		return
+	}
+	if !sameOrigin(r) {
+		data := a.recoveryPage(r)
+		data.Error = "Запрос восстановления updater отклонён: источник страницы не совпадает."
+		a.renderRecovery(w, http.StatusForbidden, data)
+		return
+	}
+
+	capture := newRecoveryCaptureWriter()
+	req := recoveryAPIRequest(r, http.MethodPost, "/api/system/update/recover", nil)
+	a.handleSelfUpdateRecover(capture, req)
+
+	var result actionResult
+	_ = json.Unmarshal(capture.body.Bytes(), &result)
+	data := a.recoveryPage(r)
+	data.PlanChecked = true
+	if capture.code == http.StatusAccepted && result.Success {
+		data.Notice = "Механизм обновления восстановлен из проверенного GitHub Release. Запущено штатное обновление " + result.OperationID + ". Страница может кратко стать недоступной во время перезапуска."
+		a.renderRecovery(w, http.StatusAccepted, data)
+		return
+	}
+	if result.Error != "" {
+		data.Error = result.Error
+	} else {
+		data.Error = "Не удалось безопасно восстановить updater. Изменения не повторяются автоматически."
+	}
+	a.renderRecovery(w, capture.code, data)
 }
 
 func (a *app) handleRecoveryUpdate(w http.ResponseWriter, r *http.Request) {
@@ -340,7 +374,10 @@ code{color:#d7eaff}.foot{font-size:12px;color:#7892aa;margin-top:18px;line-heigh
 <div class="actions"><a class="button secondary" href="/recovery?check=1">Проверить снова</a>
 {{if and .Plan.Success .Plan.Ready .Plan.UpdateAvailable .Plan.ManifestVerified}}
 <form method="post" action="/recovery/update" style="margin:0"><button class="dangerButton" type="submit">Обновить до {{.Plan.TargetTag}}</button></form>
+{{else}}
+<form method="post" action="/recovery/repair-update" style="margin:0"><button class="unlockButton" type="submit">Восстановить механизм обновления</button></form>
 {{end}}</div>
+{{if not .Plan.Success}}<p class="muted">Если установленный updater повреждён или устарел, Recovery может независимо скачать только manifest и новый updater, проверить SHA-256 и передать обновление проверенному helper без SSH.</p>{{end}}
 {{else}}
 <p class="muted">Проверка запускается только вручную. Если GitHub или WAN недоступны, сама recovery-страница остаётся локально работоспособной.</p>
 <div class="actions"><a class="button secondary" href="/recovery?check=1">Проверить обновление</a></div>
