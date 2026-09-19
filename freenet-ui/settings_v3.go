@@ -312,11 +312,15 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 	}
 	lastHealth, nextHealth := v3HealthTimes(auto.Settings.Enabled)
 	events := v3MergeEvents(12, auto.Events, readAutomationEvents(settingsV3HistoryPath(), 8))
+	subscription := v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_SUBSCRIPTION_REFRESH", "subscription", true)
+	if subscription.Enabled {
+		subscription.NextRun = subscriptionNextCronRun(subscription.Interval, time.Now())
+	}
 	return settingsV3Response{
 		Success: true,
 		AutoVPN: settingsV3AutoVPN{Enabled: auto.Settings.Enabled, CountryScope: scope, Countries: auto.Settings.Countries, LastHealth: lastHealth, NextHealth: nextHealth},
 		Automation: auto,
-		Subscription: v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_SUBSCRIPTION_REFRESH", "subscription", false),
+		Subscription: subscription,
 		GeoData: v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_GEODATA", "geodata", automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA", "yes") == "yes"),
 		FreeNet: v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_FREENET_CHECK", "freenet", false),
 		Backup: v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_BACKUP", "backup", false),
@@ -372,7 +376,7 @@ func settingsV3ManagedCronValuesFromConfig(configPath string) map[string]string 
 	geodataDefault := automationConfigValue(configPath, "AUTO_XKEEN_GEODATA", "yes")
 	return map[string]string{
 		"AUTO_VPN_V1": automationConfigValue(configPath, "AUTO_VPN_V1", "no"),
-		"AUTO_SUBSCRIPTION_REFRESH_ENABLED": automationConfigValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_ENABLED", "no"),
+		"AUTO_SUBSCRIPTION_REFRESH_ENABLED": automationConfigValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_ENABLED", "yes"),
 		"AUTO_SUBSCRIPTION_REFRESH_INTERVAL": v3NormalizeInterval(automationConfigValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_INTERVAL", v3DefaultInterval("subscription")), "subscription"),
 		"AUTO_GEODATA_ENABLED": automationConfigValue(configPath, "AUTO_GEODATA_ENABLED", geodataDefault),
 		"AUTO_GEODATA_INTERVAL": v3NormalizeInterval(automationConfigValue(configPath, "AUTO_GEODATA_INTERVAL", v3DefaultInterval("geodata")), "geodata"),
@@ -491,18 +495,16 @@ func v3Mark(kind, result, message string) {
 }
 
 func (a *app) runV3Subscription(ctx context.Context) error {
-	path := settingsV3UpdaterPath()
-	if _, err := os.Stat(path); err != nil {
-		v3Mark("subscription", "failed", "Штатный updater подписки недоступен.")
-		return errors.New("subscription updater is unavailable")
-	}
-	cmd := exec.CommandContext(ctx, path)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		_ = out
-		v3Mark("subscription", "failed", "Не удалось обновить список VPN из подписки.")
+	result, err := a.refreshSubscriptionProfiles(ctx)
+	if err != nil {
+		if len(result.Profiles) > 0 && result.Stale {
+			v3Mark("subscription", "failed", fmt.Sprintf("Свежий список VPN не получен. Используется последний успешный список: %d.", len(result.Profiles)))
+		} else {
+			v3Mark("subscription", "failed", "Не удалось получить безопасный список VPN из подписки.")
+		}
 		return err
 	}
-	v3Mark("subscription", "success", "Список VPN из подписки обновлён.")
+	v3Mark("subscription", "success", fmt.Sprintf("Подписка проверена. Доступно Extra-профилей: %d.", len(result.Profiles)))
 	return nil
 }
 
