@@ -69,7 +69,7 @@ func TestVPNTopbarSimpleButtonBodyModalContract(t *testing.T) {
 	}
 	ux := string(data)
 	for _, required := range []string{
-		`class="fn-vpn-button-label">VPN</strong>`,
+		`id="fnVpnPickerCountryName"`,
 		`popover.parentNode !== document.body`,
 		`document.body.appendChild(popover)`,
 		`path.includes(popover)`,
@@ -78,6 +78,27 @@ func TestVPNTopbarSimpleButtonBodyModalContract(t *testing.T) {
 	} {
 		if !strings.Contains(ux, required) {
 			t.Fatalf("VPN simple-button/body-modal contract missing %q", required)
+		}
+	}
+}
+
+
+func TestVPNFinalPolishContract(t *testing.T) {
+	data, err := webFS.ReadFile("web/topbar-settings-profile-cache.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ux := string(data)
+	for _, required := range []string{
+		`freenetIssue609VpnPolishStyles`,
+		`xray-vpn-dns-freenet`,
+		`[xray, vpn, dns, freenet]`,
+		`#fnVpnPickerPopover #profilesMenu{position:static!important;display:block!important;width:100%`,
+		`overflow-x:hidden!important`,
+		`fnVpnPickerCountryName`,
+	} {
+		if !strings.Contains(ux, required) {
+			t.Fatalf("VPN final polish contract missing %q", required)
 		}
 	}
 }
