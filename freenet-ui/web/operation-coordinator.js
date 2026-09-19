@@ -1755,7 +1755,7 @@
 
   function dnsFact(summary) {
     if (!summary) return null;
-    return Array.from(summary.querySelectorAll('.overview-approved-fact.fn-shell-fact')).find(node => /DNS/i.test(node.textContent || '')) || null;
+    return Array.from(summary.querySelectorAll('.overview-approved-fact')).find(node => /DNS/i.test(node.textContent || '')) || null;
   }
 
   function orderTopbar() {
