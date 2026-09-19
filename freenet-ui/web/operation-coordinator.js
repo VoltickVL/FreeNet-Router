@@ -1744,6 +1744,7 @@
       #fnVpnPickerPopover #exactConnectRow .btn{width:100%!important;min-width:0!important;min-height:46px!important}
 
       @media(max-width:820px){
+        html body .topbar.overview-approved .overview-approved-top.fn-shell-summary{display:flex!important;flex:1 0 100%!important;width:100%!important;min-width:0!important;flex-wrap:wrap!important;justify-content:flex-end!important;gap:6px!important}
         #fnVpnPickerToggle{width:118px!important;min-width:118px!important;max-width:118px!important}
         #fnVpnPickerPopover{width:min(760px,calc(100vw - 18px))!important;max-height:calc(100vh - 24px)!important}
         #fnVpnPickerPopover .fn-vpn-picker-body{max-height:calc(100vh - 102px)!important}
