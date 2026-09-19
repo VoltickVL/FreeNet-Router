@@ -271,8 +271,13 @@ fetch_release_metadata() {
     make_tmp || return 1
     META="$TMP_DIR/release-meta.json"
     if [ -n "$TEST_RELEASE_DIR" ]; then
-        [ -f "$TEST_RELEASE_DIR/release.json" ] || return 1
-        cp "$TEST_RELEASE_DIR/release.json" "$META" || return 1
+        if [ -f "$TEST_RELEASE_DIR/release.json" ]; then
+            cp "$TEST_RELEASE_DIR/release.json" "$META" || return 1
+        elif [ "$TEST_MODE" = yes ]; then
+            printf '{"tag_name":"%s","draft":false,"prerelease":false}\n' "$TAG" > "$META" || return 1
+        else
+            return 1
+        fi
     else
         download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META" || return 1
     fi
