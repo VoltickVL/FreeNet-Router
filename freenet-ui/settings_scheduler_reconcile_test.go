@@ -135,3 +135,61 @@ func TestReconcileSettingsV3SchedulerStopsOnUnknownCrontabRead(t *testing.T) {
 		t.Fatal("scheduler must not report mutation after unsafe read")
 	}
 }
+
+
+func TestReconcileSettingsV3SchedulerUsesSafeSubscriptionDefault(t *testing.T) {
+	dir := t.TempDir()
+	bin, state := writeFakeCrontab(t, dir)
+	t.Setenv("FREENET_CRONTAB_BIN", bin)
+	t.Setenv("FREENET_TEST_CRONTAB_STATE", state)
+	t.Setenv("FREENET_UI_BIN", "/opt/sbin/freenet-ui")
+
+	configPath := filepath.Join(dir, "freenet.conf")
+	if err := os.WriteFile(configPath, []byte("AUTO_VPN_V1=no\nAUTO_GEODATA_ENABLED=no\nAUTO_XKEEN_GEODATA=no\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state, []byte("11 1 * * * /opt/bin/user-job\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{ConfigPath: configPath}}
+	changed, err := a.reconcileSettingsV3Scheduler()
+	if err != nil || !changed {
+		t.Fatalf("strict reconcile changed=%v err=%v", changed, err)
+	}
+	got, err := os.ReadFile(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	if !strings.Contains(text, "0 */6 * * * '/opt/sbin/freenet-ui' settings-v3-subscription") {
+		t.Fatalf("missing safe default subscription schedule:\n%s", text)
+	}
+	if !strings.Contains(text, "11 1 * * * /opt/bin/user-job") {
+		t.Fatalf("unrelated cron was lost:\n%s", text)
+	}
+}
+
+func TestReconcileSettingsV3SchedulerPreservesExplicitSubscriptionOff(t *testing.T) {
+	dir := t.TempDir()
+	bin, state := writeFakeCrontab(t, dir)
+	t.Setenv("FREENET_CRONTAB_BIN", bin)
+	t.Setenv("FREENET_TEST_CRONTAB_STATE", state)
+	t.Setenv("FREENET_UI_BIN", "/opt/sbin/freenet-ui")
+
+	configPath := filepath.Join(dir, "freenet.conf")
+	if err := os.WriteFile(configPath, []byte("AUTO_VPN_V1=no\nAUTO_SUBSCRIPTION_REFRESH_ENABLED=no\nAUTO_GEODATA_ENABLED=no\nAUTO_XKEEN_GEODATA=no\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state, []byte("# BEGIN FREENET\n0 */6 * * * '/opt/sbin/freenet-ui' settings-v3-subscription\n# END FREENET\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{ConfigPath: configPath}}
+	changed, err := a.reconcileSettingsV3Scheduler()
+	if err != nil || !changed {
+		t.Fatalf("strict reconcile changed=%v err=%v", changed, err)
+	}
+	got, _ := os.ReadFile(state)
+	if strings.Contains(string(got), "settings-v3-subscription") {
+		t.Fatalf("explicit subscription off was overridden:\n%s", got)
+	}
+}
