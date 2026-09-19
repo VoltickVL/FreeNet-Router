@@ -169,7 +169,7 @@
     const controls = mountExactConnectControls();
     if (controls && controls.connect) {
       controls.connect.disabled = true;
-      controls.connect.textContent = 'Проверяем…';
+      controls.connect.textContent = 'Подключиться';
     }
     selectedCardText(`Проверяем: ${selectedProviderName}`, profileEndpoint(p), 'Проверяем доступность и конфигурацию сервера перед подключением.', 'checking');
 
@@ -181,7 +181,7 @@
         selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), reason, 'error');
         if (controls && controls.connect) {
           controls.connect.disabled = true;
-          controls.connect.textContent = 'Сервер недоступен';
+          controls.connect.textContent = 'Подключиться';
         }
         if (typeof showBox === 'function') showBox('providerNotice', `Не удалось проверить выбранный VPN-сервер: ${reason}`, 'bad');
         return;
@@ -196,7 +196,7 @@
       selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), 'Не удалось получить результат проверки. Текущий VPN не изменён.', 'error');
       if (controls && controls.connect) {
         controls.connect.disabled = true;
-        controls.connect.textContent = 'Сервер недоступен';
+        controls.connect.textContent = 'Подключиться';
       }
     } finally {
       exactChecking = false;
@@ -231,7 +231,7 @@
     providerApplying = true;
     if (controls && controls.connect) {
       controls.connect.disabled = true;
-      controls.connect.textContent = 'Подключаем…';
+      controls.connect.textContent = 'Подключиться';
     }
     if (typeof buttonsBusy === 'function') buttonsBusy(true);
     if (typeof hideBox === 'function') hideBox('notice');
