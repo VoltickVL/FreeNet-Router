@@ -132,6 +132,7 @@ const server = http.createServer((req,res)=>{
     assert.equal(await page.locator('#fnVpnPickerPopover').isHidden(),true,'VPN selector popover must be closed by default');
     const topbarHeightClosed = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
     await openPicker();
+    await page.locator('#profilesMenu').waitFor({state:'visible'});
     const topbarHeightOpen = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
     const selectorGeometry = await page.evaluate(() => {
       const pop=document.querySelector('#fnVpnPickerPopover').getBoundingClientRect();
@@ -139,9 +140,9 @@ const server = http.createServer((req,res)=>{
       const menu=document.querySelector('#profilesMenu').getBoundingClientRect();
       return {popWidth:pop.width,searchWidth:search.width,menuWidth:menu.width,menuScrollWidth:document.querySelector('#profilesMenu').scrollWidth};
     });
-    assert.ok(selectorGeometry.searchWidth > selectorGeometry.popWidth*0.85, 'search must use modal width');
-    assert.ok(selectorGeometry.menuWidth > selectorGeometry.popWidth*0.85, 'profile list must use modal width');
-    assert.ok(selectorGeometry.menuScrollWidth <= selectorGeometry.menuWidth + 1, 'profile list must not have horizontal scroll');
+    assert.ok(selectorGeometry.searchWidth > selectorGeometry.popWidth*0.85, 'search must use modal width: '+JSON.stringify(selectorGeometry));
+    assert.ok(selectorGeometry.menuWidth > selectorGeometry.popWidth*0.85, 'profile list must use modal width: '+JSON.stringify(selectorGeometry));
+    assert.ok(selectorGeometry.menuScrollWidth <= selectorGeometry.menuWidth + 1, 'profile list must not have horizontal scroll: '+JSON.stringify(selectorGeometry));
     assert.equal(topbarHeightOpen, topbarHeightClosed, 'opening VPN selector must not change topbar height');
     assert.equal(await page.locator('#bestServerAdvanced').evaluate(node => node.parentElement?.id), 'fnVpnPickerBody', 'exact selector must live inside the popover body');
     await page.locator('#profileSearch').fill('Литва');
