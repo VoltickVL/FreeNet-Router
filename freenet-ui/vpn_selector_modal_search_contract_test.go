@@ -9,7 +9,7 @@ func TestVPNSelectorModalSearchContract(t *testing.T) {
 	ux := string(vpnSelectorReconcileAsset)
 	for _, required := range []string{
 		"freenetVpnSelectorHotfix",
-		"web/vpn-selector-modal-search.js",
+		"renderProfileOptionsHotfix",
 		"германия",
 		"герман",
 		"Extra-профили не загружены",
