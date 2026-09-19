@@ -335,7 +335,7 @@
     if (!root || root.hidden || applying) return;
     if (event.target.closest?.('#xrayTopbarChip') || event.target.closest?.('#xrayCoreManager .xcm-modal')) return;
     closeManager();
-  });
+  }, true);
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || qs('#xrayCoreManager')?.hidden || applying) return;
     event.preventDefault();
