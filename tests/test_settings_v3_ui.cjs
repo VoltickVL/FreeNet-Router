@@ -197,7 +197,23 @@ const server = http.createServer((req, res) => {
     assert.equal(await settingsPage.locator('.fn3-extra-card').count(), 4);
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="system"]').count(), 0);
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="journal"]').count(), 1);
-    assert.equal(await page.locator('#fn3Journal tr').count(), 4, 'Settings mini-journal must stay compact at four rows');
+    assert.equal(await page.locator('#fn3Journal').count(), 0, 'Settings must not duplicate the AUTO VPN journal table');
+    assert.equal(await page.locator('#fn3AllEvents').count(), 1, 'Settings must keep one compact link to the shared Journal');
+    const settingsGeometry = await page.evaluate(() => {
+      const auto = document.querySelector('.fn3-left .fn3-card')?.getBoundingClientRect();
+      const current = document.querySelector('.fn3-right .fn3-card')?.getBoundingClientRect();
+      const maintenance = document.querySelector('.fn3-extra')?.getBoundingClientRect();
+      return {
+        autoWidth: Math.round(auto?.width || 0),
+        currentWidth: Math.round(current?.width || 0),
+        autoTop: Math.round(auto?.top || 0),
+        currentTop: Math.round(current?.top || 0),
+        maintenanceTop: Math.round(maintenance?.top || 0)
+      };
+    });
+    assert.ok(Math.abs(settingsGeometry.autoWidth - settingsGeometry.currentWidth) <= 2, `AUTO VPN and Current VPN must use the same full width: ${JSON.stringify(settingsGeometry)}`);
+    assert.ok(settingsGeometry.currentTop > settingsGeometry.autoTop, `Current VPN must follow AUTO VPN vertically: ${JSON.stringify(settingsGeometry)}`);
+    assert.ok(settingsGeometry.maintenanceTop > settingsGeometry.currentTop, `System maintenance must follow Current VPN: ${JSON.stringify(settingsGeometry)}`);
 
     const visibleProvider = await page.evaluate(() => [...document.querySelectorAll('.topbar *')].some(el => {
       if ((el.textContent || '').trim() !== 'Владлинк') return false;
@@ -214,7 +230,6 @@ const server = http.createServer((req, res) => {
       classes: [...document.querySelectorAll('#fn3CountryPop .fn3-country-flag')].map(n => n.className),
       checked: [...document.querySelectorAll('#fn3CountryPop .fn3-country-item input:checked')].map(n => n.value).sort(),
       itemFont: parseFloat(getComputedStyle(document.querySelector('#fn3CountryPop .fn3-country-item')).fontSize),
-      tableFont: parseFloat(getComputedStyle(document.querySelector('.fn3-table')).fontSize),
       extraFont: parseFloat(getComputedStyle(document.querySelector('.fn3-extra-card p')).fontSize)
     }));
     assert.ok(countryPicker.texts.some(text => text.includes('США')), `US missing from live catalog: ${JSON.stringify(countryPicker)}`);
@@ -227,7 +242,6 @@ const server = http.createServer((req, res) => {
     assert.ok(countryPicker.texts.every(text => !/^(PL|NL|FR|GB|US)\b/.test(text)), `country code leaked into picker copy: ${countryPicker.texts}`);
     assert.deepEqual(countryPicker.checked, ['fr','pl'], `saved selected countries were not preserved: ${countryPicker.checked}`);
     assert.ok(countryPicker.itemFont >= 11, `country picker typography too small: ${countryPicker.itemFont}px`);
-    assert.ok(countryPicker.tableFont >= 12, `journal typography too small: ${countryPicker.tableFont}px`);
     assert.ok(countryPicker.extraFont >= 10, `maintenance-card typography too small: ${countryPicker.extraFont}px`);
     await page.locator('#fn3CountriesApply').click();
 
@@ -264,7 +278,9 @@ const server = http.createServer((req, res) => {
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive repeated canonical navigation');
 
-    await page.locator('.nav-btn[data-page="journal"]').click();
+    await page.locator('.nav-btn[data-page="settings"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    await page.locator('#fn3AllEvents').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
     await page.waitForSelector('#fn3JournalSummary');
     const journalPage = await page.evaluate(() => ({
