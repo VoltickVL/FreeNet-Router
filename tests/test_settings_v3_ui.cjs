@@ -197,7 +197,23 @@ const server = http.createServer((req, res) => {
     assert.equal(await settingsPage.locator('.fn3-extra-card').count(), 4);
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="system"]').count(), 0);
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="journal"]').count(), 1);
-    assert.equal(await page.locator('#fn3Journal tr').count(), 4, 'Settings mini-journal must stay compact at four rows');
+    assert.equal(await page.locator('#fn3Journal').count(), 0, 'Settings must not duplicate the AUTO VPN journal table');
+    assert.equal(await page.locator('#fn3AllEvents').count(), 1, 'Settings must keep one compact link to the shared Journal');
+    const settingsGeometry = await page.evaluate(() => {
+      const auto = document.querySelector('.fn3-left .fn3-card')?.getBoundingClientRect();
+      const current = document.querySelector('.fn3-right .fn3-card')?.getBoundingClientRect();
+      const maintenance = document.querySelector('.fn3-extra')?.getBoundingClientRect();
+      return {
+        autoWidth: Math.round(auto?.width || 0),
+        currentWidth: Math.round(current?.width || 0),
+        autoTop: Math.round(auto?.top || 0),
+        currentTop: Math.round(current?.top || 0),
+        maintenanceTop: Math.round(maintenance?.top || 0)
+      };
+    });
+    assert.ok(Math.abs(settingsGeometry.autoWidth - settingsGeometry.currentWidth) <= 2, `AUTO VPN and Current VPN must use the same full width: ${JSON.stringify(settingsGeometry)}`);
+    assert.ok(settingsGeometry.currentTop > settingsGeometry.autoTop, `Current VPN must follow AUTO VPN vertically: ${JSON.stringify(settingsGeometry)}`);
+    assert.ok(settingsGeometry.maintenanceTop > settingsGeometry.currentTop, `System maintenance must follow Current VPN: ${JSON.stringify(settingsGeometry)}`);
 
     const visibleProvider = await page.evaluate(() => [...document.querySelectorAll('.topbar *')].some(el => {
       if ((el.textContent || '').trim() !== 'Владлинк') return false;
@@ -264,7 +280,9 @@ const server = http.createServer((req, res) => {
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive repeated canonical navigation');
 
-    await page.locator('.nav-btn[data-page="journal"]').click();
+    await page.locator('.nav-btn[data-page="settings"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    await page.locator('#fn3AllEvents').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
     await page.waitForSelector('#fn3JournalSummary');
     const journalPage = await page.evaluate(() => ({
