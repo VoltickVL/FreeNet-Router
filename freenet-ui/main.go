@@ -140,6 +140,7 @@ type selfUpdatePlanResponse struct {
 	LatestVersion    string `json:"latest_version"`
 	TargetTag        string `json:"target_tag"`
 	UpdateAvailable  bool   `json:"update_available"`
+	Direction        string `json:"direction,omitempty"`
 	ManifestVerified bool   `json:"manifest_verified"`
 	ExpectedDelta    string `json:"expected_delta,omitempty"`
 	ExpectedNoDelta  string `json:"expected_no_delta,omitempty"`
@@ -252,6 +253,7 @@ func main() {
 	mux.HandleFunc("POST /api/subscription", a.requireAuth(a.handleSubscriptionPost))
 	mux.HandleFunc("POST /api/action", a.requireAuth(a.handleAction))
 	mux.HandleFunc("GET /api/system/update/plan", a.requireAuth(a.handleSelfUpdatePlan))
+	mux.HandleFunc("GET /api/system/update/releases", a.requireAuth(a.handleSelfUpdateReleases))
 	mux.HandleFunc("POST /api/system/update/apply", a.requireAuth(a.handleSelfUpdateApply))
 	mux.HandleFunc("POST /api/system/update/recover", a.requireAuth(a.handleSelfUpdateRecover))
 	mux.HandleFunc("GET /api/system/update/state", a.requireAuth(a.handleSelfUpdateState))
@@ -466,14 +468,23 @@ func (a *app) selfUpdateCommand(args ...string) *exec.Cmd {
 	return cmd
 }
 
-func (a *app) handleSelfUpdatePlan(w http.ResponseWriter, _ *http.Request) {
+func (a *app) handleSelfUpdatePlan(w http.ResponseWriter, r *http.Request) {
+	target := strings.TrimSpace(r.URL.Query().Get("target"))
+	if target != "" && !validReleaseTag(target) {
+		writeJSON(w, http.StatusBadRequest, selfUpdatePlanResponse{Success: false, Ready: false, CurrentVersion: "v" + version, Error: "invalid target release"})
+		return
+	}
 	if _, err := os.Stat(a.cfg.SelfUpdatePath); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, selfUpdatePlanResponse{Success: false, Ready: false, CurrentVersion: "v" + version, Error: "self update helper is not installed"})
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/sh", a.cfg.SelfUpdatePath, "plan")
+	args := []string{a.cfg.SelfUpdatePath, "plan"}
+	if target != "" {
+		args = append(args, target)
+	}
+	cmd := exec.CommandContext(ctx, "/bin/sh", args...)
 	cmd.Env = a.selfUpdateCommand().Env
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -488,6 +499,7 @@ func (a *app) handleSelfUpdatePlan(w http.ResponseWriter, _ *http.Request) {
 		LatestVersion:    kv["LATEST_VERSION"],
 		TargetTag:        kv["TARGET_TAG"],
 		UpdateAvailable:  boolKV(kv["UPDATE_AVAILABLE"]),
+		Direction:        strings.TrimSpace(kv["DIRECTION"]),
 		ManifestVerified: boolKV(kv["MANIFEST_VERIFIED"]),
 		ExpectedDelta:    kv["EXPECTED_DELTA"],
 		ExpectedNoDelta:  kv["EXPECTED_NO_DELTA"],
