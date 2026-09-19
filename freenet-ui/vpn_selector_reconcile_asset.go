@@ -8,4 +8,16 @@ var vpnSelectorReconcileBase []byte
 //go:embed web/vpn-selector-modal-search.js
 var vpnSelectorModalSearchPatch []byte
 
-var vpnSelectorReconcileAsset = append(append(append([]byte{}, vpnSelectorReconcileBase...), '\n'), vpnSelectorModalSearchPatch...)
+//go:embed web/topbar-settings-profile-cache.js
+var topbarSettingsProfileCachePatch []byte
+
+func combinedVPNSelectorReconcileAsset() []byte {
+	asset := append([]byte{}, vpnSelectorReconcileBase...)
+	asset = append(asset, '\n')
+	asset = append(asset, vpnSelectorModalSearchPatch...)
+	asset = append(asset, '\n')
+	asset = append(asset, topbarSettingsProfileCachePatch...)
+	return asset
+}
+
+var vpnSelectorReconcileAsset = combinedVPNSelectorReconcileAsset()
