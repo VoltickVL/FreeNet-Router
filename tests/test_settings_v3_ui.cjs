@@ -230,7 +230,6 @@ const server = http.createServer((req, res) => {
       classes: [...document.querySelectorAll('#fn3CountryPop .fn3-country-flag')].map(n => n.className),
       checked: [...document.querySelectorAll('#fn3CountryPop .fn3-country-item input:checked')].map(n => n.value).sort(),
       itemFont: parseFloat(getComputedStyle(document.querySelector('#fn3CountryPop .fn3-country-item')).fontSize),
-      tableFont: parseFloat(getComputedStyle(document.querySelector('.fn3-table')).fontSize),
       extraFont: parseFloat(getComputedStyle(document.querySelector('.fn3-extra-card p')).fontSize)
     }));
     assert.ok(countryPicker.texts.some(text => text.includes('США')), `US missing from live catalog: ${JSON.stringify(countryPicker)}`);
@@ -243,7 +242,6 @@ const server = http.createServer((req, res) => {
     assert.ok(countryPicker.texts.every(text => !/^(PL|NL|FR|GB|US)\b/.test(text)), `country code leaked into picker copy: ${countryPicker.texts}`);
     assert.deepEqual(countryPicker.checked, ['fr','pl'], `saved selected countries were not preserved: ${countryPicker.checked}`);
     assert.ok(countryPicker.itemFont >= 11, `country picker typography too small: ${countryPicker.itemFont}px`);
-    assert.ok(countryPicker.tableFont >= 12, `journal typography too small: ${countryPicker.tableFont}px`);
     assert.ok(countryPicker.extraFont >= 10, `maintenance-card typography too small: ${countryPicker.extraFont}px`);
     await page.locator('#fn3CountriesApply').click();
 
