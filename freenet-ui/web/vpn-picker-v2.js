@@ -70,7 +70,7 @@
   }
   function profileSource() {
     let profiles = [], stale = false;
-    try { profiles = Array.isArray(extraProfiles) ? extraProfiles : []; stale = !!lastNetworkPlan?.profiles_stale; } catch (_) {}
+    try { profiles = Array.isArray(extraProfiles) ? extraProfiles : []; stale = !!networkPlanError || !!lastNetworkPlan?.profiles_error || !!lastNetworkPlan?.profiles_stale; } catch (_) {}
     if (!profiles.length) {
       try { const cache = JSON.parse(localStorage.getItem('freenet-extra-profiles-last-good-v1') || '{}'); profiles = Array.isArray(cache.profiles) ? cache.profiles : []; stale = profiles.length > 0; } catch (_) {}
     }
