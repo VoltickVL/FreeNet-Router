@@ -1,4 +1,6 @@
-// Browser regression tests for the shipped page and its real script load order.
+// Shared-engine compatibility regression harness; production HTML/v2 is tested
+// by test_control_center_production.cjs using the actual Go handlers.
+// Cache/compatibility presentation must precede the coordinator, as in handleIndex.
 // API fixtures use documentation-only addresses; no router or live VPN is contacted.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -17,7 +19,7 @@ let status = {version:'0.2.88',country:'Польша',city:'Варшава',coun
 const server = http.createServer((req,res)=>{
   const url = new URL(req.url,'http://localhost');
   if(url.pathname==='/') {
-    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>', ['self-update.js','vpn-ux-fix.js','operation-coordinator.js','topbar-settings-profile-cache.js','xray-core-manager.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
+    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>', ['self-update.js','vpn-ux-fix.js','topbar-settings-profile-cache.js','operation-coordinator.js','xray-core-manager.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
     res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);return;
   }
   if(['/self-update.js','/vpn-ux-fix.js','/operation-coordinator.js','/topbar-settings-profile-cache.js','/xray-core-manager.js'].includes(url.pathname)){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(path.join(web,url.pathname.slice(1))));return;}
