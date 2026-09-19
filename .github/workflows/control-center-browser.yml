@@ -27,15 +27,20 @@ jobs:
         run: |
           npm install --prefix "$RUNNER_TEMP/freenet-production-browser" --no-package-lock --ignore-scripts playwright@1.51.1
           node "$RUNNER_TEMP/freenet-production-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Record reproducible source snapshot
+        run: |
+          mkdir -p test-artifacts/control-center
+          git rev-parse HEAD > test-artifacts/control-center/SOURCE_HEAD
+          git archive --format=tar.gz HEAD > test-artifacts/control-center/source.tar.gz
       - name: Production handlers and complete VPN lifecycle
         env:
           NODE_PATH: ${{ runner.temp }}/freenet-production-browser/node_modules
-          FREENET_PREVIEW_LOGS: 'yes'
-        run: node tests/test_control_center_production.cjs
-      - name: Upload synthetic UI screenshots
+        run: |
+          node tests/test_control_center_production.cjs 2>&1 | tee test-artifacts/control-center/browser.log
+      - name: Upload synthetic UI screenshots and reproduction bundle
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: control-center-production-browser
           path: test-artifacts/control-center/
-          if-no-files-found: ignore
+          if-no-files-found: error
