@@ -60,3 +60,24 @@ func TestUnifiedModalAndReconnectUX(t *testing.T) {
 		}
 	}
 }
+
+
+func TestVPNTopbarSimpleButtonBodyModalContract(t *testing.T) {
+	data, err := webFS.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ux := string(data)
+	for _, required := range []string{
+		`class="fn-vpn-button-label">VPN</strong>`,
+		`popover.parentNode !== document.body`,
+		`document.body.appendChild(popover)`,
+		`path.includes(popover)`,
+		`Promise.resolve(loadNetworkPlan())`,
+		`#fnVpnPickerToggle{appearance:none;width:96px`,
+	} {
+		if !strings.Contains(ux, required) {
+			t.Fatalf("VPN simple-button/body-modal contract missing %q", required)
+		}
+	}
+}

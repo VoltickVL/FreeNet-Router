@@ -19,13 +19,15 @@ func TestVPNSelectorModalSearchContract(t *testing.T) {
 		".fn-topbar-vpn-picker",
 		"selectProviderProfile(profile)",
 		"freenetIssue601Styles",
-		"keepDialogInsideHost",
+		"keepDialogInBody",
+		"popover.parentNode !== document.body",
 		".topbar.overview-approved{justify-content:flex-end!important}",
-		"html.fn-vpn-picker-open #fnVpnPickerHost{z-index:1400!important}",
+		"#fnVpnPickerToggle{width:96px!important",
 		"overview-approved-top.fn-shell-summary{margin-left:0!important",
 		"grid-template-columns:1fr!important",
 		"#fnVpnPickerPopover #profilesTrigger{display:none!important",
 		"requestAnimationFrame(openProfileResults)",
+		"VPN",
 	} {
 		if !strings.Contains(ux, required) {
 			t.Fatalf("VPN selector modal/search contract missing %q", required)

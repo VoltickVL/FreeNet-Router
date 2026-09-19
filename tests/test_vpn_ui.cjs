@@ -300,9 +300,9 @@ const server = http.createServer((req,res)=>{
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'no horizontal overflow on mobile');
     assert.equal(await page.locator('.best-v4-pill:visible').evaluateAll(nodes=>nodes.every(n=>n.scrollWidth<=n.clientWidth)),true,'metric values must not overlap adjacent metrics on mobile');
     await openPicker();
-    await page.locator('#profilesTrigger').click();
+    await page.locator('#profilesMenu').waitFor({state:'visible'});
     assert.doesNotMatch(await page.locator('#profilesMenu').textContent(),/Россия/);
-    await page.locator('#profilesTrigger').click();
+    await page.locator('#profilesMenu').waitFor({state:'visible'});
     await page.keyboard.press('Escape');
     for(const kind of ['ru']){
       bestMode=kind;await page.locator('#bestServerRefresh').click();
@@ -355,7 +355,7 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
     const providerErrorPosts=calls.filter(c=>c.method==='POST').length;
     await openPicker();
-    await page.locator('#profilesTrigger').click();
+    await page.locator('#profilesMenu').waitFor({state:'visible'});
     await page.locator('[data-profile-id="fixture-lt"]').click();
     assert.equal(await page.locator('#fnVpnPickerPopover').isVisible(),true,'profile selection rerender must not be mistaken for an outside click');
     await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-error'));
@@ -379,7 +379,7 @@ const server = http.createServer((req,res)=>{
       await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
       const postsBefore=calls.filter(c=>c.method==='POST').length;
       await openPicker();
-      await page.locator('#profilesTrigger').click();
+      await page.locator('#profilesMenu').waitFor({state:'visible'});
       await page.locator('[data-profile-id="fixture-lt"]').click();
       assert.equal(await page.locator('#fnVpnPickerPopover').isVisible(),true,'exact candidate checking must remain inside the open popover');
       await page.waitForFunction(()=>!document.querySelector('#exactConnectBtn').disabled);
