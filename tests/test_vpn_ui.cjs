@@ -121,9 +121,9 @@ const server = http.createServer((req,res)=>{
     assert.equal(errors.length,0,errors.join('\n'));
     assert.equal(await page.locator('#bestServerShell').count(),1);
     assert.equal(await page.locator('#fnVpnPickerToggle').isVisible(),true,'topbar must expose one stable VPN selector control');
-    await page.waitForFunction(()=>document.querySelector('.overview-approved-top.fn-shell-summary')?.dataset.vpnOrder==='xray-vpn-dns-freenet');
+    await page.waitForFunction(()=>document.querySelector('#overviewApprovedTop')?.dataset.vpnOrder==='xray-vpn-dns-freenet');
     const topbarOrder = await page.evaluate(() => {
-      const summary=document.querySelector('.overview-approved-top.fn-shell-summary');
+      const summary=document.querySelector('#overviewApprovedTop');
       return Array.from(summary.children).map(node => node.matches('.fn-xray-topbar')?'xray':node.id==='fnVpnPickerHost'?'vpn':node.id==='topFreenetUpdate'?'freenet':/DNS/i.test(node.textContent||'')?'dns':'other').filter(x=>x!=='other');
     });
     assert.deepEqual(topbarOrder,['xray','vpn','dns','freenet'],'topbar order must be Xray -> VPN -> DNS -> FreeNet');
