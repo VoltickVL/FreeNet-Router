@@ -62,6 +62,7 @@ type networkPlanResponse struct {
 	NativeFilterEngineChoices         []string                   `json:"native_filter_engine_choices,omitempty"`
 	ExtraProfiles                     []subscriptionProfile      `json:"extra_profiles,omitempty"`
 	ProfilesError                     string                     `json:"profiles_error,omitempty"`
+	ProfilesStale                     bool                       `json:"profiles_stale,omitempty"`
 	ProviderPlan                      *providerPlanResponse       `json:"provider_plan,omitempty"`
 	SetupFinalizePlan                 *setupFinalizePlanResponse `json:"setup_finalize_plan,omitempty"`
 	Error                             string                     `json:"error,omitempty"`
@@ -212,12 +213,18 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 
 	if subscriptionConfigured(a.cfg.SubPath) {
 		ctx, cancel := context.WithTimeout(context.Background(), 32*time.Second)
-		profiles, profileErr := a.discoverSubscriptionProfiles(ctx)
+		catalog, profileErr := a.refreshSubscriptionProfiles(ctx)
 		cancel()
+		if len(catalog.Profiles) > 0 {
+			plan.ExtraProfiles = catalog.Profiles
+		}
 		if profileErr != nil {
-			plan.ProfilesError = profileErr.Error()
-		} else {
-			plan.ExtraProfiles = profiles
+			if catalog.Stale && len(catalog.Profiles) > 0 {
+				plan.ProfilesError = "fresh subscription catalog unavailable; using last known good profiles"
+				plan.ProfilesStale = true
+			} else {
+				plan.ProfilesError = profileErr.Error()
+			}
 		}
 	}
 
