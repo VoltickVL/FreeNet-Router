@@ -59,6 +59,27 @@ func installAutomationCrontabStrict(ctx context.Context, data []byte) error {
 	return nil
 }
 
+func (a *app) settingsV3SchedulerCurrent() (bool, error) {
+	if a == nil {
+		return false, errors.New("FreeNet app is unavailable")
+	}
+	if _, err := os.Stat(a.cfg.ConfigPath); err != nil {
+		return false, errors.New("FreeNet config is unavailable")
+	}
+
+	readCtx, cancelRead := context.WithTimeout(context.Background(), settingsSchedulerReconcileTimeout)
+	existing, err := readAutomationCrontabStrict(readCtx)
+	cancelRead()
+	if err != nil {
+		return false, err
+	}
+	desired, err := buildManagedAutomationCronV3(a, existing, settingsV3ManagedCronValuesFromConfig(a.cfg.ConfigPath))
+	if err != nil {
+		return false, fmt.Errorf("cannot build canonical scheduler: %w", err)
+	}
+	return bytes.Equal(existing, desired), nil
+}
+
 func (a *app) reconcileSettingsV3Scheduler() (bool, error) {
 	if _, err := os.Stat(a.cfg.ConfigPath); err != nil {
 		return false, errors.New("FreeNet config is unavailable")
