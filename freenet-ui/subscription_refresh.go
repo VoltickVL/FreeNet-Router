@@ -157,7 +157,6 @@ func (a *app) refreshSubscriptionProfiles(ctx context.Context) (subscriptionRefr
 }
 
 func subscriptionNextCronRun(interval string, now time.Time) string {
-	now = now.Local()
 	var next time.Time
 	switch strings.TrimSpace(interval) {
 	case "30m":
