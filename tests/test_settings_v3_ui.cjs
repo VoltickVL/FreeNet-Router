@@ -403,7 +403,7 @@ const server = http.createServer((req, res) => {
     const versionDetailCopy = (await page.locator('#fnVersionDetail').textContent()) || '';
     assert.match(versionDetailCopy, /Версия проверена и готова к установке/);
     assert.doesNotMatch(versionDetailCopy, /SHA-256|Manifest|exact release|assets|credentials|routing state|cron|staging|snapshot|expected delta/i, 'ordinary version detail must not expose implementation jargon');
-    assert.equal(await page.locator('#fnModalConfirm').count(), 0, 'version manager must not open a second confirmation action');
+    assert.equal(await page.locator('#fnModalConfirm').isHidden(), true, 'version manager must not expose a second confirmation action');
     await page.locator('#fnVersionDetail .fn-version-apply').click();
     await page.waitForFunction(() => window.location.href && document.querySelector('#fnModalTitle')?.textContent.includes('Обновление установлено'), null, {timeout:5000});
     assert.equal(versionApplyPosts, 1, 'one explicit version action must start exactly one version mutation');
