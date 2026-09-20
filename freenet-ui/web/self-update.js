@@ -506,8 +506,8 @@
     openModal({
       kicker: 'Обновление FreeNet',
       title: `${plan.current_version || 'текущая версия'} → ${plan.latest_version || plan.target_tag}`,
-      body: 'FreeNet обновит только собственные файлы. Перед изменением будет создан backup, релиз и SHA-256 будут проверены, затем Control Center кратко перезапустится и автоматически подтвердит целевую версию.',
-      meta: `SHA-256: ${plan.manifest_verified ? 'проверен' : 'не подтверждён'}\nИзменится: ${plan.expected_delta || 'файлы FreeNet'}\nНе изменится: ${plan.expected_no_delta || 'XKeen/Xray, подписка, ISP/DNS/routing'}`,
+      body: 'Версия проверена и готова к установке. FreeNet создаст резервную копию, обновится и автоматически проверит результат.',
+      meta: 'Ваши настройки VPN, DNS и маршрутизации сохраняются.',
       confirmText: `Установить ${plan.target_tag}`,
       onConfirm: startUpdate
     });
@@ -573,7 +573,7 @@
       renderPlan(p);
       updateNotice(p.update_available ? `Обновление ${p.target_tag} готово к установке после вашего подтверждения.` : 'Установлена актуальная версия FreeNet.', 'ok');
       if (p.update_available) openUpdateConfirmModal();
-      else openModal({kicker: 'Обновление FreeNet', title: 'Установлена актуальная версия', body: `${p.current_version || 'FreeNet'} уже является последним опубликованным релизом.`, meta: p.manifest_verified ? 'SHA-256 manifest проверен.' : '', closable: true});
+      else openModal({kicker: 'Обновление FreeNet', title: 'Установлена актуальная версия', body: `${p.current_version || 'FreeNet'} уже является последним опубликованным релизом.`, meta: 'Проверка завершена.', closable: true});
     } catch (e) {
       setUpdateSummary('Проверка не удалась', 'bad');
       updateNotice(e.message || 'Ошибка проверки обновления', 'bad');
@@ -602,8 +602,8 @@
     if (applyBtn) applyBtn.disabled = true;
     const isDowngrade = plan.direction === 'downgrade';
     setUpdateSummary(isDowngrade ? 'Запускаем откат версии…' : 'Запускаем обновление…');
-    updateNotice(isDowngrade ? 'Запускаем безопасный downgrade. FreeNet кратко перезапустится.' : 'Запускаем безопасное обновление. FreeNet кратко перезапустится.');
-    modalProgress(`Устанавливаем ${plan.target_tag}…`, 'Создаём backup, проверяем exact staging и применяем выбранную версию. Краткая потеря связи/502 во время перезапуска ожидаема и сама по себе не считается ошибкой.');
+    updateNotice(isDowngrade ? 'Возвращаем выбранную версию. FreeNet кратко перезапустится.' : 'Устанавливаем обновление. FreeNet кратко перезапустится.');
+    modalProgress(`Устанавливаем ${plan.target_tag}…`, 'Подготавливаем обновление и создаём резервную копию. После перезапуска FreeNet автоматически проверит результат.');
     try {
       const r = await fetch('/api/system/update/apply', {
         method: 'POST',
@@ -964,12 +964,12 @@
     const label = versionActionLabel(p);
     const downgrade = p.direction === 'downgrade';
     openModal({
-      kicker: 'FreeNet · версии',
+      kicker: 'FreeNet',
       title: label,
-      body: `${p.current_version || 'текущая версия'} → ${p.target_tag}\n\nFreeNet установит только exact release после проверки SHA-256 и staging. Перед изменением будет создан snapshot FreeNet-owned файлов. После перезапуска FreeNet подтвердит выбранную версию и неизменность Xray-конфигурации.`,
+      body: `${p.current_version || 'Текущая версия'} → ${p.target_tag}\n\nВерсия проверена и готова к установке. FreeNet создаст резервную копию, перезапустится и автоматически проверит результат.`,
       meta: downgrade
-        ? 'Это downgrade. При любой ошибке применяется автоматический rollback. ROLLBACK FAILED/UNKNOWN блокирует дальнейшие изменения.'
-        : 'Это upgrade. При любой ошибке применяется автоматический rollback. Пользовательские VPN/DNS/routing настройки не входят в expected delta.',
+        ? 'Если установка не завершится успешно, FreeNet автоматически вернёт предыдущую рабочую версию.'
+        : 'Ваши настройки VPN, DNS и маршрутизации сохраняются.',
       confirmText: label,
       cancelText: 'Отмена',
       onConfirm: async () => {
@@ -983,7 +983,7 @@
   async function selectVersionTarget(release, detail) {
     versionTargetPlan = null;
     detail.className = 'fn-version-detail checking';
-    detail.textContent = `Проверяем exact release ${release.version}: manifest, SHA-256 и обязательные assets…`;
+    detail.textContent = `Проверяем версию ${release.version}…`;
     requestAnimationFrame(positionVersionPicker);
     try {
       const r = await fetch(`/api/system/update/plan?target=${encodeURIComponent(release.version)}`, {cache:'no-store'});
@@ -999,8 +999,8 @@
       title.textContent = p.direction === 'same' ? `${p.target_tag} уже установлена` : versionActionLabel(p);
       const text = document.createElement('span');
       text.textContent = p.direction === 'same'
-        ? 'Текущая версия. Повторная установка не выполняется.'
-        : `Manifest SHA-256 подтверждён. ${p.expected_no_delta || 'VPN/DNS/routing и Xray-конфигурация не должны измениться.'}`;
+        ? 'Эта версия уже установлена.'
+        : 'Версия проверена и готова к установке.';
       detail.append(title, text);
       if (p.update_available) {
         const action = document.createElement('button');
@@ -1013,7 +1013,7 @@
       requestAnimationFrame(positionVersionPicker);
     } catch (e) {
       detail.className = 'fn-version-detail bad';
-      detail.textContent = `Эту версию нельзя применить безопасно: ${e.message || 'compatibility plan не подтверждён'}.`;
+      detail.textContent = `Эту версию сейчас нельзя установить: ${e.message || 'проверка не пройдена'}.`;
       requestAnimationFrame(positionVersionPicker);
     }
   }
