@@ -96,7 +96,11 @@ const server = http.createServer((req, res) => {
     releases:[
       {version:'v0.3.98',published_at:'2026-09-19T00:00:00Z',current:false,latest:true},
       {version:'v0.3.43',published_at:'2026-08-19T00:00:00Z',current:installedFreeNetVersion==='v0.3.43',latest:false},
-      {version:'v0.3.42',published_at:'2026-08-18T00:00:00Z',current:installedFreeNetVersion==='v0.3.42',latest:false}
+      {version:'v0.3.42',published_at:'2026-08-18T00:00:00Z',current:installedFreeNetVersion==='v0.3.42',latest:false},
+      {version:'v0.3.41',published_at:'2026-08-17T00:00:00Z',current:false,latest:false},
+      {version:'v0.3.40',published_at:'2026-08-16T00:00:00Z',current:false,latest:false},
+      {version:'v0.3.39',published_at:'2026-08-15T00:00:00Z',current:false,latest:false},
+      {version:'v0.3.38',published_at:'2026-08-14T00:00:00Z',current:false,latest:false}
     ]
   });
   if (url.pathname === '/api/system/update/plan' && req.method === 'GET') {
@@ -335,7 +339,14 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => document.querySelector('#topFreenetUpdate')?.textContent.includes('v0.3.43'));
     await page.locator('#topFreenetUpdate').click();
     await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.42"]');
-    assert.equal(versionApplyPosts, 0, 'opening FreeNet version catalog must be read-only');
+    assert.equal(await page.locator('#fnVersionList .fn-version-release').count(), 5, 'FreeNet version dropdown must show only five releases initially');
+    await page.locator('#fnVersionSearch').fill('v0.3.38');
+    await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.38"]');
+    assert.equal(await page.locator('#fnVersionList .fn-version-release').count(), 1, 'version search must query the full catalog beyond the initial five');
+    await page.locator('#fnVersionSearch').fill('');
+    await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.42"]');
+    assert.equal(await page.locator('#fnVersionList .fn-version-release').count(), 5, 'clearing search must restore the five-release compact list');
+    assert.equal(versionApplyPosts, 0, 'opening/searching FreeNet version catalog must be read-only');
     assert.match(await page.locator('#topFreenetUpdate').textContent(), /v0\.3\.43/, 'catalog open must not change current topbar version');
     assert.equal(await page.locator('#fnModalRoot').evaluate(el => el.classList.contains('fn-version-picker-mode')), true, 'FreeNet versions must use anchored dropdown mode');
     assert.equal(await page.locator('#fnModalRoot .fn-modal-backdrop').evaluate(el => getComputedStyle(el).display), 'none', 'FreeNet version browse must not dim the whole page');
@@ -345,7 +356,7 @@ const server = http.createServer((req, res) => {
       const chip = document.querySelector('#topFreenetUpdate').getBoundingClientRect();
       return {width:panel.width,right:panel.right,bottom:panel.bottom,top:panel.top,chipBottom:chip.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,rootPointer:getComputedStyle(document.querySelector('#fnModalRoot')).pointerEvents,panelPointer:getComputedStyle(document.querySelector('#fnModalRoot .fn-modal')).pointerEvents};
     });
-    assert.ok(freeNetPickerGeometry.width <= 500.5, `FreeNet version dropdown too wide: ${JSON.stringify(freeNetPickerGeometry)}`);
+    assert.ok(freeNetPickerGeometry.width <= 470.5, `FreeNet version dropdown too wide: ${JSON.stringify(freeNetPickerGeometry)}`);
     assert.ok(freeNetPickerGeometry.right <= freeNetPickerGeometry.viewportWidth && freeNetPickerGeometry.bottom <= freeNetPickerGeometry.viewportHeight, `FreeNet dropdown must stay inside viewport: ${JSON.stringify(freeNetPickerGeometry)}`);
     assert.equal(freeNetPickerGeometry.rootPointer, 'none', 'FreeNet dropdown root must not block the page');
     assert.notEqual(freeNetPickerGeometry.panelPointer, 'none', 'FreeNet dropdown panel must remain interactive');
@@ -354,6 +365,15 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => document.querySelector('#fnVersionDetail')?.textContent.includes('Откатить до v0.3.42'));
     assert.equal(versionApplyPosts, 0, 'target compatibility plan must remain read-only');
     assert.match(await page.locator('#topFreenetUpdate').textContent(), /v0\.3\.43/, 'selected downgrade target must not replace current version');
+    const actionGeometry = await page.evaluate(() => {
+      const panel = document.querySelector('#fnModalRoot .fn-modal');
+      const action = document.querySelector('#fnVersionDetail .fn-version-apply');
+      const pr = panel.getBoundingClientRect();
+      const ar = action.getBoundingClientRect();
+      return {panelBottom:pr.bottom,actionBottom:ar.bottom,scrollHeight:panel.scrollHeight,clientHeight:panel.clientHeight,viewportHeight:innerHeight};
+    });
+    assert.ok(actionGeometry.actionBottom <= actionGeometry.panelBottom + 1, `version action button must be fully visible inside dropdown: ${JSON.stringify(actionGeometry)}`);
+    assert.ok(actionGeometry.scrollHeight <= actionGeometry.clientHeight + 1, `desktop version browse/plan state must fit without panel scrolling: ${JSON.stringify(actionGeometry)}`);
     await page.locator('#fnVersionDetail .fn-version-apply').click();
     await page.waitForFunction(() => document.querySelector('#fnModalTitle')?.textContent.includes('Откатить до v0.3.42'));
     assert.equal(versionApplyPosts, 0, 'opening downgrade confirmation must not mutate FreeNet');
