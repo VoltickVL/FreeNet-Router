@@ -189,7 +189,7 @@
     const current = catalog.current_version || '—';
     const latest = catalog.latest_version || '—';
     syncTopbarVersion(catalog.current_version || '');
-    summary.innerHTML = '<span>Текущая версия</span><b></b><span>Последняя версия</span><b></b>';
+    summary.innerHTML = '<div>Установлена <b></b></div><div>Доступна <b></b></div>';
     const summaryValues = summary.querySelectorAll('b');
     summaryValues[0].textContent = current;
     summaryValues[1].textContent = latest;
