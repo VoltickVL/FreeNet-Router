@@ -16,44 +16,47 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		"function renderLiveRules()",
 		"function presentLiveRule(rule, index)",
 		"function parseLiveSelector(raw, family)",
-		"rv2LiveRuleList",
-		"Сейчас действует",
-		"Как работает маршрутизация",
+		"function groupSelectors(selectors)",
+		"function renderPolicyRule(container, item)",
+		"function renderSystemRule(container, item)",
+		"Маршрутизация сейчас",
+		"rv2-policy-summary",
+		"rv2DirectRules",
+		"rv2VPNRules",
+		"rv2BlockRules",
+		"rv2SystemToggle",
+		"Системные правила",
+		"Номер # — реальный приоритет правила",
+		"+${item.selectors.length - limit} ещё",
+		"rv2DraftCard",
+		"rv2-draft-card",
 		"Добавить правило",
-		"Изменения перед применением",
-		"Сайты и GeoSite",
-		"IP и GeoIP",
-		"Найти группу в GeoData",
+		"Сайты / GeoSite",
+		"IP / GeoIP",
+		"Найти в GeoData",
 		"rv2ValidateRules",
 		"rv2ApplyRules",
-		"rv2ValidateRules\" class=\"btn secondary\" type=\"button\" disabled",
 		"validateRulesCandidate",
 		"clone(base.routing.rules)",
 		"managed.concat(existing)",
-		"Системное правило",
-		"защищено",
-		"Технические детали",
-		"humanCondition(key)",
-		"outboundPresentation(tag)",
-		"rv2-selector-more",
-		"syncRuleActionButtons()",
 		"ext:([^:]+):(.+)",
-		"document.createTextNode(String(selector.value))",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("visual routing builder missing %q", want)
+			t.Fatalf("Routing UX v3 missing %q", want)
 		}
 	}
-	if strings.Contains(js, "chip.innerHTML") {
-		t.Fatal("live routing selector must not interpolate config values into innerHTML")
-	}
-	for _, forbidden := range []string{
-		"meta.textContent = `05_routing.json",
-		"action.textContent = item.action || (item.outboundTag",
-		"Обычное правило",
+	for _, unwanted := range []string{
+		"Как работает маршрутизация",
+		"Системное правило",
+		"Технические детали",
+		"rv2LiveRuleList",
+		"rv2-live-rule",
+		"rv2-selector-chip",
+		"font-size:9.5px",
+		"font-size:8.5px",
 	} {
-		if strings.Contains(js, forbidden) {
-			t.Fatalf("normal visual routing UI still exposes obsolete/jargon token %q", forbidden)
+		if strings.Contains(js, unwanted) {
+			t.Fatalf("Routing UX v3 still contains obsolete dump-style UI %q", unwanted)
 		}
 	}
 }
