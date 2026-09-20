@@ -32,12 +32,11 @@
       [data-page-view="network"].fn-routing-v2>.card.fn-routing-v2-legacy{display:none!important}
       .rv2-workspace{display:grid;gap:14px}
       .rv2-modebar{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:5px 0 1px}
-      .rv2-modes,.rv2-tabs,.rv2-actions,.rv2-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-      .rv2-mode,.rv2-tab,.rv2-action,.rv2-icon-btn{appearance:none;border:1px solid #2b405e;background:#0c1726;color:#a9b7ca;border-radius:10px;cursor:pointer;font:inherit;font-weight:750}
-      .rv2-mode{padding:10px 15px;font-size:13px}.rv2-tab{padding:8px 12px;font-size:12px}.rv2-action{padding:9px 13px;font-size:12px}.rv2-icon-btn{min-width:32px;height:32px;padding:0 8px;font-size:13px}
-      .rv2-mode:hover,.rv2-tab:hover,.rv2-action:hover,.rv2-icon-btn:hover{border-color:#4f75a4;color:#eef5ff;background:#11243d}
+      .rv2-modes,.rv2-tabs,.rv2-toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+      .rv2-mode,.rv2-tab,.rv2-icon-btn{appearance:none;border:1px solid #2b405e;background:#0c1726;color:#a9b7ca;border-radius:10px;cursor:pointer;font:inherit;font-weight:750}
+      .rv2-mode{padding:10px 15px;font-size:13px}.rv2-tab{padding:8px 12px;font-size:12px}.rv2-icon-btn{min-width:32px;height:32px;padding:0 8px;font-size:13px}
+      .rv2-mode:hover,.rv2-tab:hover,.rv2-icon-btn:hover{border-color:#4f75a4;color:#eef5ff;background:#11243d}
       .rv2-mode.active,.rv2-tab.active{border-color:#5b8cff;background:#18325a;color:#fff;box-shadow:inset 0 0 0 1px rgba(91,140,255,.10)}
-      .rv2-action[data-action="DIRECT"].active{border-color:#49da92;background:#123729;color:#ecfff6}.rv2-action[data-action="VPN"].active{border-color:#5b8cff;background:#18325a;color:#fff}.rv2-action[data-action="BLOCK"].active{border-color:#ff7070;background:#3a1d27;color:#fff0f2}
       .rv2-state{display:inline-flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid #314865;border-radius:999px;color:#aebed3;font-size:11.5px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
       .rv2-state::before{content:'';width:7px;height:7px;border-radius:50%;background:#8094ad}.rv2-state.ok{color:#74edb5;border-color:rgba(54,227,162,.38)}.rv2-state.ok::before{background:#36e3a2}.rv2-state.warn{color:#ffc85b;border-color:rgba(255,190,67,.38)}.rv2-state.warn::before{background:#ffbe43}
       .rv2-panel[hidden]{display:none!important}.rv2-card{border:1px solid #294360;border-radius:16px;background:linear-gradient(180deg,#0c1c2f,#0a1828);padding:16px}.rv2-card+.rv2-card{margin-top:12px}
@@ -550,7 +549,6 @@
   function syncRuleActionButtons() {
     const hasDraft = state.rules.length > 0 && !!state.compiled;
     const validate = qs('#rv2ValidateRules'); if (validate) validate.disabled = !hasDraft;
-    const json = qs('#rv2BuildConfig'); if (json) json.disabled = !hasDraft;
     if (!hasDraft) {
       const apply = qs('#rv2ApplyRules'); if (apply) apply.disabled = true;
     }
