@@ -95,6 +95,10 @@ const server = http.createServer((req, res) => {
     success:true,current_version:installedFreeNetVersion,latest_version:'v0.3.98',
     releases:[
       {version:'v0.3.98',published_at:'2026-09-19T00:00:00Z',current:false,latest:true},
+      {version:'v0.3.97',published_at:'2026-09-18T00:00:00Z',current:false,latest:false},
+      {version:'v0.3.96',published_at:'2026-09-17T00:00:00Z',current:false,latest:false},
+      {version:'v0.3.95',published_at:'2026-09-16T00:00:00Z',current:false,latest:false},
+      {version:'v0.3.94',published_at:'2026-09-15T00:00:00Z',current:false,latest:false},
       {version:'v0.3.43',published_at:'2026-08-19T00:00:00Z',current:installedFreeNetVersion==='v0.3.43',latest:false},
       {version:'v0.3.42',published_at:'2026-08-18T00:00:00Z',current:installedFreeNetVersion==='v0.3.42',latest:false}
     ]
@@ -334,28 +338,48 @@ const server = http.createServer((req, res) => {
     await page.waitForSelector('#topFreenetUpdate');
     await page.waitForFunction(() => document.querySelector('#topFreenetUpdate')?.textContent.includes('v0.3.43'));
     await page.locator('#topFreenetUpdate').click();
-    await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.42"]');
+    await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.98"]');
     assert.equal(versionApplyPosts, 0, 'opening FreeNet version catalog must be read-only');
     assert.match(await page.locator('#topFreenetUpdate').textContent(), /v0\.3\.43/, 'catalog open must not change current topbar version');
     assert.equal(await page.locator('#fnModalRoot').evaluate(el => el.classList.contains('fn-version-picker-mode')), true, 'FreeNet versions must use anchored dropdown mode');
     assert.equal(await page.locator('#fnModalRoot .fn-modal-backdrop').evaluate(el => getComputedStyle(el).display), 'none', 'FreeNet version browse must not dim the whole page');
     assert.equal(await page.locator('#topFreenetUpdate').getAttribute('aria-expanded'), 'true', 'FreeNet chip must expose dropdown state');
+    assert.equal(await page.locator('#fnVersionList .fn-version-release').count(), 5, 'initial FreeNet catalog must show exactly five latest versions');
+    assert.equal(await page.locator('#fnVersionList .fn-version-release[data-version="v0.3.42"]').count(), 0, 'older version must stay outside the initial five-item list');
     const freeNetPickerGeometry = await page.evaluate(() => {
       const panel = document.querySelector('#fnModalRoot .fn-modal').getBoundingClientRect();
       const chip = document.querySelector('#topFreenetUpdate').getBoundingClientRect();
-      return {width:panel.width,right:panel.right,bottom:panel.bottom,top:panel.top,chipBottom:chip.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,rootPointer:getComputedStyle(document.querySelector('#fnModalRoot')).pointerEvents,panelPointer:getComputedStyle(document.querySelector('#fnModalRoot .fn-modal')).pointerEvents};
+      const list = document.querySelector('#fnVersionList');
+      return {width:panel.width,right:panel.right,bottom:panel.bottom,top:panel.top,chipBottom:chip.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,rootPointer:getComputedStyle(document.querySelector('#fnModalRoot')).pointerEvents,panelPointer:getComputedStyle(document.querySelector('#fnModalRoot .fn-modal')).pointerEvents,listScrollHeight:list.scrollHeight,listClientHeight:list.clientHeight};
     });
-    assert.ok(freeNetPickerGeometry.width <= 500.5, `FreeNet version dropdown too wide: ${JSON.stringify(freeNetPickerGeometry)}`);
+    assert.ok(freeNetPickerGeometry.width <= 460.5, `FreeNet version dropdown too wide: ${JSON.stringify(freeNetPickerGeometry)}`);
     assert.ok(freeNetPickerGeometry.right <= freeNetPickerGeometry.viewportWidth && freeNetPickerGeometry.bottom <= freeNetPickerGeometry.viewportHeight, `FreeNet dropdown must stay inside viewport: ${JSON.stringify(freeNetPickerGeometry)}`);
     assert.equal(freeNetPickerGeometry.rootPointer, 'none', 'FreeNet dropdown root must not block the page');
     assert.notEqual(freeNetPickerGeometry.panelPointer, 'none', 'FreeNet dropdown panel must remain interactive');
     assert.equal(freeNetPickerGeometry.overflow, false, 'FreeNet dropdown must not create horizontal overflow');
+    assert.ok(freeNetPickerGeometry.listScrollHeight <= freeNetPickerGeometry.listClientHeight + 1, `five-item version list must not have its own scrollbar: ${JSON.stringify(freeNetPickerGeometry)}`);
+
+    await page.locator('#fnVersionSearch').fill('v0.3.42');
+    await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.42"]');
+    assert.equal(await page.locator('#fnVersionList .fn-version-release').count(), 1, 'search must use full catalog while still limiting rendered matches');
     await page.locator('#fnVersionList .fn-version-release[data-version="v0.3.42"]').click();
     await page.waitForFunction(() => document.querySelector('#fnVersionDetail')?.textContent.includes('Откатить до v0.3.42'));
     assert.equal(versionApplyPosts, 0, 'target compatibility plan must remain read-only');
     assert.match(await page.locator('#topFreenetUpdate').textContent(), /v0\.3\.43/, 'selected downgrade target must not replace current version');
+    const compactDetail = await page.evaluate(() => {
+      const panel = document.querySelector('#fnModalRoot .fn-modal').getBoundingClientRect();
+      const action = document.querySelector('#fnVersionDetail .fn-version-apply').getBoundingClientRect();
+      const text = document.querySelector('#fnVersionDetail').textContent || '';
+      return {panelBottom:panel.bottom,actionBottom:action.bottom,actionHeight:action.height,text};
+    });
+    assert.ok(compactDetail.actionHeight >= 30 && compactDetail.actionBottom <= compactDetail.panelBottom + 1, `version action button must be fully visible: ${JSON.stringify(compactDetail)}`);
+    assert.match(compactDetail.text, /Версия проверена и готова к установке/);
+    assert.doesNotMatch(compactDetail.text, /SHA-256|Manifest|subscription secret|credentials|routing state|cron|staging|snapshot/i, 'ordinary version detail must not expose implementation jargon');
+
     await page.locator('#fnVersionDetail .fn-version-apply').click();
     await page.waitForFunction(() => document.querySelector('#fnModalTitle')?.textContent.includes('Откатить до v0.3.42'));
+    const confirmCopy = ((await page.locator('#fnModalBody').textContent()) || '') + ' ' + ((await page.locator('#fnModalMeta').textContent()) || '');
+    assert.doesNotMatch(confirmCopy, /SHA-256|Manifest|subscription secret|credentials|routing state|cron|staging|snapshot|ROLLBACK_FAILED|UNKNOWN/i, 'ordinary confirmation must stay product-level');
     assert.equal(versionApplyPosts, 0, 'opening downgrade confirmation must not mutate FreeNet');
     await page.locator('#fnModalConfirm').click();
     await page.waitForFunction(() => window.location.href && document.querySelector('#fnModalTitle')?.textContent.includes('Обновление установлено'), null, {timeout:5000});
