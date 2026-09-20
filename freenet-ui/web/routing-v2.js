@@ -584,8 +584,8 @@
     if (!prepared) return;
     const ok = await validateConfig();
     if (ok) {
-      setNotice('rv2RuleNotice', `Проверка пройдена. ${prepared.managedCount} новых правил готовы к безопасному применению; ${prepared.existingCount} существующих правил будут сохранены.`, 'ok');
-      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. ${prepared.managedCount} новых правил готовы к применению. ${prepared.existingCount} существующих правил сохранятся без изменений. Перед записью FreeNet создаст резервную точку и автоматически откатит изменение при ошибке.`;
+      setNotice('rv2RuleNotice', `Проверка пройдена. Новых правил: ${prepared.managedCount}. Существующие правила: ${prepared.existingCount}, все будут сохранены без изменений.`, 'ok');
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. Новых правил: ${prepared.managedCount}. Существующие правила сохранены без изменений: ${prepared.existingCount}. Перед записью FreeNet создаст резервную точку и автоматически откатит изменение при ошибке.`;
     } else {
       setNotice('rv2RuleNotice', 'Проверка не пройдена. Применение заблокировано; действующая маршрутизация не изменена.', 'bad');
     }
