@@ -30,43 +30,49 @@ func TestFilterMeasuredBestServerResultsKeepsRejectedDeepProbe(t *testing.T) {
 	}
 }
 
-func TestMeasuredAlternativeTargetMatchesBrowserVisibleEndpoints(t *testing.T) {
+func TestEligibleAlternativeTargetIgnoresRejectedDiagnostics(t *testing.T) {
 	current := "203.0.113.9:443"
 	input := []bestServerQualityCandidate{
-		{ID: "eligible-current-listener", Endpoint: current, Tested: true, Available: true, Eligible: true, DownloadMbps: 115, MediaSamples: bestServerMediaRequiredRuns},
-		{ID: "eligible-a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 110, MediaSamples: bestServerMediaRequiredRuns},
-		{ID: "eligible-same-listener", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 108, MediaSamples: bestServerMediaRequiredRuns},
-		{ID: "eligible-b", Endpoint: "203.0.113.11:443", Tested: true, Available: true, Eligible: true, DownloadMbps: 100, MediaSamples: bestServerMediaRequiredRuns},
-		{ID: "near-miss", Endpoint: "203.0.113.12:443", Tested: true, Available: true, Eligible: false, DownloadMbps: 130, MediaSamples: bestServerMediaRequiredRuns},
+		{ID: "eligible-current-listener", Endpoint: current, Tested: true, Available: true, Eligible: true},
+		{ID: "eligible-a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
+		{ID: "eligible-same-listener", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
+		{ID: "eligible-b", Endpoint: "203.0.113.11:443", Tested: true, Available: true, Eligible: true},
+		{ID: "near-miss", Endpoint: "203.0.113.12:443", Tested: true, Available: true, Eligible: false},
 	}
-	if got := measuredBestServerAlternativeCount(input, current); got != bestServerVisibleAlternatives {
-		t.Fatalf("browser-visible measured endpoint count=%d want=%d; diagnostic deep result must occupy the third comparison slot without becoming switchable", got, bestServerVisibleAlternatives)
+	if got := eligibleBestServerAlternativeCount(input, current); got != 2 {
+		t.Fatalf("eligible endpoint count=%d want=2; rejected diagnostics must not consume a Top-3 completion slot", got)
 	}
 }
 
-func TestMeasuredAlternativeTargetSkipsUntestedAndDuplicateEndpoints(t *testing.T) {
+func TestEligibleAlternativeTargetRequiresThreeDistinctAvailableEndpoints(t *testing.T) {
 	current := "203.0.113.9:443"
 	input := []bestServerQualityCandidate{
 		{ID: "a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
-		{ID: "duplicate-a", Endpoint: "203.0.113.10:443", Tested: true, Reachable: true},
-		{ID: "untested", Endpoint: "203.0.113.11:443", Tested: false, Reachable: true},
-		{ID: "current-listener", Endpoint: current, Tested: true, Reachable: true},
-		{ID: "b", Endpoint: "203.0.113.12:443", Tested: true, Reachable: true},
+		{ID: "duplicate-a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
+		{ID: "untested", Endpoint: "203.0.113.11:443", Tested: false, Available: true, Eligible: true},
+		{ID: "current-listener", Endpoint: current, Tested: true, Available: true, Eligible: true},
+		{ID: "reachable-only", Endpoint: "203.0.113.12:443", Tested: true, Reachable: true, Eligible: true},
+		{ID: "b", Endpoint: "203.0.113.13:443", Tested: true, Available: true, Eligible: true},
+		{ID: "c", Endpoint: "203.0.113.14:443", Tested: true, Available: true, Eligible: true},
 	}
-	if got := measuredBestServerAlternativeCount(input, current); got != 2 {
-		t.Fatalf("browser-visible measured endpoint count=%d want=2", got)
+	if got := eligibleBestServerAlternativeCount(input, current); got != bestServerVisibleAlternatives {
+		t.Fatalf("eligible endpoint count=%d want=%d", got, bestServerVisibleAlternatives)
 	}
 }
 
-func TestBestServerCompletionPartialClearsAfterVisibleTop3(t *testing.T) {
+func TestBestServerCompletionPartialRequiresEligibleTop3(t *testing.T) {
 	current := "203.0.113.9:443"
 	input := []bestServerQualityCandidate{
 		{ID: "a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
 		{ID: "b", Endpoint: "203.0.113.11:443", Tested: true, Available: true, Eligible: true},
-		{ID: "c", Endpoint: "203.0.113.12:443", Tested: true, Reachable: true, Eligible: false},
+		{ID: "rejected", Endpoint: "203.0.113.12:443", Tested: true, Reachable: true, Eligible: false},
 	}
+	if !bestServerCompletionPartial(true, input, current) {
+		t.Fatal("budget-limited scan with only two Eligible alternatives must remain partial even when a rejected diagnostic is present")
+	}
+	input = append(input, bestServerQualityCandidate{ID: "c", Endpoint: "203.0.113.13:443", Tested: true, Available: true, Eligible: true})
 	if bestServerCompletionPartial(true, input, current) {
-		t.Fatal("completed browser-visible Top-3 must not retain a time-limit partial warning")
+		t.Fatal("three Eligible alternatives complete the bounded Top-3 target")
 	}
 }
 
@@ -77,7 +83,7 @@ func TestBestServerCompletionPartialOnlyWhenBudgetBlocksTarget(t *testing.T) {
 		{ID: "b", Endpoint: "203.0.113.11:443", Tested: true, Reachable: true, Eligible: false},
 	}
 	if !bestServerCompletionPartial(true, input, current) {
-		t.Fatal("budget-limited scan below the Top-3 target must remain partial")
+		t.Fatal("budget-limited scan below the Eligible Top-3 target must remain partial")
 	}
 	if bestServerCompletionPartial(false, input, current) {
 		t.Fatal("natural candidate exhaustion below three is complete, not a time-limit partial")
