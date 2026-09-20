@@ -401,7 +401,9 @@
         count++;
         const button = document.createElement('button'); button.type = 'button'; button.className = 'rv2-search-result';
         const bounded = match.truncated ? ' · результат ограничен безопасным лимитом' : '';
-        button.innerHTML = `<b>${state.kind}:${String(category)}</b><span>${String(match.file || 'geodata')} · выбрать category${bounded}</span>`;
+        const title = document.createElement('b'); title.textContent = `${state.kind}:${String(category)}`;
+        const meta = document.createElement('span'); meta.textContent = `${String(match.file || 'geodata')} · выбрать группу${bounded}`;
+        button.append(title, meta);
         button.addEventListener('click', () => {
           const input = qs('#rv2Value'); if (input) input.value = String(category);
           state.selectedSource = String(match.file || '');
