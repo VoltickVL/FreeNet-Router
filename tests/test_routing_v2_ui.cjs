@@ -12,9 +12,19 @@ const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui', 'web');
 const calls = [];
 let routingLive = {routing:{domainStrategy:'AsIs',rules:[
-  {type:'field',domain:['domain:youtube.com'],outboundTag:'direct'},
+  {type:'field',inboundTag:['socks-in'],outboundTag:'vless-reality'},
+  {type:'field',inboundTag:['direct-in'],outboundTag:'direct'},
+  {type:'field',port:'53',outboundTag:'dns-out'},
+  {type:'field',domain:[
+    'ext:geosite.dat:category-ru','ext:geosite.dat:ru-available-only-inside','ext:geosite.dat:category-remote-control',
+    'ext:geosite.dat:alibaba','ext:geosite.dat:tencent','ext:geosite.dat:apple','ext:geosite.dat:microsoft',
+    'ext:geosite.dat:google','ext:geosite.dat:steam','ext:geosite.dat:ea','ext:geosite.dat:github',
+    'ext:geosite.dat:xiaomi','ext:geosite.dat:nvidia','ext:geosite.dat:airchina','ext:geosite.dat:epic',
+    'ext:geosite.dat:private','domain:4pda.to','domain:binance.com','domain:petzl.com','domain:netcraze.pro'
+  ],outboundTag:'direct'},
+  {type:'field',ip:['ext:geoip.dat:private','ext:geoip.dat:google','ext:geoip.dat:ru-whitelist'],outboundTag:'direct'},
   {type:'field',domain:['ext:geosite.dat:ru-blocked'],outboundTag:'vless-reality'},
-  {type:'field',ip:['ext:geoip.dat:ru-blocked'],outboundTag:'vless-reality'},
+  {type:'field',ip:['ext:geoip.dat:ru-blocked','ext:geoip.dat:ru-blocked-community','ext:geoip.dat:re-filter'],outboundTag:'vless-reality'},
   {type:'field',network:'tcp,udp',outboundTag:'vless-reality'}
 ]}};
 let policyLive = {policy:{}};
@@ -98,17 +108,36 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await page.locator('[data-page-view="routing"] .page-head').textContent(),/GeoData-групп/);
 
     // The Rules tab must explain and visualize the actual live 05_routing state.
-    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('4 активных'));
-    assert.equal(await page.locator('#rv2LiveRuleList .rv2-live-rule').count(),4,'all live routing rules must be visible');
+    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('8 активных'));
+    assert.equal(await page.locator('#rv2LiveRuleList .rv2-live-rule').count(),8,'all real-like live routing rules must be visible');
     const liveText=await page.locator('#rv2LiveRuleList').innerText();
-    assert.match(liveText,/youtube\.com/);
     assert.match(liveText,/GeoSite/);
     assert.match(liveText,/GeoIP/);
     assert.match(liveText,/DIRECT/);
     assert.match(liveText,/VPN/);
-    assert.match(liveText,/Расширенное правило/);
-    assert.match(liveText,/только просмотр/);
+    assert.match(liveText,/DNS/);
+    assert.match(liveText,/Системное правило/);
+    assert.match(liveText,/защищено/);
+    assert.doesNotMatch(liveText,/05_routing\.json/);
+    assert.doesNotMatch(liveText,/inboundTag/);
+    assert.doesNotMatch(liveText,/dns-out/);
+    assert.match(liveText,/Ещё 14/);
+    assert.equal(await page.locator('#rv2LiveRuleList .rv2-live-title strong', {hasText:'Обычное правило'}).count(),0);
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,0,'live visualization must be read-only');
+
+    // Technical Xray labels stay hidden until the user explicitly asks for details.
+    const firstSystem=page.locator('#rv2LiveRuleList .rv2-live-rule').first();
+    assert.match(await firstSystem.innerText(),/входящее подключение/);
+    assert.doesNotMatch(await firstSystem.innerText(),/inboundTag/);
+    await firstSystem.locator('.rv2-live-details button').click();
+    assert.match(await firstSystem.innerText(),/inboundTag/);
+
+    // Large selector sets are compact by default and can be expanded locally.
+    const largeRule=page.locator('#rv2LiveRuleList .rv2-live-rule').nth(3);
+    assert.equal(await largeRule.locator('.rv2-selector-chip:visible').count(),6);
+    await largeRule.locator('.rv2-selector-more').click();
+    assert.equal(await largeRule.locator('.rv2-selector-chip:visible').count(),20);
+    assert.match(await largeRule.innerText(),/Свернуть/);
 
     // Bounded GeoData search is read-only and surfaces partial-file warnings.
     await page.locator('#rv2Kind').selectOption('geosite');
@@ -125,11 +154,16 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
     assert.match(await page.locator('#rv2RuleNotice').textContent(),/Добавить правило/);
 
+    // Empty draft must not present actionable validation/apply buttons.
+    assert.equal(await page.locator('#rv2ValidateRules').isDisabled(),true);
+    assert.equal(await page.locator('#rv2ApplyRules').isDisabled(),true);
+    assert.equal(await page.locator('#rv2BuildConfig').isDisabled(),true);
+
     // Add a GeoSite rule without touching live state, validate it, then use the shared transactional apply engine.
     await page.locator('#rv2AddRule').click();
     await page.waitForFunction(()=>document.querySelectorAll('#rv2RuleList .rv2-rule').length===1);
     assert.match(await page.locator('#rv2RuleList').innerText(),/GeoSite · youtube/);
-    assert.equal(await page.locator('#rv2LiveRuleList .rv2-live-rule').count(),4,'draft must not rewrite live visualization before apply');
+    assert.equal(await page.locator('#rv2LiveRuleList .rv2-live-rule').count(),8,'draft must not rewrite live visualization before apply');
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,0,'adding a rule must remain read-only');
 
     await page.locator('#rv2ValidateRules').click();
@@ -142,16 +176,16 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('APPLIED'),null,{timeout:10000});
     const visualAfter=calls.filter(x=>x==='POST /api/routing/apply').length;
     assert.equal(visualAfter,visualBefore+1,'visual rules apply must issue exactly one transactional mutation');
-    assert.equal(routingLive.routing.rules.length,5,'new rule must be prepended while all existing live rules are preserved');
+    assert.equal(routingLive.routing.rules.length,9,'new rule must be prepended while all existing live rules are preserved');
     assert.deepEqual(routingLive.routing.rules[0],{type:'field',outboundTag:'direct',domain:['geosite:youtube']});
-    assert.deepEqual(routingLive.routing.rules[4],{type:'field',network:'tcp,udp',outboundTag:'vless-reality'},'complex existing rule must be preserved exact');
+    assert.deepEqual(routingLive.routing.rules[8],{type:'field',network:'tcp,udp',outboundTag:'vless-reality'},'complex existing rule must be preserved exact');
 
     // Reload returns to Overview; reopen Routing and confirm the applied rule is now live.
     await page.waitForSelector('#routingV2Workspace',{state:'attached'});
     const navAfterApply=page.locator('.nav-btn[data-page="routing"]');
     await navAfterApply.click();
     await page.waitForSelector('#routingV2Workspace',{state:'visible'});
-    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('5 активных'));
+    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('9 активных'));
     assert.match(await page.locator('#rv2LiveRuleList').innerText(),/youtube/);
 
     await page.locator('.rv2-mode[data-mode="config"]').click();
