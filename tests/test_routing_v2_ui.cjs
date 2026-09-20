@@ -139,7 +139,6 @@ const server=http.createServer(async(req,res)=>{
 
     const visualBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
     await page.locator('#rv2ApplyRules').click();
-    await page.waitForFunction(expected=>window.__dummy===undefined && true, visualBefore);
     await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('APPLIED'),null,{timeout:10000});
     const visualAfter=calls.filter(x=>x==='POST /api/routing/apply').length;
     assert.equal(visualAfter,visualBefore+1,'visual rules apply must issue exactly one transactional mutation');
