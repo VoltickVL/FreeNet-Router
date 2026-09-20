@@ -105,32 +105,44 @@ const server=http.createServer(async(req,res)=>{
     await nav.click();
     await page.waitForSelector('#routingV2Workspace',{state:'visible'});
     await page.waitForFunction(()=>document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
-    assert.match(await page.locator('[data-page-view="routing"] .page-head').textContent(),/GeoData-групп/);
+    assert.match(await page.locator('[data-page-view="routing"] .page-head').textContent(),/Сайты и категории/);
 
-    // Routing UX v3 must show a compact policy map instead of an Xray-style rule dump.
-    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('8 активных'));
-    assert.equal(await page.locator('#rv2DirectRules .rv2-policy-rule').count(),2,'DIRECT must contain two user-visible rules');
-    assert.equal(await page.locator('#rv2VPNRules .rv2-policy-rule').count(),2,'VPN must contain two user-visible rules');
-    assert.equal(await page.locator('#rv2BlockGroup').isHidden(),true,'empty BLOCK group must stay out of the main map');
-    assert.equal(await page.locator('#rv2SummaryRules').textContent(),'4');
-    assert.equal(await page.locator('#rv2SummaryDirect').textContent(),'2');
-    assert.equal(await page.locator('#rv2SummaryVPN').textContent(),'2');
-    assert.equal(await page.locator('#rv2SummarySystem').textContent(),'4');
+    // Routing UX v4 is an action board: destinations first, categories inside.
+    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('4 пользовательских'));
+    assert.equal(await page.locator('.rv4-board').count(),3,'DIRECT/VPN/BLOCK boards must always be visible');
+    assert.equal(await page.locator('.rv4-board-add').count(),3,'each destination board must own its add action');
+    assert.equal(await page.locator('.rv2-add-card').count(),0,'global add card must be gone');
+    assert.equal(await page.locator('#rv2DirectCount').textContent(),'23');
+    assert.equal(await page.locator('#rv2VPNCount').textContent(),'4');
+    assert.equal(await page.locator('#rv2BlockCount').textContent(),'0');
 
-    const directText=await page.locator('#rv2DirectRules').innerText();
-    const vpnText=await page.locator('#rv2VPNRules').innerText();
+    const directText=await page.locator('#rv2DirectContent').innerText();
+    const vpnText=await page.locator('#rv2VPNContent').innerText();
+    const blockText=await page.locator('#rv2BlockContent').innerText();
     assert.match(directText,/GeoSite/);
+    assert.match(directText,/Сайты/);
     assert.match(directText,/GeoIP/);
     assert.match(directText,/category-ru/);
+    assert.match(directText,/4pda\.to/);
     assert.match(vpnText,/ru-blocked/);
-    assert.doesNotMatch(directText,/DIRECT/);
-    assert.doesNotMatch(vpnText,/vless-reality/);
-    assert.doesNotMatch(await page.locator('#rv2RulesPanel').innerText(),/05_routing\.json/);
-    assert.doesNotMatch(await page.locator('#rv2RulesPanel').innerText(),/inboundTag/);
-    assert.doesNotMatch(await page.locator('#rv2RulesPanel').innerText(),/dns-out/);
+    assert.match(blockText,/Ничего не блокируется/);
+    assert.doesNotMatch(await page.locator('#rv2RulesPanel').innerText(),/05_routing\.json|inboundTag|dns-out|#4|#5|#6|#7/);
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,0,'live visualization must be read-only');
 
-    // System rules are one collapsed secondary block, not four primary cards.
+    // Categories are aggregated by type rather than repeated as Xray rule rows.
+    assert.equal(await page.locator('#rv2DirectContent .rv4-type').count(),3,'DIRECT board should aggregate GeoSite/Sites/GeoIP');
+    const geositeGroup=page.locator('#rv2DirectContent .rv4-type').first();
+    assert.match(await geositeGroup.locator('.rv4-type-head').innerText(),/GeoSite/);
+    assert.match(await geositeGroup.locator('.rv4-type-head').innerText(),/16/);
+    assert.equal(await geositeGroup.locator('.rv4-chip:visible').count(),10);
+    assert.equal(await geositeGroup.locator('.rv4-more').textContent(),'+6');
+    const chipFont=parseFloat(await geositeGroup.locator('.rv4-chip').first().evaluate(el=>getComputedStyle(el).fontSize));
+    assert.ok(chipFont>=13,'category chip font must stay readable, got '+chipFont);
+    await geositeGroup.locator('.rv4-more').click();
+    assert.equal(await geositeGroup.locator('.rv4-chip:visible').count(),16);
+    assert.match(await geositeGroup.innerText(),/Свернуть/);
+
+    // System rules stay outside the main boards and are collapsed by default.
     assert.equal(await page.locator('#rv2SystemList').isHidden(),true);
     assert.match(await page.locator('#rv2SystemToggle').innerText(),/4 · показать/);
     await page.locator('#rv2SystemToggle').click();
@@ -139,54 +151,53 @@ const server=http.createServer(async(req,res)=>{
     assert.match(systemText,/входящее подключение/);
     assert.match(systemText,/тип сети/);
     assert.match(systemText,/DNS/);
-    assert.doesNotMatch(systemText,/inboundTag|network|dns-out/);
+    assert.doesNotMatch(systemText,/inboundTag|network|dns-out|#\d+/);
 
-    // Large selector sets stay one compact rule row until explicitly expanded.
-    const largeRule=page.locator('#rv2DirectRules .rv2-policy-rule').first();
-    assert.equal(await largeRule.locator('.rv2-selector-value:visible').count(),8);
-    assert.match(await largeRule.locator('.rv2-selector-more').textContent(),/\+12 ещё/);
-    const chipFont=parseFloat(await largeRule.locator('.rv2-selector-value').first().evaluate(el=>getComputedStyle(el).fontSize));
-    assert.ok(chipFont>=12,'selector chip font must stay readable, got '+chipFont);
-    await largeRule.locator('.rv2-selector-more').click();
-    assert.equal(await largeRule.locator('.rv2-selector-value:visible').count(),20);
-    assert.match(await largeRule.innerText(),/Свернуть/);
-
-    // Empty draft must not occupy screen space.
+    // Empty draft and inline composer stay out of the way until the user asks to add something.
     assert.equal(await page.locator('#rv2DraftCard').isHidden(),true);
+    assert.equal(await page.locator('#rv2InlineComposer').isHidden(),true);
 
-    // Bounded GeoData search is read-only and surfaces partial-file warnings.
+    // Add from the VPN board: action is contextual, no separate DIRECT/VPN/BLOCK switch is required.
+    await page.locator('.rv4-board-add[data-add-action="VPN"]').click();
+    assert.equal(await page.locator('#rv2InlineComposer').isVisible(),true);
+    assert.equal(await page.locator('#rv2VPNComposerSlot #rv2InlineComposer').count(),1);
+    assert.match(await page.locator('#rv2ComposerTitle').textContent(),/Добавить через VPN/);
+    assert.match(await page.locator('#rv2ComposerHint').textContent(),/через текущий VPN/);
+
+    // Bounded GeoData search stays read-only inside the selected board composer.
     await page.locator('#rv2Kind').selectOption('geosite');
     await page.locator('#rv2Value').fill('youtube');
     await page.locator('#rv2GeoSearch').click();
     await page.waitForSelector('.rv2-search-result');
-    assert.match(await page.locator('.rv2-search-result').first().textContent(),/geosite:youtube/);
-    assert.match(await page.locator('.rv2-search-result').first().textContent(),/ограничен безопасным лимитом/);
-    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Часть GeoData недоступна/);
-    assert.match(await page.locator('#rv2RuleNotice').textContent(),/broken\.dat/);
+    assert.match(await page.locator('.rv2-search-result').first().textContent(),/GeoSite · youtube/);
+    assert.match(await page.locator('.rv2-search-result').first().textContent(),/показана часть совпадений/);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Часть источников GeoData/);
+    assert.doesNotMatch(await page.locator('#rv2RuleNotice').textContent(),/broken\.dat/);
     const geoMutationCalls = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
     assert.equal(geoMutationCalls,0,'GeoData search must not mutate runtime state');
     await page.locator('.rv2-search-result').first().click();
     assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
-    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Добавить правило/);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Нажмите «Добавить»/);
 
     // Empty draft must not present actionable validation/apply buttons.
     assert.equal(await page.locator('#rv2ValidateRules').isDisabled(),true);
     assert.equal(await page.locator('#rv2ApplyRules').isDisabled(),true);
-    assert.equal(await page.locator('#rv2BuildConfig').isDisabled(),true);
 
-    // Add a GeoSite rule without touching live state, validate it, then use the shared transactional apply engine.
+    // Add the GeoSite to VPN without touching the live board, then validate through the shared engine.
     await page.locator('#rv2AddRule').click();
     await page.waitForFunction(()=>document.querySelectorAll('#rv2RuleList .rv2-rule').length===1);
     assert.match(await page.locator('#rv2RuleList').innerText(),/GeoSite · youtube/);
-    assert.equal(await page.locator('#rv2DirectRules .rv2-policy-rule').count(),2,'draft must not rewrite live DIRECT map before apply');
-    assert.equal(await page.locator('#rv2VPNRules .rv2-policy-rule').count(),2,'draft must not rewrite live VPN map before apply');
+    assert.match(await page.locator('#rv2RuleList').innerText(),/VPN/);
+    assert.equal(await page.locator('#rv2DirectCount').textContent(),'23','draft must not rewrite live DIRECT board before apply');
+    assert.equal(await page.locator('#rv2VPNCount').textContent(),'4','draft must not rewrite live VPN board before apply');
     assert.equal(await page.locator('#rv2DraftCard').isVisible(),true,'draft card appears only after the first change');
+    assert.equal(await page.locator('#rv2DraftCount').textContent(),'1');
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,0,'adding a rule must remain read-only');
 
     await page.locator('#rv2ValidateRules').click();
     await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
     assert.match(await page.locator('#rv2RulesApplyPreview').textContent(),/Существующие правила сохранены/);
-    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Проверка пройдена/);
+    assert.match(await page.locator('#rv2RulesApplyResult').textContent(),/Проверка пройдена/);
 
     const visualBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
     await page.locator('#rv2ApplyRules').click();
@@ -194,7 +205,7 @@ const server=http.createServer(async(req,res)=>{
     const visualAfter=calls.filter(x=>x==='POST /api/routing/apply').length;
     assert.equal(visualAfter,visualBefore+1,'visual rules apply must issue exactly one transactional mutation');
     assert.equal(routingLive.routing.rules.length,9,'new rule must be prepended while all existing live rules are preserved');
-    assert.deepEqual(routingLive.routing.rules[0],{type:'field',outboundTag:'direct',domain:['geosite:youtube']});
+    assert.deepEqual(routingLive.routing.rules[0],{type:'field',outboundTag:'vless-reality',domain:['geosite:youtube']});
     assert.deepEqual(routingLive.routing.rules[8],{type:'field',network:'tcp,udp',outboundTag:'vless-reality'},'complex existing rule must be preserved exact');
 
     // Reload returns to Overview; reopen Routing and confirm the applied rule is now live.
@@ -202,10 +213,10 @@ const server=http.createServer(async(req,res)=>{
     const navAfterApply=page.locator('.nav-btn[data-page="routing"]');
     await navAfterApply.click();
     await page.waitForSelector('#routingV2Workspace',{state:'visible'});
-    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('9 активных'));
-    assert.equal(await page.locator('#rv2SummaryRules').textContent(),'5');
-    assert.equal(await page.locator('#rv2SummaryDirect').textContent(),'3');
-    assert.match(await page.locator('#rv2DirectRules').innerText(),/youtube/);
+    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('5 пользовательских'));
+    assert.equal(await page.locator('#rv2DirectCount').textContent(),'23');
+    assert.equal(await page.locator('#rv2VPNCount').textContent(),'5');
+    assert.match(await page.locator('#rv2VPNContent').innerText(),/youtube/);
 
     await page.locator('.rv2-mode[data-mode="config"]').click();
     await page.waitForSelector('#rv2ConfigEditor',{state:'visible'});
