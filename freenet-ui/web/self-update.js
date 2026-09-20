@@ -963,27 +963,6 @@
     return `Установлено ${p.target_tag}`;
   }
 
-  function openVersionTargetConfirmation(p) {
-    if (!p || !p.success || !p.ready || !p.update_available || !p.manifest_verified) return;
-    const label = versionActionLabel(p);
-    const downgrade = p.direction === 'downgrade';
-    openModal({
-      kicker: 'FreeNet',
-      title: label,
-      body: `${p.current_version || 'Текущая версия'} → ${p.target_tag}\n\nВерсия проверена и готова к установке. FreeNet создаст резервную копию, перезапустится и автоматически проверит результат.`,
-      meta: downgrade
-        ? 'Если установка не завершится успешно, FreeNet автоматически вернёт предыдущую рабочую версию.'
-        : 'Ваши настройки VPN, DNS и маршрутизации сохраняются.',
-      confirmText: label,
-      cancelText: 'Отмена',
-      onConfirm: async () => {
-        plan = p;
-        await startUpdate();
-      },
-      anchored: true
-    });
-  }
-
   async function selectVersionTarget(release, detail) {
     versionTargetPlan = null;
     detail.className = 'fn-version-detail checking';
