@@ -26,10 +26,17 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		"Найти группу в GeoData",
 		"rv2ValidateRules",
 		"rv2ApplyRules",
+		"rv2ValidateRules\" class=\"btn secondary\" type=\"button\" disabled",
 		"validateRulesCandidate",
 		"clone(base.routing.rules)",
 		"managed.concat(existing)",
-		"только просмотр",
+		"Системное правило",
+		"защищено",
+		"Технические детали",
+		"humanCondition(key)",
+		"outboundPresentation(tag)",
+		"rv2-selector-more",
+		"syncRuleActionButtons()",
 		"ext:([^:]+):(.+)",
 		"document.createTextNode(String(selector.value))",
 	} {
@@ -39,6 +46,15 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 	}
 	if strings.Contains(js, "chip.innerHTML") {
 		t.Fatal("live routing selector must not interpolate config values into innerHTML")
+	}
+	for _, forbidden := range []string{
+		"meta.textContent = `05_routing.json",
+		"action.textContent = item.action || (item.outboundTag",
+		"Обычное правило",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("normal visual routing UI still exposes obsolete/jargon token %q", forbidden)
+		}
 	}
 }
 
