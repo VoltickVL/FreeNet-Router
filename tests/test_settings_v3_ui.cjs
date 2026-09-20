@@ -185,6 +185,9 @@ const server = http.createServer((req, res) => {
     const runtime = await page.evaluate(() => ({
       saveDisabled: document.querySelector('#fn3Save')?.disabled,
       saveText: document.querySelector('#fn3Save')?.textContent || '',
+      maintenanceSaveDisabled: document.querySelector('#fn3MaintenanceSave')?.disabled,
+      maintenanceSaveText: document.querySelector('#fn3MaintenanceSave')?.textContent || '',
+      maintenanceSaveVisible: !!document.querySelector('#fn3MaintenanceSave') && document.querySelector('#fn3MaintenanceSave').getClientRects().length > 0,
       autoChecked: document.querySelector('#fn3AutoEnabled')?.checked,
       scope: document.querySelector('input[name="fn3Scope"]:checked')?.value || '',
       settingsActive: document.querySelector('[data-page-view="settings"]')?.classList.contains('active'),
@@ -209,6 +212,9 @@ const server = http.createServer((req, res) => {
     assert.equal(errors.length, 0, errors.join('\n'));
     assert.equal(consoleErrors.length, 0, consoleErrors.join('\n'));
     assert.equal(runtime.saveDisabled, true, `save baseline not settled: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.maintenanceSaveDisabled, true, `maintenance save baseline not settled: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.maintenanceSaveVisible, true, `maintenance save must be visible inside System maintenance: ${JSON.stringify(runtime)}`);
+    assert.match(runtime.maintenanceSaveText, /Сохранено/);
     assert.deepEqual(runtime.nav, ['Обзор','Подписка','Настройки','Маршрутизация','Журнал']);
     assert.ok(runtime.svgWidths.every(width => width > 0 && width <= 24), `oversized action icon detected: ${runtime.svgWidths}`);
     assert.ok(runtime.checkHeight >= 40 && runtime.checkHeight <= 70, `check action has wrong height: ${runtime.checkHeight}`);
@@ -227,6 +233,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await settingsPage.getByText('Системное обслуживание', {exact:true}).count(), 1);
     assert.equal(await settingsPage.locator('[data-scope-card]').count(), 3);
     assert.equal(await settingsPage.locator('.fn3-extra-card').count(), 4);
+    assert.equal(await settingsPage.locator('#fn3MaintenanceSave').count(), 1, 'System maintenance must expose one explicit save action');
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="system"]').count(), 0);
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="journal"]').count(), 1);
     assert.equal(await page.locator('#fn3Journal').count(), 0, 'Settings must not duplicate the AUTO VPN journal table');
@@ -278,11 +285,30 @@ const server = http.createServer((req, res) => {
     await page.locator('#fn3CountriesApply').click();
 
     const save = page.locator('#fn3Save');
+    const maintenanceSave = page.locator('#fn3MaintenanceSave');
     assert.equal(await save.isDisabled(), false);
+    assert.equal(await maintenanceSave.isDisabled(), false);
     assert.match(await save.textContent(), /Сохранить изменения/);
+    assert.match(await maintenanceSave.textContent(), /Сохранить изменения/);
     await page.locator('input[name="fn3Scope"][value="current"]').check();
     assert.equal(await save.isDisabled(), false);
+    assert.equal(await maintenanceSave.isDisabled(), false);
     assert.match(await save.textContent(), /Сохранить изменения/);
+    assert.match(await maintenanceSave.textContent(), /Сохранить изменения/);
+    await maintenanceSave.click();
+    await page.waitForFunction(() => document.querySelector('#fn3MaintenanceSave')?.disabled && /Сохранено/.test(document.querySelector('#fn3MaintenanceSave')?.textContent || ''));
+    assert.equal(await save.isDisabled(), true);
+    assert.equal(await maintenanceSave.isDisabled(), true);
+    assert.match(await save.textContent(), /Сохранено/);
+    assert.match(await maintenanceSave.textContent(), /Сохранено/);
+    assert.ok(calls.filter(call => call === 'POST /api/settings-v3').length >= 1, 'maintenance save must persist through canonical settings API');
+
+    const maintenanceSaveGeometry = await page.evaluate(() => {
+      const button = document.querySelector('#fn3MaintenanceSave')?.getBoundingClientRect();
+      const section = document.querySelector('.fn3-extra')?.getBoundingClientRect();
+      return {buttonWidth: Math.round(button?.width || 0), sectionWidth: Math.round(section?.width || 0)};
+    });
+    assert.ok(maintenanceSaveGeometry.buttonWidth > 0 && maintenanceSaveGeometry.buttonWidth < maintenanceSaveGeometry.sectionWidth, `desktop maintenance save must be a compact footer action: ${JSON.stringify(maintenanceSaveGeometry)}`);
 
     await page.locator('.nav-btn[data-page="overview"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
