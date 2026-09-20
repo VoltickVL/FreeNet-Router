@@ -32,6 +32,9 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		`requestAnimationFrame(positionVersionPicker)`,
 		`versionActionLabel`,
 		`Откатить до`,
+		`AbortSignal.timeout(15000)`,
+		`renderTopbarVersion(current, !!latest && latest !== current, latest)`,
+		`await startUpdate()`,
 		`/api/system/update/apply`,
 		`location.hash === '#system'`,
 	} {
@@ -60,6 +63,7 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		`.nav{gap:8px}`,
 		`.nav-btn{min-height:48px;padding:12px 14px`,
 		`.nav-icon{width:21px;height:21px;font-size:16px}`,
+		`openVersionTargetConfirmation`,
 	} {
 		if strings.Contains(s, unwanted) {
 			t.Fatalf("topbar update must not own XKeen or restyle approved sidebar: %q", unwanted)
@@ -74,7 +78,13 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	ux := string(accepted)
-	for _, want := range []string{"fnUpdateNotesTitle", "fnUpdateNotes", "Что нового в", "release_notes"} {
+	for _, want := range []string{
+		"fnUpdateNotesTitle", "fnUpdateNotes", "Что нового в", "release_notes",
+		".topbar.overview-approved{height:82px",
+		"#fnVpnPickerToggle{height:60px",
+		"fn-shell-dns",
+		"Раздельный",
+	} {
 		if !strings.Contains(ux, want) {
 			t.Fatalf("missing updater release-notes UX marker %q", want)
 		}
