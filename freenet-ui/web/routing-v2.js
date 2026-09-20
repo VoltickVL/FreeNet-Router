@@ -171,7 +171,8 @@
       item.selectors.forEach(selector => {
         const chip = document.createElement('span'); chip.className = 'rv2-selector-chip';
         const label = selector.kind === 'custom' ? 'Xray' : humanKind(selector.kind);
-        chip.innerHTML = `<b>${label}</b>${String(selector.value)}`; chips.appendChild(chip);
+        const kind = document.createElement('b'); kind.textContent = label;
+        chip.append(kind, document.createTextNode(String(selector.value))); chips.appendChild(chip);
       });
       const meta = document.createElement('div'); meta.className = 'rv2-live-meta';
       const extras = item.extraKeys.length ? ` · дополнительные условия: ${item.extraKeys.join(', ')}` : '';
