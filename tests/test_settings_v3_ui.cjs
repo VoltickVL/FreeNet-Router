@@ -374,8 +374,14 @@ const server = http.createServer((req, res) => {
     });
     assert.ok(actionGeometry.actionBottom <= actionGeometry.panelBottom + 1, `version action button must be fully visible inside dropdown: ${JSON.stringify(actionGeometry)}`);
     assert.ok(actionGeometry.scrollHeight <= actionGeometry.clientHeight + 1, `desktop version browse/plan state must fit without panel scrolling: ${JSON.stringify(actionGeometry)}`);
+    const versionDetailCopy = (await page.locator('#fnVersionDetail').textContent()) || '';
+    assert.match(versionDetailCopy, /Версия проверена и готова к установке/);
+    assert.doesNotMatch(versionDetailCopy, /SHA-256|Manifest|exact release|assets|credentials|routing state|cron|staging|snapshot|expected delta/i, 'ordinary version detail must not expose implementation jargon');
     await page.locator('#fnVersionDetail .fn-version-apply').click();
     await page.waitForFunction(() => document.querySelector('#fnModalTitle')?.textContent.includes('Откатить до v0.3.42'));
+    const confirmationCopy = ((await page.locator('#fnModalBody').textContent()) || '') + ' ' + ((await page.locator('#fnModalMeta').textContent()) || '');
+    assert.match(confirmationCopy, /резервную копию/);
+    assert.doesNotMatch(confirmationCopy, /SHA-256|Manifest|exact release|assets|credentials|routing state|cron|staging|snapshot|ROLLBACK_FAILED|UNKNOWN|expected delta/i, 'ordinary version confirmation must stay product-level');
     assert.equal(versionApplyPosts, 0, 'opening downgrade confirmation must not mutate FreeNet');
     await page.locator('#fnModalConfirm').click();
     await page.waitForFunction(() => window.location.href && document.querySelector('#fnModalTitle')?.textContent.includes('Обновление установлено'), null, {timeout:5000});
