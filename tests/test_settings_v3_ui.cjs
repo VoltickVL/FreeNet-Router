@@ -382,7 +382,7 @@ const server = http.createServer((req, res) => {
       const chip = document.querySelector('#topFreenetUpdate').getBoundingClientRect();
       return {width:panel.width,right:panel.right,bottom:panel.bottom,top:panel.top,chipBottom:chip.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,rootPointer:getComputedStyle(document.querySelector('#fnModalRoot')).pointerEvents,panelPointer:getComputedStyle(document.querySelector('#fnModalRoot .fn-modal')).pointerEvents};
     });
-    assert.ok(freeNetPickerGeometry.width <= 470.5, `FreeNet version dropdown too wide: ${JSON.stringify(freeNetPickerGeometry)}`);
+    assert.ok(freeNetPickerGeometry.width <= 540.5, `FreeNet version dropdown must match the VPN-style compact width: ${JSON.stringify(freeNetPickerGeometry)}`);
     assert.ok(freeNetPickerGeometry.right <= freeNetPickerGeometry.viewportWidth && freeNetPickerGeometry.bottom <= freeNetPickerGeometry.viewportHeight, `FreeNet dropdown must stay inside viewport: ${JSON.stringify(freeNetPickerGeometry)}`);
     assert.equal(freeNetPickerGeometry.rootPointer, 'none', 'FreeNet dropdown root must not block the page');
     assert.notEqual(freeNetPickerGeometry.panelPointer, 'none', 'FreeNet dropdown panel must remain interactive');
