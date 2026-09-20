@@ -6,7 +6,7 @@
   const q = (s, r = document) => r.querySelector(s);
   const qa = (s, r = document) => Array.from(r.querySelectorAll(s));
   const state = {
-    data: null, status: null, baseline: '', dirty: false, saving: false, checking: false,
+    data: null, status: null, baseline: '', dirty: false, saving: false, checking: false, controlsBusy: false,
     countries: [], countryCatalog: [], countryCatalogFresh: false, countryCatalogLoading: false, countryCatalogWarning: ''
   };
 
@@ -241,7 +241,7 @@
     const buttons = [q('#fn3Save'), q('#fn3MaintenanceSave')].filter(Boolean);
     if (!buttons.length) return;
     buttons.forEach(btn => {
-      btn.disabled = state.saving || !state.dirty;
+      btn.disabled = state.saving || state.controlsBusy || !state.dirty;
       btn.classList.toggle('primary', state.dirty);
       const label = q('span', btn);
       if (label) label.textContent = state.saving ? 'Сохраняем…' : state.dirty ? 'Сохранить изменения' : 'Сохранено';
@@ -424,6 +424,10 @@
 
   function bind() {
     q('#fn3Save').onclick = save; q('#fn3MaintenanceSave').onclick = save; q('#fn3Check').onclick = checkAuto;
+    document.addEventListener('freenet:controls-busy', event => {
+      state.controlsBusy = !!event.detail;
+      queueMicrotask(renderSave);
+    });
     q('#fn3AutoEnabled').onchange = () => { q('#fn3AutoLabel').textContent = q('#fn3AutoEnabled').checked ? 'Включено' : 'Выключено'; markDirty(); };
     qa('input[name="fn3Scope"]').forEach(i => i.onchange = () => { if (i.value === 'allowlist') openCountries(); markDirty(); });
     ['subscription','geodata','freenet','backup'].forEach(k => { q(`#fn3_${k}_enabled`).onchange = markDirty; q(`#fn3_${k}_interval`).onchange = markDirty; });
