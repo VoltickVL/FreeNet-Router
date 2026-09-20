@@ -14,10 +14,10 @@
     style.id = 'xrayCoreManagerStyles';
     style.textContent = `
       .cs-version{cursor:pointer!important}.cs-version:hover{border-color:#5b8cff!important;background:#183253!important;color:#fff!important}
-      .fn-xray-topbar{appearance:none;display:grid;grid-template-columns:22px minmax(0,1fr);gap:9px;align-items:center;text-align:left;width:112px;height:50px;padding:6px 10px;border:1px solid #315276;border-radius:11px;background:linear-gradient(180deg,#0d1d30,#0a1727);color:#f3f7ff;font:inherit;cursor:pointer}
+      .fn-xray-topbar{appearance:none;display:grid;grid-template-columns:30px minmax(0,1fr);gap:11px;align-items:center;text-align:left;width:148px;height:60px;padding:9px 14px;border:1px solid #315276;border-radius:11px;background:linear-gradient(180deg,#0d1d30,#0a1727);color:#f3f7ff;font:inherit;cursor:pointer}
       .fn-xray-topbar:hover,.fn-xray-topbar[aria-expanded="true"]{border-color:#6597d9;background:#10243c}.fn-xray-topbar:focus-visible{outline:2px solid #80adff;outline-offset:2px}
-      .fn-xray-topbar-icon{display:grid;place-items:center;width:22px;height:22px;color:#72a8ff}.fn-xray-topbar-icon svg{width:22px;height:22px}
-      .fn-xray-chip{display:grid;gap:3px;min-width:0}.fn-xray-chip small{font-weight:750;color:#8da4c2;font-size:9px;line-height:1.1}.fn-xray-chip strong{font-size:12px;line-height:1.25;font-weight:750;color:#f3f7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+      .fn-xray-topbar-icon{display:grid;place-items:center;width:30px;height:30px;color:#72a8ff}.fn-xray-topbar-icon svg{width:26px;height:26px}
+      .fn-xray-chip{display:flex;flex-direction:column;justify-content:center;gap:3px;min-width:0}.fn-xray-chip small{font-weight:750;color:#8da4c2;font-size:11px;line-height:1.05}.fn-xray-chip strong{font-size:14px;line-height:1.15;font-weight:750;color:#f3f7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .xcm-root{position:fixed;inset:0;z-index:2700;display:block;pointer-events:none}.xcm-root[hidden]{display:none!important}.xcm-root.xcm-open{pointer-events:none}
       .xcm-backdrop{display:none!important}
       .xcm-modal{position:fixed;pointer-events:auto;box-sizing:border-box;display:flex;flex-direction:column;width:500px;max-width:calc(100vw - 24px);max-height:min(78vh,650px);overflow:hidden;border:1px solid #355473;border-radius:12px;background:#0c1c2e;box-shadow:0 18px 46px rgba(0,0,0,.52);color:#eef4ff;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
@@ -29,7 +29,7 @@
       .xcm-search{width:100%;height:38px;margin:0 0 9px;padding:0 11px;border:1px solid #315276;border-radius:9px;background:#081827;color:#eef5ff;font:inherit;font-size:11px;outline:none}.xcm-search:focus{border-color:#6597d9;box-shadow:0 0 0 2px rgba(101,151,217,.12)}.xcm-list{display:grid;gap:6px;margin-top:0}.xcm-release{appearance:none;width:100%;display:grid;grid-template-columns:minmax(105px,.65fr) minmax(0,1.8fr);gap:10px;text-align:left;border:1px solid #263f5c;border-radius:10px;background:#081827;color:#dbe7f6;padding:10px 11px;cursor:pointer}.xcm-release:hover:not(:disabled),.xcm-release.selected{border-color:#4f82bf;background:#15304d}.xcm-release.selected{box-shadow:inset 3px 0 #5b9cff}.xcm-release:disabled{cursor:not-allowed;opacity:.48}
       .xcm-release-main{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.xcm-release-version{font-size:12px;font-weight:800;color:#f5f8fd}.xcm-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:#163552;color:#a9caff;font-size:8px;font-weight:800}.xcm-badge.current{background:rgba(52,221,159,.14);color:#65e3aa}.xcm-badge.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.xcm-badge.preview{background:rgba(255,190,74,.13);color:#ffd17a}.xcm-release-date{margin-top:5px;color:#839ab7;font-size:9px}.xcm-release-desc{color:#9db0c7;font-size:10px;line-height:1.4}
       .xcm-empty{padding:16px;border:1px dashed #2c4664;border-radius:11px;color:#8da3bf;text-align:center;font-size:11px}.xcm-error,.xcm-confirm,.xcm-progress,.xcm-result{margin-top:14px;padding:12px 13px;border-radius:11px;font-size:11px;line-height:1.5}.xcm-error{border:1px solid rgba(255,101,112,.42);background:rgba(83,21,31,.28);color:#ffc8cd}.xcm-confirm,.xcm-progress{border:1px solid #315071;background:#091a2a;color:#c8d7e9}.xcm-confirm strong{color:#fff}.xcm-progress::before{content:'';display:inline-block;width:9px;height:9px;margin-right:8px;border:2px solid #6b93d0;border-top-color:transparent;border-radius:50%;animation:xcm-spin .8s linear infinite}@keyframes xcm-spin{to{transform:rotate(360deg)}}.xcm-result.ok{border:1px solid rgba(58,220,158,.4);background:rgba(18,83,60,.28);color:#c9f5df}.xcm-result.bad{border:1px solid rgba(255,104,115,.42);background:rgba(83,21,31,.28);color:#ffd0d4}.xcm-result.stop{border-color:#ff6571;color:#fff0f1}
-      .xcm-actions{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:10px 12px;border-top:1px solid #28415b;background:#0b1b2d}.xcm-btn{appearance:none;min-height:38px;border:1px solid #365473;border-radius:9px;background:#10233a;color:#eaf2fb;padding:8px 13px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}.xcm-btn:hover:not(:disabled){border-color:#6593ff}.xcm-btn.primary{min-width:180px;border-color:#5d8dff;background:linear-gradient(180deg,#347eff,#2367e7);color:#fff}.xcm-btn:disabled{opacity:.42;cursor:not-allowed}
+      .xcm-actions{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:10px 12px;border-top:1px solid #28415b;background:#0b1b2d}.xcm-btn{appearance:none;min-height:44px;border:1px solid #365473;border-radius:9px;background:#10233a;color:#eaf2fb;padding:8px 13px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}.xcm-btn:hover:not(:disabled){border-color:#6593ff}.xcm-btn.primary{min-width:210px;border-color:#5d8dff;background:linear-gradient(180deg,#347eff,#2367e7);color:#fff}.xcm-btn:disabled{opacity:.42;cursor:not-allowed}
       @media(max-width:760px){.fn-xray-topbar{width:50px;min-width:50px;padding:0;place-items:center}.fn-xray-chip{display:none}.xcm-modal{width:calc(100vw - 24px)!important;max-width:none;max-height:calc(100vh - 24px)}.xcm-release{grid-template-columns:1fr}.xcm-actions{display:grid;grid-template-columns:1fr}.xcm-btn,.xcm-btn.primary{width:100%;min-width:0}}
       @media(max-height:580px) and (min-width:761px){.xcm-modal{max-height:calc(100vh - 16px)}.xcm-head{padding-top:9px;padding-bottom:9px}.xcm-current{margin:7px 0;padding:8px 10px}.xcm-release{padding-top:7px;padding-bottom:7px}.xcm-release-desc{display:none}}
     `;
@@ -189,12 +189,8 @@
     const current = catalog.current_version || 'не определена';
     const latest = catalog.latest_version || 'не определена';
     syncTopbarVersion(catalog.current_version || '');
-    summary.innerHTML = `Текущая версия: <b>${current}</b> · Последняя стабильная: <b>${latest}</b><br>Предрелизы отмечены отдельно. Платформа: ${catalog.architecture || '—'}. Выбор версии сам по себе ничего не изменяет.`;
+    summary.innerHTML = `Установлена <b>${current}</b> · Доступна <b>${latest}</b>`;
     target.appendChild(summary);
-    const currentCard = document.createElement('div');
-    currentCard.className = 'xcm-current';
-    currentCard.innerHTML = `<span class="xcm-current-icon">${topbarIcon()}</span><span class="xcm-current-copy"><small>Текущий Xray</small><strong>${current}</strong><span>Рабочая версия не изменится до подтверждённого apply и post-check.</span></span>`;
-    target.appendChild(currentCard);
 
     const search = document.createElement('input');
     search.type = 'search';
@@ -223,7 +219,7 @@
       if (release.prerelease) { const badge = document.createElement('span'); badge.className = 'xcm-badge preview'; badge.textContent = 'Предрелиз'; main.appendChild(badge); }
       left.appendChild(main);
       const date = document.createElement('div'); date.className = 'xcm-release-date'; date.textContent = formatDate(release.published_at); left.appendChild(date);
-      const desc = document.createElement('div'); desc.className = 'xcm-release-desc'; desc.textContent = release.description || (release.asset?.available ? 'Официальный релиз XTLS/Xray-core.' : 'Нет проверенного файла для архитектуры этого роутера.');
+      const desc = document.createElement('div'); desc.className = 'xcm-release-desc'; desc.textContent = release.asset?.available ? (release.description || 'Официальная версия Xray.') : 'Нет подходящего файла для этого роутера.';
       option.append(left, desc);
       option.addEventListener('click', () => { selectedVersion = release.version; renderCatalog(); });
       list.appendChild(option);
@@ -237,24 +233,14 @@
 
     addButton(footer, 'Закрыть', '', closeManager);
     const selected = releases.find(item => item.version === selectedVersion);
-    if (selected && !selected.current && selected.asset?.available) addButton(footer, actionLabel(selected), 'primary', () => renderConfirmation(selected));
-  }
-
-  function renderConfirmation(release) {
-    const target = body(); const footer = actions(); clearNode(target); clearNode(footer);
-    const box = document.createElement('div'); box.className = 'xcm-confirm';
-    const previous = catalog.current_version || 'текущая версия';
-    box.innerHTML = `<strong>${actionLabel(release)}</strong><br><br>${previous} → ${release.version}<br><br>FreeNet сначала проверит текущий конфиг и скачанный Xray, сверит SHA-256, создаст резервную копию, затем выполнит один контролируемый перезапуск. При неуспешном post-check предыдущая версия будет восстановлена автоматически.`;
-    target.appendChild(box);
-    addButton(footer, 'Назад', '', renderCatalog);
-    addButton(footer, actionLabel(release), 'primary', () => applyRelease(release));
+    if (selected && !selected.current && selected.asset?.available) addButton(footer, actionLabel(selected), 'primary', () => applyRelease(selected));
   }
 
   async function applyRelease(release) {
     if (applying) return;
     applying = true;
     const target = body(); const footer = actions(); clearNode(target); clearNode(footer);
-    const progress = document.createElement('div'); progress.className = 'xcm-progress'; progress.textContent = `Устанавливаю ${release.version}. Не закрывайте страницу и не выключайте роутер.`; target.appendChild(progress);
+    const progress = document.createElement('div'); progress.className = 'xcm-progress'; progress.textContent = `Устанавливаем Xray ${release.version}…`; target.appendChild(progress);
     try {
       const response = await fetch('/api/xray/core/apply', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({target_version:release.version}), cache:'no-store'});
       let result = {}; try { result = await response.json(); } catch (_) {}
@@ -303,7 +289,9 @@
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Каталог Xray недоступен');
       catalog = result;
-      selectedVersion = result.current_version || '';
+      selectedVersion = result.latest_version && result.latest_version !== result.current_version
+        ? result.latest_version
+        : (result.current_version || '');
       renderCatalog();
     } catch (error) {
       clearNode(target); clearNode(footer);

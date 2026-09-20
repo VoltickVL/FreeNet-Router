@@ -26,6 +26,11 @@ case "$DOWNLOAD_RETRIES" in
 esac
 MODE="${1:-plan}"
 TARGET_TAG="${2:-}"
+if [ "$MODE" = plan ]; then
+    # Read-only planning must finish inside the Control Center request budget.
+    # Apply keeps the longer retry policy for real asset downloads.
+    DOWNLOAD_RETRIES=1
+fi
 TMP_DIR=""
 BACKUP_DIR=""
 LOCK_HELD=0
@@ -218,12 +223,18 @@ download_url() {
         ERRFILE="$TMP_DIR/curl.$I.err"
         rm -f "$HDR" "$BODY" "$ERRFILE"
 
+        CONNECT_TIMEOUT=20
+        MAX_TIME=180
+        if [ "$MODE" = plan ]; then
+            CONNECT_TIMEOUT=5
+            MAX_TIME=12
+        fi
         IP="$(bootstrap_ip "$H")"
         if [ -n "$IP" ]; then
-            curl -fsS --connect-timeout 20 --max-time 180 --resolve "$H:443:$IP" -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
+            curl -fsS --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" --resolve "$H:443:$IP" -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
             RC=$?
         else
-            curl -fsS --connect-timeout 20 --max-time 180 -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
+            curl -fsS --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
             RC=$?
         fi
         if [ "$RC" -ne 0 ]; then
@@ -614,10 +625,19 @@ run_plan() {
     for T in curl sha256sum sed awk grep mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || { plan_error "required command missing: $T"; return 1; }
     done
-    LATEST="$(latest_tag)" || { plan_error 'cannot determine latest FreeNet release'; return 1; }
-    valid_tag "$LATEST" || { plan_error 'latest release tag is invalid'; return 1; }
-
-    PLAN_TARGET="${TARGET_TAG:-$LATEST}"
+    if [ -n "$TARGET_TAG" ]; then
+        # Exact target is already selected by the authenticated release catalog.
+        # Do not spend another network round-trip asking GitHub which release is latest.
+        PLAN_TARGET="$TARGET_TAG"
+        LATEST="$LATEST_OVERRIDE"
+        if [ -n "$LATEST" ]; then
+            valid_tag "$LATEST" || { plan_error 'latest release tag is invalid'; return 1; }
+        fi
+    else
+        LATEST="$(latest_tag)" || { plan_error 'cannot determine latest FreeNet release'; return 1; }
+        valid_tag "$LATEST" || { plan_error 'latest release tag is invalid'; return 1; }
+        PLAN_TARGET="$LATEST"
+    fi
     valid_tag "$PLAN_TARGET" || { plan_error 'target release tag is invalid'; return 1; }
     fetch_release_metadata "$PLAN_TARGET" || { plan_error 'target release is not a published stable FreeNet release'; return 1; }
     fetch_manifest "$PLAN_TARGET" || { plan_error 'release manifest is unavailable or incomplete'; return 1; }

@@ -101,12 +101,13 @@ const server = http.createServer((req, res) => {
     assert.equal(catalogGets, 1, 'one click should load catalog once');
     assert.equal(applyPosts, 0, 'catalog load must be read-only');
     const modalText = await page.locator('#xrayCoreManager').innerText();
-    assert(modalText.includes('Текущая'));
-    assert(modalText.includes('Последняя'));
+    assert(modalText.includes('Установлена v26.9.9'));
+    assert(modalText.includes('Доступна v26.10.1'));
     assert(modalText.includes('Предрелиз'));
     assert(modalText.includes('Последний стабильный релиз с исправлениями XTLS.'));
     assert.equal(await page.locator('#xrayTopbarChip').getAttribute('aria-expanded'), 'true', 'Xray chip must expose open dialog state');
-    assert.equal((await page.locator('.xcm-current-copy strong').textContent()).trim(), 'v26.9.9', 'current card must show actual running Xray');
+    assert.equal(await page.locator('.xcm-current-copy').count(), 0, 'normal Xray manager must not duplicate a technical current-version card');
+    assert.equal(await page.getByRole('button', {name:'Обновить до v26.10.1'}).count(), 1, 'latest stable Xray must be immediately actionable');
     assert.equal(await page.locator('.xcm-backdrop').evaluate(el => getComputedStyle(el).display), 'none', 'Xray browse flow must not dim the whole page');
     assert.equal(await page.locator('.xcm-search').count(), 1, 'Xray dropdown must expose compact version search');
     const desktopGeometry = await page.evaluate(() => {
@@ -119,6 +120,9 @@ const server = http.createServer((req, res) => {
     assert.equal(desktopGeometry.rootPointer, 'none', 'Xray dropdown root must not block the page');
     assert.notEqual(desktopGeometry.modalPointer, 'none', 'Xray dropdown panel must remain interactive');
     assert.equal(desktopGeometry.overflow, false, 'Xray panel must not create horizontal overflow');
+    const topbarGeometry = await page.locator('#xrayTopbarChip').evaluate(node => ({width:Math.round(node.getBoundingClientRect().width),height:Math.round(node.getBoundingClientRect().height)}));
+    assert.ok(topbarGeometry.width >= 145, `Xray topbar control is too small: ${JSON.stringify(topbarGeometry)}`);
+    assert.ok(topbarGeometry.height >= 58, `Xray topbar control is too short: ${JSON.stringify(topbarGeometry)}`);
     await page.locator('.xcm-search').fill('v26.8');
     assert.equal(await page.locator('.xcm-release:not([hidden])').count(), 1, 'Xray version search must filter catalog without mutation');
     await page.locator('.xcm-search').fill('');
@@ -126,15 +130,11 @@ const server = http.createServer((req, res) => {
     await page.locator('.xcm-release[data-version="v26.8.1"]').click();
     assert.equal(applyPosts, 0, 'selecting an older release must not apply it');
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'selecting a target must not replace current topbar version');
-    assert.equal((await page.locator('.xcm-current-copy strong').textContent()).trim(), 'v26.9.9', 'selecting a target must not replace current card version');
     const downgradeButton = page.getByRole('button', {name:'Откатить до v26.8.1'});
     assert.equal(await downgradeButton.count(), 1, 'older release must be presented as rollback/downgrade');
     await downgradeButton.click();
-    assert.equal(applyPosts, 0, 'opening confirmation must remain read-only');
-    const confirm = page.getByRole('button', {name:'Откатить до v26.8.1'});
-    await confirm.click();
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray переключён'));
-    assert.equal(applyPosts, 1, 'explicit confirmation must issue exactly one apply POST');
+    assert.equal(applyPosts, 1, 'one explicit version action must issue exactly one apply POST without a second confirmation screen');
     assert.deepEqual(applyBody, {target_version:'v26.8.1'});
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'successful Xray apply must update the topbar version immediately');
 
