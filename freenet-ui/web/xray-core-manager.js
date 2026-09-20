@@ -20,18 +20,17 @@
       .fn-xray-chip{display:flex;flex-direction:column;justify-content:center;gap:3px;min-width:0}.fn-xray-chip small{font-weight:750;color:#8da4c2;font-size:11px;line-height:1.05}.fn-xray-chip strong{font-size:14px;line-height:1.15;font-weight:750;color:#f3f7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .xcm-root{position:fixed;inset:0;z-index:2700;display:block;pointer-events:none}.xcm-root[hidden]{display:none!important}.xcm-root.xcm-open{pointer-events:none}
       .xcm-backdrop{display:none!important}
-      .xcm-modal{position:fixed;pointer-events:auto;box-sizing:border-box;display:flex;flex-direction:column;width:500px;max-width:calc(100vw - 24px);max-height:min(78vh,650px);overflow:hidden;border:1px solid #355473;border-radius:12px;background:#0c1c2e;box-shadow:0 18px 46px rgba(0,0,0,.52);color:#eef4ff;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
-      .xcm-modal *{box-sizing:border-box}.xcm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:15px 16px;border-bottom:1px solid #28415b;flex:none}
-      .xcm-kicker{color:#8da4c2;font-size:9px;font-weight:750;line-height:1.1}.xcm-head h3{margin:3px 0 0;color:#f4f8ff;font-size:17px;line-height:1.3;font-weight:750}.xcm-subtitle{margin-top:3px;color:#8198b5;font-size:9px;line-height:1.35}
+      .xcm-modal{position:fixed;pointer-events:auto;box-sizing:border-box;display:flex;flex-direction:column;width:540px;max-width:calc(100vw - 24px);max-height:min(82vh,650px);overflow:hidden;border:1px solid #355473;border-radius:12px;background:#0c1c2e;box-shadow:0 18px 46px rgba(0,0,0,.52);color:#eef4ff;font-family:Inter,ui-sans-serif,system-ui,sans-serif}
+      .xcm-modal *{box-sizing:border-box}.xcm-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid #28415b;flex:none}
+      .xcm-kicker{color:#8da4c2;font-size:9px;font-weight:750;line-height:1.1}.xcm-head h3{margin:3px 0 0;color:#f4f8ff;font-size:17px;line-height:1.3;font-weight:750}.xcm-subtitle{margin-top:3px;color:#8198b5;font-size:9.5px;line-height:1.35}
       .xcm-close{appearance:none;display:grid;place-items:center;flex:none;width:30px;height:30px;border:1px solid #365674;border-radius:8px;background:#11273e;color:#b3c5da;cursor:pointer;font-size:20px}.xcm-close:hover{border-color:#6597d9;color:#fff}.xcm-close:focus-visible,.xcm-btn:focus-visible,.xcm-release:focus-visible{outline:2px solid #80adff;outline-offset:2px}
-      #xcmBody{min-height:0;overflow:auto;padding:0 16px 12px;overscroll-behavior:contain}.xcm-summary{position:sticky;top:0;z-index:2;margin:0 -16px 12px;padding:12px 16px;border-bottom:1px solid #28415b;background:#0c1c2ef2;color:#92a8c3;font-size:11px;line-height:1.45;backdrop-filter:blur(10px)}.xcm-summary b{color:#eef5ff}
-      .xcm-current{display:flex;align-items:center;gap:10px;margin:10px 0;padding:10px 11px;border:1px solid #284863;border-radius:10px;background:#0b2238}.xcm-current-icon{display:grid;place-items:center;width:34px;height:34px;flex:none;border-radius:9px;background:#12345a;color:#72a8ff}.xcm-current-copy{display:grid;gap:2px;min-width:0}.xcm-current-copy small{color:#8da4c2;font-size:9px}.xcm-current-copy strong{font-size:14px;color:#f4f8ff}.xcm-current-copy span{font-size:10px;color:#90a8c5}
-      .xcm-search{width:100%;height:38px;margin:0 0 9px;padding:0 11px;border:1px solid #315276;border-radius:9px;background:#081827;color:#eef5ff;font:inherit;font-size:11px;outline:none}.xcm-search:focus{border-color:#6597d9;box-shadow:0 0 0 2px rgba(101,151,217,.12)}.xcm-list{display:grid;gap:6px;margin-top:0}.xcm-release{appearance:none;width:100%;display:grid;grid-template-columns:minmax(105px,.65fr) minmax(0,1.8fr);gap:10px;text-align:left;border:1px solid #263f5c;border-radius:10px;background:#081827;color:#dbe7f6;padding:10px 11px;cursor:pointer}.xcm-release:hover:not(:disabled),.xcm-release.selected{border-color:#4f82bf;background:#15304d}.xcm-release.selected{box-shadow:inset 3px 0 #5b9cff}.xcm-release:disabled{cursor:not-allowed;opacity:.48}
-      .xcm-release-main{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.xcm-release-version{font-size:12px;font-weight:800;color:#f5f8fd}.xcm-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:#163552;color:#a9caff;font-size:8px;font-weight:800}.xcm-badge.current{background:rgba(52,221,159,.14);color:#65e3aa}.xcm-badge.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.xcm-badge.preview{background:rgba(255,190,74,.13);color:#ffd17a}.xcm-release-date{margin-top:5px;color:#839ab7;font-size:9px}.xcm-release-desc{color:#9db0c7;font-size:10px;line-height:1.4}
+      #xcmBody{min-height:0;overflow:hidden;padding:12px 14px 14px;overscroll-behavior:contain}.xcm-summary{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:0 0 10px;padding:10px 12px;border:1px solid #29445f;border-radius:10px;background:#0a1929;color:#92a8c3;font-size:11px;line-height:1.35}.xcm-summary b{color:#eef5ff}
+      .xcm-search{width:100%;height:42px;margin:0 0 8px;padding:0 12px;border:1px solid #315276;border-radius:10px;background:#081827;color:#eef5ff;font:inherit;font-size:11.5px;outline:none}.xcm-search:focus{border-color:#6597d9;box-shadow:0 0 0 2px rgba(101,151,217,.12)}.xcm-list{display:grid;gap:6px;margin-top:0;max-height:236px;overflow-y:auto;overscroll-behavior:contain}.xcm-release{appearance:none;width:100%;min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;border:1px solid #263f5c;border-radius:9px;background:#081827;color:#dbe7f6;padding:8px 10px;cursor:pointer}.xcm-release:hover:not(:disabled),.xcm-release.selected{border-color:#4f82bf;background:#15304d}.xcm-release.selected{box-shadow:inset 3px 0 #5b9cff}.xcm-release:disabled{cursor:not-allowed;opacity:.48}
+      .xcm-release-main{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.xcm-release-version{font-size:12.5px;font-weight:800;color:#f5f8fd}.xcm-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:#163552;color:#a9caff;font-size:8px;font-weight:800}.xcm-badge.current{background:rgba(52,221,159,.14);color:#65e3aa}.xcm-badge.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.xcm-badge.preview{background:rgba(255,190,74,.13);color:#ffd17a}.xcm-release-date{margin:0;color:#839ab7;font-size:9px;white-space:nowrap}.xcm-selection{margin-top:10px;padding:10px 12px;border:1px solid #29445f;border-radius:10px;background:#091827;color:#9fb2ca;font-size:11px;line-height:1.35}.xcm-selection.ready{border-color:#35658e;color:#c9d8ea}.xcm-selection.bad{border-color:rgba(255,104,115,.45);color:#ffd0d4}
       .xcm-empty{padding:16px;border:1px dashed #2c4664;border-radius:11px;color:#8da3bf;text-align:center;font-size:11px}.xcm-error,.xcm-confirm,.xcm-progress,.xcm-result{margin-top:14px;padding:12px 13px;border-radius:11px;font-size:11px;line-height:1.5}.xcm-error{border:1px solid rgba(255,101,112,.42);background:rgba(83,21,31,.28);color:#ffc8cd}.xcm-confirm,.xcm-progress{border:1px solid #315071;background:#091a2a;color:#c8d7e9}.xcm-confirm strong{color:#fff}.xcm-progress::before{content:'';display:inline-block;width:9px;height:9px;margin-right:8px;border:2px solid #6b93d0;border-top-color:transparent;border-radius:50%;animation:xcm-spin .8s linear infinite}@keyframes xcm-spin{to{transform:rotate(360deg)}}.xcm-result.ok{border:1px solid rgba(58,220,158,.4);background:rgba(18,83,60,.28);color:#c9f5df}.xcm-result.bad{border:1px solid rgba(255,104,115,.42);background:rgba(83,21,31,.28);color:#ffd0d4}.xcm-result.stop{border-color:#ff6571;color:#fff0f1}
       .xcm-actions{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:10px 12px;border-top:1px solid #28415b;background:#0b1b2d}.xcm-btn{appearance:none;min-height:44px;border:1px solid #365473;border-radius:9px;background:#10233a;color:#eaf2fb;padding:8px 13px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}.xcm-btn:hover:not(:disabled){border-color:#6593ff}.xcm-btn.primary{min-width:210px;border-color:#5d8dff;background:linear-gradient(180deg,#347eff,#2367e7);color:#fff}.xcm-btn:disabled{opacity:.42;cursor:not-allowed}
-      @media(max-width:760px){.fn-xray-topbar{width:50px;min-width:50px;padding:0;place-items:center}.fn-xray-chip{display:none}.xcm-modal{width:calc(100vw - 24px)!important;max-width:none;max-height:calc(100vh - 24px)}.xcm-release{grid-template-columns:1fr}.xcm-actions{display:grid;grid-template-columns:1fr}.xcm-btn,.xcm-btn.primary{width:100%;min-width:0}}
-      @media(max-height:580px) and (min-width:761px){.xcm-modal{max-height:calc(100vh - 16px)}.xcm-head{padding-top:9px;padding-bottom:9px}.xcm-current{margin:7px 0;padding:8px 10px}.xcm-release{padding-top:7px;padding-bottom:7px}.xcm-release-desc{display:none}}
+      @media(max-width:760px){.fn-xray-topbar{width:50px;min-width:50px;padding:0;place-items:center}.fn-xray-chip{display:none}.xcm-modal{width:calc(100vw - 24px)!important;max-width:none;max-height:calc(100vh - 24px)}.xcm-list{max-height:min(236px,38vh)}.xcm-actions{display:grid;grid-template-columns:1fr}.xcm-btn,.xcm-btn.primary{width:100%;min-width:0}}
+      @media(max-height:580px) and (min-width:761px){.xcm-modal{max-height:calc(100vh - 16px)}.xcm-head{padding-top:9px;padding-bottom:9px}.xcm-release{padding-top:7px;padding-bottom:7px}}
     `;
     document.head.appendChild(style);
   }
@@ -147,7 +146,7 @@
     const vw = window.visualViewport?.width || window.innerWidth;
     const vh = window.visualViewport?.height || window.innerHeight;
     const rect = chip.getBoundingClientRect();
-    const width = Math.min(500, vw - 24);
+    const width = Math.min(540, vw - 24);
     modal.style.width = width + 'px';
     const left = Math.max(12, Math.min(vw - width - 12, rect.right - width));
     modal.style.left = left + 'px';
@@ -184,56 +183,121 @@
     const target = body();
     const footer = actions();
     clearNode(target); clearNode(footer);
+
     const summary = document.createElement('div');
     summary.className = 'xcm-summary';
-    const current = catalog.current_version || 'не определена';
-    const latest = catalog.latest_version || 'не определена';
+    const current = catalog.current_version || '—';
+    const latest = catalog.latest_version || '—';
     syncTopbarVersion(catalog.current_version || '');
-    summary.innerHTML = `Установлена <b>${current}</b> · Доступна <b>${latest}</b>`;
+    summary.innerHTML = '<span>Текущая версия</span><b></b><span>Последняя версия</span><b></b>';
+    const summaryValues = summary.querySelectorAll('b');
+    summaryValues[0].textContent = current;
+    summaryValues[1].textContent = latest;
     target.appendChild(summary);
 
     const search = document.createElement('input');
     search.type = 'search';
     search.className = 'xcm-search';
     search.autocomplete = 'off';
-    search.placeholder = 'Поиск версии Xray';
+    search.placeholder = 'Найти версию Xray';
     search.setAttribute('aria-label', 'Поиск версии Xray');
     target.appendChild(search);
 
-    const list = document.createElement('div'); list.className = 'xcm-list'; target.appendChild(list);
-    const releases = Array.isArray(catalog.releases) ? catalog.releases : [];
-    if (!releases.length) {
-      const empty = document.createElement('div'); empty.className = 'xcm-empty'; empty.textContent = 'Доступные версии Xray не найдены.'; list.appendChild(empty);
-    }
-    releases.forEach(release => {
-      const option = document.createElement('button');
-      option.type = 'button';
-      option.className = `xcm-release${release.version === selectedVersion ? ' selected' : ''}`;
-      option.disabled = !release.asset?.available;
-      option.dataset.version = release.version || '';
-      const left = document.createElement('div');
-      const main = document.createElement('div'); main.className = 'xcm-release-main';
-      const version = document.createElement('span'); version.className = 'xcm-release-version'; version.textContent = release.version || '—'; main.appendChild(version);
-      if (release.current) { const badge = document.createElement('span'); badge.className = 'xcm-badge current'; badge.textContent = 'Текущая'; main.appendChild(badge); }
-      if (release.latest) { const badge = document.createElement('span'); badge.className = 'xcm-badge latest'; badge.textContent = 'Последняя'; main.appendChild(badge); }
-      if (release.prerelease) { const badge = document.createElement('span'); badge.className = 'xcm-badge preview'; badge.textContent = 'Предрелиз'; main.appendChild(badge); }
-      left.appendChild(main);
-      const date = document.createElement('div'); date.className = 'xcm-release-date'; date.textContent = formatDate(release.published_at); left.appendChild(date);
-      const desc = document.createElement('div'); desc.className = 'xcm-release-desc'; desc.textContent = release.asset?.available ? (release.description || 'Официальная версия Xray.') : 'Нет подходящего файла для этого роутера.';
-      option.append(left, desc);
-      option.addEventListener('click', () => { selectedVersion = release.version; renderCatalog(); });
-      list.appendChild(option);
-    });
-    search.addEventListener('input', () => {
-      const query = search.value.trim().toLowerCase();
-      list.querySelectorAll('.xcm-release').forEach(option => {
-        option.hidden = !!query && !option.textContent.toLowerCase().includes(query);
-      });
-    });
+    const list = document.createElement('div');
+    list.className = 'xcm-list';
+    target.appendChild(list);
 
-    addButton(footer, 'Закрыть', '', closeManager);
-    const selected = releases.find(item => item.version === selectedVersion);
-    if (selected && !selected.current && selected.asset?.available) addButton(footer, actionLabel(selected), 'primary', () => applyRelease(selected));
+    const selection = document.createElement('div');
+    selection.className = 'xcm-selection';
+    target.appendChild(selection);
+
+    const releases = Array.isArray(catalog.releases) ? catalog.releases : [];
+
+    const renderFooter = () => {
+      clearNode(footer);
+      addButton(footer, 'Закрыть', '', closeManager);
+      const selected = releases.find(item => item.version === selectedVersion);
+      if (!selected) {
+        selection.className = 'xcm-selection';
+        selection.textContent = 'Выберите версию из списка.';
+        return;
+      }
+      if (selected.current) {
+        selection.className = 'xcm-selection ready';
+        selection.textContent = `${selected.version} установлена сейчас.`;
+        return;
+      }
+      if (!selected.asset?.available) {
+        selection.className = 'xcm-selection bad';
+        selection.textContent = 'Эта версия недоступна для архитектуры роутера.';
+        return;
+      }
+      selection.className = 'xcm-selection ready';
+      selection.textContent = `Выбрана ${selected.version}. После установки FreeNet автоматически проверит Xray и при ошибке выполнит откат.`;
+      addButton(footer, actionLabel(selected), 'primary', () => applyRelease(selected));
+    };
+
+    const draw = () => {
+      clearNode(list);
+      const query = search.value.trim().toLowerCase();
+      const filtered = releases.filter(release => !query || String(release.version || '').toLowerCase().includes(query));
+      const visible = filtered.slice(0, 5);
+      if (!visible.length) {
+        const empty = document.createElement('div');
+        empty.className = 'xcm-empty';
+        empty.textContent = releases.length ? 'Версии по этому фильтру не найдены.' : 'Доступные версии Xray не найдены.';
+        list.appendChild(empty);
+        return;
+      }
+      visible.forEach(release => {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.className = `xcm-release${release.version === selectedVersion ? ' selected' : ''}`;
+        option.disabled = !release.asset?.available && !release.current;
+        option.dataset.version = release.version || '';
+
+        const main = document.createElement('div');
+        main.className = 'xcm-release-main';
+        const version = document.createElement('span');
+        version.className = 'xcm-release-version';
+        version.textContent = release.version || '—';
+        main.appendChild(version);
+        if (release.current) {
+          const badge = document.createElement('span');
+          badge.className = 'xcm-badge current';
+          badge.textContent = 'Текущая';
+          main.appendChild(badge);
+        }
+        if (release.latest) {
+          const badge = document.createElement('span');
+          badge.className = 'xcm-badge latest';
+          badge.textContent = 'Последняя';
+          main.appendChild(badge);
+        }
+        if (release.prerelease) {
+          const badge = document.createElement('span');
+          badge.className = 'xcm-badge preview';
+          badge.textContent = 'Предрелиз';
+          main.appendChild(badge);
+        }
+
+        const date = document.createElement('div');
+        date.className = 'xcm-release-date';
+        date.textContent = formatDate(release.published_at);
+        option.append(main, date);
+        option.addEventListener('click', () => {
+          selectedVersion = release.version;
+          draw();
+          renderFooter();
+        });
+        list.appendChild(option);
+      });
+    };
+
+    search.addEventListener('input', draw);
+    draw();
+    renderFooter();
+    requestAnimationFrame(positionManager);
   }
 
   async function applyRelease(release) {
