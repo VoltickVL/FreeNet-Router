@@ -674,7 +674,7 @@
       const copy = `${managed.length} новых правил будут добавлены перед ${existing.length} существующими. Существующие правила сохраняются без изменений.`;
       setNotice('rv2RuleNotice', copy, 'ok');
       setNotice('rv2ConfigNotice', `${copy} Это пока только черновик.`, 'ok');
-      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку Xray.`;
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку.`;
       if (openConfig) setMode('config');
       return {routing: base, policy: clone(state.live.policy), managedCount: managed.length, existingCount: existing.length};
     } catch (error) {
@@ -742,47 +742,73 @@
     const oldPreview = qs('#policyBuilderPreview', page); if (oldPreview) oldPreview.remove();
     qsa(':scope > .card', page).forEach(card => card.classList.add('fn-routing-v2-legacy'));
     const head = qs('.page-head', page);
-    if (head) head.innerHTML = '<div><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Понятные правила для сайтов и GeoData-групп. Экспертная конфигурация остаётся во вкладке «Конфигурация».</p></div>';
+    if (head) head.innerHTML = '<div><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Куда идёт трафик и какие сайты, GeoSite и GeoIP используются.</p></div>';
 
     const root = document.createElement('div'); root.id = 'routingV2Workspace'; root.className = 'rv2-workspace';
     root.innerHTML = `
       <div class="rv2-modebar">
         <div class="rv2-modes"><button type="button" class="rv2-mode active" data-mode="rules">Правила</button><button type="button" class="rv2-mode" data-mode="config">Конфигурация</button></div>
-        <span class="rv2-state ok">Безопасный режим</span>
       </div>
       <section id="rv2RulesPanel" class="rv2-panel">
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Как работает маршрутизация</h2><p class="rv2-copy">Правила проверяются сверху вниз. Срабатывает первое подходящее правило.</p></div></div>
-          <div class="rv2-guide">
-            <div class="rv2-guide-item direct"><strong>DIRECT</strong><span>Открывать напрямую через провайдера, минуя VPN.</span></div>
-            <div class="rv2-guide-item vpn"><strong>VPN</strong><span>Отправлять трафик через текущий VPN-профиль.</span></div>
-            <div class="rv2-guide-item block"><strong>BLOCK</strong><span>Блокировать обращения к сайту, группе или адресу.</span></div>
+          <div class="rv2-card-head">
+            <div><h2>Маршрутизация сейчас</h2><p class="rv2-copy">Категории сгруппированы по направлению. Номер # — реальный приоритет правила.</p></div>
+            <span id="rv2LiveState" class="rv2-state">Загрузка…</span>
+          </div>
+          <div class="rv2-policy-summary">
+            <span class="rv2-summary-pill"><b id="rv2SummaryRules">0</b> правил</span>
+            <span class="rv2-summary-pill direct"><b id="rv2SummaryDirect">0</b> напрямую</span>
+            <span class="rv2-summary-pill vpn"><b id="rv2SummaryVPN">0</b> через VPN</span>
+            <span class="rv2-summary-pill block"><b id="rv2SummaryBlock">0</b> блокировка</span>
+            <span class="rv2-summary-pill"><b id="rv2SummarySystem">0</b> системных</span>
+          </div>
+          <div class="rv2-policy-map">
+            <section id="rv2DirectGroup" class="rv2-policy-group direct" hidden>
+              <div class="rv2-policy-group-head"><div class="rv2-policy-group-title"><strong>Напрямую</strong><span>без VPN</span></div><span id="rv2DirectCount" class="rv2-policy-group-count">0</span></div>
+              <div id="rv2DirectRules" class="rv2-policy-rules"></div>
+            </section>
+            <section id="rv2VPNGroup" class="rv2-policy-group vpn" hidden>
+              <div class="rv2-policy-group-head"><div class="rv2-policy-group-title"><strong>Через VPN</strong><span>текущий VPN-профиль</span></div><span id="rv2VPNCount" class="rv2-policy-group-count">0</span></div>
+              <div id="rv2VPNRules" class="rv2-policy-rules"></div>
+            </section>
+            <section id="rv2BlockGroup" class="rv2-policy-group block" hidden>
+              <div class="rv2-policy-group-head"><div class="rv2-policy-group-title"><strong>Блокировка</strong><span>доступ запрещён</span></div><span id="rv2BlockCount" class="rv2-policy-group-count">0</span></div>
+              <div id="rv2BlockRules" class="rv2-policy-rules"></div>
+            </section>
+          </div>
+          <div id="rv2SystemWrap" class="rv2-system-wrap" hidden>
+            <button id="rv2SystemToggle" class="rv2-system-toggle" type="button" aria-expanded="false">
+              <span><b>Системные правила</b> · FreeNet их не меняет</span>
+              <span><span id="rv2SystemCount">0</span> · показать</span>
+            </button>
+            <div id="rv2SystemList" class="rv2-system-list" hidden></div>
           </div>
         </div>
-        <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Сейчас действует</h2><p class="rv2-copy">Фактический порядок правил на этом роутере.</p></div><span id="rv2LiveState" class="rv2-state">Загрузка…</span></div>
-          <div id="rv2LiveRuleList" class="rv2-live-list"></div>
-          <div id="rv2LiveNotice" class="rv2-notice"></div>
-        </div>
-        <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Добавить правило</h2><p class="rv2-copy">Выберите сайт, GeoData-группу, IP или подсеть и укажите, что с ней делать.</p></div></div>
-          <div class="rv2-tabs" style="margin-top:13px"><button type="button" class="rv2-tab rv2-family active" data-family="domain">Сайты и GeoSite</button><button type="button" class="rv2-tab rv2-family" data-family="ip">IP и GeoIP</button></div>
-          <div class="rv2-builder-grid"><select id="rv2Kind" aria-label="Тип правила"></select><input id="rv2Value" type="text" autocomplete="off" spellcheck="false"><button id="rv2AddRule" class="btn primary" type="button">Добавить правило</button></div>
-          <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти группу в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена редактирования</button></div>
+
+        <div class="rv2-card rv2-add-card">
+          <div class="rv2-add-head"><h2>Добавить правило</h2><span class="rv2-copy">Новые правила сначала попадают в черновик.</span></div>
+          <div class="rv2-add-layout">
+            <div class="rv2-tabs"><button type="button" class="rv2-tab rv2-family active" data-family="domain">Сайты / GeoSite</button><button type="button" class="rv2-tab rv2-family" data-family="ip">IP / GeoIP</button></div>
+            <select id="rv2Kind" aria-label="Тип правила"></select>
+            <input id="rv2Value" type="text" autocomplete="off" spellcheck="false">
+            <div class="rv2-add-actions">
+              <button type="button" class="rv2-action active" data-action="DIRECT">DIRECT</button>
+              <button type="button" class="rv2-action" data-action="VPN">VPN</button>
+              <button type="button" class="rv2-action" data-action="BLOCK">BLOCK</button>
+            </div>
+            <button id="rv2AddRule" class="btn primary" type="button">Добавить</button>
+          </div>
+          <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена</button></div>
           <div id="rv2SearchResults" class="rv2-search-results"></div>
-          <div style="margin-top:13px"><div class="eyebrow">Куда направить</div><div class="rv2-actions" style="margin-top:7px">
-            <button type="button" class="rv2-action active" data-action="DIRECT"><span>DIRECT</span><small>мимо VPN</small></button>
-            <button type="button" class="rv2-action" data-action="VPN"><span>VPN</span><small>через VPN</small></button>
-            <button type="button" class="rv2-action" data-action="BLOCK"><span>BLOCK</span><small>заблокировать</small></button>
-          </div></div>
           <div id="rv2RuleNotice" class="rv2-notice"></div>
         </div>
-        <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Изменения перед применением</h2><p class="rv2-copy">Новые правила будут добавлены перед существующими. Их можно менять местами, редактировать или удалить.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button" disabled>Посмотреть JSON</button></div>
+
+        <div id="rv2DraftCard" class="rv2-card rv2-draft-card" hidden>
+          <div class="rv2-card-head"><div><h2>Изменения</h2><p class="rv2-copy">Только новые правила. До «Применить» текущая маршрутизация не меняется.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button" disabled>JSON</button></div>
           <div id="rv2RuleList" class="rv2-rule-list"></div><div id="rv2CompiledSummary" class="rv2-compiled" hidden></div>
           <div class="rv2-rule-footer">
-            <div id="rv2RulesApplyPreview" class="rv2-rule-footer-copy">Добавьте правило. До применения действующая маршрутизация не изменится.</div>
-            <div class="rv2-rule-footer-actions"><button id="rv2ValidateRules" class="btn secondary" type="button" disabled>Проверить изменения</button><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
+            <div id="rv2RulesApplyPreview" class="rv2-rule-footer-copy"></div>
+            <div class="rv2-rule-footer-actions"><button id="rv2ValidateRules" class="btn secondary" type="button" disabled>Проверить</button><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
           </div>
           <div id="rv2RulesApplyResult" class="rv2-notice"></div>
         </div>
@@ -808,6 +834,17 @@
     qs('#rv2AddRule')?.addEventListener('click', addOrUpdateRule);
     qs('#rv2CancelEdit')?.addEventListener('click', resetEditor);
     qs('#rv2GeoSearch')?.addEventListener('click', searchGeo);
+    qs('#rv2SystemToggle')?.addEventListener('click', () => {
+      const list = qs('#rv2SystemList');
+      const toggle = qs('#rv2SystemToggle');
+      if (!list || !toggle) return;
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      list.hidden = expanded;
+      toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      const count = qs('#rv2SystemCount')?.textContent || '0';
+      const end = toggle.lastElementChild;
+      if (end) end.textContent = `${count} · ${expanded ? 'показать' : 'скрыть'}`;
+    });
     qs('#rv2Value')?.addEventListener('input', syncRuleActionButtons);
     qs('#rv2Value')?.addEventListener('keydown', event => { if (event.key === 'Enter' && !(state.kind === 'geosite' || state.kind === 'geoip')) { event.preventDefault(); addOrUpdateRule(); } });
     qs('#rv2BuildConfig')?.addEventListener('click', () => buildRoutingDraftFromRules(true));
