@@ -104,7 +104,7 @@ const server = http.createServer((req, res) => {
     assert(modalText.includes('Установлена v26.9.9'));
     assert(modalText.includes('Доступна v26.10.1'));
     assert(modalText.includes('Предрелиз'));
-    assert(modalText.includes('Последний стабильный релиз с исправлениями XTLS.'));
+    assert(!modalText.includes('Последний стабильный релиз с исправлениями XTLS.'), 'catalog rows must not expand into release descriptions');
     assert.equal(await page.locator('#xrayTopbarChip').getAttribute('aria-expanded'), 'true', 'Xray chip must expose open dialog state');
     assert.equal(await page.locator('.xcm-current-copy').count(), 0, 'normal Xray manager must not duplicate a technical current-version card');
     assert.equal(await page.getByRole('button', {name:'Обновить до v26.10.1'}).count(), 1, 'latest stable Xray must be immediately actionable');
@@ -115,7 +115,7 @@ const server = http.createServer((req, res) => {
       const chip = document.querySelector('#xrayTopbarChip').getBoundingClientRect();
       return {width:modal.width,right:modal.right,top:modal.top,chipBottom:chip.bottom,bottom:modal.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,rootPointer:getComputedStyle(document.querySelector('#xrayCoreManager')).pointerEvents,modalPointer:getComputedStyle(document.querySelector('#xrayCoreManager .xcm-modal')).pointerEvents};
     });
-    assert.ok(desktopGeometry.width <= 500.5 && desktopGeometry.right <= desktopGeometry.viewportWidth, 'Xray dropdown must stay compact and inside desktop viewport');
+    assert.ok(desktopGeometry.width <= 540.5 && desktopGeometry.right <= desktopGeometry.viewportWidth, 'Xray dropdown must match the VPN-style compact width and stay inside desktop viewport');
     assert.ok(desktopGeometry.top >= 0 && desktopGeometry.bottom <= desktopGeometry.viewportHeight, 'Xray dropdown must stay inside desktop viewport');
     assert.equal(desktopGeometry.rootPointer, 'none', 'Xray dropdown root must not block the page');
     assert.notEqual(desktopGeometry.modalPointer, 'none', 'Xray dropdown panel must remain interactive');

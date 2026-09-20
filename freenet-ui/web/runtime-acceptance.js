@@ -12,6 +12,10 @@
     return mode === 'xkeen' ? 'Раздельный DNS' : 'DNS через роутер';
   }
 
+  function dnsTopbarLabel(mode) {
+    return mode === 'xkeen' ? 'Раздельный' : 'Через роутер';
+  }
+
   function normalizeLegacyDNSLabels() {
     try {
       if (typeof dnsLabels !== 'object' || !dnsLabels) return;
@@ -24,8 +28,8 @@
 
   function canonicalizeDNSCopy(value) {
     const text = String(value ?? '').trim();
-    if (/xkeen\s*\/\s*xray/i.test(text)) return 'Раздельный DNS';
-    if (/^DNS напрямую(?: через роутер)?$/i.test(text) || /^Штатный DNS роутера$/i.test(text)) return 'DNS через роутер';
+    if (/xkeen\s*\/\s*xray/i.test(text) || /^Раздельный(?: DNS)?$/i.test(text)) return 'Раздельный';
+    if (/^DNS напрямую(?: через роутер)?$/i.test(text) || /^Штатный DNS роутера$/i.test(text) || /^DNS через роутер$/i.test(text) || /^Через роутер$/i.test(text)) return 'Через роутер';
     return text;
   }
 
@@ -65,6 +69,7 @@
   function syncTopbarDNS(mode) {
     protectTopbarDNSBoundary();
     const text = dnsLabel(mode);
+    const topbarText = dnsTopbarLabel(mode);
     const overview = q('#overviewDNS');
     if (overview) overview.textContent = text;
 
@@ -72,7 +77,7 @@
       const label = q('span', copy);
       const value = q('strong', copy);
       if (label && value && label.textContent.trim().toUpperCase() === 'DNS') {
-        value.textContent = text;
+        value.textContent = topbarText;
       }
     });
 
@@ -80,7 +85,7 @@
       const label = q('.fn-shell-fact-copy span', fact);
       const value = q('.fn-shell-fact-copy strong', fact);
       if (label && value && label.textContent.trim().toUpperCase() === 'DNS') {
-        value.textContent = text;
+        value.textContent = topbarText;
       }
     });
 

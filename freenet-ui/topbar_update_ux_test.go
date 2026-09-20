@@ -28,7 +28,7 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		`/api/system/update/releases`,
 		`fnVersionList`,
 		`filtered.slice(0, 5)`,
-		`Math.min(470, vw - 24)`,
+		`Math.min(540, vw - 24)`,
 		`requestAnimationFrame(positionVersionPicker)`,
 		`versionActionLabel`,
 		`Откатить до`,
