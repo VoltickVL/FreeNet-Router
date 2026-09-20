@@ -483,6 +483,7 @@
           const input = qs('#rv2Value'); if (input) input.value = String(category);
           state.selectedSource = String(match.file || '');
           qsa('.rv2-search-result').forEach(node => node.classList.remove('active')); button.classList.add('active');
+          syncRuleActionButtons();
           setNotice('rv2RuleNotice', `Выбрана группа ${category}. Нажмите «Добавить правило», чтобы поместить её в черновик.`);
         });
         results?.appendChild(button);
@@ -655,6 +656,11 @@
   }
 
   async function validateRulesCandidate() {
+    if (!state.rules.length || !state.compiled) {
+      syncRuleActionButtons();
+      setNotice('rv2RuleNotice', 'Сначала добавьте хотя бы одно правило.', 'bad');
+      return;
+    }
     const prepared = await buildRoutingDraftFromRules(false);
     if (!prepared) return;
     const ok = await validateConfig();
@@ -738,12 +744,13 @@
 
   function bind() {
     qsa('.rv2-mode').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
-    qsa('.rv2-family').forEach(button => button.addEventListener('click', () => setFamily(button.dataset.family)));
-    qsa('.rv2-action').forEach(button => button.addEventListener('click', () => setAction(button.dataset.action)));
-    qs('#rv2Kind')?.addEventListener('change', event => { state.kind = String(event.target.value || 'domain'); state.selectedSource = ''; syncKindOptions(); });
+    qsa('.rv2-family').forEach(button => button.addEventListener('click', () => { setFamily(button.dataset.family); syncRuleActionButtons(); }));
+    qsa('.rv2-action').forEach(button => button.addEventListener('click', () => { setAction(button.dataset.action); syncRuleActionButtons(); }));
+    qs('#rv2Kind')?.addEventListener('change', event => { state.kind = String(event.target.value || 'domain'); state.selectedSource = ''; syncKindOptions(); syncRuleActionButtons(); });
     qs('#rv2AddRule')?.addEventListener('click', addOrUpdateRule);
     qs('#rv2CancelEdit')?.addEventListener('click', resetEditor);
     qs('#rv2GeoSearch')?.addEventListener('click', searchGeo);
+    qs('#rv2Value')?.addEventListener('input', syncRuleActionButtons);
     qs('#rv2Value')?.addEventListener('keydown', event => { if (event.key === 'Enter' && !(state.kind === 'geosite' || state.kind === 'geoip')) { event.preventDefault(); addOrUpdateRule(); } });
     qs('#rv2BuildConfig')?.addEventListener('click', () => buildRoutingDraftFromRules(true));
     qs('#rv2ValidateRules')?.addEventListener('click', validateRulesCandidate);
