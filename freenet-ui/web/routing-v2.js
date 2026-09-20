@@ -19,7 +19,9 @@
     live: {routing: {routing: {}}, policy: {policy: {}}},
     draft: {routing: '', policy: ''},
     configDirty: false,
-    configValidated: false
+    configValidated: false,
+    liveRules: [],
+    liveComplexCount: 0
   };
 
   function installStyles() {
@@ -47,6 +49,14 @@
       .rv2-editor-wrap{margin-top:12px}.rv2-editor{display:block;min-height:430px;resize:vertical;padding:14px 15px;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;tab-size:2;white-space:pre}
       .rv2-config-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:9px;color:#8499b6;font-size:10px}.rv2-config-meta code{color:#b7c8db}
       .rv2-danger-note{margin-top:12px;padding:10px 11px;border:1px solid rgba(255,190,67,.30);border-radius:11px;background:rgba(103,70,15,.16);color:#e7ca8a;font-size:11px;line-height:1.45}
+      .rv2-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:12px}
+      .rv2-guide-item{padding:11px 12px;border:1px solid #29425f;border-radius:12px;background:#091725}.rv2-guide-item strong{display:block;font-size:12px}.rv2-guide-item span{display:block;margin-top:4px;color:#8fa4bf;font-size:10.5px;line-height:1.4}.rv2-guide-item.direct strong{color:#5ce8a5}.rv2-guide-item.vpn strong{color:#7dabff}.rv2-guide-item.block strong{color:#ff858e}
+      .rv2-live-list{display:grid;gap:7px;margin-top:12px}.rv2-live-rule{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-live-main{min-width:0}.rv2-live-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.rv2-live-title strong{font-size:12px;color:#eef5ff}.rv2-live-meta{margin-top:4px;color:#8398b4;font-size:10px;line-height:1.4}.rv2-selector-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.rv2-selector-chip{display:inline-flex;align-items:center;max-width:100%;padding:3px 7px;border:1px solid #2c4665;border-radius:999px;background:#0d2136;color:#b7cae3;font-size:9.5px}.rv2-selector-chip b{color:#e7f0fb;margin-right:4px}.rv2-live-lock{display:inline-flex;padding:2px 6px;border-radius:999px;border:1px solid rgba(255,190,67,.35);color:#f0c66d;font-size:8px;font-weight:800}
+      .rv2-action-pill{display:inline-flex;align-items:center;justify-content:center;min-width:72px;padding:6px 9px;border-radius:999px;border:1px solid #314865;font-size:10px;font-weight:850}.rv2-action-pill.direct{color:#5ce8a5;border-color:rgba(73,218,146,.38);background:rgba(18,55,41,.58)}.rv2-action-pill.vpn{color:#8ab2ff;border-color:rgba(91,140,255,.45);background:rgba(24,50,90,.58)}.rv2-action-pill.block{color:#ff9aa1;border-color:rgba(255,112,112,.42);background:rgba(58,29,39,.58)}.rv2-action-pill.custom{color:#b7c7dc}
+      .rv2-action{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:112px}.rv2-action small{font-size:8.5px;font-weight:650;color:#7f94b0}.rv2-action.active small{color:inherit;opacity:.76}
+      .rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:10.5px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}
+      .rv2-notice.warn{border-color:rgba(255,190,67,.38);background:rgba(103,70,15,.16);color:#f0cf8e}
+      @media(max-width:900px){.rv2-guide{grid-template-columns:1fr}.rv2-live-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-action-pill{grid-column:2;justify-self:start}}
       @media(max-width:900px){.rv2-builder-grid{grid-template-columns:1fr}.rv2-rule{grid-template-columns:34px minmax(0,1fr);}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}}
       @media(max-width:620px){.rv2-card{padding:13px}.rv2-mode{flex:1}.rv2-modes{width:100%}.rv2-editor{min-height:330px}}
     `;
@@ -75,18 +85,118 @@
     return body;
   }
 
+  function humanKind(kind) {
+    return ({domain:'Сайт', geosite:'GeoSite', ip:'IP', cidr:'Подсеть', geoip:'GeoIP'})[kind] || 'Условие';
+  }
+
+  function actionCopy(action) {
+    if (action === 'DIRECT') return 'напрямую, без VPN';
+    if (action === 'VPN') return 'через текущий VPN';
+    if (action === 'BLOCK') return 'заблокировать';
+    return 'расширенный маршрут';
+  }
+
+  function outboundAction(tag) {
+    const value = String(tag || '').trim().toLowerCase();
+    if (value === 'direct') return 'DIRECT';
+    if (value === 'vless-reality') return 'VPN';
+    if (value === 'block' || value === 'blocked' || value === 'blackhole') return 'BLOCK';
+    return '';
+  }
+
+  function parseLiveSelector(raw, family) {
+    const value = String(raw || '').trim();
+    if (!value) return null;
+    if (family === 'domain') {
+      if (value.startsWith('geosite:')) return {kind:'geosite', value:value.slice(8), raw:value};
+      const ext = value.match(/^ext:([^:]+):(.+)$/i);
+      if (ext && /geosite/i.test(ext[1])) return {kind:'geosite', value:ext[2], raw:value};
+      if (value.startsWith('domain:')) return {kind:'domain', value:value.slice(7), raw:value};
+      if (value.startsWith('full:')) return {kind:'domain', value:value.slice(5), raw:value, exact:true};
+      if (/^(regexp|keyword):/i.test(value)) return {kind:'custom', value, raw:value};
+      return {kind:'domain', value, raw:value};
+    }
+    if (value.startsWith('geoip:')) return {kind:'geoip', value:value.slice(6), raw:value};
+    const ext = value.match(/^ext:([^:]+):(.+)$/i);
+    if (ext && /geoip/i.test(ext[1])) return {kind:'geoip', value:ext[2], raw:value};
+    if (value.includes('/')) return {kind:'cidr', value, raw:value};
+    return {kind:'ip', value, raw:value};
+  }
+
+  function presentLiveRule(rule, index) {
+    const object = rule && typeof rule === 'object' && !Array.isArray(rule) ? rule : {};
+    const selectors = [];
+    (Array.isArray(object.domain) ? object.domain : []).forEach(value => { const parsed = parseLiveSelector(value, 'domain'); if (parsed) selectors.push(parsed); });
+    (Array.isArray(object.ip) ? object.ip : []).forEach(value => { const parsed = parseLiveSelector(value, 'ip'); if (parsed) selectors.push(parsed); });
+    const knownKeys = new Set(['type','outboundTag','domain','ip']);
+    const extraKeys = Object.keys(object).filter(key => !knownKeys.has(key));
+    const action = outboundAction(object.outboundTag);
+    const complex = object.type !== 'field' || !selectors.length || extraKeys.length > 0 || selectors.some(item => item.kind === 'custom') || !action;
+    return {index, selectors, action, outboundTag:String(object.outboundTag || ''), complex, extraKeys};
+  }
+
+  function livePresentation() {
+    const rules = Array.isArray(state.live.routing?.routing?.rules) ? state.live.routing.routing.rules : [];
+    return rules.map((rule, index) => presentLiveRule(rule, index));
+  }
+
+  function renderLiveRules() {
+    const list = qs('#rv2LiveRuleList');
+    const status = qs('#rv2LiveState');
+    if (!list || !status) return;
+    list.textContent = '';
+    if (!state.configLoaded) {
+      status.className = 'rv2-state'; status.textContent = state.configLoading ? 'Загрузка…' : 'Не загружено';
+      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Получаем фактические правила с роутера…'; list.appendChild(empty);
+      return;
+    }
+    const presented = livePresentation();
+    state.liveRules = presented; state.liveComplexCount = presented.filter(item => item.complex).length;
+    status.className = 'rv2-state ok'; status.textContent = `${presented.length} активных`;
+    if (!presented.length) {
+      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'В 05_routing.json нет правил. Трафик определяется остальной конфигурацией Xray.'; list.appendChild(empty); return;
+    }
+    presented.forEach(item => {
+      const row = document.createElement('div'); row.className = 'rv2-live-rule'; row.dataset.liveRuleIndex = String(item.index);
+      const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(item.index + 1);
+      const main = document.createElement('div'); main.className = 'rv2-live-main';
+      const title = document.createElement('div'); title.className = 'rv2-live-title';
+      const strong = document.createElement('strong'); strong.textContent = item.selectors.length ? (item.complex ? 'Правило с дополнительными условиями' : 'Обычное правило') : 'Расширенное правило'; title.appendChild(strong);
+      if (item.complex) { const lock = document.createElement('span'); lock.className = 'rv2-live-lock'; lock.textContent = 'только просмотр'; title.appendChild(lock); }
+      const chips = document.createElement('div'); chips.className = 'rv2-selector-chips';
+      item.selectors.forEach(selector => {
+        const chip = document.createElement('span'); chip.className = 'rv2-selector-chip';
+        const label = selector.kind === 'custom' ? 'Xray' : humanKind(selector.kind);
+        chip.innerHTML = `<b>${label}</b>${String(selector.value)}`; chips.appendChild(chip);
+      });
+      const meta = document.createElement('div'); meta.className = 'rv2-live-meta';
+      const extras = item.extraKeys.length ? ` · дополнительные условия: ${item.extraKeys.join(', ')}` : '';
+      meta.textContent = `05_routing.json${extras}${item.complex ? ' · сохранится без изменений' : ''}`;
+      main.append(title); if (item.selectors.length) main.append(chips); main.append(meta);
+      const action = document.createElement('div');
+      action.className = `rv2-action-pill ${item.action ? item.action.toLowerCase() : 'custom'}`;
+      action.textContent = item.action || (item.outboundTag ? `→ ${item.outboundTag}` : 'Xray');
+      row.append(order, main, action); list.appendChild(row);
+    });
+    const notice = qs('#rv2LiveNotice');
+    if (notice) {
+      if (state.liveComplexCount) setNotice('rv2LiveNotice', `${state.liveComplexCount} правил содержат дополнительные Xray-условия. Они показаны для понимания и при добавлении новых правил сохраняются без изменений.`, 'warn');
+      else setNotice('rv2LiveNotice', 'Показан фактический порядок из 05_routing.json. Первое совпавшее правило определяет маршрут.', 'ok');
+    }
+  }
+
   function modeMeta() {
     if (state.family === 'ip') {
       return {
         kinds: [
-          ['ip', 'IP'], ['cidr', 'CIDR'], ['geoip', 'GeoIP']
+          ['ip', 'IP-адрес'], ['cidr', 'Подсеть CIDR'], ['geoip', 'Группа GeoIP']
         ],
         placeholder: state.kind === 'geoip' ? 'Например, ru или private' : (state.kind === 'cidr' ? 'Например, 10.20.0.0/16' : 'Например, 1.1.1.1')
       };
     }
     return {
-      kinds: [['domain', 'Домен'], ['geosite', 'GeoSite']],
-      placeholder: state.kind === 'geosite' ? 'Например, youtube' : 'Например, plati.market'
+      kinds: [['domain', 'Сайт / домен'], ['geosite', 'Группа GeoSite']],
+      placeholder: state.kind === 'geosite' ? 'Например, youtube' : 'Например, example.com'
     };
   }
 
@@ -134,7 +244,7 @@
 
   function currentInputRule() {
     const value = String(qs('#rv2Value')?.value || '').trim();
-    if (!value) throw new Error('Введите selector.');
+    if (!value) throw new Error('Укажите сайт, группу, IP-адрес или подсеть.');
     return {selector: {kind: state.kind, value}, action: state.action};
   }
 
@@ -166,7 +276,7 @@
       state.rules = normalizeCompiledRules(state.compiled);
       renderRuleList();
       renderCompileState();
-      setNotice('rv2RuleNotice', successCopy || 'Candidate проверен серверным compiler. MUTATION: NONE', 'ok');
+      setNotice('rv2RuleNotice', successCopy || 'Черновик проверен. Текущая маршрутизация пока не изменена.', 'ok');
       return true;
     } catch (error) {
       setNotice('rv2RuleNotice', `Правило не принято: ${safeError(error, 'ошибка compiler')}. Никакие конфиги не изменены.`, 'bad');
@@ -180,14 +290,14 @@
     const candidate = state.rules.map(clone);
     if (state.editing >= 0 && state.editing < candidate.length) candidate[state.editing] = rule;
     else candidate.push(rule);
-    const ok = await compileCandidate(candidate, state.editing >= 0 ? 'Правило обновлено в candidate draft. MUTATION: NONE' : 'Правило добавлено в candidate draft. MUTATION: NONE');
+    const ok = await compileCandidate(candidate, state.editing >= 0 ? 'Правило обновлено в черновике. На роутере пока ничего не изменено.' : 'Правило добавлено в черновик. На роутере пока ничего не изменено.');
     if (ok) resetEditor();
   }
 
   async function deleteRule(index) {
     const candidate = state.rules.map(clone);
     candidate.splice(index, 1);
-    await compileCandidate(candidate, 'Правило удалено из candidate draft. MUTATION: NONE');
+    await compileCandidate(candidate, 'Правило удалено из черновика. На роутере пока ничего не изменено.');
     resetEditor();
   }
 
@@ -197,7 +307,7 @@
     const candidate = state.rules.map(clone);
     const [item] = candidate.splice(index, 1);
     candidate.splice(target, 0, item);
-    await compileCandidate(candidate, 'Порядок first-match обновлён. MUTATION: NONE');
+    await compileCandidate(candidate, 'Порядок новых правил изменён. На роутере пока ничего не изменено.');
     resetEditor();
   }
 
@@ -213,14 +323,15 @@
     const input = qs('#rv2Value'); if (input) { input.value = rule.selector.value; input.focus(); }
     const add = qs('#rv2AddRule'); if (add) add.textContent = 'Обновить правило';
     const cancel = qs('#rv2CancelEdit'); if (cancel) cancel.hidden = false;
-    setNotice('rv2RuleNotice', `Редактируется правило #${index + 1}. Live config не меняется.`);
+    setNotice('rv2RuleNotice', `Редактируется новое правило #${index + 1}. Действующая маршрутизация не меняется до применения.`);
   }
 
   function ruleDetails(index) {
     const compiled = state.compiled?.rules?.[index];
-    if (!compiled) return 'candidate ещё не скомпилирован';
-    const dns = compiled.dns_leg ? ` · DNS: ${compiled.dns_leg}` : ' · DNS: —';
-    return `payload: ${compiled.payload_outbound || '—'}${dns}`;
+    if (!compiled) return 'Ожидает проверки';
+    const action = String(compiled.action || '');
+    const dns = compiled.dns_leg ? (action === 'DIRECT' ? 'DNS напрямую' : action === 'VPN' ? 'DNS через VPN' : 'DNS блокируется') : 'DNS не меняется';
+    return `${actionCopy(action)} · ${dns}`;
   }
 
   function renderRuleList() {
@@ -228,14 +339,14 @@
     list.textContent = '';
     if (!state.rules.length) {
       const empty = document.createElement('div'); empty.className = 'rv2-rule-empty';
-      empty.textContent = 'Candidate пуст. Добавьте первое правило — live routing останется без изменений.';
+      empty.textContent = 'Изменений пока нет. Добавьте сайт, GeoData-группу, IP или подсеть.';
       list.appendChild(empty); return;
     }
     state.rules.forEach((rule, index) => {
       const row = document.createElement('div'); row.className = 'rv2-rule'; row.dataset.ruleIndex = String(index);
       const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(index + 1);
       const selector = document.createElement('div'); selector.className = 'rv2-selector';
-      const strong = document.createElement('b'); strong.textContent = `${rule.selector.kind}:${rule.selector.value}`;
+      const strong = document.createElement('b'); strong.textContent = `${humanKind(rule.selector.kind)} · ${rule.selector.value}`;
       const meta = document.createElement('span'); meta.textContent = ruleDetails(index);
       selector.append(strong, meta);
       const action = document.createElement('div'); action.className = `rv2-rule-action ${rule.action.toLowerCase()}`; action.textContent = rule.action;
@@ -257,24 +368,22 @@
     const stateNode = qs('#rv2CompileState'); const summary = qs('#rv2CompiledSummary');
     if (!stateNode || !summary) return;
     if (!state.rules.length) {
-      stateNode.className = 'rv2-state'; stateNode.textContent = 'Draft пуст';
-      summary.innerHTML = '<strong>Server compiler</strong> будет вызван при добавлении первого правила. MUTATION: NONE.'; return;
+      stateNode.className = 'rv2-state'; stateNode.textContent = 'Изменений нет';
+      summary.innerHTML = '<strong>Действующие правила не затрагиваются.</strong> Новые правила появятся здесь до проверки и применения.'; return;
     }
     if (state.compiled) {
-      stateNode.className = 'rv2-state ok'; stateNode.textContent = 'Candidate валиден';
-      const payload = Array.isArray(state.compiled.payload) ? state.compiled.payload.length : 0;
-      const dns = Array.isArray(state.compiled.dns) ? state.compiled.dns.length : 0;
-      summary.innerHTML = `<strong>${state.rules.length} правил</strong> · payload: ${payload} · Split DNS legs: ${dns} · порядок first-match сохранён · MUTATION: NONE`;
+      stateNode.className = 'rv2-state ok'; stateNode.textContent = 'Черновик проверен';
+      summary.innerHTML = `<strong>${state.rules.length} новых правил</strong> · они будут поставлены перед существующими, поэтому порядок сверху вниз важен.`;
     } else {
-      stateNode.className = 'rv2-state warn'; stateNode.textContent = 'Не проверен';
-      summary.textContent = 'Candidate требует server compile.';
+      stateNode.className = 'rv2-state warn'; stateNode.textContent = 'Нужна проверка';
+      summary.textContent = 'Черновик нужно проверить перед применением.';
     }
   }
 
   async function searchGeo() {
     if (!(state.kind === 'geosite' || state.kind === 'geoip')) return;
     const query = String(qs('#rv2Value')?.value || '').trim();
-    if (!query) { setNotice('rv2RuleNotice', 'Введите category или часть названия для поиска.', 'bad'); return; }
+    if (!query) { setNotice('rv2RuleNotice', 'Введите название группы или часть названия.', 'bad'); return; }
     const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
     try {
       const body = await api(`/api/geodata/search?kind=${encodeURIComponent(state.kind)}&q=${encodeURIComponent(query)}`);
@@ -290,16 +399,16 @@
           const input = qs('#rv2Value'); if (input) input.value = String(category);
           state.selectedSource = String(match.file || '');
           qsa('.rv2-search-result').forEach(node => node.classList.remove('active')); button.classList.add('active');
-          setNotice('rv2RuleNotice', `Выбрана category ${category}. Добавление в candidate произойдёт только по кнопке. MUTATION: NONE`);
+          setNotice('rv2RuleNotice', `Выбрана группа ${category}. Нажмите «Добавить правило», чтобы поместить её в черновик.`);
         });
         results?.appendChild(button);
       }));
       if (warnings.length) {
-        setNotice('rv2RuleNotice', `${count ? `Найдено: ${count}. ` : ''}Поиск завершён с предупреждениями: ${warnings.join(' · ')}. MUTATION: NONE`, 'warn');
+        setNotice('rv2RuleNotice', `${count ? `Найдено групп: ${count}. ` : ''}Часть GeoData недоступна: ${warnings.join(' · ')}. Действующая маршрутизация не менялась.`, 'warn');
       } else if (!count) {
-        setNotice('rv2RuleNotice', 'Совпадений нет. Category можно ввести вручную; server compiler всё равно проверит selector. MUTATION: NONE');
+        setNotice('rv2RuleNotice', 'Группы не найдены. Название можно ввести вручную — FreeNet проверит его перед применением.');
       } else {
-        setNotice('rv2RuleNotice', `Найдено: ${count}. Поиск read-only; live config не изменён. MUTATION: NONE`, 'ok');
+        setNotice('rv2RuleNotice', `Найдено групп: ${count}. Выберите нужную — действующая маршрутизация пока не меняется.`, 'ok');
       }
     } catch (error) {
       setNotice('rv2RuleNotice', `Поиск geodata сейчас недоступен: ${safeError(error, 'ошибка')}. Category можно ввести вручную; live config не меняется.`, 'bad');
@@ -311,7 +420,8 @@
     qsa('.rv2-mode').forEach(button => button.classList.toggle('active', button.dataset.mode === selected));
     qs('#rv2RulesPanel').hidden = selected !== 'rules';
     qs('#rv2ConfigPanel').hidden = selected !== 'config';
-    if (selected === 'config' && !state.configLoaded) loadConfig();
+    if (!state.configLoaded) loadConfig();
+    if (selected === 'rules') renderLiveRules();
   }
 
   function sectionDefault(name) {
