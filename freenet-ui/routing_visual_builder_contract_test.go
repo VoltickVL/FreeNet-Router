@@ -16,24 +16,26 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		"function renderLiveRules()",
 		"function presentLiveRule(rule, index)",
 		"function parseLiveSelector(raw, family)",
-		"function groupSelectors(selectors)",
-		"function renderPolicyRule(container, item)",
-		"function renderSystemRule(container, item)",
-		"Маршрутизация сейчас",
-		"rv2-policy-summary",
-		"rv2DirectRules",
-		"rv2VPNRules",
-		"rv2BlockRules",
+		"function aggregateSelectors(items)",
+		"function renderActionBoard(action, items)",
+		"function openInlineComposer(action, preserve = false)",
+		"function closeInlineComposer(clear = true)",
+		"rv4-board-grid",
+		"rv4-board direct",
+		"rv4-board vpn",
+		"rv4-board block",
+		`data-add-action="DIRECT"`,
+		`data-add-action="VPN"`,
+		`data-add-action="BLOCK"`,
+		"rv2DirectContent",
+		"rv2VPNContent",
+		"rv2BlockContent",
+		"rv2InlineComposer",
+		"rv2ComposerTitle",
 		"rv2SystemToggle",
 		"Системные правила",
-		"Номер # — реальный приоритет правила",
-		"+${item.selectors.length - limit} ещё",
+		"Черновик изменений",
 		"rv2DraftCard",
-		"rv2-draft-card",
-		"Добавить правило",
-		"Сайты / GeoSite",
-		"IP / GeoIP",
-		"Найти в GeoData",
 		"rv2ValidateRules",
 		"rv2ApplyRules",
 		"validateRulesCandidate",
@@ -42,21 +44,26 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		"ext:([^:]+):(.+)",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("Routing UX v3 missing %q", want)
+			t.Fatalf("Routing UX v4 missing %q", want)
 		}
 	}
 	for _, unwanted := range []string{
-		"Как работает маршрутизация",
-		"Системное правило",
-		"Технические детали",
-		"rv2LiveRuleList",
-		"rv2-live-rule",
-		"rv2-selector-chip",
+		"rv2-policy-summary",
+		"rv2SummaryRules",
+		"rv2DirectRules",
+		"rv2VPNRules",
+		"rv2BlockRules",
+		"rv2-policy-rule",
+		"rv2-policy-order",
+		"Номер # — реальный приоритет правила",
+		"rv2-add-card",
+		"rv2-family",
+		`data-action="DIRECT"`,
 		"font-size:9.5px",
 		"font-size:8.5px",
 	} {
 		if strings.Contains(js, unwanted) {
-			t.Fatalf("Routing UX v3 still contains obsolete dump-style UI %q", unwanted)
+			t.Fatalf("Routing UX v4 still contains obsolete table/global-builder UI %q", unwanted)
 		}
 	}
 }

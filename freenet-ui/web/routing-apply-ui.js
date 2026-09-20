@@ -41,7 +41,7 @@
     page.classList.add('fn-routing-v2');
     const head = q('.page-head', page);
     if (head && !q('[data-routing-v2-head="1"]', head)) {
-      head.innerHTML = '<div data-routing-v2-head="1"><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Понятные правила для сайтов и GeoData-групп. Экспертная конфигурация остаётся во вкладке «Конфигурация».</p></div>';
+      head.innerHTML = '<div data-routing-v2-head="1"><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Сайты и категории — сразу по направлениям. Без чтения конфигов и технических правил.</p></div>';
     }
   }
 
@@ -52,7 +52,7 @@
     style.textContent = `
       [data-page-view="routing"].fn-routing-v2>.card.fn-routing-v2-legacy{display:none!important}
       [data-page-view="routing"].fn-routing-v2>#policyBuilderPreview{display:none!important}
-      .rv2-apply-preview{margin-top:10px;padding:10px 11px;border:1px solid #294866;border-radius:11px;background:#081522;color:#9eb2ca;font-size:11px;line-height:1.5;white-space:pre-wrap}
+      .rv2-apply-preview{margin-top:10px;padding:10px 11px;border:1px solid #294866;border-radius:11px;background:#081522;color:#9eb2ca;font-size:12px;line-height:1.5;white-space:pre-wrap}
       .rv2-apply-stop{border-color:#9b3b51!important;background:#351725!important;color:#ffd0d8!important}
     `;
     document.head.appendChild(style);
