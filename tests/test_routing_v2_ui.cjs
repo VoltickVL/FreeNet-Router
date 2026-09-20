@@ -107,6 +107,21 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForFunction(()=>document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
     assert.match(await page.locator('[data-page-view="routing"] .page-head').textContent(),/Сайты и категории/);
 
+    // Wide desktop canvas must use the available viewport instead of the old 1180px cap.
+    const desktopLayout=await page.evaluate(()=> {
+      const content=document.querySelector('.content')?.getBoundingClientRect();
+      const boards=[...document.querySelectorAll('.rv4-board')].map(node=>node.getBoundingClientRect());
+      return {
+        contentWidth:content?.width||0,
+        boardTops:boards.map(box=>Math.round(box.top)),
+        scrollWidth:document.documentElement.scrollWidth,
+        innerWidth:window.innerWidth
+      };
+    });
+    assert.ok(desktopLayout.contentWidth>=1280,'desktop content canvas must be >=1280px at 1600px viewport, got '+desktopLayout.contentWidth);
+    assert.equal(new Set(desktopLayout.boardTops).size,1,'DIRECT/VPN/BLOCK boards must remain in one desktop row');
+    assert.ok(desktopLayout.scrollWidth<=desktopLayout.innerWidth+1,'wide canvas must not create horizontal overflow');
+
     // Routing UX v4 is an action board: destinations first, categories inside.
     await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('4 пользовательских'));
     assert.equal(await page.locator('.rv4-board').count(),3,'DIRECT/VPN/BLOCK boards must always be visible');
