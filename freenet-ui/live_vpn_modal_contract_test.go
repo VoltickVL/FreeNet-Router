@@ -50,7 +50,7 @@ func TestUnifiedModalAndReconnectUX(t *testing.T) {
 		`openModal({`,
 		`modalProgress(`,
 		`modalResult(`,
-		`Краткая потеря связи/502 во время перезапуска ожидаема`,
+		`Подготавливаем обновление и создаём резервную копию. После перезапуска FreeNet автоматически проверит результат.`,
 		`for (let i = 0; i < 90; i++)`,
 		`[hidden]{display:none!important}`,
 		`.auth-wrap{position:fixed!important`,
