@@ -26,6 +26,7 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		`openTopbarUpdateModal`,
 		`/api/system/update/plan`,
 		`/api/system/update/releases`,
+		`/api/system/update/releases?fresh=1`,
 		`fnVersionList`,
 		`filtered.slice(0, 5)`,
 		`Math.min(540, vw - 24)`,
@@ -68,6 +69,12 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		if strings.Contains(s, unwanted) {
 			t.Fatalf("topbar update must not own XKeen or restyle approved sidebar: %q", unwanted)
 		}
+	}
+	if strings.Count(s, "/api/system/update/releases?fresh=1") != 1 {
+		t.Fatal("explicit version picker must have exactly one fresh release-catalog request")
+	}
+	if !strings.Contains(s, "fetch('/api/system/update/releases', {cache: 'no-store', signal: AbortSignal.timeout(15000)})") {
+		t.Fatal("background topbar polling must keep the cached release-catalog endpoint")
 	}
 	if strings.Contains(s, "MutationObserver") {
 		t.Fatal("topbar/sidebar implementation must not introduce MutationObserver")
