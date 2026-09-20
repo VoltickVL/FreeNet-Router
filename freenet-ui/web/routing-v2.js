@@ -586,28 +586,28 @@
       (body.matches || []).forEach(match => (match.categories || []).forEach(category => {
         count++;
         const button = document.createElement('button'); button.type = 'button'; button.className = 'rv2-search-result';
-        const bounded = match.truncated ? ' · результат ограничен безопасным лимитом' : '';
-        const title = document.createElement('b'); title.textContent = `${state.kind}:${String(category)}`;
-        const meta = document.createElement('span'); meta.textContent = `${String(match.file || 'geodata')} · выбрать группу${bounded}`;
+        const bounded = match.truncated ? ' · показана часть совпадений' : '';
+        const title = document.createElement('b'); title.textContent = `${humanKind(state.kind)} · ${String(category)}`;
+        const meta = document.createElement('span'); meta.textContent = `Выбрать эту категорию${bounded}`;
         button.append(title, meta);
         button.addEventListener('click', () => {
           const input = qs('#rv2Value'); if (input) input.value = String(category);
           state.selectedSource = String(match.file || '');
           qsa('.rv2-search-result').forEach(node => node.classList.remove('active')); button.classList.add('active');
           syncRuleActionButtons();
-          setNotice('rv2RuleNotice', `Выбрана группа ${category}. Нажмите «Добавить правило», чтобы поместить её в черновик.`);
+          setNotice('rv2RuleNotice', `Выбрана категория ${category}. Нажмите «Добавить».`);
         });
         results?.appendChild(button);
       }));
       if (warnings.length) {
-        setNotice('rv2RuleNotice', `${count ? `Найдено групп: ${count}. ` : ''}Часть GeoData недоступна: ${warnings.join(' · ')}. Действующая маршрутизация не менялась.`, 'warn');
+        setNotice('rv2RuleNotice', `${count ? `Найдено: ${count}. ` : ''}Часть источников GeoData сейчас недоступна. Доступные результаты показаны.`, 'warn');
       } else if (!count) {
         setNotice('rv2RuleNotice', 'Группы не найдены. Название можно ввести вручную — FreeNet проверит его перед применением.');
       } else {
         setNotice('rv2RuleNotice', `Найдено групп: ${count}. Выберите нужную — действующая маршрутизация пока не меняется.`, 'ok');
       }
     } catch (error) {
-      setNotice('rv2RuleNotice', `Поиск geodata сейчас недоступен: ${safeError(error, 'ошибка')}. Category можно ввести вручную; live config не меняется.`, 'bad');
+      setNotice('rv2RuleNotice', `Поиск GeoData сейчас недоступен. Категорию можно ввести вручную; текущая маршрутизация не меняется.`, 'bad');
     }
   }
 
@@ -709,7 +709,7 @@
 
   async function buildRoutingDraftFromRules(openConfig = true) {
     if (!state.compiled || !state.rules.length) {
-      setNotice('rv2RuleNotice', 'Сначала добавьте хотя бы одно новое правило.', 'bad');
+      setNotice('rv2RulesApplyResult', 'Сначала добавьте хотя бы одно новое правило.', 'bad');
       return null;
     }
     if (!state.configLoaded) await loadConfig();
@@ -725,14 +725,14 @@
       state.configDirty = true; state.configValidated = false; state.configTab = 'routing'; showActiveEditor();
       setConfigStatus('Черновик', 'warn');
       const copy = `${managed.length} новых правил будут добавлены перед ${existing.length} существующими. Существующие правила сохраняются без изменений.`;
-      setNotice('rv2RuleNotice', copy, 'ok');
+      setNotice('rv2RulesApplyResult', copy, 'ok');
       setNotice('rv2ConfigNotice', `${copy} Это пока только черновик.`, 'ok');
       const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку.`;
       if (openConfig) setMode('config');
       return {routing: base, policy: clone(state.live.policy), managedCount: managed.length, existingCount: existing.length};
     } catch (error) {
       const message = safeError(error, 'Не удалось подготовить изменения');
-      setNotice('rv2RuleNotice', message, 'bad'); setNotice('rv2ConfigNotice', message, 'bad');
+      setNotice('rv2RulesApplyResult', message, 'bad'); setNotice('rv2ConfigNotice', message, 'bad');
       return null;
     }
   }
@@ -769,17 +769,17 @@
   async function validateRulesCandidate() {
     if (!state.rules.length || !state.compiled) {
       syncRuleActionButtons();
-      setNotice('rv2RuleNotice', 'Сначала добавьте хотя бы одно правило.', 'bad');
+      setNotice('rv2RulesApplyResult', 'Сначала добавьте хотя бы одно правило.', 'bad');
       return;
     }
     const prepared = await buildRoutingDraftFromRules(false);
     if (!prepared) return;
     const ok = await validateConfig();
     if (ok) {
-      setNotice('rv2RuleNotice', `Проверка пройдена. Новых правил: ${prepared.managedCount}. Существующие правила: ${prepared.existingCount}, все будут сохранены без изменений.`, 'ok');
+      setNotice('rv2RulesApplyResult', `Проверка пройдена. Новых правил: ${prepared.managedCount}. Текущие правила будут сохранены без изменений.`, 'ok');
       const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. Новых правил: ${prepared.managedCount}. Существующие правила сохранены без изменений: ${prepared.existingCount}. Перед записью FreeNet создаст резервную точку и автоматически откатит изменение при ошибке.`;
     } else {
-      setNotice('rv2RuleNotice', 'Проверка не пройдена. Применение заблокировано; действующая маршрутизация не изменена.', 'bad');
+      setNotice('rv2RulesApplyResult', 'Проверка не пройдена. Применение заблокировано; текущая маршрутизация не изменена.', 'bad');
     }
   }
 
@@ -915,11 +915,16 @@
 
   function bind() {
     qsa('.rv2-mode').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
-    qsa('.rv2-family').forEach(button => button.addEventListener('click', () => { setFamily(button.dataset.family); syncRuleActionButtons(); }));
-    qsa('.rv2-action').forEach(button => button.addEventListener('click', () => { setAction(button.dataset.action); syncRuleActionButtons(); }));
-    qs('#rv2Kind')?.addEventListener('change', event => { state.kind = String(event.target.value || 'domain'); state.selectedSource = ''; syncKindOptions(); syncRuleActionButtons(); });
+    qsa('.rv4-board-add').forEach(button => button.addEventListener('click', () => openInlineComposer(button.dataset.addAction || 'DIRECT')));
+    qs('#rv2ComposerClose')?.addEventListener('click', () => closeInlineComposer(true));
+    qs('#rv2Kind')?.addEventListener('change', event => {
+      state.kind = String(event.target.value || 'domain');
+      state.selectedSource = '';
+      const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
+      syncKindOptions();
+    });
     qs('#rv2AddRule')?.addEventListener('click', addOrUpdateRule);
-    qs('#rv2CancelEdit')?.addEventListener('click', resetEditor);
+    qs('#rv2CancelEdit')?.addEventListener('click', () => closeInlineComposer(true));
     qs('#rv2GeoSearch')?.addEventListener('click', searchGeo);
     qs('#rv2SystemToggle')?.addEventListener('click', () => {
       const list = qs('#rv2SystemList');
@@ -931,9 +936,12 @@
       const action = qs('#rv2SystemToggleAction');
       if (action) action.textContent = expanded ? 'показать' : 'скрыть';
     });
-    qs('#rv2Value')?.addEventListener('input', syncRuleActionButtons);
-    qs('#rv2Value')?.addEventListener('keydown', event => { if (event.key === 'Enter' && !(state.kind === 'geosite' || state.kind === 'geoip')) { event.preventDefault(); addOrUpdateRule(); } });
-    qs('#rv2BuildConfig')?.addEventListener('click', () => buildRoutingDraftFromRules(true));
+    qs('#rv2Value')?.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !(state.kind === 'geosite' || state.kind === 'geoip')) {
+        event.preventDefault();
+        addOrUpdateRule();
+      }
+    });
     qs('#rv2ValidateRules')?.addEventListener('click', validateRulesCandidate);
     qsa('.rv2-config-tab').forEach(button => button.addEventListener('click', () => switchConfigTab(button.dataset.configTab)));
     qs('#rv2FormatConfig')?.addEventListener('click', formatActiveConfig);
