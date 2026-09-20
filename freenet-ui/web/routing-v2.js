@@ -51,10 +51,10 @@
       .rv2-danger-note{margin-top:12px;padding:10px 11px;border:1px solid rgba(255,190,67,.30);border-radius:11px;background:rgba(103,70,15,.16);color:#e7ca8a;font-size:11px;line-height:1.45}
       .rv2-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:12px}
       .rv2-guide-item{padding:11px 12px;border:1px solid #29425f;border-radius:12px;background:#091725}.rv2-guide-item strong{display:block;font-size:12px}.rv2-guide-item span{display:block;margin-top:4px;color:#8fa4bf;font-size:10.5px;line-height:1.4}.rv2-guide-item.direct strong{color:#5ce8a5}.rv2-guide-item.vpn strong{color:#7dabff}.rv2-guide-item.block strong{color:#ff858e}
-      .rv2-live-list{display:grid;gap:7px;margin-top:12px}.rv2-live-rule{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-live-main{min-width:0}.rv2-live-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.rv2-live-title strong{font-size:12px;color:#eef5ff}.rv2-live-meta{margin-top:4px;color:#8398b4;font-size:10px;line-height:1.4}.rv2-selector-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.rv2-selector-chip{display:inline-flex;align-items:center;max-width:100%;padding:3px 7px;border:1px solid #2c4665;border-radius:999px;background:#0d2136;color:#b7cae3;font-size:9.5px}.rv2-selector-chip b{color:#e7f0fb;margin-right:4px}.rv2-live-lock{display:inline-flex;padding:2px 6px;border-radius:999px;border:1px solid rgba(255,190,67,.35);color:#f0c66d;font-size:8px;font-weight:800}
-      .rv2-action-pill{display:inline-flex;align-items:center;justify-content:center;min-width:72px;padding:6px 9px;border-radius:999px;border:1px solid #314865;font-size:10px;font-weight:850}.rv2-action-pill.direct{color:#5ce8a5;border-color:rgba(73,218,146,.38);background:rgba(18,55,41,.58)}.rv2-action-pill.vpn{color:#8ab2ff;border-color:rgba(91,140,255,.45);background:rgba(24,50,90,.58)}.rv2-action-pill.block{color:#ff9aa1;border-color:rgba(255,112,112,.42);background:rgba(58,29,39,.58)}.rv2-action-pill.custom{color:#b7c7dc}
+      .rv2-live-list{display:grid;gap:7px;margin-top:12px}.rv2-live-rule{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-live-main{min-width:0}.rv2-live-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.rv2-live-title strong{font-size:12px;color:#eef5ff}.rv2-live-meta{margin-top:6px;color:#8398b4;font-size:10px;line-height:1.4}.rv2-selector-chips{display:flex;gap:5px;flex-wrap:wrap}.rv2-selector-chip{display:inline-flex;align-items:center;max-width:100%;padding:3px 7px;border:1px solid #2c4665;border-radius:999px;background:#0d2136;color:#b7cae3;font-size:9.5px}.rv2-selector-chip b{color:#e7f0fb;margin-right:4px}.rv2-selector-chip[hidden]{display:none!important}.rv2-selector-more{appearance:none;padding:3px 8px;border:1px dashed #41658e;border-radius:999px;background:transparent;color:#8fb8eb;font:inherit;font-size:9.5px;font-weight:800;cursor:pointer}.rv2-selector-more:hover{border-style:solid;background:#10243a;color:#dcecff}.rv2-live-lock{display:inline-flex;padding:2px 6px;border-radius:999px;border:1px solid rgba(255,190,67,.35);color:#f0c66d;font-size:8px;font-weight:800}
+      .rv2-action-pill{display:inline-flex;align-items:center;justify-content:center;min-width:72px;padding:6px 9px;border-radius:999px;border:1px solid #314865;font-size:10px;font-weight:850}.rv2-action-pill.direct{color:#5ce8a5;border-color:rgba(73,218,146,.38);background:rgba(18,55,41,.58)}.rv2-action-pill.vpn{color:#8ab2ff;border-color:rgba(91,140,255,.45);background:rgba(24,50,90,.58)}.rv2-action-pill.block{color:#ff9aa1;border-color:rgba(255,112,112,.42);background:rgba(58,29,39,.58)}.rv2-action-pill.system{color:#c4d1e2;background:#0c1d30}.rv2-live-details{margin-top:6px}.rv2-live-details button{appearance:none;border:0;background:transparent;padding:0;color:#7897bb;font:inherit;font-size:9.5px;cursor:pointer}.rv2-live-details button:hover{color:#b9d4f5}.rv2-live-tech{margin-top:5px;padding:6px 8px;border:1px solid #243b55;border-radius:8px;background:#07131f;color:#7f95b1;font:500 9px/1.45 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.rv2-live-tech[hidden]{display:none!important}
       .rv2-action{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:112px}.rv2-action small{font-size:8.5px;font-weight:650;color:#7f94b0}.rv2-action.active small{color:inherit;opacity:.76}
-      .rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:10.5px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}
+      .rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:10.5px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}.rv2-workspace button:disabled{opacity:.38!important;cursor:not-allowed!important;filter:saturate(.55);box-shadow:none!important}.rv2-compiled[hidden]{display:none!important}
       .rv2-notice.warn{border-color:rgba(255,190,67,.38);background:rgba(103,70,15,.16);color:#f0cf8e}
       @media(max-width:900px){.rv2-guide{grid-template-columns:1fr}.rv2-live-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-action-pill{grid-column:2;justify-self:start}}
       @media(max-width:900px){.rv2-builder-grid{grid-template-columns:1fr}.rv2-rule{grid-template-columns:34px minmax(0,1fr);}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}}
@@ -97,15 +97,31 @@
     if (action === 'DIRECT') return 'напрямую, без VPN';
     if (action === 'VPN') return 'через текущий VPN';
     if (action === 'BLOCK') return 'заблокировать';
-    return 'расширенный маршрут';
+    return 'системный маршрут';
   }
 
-  function outboundAction(tag) {
-    const value = String(tag || '').trim().toLowerCase();
-    if (value === 'direct') return 'DIRECT';
-    if (value === 'vless-reality') return 'VPN';
-    if (value === 'block' || value === 'blocked' || value === 'blackhole') return 'BLOCK';
-    return '';
+  function outboundPresentation(tag) {
+    const raw = String(tag || '').trim();
+    const value = raw.toLowerCase();
+    if (value === 'direct' || value === 'freedom') return {action:'DIRECT', label:'DIRECT', tone:'direct'};
+    if (value === 'vless-reality') return {action:'VPN', label:'VPN', tone:'vpn'};
+    if (value === 'block' || value === 'blocked' || value === 'blackhole') return {action:'BLOCK', label:'BLOCK', tone:'block'};
+    if (value === 'dns-out' || value === 'dns-direct' || value === 'dns-vless') return {action:'', label:'DNS', tone:'system'};
+    return {action:'', label:'Системный маршрут', tone:'system'};
+  }
+
+  function humanCondition(key) {
+    return ({
+      inboundTag:'входящее подключение',
+      network:'тип сети',
+      port:'порт назначения',
+      sourcePort:'исходный порт',
+      protocol:'протокол',
+      source:'источник',
+      user:'пользователь',
+      attrs:'атрибуты',
+      balancerTag:'балансировщик'
+    })[key] || 'дополнительное условие';
   }
 
   function parseLiveSelector(raw, family) {
@@ -134,9 +150,19 @@
     (Array.isArray(object.ip) ? object.ip : []).forEach(value => { const parsed = parseLiveSelector(value, 'ip'); if (parsed) selectors.push(parsed); });
     const knownKeys = new Set(['type','outboundTag','domain','ip']);
     const extraKeys = Object.keys(object).filter(key => !knownKeys.has(key));
-    const action = outboundAction(object.outboundTag);
-    const complex = object.type !== 'field' || !selectors.length || extraKeys.length > 0 || selectors.some(item => item.kind === 'custom') || !action;
-    return {index, selectors, action, outboundTag:String(object.outboundTag || ''), complex, extraKeys};
+    const outbound = outboundPresentation(object.outboundTag);
+    const complex = object.type !== 'field' || !selectors.length || extraKeys.length > 0 || selectors.some(item => item.kind === 'custom') || !outbound.action;
+    return {
+      index,
+      selectors,
+      action: outbound.action,
+      actionLabel: outbound.label,
+      actionTone: outbound.tone,
+      outboundTag: String(object.outboundTag || ''),
+      complex,
+      extraKeys,
+      conditions: extraKeys.map(humanCondition)
+    };
   }
 
   function livePresentation() {
@@ -151,42 +177,81 @@
     list.textContent = '';
     if (!state.configLoaded) {
       status.className = 'rv2-state'; status.textContent = state.configLoading ? 'Загрузка…' : 'Не загружено';
-      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Получаем фактические правила с роутера…'; list.appendChild(empty);
+      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Получаем текущие правила с роутера…'; list.appendChild(empty);
       return;
     }
     const presented = livePresentation();
     state.liveRules = presented; state.liveComplexCount = presented.filter(item => item.complex).length;
     status.className = 'rv2-state ok'; status.textContent = `${presented.length} активных`;
     if (!presented.length) {
-      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'В 05_routing.json нет правил. Трафик определяется остальной конфигурацией Xray.'; list.appendChild(empty); return;
+      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Активных правил маршрутизации пока нет.'; list.appendChild(empty); return;
     }
     presented.forEach(item => {
       const row = document.createElement('div'); row.className = 'rv2-live-rule'; row.dataset.liveRuleIndex = String(item.index);
       const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(item.index + 1);
       const main = document.createElement('div'); main.className = 'rv2-live-main';
-      const title = document.createElement('div'); title.className = 'rv2-live-title';
-      const strong = document.createElement('strong'); strong.textContent = item.selectors.length ? (item.complex ? 'Правило с дополнительными условиями' : 'Обычное правило') : 'Расширенное правило'; title.appendChild(strong);
-      if (item.complex) { const lock = document.createElement('span'); lock.className = 'rv2-live-lock'; lock.textContent = 'только просмотр'; title.appendChild(lock); }
-      const chips = document.createElement('div'); chips.className = 'rv2-selector-chips';
-      item.selectors.forEach(selector => {
-        const chip = document.createElement('span'); chip.className = 'rv2-selector-chip';
-        const label = selector.kind === 'custom' ? 'Xray' : humanKind(selector.kind);
-        const kind = document.createElement('b'); kind.textContent = label;
-        chip.append(kind, document.createTextNode(String(selector.value))); chips.appendChild(chip);
-      });
-      const meta = document.createElement('div'); meta.className = 'rv2-live-meta';
-      const extras = item.extraKeys.length ? ` · дополнительные условия: ${item.extraKeys.join(', ')}` : '';
-      meta.textContent = `05_routing.json${extras}${item.complex ? ' · сохранится без изменений' : ''}`;
-      main.append(title); if (item.selectors.length) main.append(chips); main.append(meta);
+
+      if (item.complex) {
+        const title = document.createElement('div'); title.className = 'rv2-live-title';
+        const strong = document.createElement('strong'); strong.textContent = 'Системное правило';
+        const lock = document.createElement('span'); lock.className = 'rv2-live-lock'; lock.textContent = 'защищено';
+        title.append(strong, lock); main.appendChild(title);
+      }
+
+      if (item.selectors.length) {
+        const chips = document.createElement('div'); chips.className = 'rv2-selector-chips';
+        const limit = 6;
+        item.selectors.forEach((selector, selectorIndex) => {
+          const chip = document.createElement('span'); chip.className = 'rv2-selector-chip';
+          if (selectorIndex >= limit) chip.hidden = true;
+          const label = selector.kind === 'custom' ? 'Xray' : humanKind(selector.kind);
+          const kind = document.createElement('b'); kind.textContent = label;
+          chip.append(kind, document.createTextNode(String(selector.value))); chips.appendChild(chip);
+        });
+        if (item.selectors.length > limit) {
+          const more = document.createElement('button'); more.type = 'button'; more.className = 'rv2-selector-more';
+          more.setAttribute('aria-expanded', 'false'); more.textContent = `Ещё ${item.selectors.length - limit}`;
+          more.addEventListener('click', () => {
+            const expanded = more.getAttribute('aria-expanded') === 'true';
+            qsa('.rv2-selector-chip', chips).forEach((chip, chipIndex) => { if (chipIndex >= limit) chip.hidden = expanded; });
+            more.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+            more.textContent = expanded ? `Ещё ${item.selectors.length - limit}` : 'Свернуть';
+          });
+          chips.appendChild(more);
+        }
+        main.appendChild(chips);
+      }
+
+      if (item.complex) {
+        const meta = document.createElement('div'); meta.className = 'rv2-live-meta';
+        const conditionCopy = item.conditions.length ? `Условия: ${item.conditions.join(', ')}. ` : '';
+        meta.textContent = `${conditionCopy}FreeNet сохранит это правило без изменений.`;
+        main.appendChild(meta);
+
+        const details = document.createElement('div'); details.className = 'rv2-live-details';
+        const toggle = document.createElement('button'); toggle.type = 'button'; toggle.textContent = 'Технические детали';
+        toggle.setAttribute('aria-expanded', 'false');
+        const tech = document.createElement('div'); tech.className = 'rv2-live-tech'; tech.hidden = true;
+        const rawOutbound = item.outboundTag || '—';
+        const rawConditions = item.extraKeys.length ? item.extraKeys.join(', ') : '—';
+        tech.textContent = `outbound: ${rawOutbound} · conditions: ${rawConditions}`;
+        toggle.addEventListener('click', () => {
+          const expanded = toggle.getAttribute('aria-expanded') === 'true';
+          tech.hidden = expanded; toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+          toggle.textContent = expanded ? 'Технические детали' : 'Скрыть детали';
+        });
+        details.append(toggle, tech); main.appendChild(details);
+      }
+
       const action = document.createElement('div');
-      action.className = `rv2-action-pill ${item.action ? item.action.toLowerCase() : 'custom'}`;
-      action.textContent = item.action || (item.outboundTag ? `→ ${item.outboundTag}` : 'Xray');
+      action.className = `rv2-action-pill ${item.actionTone || 'system'}`;
+      action.textContent = item.actionLabel || 'Системный маршрут';
       row.append(order, main, action); list.appendChild(row);
     });
     const notice = qs('#rv2LiveNotice');
     if (notice) {
-      if (state.liveComplexCount) setNotice('rv2LiveNotice', `${state.liveComplexCount} правил содержат дополнительные Xray-условия. Они показаны для понимания и при добавлении новых правил сохраняются без изменений.`, 'warn');
-      else setNotice('rv2LiveNotice', 'Показан фактический порядок из 05_routing.json. Первое совпавшее правило определяет маршрут.', 'ok');
+      if (state.liveComplexCount) setNotice('rv2LiveNotice', `${state.liveComplexCount} системных правил защищены от случайного редактирования. При добавлении новых правил FreeNet сохранит их без изменений.`, 'warn');
+      else setNotice('rv2LiveNotice', 'Порядок сверху вниз является приоритетом: срабатывает первое подходящее правило.', 'ok');
     }
   }
 
@@ -371,18 +436,28 @@
     });
   }
 
-  function renderCompileState() {
-    const stateNode = qs('#rv2CompileState'); const summary = qs('#rv2CompiledSummary');
-    if (!stateNode || !summary) return;
-    if (!state.rules.length) {
-      stateNode.className = 'rv2-state'; stateNode.textContent = 'Изменений нет';
-      summary.innerHTML = '<strong>Действующие правила не затрагиваются.</strong> Новые правила появятся здесь до проверки и применения.'; return;
+  function syncRuleActionButtons() {
+    const hasDraft = state.rules.length > 0 && !!state.compiled;
+    const validate = qs('#rv2ValidateRules'); if (validate) validate.disabled = !hasDraft;
+    const json = qs('#rv2BuildConfig'); if (json) json.disabled = !hasDraft;
+    if (!hasDraft) {
+      const apply = qs('#rv2ApplyRules'); if (apply) apply.disabled = true;
     }
+  }
+
+  function renderCompileState() {
+    const summary = qs('#rv2CompiledSummary');
+    syncRuleActionButtons();
+    if (!summary) return;
+    if (!state.rules.length) {
+      summary.hidden = true;
+      summary.textContent = '';
+      return;
+    }
+    summary.hidden = false;
     if (state.compiled) {
-      stateNode.className = 'rv2-state ok'; stateNode.textContent = 'Черновик проверен';
-      summary.innerHTML = `<strong>${state.rules.length} новых правил</strong> · они будут поставлены перед существующими, поэтому порядок сверху вниз важен.`;
+      summary.innerHTML = `<strong>${state.rules.length} новых правил</strong> · они будут поставлены перед существующими; порядок сверху вниз важен.`;
     } else {
-      stateNode.className = 'rv2-state warn'; stateNode.textContent = 'Нужна проверка';
       summary.textContent = 'Черновик нужно проверить перед применением.';
     }
   }
@@ -621,7 +696,7 @@
           </div>
         </div>
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Сейчас действует</h2><p class="rv2-copy">Фактический порядок из 05_routing.json на этом роутере.</p></div><span id="rv2LiveState" class="rv2-state">Загрузка…</span></div>
+          <div class="rv2-card-head"><div><h2>Сейчас действует</h2><p class="rv2-copy">Фактический порядок правил на этом роутере.</p></div><span id="rv2LiveState" class="rv2-state">Загрузка…</span></div>
           <div id="rv2LiveRuleList" class="rv2-live-list"></div>
           <div id="rv2LiveNotice" class="rv2-notice"></div>
         </div>
@@ -639,11 +714,11 @@
           <div id="rv2RuleNotice" class="rv2-notice"></div>
         </div>
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Изменения перед применением</h2><p class="rv2-copy">Новые правила будут добавлены перед существующими. Их можно менять местами, редактировать или удалить.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button">Посмотреть JSON</button></div>
-          <div id="rv2RuleList" class="rv2-rule-list"></div><div id="rv2CompiledSummary" class="rv2-compiled"></div>
+          <div class="rv2-card-head"><div><h2>Изменения перед применением</h2><p class="rv2-copy">Новые правила будут добавлены перед существующими. Их можно менять местами, редактировать или удалить.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button" disabled>Посмотреть JSON</button></div>
+          <div id="rv2RuleList" class="rv2-rule-list"></div><div id="rv2CompiledSummary" class="rv2-compiled" hidden></div>
           <div class="rv2-rule-footer">
             <div id="rv2RulesApplyPreview" class="rv2-rule-footer-copy">Добавьте правило. До применения действующая маршрутизация не изменится.</div>
-            <div class="rv2-rule-footer-actions"><button id="rv2ValidateRules" class="btn secondary" type="button">Проверить изменения</button><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
+            <div class="rv2-rule-footer-actions"><button id="rv2ValidateRules" class="btn secondary" type="button" disabled>Проверить изменения</button><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
           </div>
           <div id="rv2RulesApplyResult" class="rv2-notice"></div>
         </div>
