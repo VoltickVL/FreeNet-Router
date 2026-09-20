@@ -85,6 +85,10 @@
     return body;
   }
 
+  function signalRuleDraftChanged() {
+    document.dispatchEvent(new CustomEvent('freenet:routing-draft-changed'));
+  }
+
   function humanKind(kind) {
     return ({domain:'Сайт', geosite:'GeoSite', ip:'IP', cidr:'Подсеть', geoip:'GeoIP'})[kind] || 'Условие';
   }
@@ -262,6 +266,7 @@
       state.compiled = null;
       renderRuleList();
       renderCompileState();
+      signalRuleDraftChanged();
       if (successCopy) setNotice('rv2RuleNotice', successCopy, 'ok');
       return true;
     }
@@ -274,6 +279,7 @@
       if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract policy compiler.');
       state.compiled = body.compiled || null;
       state.rules = normalizeCompiledRules(state.compiled);
+      signalRuleDraftChanged();
       renderRuleList();
       renderCompileState();
       setNotice('rv2RuleNotice', successCopy || 'Черновик проверен. Текущая маршрутизация пока не изменена.', 'ok');
@@ -455,7 +461,7 @@
 
   async function loadConfig() {
     if (state.configLoading) return;
-    state.configLoading = true; setConfigStatus('Загрузка…'); setNotice('rv2ConfigNotice', '');
+    state.configLoading = true; setConfigStatus('Загрузка…'); setNotice('rv2ConfigNotice', ''); renderLiveRules();
     try {
       const body = await api('/api/routing/config');
       if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract.');
@@ -464,15 +470,16 @@
       state.draft.routing = JSON.stringify(state.live.routing, null, 2);
       state.draft.policy = JSON.stringify(state.live.policy, null, 2);
       state.configLoaded = true; state.configDirty = false; state.configValidated = false;
-      showActiveEditor();
+      showActiveEditor(); renderLiveRules();
       const hashes = qs('#rv2ConfigHashes');
       if (hashes) hashes.textContent = `routing ${body.routing_sha256 ? String(body.routing_sha256).slice(0, 12) : 'new'} · policy ${body.policy_sha256 ? String(body.policy_sha256).slice(0, 12) : 'new'}`;
       setConfigStatus('Live загружен', 'ok');
-      setNotice('rv2ConfigNotice', 'Загружены только 05_routing.json и 06_policy.json. 04_outbounds и credentials не выдаются API. MUTATION: NONE', 'ok');
+      setNotice('rv2ConfigNotice', 'Загружены 05_routing.json и 06_policy.json. Редактирование здесь — экспертный режим; применение остаётся защищённым Xray validation и rollback.', 'ok');
     } catch (error) {
-      setConfigStatus('Недоступно', 'warn');
+      state.configLoaded = false; setConfigStatus('Недоступно', 'warn'); renderLiveRules();
+      setNotice('rv2LiveNotice', `Не удалось прочитать текущие правила: ${safeError(error, 'ошибка')}. Никаких изменений не выполнено.`, 'bad');
       setNotice('rv2ConfigNotice', `Не удалось загрузить managed sections: ${safeError(error, 'ошибка')}`, 'bad');
-    } finally { state.configLoading = false; }
+    } finally { state.configLoading = false; renderLiveRules(); }
   }
 
   function switchConfigTab(tab) {
@@ -510,29 +517,43 @@
     return xray;
   }
 
-  async function buildRoutingDraftFromRules() {
-    if (!state.compiled || !state.rules.length) { setNotice('rv2ConfigNotice', 'Сначала добавьте и проверьте хотя бы одно правило.', 'bad'); return; }
+  async function buildRoutingDraftFromRules(openConfig = true) {
+    if (!state.compiled || !state.rules.length) {
+      setNotice('rv2RuleNotice', 'Сначала добавьте хотя бы одно новое правило.', 'bad');
+      return null;
+    }
     if (!state.configLoaded) await loadConfig();
-    if (!state.configLoaded) return;
+    if (!state.configLoaded) return null;
     try {
       const base = clone(state.live.routing);
       if (!base.routing || typeof base.routing !== 'object') base.routing = {};
-      const existing = Array.isArray(base.routing.rules) ? base.routing.rules : [];
+      const existing = Array.isArray(base.routing.rules) ? clone(base.routing.rules) : [];
       const managed = (state.compiled.payload || []).map(compiledRuleToXray);
       base.routing.rules = managed.concat(existing);
       state.draft.routing = JSON.stringify(base, null, 2);
-      state.configDirty = true; state.configValidated = false; state.configTab = 'routing'; showActiveEditor(); setMode('config');
+      state.draft.policy = JSON.stringify(state.live.policy, null, 2);
+      state.configDirty = true; state.configValidated = false; state.configTab = 'routing'; showActiveEditor();
       setConfigStatus('Черновик', 'warn');
-      setNotice('rv2ConfigNotice', `Собран candidate 05_routing.json: ${managed.length} FreeNet rules поставлены перед ${existing.length} существующими правилами, чтобы сохранить first-match. Это только browser draft; live config не изменён.`, 'ok');
-    } catch (error) { setNotice('rv2ConfigNotice', safeError(error, 'Не удалось собрать candidate'), 'bad'); }
+      const copy = `${managed.length} новых правил будут добавлены перед ${existing.length} существующими. Существующие правила сохраняются без изменений.`;
+      setNotice('rv2RuleNotice', copy, 'ok');
+      setNotice('rv2ConfigNotice', `${copy} Это пока только черновик.`, 'ok');
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку Xray.`;
+      if (openConfig) setMode('config');
+      return {routing: base, policy: clone(state.live.policy), managedCount: managed.length, existingCount: existing.length};
+    } catch (error) {
+      const message = safeError(error, 'Не удалось подготовить изменения');
+      setNotice('rv2RuleNotice', message, 'bad'); setNotice('rv2ConfigNotice', message, 'bad');
+      return null;
+    }
   }
 
   async function validateConfig() {
     storeEditor();
     let routing, policy;
     try { routing = parseDraft('routing'); policy = parseDraft('policy'); }
-    catch (error) { setNotice('rv2ConfigNotice', error.message, 'bad'); setConfigStatus('JSON ошибка', 'warn'); return; }
+    catch (error) { setNotice('rv2ConfigNotice', error.message, 'bad'); setConfigStatus('JSON ошибка', 'warn'); return false; }
     const button = qs('#rv2ValidateConfig'); if (button) { button.disabled = true; button.textContent = 'Проверяем…'; }
+    const rulesButton = qs('#rv2ValidateRules'); if (rulesButton) { rulesButton.disabled = true; rulesButton.textContent = 'Проверяем…'; }
     setConfigStatus('Xray validation…');
     try {
       const body = await api('/api/routing/validate', {
@@ -543,11 +564,28 @@
       state.draft.policy = JSON.stringify(body.policy || policy, null, 2);
       state.configValidated = true; state.configDirty = true; showActiveEditor();
       setConfigStatus('Xray валиден', 'ok');
-      setNotice('rv2ConfigNotice', 'Candidate прошёл `xray run -test -confdir` во временной копии текущего config dir. Live 05/06 не изменены. MUTATION: NONE', 'ok');
+      setNotice('rv2ConfigNotice', 'Проверка Xray пройдена. Live-конфигурация ещё не изменена.', 'ok');
+      return true;
     } catch (error) {
       state.configValidated = false; setConfigStatus('Не валиден', 'warn');
-      setNotice('rv2ConfigNotice', `Candidate не прошёл проверку: ${safeError(error, 'ошибка Xray validation')}. Live config не изменён.`, 'bad');
-    } finally { if (button) { button.disabled = false; button.textContent = 'Проверить Xray'; } }
+      setNotice('rv2ConfigNotice', `Изменения не прошли проверку: ${safeError(error, 'ошибка Xray validation')}. Действующая конфигурация не изменена.`, 'bad');
+      return false;
+    } finally {
+      if (button) { button.disabled = false; button.textContent = 'Проверить Xray'; }
+      if (rulesButton) { rulesButton.disabled = false; rulesButton.textContent = 'Проверить изменения'; }
+    }
+  }
+
+  async function validateRulesCandidate() {
+    const prepared = await buildRoutingDraftFromRules(false);
+    if (!prepared) return;
+    const ok = await validateConfig();
+    if (ok) {
+      setNotice('rv2RuleNotice', `Проверка пройдена. ${prepared.managedCount} новых правил готовы к безопасному применению; ${prepared.existingCount} существующих правил будут сохранены.`, 'ok');
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = 'Проверка Xray пройдена. Можно применить изменения. Перед записью FreeNet создаст snapshot и при ошибке выполнит откат.';
+    } else {
+      setNotice('rv2RuleNotice', 'Проверка не пройдена. Применение заблокировано; действующая маршрутизация не изменена.', 'bad');
+    }
   }
 
   function resetConfigDraft() {
@@ -562,36 +600,58 @@
     const oldPreview = qs('#policyBuilderPreview', page); if (oldPreview) oldPreview.remove();
     qsa(':scope > .card', page).forEach(card => card.classList.add('fn-routing-v2-legacy'));
     const head = qs('.page-head', page);
-    if (head) head.innerHTML = '<div><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Правила DIRECT / VPN / BLOCK и экспертный Config Studio с безопасной Xray validation.</p></div>';
+    if (head) head.innerHTML = '<div><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Понятные правила для сайтов и GeoData-групп. Экспертная конфигурация остаётся во вкладке «Конфигурация».</p></div>';
 
     const root = document.createElement('div'); root.id = 'routingV2Workspace'; root.className = 'rv2-workspace';
     root.innerHTML = `
       <div class="rv2-modebar">
         <div class="rv2-modes"><button type="button" class="rv2-mode active" data-mode="rules">Правила</button><button type="button" class="rv2-mode" data-mode="config">Конфигурация</button></div>
-        <span class="rv2-state ok">Draft · MUTATION: NONE</span>
+        <span class="rv2-state ok">Безопасный режим</span>
       </div>
       <section id="rv2RulesPanel" class="rv2-panel">
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Конструктор правил</h2><p class="rv2-copy">Ordered first-match policy. Правила проверяются серверным compiler до попадания в candidate.</p></div><span id="rv2CompileState" class="rv2-state">Draft пуст</span></div>
-          <div class="rv2-tabs" style="margin-top:13px"><button type="button" class="rv2-tab rv2-family active" data-family="domain">Домен / GeoSite</button><button type="button" class="rv2-tab rv2-family" data-family="ip">IP / GeoIP</button></div>
-          <div class="rv2-builder-grid"><select id="rv2Kind" aria-label="Тип selector"></select><input id="rv2Value" type="text" autocomplete="off" spellcheck="false"><button id="rv2AddRule" class="btn primary" type="button">Добавить правило</button></div>
-          <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена редактирования</button></div>
+          <div class="rv2-card-head"><div><h2>Как работает маршрутизация</h2><p class="rv2-copy">Правила проверяются сверху вниз. Срабатывает первое подходящее правило.</p></div></div>
+          <div class="rv2-guide">
+            <div class="rv2-guide-item direct"><strong>DIRECT</strong><span>Открывать напрямую через провайдера, минуя VPN.</span></div>
+            <div class="rv2-guide-item vpn"><strong>VPN</strong><span>Отправлять трафик через текущий VPN-профиль.</span></div>
+            <div class="rv2-guide-item block"><strong>BLOCK</strong><span>Блокировать обращения к сайту, группе или адресу.</span></div>
+          </div>
+        </div>
+        <div class="rv2-card">
+          <div class="rv2-card-head"><div><h2>Сейчас действует</h2><p class="rv2-copy">Фактический порядок из 05_routing.json на этом роутере.</p></div><span id="rv2LiveState" class="rv2-state">Загрузка…</span></div>
+          <div id="rv2LiveRuleList" class="rv2-live-list"></div>
+          <div id="rv2LiveNotice" class="rv2-notice"></div>
+        </div>
+        <div class="rv2-card">
+          <div class="rv2-card-head"><div><h2>Добавить правило</h2><p class="rv2-copy">Выберите сайт, GeoData-группу, IP или подсеть и укажите, что с ней делать.</p></div></div>
+          <div class="rv2-tabs" style="margin-top:13px"><button type="button" class="rv2-tab rv2-family active" data-family="domain">Сайты и GeoSite</button><button type="button" class="rv2-tab rv2-family" data-family="ip">IP и GeoIP</button></div>
+          <div class="rv2-builder-grid"><select id="rv2Kind" aria-label="Тип правила"></select><input id="rv2Value" type="text" autocomplete="off" spellcheck="false"><button id="rv2AddRule" class="btn primary" type="button">Добавить правило</button></div>
+          <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти группу в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена редактирования</button></div>
           <div id="rv2SearchResults" class="rv2-search-results"></div>
-          <div style="margin-top:13px"><div class="eyebrow">Действие</div><div class="rv2-actions" style="margin-top:7px"><button type="button" class="rv2-action active" data-action="DIRECT">DIRECT</button><button type="button" class="rv2-action" data-action="VPN">VPN</button><button type="button" class="rv2-action" data-action="BLOCK">BLOCK</button></div></div>
+          <div style="margin-top:13px"><div class="eyebrow">Куда направить</div><div class="rv2-actions" style="margin-top:7px">
+            <button type="button" class="rv2-action active" data-action="DIRECT"><span>DIRECT</span><small>мимо VPN</small></button>
+            <button type="button" class="rv2-action" data-action="VPN"><span>VPN</span><small>через VPN</small></button>
+            <button type="button" class="rv2-action" data-action="BLOCK"><span>BLOCK</span><small>заблокировать</small></button>
+          </div></div>
           <div id="rv2RuleNotice" class="rv2-notice"></div>
         </div>
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Candidate rules</h2><p class="rv2-copy">Порядок сверху вниз является first-match order.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button">Собрать 05_routing draft</button></div>
+          <div class="rv2-card-head"><div><h2>Изменения перед применением</h2><p class="rv2-copy">Новые правила будут добавлены перед существующими. Их можно менять местами, редактировать или удалить.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button">Посмотреть JSON</button></div>
           <div id="rv2RuleList" class="rv2-rule-list"></div><div id="rv2CompiledSummary" class="rv2-compiled"></div>
+          <div class="rv2-rule-footer">
+            <div id="rv2RulesApplyPreview" class="rv2-rule-footer-copy">Добавьте правило. До применения действующая маршрутизация не изменится.</div>
+            <div class="rv2-rule-footer-actions"><button id="rv2ValidateRules" class="btn secondary" type="button">Проверить изменения</button><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
+          </div>
+          <div id="rv2RulesApplyResult" class="rv2-notice"></div>
         </div>
       </section>
       <section id="rv2ConfigPanel" class="rv2-panel" hidden>
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Config Studio</h2><p class="rv2-copy">Редактирование только managed non-secret sections. По образцу XKeen UI, но с FreeNet candidate validation.</p></div><span id="rv2ConfigState" class="rv2-state">Не загружено</span></div>
+          <div class="rv2-card-head"><div><h2>Config Studio</h2><p class="rv2-copy">Экспертный режим: прямое редактирование managed 05_routing.json и 06_policy.json.</p></div><span id="rv2ConfigState" class="rv2-state">Не загружено</span></div>
           <div class="rv2-modebar" style="margin-top:10px"><div class="rv2-tabs"><button type="button" class="rv2-tab rv2-config-tab active" data-config-tab="routing">05_routing</button><button type="button" class="rv2-tab rv2-config-tab" data-config-tab="policy">06_policy</button></div><div class="rv2-toolbar"><button id="rv2FormatConfig" class="btn secondary" type="button">Формат</button><button id="rv2ValidateConfig" class="btn secondary" type="button">Проверить Xray</button><button id="rv2ReloadConfig" class="btn secondary" type="button">Сбросить draft</button></div></div>
           <div class="rv2-editor-wrap"><textarea id="rv2ConfigEditor" class="rv2-editor" spellcheck="false" aria-label="Routing Config Studio"></textarea></div>
           <div class="rv2-config-meta"><span>Файл: <code id="rv2ConfigFile">05_routing.json</code></span><span id="rv2ConfigHashes">snapshot не загружен</span></div>
-          <div class="rv2-danger-note">В этом цикле <b>нет Save/Apply</b>: editor меняет только browser candidate. `04_outbounds.json`, subscription URL, VLESS UUID и Reality credentials не выдаются этому API вообще.</div>
+          <div class="rv2-danger-note">Controlled apply добавляется отдельным safety layer: validation, snapshot, post-check и rollback обязательны.</div>
           <div id="rv2ConfigNotice" class="rv2-notice"></div>
         </div>
       </section>`;
@@ -607,7 +667,8 @@
     qs('#rv2CancelEdit')?.addEventListener('click', resetEditor);
     qs('#rv2GeoSearch')?.addEventListener('click', searchGeo);
     qs('#rv2Value')?.addEventListener('keydown', event => { if (event.key === 'Enter' && !(state.kind === 'geosite' || state.kind === 'geoip')) { event.preventDefault(); addOrUpdateRule(); } });
-    qs('#rv2BuildConfig')?.addEventListener('click', buildRoutingDraftFromRules);
+    qs('#rv2BuildConfig')?.addEventListener('click', () => buildRoutingDraftFromRules(true));
+    qs('#rv2ValidateRules')?.addEventListener('click', validateRulesCandidate);
     qsa('.rv2-config-tab').forEach(button => button.addEventListener('click', () => switchConfigTab(button.dataset.configTab)));
     qs('#rv2FormatConfig')?.addEventListener('click', formatActiveConfig);
     qs('#rv2ValidateConfig')?.addEventListener('click', validateConfig);
@@ -619,7 +680,8 @@
     const page = qs('[data-page-view="network"]');
     if (!page || qs('#routingV2Workspace')) return;
     installStyles(); page.classList.add('fn-routing-v2'); page.dataset.routingV2 = '1';
-    mountMarkup(page); bind(); syncKindOptions(); renderRuleList(); renderCompileState();
+    mountMarkup(page); bind(); syncKindOptions(); renderRuleList(); renderCompileState(); renderLiveRules();
+    void loadConfig();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
