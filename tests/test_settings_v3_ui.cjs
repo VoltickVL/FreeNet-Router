@@ -403,15 +403,10 @@ const server = http.createServer((req, res) => {
     const versionDetailCopy = (await page.locator('#fnVersionDetail').textContent()) || '';
     assert.match(versionDetailCopy, /Версия проверена и готова к установке/);
     assert.doesNotMatch(versionDetailCopy, /SHA-256|Manifest|exact release|assets|credentials|routing state|cron|staging|snapshot|expected delta/i, 'ordinary version detail must not expose implementation jargon');
+    assert.equal(await page.locator('#fnModalConfirm').count(), 0, 'version manager must not open a second confirmation action');
     await page.locator('#fnVersionDetail .fn-version-apply').click();
-    await page.waitForFunction(() => document.querySelector('#fnModalTitle')?.textContent.includes('Откатить до v0.3.42'));
-    const confirmationCopy = ((await page.locator('#fnModalBody').textContent()) || '') + ' ' + ((await page.locator('#fnModalMeta').textContent()) || '');
-    assert.match(confirmationCopy, /резервную копию/);
-    assert.doesNotMatch(confirmationCopy, /SHA-256|Manifest|exact release|assets|credentials|routing state|cron|staging|snapshot|ROLLBACK_FAILED|UNKNOWN|expected delta/i, 'ordinary version confirmation must stay product-level');
-    assert.equal(versionApplyPosts, 0, 'opening downgrade confirmation must not mutate FreeNet');
-    await page.locator('#fnModalConfirm').click();
     await page.waitForFunction(() => window.location.href && document.querySelector('#fnModalTitle')?.textContent.includes('Обновление установлено'), null, {timeout:5000});
-    assert.equal(versionApplyPosts, 1, 'explicit confirmation must start exactly one version mutation');
+    assert.equal(versionApplyPosts, 1, 'one explicit version action must start exactly one version mutation');
     assert.equal(installedFreeNetVersion, 'v0.3.42', 'fixture target must become installed only after apply');
 
     fs.mkdirSync(artifacts, {recursive:true});
