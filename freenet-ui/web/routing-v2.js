@@ -171,88 +171,143 @@
     return rules.map((rule, index) => presentLiveRule(rule, index));
   }
 
+  function selectorGroupLabel(kind) {
+    return ({geosite:'GeoSite', geoip:'GeoIP', domain:'Сайты', ip:'IP', cidr:'Подсети', custom:'Xray'})[kind] || 'Правила';
+  }
+
+  function groupSelectors(selectors) {
+    const order = ['geosite','geoip','domain','ip','cidr','custom'];
+    const grouped = new Map();
+    selectors.forEach(selector => {
+      const key = selector.kind || 'custom';
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(selector);
+    });
+    return order.filter(key => grouped.has(key)).map(key => ({kind:key, items:grouped.get(key)}));
+  }
+
+  function appendSelectorGroups(body, item) {
+    const groups = groupSelectors(item.selectors);
+    const wrap = document.createElement('div'); wrap.className = 'rv2-selector-groups';
+    const limit = 8;
+    let ordinal = 0;
+    const rows = [];
+    const hiddenValues = [];
+
+    groups.forEach(group => {
+      const row = document.createElement('div'); row.className = 'rv2-selector-group';
+      const label = document.createElement('div'); label.className = 'rv2-selector-kind'; label.textContent = selectorGroupLabel(group.kind);
+      const values = document.createElement('div'); values.className = 'rv2-selector-values';
+      let visibleInGroup = 0;
+      group.items.forEach(selector => {
+        const chip = document.createElement('span'); chip.className = 'rv2-selector-value'; chip.textContent = String(selector.value);
+        if (ordinal >= limit) { chip.hidden = true; hiddenValues.push(chip); } else visibleInGroup++;
+        values.appendChild(chip); ordinal++;
+      });
+      if (!visibleInGroup && group.items.length) row.hidden = true;
+      row.append(label, values); wrap.appendChild(row); rows.push(row);
+    });
+
+    body.appendChild(wrap);
+    if (item.selectors.length > limit) {
+      const more = document.createElement('button'); more.type = 'button'; more.className = 'rv2-selector-more';
+      more.setAttribute('aria-expanded', 'false'); more.textContent = `+${item.selectors.length - limit} ещё`;
+      more.addEventListener('click', () => {
+        const expanded = more.getAttribute('aria-expanded') === 'true';
+        let running = 0;
+        rows.forEach((row, rowIndex) => {
+          const chips = Array.from(row.querySelectorAll('.rv2-selector-value'));
+          chips.forEach(chip => {
+            chip.hidden = expanded ? running >= limit : false;
+            running++;
+          });
+          row.hidden = expanded ? chips.every(chip => chip.hidden) : false;
+        });
+        more.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        more.textContent = expanded ? `+${item.selectors.length - limit} ещё` : 'Свернуть';
+      });
+      body.appendChild(more);
+    }
+  }
+
+  function renderPolicyRule(container, item) {
+    const row = document.createElement('div'); row.className = 'rv2-policy-rule'; row.dataset.liveRuleIndex = String(item.index);
+    const order = document.createElement('div'); order.className = 'rv2-policy-order'; order.textContent = `#${item.index + 1}`;
+    const body = document.createElement('div'); body.className = 'rv2-policy-body';
+    appendSelectorGroups(body, item);
+    row.append(order, body); container.appendChild(row);
+  }
+
+  function renderSystemRule(container, item) {
+    const row = document.createElement('div'); row.className = 'rv2-system-rule'; row.dataset.liveRuleIndex = String(item.index);
+    const order = document.createElement('div'); order.className = 'rv2-policy-order'; order.textContent = `#${item.index + 1}`;
+    const text = document.createElement('div');
+    text.textContent = item.conditions.length ? item.conditions.join(', ') : (item.selectors.length ? 'сложное условие' : 'служебное правило');
+    const route = document.createElement('span'); route.className = 'rv2-system-route'; route.textContent = item.actionLabel || 'Системный маршрут';
+    row.append(order, text, route); container.appendChild(row);
+  }
+
+  function setSummaryValue(id, value) {
+    const node = qs(`#${id}`); if (node) node.textContent = String(value);
+  }
+
   function renderLiveRules() {
-    const list = qs('#rv2LiveRuleList');
     const status = qs('#rv2LiveState');
-    if (!list || !status) return;
-    list.textContent = '';
+    const directRules = qs('#rv2DirectRules');
+    const vpnRules = qs('#rv2VPNRules');
+    const blockRules = qs('#rv2BlockRules');
+    const systemList = qs('#rv2SystemList');
+    if (!status || !directRules || !vpnRules || !blockRules || !systemList) return;
+
+    [directRules, vpnRules, blockRules, systemList].forEach(node => { node.textContent = ''; });
     if (!state.configLoaded) {
       status.className = 'rv2-state'; status.textContent = state.configLoading ? 'Загрузка…' : 'Не загружено';
-      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Получаем текущие правила с роутера…'; list.appendChild(empty);
       return;
     }
+
     const presented = livePresentation();
-    state.liveRules = presented; state.liveComplexCount = presented.filter(item => item.complex).length;
-    status.className = 'rv2-state ok'; status.textContent = `${presented.length} активных`;
-    if (!presented.length) {
-      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Активных правил маршрутизации пока нет.'; list.appendChild(empty); return;
-    }
-    presented.forEach(item => {
-      const row = document.createElement('div'); row.className = 'rv2-live-rule'; row.dataset.liveRuleIndex = String(item.index);
-      const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(item.index + 1);
-      const main = document.createElement('div'); main.className = 'rv2-live-main';
+    const visible = presented.filter(item => !item.complex && ['DIRECT','VPN','BLOCK'].includes(item.action));
+    const system = presented.filter(item => !visible.includes(item));
+    const byAction = {
+      DIRECT: visible.filter(item => item.action === 'DIRECT'),
+      VPN: visible.filter(item => item.action === 'VPN'),
+      BLOCK: visible.filter(item => item.action === 'BLOCK')
+    };
 
-      if (item.complex) {
-        const title = document.createElement('div'); title.className = 'rv2-live-title';
-        const strong = document.createElement('strong'); strong.textContent = 'Системное правило';
-        const lock = document.createElement('span'); lock.className = 'rv2-live-lock'; lock.textContent = 'защищено';
-        title.append(strong, lock); main.appendChild(title);
-      }
+    state.liveRules = presented;
+    state.liveComplexCount = system.length;
+    status.className = 'rv2-state ok';
+    status.textContent = `${presented.length} активных`;
 
-      if (item.selectors.length) {
-        const chips = document.createElement('div'); chips.className = 'rv2-selector-chips';
-        const limit = 6;
-        item.selectors.forEach((selector, selectorIndex) => {
-          const chip = document.createElement('span'); chip.className = 'rv2-selector-chip';
-          if (selectorIndex >= limit) chip.hidden = true;
-          const label = selector.kind === 'custom' ? 'Xray' : humanKind(selector.kind);
-          const kind = document.createElement('b'); kind.textContent = label;
-          chip.append(kind, document.createTextNode(String(selector.value))); chips.appendChild(chip);
-        });
-        if (item.selectors.length > limit) {
-          const more = document.createElement('button'); more.type = 'button'; more.className = 'rv2-selector-more';
-          more.setAttribute('aria-expanded', 'false'); more.textContent = `Ещё ${item.selectors.length - limit}`;
-          more.addEventListener('click', () => {
-            const expanded = more.getAttribute('aria-expanded') === 'true';
-            qsa('.rv2-selector-chip', chips).forEach((chip, chipIndex) => { if (chipIndex >= limit) chip.hidden = expanded; });
-            more.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-            more.textContent = expanded ? `Ещё ${item.selectors.length - limit}` : 'Свернуть';
-          });
-          chips.appendChild(more);
-        }
-        main.appendChild(chips);
-      }
+    setSummaryValue('rv2SummaryRules', visible.length);
+    setSummaryValue('rv2SummaryDirect', byAction.DIRECT.length);
+    setSummaryValue('rv2SummaryVPN', byAction.VPN.length);
+    setSummaryValue('rv2SummaryBlock', byAction.BLOCK.length);
+    setSummaryValue('rv2SummarySystem', system.length);
+    setSummaryValue('rv2DirectCount', byAction.DIRECT.length);
+    setSummaryValue('rv2VPNCount', byAction.VPN.length);
+    setSummaryValue('rv2BlockCount', byAction.BLOCK.length);
+    setSummaryValue('rv2SystemCount', system.length);
 
-      if (item.complex) {
-        const meta = document.createElement('div'); meta.className = 'rv2-live-meta';
-        const conditionCopy = item.conditions.length ? `Условия: ${item.conditions.join(', ')}. ` : '';
-        meta.textContent = `${conditionCopy}FreeNet сохранит это правило без изменений.`;
-        main.appendChild(meta);
-
-        const details = document.createElement('div'); details.className = 'rv2-live-details';
-        const toggle = document.createElement('button'); toggle.type = 'button'; toggle.textContent = 'Технические детали';
-        toggle.setAttribute('aria-expanded', 'false');
-        const tech = document.createElement('div'); tech.className = 'rv2-live-tech'; tech.hidden = true;
-        const rawOutbound = item.outboundTag || '—';
-        const rawConditions = item.extraKeys.length ? item.extraKeys.join(', ') : '—';
-        tech.textContent = `outbound: ${rawOutbound} · conditions: ${rawConditions}`;
-        toggle.addEventListener('click', () => {
-          const expanded = toggle.getAttribute('aria-expanded') === 'true';
-          tech.hidden = expanded; toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-          toggle.textContent = expanded ? 'Технические детали' : 'Скрыть детали';
-        });
-        details.append(toggle, tech); main.appendChild(details);
-      }
-
-      const action = document.createElement('div');
-      action.className = `rv2-action-pill ${item.actionTone || 'system'}`;
-      action.textContent = item.actionLabel || 'Системный маршрут';
-      row.append(order, main, action); list.appendChild(row);
+    const groups = [
+      ['rv2DirectGroup', directRules, byAction.DIRECT],
+      ['rv2VPNGroup', vpnRules, byAction.VPN],
+      ['rv2BlockGroup', blockRules, byAction.BLOCK]
+    ];
+    groups.forEach(([id, container, items]) => {
+      const section = qs(`#${id}`);
+      if (section) section.hidden = items.length === 0;
+      items.forEach(item => renderPolicyRule(container, item));
     });
-    const notice = qs('#rv2LiveNotice');
-    if (notice) {
-      if (state.liveComplexCount) setNotice('rv2LiveNotice', `${state.liveComplexCount} системных правил защищены от случайного редактирования. При добавлении новых правил FreeNet сохранит их без изменений.`, 'warn');
-      else setNotice('rv2LiveNotice', 'Порядок сверху вниз является приоритетом: срабатывает первое подходящее правило.', 'ok');
+
+    const systemWrap = qs('#rv2SystemWrap');
+    if (systemWrap) systemWrap.hidden = system.length === 0;
+    system.forEach(item => renderSystemRule(systemList, item));
+
+    if (!presented.length) {
+      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Активных правил маршрутизации пока нет.';
+      directRules.appendChild(empty);
+      const directGroup = qs('#rv2DirectGroup'); if (directGroup) directGroup.hidden = false;
     }
   }
 
@@ -408,13 +463,15 @@
   }
 
   function renderRuleList() {
-    const list = qs('#rv2RuleList'); if (!list) return;
+    const list = qs('#rv2RuleList');
+    const card = qs('#rv2DraftCard');
+    if (!list) return;
     list.textContent = '';
     if (!state.rules.length) {
-      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty';
-      empty.textContent = 'Изменений пока нет. Добавьте сайт, GeoData-группу, IP или подсеть.';
-      list.appendChild(empty); return;
+      if (card) card.hidden = true;
+      return;
     }
+    if (card) card.hidden = false;
     state.rules.forEach((rule, index) => {
       const row = document.createElement('div'); row.className = 'rv2-rule'; row.dataset.ruleIndex = String(index);
       const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(index + 1);
