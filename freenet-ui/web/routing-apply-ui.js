@@ -128,8 +128,7 @@
             const changed = renderDelta(candidate);
             if (changed && !stopLatched) {
               validatedCandidate = candidate;
-    const buttons = applyButtons();
-    buttons.forEach(button => { button.disabled = true; button.dataset.previousText = button.textContent; button.textContent = 'Применяем…'; });
+              applyButtons().forEach(button => { button.disabled = false; });
               setResult('Проверка Xray пройдена. Изменения готовы к применению.', 'ok');
             } else if (!changed) {
               setResult('Проверка пройдена, но изменений относительно текущей конфигурации нет.', 'ok');
@@ -169,8 +168,8 @@
 
     const candidate = validatedCandidate;
     validatedCandidate = null;
-    const apply = q('#rv2ApplyConfig');
-    if (apply) { apply.disabled = true; apply.textContent = 'Применяем…'; }
+    const buttons = applyButtons();
+    buttons.forEach(button => { button.disabled = true; button.dataset.previousText = button.textContent; button.textContent = 'Применяем…'; });
     setResult('Создаём резервную точку и применяем проверенные правила…');
 
     try {
@@ -197,7 +196,7 @@
     } catch (_) {
       stopLatched = true;
       setResult('Связь прервалась, поэтому результат применения и отката не подтверждён. STOP: не повторяйте изменение до проверки фактического состояния.', 'bad');
-      q('#rv2ApplyResult')?.classList.add('rv2-apply-stop');
+      q('#rv2ApplyResult')?.classList.add('rv2-apply-stop'); q('#rv2RulesApplyResult')?.classList.add('rv2-apply-stop');
     } finally {
       buttons.forEach(button => { button.textContent = button.dataset.previousText || (button.id === 'rv2ApplyRules' ? 'Применить' : 'Применить проверенный candidate'); delete button.dataset.previousText; });
     }
