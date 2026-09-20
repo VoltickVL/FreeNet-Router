@@ -49,17 +49,29 @@
       .rv2-editor-wrap{margin-top:12px}.rv2-editor{display:block;min-height:430px;resize:vertical;padding:14px 15px;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;tab-size:2;white-space:pre}
       .rv2-config-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:9px;color:#8499b6;font-size:10px}.rv2-config-meta code{color:#b7c8db}
       .rv2-danger-note{margin-top:12px;padding:10px 11px;border:1px solid rgba(255,190,67,.30);border-radius:11px;background:rgba(103,70,15,.16);color:#e7ca8a;font-size:11px;line-height:1.45}
-      .rv2-policy-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}.rv2-summary-pill{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:0 11px;border:1px solid #29445f;border-radius:999px;background:#0a1929;color:#a9bbd2;font-size:12px;font-weight:750}.rv2-summary-pill b{font-size:14px;color:#f2f7ff}.rv2-summary-pill.direct b{color:#5ce8a5}.rv2-summary-pill.vpn b{color:#8ab2ff}.rv2-summary-pill.block b{color:#ff9299}
-      .rv2-policy-map{display:grid;gap:12px;margin-top:14px}.rv2-policy-group{border:1px solid #263d58;border-radius:14px;background:#081522;overflow:hidden}.rv2-policy-group[hidden]{display:none!important}.rv2-policy-group-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-bottom:1px solid #203650}.rv2-policy-group-title{display:flex;align-items:center;gap:9px}.rv2-policy-group-title strong{font-size:15px;color:#eef5ff}.rv2-policy-group-title span{font-size:12px;color:#8298b4}.rv2-policy-group-count{min-width:30px;padding:4px 8px;border-radius:999px;text-align:center;background:#10243a;color:#b7cbe6;font-size:12px;font-weight:800}.rv2-policy-group.direct .rv2-policy-group-title strong{color:#5ce8a5}.rv2-policy-group.vpn .rv2-policy-group-title strong{color:#8ab2ff}.rv2-policy-group.block .rv2-policy-group-title strong{color:#ff9299}
-      .rv2-policy-rules{display:grid}.rv2-policy-rule{display:grid;grid-template-columns:42px minmax(0,1fr);gap:10px;align-items:start;padding:12px 14px}.rv2-policy-rule+.rv2-policy-rule{border-top:1px solid #1d3148}.rv2-policy-order{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;background:#11253d;color:#94b9ed;font-size:12px;font-weight:850}.rv2-policy-body{min-width:0}.rv2-selector-groups{display:grid;gap:7px}.rv2-selector-group{display:flex;align-items:flex-start;gap:9px;min-width:0}.rv2-selector-kind{flex:0 0 66px;padding-top:5px;color:#879db9;font-size:13px;font-weight:800}.rv2-selector-values{display:flex;gap:6px;flex-wrap:wrap;min-width:0}.rv2-selector-value{display:inline-flex;align-items:center;min-height:29px;padding:4px 9px;border:1px solid #315070;border-radius:9px;background:#0d2136;color:#dce9f8;font-size:13px;line-height:1.2}.rv2-selector-value[hidden]{display:none!important}.rv2-selector-more{appearance:none;min-height:29px;padding:4px 9px;border:1px dashed #4b709a;border-radius:9px;background:#0b1c2e;color:#9cc4f4;font:inherit;font-size:12px;font-weight:800;cursor:pointer}.rv2-selector-more:hover{border-style:solid;background:#122a45;color:#fff}
-      .rv2-system-wrap{margin-top:12px}.rv2-system-toggle{appearance:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid #283e58;border-radius:12px;background:#091724;color:#a8bbd2;font:inherit;font-size:13px;font-weight:750;cursor:pointer}.rv2-system-toggle:hover{border-color:#3e5d81;background:#0d1f33}.rv2-system-toggle b{color:#dce8f8}.rv2-system-list{display:grid;margin-top:7px;border:1px solid #233951;border-radius:12px;overflow:hidden}.rv2-system-list[hidden]{display:none!important}.rv2-system-rule{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;background:#081522;color:#9eb1c9;font-size:13px}.rv2-system-rule+.rv2-system-rule{border-top:1px solid #1d3148}.rv2-system-route{padding:4px 8px;border:1px solid #304965;border-radius:999px;color:#aec2db;font-size:12px;font-weight:800}
-      .rv2-add-card{padding:14px 16px}.rv2-add-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.rv2-add-head h2{font-size:16px}.rv2-add-layout{display:grid;grid-template-columns:auto 170px minmax(220px,1fr) auto auto;gap:9px;align-items:center;margin-top:12px}.rv2-add-layout .rv2-tabs{flex-wrap:nowrap}.rv2-add-layout select,.rv2-add-layout input{width:100%;box-sizing:border-box;min-height:42px;padding:9px 11px;border:1px solid #2b405e;background:#081421;color:#eef5ff;border-radius:11px;outline:none;font:inherit;font-size:13px}.rv2-add-actions{display:flex;gap:6px;align-items:center}.rv2-action{min-width:auto;padding:10px 12px;font-size:13px}.rv2-action small{display:none}
-      .rv2-draft-card[hidden]{display:none!important}.rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:12px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}.rv2-workspace button:disabled{opacity:.38!important;cursor:not-allowed!important;filter:saturate(.55);box-shadow:none!important}.rv2-compiled[hidden]{display:none!important}
+      .rv4-board-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(270px,1fr) minmax(240px,.85fr);gap:12px;margin-top:15px;align-items:start}
+      .rv4-board{--accent:#8aa2bf;border:1px solid #28415e;border-radius:16px;background:#081522;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.08)}
+      .rv4-board.direct{--accent:#42df9c}.rv4-board.vpn{--accent:#6fa2ff}.rv4-board.block{--accent:#ff7f88}
+      .rv4-board-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:15px 15px 13px;border-bottom:1px solid #203650;background:linear-gradient(180deg,rgba(18,40,65,.72),rgba(10,25,42,.45))}
+      .rv4-board-title{min-width:0}.rv4-board-title-line{display:flex;align-items:center;gap:9px}.rv4-board-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 12%,transparent)}.rv4-board-title strong{font-size:17px;color:#f2f7ff}.rv4-board-sub{margin-top:4px;color:#8fa4bf;font-size:12.5px;line-height:1.35}
+      .rv4-board-head-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}.rv4-board-count{min-width:32px;padding:5px 8px;border-radius:999px;background:#10243a;color:#b8cae1;text-align:center;font-size:12.5px;font-weight:850}
+      .rv4-board-add{appearance:none;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid color-mix(in srgb,var(--accent) 55%,#304762);border-radius:10px;background:color-mix(in srgb,var(--accent) 10%,#0b1b2d);color:#eef6ff;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}.rv4-board-add:hover{background:color-mix(in srgb,var(--accent) 17%,#0b1b2d);border-color:var(--accent)}.rv4-board-add span{font-size:16px;line-height:1;color:var(--accent)}
+      .rv4-board-body{padding:2px 15px 12px;min-height:88px}.rv4-type{padding:12px 0 11px}.rv4-type+.rv4-type{border-top:1px solid #1d3148}.rv4-type-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.rv4-type-head strong{color:#92a9c5;font-size:12.5px;font-weight:850}.rv4-type-head span{color:#6f86a3;font-size:12px;font-weight:750}
+      .rv4-chips{display:flex;gap:6px;flex-wrap:wrap}.rv4-chip{display:inline-flex;align-items:center;min-height:30px;padding:5px 9px;border:1px solid #2c4a69;border-radius:9px;background:#0e2237;color:#e0ebf8;font-size:13.5px;line-height:1.15}.rv4-chip[hidden]{display:none!important}
+      .rv4-more{appearance:none;min-height:30px;padding:5px 9px;border:1px dashed #4b719b;border-radius:9px;background:#0a1c2e;color:#9fc6f5;font:inherit;font-size:12.5px;font-weight:850;cursor:pointer}.rv4-more:hover{border-style:solid;background:#122a45;color:#fff}
+      .rv4-empty{display:grid;place-items:center;min-height:94px;padding:16px;text-align:center;color:#7890ad;font-size:13px;line-height:1.45}.rv4-empty b{display:block;margin-bottom:4px;color:#b9cbe0;font-size:14px}
+      .rv4-composer-slot:empty{display:none}.rv4-composer-slot{padding:0 12px 12px}.rv4-composer{border:1px solid #33506f;border-radius:13px;background:#0b1c2f;padding:12px;box-shadow:0 10px 28px rgba(0,0,0,.16)}.rv4-composer[hidden]{display:none!important}
+      .rv4-composer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}.rv4-composer-head strong{display:block;color:#f2f7ff;font-size:14px}.rv4-composer-head span{display:block;margin-top:3px;color:#89a0bc;font-size:12px}.rv4-composer-close{appearance:none;width:30px;height:30px;border:1px solid #314a67;border-radius:9px;background:#0a1828;color:#aabbd0;font:inherit;font-size:17px;cursor:pointer}.rv4-composer-close:hover{border-color:#5f83ad;color:#fff}
+      .rv4-composer-grid{display:grid;gap:8px}.rv4-field label{display:block;margin-bottom:5px;color:#859bb7;font-size:12px;font-weight:750}.rv4-composer select,.rv4-composer input{width:100%;box-sizing:border-box;min-height:41px;padding:9px 10px;border:1px solid #2e4968;border-radius:10px;background:#071522;color:#eef5ff;outline:none;font:inherit;font-size:13px}.rv4-composer select:focus,.rv4-composer input:focus{border-color:#5b8cff;box-shadow:0 0 0 2px rgba(91,140,255,.08)}
+      .rv4-composer .rv2-search{margin-top:8px}.rv4-composer .rv2-search-result{padding:9px 10px}.rv4-composer-submit{width:100%;min-height:41px;margin-top:1px}
+      .rv4-system{margin-top:12px}.rv4-system .rv2-system-toggle{border-radius:12px;background:#091724}
+      .rv2-system-toggle{appearance:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid #283e58;border-radius:12px;background:#091724;color:#a8bbd2;font:inherit;font-size:13px;font-weight:750;cursor:pointer}.rv2-system-toggle:hover{border-color:#3e5d81;background:#0d1f33}.rv2-system-toggle b{color:#dce8f8}.rv2-system-list{display:grid;margin-top:7px;border:1px solid #233951;border-radius:12px;overflow:hidden}.rv2-system-list[hidden]{display:none!important}.rv2-system-rule{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;background:#081522;color:#9eb1c9;font-size:13px}.rv2-system-rule+.rv2-system-rule{border-top:1px solid #1d3148}.rv2-system-route{padding:4px 8px;border:1px solid #304965;border-radius:999px;color:#aec2db;font-size:12px;font-weight:800}
+      .rv2-draft-card[hidden]{display:none!important}.rv2-draft-head{display:flex;align-items:center;gap:9px}.rv2-draft-count{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 7px;border-radius:9px;background:#18325a;color:#cfe0ff;font-size:12px;font-weight:850}.rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:12px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}.rv2-workspace button:disabled{opacity:.38!important;cursor:not-allowed!important;filter:saturate(.55);box-shadow:none!important}.rv2-compiled[hidden]{display:none!important}
       .rv2-rule-list{display:grid;gap:8px;margin-top:12px}.rv2-rule-empty{padding:14px;border:1px dashed #2d425d;border-radius:12px;color:#8498b4;font-size:13px;text-align:center}.rv2-rule{display:grid;grid-template-columns:34px minmax(0,1fr) 100px 155px;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-selector b{font-size:13px}.rv2-selector span{font-size:12px}.rv2-rule-action{font-size:12px}
       .rv2-notice.warn{border-color:rgba(255,190,67,.38);background:rgba(103,70,15,.16);color:#f0cf8e}
-      @media(max-width:1050px){.rv2-add-layout{grid-template-columns:1fr 1fr}.rv2-add-layout .rv2-tabs{grid-column:1/-1}.rv2-add-layout input{grid-column:1/-1}.rv2-add-actions{grid-column:1}.rv2-add-layout>.btn{grid-column:2;justify-self:stretch}}
-      @media(max-width:900px){.rv2-policy-rule{grid-template-columns:36px minmax(0,1fr)}.rv2-selector-group{display:grid;gap:4px}.rv2-selector-kind{flex:none;padding-top:0}.rv2-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}}
-      @media(max-width:620px){.rv2-card{padding:13px}.rv2-mode{flex:1}.rv2-modes{width:100%}.rv2-editor{min-height:330px}.rv2-add-layout{grid-template-columns:1fr}.rv2-add-layout>*{grid-column:1!important}.rv2-add-actions{width:100%}.rv2-action{flex:1}.rv2-system-rule{grid-template-columns:36px minmax(0,1fr)}.rv2-system-route{grid-column:2;justify-self:start}}
+      @media(max-width:1120px){.rv4-board-grid{grid-template-columns:1fr 1fr}.rv4-board.direct{grid-column:1/-1}.rv4-board.block{min-height:100%}}
+      @media(max-width:760px){.rv4-board-grid{grid-template-columns:1fr}.rv4-board.direct{grid-column:auto}.rv2-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}.rv2-system-rule{grid-template-columns:1fr}.rv2-system-route{justify-self:start}}
+      @media(max-width:620px){.rv2-card{padding:13px}.rv2-mode{flex:1}.rv2-modes{width:100%}.rv2-editor{min-height:330px}.rv4-board-head{padding:13px}.rv4-board-body{padding:2px 13px 11px}.rv4-board-head-actions{gap:5px}.rv4-board-add{padding:6px 8px}.rv4-composer-slot{padding:0 10px 10px}}
     `;
     document.head.appendChild(style);
   }
@@ -172,11 +184,11 @@
   }
 
   function selectorGroupLabel(kind) {
-    return ({geosite:'GeoSite', geoip:'GeoIP', domain:'Сайты', ip:'IP', cidr:'Подсети', custom:'Xray'})[kind] || 'Правила';
+    return ({geosite:'GeoSite', geoip:'GeoIP', domain:'Сайты', ip:'IP', cidr:'Подсети'})[kind] || 'Другое';
   }
 
   function groupSelectors(selectors) {
-    const order = ['geosite','geoip','domain','ip','cidr','custom'];
+    const order = ['geosite','domain','geoip','ip','cidr'];
     const grouped = new Map();
     selectors.forEach(selector => {
       const key = selector.kind || 'custom';
@@ -186,80 +198,86 @@
     return order.filter(key => grouped.has(key)).map(key => ({kind:key, items:grouped.get(key)}));
   }
 
-  function appendSelectorGroups(body, item) {
-    const groups = groupSelectors(item.selectors);
-    const wrap = document.createElement('div'); wrap.className = 'rv2-selector-groups';
-    const limit = 8;
-    let ordinal = 0;
-    const rows = [];
-    const hiddenValues = [];
-
-    groups.forEach(group => {
-      const row = document.createElement('div'); row.className = 'rv2-selector-group';
-      const label = document.createElement('div'); label.className = 'rv2-selector-kind'; label.textContent = selectorGroupLabel(group.kind);
-      const values = document.createElement('div'); values.className = 'rv2-selector-values';
-      let visibleInGroup = 0;
-      group.items.forEach(selector => {
-        const chip = document.createElement('span'); chip.className = 'rv2-selector-value'; chip.textContent = String(selector.value);
-        if (ordinal >= limit) { chip.hidden = true; hiddenValues.push(chip); } else visibleInGroup++;
-        values.appendChild(chip); ordinal++;
-      });
-      if (!visibleInGroup && group.items.length) row.hidden = true;
-      row.append(label, values); wrap.appendChild(row); rows.push(row);
-    });
-
-    body.appendChild(wrap);
-    if (item.selectors.length > limit) {
-      const more = document.createElement('button'); more.type = 'button'; more.className = 'rv2-selector-more';
-      more.setAttribute('aria-expanded', 'false'); more.textContent = `+${item.selectors.length - limit} ещё`;
-      more.addEventListener('click', () => {
-        const expanded = more.getAttribute('aria-expanded') === 'true';
-        let running = 0;
-        rows.forEach((row, rowIndex) => {
-          const chips = Array.from(row.querySelectorAll('.rv2-selector-value'));
-          chips.forEach(chip => {
-            chip.hidden = expanded ? running >= limit : false;
-            running++;
-          });
-          row.hidden = expanded ? chips.every(chip => chip.hidden) : false;
-        });
-        more.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-        more.textContent = expanded ? `+${item.selectors.length - limit} ещё` : 'Свернуть';
-      });
-      body.appendChild(more);
-    }
+  function aggregateSelectors(items) {
+    const result = [];
+    const seen = new Set();
+    items.forEach(item => item.selectors.forEach(selector => {
+      const key = `${selector.kind}\u0000${selector.value}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push(selector);
+    }));
+    return result;
   }
 
-  function renderPolicyRule(container, item) {
-    const row = document.createElement('div'); row.className = 'rv2-policy-rule'; row.dataset.liveRuleIndex = String(item.index);
-    const order = document.createElement('div'); order.className = 'rv2-policy-order'; order.textContent = `#${item.index + 1}`;
-    const body = document.createElement('div'); body.className = 'rv2-policy-body';
-    appendSelectorGroups(body, item);
-    row.append(order, body); container.appendChild(row);
+  function renderAggregateType(container, group) {
+    const section = document.createElement('section'); section.className = 'rv4-type';
+    const head = document.createElement('div'); head.className = 'rv4-type-head';
+    const title = document.createElement('strong'); title.textContent = selectorGroupLabel(group.kind);
+    const count = document.createElement('span'); count.textContent = String(group.items.length);
+    head.append(title, count);
+
+    const chips = document.createElement('div'); chips.className = 'rv4-chips';
+    const limit = 10;
+    group.items.forEach((selector, index) => {
+      const chip = document.createElement('span'); chip.className = 'rv4-chip'; chip.textContent = String(selector.value);
+      if (index >= limit) chip.hidden = true;
+      chips.appendChild(chip);
+    });
+    if (group.items.length > limit) {
+      const more = document.createElement('button'); more.type = 'button'; more.className = 'rv4-more';
+      more.setAttribute('aria-expanded','false'); more.textContent = `+${group.items.length - limit}`;
+      more.addEventListener('click', () => {
+        const expanded = more.getAttribute('aria-expanded') === 'true';
+        Array.from(chips.querySelectorAll('.rv4-chip')).forEach((chip,index) => { if (index >= limit) chip.hidden = expanded; });
+        more.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        more.textContent = expanded ? `+${group.items.length - limit}` : 'Свернуть';
+      });
+      chips.appendChild(more);
+    }
+    section.append(head, chips); container.appendChild(section);
+  }
+
+  function renderActionBoard(action, items) {
+    const map = {
+      DIRECT: ['rv2DirectContent','rv2DirectCount'],
+      VPN: ['rv2VPNContent','rv2VPNCount'],
+      BLOCK: ['rv2BlockContent','rv2BlockCount']
+    };
+    const target = map[action];
+    if (!target) return;
+    const container = qs(`#${target[0]}`);
+    const countNode = qs(`#${target[1]}`);
+    if (!container || !countNode) return;
+    container.textContent = '';
+
+    const selectors = aggregateSelectors(items);
+    countNode.textContent = String(selectors.length);
+    if (!selectors.length) {
+      const empty = document.createElement('div'); empty.className = 'rv4-empty';
+      const copy = action === 'BLOCK'
+        ? '<b>Ничего не блокируется</b>Добавьте сайт или категорию, если это понадобится.'
+        : '<b>Правил пока нет</b>Добавьте сайт, GeoData-группу, IP или подсеть.';
+      empty.innerHTML = copy;
+      container.appendChild(empty);
+      return;
+    }
+    groupSelectors(selectors).forEach(group => renderAggregateType(container, group));
   }
 
   function renderSystemRule(container, item) {
-    const row = document.createElement('div'); row.className = 'rv2-system-rule'; row.dataset.liveRuleIndex = String(item.index);
-    const order = document.createElement('div'); order.className = 'rv2-policy-order'; order.textContent = `#${item.index + 1}`;
+    const row = document.createElement('div'); row.className = 'rv2-system-rule';
     const text = document.createElement('div');
     text.textContent = item.conditions.length ? item.conditions.join(', ') : (item.selectors.length ? 'сложное условие' : 'служебное правило');
     const route = document.createElement('span'); route.className = 'rv2-system-route'; route.textContent = item.actionLabel || 'Системный маршрут';
-    row.append(order, text, route); container.appendChild(row);
-  }
-
-  function setSummaryValue(id, value) {
-    const node = qs(`#${id}`); if (node) node.textContent = String(value);
+    row.append(text, route); container.appendChild(row);
   }
 
   function renderLiveRules() {
     const status = qs('#rv2LiveState');
-    const directRules = qs('#rv2DirectRules');
-    const vpnRules = qs('#rv2VPNRules');
-    const blockRules = qs('#rv2BlockRules');
     const systemList = qs('#rv2SystemList');
-    if (!status || !directRules || !vpnRules || !blockRules || !systemList) return;
-
-    [directRules, vpnRules, blockRules, systemList].forEach(node => { node.textContent = ''; });
+    if (!status || !systemList) return;
+    systemList.textContent = '';
     if (!state.configLoaded) {
       status.className = 'rv2-state'; status.textContent = state.configLoading ? 'Загрузка…' : 'Не загружено';
       return;
@@ -277,38 +295,16 @@
     state.liveRules = presented;
     state.liveComplexCount = system.length;
     status.className = 'rv2-state ok';
-    status.textContent = `${presented.length} активных`;
+    status.textContent = `${visible.length} пользовательских`;
 
-    setSummaryValue('rv2SummaryRules', visible.length);
-    setSummaryValue('rv2SummaryDirect', byAction.DIRECT.length);
-    setSummaryValue('rv2SummaryVPN', byAction.VPN.length);
-    setSummaryValue('rv2SummaryBlock', byAction.BLOCK.length);
-    setSummaryValue('rv2SummarySystem', system.length);
-    setSummaryValue('rv2DirectCount', byAction.DIRECT.length);
-    setSummaryValue('rv2VPNCount', byAction.VPN.length);
-    setSummaryValue('rv2BlockCount', byAction.BLOCK.length);
-    setSummaryValue('rv2SystemCount', system.length);
-
-    const groups = [
-      ['rv2DirectGroup', directRules, byAction.DIRECT],
-      ['rv2VPNGroup', vpnRules, byAction.VPN],
-      ['rv2BlockGroup', blockRules, byAction.BLOCK]
-    ];
-    groups.forEach(([id, container, items]) => {
-      const section = qs(`#${id}`);
-      if (section) section.hidden = items.length === 0;
-      items.forEach(item => renderPolicyRule(container, item));
-    });
+    renderActionBoard('DIRECT', byAction.DIRECT);
+    renderActionBoard('VPN', byAction.VPN);
+    renderActionBoard('BLOCK', byAction.BLOCK);
 
     const systemWrap = qs('#rv2SystemWrap');
     if (systemWrap) systemWrap.hidden = system.length === 0;
+    const systemCount = qs('#rv2SystemCount'); if (systemCount) systemCount.textContent = String(system.length);
     system.forEach(item => renderSystemRule(systemList, item));
-
-    if (!presented.length) {
-      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Активных правил маршрутизации пока нет.';
-      directRules.appendChild(empty);
-      const directGroup = qs('#rv2DirectGroup'); if (directGroup) directGroup.hidden = false;
-    }
   }
 
   function modeMeta() {
