@@ -38,27 +38,28 @@
       .rv2-mode:hover,.rv2-tab:hover,.rv2-action:hover,.rv2-icon-btn:hover{border-color:#4f75a4;color:#eef5ff;background:#11243d}
       .rv2-mode.active,.rv2-tab.active{border-color:#5b8cff;background:#18325a;color:#fff;box-shadow:inset 0 0 0 1px rgba(91,140,255,.10)}
       .rv2-action[data-action="DIRECT"].active{border-color:#49da92;background:#123729;color:#ecfff6}.rv2-action[data-action="VPN"].active{border-color:#5b8cff;background:#18325a;color:#fff}.rv2-action[data-action="BLOCK"].active{border-color:#ff7070;background:#3a1d27;color:#fff0f2}
-      .rv2-state{display:inline-flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid #314865;border-radius:999px;color:#aebed3;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase}
+      .rv2-state{display:inline-flex;align-items:center;gap:7px;padding:6px 9px;border:1px solid #314865;border-radius:999px;color:#aebed3;font-size:11.5px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
       .rv2-state::before{content:'';width:7px;height:7px;border-radius:50%;background:#8094ad}.rv2-state.ok{color:#74edb5;border-color:rgba(54,227,162,.38)}.rv2-state.ok::before{background:#36e3a2}.rv2-state.warn{color:#ffc85b;border-color:rgba(255,190,67,.38)}.rv2-state.warn::before{background:#ffbe43}
       .rv2-panel[hidden]{display:none!important}.rv2-card{border:1px solid #294360;border-radius:16px;background:linear-gradient(180deg,#0c1c2f,#0a1828);padding:16px}.rv2-card+.rv2-card{margin-top:12px}
-      .rv2-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}.rv2-card h2{margin:0;color:#f4f7fb;font-size:17px}.rv2-copy{margin:4px 0 0;color:#91a5c0;font-size:12px;line-height:1.45}
+      .rv2-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}.rv2-card h2{margin:0;color:#f4f7fb;font-size:17px}.rv2-copy{margin:4px 0 0;color:#91a5c0;font-size:13px;line-height:1.45}
       .rv2-builder-grid{display:grid;grid-template-columns:165px minmax(0,1fr) auto;gap:9px;margin-top:13px}.rv2-builder-grid select,.rv2-builder-grid input,.rv2-editor{width:100%;box-sizing:border-box;border:1px solid #2b405e;background:#081421;color:#eef5ff;border-radius:11px;outline:none}.rv2-builder-grid select,.rv2-builder-grid input{min-height:42px;padding:9px 11px;font:inherit;font-size:13px}.rv2-builder-grid input:focus,.rv2-builder-grid select:focus,.rv2-editor:focus{border-color:#5b8cff;box-shadow:0 0 0 2px rgba(91,140,255,.08)}
-      .rv2-search{margin-top:9px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rv2-search .btn{min-height:36px}.rv2-search-results{display:grid;gap:6px;margin-top:9px}.rv2-search-result{appearance:none;width:100%;text-align:left;border:1px solid #26384f;background:#091522;color:#eef5ff;border-radius:10px;padding:9px 11px;cursor:pointer}.rv2-search-result:hover{border-color:#5b8cff;background:#11243b}.rv2-search-result b{display:block;font-size:12px}.rv2-search-result span{display:block;margin-top:3px;color:#859bb7;font-size:10px}
-      .rv2-rule-list{display:grid;gap:8px;margin-top:12px}.rv2-rule-empty{padding:14px;border:1px dashed #2d425d;border-radius:12px;color:#8498b4;font-size:12px;text-align:center}.rv2-rule{display:grid;grid-template-columns:34px minmax(0,1fr) 120px 155px;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-order{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;background:#12243a;color:#91b6eb;font-size:11px;font-weight:850}.rv2-selector{min-width:0}.rv2-selector b{display:block;color:#eef5ff;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rv2-selector span{display:block;color:#8398b4;font-size:10px;margin-top:3px}.rv2-rule-action{font-size:11px;font-weight:850}.rv2-rule-action.direct{color:#5ce8a5}.rv2-rule-action.vpn{color:#7dabff}.rv2-rule-action.block{color:#ff858e}.rv2-rule-tools{display:flex;justify-content:flex-end;gap:5px;flex-wrap:wrap}
-      .rv2-compiled{margin-top:12px;padding:11px;border:1px solid #263d58;border-radius:11px;background:#091522;color:#92a7c2;font-size:11px;line-height:1.5}.rv2-compiled strong{color:#dce8f8}.rv2-notice{margin-top:10px;display:none;padding:10px 11px;border:1px solid #315071;border-radius:11px;background:#0c2138;color:#b9cbe1;font-size:11px;white-space:pre-wrap}.rv2-notice.show{display:block}.rv2-notice.bad{border-color:rgba(255,103,115,.45);background:#321923;color:#ffd4d7}.rv2-notice.ok{border-color:rgba(54,227,162,.36);background:#0f2b24;color:#d3fae9}
+      .rv2-search{margin-top:9px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rv2-search .btn{min-height:36px}.rv2-search-results{display:grid;gap:6px;margin-top:9px}.rv2-search-result{appearance:none;width:100%;text-align:left;border:1px solid #26384f;background:#091522;color:#eef5ff;border-radius:10px;padding:9px 11px;cursor:pointer}.rv2-search-result:hover{border-color:#5b8cff;background:#11243b}.rv2-search-result b{display:block;font-size:13px}.rv2-search-result span{display:block;margin-top:3px;color:#859bb7;font-size:12px}
+      .rv2-order{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;background:#12243a;color:#91b6eb;font-size:11px;font-weight:850}.rv2-selector{min-width:0}.rv2-selector b{display:block;color:#eef5ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rv2-selector span{display:block;color:#8398b4;margin-top:3px}.rv2-rule-action{font-weight:850}.rv2-rule-action.direct{color:#5ce8a5}.rv2-rule-action.vpn{color:#7dabff}.rv2-rule-action.block{color:#ff858e}.rv2-rule-tools{display:flex;justify-content:flex-end;gap:5px;flex-wrap:wrap}
+      .rv2-compiled{margin-top:12px;padding:11px;border:1px solid #263d58;border-radius:11px;background:#091522;color:#92a7c2;font-size:11px;line-height:1.5}.rv2-compiled strong{color:#dce8f8}.rv2-notice{margin-top:10px;display:none;padding:10px 11px;border:1px solid #315071;border-radius:11px;background:#0c2138;color:#b9cbe1;font-size:12px;white-space:pre-wrap}.rv2-notice.show{display:block}.rv2-notice.bad{border-color:rgba(255,103,115,.45);background:#321923;color:#ffd4d7}.rv2-notice.ok{border-color:rgba(54,227,162,.36);background:#0f2b24;color:#d3fae9}
       .rv2-editor-wrap{margin-top:12px}.rv2-editor{display:block;min-height:430px;resize:vertical;padding:14px 15px;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;tab-size:2;white-space:pre}
       .rv2-config-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:9px;color:#8499b6;font-size:10px}.rv2-config-meta code{color:#b7c8db}
       .rv2-danger-note{margin-top:12px;padding:10px 11px;border:1px solid rgba(255,190,67,.30);border-radius:11px;background:rgba(103,70,15,.16);color:#e7ca8a;font-size:11px;line-height:1.45}
-      .rv2-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:12px}
-      .rv2-guide-item{padding:11px 12px;border:1px solid #29425f;border-radius:12px;background:#091725}.rv2-guide-item strong{display:block;font-size:12px}.rv2-guide-item span{display:block;margin-top:4px;color:#8fa4bf;font-size:10.5px;line-height:1.4}.rv2-guide-item.direct strong{color:#5ce8a5}.rv2-guide-item.vpn strong{color:#7dabff}.rv2-guide-item.block strong{color:#ff858e}
-      .rv2-live-list{display:grid;gap:7px;margin-top:12px}.rv2-live-rule{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-live-main{min-width:0}.rv2-live-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.rv2-live-title strong{font-size:12px;color:#eef5ff}.rv2-live-meta{margin-top:6px;color:#8398b4;font-size:10px;line-height:1.4}.rv2-selector-chips{display:flex;gap:5px;flex-wrap:wrap}.rv2-selector-chip{display:inline-flex;align-items:center;max-width:100%;padding:3px 7px;border:1px solid #2c4665;border-radius:999px;background:#0d2136;color:#b7cae3;font-size:9.5px}.rv2-selector-chip b{color:#e7f0fb;margin-right:4px}.rv2-selector-chip[hidden]{display:none!important}.rv2-selector-more{appearance:none;padding:3px 8px;border:1px dashed #41658e;border-radius:999px;background:transparent;color:#8fb8eb;font:inherit;font-size:9.5px;font-weight:800;cursor:pointer}.rv2-selector-more:hover{border-style:solid;background:#10243a;color:#dcecff}.rv2-live-lock{display:inline-flex;padding:2px 6px;border-radius:999px;border:1px solid rgba(255,190,67,.35);color:#f0c66d;font-size:8px;font-weight:800}
-      .rv2-action-pill{display:inline-flex;align-items:center;justify-content:center;min-width:72px;padding:6px 9px;border-radius:999px;border:1px solid #314865;font-size:10px;font-weight:850}.rv2-action-pill.direct{color:#5ce8a5;border-color:rgba(73,218,146,.38);background:rgba(18,55,41,.58)}.rv2-action-pill.vpn{color:#8ab2ff;border-color:rgba(91,140,255,.45);background:rgba(24,50,90,.58)}.rv2-action-pill.block{color:#ff9aa1;border-color:rgba(255,112,112,.42);background:rgba(58,29,39,.58)}.rv2-action-pill.system{color:#c4d1e2;background:#0c1d30}.rv2-live-details{margin-top:6px}.rv2-live-details button{appearance:none;border:0;background:transparent;padding:0;color:#7897bb;font:inherit;font-size:9.5px;cursor:pointer}.rv2-live-details button:hover{color:#b9d4f5}.rv2-live-tech{margin-top:5px;padding:6px 8px;border:1px solid #243b55;border-radius:8px;background:#07131f;color:#7f95b1;font:500 9px/1.45 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.rv2-live-tech[hidden]{display:none!important}
-      .rv2-action{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:112px}.rv2-action small{font-size:8.5px;font-weight:650;color:#7f94b0}.rv2-action.active small{color:inherit;opacity:.76}
-      .rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:10.5px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}.rv2-workspace button:disabled{opacity:.38!important;cursor:not-allowed!important;filter:saturate(.55);box-shadow:none!important}.rv2-compiled[hidden]{display:none!important}
+      .rv2-policy-summary{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}.rv2-summary-pill{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:0 11px;border:1px solid #29445f;border-radius:999px;background:#0a1929;color:#a9bbd2;font-size:12px;font-weight:750}.rv2-summary-pill b{font-size:14px;color:#f2f7ff}.rv2-summary-pill.direct b{color:#5ce8a5}.rv2-summary-pill.vpn b{color:#8ab2ff}.rv2-summary-pill.block b{color:#ff9299}
+      .rv2-policy-map{display:grid;gap:12px;margin-top:14px}.rv2-policy-group{border:1px solid #263d58;border-radius:14px;background:#081522;overflow:hidden}.rv2-policy-group[hidden]{display:none!important}.rv2-policy-group-head{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 14px;border-bottom:1px solid #203650}.rv2-policy-group-title{display:flex;align-items:center;gap:9px}.rv2-policy-group-title strong{font-size:15px;color:#eef5ff}.rv2-policy-group-title span{font-size:12px;color:#8298b4}.rv2-policy-group-count{min-width:30px;padding:4px 8px;border-radius:999px;text-align:center;background:#10243a;color:#b7cbe6;font-size:12px;font-weight:800}.rv2-policy-group.direct .rv2-policy-group-title strong{color:#5ce8a5}.rv2-policy-group.vpn .rv2-policy-group-title strong{color:#8ab2ff}.rv2-policy-group.block .rv2-policy-group-title strong{color:#ff9299}
+      .rv2-policy-rules{display:grid}.rv2-policy-rule{display:grid;grid-template-columns:42px minmax(0,1fr);gap:10px;align-items:start;padding:12px 14px}.rv2-policy-rule+.rv2-policy-rule{border-top:1px solid #1d3148}.rv2-policy-order{display:grid;place-items:center;width:32px;height:32px;border-radius:9px;background:#11253d;color:#94b9ed;font-size:12px;font-weight:850}.rv2-policy-body{min-width:0}.rv2-selector-groups{display:grid;gap:7px}.rv2-selector-group{display:flex;align-items:flex-start;gap:9px;min-width:0}.rv2-selector-kind{flex:0 0 66px;padding-top:5px;color:#879db9;font-size:13px;font-weight:800}.rv2-selector-values{display:flex;gap:6px;flex-wrap:wrap;min-width:0}.rv2-selector-value{display:inline-flex;align-items:center;min-height:29px;padding:4px 9px;border:1px solid #315070;border-radius:9px;background:#0d2136;color:#dce9f8;font-size:13px;line-height:1.2}.rv2-selector-value[hidden]{display:none!important}.rv2-selector-more{appearance:none;min-height:29px;padding:4px 9px;border:1px dashed #4b709a;border-radius:9px;background:#0b1c2e;color:#9cc4f4;font:inherit;font-size:12px;font-weight:800;cursor:pointer}.rv2-selector-more:hover{border-style:solid;background:#122a45;color:#fff}
+      .rv2-system-wrap{margin-top:12px}.rv2-system-toggle{appearance:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid #283e58;border-radius:12px;background:#091724;color:#a8bbd2;font:inherit;font-size:13px;font-weight:750;cursor:pointer}.rv2-system-toggle:hover{border-color:#3e5d81;background:#0d1f33}.rv2-system-toggle b{color:#dce8f8}.rv2-system-list{display:grid;margin-top:7px;border:1px solid #233951;border-radius:12px;overflow:hidden}.rv2-system-list[hidden]{display:none!important}.rv2-system-rule{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;background:#081522;color:#9eb1c9;font-size:13px}.rv2-system-rule+.rv2-system-rule{border-top:1px solid #1d3148}.rv2-system-route{padding:4px 8px;border:1px solid #304965;border-radius:999px;color:#aec2db;font-size:12px;font-weight:800}
+      .rv2-add-card{padding:14px 16px}.rv2-add-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.rv2-add-head h2{font-size:16px}.rv2-add-layout{display:grid;grid-template-columns:auto 170px minmax(220px,1fr) auto auto;gap:9px;align-items:center;margin-top:12px}.rv2-add-layout .rv2-tabs{flex-wrap:nowrap}.rv2-add-layout select,.rv2-add-layout input{width:100%;box-sizing:border-box;min-height:42px;padding:9px 11px;border:1px solid #2b405e;background:#081421;color:#eef5ff;border-radius:11px;outline:none;font:inherit;font-size:13px}.rv2-add-actions{display:flex;gap:6px;align-items:center}.rv2-action{min-width:auto;padding:10px 12px;font-size:13px}.rv2-action small{display:none}
+      .rv2-draft-card[hidden]{display:none!important}.rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:12px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}.rv2-workspace button:disabled{opacity:.38!important;cursor:not-allowed!important;filter:saturate(.55);box-shadow:none!important}.rv2-compiled[hidden]{display:none!important}
+      .rv2-rule-list{display:grid;gap:8px;margin-top:12px}.rv2-rule-empty{padding:14px;border:1px dashed #2d425d;border-radius:12px;color:#8498b4;font-size:13px;text-align:center}.rv2-rule{display:grid;grid-template-columns:34px minmax(0,1fr) 100px 155px;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-selector b{font-size:13px}.rv2-selector span{font-size:12px}.rv2-rule-action{font-size:12px}
       .rv2-notice.warn{border-color:rgba(255,190,67,.38);background:rgba(103,70,15,.16);color:#f0cf8e}
-      @media(max-width:900px){.rv2-guide{grid-template-columns:1fr}.rv2-live-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-action-pill{grid-column:2;justify-self:start}}
-      @media(max-width:900px){.rv2-builder-grid{grid-template-columns:1fr}.rv2-rule{grid-template-columns:34px minmax(0,1fr);}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}}
-      @media(max-width:620px){.rv2-card{padding:13px}.rv2-mode{flex:1}.rv2-modes{width:100%}.rv2-editor{min-height:330px}}
+      @media(max-width:1050px){.rv2-add-layout{grid-template-columns:1fr 1fr}.rv2-add-layout .rv2-tabs{grid-column:1/-1}.rv2-add-layout input{grid-column:1/-1}.rv2-add-actions{grid-column:1}.rv2-add-layout>.btn{grid-column:2;justify-self:stretch}}
+      @media(max-width:900px){.rv2-policy-rule{grid-template-columns:36px minmax(0,1fr)}.rv2-selector-group{display:grid;gap:4px}.rv2-selector-kind{flex:none;padding-top:0}.rv2-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}}
+      @media(max-width:620px){.rv2-card{padding:13px}.rv2-mode{flex:1}.rv2-modes{width:100%}.rv2-editor{min-height:330px}.rv2-add-layout{grid-template-columns:1fr}.rv2-add-layout>*{grid-column:1!important}.rv2-add-actions{width:100%}.rv2-action{flex:1}.rv2-system-rule{grid-template-columns:36px minmax(0,1fr)}.rv2-system-route{grid-column:2;justify-self:start}}
     `;
     document.head.appendChild(style);
   }
@@ -170,88 +171,143 @@
     return rules.map((rule, index) => presentLiveRule(rule, index));
   }
 
+  function selectorGroupLabel(kind) {
+    return ({geosite:'GeoSite', geoip:'GeoIP', domain:'Сайты', ip:'IP', cidr:'Подсети', custom:'Xray'})[kind] || 'Правила';
+  }
+
+  function groupSelectors(selectors) {
+    const order = ['geosite','geoip','domain','ip','cidr','custom'];
+    const grouped = new Map();
+    selectors.forEach(selector => {
+      const key = selector.kind || 'custom';
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(selector);
+    });
+    return order.filter(key => grouped.has(key)).map(key => ({kind:key, items:grouped.get(key)}));
+  }
+
+  function appendSelectorGroups(body, item) {
+    const groups = groupSelectors(item.selectors);
+    const wrap = document.createElement('div'); wrap.className = 'rv2-selector-groups';
+    const limit = 8;
+    let ordinal = 0;
+    const rows = [];
+    const hiddenValues = [];
+
+    groups.forEach(group => {
+      const row = document.createElement('div'); row.className = 'rv2-selector-group';
+      const label = document.createElement('div'); label.className = 'rv2-selector-kind'; label.textContent = selectorGroupLabel(group.kind);
+      const values = document.createElement('div'); values.className = 'rv2-selector-values';
+      let visibleInGroup = 0;
+      group.items.forEach(selector => {
+        const chip = document.createElement('span'); chip.className = 'rv2-selector-value'; chip.textContent = String(selector.value);
+        if (ordinal >= limit) { chip.hidden = true; hiddenValues.push(chip); } else visibleInGroup++;
+        values.appendChild(chip); ordinal++;
+      });
+      if (!visibleInGroup && group.items.length) row.hidden = true;
+      row.append(label, values); wrap.appendChild(row); rows.push(row);
+    });
+
+    body.appendChild(wrap);
+    if (item.selectors.length > limit) {
+      const more = document.createElement('button'); more.type = 'button'; more.className = 'rv2-selector-more';
+      more.setAttribute('aria-expanded', 'false'); more.textContent = `+${item.selectors.length - limit} ещё`;
+      more.addEventListener('click', () => {
+        const expanded = more.getAttribute('aria-expanded') === 'true';
+        let running = 0;
+        rows.forEach((row, rowIndex) => {
+          const chips = Array.from(row.querySelectorAll('.rv2-selector-value'));
+          chips.forEach(chip => {
+            chip.hidden = expanded ? running >= limit : false;
+            running++;
+          });
+          row.hidden = expanded ? chips.every(chip => chip.hidden) : false;
+        });
+        more.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+        more.textContent = expanded ? `+${item.selectors.length - limit} ещё` : 'Свернуть';
+      });
+      body.appendChild(more);
+    }
+  }
+
+  function renderPolicyRule(container, item) {
+    const row = document.createElement('div'); row.className = 'rv2-policy-rule'; row.dataset.liveRuleIndex = String(item.index);
+    const order = document.createElement('div'); order.className = 'rv2-policy-order'; order.textContent = `#${item.index + 1}`;
+    const body = document.createElement('div'); body.className = 'rv2-policy-body';
+    appendSelectorGroups(body, item);
+    row.append(order, body); container.appendChild(row);
+  }
+
+  function renderSystemRule(container, item) {
+    const row = document.createElement('div'); row.className = 'rv2-system-rule'; row.dataset.liveRuleIndex = String(item.index);
+    const order = document.createElement('div'); order.className = 'rv2-policy-order'; order.textContent = `#${item.index + 1}`;
+    const text = document.createElement('div');
+    text.textContent = item.conditions.length ? item.conditions.join(', ') : (item.selectors.length ? 'сложное условие' : 'служебное правило');
+    const route = document.createElement('span'); route.className = 'rv2-system-route'; route.textContent = item.actionLabel || 'Системный маршрут';
+    row.append(order, text, route); container.appendChild(row);
+  }
+
+  function setSummaryValue(id, value) {
+    const node = qs(`#${id}`); if (node) node.textContent = String(value);
+  }
+
   function renderLiveRules() {
-    const list = qs('#rv2LiveRuleList');
     const status = qs('#rv2LiveState');
-    if (!list || !status) return;
-    list.textContent = '';
+    const directRules = qs('#rv2DirectRules');
+    const vpnRules = qs('#rv2VPNRules');
+    const blockRules = qs('#rv2BlockRules');
+    const systemList = qs('#rv2SystemList');
+    if (!status || !directRules || !vpnRules || !blockRules || !systemList) return;
+
+    [directRules, vpnRules, blockRules, systemList].forEach(node => { node.textContent = ''; });
     if (!state.configLoaded) {
       status.className = 'rv2-state'; status.textContent = state.configLoading ? 'Загрузка…' : 'Не загружено';
-      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Получаем текущие правила с роутера…'; list.appendChild(empty);
       return;
     }
+
     const presented = livePresentation();
-    state.liveRules = presented; state.liveComplexCount = presented.filter(item => item.complex).length;
-    status.className = 'rv2-state ok'; status.textContent = `${presented.length} активных`;
-    if (!presented.length) {
-      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Активных правил маршрутизации пока нет.'; list.appendChild(empty); return;
-    }
-    presented.forEach(item => {
-      const row = document.createElement('div'); row.className = 'rv2-live-rule'; row.dataset.liveRuleIndex = String(item.index);
-      const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(item.index + 1);
-      const main = document.createElement('div'); main.className = 'rv2-live-main';
+    const visible = presented.filter(item => !item.complex && ['DIRECT','VPN','BLOCK'].includes(item.action));
+    const system = presented.filter(item => !visible.includes(item));
+    const byAction = {
+      DIRECT: visible.filter(item => item.action === 'DIRECT'),
+      VPN: visible.filter(item => item.action === 'VPN'),
+      BLOCK: visible.filter(item => item.action === 'BLOCK')
+    };
 
-      if (item.complex) {
-        const title = document.createElement('div'); title.className = 'rv2-live-title';
-        const strong = document.createElement('strong'); strong.textContent = 'Системное правило';
-        const lock = document.createElement('span'); lock.className = 'rv2-live-lock'; lock.textContent = 'защищено';
-        title.append(strong, lock); main.appendChild(title);
-      }
+    state.liveRules = presented;
+    state.liveComplexCount = system.length;
+    status.className = 'rv2-state ok';
+    status.textContent = `${presented.length} активных`;
 
-      if (item.selectors.length) {
-        const chips = document.createElement('div'); chips.className = 'rv2-selector-chips';
-        const limit = 6;
-        item.selectors.forEach((selector, selectorIndex) => {
-          const chip = document.createElement('span'); chip.className = 'rv2-selector-chip';
-          if (selectorIndex >= limit) chip.hidden = true;
-          const label = selector.kind === 'custom' ? 'Xray' : humanKind(selector.kind);
-          const kind = document.createElement('b'); kind.textContent = label;
-          chip.append(kind, document.createTextNode(String(selector.value))); chips.appendChild(chip);
-        });
-        if (item.selectors.length > limit) {
-          const more = document.createElement('button'); more.type = 'button'; more.className = 'rv2-selector-more';
-          more.setAttribute('aria-expanded', 'false'); more.textContent = `Ещё ${item.selectors.length - limit}`;
-          more.addEventListener('click', () => {
-            const expanded = more.getAttribute('aria-expanded') === 'true';
-            qsa('.rv2-selector-chip', chips).forEach((chip, chipIndex) => { if (chipIndex >= limit) chip.hidden = expanded; });
-            more.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-            more.textContent = expanded ? `Ещё ${item.selectors.length - limit}` : 'Свернуть';
-          });
-          chips.appendChild(more);
-        }
-        main.appendChild(chips);
-      }
+    setSummaryValue('rv2SummaryRules', visible.length);
+    setSummaryValue('rv2SummaryDirect', byAction.DIRECT.length);
+    setSummaryValue('rv2SummaryVPN', byAction.VPN.length);
+    setSummaryValue('rv2SummaryBlock', byAction.BLOCK.length);
+    setSummaryValue('rv2SummarySystem', system.length);
+    setSummaryValue('rv2DirectCount', byAction.DIRECT.length);
+    setSummaryValue('rv2VPNCount', byAction.VPN.length);
+    setSummaryValue('rv2BlockCount', byAction.BLOCK.length);
+    setSummaryValue('rv2SystemCount', system.length);
 
-      if (item.complex) {
-        const meta = document.createElement('div'); meta.className = 'rv2-live-meta';
-        const conditionCopy = item.conditions.length ? `Условия: ${item.conditions.join(', ')}. ` : '';
-        meta.textContent = `${conditionCopy}FreeNet сохранит это правило без изменений.`;
-        main.appendChild(meta);
-
-        const details = document.createElement('div'); details.className = 'rv2-live-details';
-        const toggle = document.createElement('button'); toggle.type = 'button'; toggle.textContent = 'Технические детали';
-        toggle.setAttribute('aria-expanded', 'false');
-        const tech = document.createElement('div'); tech.className = 'rv2-live-tech'; tech.hidden = true;
-        const rawOutbound = item.outboundTag || '—';
-        const rawConditions = item.extraKeys.length ? item.extraKeys.join(', ') : '—';
-        tech.textContent = `outbound: ${rawOutbound} · conditions: ${rawConditions}`;
-        toggle.addEventListener('click', () => {
-          const expanded = toggle.getAttribute('aria-expanded') === 'true';
-          tech.hidden = expanded; toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-          toggle.textContent = expanded ? 'Технические детали' : 'Скрыть детали';
-        });
-        details.append(toggle, tech); main.appendChild(details);
-      }
-
-      const action = document.createElement('div');
-      action.className = `rv2-action-pill ${item.actionTone || 'system'}`;
-      action.textContent = item.actionLabel || 'Системный маршрут';
-      row.append(order, main, action); list.appendChild(row);
+    const groups = [
+      ['rv2DirectGroup', directRules, byAction.DIRECT],
+      ['rv2VPNGroup', vpnRules, byAction.VPN],
+      ['rv2BlockGroup', blockRules, byAction.BLOCK]
+    ];
+    groups.forEach(([id, container, items]) => {
+      const section = qs(`#${id}`);
+      if (section) section.hidden = items.length === 0;
+      items.forEach(item => renderPolicyRule(container, item));
     });
-    const notice = qs('#rv2LiveNotice');
-    if (notice) {
-      if (state.liveComplexCount) setNotice('rv2LiveNotice', `${state.liveComplexCount} системных правил защищены от случайного редактирования. При добавлении новых правил FreeNet сохранит их без изменений.`, 'warn');
-      else setNotice('rv2LiveNotice', 'Порядок сверху вниз является приоритетом: срабатывает первое подходящее правило.', 'ok');
+
+    const systemWrap = qs('#rv2SystemWrap');
+    if (systemWrap) systemWrap.hidden = system.length === 0;
+    system.forEach(item => renderSystemRule(systemList, item));
+
+    if (!presented.length) {
+      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Активных правил маршрутизации пока нет.';
+      directRules.appendChild(empty);
+      const directGroup = qs('#rv2DirectGroup'); if (directGroup) directGroup.hidden = false;
     }
   }
 
@@ -407,13 +463,15 @@
   }
 
   function renderRuleList() {
-    const list = qs('#rv2RuleList'); if (!list) return;
+    const list = qs('#rv2RuleList');
+    const card = qs('#rv2DraftCard');
+    if (!list) return;
     list.textContent = '';
     if (!state.rules.length) {
-      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty';
-      empty.textContent = 'Изменений пока нет. Добавьте сайт, GeoData-группу, IP или подсеть.';
-      list.appendChild(empty); return;
+      if (card) card.hidden = true;
+      return;
     }
+    if (card) card.hidden = false;
     state.rules.forEach((rule, index) => {
       const row = document.createElement('div'); row.className = 'rv2-rule'; row.dataset.ruleIndex = String(index);
       const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(index + 1);
@@ -616,7 +674,7 @@
       const copy = `${managed.length} новых правил будут добавлены перед ${existing.length} существующими. Существующие правила сохраняются без изменений.`;
       setNotice('rv2RuleNotice', copy, 'ok');
       setNotice('rv2ConfigNotice', `${copy} Это пока только черновик.`, 'ok');
-      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку Xray.`;
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку.`;
       if (openConfig) setMode('config');
       return {routing: base, policy: clone(state.live.policy), managedCount: managed.length, existingCount: existing.length};
     } catch (error) {
@@ -684,47 +742,73 @@
     const oldPreview = qs('#policyBuilderPreview', page); if (oldPreview) oldPreview.remove();
     qsa(':scope > .card', page).forEach(card => card.classList.add('fn-routing-v2-legacy'));
     const head = qs('.page-head', page);
-    if (head) head.innerHTML = '<div><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Понятные правила для сайтов и GeoData-групп. Экспертная конфигурация остаётся во вкладке «Конфигурация».</p></div>';
+    if (head) head.innerHTML = '<div><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Куда идёт трафик и какие сайты, GeoSite и GeoIP используются.</p></div>';
 
     const root = document.createElement('div'); root.id = 'routingV2Workspace'; root.className = 'rv2-workspace';
     root.innerHTML = `
       <div class="rv2-modebar">
         <div class="rv2-modes"><button type="button" class="rv2-mode active" data-mode="rules">Правила</button><button type="button" class="rv2-mode" data-mode="config">Конфигурация</button></div>
-        <span class="rv2-state ok">Безопасный режим</span>
       </div>
       <section id="rv2RulesPanel" class="rv2-panel">
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Как работает маршрутизация</h2><p class="rv2-copy">Правила проверяются сверху вниз. Срабатывает первое подходящее правило.</p></div></div>
-          <div class="rv2-guide">
-            <div class="rv2-guide-item direct"><strong>DIRECT</strong><span>Открывать напрямую через провайдера, минуя VPN.</span></div>
-            <div class="rv2-guide-item vpn"><strong>VPN</strong><span>Отправлять трафик через текущий VPN-профиль.</span></div>
-            <div class="rv2-guide-item block"><strong>BLOCK</strong><span>Блокировать обращения к сайту, группе или адресу.</span></div>
+          <div class="rv2-card-head">
+            <div><h2>Маршрутизация сейчас</h2><p class="rv2-copy">Категории сгруппированы по направлению. Номер # — реальный приоритет правила.</p></div>
+            <span id="rv2LiveState" class="rv2-state">Загрузка…</span>
+          </div>
+          <div class="rv2-policy-summary">
+            <span class="rv2-summary-pill"><b id="rv2SummaryRules">0</b> правил</span>
+            <span class="rv2-summary-pill direct"><b id="rv2SummaryDirect">0</b> напрямую</span>
+            <span class="rv2-summary-pill vpn"><b id="rv2SummaryVPN">0</b> через VPN</span>
+            <span class="rv2-summary-pill block"><b id="rv2SummaryBlock">0</b> блокировка</span>
+            <span class="rv2-summary-pill"><b id="rv2SummarySystem">0</b> системных</span>
+          </div>
+          <div class="rv2-policy-map">
+            <section id="rv2DirectGroup" class="rv2-policy-group direct" hidden>
+              <div class="rv2-policy-group-head"><div class="rv2-policy-group-title"><strong>Напрямую</strong><span>без VPN</span></div><span id="rv2DirectCount" class="rv2-policy-group-count">0</span></div>
+              <div id="rv2DirectRules" class="rv2-policy-rules"></div>
+            </section>
+            <section id="rv2VPNGroup" class="rv2-policy-group vpn" hidden>
+              <div class="rv2-policy-group-head"><div class="rv2-policy-group-title"><strong>Через VPN</strong><span>текущий VPN-профиль</span></div><span id="rv2VPNCount" class="rv2-policy-group-count">0</span></div>
+              <div id="rv2VPNRules" class="rv2-policy-rules"></div>
+            </section>
+            <section id="rv2BlockGroup" class="rv2-policy-group block" hidden>
+              <div class="rv2-policy-group-head"><div class="rv2-policy-group-title"><strong>Блокировка</strong><span>доступ запрещён</span></div><span id="rv2BlockCount" class="rv2-policy-group-count">0</span></div>
+              <div id="rv2BlockRules" class="rv2-policy-rules"></div>
+            </section>
+          </div>
+          <div id="rv2SystemWrap" class="rv2-system-wrap" hidden>
+            <button id="rv2SystemToggle" class="rv2-system-toggle" type="button" aria-expanded="false">
+              <span><b>Системные правила</b> · FreeNet их не меняет</span>
+              <span><span id="rv2SystemCount">0</span> · <span id="rv2SystemToggleAction">показать</span></span>
+            </button>
+            <div id="rv2SystemList" class="rv2-system-list" hidden></div>
           </div>
         </div>
-        <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Сейчас действует</h2><p class="rv2-copy">Фактический порядок правил на этом роутере.</p></div><span id="rv2LiveState" class="rv2-state">Загрузка…</span></div>
-          <div id="rv2LiveRuleList" class="rv2-live-list"></div>
-          <div id="rv2LiveNotice" class="rv2-notice"></div>
-        </div>
-        <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Добавить правило</h2><p class="rv2-copy">Выберите сайт, GeoData-группу, IP или подсеть и укажите, что с ней делать.</p></div></div>
-          <div class="rv2-tabs" style="margin-top:13px"><button type="button" class="rv2-tab rv2-family active" data-family="domain">Сайты и GeoSite</button><button type="button" class="rv2-tab rv2-family" data-family="ip">IP и GeoIP</button></div>
-          <div class="rv2-builder-grid"><select id="rv2Kind" aria-label="Тип правила"></select><input id="rv2Value" type="text" autocomplete="off" spellcheck="false"><button id="rv2AddRule" class="btn primary" type="button">Добавить правило</button></div>
-          <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти группу в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена редактирования</button></div>
+
+        <div class="rv2-card rv2-add-card">
+          <div class="rv2-add-head"><h2>Добавить правило</h2><span class="rv2-copy">Новые правила сначала попадают в черновик.</span></div>
+          <div class="rv2-add-layout">
+            <div class="rv2-tabs"><button type="button" class="rv2-tab rv2-family active" data-family="domain">Сайты / GeoSite</button><button type="button" class="rv2-tab rv2-family" data-family="ip">IP / GeoIP</button></div>
+            <select id="rv2Kind" aria-label="Тип правила"></select>
+            <input id="rv2Value" type="text" autocomplete="off" spellcheck="false">
+            <div class="rv2-add-actions">
+              <button type="button" class="rv2-action active" data-action="DIRECT">DIRECT</button>
+              <button type="button" class="rv2-action" data-action="VPN">VPN</button>
+              <button type="button" class="rv2-action" data-action="BLOCK">BLOCK</button>
+            </div>
+            <button id="rv2AddRule" class="btn primary" type="button">Добавить</button>
+          </div>
+          <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена</button></div>
           <div id="rv2SearchResults" class="rv2-search-results"></div>
-          <div style="margin-top:13px"><div class="eyebrow">Куда направить</div><div class="rv2-actions" style="margin-top:7px">
-            <button type="button" class="rv2-action active" data-action="DIRECT"><span>DIRECT</span><small>мимо VPN</small></button>
-            <button type="button" class="rv2-action" data-action="VPN"><span>VPN</span><small>через VPN</small></button>
-            <button type="button" class="rv2-action" data-action="BLOCK"><span>BLOCK</span><small>заблокировать</small></button>
-          </div></div>
           <div id="rv2RuleNotice" class="rv2-notice"></div>
         </div>
-        <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Изменения перед применением</h2><p class="rv2-copy">Новые правила будут добавлены перед существующими. Их можно менять местами, редактировать или удалить.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button" disabled>Посмотреть JSON</button></div>
+
+        <div id="rv2DraftCard" class="rv2-card rv2-draft-card" hidden>
+          <div class="rv2-card-head"><div><h2>Изменения</h2><p class="rv2-copy">Только новые правила. До «Применить» текущая маршрутизация не меняется.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button" disabled>JSON</button></div>
           <div id="rv2RuleList" class="rv2-rule-list"></div><div id="rv2CompiledSummary" class="rv2-compiled" hidden></div>
           <div class="rv2-rule-footer">
-            <div id="rv2RulesApplyPreview" class="rv2-rule-footer-copy">Добавьте правило. До применения действующая маршрутизация не изменится.</div>
-            <div class="rv2-rule-footer-actions"><button id="rv2ValidateRules" class="btn secondary" type="button" disabled>Проверить изменения</button><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
+            <div id="rv2RulesApplyPreview" class="rv2-rule-footer-copy"></div>
+            <div class="rv2-rule-footer-actions"><button id="rv2ValidateRules" class="btn secondary" type="button" disabled>Проверить</button><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
           </div>
           <div id="rv2RulesApplyResult" class="rv2-notice"></div>
         </div>
@@ -750,6 +834,16 @@
     qs('#rv2AddRule')?.addEventListener('click', addOrUpdateRule);
     qs('#rv2CancelEdit')?.addEventListener('click', resetEditor);
     qs('#rv2GeoSearch')?.addEventListener('click', searchGeo);
+    qs('#rv2SystemToggle')?.addEventListener('click', () => {
+      const list = qs('#rv2SystemList');
+      const toggle = qs('#rv2SystemToggle');
+      if (!list || !toggle) return;
+      const expanded = toggle.getAttribute('aria-expanded') === 'true';
+      list.hidden = expanded;
+      toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+      const action = qs('#rv2SystemToggleAction');
+      if (action) action.textContent = expanded ? 'показать' : 'скрыть';
+    });
     qs('#rv2Value')?.addEventListener('input', syncRuleActionButtons);
     qs('#rv2Value')?.addEventListener('keydown', event => { if (event.key === 'Enter' && !(state.kind === 'geosite' || state.kind === 'geoip')) { event.preventDefault(); addOrUpdateRule(); } });
     qs('#rv2BuildConfig')?.addEventListener('click', () => buildRoutingDraftFromRules(true));
