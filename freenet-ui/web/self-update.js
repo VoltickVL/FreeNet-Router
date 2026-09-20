@@ -945,11 +945,15 @@
     const copy = document.createElement('span');
     copy.className = 'fn-version-copy';
     const label = document.createElement('small');
-    label.textContent = updateAvailable ? 'Обновление' : 'FreeNet';
+    label.textContent = 'FreeNet';
     const value = document.createElement('strong');
     value.textContent = `v${current}`;
     copy.append(label, value);
     control.append(icon, copy);
+  }
+
+  function stateApplyingVersion() {
+    return !!updateProgressStarted || !!(plan && ['CHECKING','SNAPSHOT','UPDATING','RECONNECTING','BUSY'].includes(String(plan.state || '').toUpperCase()));
   }
 
   function versionActionLabel(p) {
@@ -1007,7 +1011,11 @@
         action.type = 'button';
         action.className = 'btn primary fn-version-apply';
         action.textContent = versionActionLabel(p);
-        action.addEventListener('click', () => openVersionTargetConfirmation(p));
+        action.addEventListener('click', async () => {
+          if (stateApplyingVersion()) return;
+          plan = p;
+          await startUpdate();
+        });
         detail.appendChild(action);
       }
       requestAnimationFrame(positionVersionPicker);
@@ -1035,7 +1043,7 @@
     search.className = 'fn-version-search';
     search.type = 'search';
     search.autocomplete = 'off';
-    search.placeholder = 'Поиск по всем версиям, например v0.3.94';
+    search.placeholder = 'Другие версии';
     search.setAttribute('aria-label', 'Поиск версии FreeNet');
 
     const list = document.createElement('div');
@@ -1044,9 +1052,10 @@
     const detail = document.createElement('div');
     detail.id = 'fnVersionDetail';
     detail.className = 'fn-version-detail';
-    detail.textContent = 'Выберите версию. Сам выбор ничего не меняет.';
+    detail.textContent = 'Проверяем доступное обновление…';
 
     const releases = Array.isArray(catalog.releases) ? catalog.releases : [];
+    const latest = releases.find(item => item.latest && !item.current) || null;
     const draw = () => {
       const q = search.value.trim().toLowerCase();
       list.textContent = '';
@@ -1089,8 +1098,16 @@
       requestAnimationFrame(positionVersionPicker);
     };
     search.addEventListener('input', draw);
-    body.append(summary, search, list, detail);
+    body.append(summary, detail, search, list);
     draw();
+    if (latest) {
+      const latestButton = list.querySelector(`.fn-version-release[data-version="${CSS.escape(latest.version || '')}"]`);
+      latestButton?.classList.add('selected');
+      void selectVersionTarget(latest, detail);
+    } else {
+      detail.className = 'fn-version-detail ready';
+      detail.textContent = 'Установлена актуальная версия FreeNet.';
+    }
   }
 
   async function openTopbarUpdateModal() {
@@ -1101,8 +1118,8 @@
     }
     openModal({
       kicker: 'FreeNet',
-      title: 'Версии FreeNet',
-      body: 'Загружаем опубликованные стабильные релизы…',
+      title: 'Обновление FreeNet',
+      body: 'Проверяем доступную версию…',
       closable: true,
       anchored: true
     });
@@ -1126,13 +1143,13 @@
     } catch (_) {}
     try {
       if (typeof authAuthenticated !== 'undefined' && !authAuthenticated) return;
-      const r = await fetch('/api/system/update/plan', {cache: 'no-store'});
+      const r = await fetch('/api/system/update/releases', {cache: 'no-store', signal: AbortSignal.timeout(15000)});
       if (!r.ok) return;
-      const p = await r.json();
-      if (!p.success) return;
-      plan = p;
-      if (qs('#webUpdateCurrent')) renderPlan(p);
-      else renderTopbarVersion(p.current_version, !!p.update_available, p.latest_version);
+      const catalog = await r.json();
+      if (!catalog.success) return;
+      const current = catalog.current_version || '';
+      const latest = catalog.latest_version || '';
+      renderTopbarVersion(current, !!latest && latest !== current, latest);
     } catch (_) {}
   }
 
@@ -1143,19 +1160,19 @@
       style.textContent = `
         .side-bottom{display:none!important}
         .nav-btn[data-page="system"]{display:none!important}
-        .fn-version-control{appearance:none;min-width:112px;min-height:46px;padding:6px 11px;display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:10px;background:#0b1523;color:#d6e3f5!important;text-decoration:none!important;cursor:pointer;font:inherit}
+        .fn-version-control{appearance:none;min-width:148px;min-height:60px;padding:9px 14px;display:flex;align-items:center;gap:11px;border:1px solid var(--line);border-radius:10px;background:#0b1523;color:#d6e3f5!important;text-decoration:none!important;cursor:pointer;font:inherit}
         .fn-version-control:hover{border-color:#456489;background:#122239;color:#fff!important}
-        .fn-version-icon{display:grid;place-items:center;width:25px;height:25px;border-radius:8px;border:1px solid #315077;background:#0b1b2d;color:#82adff;font-size:14px;font-weight:900}
+        .fn-version-icon{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;border:1px solid #315077;background:#0b1b2d;color:#82adff;font-size:14px;font-weight:900}
         .fn-version-copy{display:flex;flex-direction:column;line-height:1.08;text-align:left}
-        .fn-version-copy small{font-size:9px;color:#899bb4;font-weight:700}
-        .fn-version-copy strong{font-size:12.5px;color:#f4f7fb;margin-top:2px}
+        .fn-version-copy small{font-size:11px;color:#899bb4;font-weight:700}
+        .fn-version-copy strong{font-size:14px;color:#f4f7fb;margin-top:2px}
         .fn-version-control.update-available{border-color:rgba(73,218,146,.62);background:linear-gradient(180deg,rgba(18,70,55,.92),rgba(12,48,39,.92));box-shadow:inset 0 0 0 1px rgba(73,218,146,.09),0 0 18px rgba(73,218,146,.08)}
         .fn-version-control.update-available .fn-version-icon{border-color:rgba(73,218,146,.58);background:rgba(18,86,62,.65);color:#65f0ad}
         .fn-version-control.update-available .fn-version-copy small,.fn-version-control.update-available .fn-version-copy strong{color:#c9f7dc}
-        .fn-version-manager-body{white-space:normal!important}.fn-modal-root.fn-version-picker-mode .fn-version-manager-body:before{content:'Выбор версии, затем проверка и установка';display:block;margin:-2px 0 7px;color:#8198b5;font-size:8.5px}.fn-version-summary{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;padding:8px 10px;border:1px solid #29445f;border-radius:9px;background:#0a1929;font-size:10.5px}.fn-version-summary span{color:#8fa4bf}.fn-version-summary strong{color:#f2f7ff}
+        .fn-version-manager-body{white-space:normal!important}.fn-modal-root.fn-version-picker-mode .fn-version-manager-body:before{content:'Текущая и доступная версия';display:block;margin:-2px 0 9px;color:#8fa6c3;font-size:10.5px}.fn-version-summary{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;padding:8px 10px;border:1px solid #29445f;border-radius:9px;background:#0a1929;font-size:10.5px}.fn-version-summary span{color:#8fa4bf}.fn-version-summary strong{color:#f2f7ff}
         .fn-version-search{width:100%;height:36px;margin-top:9px;padding:0 10px;border:1px solid #315070;border-radius:9px;background:#081624;color:#eef5ff;font:inherit;font-size:11px;outline:none}.fn-version-search:focus{border-color:#6094df;box-shadow:0 0 0 2px rgba(96,148,223,.12)}
         .fn-version-list{display:grid;gap:5px;margin-top:8px;padding:0;overflow:visible}.fn-version-release{appearance:none;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:36px;padding:6px 9px;border:1px solid #29445f;border-radius:8px;background:#0a1929;color:#dbe8f8;text-align:left;cursor:pointer}.fn-version-release:hover,.fn-version-release.selected{border-color:#5a8dcc;background:#12304d}.fn-version-release.current{box-shadow:inset 3px 0 #39d79a}.fn-version-release-main{display:flex;align-items:center;gap:6px}.fn-version-release-main strong{font-size:12px}.fn-version-release em{padding:1px 5px;border-radius:999px;background:#173652;color:#a9caff;font-size:7.5px;font-style:normal;font-weight:800}.fn-version-release em.current{background:rgba(52,221,159,.14);color:#65e3aa}.fn-version-release em.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.fn-version-release small{color:#8198b5;font-size:8.5px}
-        .fn-version-detail{display:grid;gap:6px;margin-top:9px;padding:9px 10px;border:1px solid #29445f;border-radius:9px;background:#091827;color:#9fb2ca;font-size:10.5px;line-height:1.35}.fn-version-detail strong{color:#f2f7ff;font-size:12px}.fn-version-detail.ready{border-color:#35658e}.fn-version-detail.bad{border-color:rgba(255,104,115,.45);color:#ffd0d4}.fn-version-detail.checking{color:#c4d7ee}.fn-version-apply{min-height:36px;margin-top:2px;width:100%}.fn-version-empty{padding:11px;text-align:center;color:#839ab8;border:1px dashed #29445f;border-radius:8px;font-size:10.5px}
+        .fn-version-detail{display:grid;gap:7px;margin-top:10px;padding:11px 12px;border:1px solid #29445f;border-radius:9px;background:#091827;color:#9fb2ca;font-size:10.5px;line-height:1.35}.fn-version-detail strong{color:#f2f7ff;font-size:12px}.fn-version-detail.ready{border-color:#35658e}.fn-version-detail.bad{border-color:rgba(255,104,115,.45);color:#ffd0d4}.fn-version-detail.checking{color:#c4d7ee}.fn-version-apply{min-height:44px;margin-top:3px;width:100%;font-size:13px!important}.fn-version-empty{padding:11px;text-align:center;color:#839ab8;border:1px dashed #29445f;border-radius:8px;font-size:10.5px}
         @media(max-width:760px){.fn-version-control{min-width:46px}.fn-version-copy small{display:none}.fn-version-list{overflow:visible}}
       `;
       document.head.appendChild(style);
