@@ -19,7 +19,9 @@
     live: {routing: {routing: {}}, policy: {policy: {}}},
     draft: {routing: '', policy: ''},
     configDirty: false,
-    configValidated: false
+    configValidated: false,
+    liveRules: [],
+    liveComplexCount: 0
   };
 
   function installStyles() {
@@ -47,6 +49,14 @@
       .rv2-editor-wrap{margin-top:12px}.rv2-editor{display:block;min-height:430px;resize:vertical;padding:14px 15px;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;tab-size:2;white-space:pre}
       .rv2-config-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:9px;color:#8499b6;font-size:10px}.rv2-config-meta code{color:#b7c8db}
       .rv2-danger-note{margin-top:12px;padding:10px 11px;border:1px solid rgba(255,190,67,.30);border-radius:11px;background:rgba(103,70,15,.16);color:#e7ca8a;font-size:11px;line-height:1.45}
+      .rv2-guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:12px}
+      .rv2-guide-item{padding:11px 12px;border:1px solid #29425f;border-radius:12px;background:#091725}.rv2-guide-item strong{display:block;font-size:12px}.rv2-guide-item span{display:block;margin-top:4px;color:#8fa4bf;font-size:10.5px;line-height:1.4}.rv2-guide-item.direct strong{color:#5ce8a5}.rv2-guide-item.vpn strong{color:#7dabff}.rv2-guide-item.block strong{color:#ff858e}
+      .rv2-live-list{display:grid;gap:7px;margin-top:12px}.rv2-live-rule{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-live-main{min-width:0}.rv2-live-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.rv2-live-title strong{font-size:12px;color:#eef5ff}.rv2-live-meta{margin-top:4px;color:#8398b4;font-size:10px;line-height:1.4}.rv2-selector-chips{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.rv2-selector-chip{display:inline-flex;align-items:center;max-width:100%;padding:3px 7px;border:1px solid #2c4665;border-radius:999px;background:#0d2136;color:#b7cae3;font-size:9.5px}.rv2-selector-chip b{color:#e7f0fb;margin-right:4px}.rv2-live-lock{display:inline-flex;padding:2px 6px;border-radius:999px;border:1px solid rgba(255,190,67,.35);color:#f0c66d;font-size:8px;font-weight:800}
+      .rv2-action-pill{display:inline-flex;align-items:center;justify-content:center;min-width:72px;padding:6px 9px;border-radius:999px;border:1px solid #314865;font-size:10px;font-weight:850}.rv2-action-pill.direct{color:#5ce8a5;border-color:rgba(73,218,146,.38);background:rgba(18,55,41,.58)}.rv2-action-pill.vpn{color:#8ab2ff;border-color:rgba(91,140,255,.45);background:rgba(24,50,90,.58)}.rv2-action-pill.block{color:#ff9aa1;border-color:rgba(255,112,112,.42);background:rgba(58,29,39,.58)}.rv2-action-pill.custom{color:#b7c7dc}
+      .rv2-action{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:112px}.rv2-action small{font-size:8.5px;font-weight:650;color:#7f94b0}.rv2-action.active small{color:inherit;opacity:.76}
+      .rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:10.5px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}
+      .rv2-notice.warn{border-color:rgba(255,190,67,.38);background:rgba(103,70,15,.16);color:#f0cf8e}
+      @media(max-width:900px){.rv2-guide{grid-template-columns:1fr}.rv2-live-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-action-pill{grid-column:2;justify-self:start}}
       @media(max-width:900px){.rv2-builder-grid{grid-template-columns:1fr}.rv2-rule{grid-template-columns:34px minmax(0,1fr);}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}}
       @media(max-width:620px){.rv2-card{padding:13px}.rv2-mode{flex:1}.rv2-modes{width:100%}.rv2-editor{min-height:330px}}
     `;
@@ -75,18 +85,123 @@
     return body;
   }
 
+  function signalRuleDraftChanged() {
+    document.dispatchEvent(new CustomEvent('freenet:routing-draft-changed'));
+  }
+
+  function humanKind(kind) {
+    return ({domain:'Сайт', geosite:'GeoSite', ip:'IP', cidr:'Подсеть', geoip:'GeoIP'})[kind] || 'Условие';
+  }
+
+  function actionCopy(action) {
+    if (action === 'DIRECT') return 'напрямую, без VPN';
+    if (action === 'VPN') return 'через текущий VPN';
+    if (action === 'BLOCK') return 'заблокировать';
+    return 'расширенный маршрут';
+  }
+
+  function outboundAction(tag) {
+    const value = String(tag || '').trim().toLowerCase();
+    if (value === 'direct') return 'DIRECT';
+    if (value === 'vless-reality') return 'VPN';
+    if (value === 'block' || value === 'blocked' || value === 'blackhole') return 'BLOCK';
+    return '';
+  }
+
+  function parseLiveSelector(raw, family) {
+    const value = String(raw || '').trim();
+    if (!value) return null;
+    if (family === 'domain') {
+      if (value.startsWith('geosite:')) return {kind:'geosite', value:value.slice(8), raw:value};
+      const ext = value.match(/^ext:([^:]+):(.+)$/i);
+      if (ext && /geosite/i.test(ext[1])) return {kind:'geosite', value:ext[2], raw:value};
+      if (value.startsWith('domain:')) return {kind:'domain', value:value.slice(7), raw:value};
+      if (value.startsWith('full:')) return {kind:'domain', value:value.slice(5), raw:value, exact:true};
+      if (/^(regexp|keyword):/i.test(value)) return {kind:'custom', value, raw:value};
+      return {kind:'domain', value, raw:value};
+    }
+    if (value.startsWith('geoip:')) return {kind:'geoip', value:value.slice(6), raw:value};
+    const ext = value.match(/^ext:([^:]+):(.+)$/i);
+    if (ext && /geoip/i.test(ext[1])) return {kind:'geoip', value:ext[2], raw:value};
+    if (value.includes('/')) return {kind:'cidr', value, raw:value};
+    return {kind:'ip', value, raw:value};
+  }
+
+  function presentLiveRule(rule, index) {
+    const object = rule && typeof rule === 'object' && !Array.isArray(rule) ? rule : {};
+    const selectors = [];
+    (Array.isArray(object.domain) ? object.domain : []).forEach(value => { const parsed = parseLiveSelector(value, 'domain'); if (parsed) selectors.push(parsed); });
+    (Array.isArray(object.ip) ? object.ip : []).forEach(value => { const parsed = parseLiveSelector(value, 'ip'); if (parsed) selectors.push(parsed); });
+    const knownKeys = new Set(['type','outboundTag','domain','ip']);
+    const extraKeys = Object.keys(object).filter(key => !knownKeys.has(key));
+    const action = outboundAction(object.outboundTag);
+    const complex = object.type !== 'field' || !selectors.length || extraKeys.length > 0 || selectors.some(item => item.kind === 'custom') || !action;
+    return {index, selectors, action, outboundTag:String(object.outboundTag || ''), complex, extraKeys};
+  }
+
+  function livePresentation() {
+    const rules = Array.isArray(state.live.routing?.routing?.rules) ? state.live.routing.routing.rules : [];
+    return rules.map((rule, index) => presentLiveRule(rule, index));
+  }
+
+  function renderLiveRules() {
+    const list = qs('#rv2LiveRuleList');
+    const status = qs('#rv2LiveState');
+    if (!list || !status) return;
+    list.textContent = '';
+    if (!state.configLoaded) {
+      status.className = 'rv2-state'; status.textContent = state.configLoading ? 'Загрузка…' : 'Не загружено';
+      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'Получаем фактические правила с роутера…'; list.appendChild(empty);
+      return;
+    }
+    const presented = livePresentation();
+    state.liveRules = presented; state.liveComplexCount = presented.filter(item => item.complex).length;
+    status.className = 'rv2-state ok'; status.textContent = `${presented.length} активных`;
+    if (!presented.length) {
+      const empty = document.createElement('div'); empty.className = 'rv2-rule-empty'; empty.textContent = 'В 05_routing.json нет правил. Трафик определяется остальной конфигурацией Xray.'; list.appendChild(empty); return;
+    }
+    presented.forEach(item => {
+      const row = document.createElement('div'); row.className = 'rv2-live-rule'; row.dataset.liveRuleIndex = String(item.index);
+      const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(item.index + 1);
+      const main = document.createElement('div'); main.className = 'rv2-live-main';
+      const title = document.createElement('div'); title.className = 'rv2-live-title';
+      const strong = document.createElement('strong'); strong.textContent = item.selectors.length ? (item.complex ? 'Правило с дополнительными условиями' : 'Обычное правило') : 'Расширенное правило'; title.appendChild(strong);
+      if (item.complex) { const lock = document.createElement('span'); lock.className = 'rv2-live-lock'; lock.textContent = 'только просмотр'; title.appendChild(lock); }
+      const chips = document.createElement('div'); chips.className = 'rv2-selector-chips';
+      item.selectors.forEach(selector => {
+        const chip = document.createElement('span'); chip.className = 'rv2-selector-chip';
+        const label = selector.kind === 'custom' ? 'Xray' : humanKind(selector.kind);
+        const kind = document.createElement('b'); kind.textContent = label;
+        chip.append(kind, document.createTextNode(String(selector.value))); chips.appendChild(chip);
+      });
+      const meta = document.createElement('div'); meta.className = 'rv2-live-meta';
+      const extras = item.extraKeys.length ? ` · дополнительные условия: ${item.extraKeys.join(', ')}` : '';
+      meta.textContent = `05_routing.json${extras}${item.complex ? ' · сохранится без изменений' : ''}`;
+      main.append(title); if (item.selectors.length) main.append(chips); main.append(meta);
+      const action = document.createElement('div');
+      action.className = `rv2-action-pill ${item.action ? item.action.toLowerCase() : 'custom'}`;
+      action.textContent = item.action || (item.outboundTag ? `→ ${item.outboundTag}` : 'Xray');
+      row.append(order, main, action); list.appendChild(row);
+    });
+    const notice = qs('#rv2LiveNotice');
+    if (notice) {
+      if (state.liveComplexCount) setNotice('rv2LiveNotice', `${state.liveComplexCount} правил содержат дополнительные Xray-условия. Они показаны для понимания и при добавлении новых правил сохраняются без изменений.`, 'warn');
+      else setNotice('rv2LiveNotice', 'Показан фактический порядок из 05_routing.json. Первое совпавшее правило определяет маршрут.', 'ok');
+    }
+  }
+
   function modeMeta() {
     if (state.family === 'ip') {
       return {
         kinds: [
-          ['ip', 'IP'], ['cidr', 'CIDR'], ['geoip', 'GeoIP']
+          ['ip', 'IP-адрес'], ['cidr', 'Подсеть CIDR'], ['geoip', 'Группа GeoIP']
         ],
         placeholder: state.kind === 'geoip' ? 'Например, ru или private' : (state.kind === 'cidr' ? 'Например, 10.20.0.0/16' : 'Например, 1.1.1.1')
       };
     }
     return {
-      kinds: [['domain', 'Домен'], ['geosite', 'GeoSite']],
-      placeholder: state.kind === 'geosite' ? 'Например, youtube' : 'Например, plati.market'
+      kinds: [['domain', 'Сайт / домен'], ['geosite', 'Группа GeoSite']],
+      placeholder: state.kind === 'geosite' ? 'Например, youtube' : 'Например, example.com'
     };
   }
 
@@ -134,7 +249,7 @@
 
   function currentInputRule() {
     const value = String(qs('#rv2Value')?.value || '').trim();
-    if (!value) throw new Error('Введите selector.');
+    if (!value) throw new Error('Укажите сайт, группу, IP-адрес или подсеть.');
     return {selector: {kind: state.kind, value}, action: state.action};
   }
 
@@ -152,6 +267,7 @@
       state.compiled = null;
       renderRuleList();
       renderCompileState();
+      signalRuleDraftChanged();
       if (successCopy) setNotice('rv2RuleNotice', successCopy, 'ok');
       return true;
     }
@@ -164,9 +280,10 @@
       if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract policy compiler.');
       state.compiled = body.compiled || null;
       state.rules = normalizeCompiledRules(state.compiled);
+      signalRuleDraftChanged();
       renderRuleList();
       renderCompileState();
-      setNotice('rv2RuleNotice', successCopy || 'Candidate проверен серверным compiler. MUTATION: NONE', 'ok');
+      setNotice('rv2RuleNotice', successCopy || 'Черновик проверен. Текущая маршрутизация пока не изменена.', 'ok');
       return true;
     } catch (error) {
       setNotice('rv2RuleNotice', `Правило не принято: ${safeError(error, 'ошибка compiler')}. Никакие конфиги не изменены.`, 'bad');
@@ -180,14 +297,14 @@
     const candidate = state.rules.map(clone);
     if (state.editing >= 0 && state.editing < candidate.length) candidate[state.editing] = rule;
     else candidate.push(rule);
-    const ok = await compileCandidate(candidate, state.editing >= 0 ? 'Правило обновлено в candidate draft. MUTATION: NONE' : 'Правило добавлено в candidate draft. MUTATION: NONE');
+    const ok = await compileCandidate(candidate, state.editing >= 0 ? 'Правило обновлено в черновике. На роутере пока ничего не изменено.' : 'Правило добавлено в черновик. На роутере пока ничего не изменено.');
     if (ok) resetEditor();
   }
 
   async function deleteRule(index) {
     const candidate = state.rules.map(clone);
     candidate.splice(index, 1);
-    await compileCandidate(candidate, 'Правило удалено из candidate draft. MUTATION: NONE');
+    await compileCandidate(candidate, 'Правило удалено из черновика. На роутере пока ничего не изменено.');
     resetEditor();
   }
 
@@ -197,7 +314,7 @@
     const candidate = state.rules.map(clone);
     const [item] = candidate.splice(index, 1);
     candidate.splice(target, 0, item);
-    await compileCandidate(candidate, 'Порядок first-match обновлён. MUTATION: NONE');
+    await compileCandidate(candidate, 'Порядок новых правил изменён. На роутере пока ничего не изменено.');
     resetEditor();
   }
 
@@ -213,14 +330,15 @@
     const input = qs('#rv2Value'); if (input) { input.value = rule.selector.value; input.focus(); }
     const add = qs('#rv2AddRule'); if (add) add.textContent = 'Обновить правило';
     const cancel = qs('#rv2CancelEdit'); if (cancel) cancel.hidden = false;
-    setNotice('rv2RuleNotice', `Редактируется правило #${index + 1}. Live config не меняется.`);
+    setNotice('rv2RuleNotice', `Редактируется новое правило #${index + 1}. Действующая маршрутизация не меняется до применения.`);
   }
 
   function ruleDetails(index) {
     const compiled = state.compiled?.rules?.[index];
-    if (!compiled) return 'candidate ещё не скомпилирован';
-    const dns = compiled.dns_leg ? ` · DNS: ${compiled.dns_leg}` : ' · DNS: —';
-    return `payload: ${compiled.payload_outbound || '—'}${dns}`;
+    if (!compiled) return 'Ожидает проверки';
+    const action = String(compiled.action || '');
+    const dns = compiled.dns_leg ? (action === 'DIRECT' ? 'DNS напрямую' : action === 'VPN' ? 'DNS через VPN' : 'DNS блокируется') : 'DNS не меняется';
+    return `${actionCopy(action)} · ${dns}`;
   }
 
   function renderRuleList() {
@@ -228,14 +346,14 @@
     list.textContent = '';
     if (!state.rules.length) {
       const empty = document.createElement('div'); empty.className = 'rv2-rule-empty';
-      empty.textContent = 'Candidate пуст. Добавьте первое правило — live routing останется без изменений.';
+      empty.textContent = 'Изменений пока нет. Добавьте сайт, GeoData-группу, IP или подсеть.';
       list.appendChild(empty); return;
     }
     state.rules.forEach((rule, index) => {
       const row = document.createElement('div'); row.className = 'rv2-rule'; row.dataset.ruleIndex = String(index);
       const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(index + 1);
       const selector = document.createElement('div'); selector.className = 'rv2-selector';
-      const strong = document.createElement('b'); strong.textContent = `${rule.selector.kind}:${rule.selector.value}`;
+      const strong = document.createElement('b'); strong.textContent = `${humanKind(rule.selector.kind)} · ${rule.selector.value}`;
       const meta = document.createElement('span'); meta.textContent = ruleDetails(index);
       selector.append(strong, meta);
       const action = document.createElement('div'); action.className = `rv2-rule-action ${rule.action.toLowerCase()}`; action.textContent = rule.action;
@@ -257,24 +375,22 @@
     const stateNode = qs('#rv2CompileState'); const summary = qs('#rv2CompiledSummary');
     if (!stateNode || !summary) return;
     if (!state.rules.length) {
-      stateNode.className = 'rv2-state'; stateNode.textContent = 'Draft пуст';
-      summary.innerHTML = '<strong>Server compiler</strong> будет вызван при добавлении первого правила. MUTATION: NONE.'; return;
+      stateNode.className = 'rv2-state'; stateNode.textContent = 'Изменений нет';
+      summary.innerHTML = '<strong>Действующие правила не затрагиваются.</strong> Новые правила появятся здесь до проверки и применения.'; return;
     }
     if (state.compiled) {
-      stateNode.className = 'rv2-state ok'; stateNode.textContent = 'Candidate валиден';
-      const payload = Array.isArray(state.compiled.payload) ? state.compiled.payload.length : 0;
-      const dns = Array.isArray(state.compiled.dns) ? state.compiled.dns.length : 0;
-      summary.innerHTML = `<strong>${state.rules.length} правил</strong> · payload: ${payload} · Split DNS legs: ${dns} · порядок first-match сохранён · MUTATION: NONE`;
+      stateNode.className = 'rv2-state ok'; stateNode.textContent = 'Черновик проверен';
+      summary.innerHTML = `<strong>${state.rules.length} новых правил</strong> · они будут поставлены перед существующими, поэтому порядок сверху вниз важен.`;
     } else {
-      stateNode.className = 'rv2-state warn'; stateNode.textContent = 'Не проверен';
-      summary.textContent = 'Candidate требует server compile.';
+      stateNode.className = 'rv2-state warn'; stateNode.textContent = 'Нужна проверка';
+      summary.textContent = 'Черновик нужно проверить перед применением.';
     }
   }
 
   async function searchGeo() {
     if (!(state.kind === 'geosite' || state.kind === 'geoip')) return;
     const query = String(qs('#rv2Value')?.value || '').trim();
-    if (!query) { setNotice('rv2RuleNotice', 'Введите category или часть названия для поиска.', 'bad'); return; }
+    if (!query) { setNotice('rv2RuleNotice', 'Введите название группы или часть названия.', 'bad'); return; }
     const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
     try {
       const body = await api(`/api/geodata/search?kind=${encodeURIComponent(state.kind)}&q=${encodeURIComponent(query)}`);
@@ -285,21 +401,23 @@
         count++;
         const button = document.createElement('button'); button.type = 'button'; button.className = 'rv2-search-result';
         const bounded = match.truncated ? ' · результат ограничен безопасным лимитом' : '';
-        button.innerHTML = `<b>${state.kind}:${String(category)}</b><span>${String(match.file || 'geodata')} · выбрать category${bounded}</span>`;
+        const title = document.createElement('b'); title.textContent = `${state.kind}:${String(category)}`;
+        const meta = document.createElement('span'); meta.textContent = `${String(match.file || 'geodata')} · выбрать группу${bounded}`;
+        button.append(title, meta);
         button.addEventListener('click', () => {
           const input = qs('#rv2Value'); if (input) input.value = String(category);
           state.selectedSource = String(match.file || '');
           qsa('.rv2-search-result').forEach(node => node.classList.remove('active')); button.classList.add('active');
-          setNotice('rv2RuleNotice', `Выбрана category ${category}. Добавление в candidate произойдёт только по кнопке. MUTATION: NONE`);
+          setNotice('rv2RuleNotice', `Выбрана группа ${category}. Нажмите «Добавить правило», чтобы поместить её в черновик.`);
         });
         results?.appendChild(button);
       }));
       if (warnings.length) {
-        setNotice('rv2RuleNotice', `${count ? `Найдено: ${count}. ` : ''}Поиск завершён с предупреждениями: ${warnings.join(' · ')}. MUTATION: NONE`, 'warn');
+        setNotice('rv2RuleNotice', `${count ? `Найдено групп: ${count}. ` : ''}Часть GeoData недоступна: ${warnings.join(' · ')}. Действующая маршрутизация не менялась.`, 'warn');
       } else if (!count) {
-        setNotice('rv2RuleNotice', 'Совпадений нет. Category можно ввести вручную; server compiler всё равно проверит selector. MUTATION: NONE');
+        setNotice('rv2RuleNotice', 'Группы не найдены. Название можно ввести вручную — FreeNet проверит его перед применением.');
       } else {
-        setNotice('rv2RuleNotice', `Найдено: ${count}. Поиск read-only; live config не изменён. MUTATION: NONE`, 'ok');
+        setNotice('rv2RuleNotice', `Найдено групп: ${count}. Выберите нужную — действующая маршрутизация пока не меняется.`, 'ok');
       }
     } catch (error) {
       setNotice('rv2RuleNotice', `Поиск geodata сейчас недоступен: ${safeError(error, 'ошибка')}. Category можно ввести вручную; live config не меняется.`, 'bad');
@@ -311,7 +429,8 @@
     qsa('.rv2-mode').forEach(button => button.classList.toggle('active', button.dataset.mode === selected));
     qs('#rv2RulesPanel').hidden = selected !== 'rules';
     qs('#rv2ConfigPanel').hidden = selected !== 'config';
-    if (selected === 'config' && !state.configLoaded) loadConfig();
+    if (!state.configLoaded) loadConfig();
+    if (selected === 'rules') renderLiveRules();
   }
 
   function sectionDefault(name) {
@@ -345,7 +464,7 @@
 
   async function loadConfig() {
     if (state.configLoading) return;
-    state.configLoading = true; setConfigStatus('Загрузка…'); setNotice('rv2ConfigNotice', '');
+    state.configLoading = true; setConfigStatus('Загрузка…'); setNotice('rv2ConfigNotice', ''); renderLiveRules();
     try {
       const body = await api('/api/routing/config');
       if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract.');
@@ -354,15 +473,16 @@
       state.draft.routing = JSON.stringify(state.live.routing, null, 2);
       state.draft.policy = JSON.stringify(state.live.policy, null, 2);
       state.configLoaded = true; state.configDirty = false; state.configValidated = false;
-      showActiveEditor();
+      showActiveEditor(); renderLiveRules();
       const hashes = qs('#rv2ConfigHashes');
       if (hashes) hashes.textContent = `routing ${body.routing_sha256 ? String(body.routing_sha256).slice(0, 12) : 'new'} · policy ${body.policy_sha256 ? String(body.policy_sha256).slice(0, 12) : 'new'}`;
       setConfigStatus('Live загружен', 'ok');
-      setNotice('rv2ConfigNotice', 'Загружены только 05_routing.json и 06_policy.json. 04_outbounds и credentials не выдаются API. MUTATION: NONE', 'ok');
+      setNotice('rv2ConfigNotice', 'Загружены 05_routing.json и 06_policy.json. Редактирование здесь — экспертный режим; применение остаётся защищённым Xray validation и rollback.', 'ok');
     } catch (error) {
-      setConfigStatus('Недоступно', 'warn');
+      state.configLoaded = false; setConfigStatus('Недоступно', 'warn'); renderLiveRules();
+      setNotice('rv2LiveNotice', `Не удалось прочитать текущие правила: ${safeError(error, 'ошибка')}. Никаких изменений не выполнено.`, 'bad');
       setNotice('rv2ConfigNotice', `Не удалось загрузить managed sections: ${safeError(error, 'ошибка')}`, 'bad');
-    } finally { state.configLoading = false; }
+    } finally { state.configLoading = false; renderLiveRules(); }
   }
 
   function switchConfigTab(tab) {
@@ -400,29 +520,43 @@
     return xray;
   }
 
-  async function buildRoutingDraftFromRules() {
-    if (!state.compiled || !state.rules.length) { setNotice('rv2ConfigNotice', 'Сначала добавьте и проверьте хотя бы одно правило.', 'bad'); return; }
+  async function buildRoutingDraftFromRules(openConfig = true) {
+    if (!state.compiled || !state.rules.length) {
+      setNotice('rv2RuleNotice', 'Сначала добавьте хотя бы одно новое правило.', 'bad');
+      return null;
+    }
     if (!state.configLoaded) await loadConfig();
-    if (!state.configLoaded) return;
+    if (!state.configLoaded) return null;
     try {
       const base = clone(state.live.routing);
       if (!base.routing || typeof base.routing !== 'object') base.routing = {};
-      const existing = Array.isArray(base.routing.rules) ? base.routing.rules : [];
+      const existing = Array.isArray(base.routing.rules) ? clone(base.routing.rules) : [];
       const managed = (state.compiled.payload || []).map(compiledRuleToXray);
       base.routing.rules = managed.concat(existing);
       state.draft.routing = JSON.stringify(base, null, 2);
-      state.configDirty = true; state.configValidated = false; state.configTab = 'routing'; showActiveEditor(); setMode('config');
+      state.draft.policy = JSON.stringify(state.live.policy, null, 2);
+      state.configDirty = true; state.configValidated = false; state.configTab = 'routing'; showActiveEditor();
       setConfigStatus('Черновик', 'warn');
-      setNotice('rv2ConfigNotice', `Собран candidate 05_routing.json: ${managed.length} FreeNet rules поставлены перед ${existing.length} существующими правилами, чтобы сохранить first-match. Это только browser draft; live config не изменён.`, 'ok');
-    } catch (error) { setNotice('rv2ConfigNotice', safeError(error, 'Не удалось собрать candidate'), 'bad'); }
+      const copy = `${managed.length} новых правил будут добавлены перед ${existing.length} существующими. Существующие правила сохраняются без изменений.`;
+      setNotice('rv2RuleNotice', copy, 'ok');
+      setNotice('rv2ConfigNotice', `${copy} Это пока только черновик.`, 'ok');
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку Xray.`;
+      if (openConfig) setMode('config');
+      return {routing: base, policy: clone(state.live.policy), managedCount: managed.length, existingCount: existing.length};
+    } catch (error) {
+      const message = safeError(error, 'Не удалось подготовить изменения');
+      setNotice('rv2RuleNotice', message, 'bad'); setNotice('rv2ConfigNotice', message, 'bad');
+      return null;
+    }
   }
 
   async function validateConfig() {
     storeEditor();
     let routing, policy;
     try { routing = parseDraft('routing'); policy = parseDraft('policy'); }
-    catch (error) { setNotice('rv2ConfigNotice', error.message, 'bad'); setConfigStatus('JSON ошибка', 'warn'); return; }
+    catch (error) { setNotice('rv2ConfigNotice', error.message, 'bad'); setConfigStatus('JSON ошибка', 'warn'); return false; }
     const button = qs('#rv2ValidateConfig'); if (button) { button.disabled = true; button.textContent = 'Проверяем…'; }
+    const rulesButton = qs('#rv2ValidateRules'); if (rulesButton) { rulesButton.disabled = true; rulesButton.textContent = 'Проверяем…'; }
     setConfigStatus('Xray validation…');
     try {
       const body = await api('/api/routing/validate', {
@@ -433,11 +567,28 @@
       state.draft.policy = JSON.stringify(body.policy || policy, null, 2);
       state.configValidated = true; state.configDirty = true; showActiveEditor();
       setConfigStatus('Xray валиден', 'ok');
-      setNotice('rv2ConfigNotice', 'Candidate прошёл `xray run -test -confdir` во временной копии текущего config dir. Live 05/06 не изменены. MUTATION: NONE', 'ok');
+      setNotice('rv2ConfigNotice', 'Проверка Xray пройдена. Live-конфигурация ещё не изменена.', 'ok');
+      return true;
     } catch (error) {
       state.configValidated = false; setConfigStatus('Не валиден', 'warn');
-      setNotice('rv2ConfigNotice', `Candidate не прошёл проверку: ${safeError(error, 'ошибка Xray validation')}. Live config не изменён.`, 'bad');
-    } finally { if (button) { button.disabled = false; button.textContent = 'Проверить Xray'; } }
+      setNotice('rv2ConfigNotice', `Изменения не прошли проверку: ${safeError(error, 'ошибка Xray validation')}. Действующая конфигурация не изменена.`, 'bad');
+      return false;
+    } finally {
+      if (button) { button.disabled = false; button.textContent = 'Проверить Xray'; }
+      if (rulesButton) { rulesButton.disabled = false; rulesButton.textContent = 'Проверить изменения'; }
+    }
+  }
+
+  async function validateRulesCandidate() {
+    const prepared = await buildRoutingDraftFromRules(false);
+    if (!prepared) return;
+    const ok = await validateConfig();
+    if (ok) {
+      setNotice('rv2RuleNotice', `Проверка пройдена. Новых правил: ${prepared.managedCount}. Существующие правила: ${prepared.existingCount}, все будут сохранены без изменений.`, 'ok');
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. Новых правил: ${prepared.managedCount}. Существующие правила сохранены без изменений: ${prepared.existingCount}. Перед записью FreeNet создаст резервную точку и автоматически откатит изменение при ошибке.`;
+    } else {
+      setNotice('rv2RuleNotice', 'Проверка не пройдена. Применение заблокировано; действующая маршрутизация не изменена.', 'bad');
+    }
   }
 
   function resetConfigDraft() {
@@ -452,36 +603,58 @@
     const oldPreview = qs('#policyBuilderPreview', page); if (oldPreview) oldPreview.remove();
     qsa(':scope > .card', page).forEach(card => card.classList.add('fn-routing-v2-legacy'));
     const head = qs('.page-head', page);
-    if (head) head.innerHTML = '<div><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Правила DIRECT / VPN / BLOCK и экспертный Config Studio с безопасной Xray validation.</p></div>';
+    if (head) head.innerHTML = '<div><div class="page-kicker">ROUTING POLICY</div><h1>Маршрутизация</h1><p>Понятные правила для сайтов и GeoData-групп. Экспертная конфигурация остаётся во вкладке «Конфигурация».</p></div>';
 
     const root = document.createElement('div'); root.id = 'routingV2Workspace'; root.className = 'rv2-workspace';
     root.innerHTML = `
       <div class="rv2-modebar">
         <div class="rv2-modes"><button type="button" class="rv2-mode active" data-mode="rules">Правила</button><button type="button" class="rv2-mode" data-mode="config">Конфигурация</button></div>
-        <span class="rv2-state ok">Draft · MUTATION: NONE</span>
+        <span class="rv2-state ok">Безопасный режим</span>
       </div>
       <section id="rv2RulesPanel" class="rv2-panel">
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Конструктор правил</h2><p class="rv2-copy">Ordered first-match policy. Правила проверяются серверным compiler до попадания в candidate.</p></div><span id="rv2CompileState" class="rv2-state">Draft пуст</span></div>
-          <div class="rv2-tabs" style="margin-top:13px"><button type="button" class="rv2-tab rv2-family active" data-family="domain">Домен / GeoSite</button><button type="button" class="rv2-tab rv2-family" data-family="ip">IP / GeoIP</button></div>
-          <div class="rv2-builder-grid"><select id="rv2Kind" aria-label="Тип selector"></select><input id="rv2Value" type="text" autocomplete="off" spellcheck="false"><button id="rv2AddRule" class="btn primary" type="button">Добавить правило</button></div>
-          <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена редактирования</button></div>
+          <div class="rv2-card-head"><div><h2>Как работает маршрутизация</h2><p class="rv2-copy">Правила проверяются сверху вниз. Срабатывает первое подходящее правило.</p></div></div>
+          <div class="rv2-guide">
+            <div class="rv2-guide-item direct"><strong>DIRECT</strong><span>Открывать напрямую через провайдера, минуя VPN.</span></div>
+            <div class="rv2-guide-item vpn"><strong>VPN</strong><span>Отправлять трафик через текущий VPN-профиль.</span></div>
+            <div class="rv2-guide-item block"><strong>BLOCK</strong><span>Блокировать обращения к сайту, группе или адресу.</span></div>
+          </div>
+        </div>
+        <div class="rv2-card">
+          <div class="rv2-card-head"><div><h2>Сейчас действует</h2><p class="rv2-copy">Фактический порядок из 05_routing.json на этом роутере.</p></div><span id="rv2LiveState" class="rv2-state">Загрузка…</span></div>
+          <div id="rv2LiveRuleList" class="rv2-live-list"></div>
+          <div id="rv2LiveNotice" class="rv2-notice"></div>
+        </div>
+        <div class="rv2-card">
+          <div class="rv2-card-head"><div><h2>Добавить правило</h2><p class="rv2-copy">Выберите сайт, GeoData-группу, IP или подсеть и укажите, что с ней делать.</p></div></div>
+          <div class="rv2-tabs" style="margin-top:13px"><button type="button" class="rv2-tab rv2-family active" data-family="domain">Сайты и GeoSite</button><button type="button" class="rv2-tab rv2-family" data-family="ip">IP и GeoIP</button></div>
+          <div class="rv2-builder-grid"><select id="rv2Kind" aria-label="Тип правила"></select><input id="rv2Value" type="text" autocomplete="off" spellcheck="false"><button id="rv2AddRule" class="btn primary" type="button">Добавить правило</button></div>
+          <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти группу в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена редактирования</button></div>
           <div id="rv2SearchResults" class="rv2-search-results"></div>
-          <div style="margin-top:13px"><div class="eyebrow">Действие</div><div class="rv2-actions" style="margin-top:7px"><button type="button" class="rv2-action active" data-action="DIRECT">DIRECT</button><button type="button" class="rv2-action" data-action="VPN">VPN</button><button type="button" class="rv2-action" data-action="BLOCK">BLOCK</button></div></div>
+          <div style="margin-top:13px"><div class="eyebrow">Куда направить</div><div class="rv2-actions" style="margin-top:7px">
+            <button type="button" class="rv2-action active" data-action="DIRECT"><span>DIRECT</span><small>мимо VPN</small></button>
+            <button type="button" class="rv2-action" data-action="VPN"><span>VPN</span><small>через VPN</small></button>
+            <button type="button" class="rv2-action" data-action="BLOCK"><span>BLOCK</span><small>заблокировать</small></button>
+          </div></div>
           <div id="rv2RuleNotice" class="rv2-notice"></div>
         </div>
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Candidate rules</h2><p class="rv2-copy">Порядок сверху вниз является first-match order.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button">Собрать 05_routing draft</button></div>
+          <div class="rv2-card-head"><div><h2>Изменения перед применением</h2><p class="rv2-copy">Новые правила будут добавлены перед существующими. Их можно менять местами, редактировать или удалить.</p></div><button id="rv2BuildConfig" class="btn secondary" type="button">Посмотреть JSON</button></div>
           <div id="rv2RuleList" class="rv2-rule-list"></div><div id="rv2CompiledSummary" class="rv2-compiled"></div>
+          <div class="rv2-rule-footer">
+            <div id="rv2RulesApplyPreview" class="rv2-rule-footer-copy">Добавьте правило. До применения действующая маршрутизация не изменится.</div>
+            <div class="rv2-rule-footer-actions"><button id="rv2ValidateRules" class="btn secondary" type="button">Проверить изменения</button><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
+          </div>
+          <div id="rv2RulesApplyResult" class="rv2-notice"></div>
         </div>
       </section>
       <section id="rv2ConfigPanel" class="rv2-panel" hidden>
         <div class="rv2-card">
-          <div class="rv2-card-head"><div><h2>Config Studio</h2><p class="rv2-copy">Редактирование только managed non-secret sections. По образцу XKeen UI, но с FreeNet candidate validation.</p></div><span id="rv2ConfigState" class="rv2-state">Не загружено</span></div>
+          <div class="rv2-card-head"><div><h2>Config Studio</h2><p class="rv2-copy">Экспертный режим: прямое редактирование managed 05_routing.json и 06_policy.json.</p></div><span id="rv2ConfigState" class="rv2-state">Не загружено</span></div>
           <div class="rv2-modebar" style="margin-top:10px"><div class="rv2-tabs"><button type="button" class="rv2-tab rv2-config-tab active" data-config-tab="routing">05_routing</button><button type="button" class="rv2-tab rv2-config-tab" data-config-tab="policy">06_policy</button></div><div class="rv2-toolbar"><button id="rv2FormatConfig" class="btn secondary" type="button">Формат</button><button id="rv2ValidateConfig" class="btn secondary" type="button">Проверить Xray</button><button id="rv2ReloadConfig" class="btn secondary" type="button">Сбросить draft</button></div></div>
           <div class="rv2-editor-wrap"><textarea id="rv2ConfigEditor" class="rv2-editor" spellcheck="false" aria-label="Routing Config Studio"></textarea></div>
           <div class="rv2-config-meta"><span>Файл: <code id="rv2ConfigFile">05_routing.json</code></span><span id="rv2ConfigHashes">snapshot не загружен</span></div>
-          <div class="rv2-danger-note">В этом цикле <b>нет Save/Apply</b>: editor меняет только browser candidate. `04_outbounds.json`, subscription URL, VLESS UUID и Reality credentials не выдаются этому API вообще.</div>
+          <div class="rv2-danger-note">Controlled apply добавляется отдельным safety layer: validation, snapshot, post-check и rollback обязательны.</div>
           <div id="rv2ConfigNotice" class="rv2-notice"></div>
         </div>
       </section>`;
@@ -497,7 +670,8 @@
     qs('#rv2CancelEdit')?.addEventListener('click', resetEditor);
     qs('#rv2GeoSearch')?.addEventListener('click', searchGeo);
     qs('#rv2Value')?.addEventListener('keydown', event => { if (event.key === 'Enter' && !(state.kind === 'geosite' || state.kind === 'geoip')) { event.preventDefault(); addOrUpdateRule(); } });
-    qs('#rv2BuildConfig')?.addEventListener('click', buildRoutingDraftFromRules);
+    qs('#rv2BuildConfig')?.addEventListener('click', () => buildRoutingDraftFromRules(true));
+    qs('#rv2ValidateRules')?.addEventListener('click', validateRulesCandidate);
     qsa('.rv2-config-tab').forEach(button => button.addEventListener('click', () => switchConfigTab(button.dataset.configTab)));
     qs('#rv2FormatConfig')?.addEventListener('click', formatActiveConfig);
     qs('#rv2ValidateConfig')?.addEventListener('click', validateConfig);
@@ -509,7 +683,8 @@
     const page = qs('[data-page-view="network"]');
     if (!page || qs('#routingV2Workspace')) return;
     installStyles(); page.classList.add('fn-routing-v2'); page.dataset.routingV2 = '1';
-    mountMarkup(page); bind(); syncKindOptions(); renderRuleList(); renderCompileState();
+    mountMarkup(page); bind(); syncKindOptions(); renderRuleList(); renderCompileState(); renderLiveRules();
+    void loadConfig();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);

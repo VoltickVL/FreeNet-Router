@@ -11,7 +11,12 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui', 'web');
 const calls = [];
-let routingLive = {routing:{domainStrategy:'AsIs',rules:[]}};
+let routingLive = {routing:{domainStrategy:'AsIs',rules:[
+  {type:'field',domain:['domain:youtube.com'],outboundTag:'direct'},
+  {type:'field',domain:['ext:geosite.dat:ru-blocked'],outboundTag:'vless-reality'},
+  {type:'field',ip:['ext:geoip.dat:ru-blocked'],outboundTag:'vless-reality'},
+  {type:'field',network:'tcp,udp',outboundTag:'vless-reality'}
+]}};
 let policyLive = {policy:{}};
 
 function canonicalRoutingV2Source() {
@@ -40,6 +45,18 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/geodata/search')return json(res,{success:true,kind:'geosite',query:url.searchParams.get('q')||'',mutation:'NONE',matches:[{file:'geosite.dat',kind:'geosite',categories:['youtube'],truncated:true}],warnings:['broken.dat: geodata file is unreadable or invalid']});
   if(url.pathname==='/api/capabilities')return json(res,{success:true,split_dns_supported:true,memory_total_mib:1024,split_dns_min_mib:768});
   if(url.pathname==='/api/subscription')return json(res,{success:true,configured:true});
+  if(url.pathname==='/api/policy/compile'&&req.method==='POST'){
+    const request=await bodyJSON(req);
+    const rules=Array.isArray(request.rules)?request.rules:[];
+    const compiledRules=rules.map((rule,index)=>{
+      const action=String(rule.action||'DIRECT').toUpperCase();
+      const kind=String(rule.selector?.kind||'');
+      const payload_outbound=action==='DIRECT'?'direct':action==='VPN'?'vless-reality':'block';
+      const dns_leg=(kind==='domain'||kind==='geosite')?(action==='DIRECT'?'dns-direct':action==='VPN'?'dns-vless':'block'):'';
+      return {order:index,selector:rule.selector,action,payload_outbound,...(dns_leg?{dns_leg}:{})};
+    });
+    return json(res,{success:true,mutation:'NONE',compiled:{rules:compiledRules,payload:compiledRules,dns:compiledRules.filter(rule=>rule.dns_leg)}});
+  }
   if(url.pathname==='/api/routing/config')return json(res,{success:true,mutation:'NONE',routing:routingLive,policy:policyLive,routing_present:true,policy_present:true,routing_sha256:'1'.repeat(64),policy_sha256:'2'.repeat(64)});
   if(url.pathname==='/api/routing/validate'&&req.method==='POST'){const c=await bodyJSON(req);return json(res,{success:true,mutation:'NONE',xray_valid:true,routing:c.routing,policy:c.policy});}
   if(url.pathname==='/api/routing/apply'&&req.method==='POST'){const c=await bodyJSON(req);routingLive=c.routing;policyLive=c.policy;return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',before:{'05_routing.json':'1111','06_policy.json':'2222'},after:{'05_routing.json':'3333','06_policy.json':'2222'},result:'routing policy applied to managed sections'});}
@@ -64,19 +81,34 @@ const server=http.createServer(async(req,res)=>{
       route:document.querySelector('#routingV2Workspace')?.closest('[data-page-view]')?.dataset.pageView||'',
       workspace:document.querySelectorAll('#routingV2Workspace').length,
       oldPreview:document.querySelectorAll('#policyBuilderPreview').length,
-      applyCount:document.querySelectorAll('#rv2ApplyConfig').length
+      applyCount:document.querySelectorAll('#rv2ApplyConfig').length,
+      rulesApplyCount:document.querySelectorAll('#rv2ApplyRules').length
     }));
     assert.equal(pre.route,'routing',JSON.stringify(pre));
     assert.equal(pre.workspace,1,JSON.stringify(pre));
     assert.equal(pre.oldPreview,0,JSON.stringify(pre));
     assert.equal(pre.applyCount,1,JSON.stringify(pre));
+    assert.equal(pre.rulesApplyCount,1,JSON.stringify(pre));
 
     const nav=page.locator('.nav-btn[data-page="routing"]');
     await nav.waitFor({state:'visible'});
     await nav.click();
     await page.waitForSelector('#routingV2Workspace',{state:'visible'});
     await page.waitForFunction(()=>document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
-    assert.match(await page.locator('[data-page-view="routing"] .page-head').textContent(),/Config Studio/);
+    assert.match(await page.locator('[data-page-view="routing"] .page-head').textContent(),/GeoData-групп/);
+
+    // The Rules tab must explain and visualize the actual live 05_routing state.
+    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('4 активных'));
+    assert.equal(await page.locator('#rv2LiveRuleList .rv2-live-rule').count(),4,'all live routing rules must be visible');
+    const liveText=await page.locator('#rv2LiveRuleList').innerText();
+    assert.match(liveText,/youtube\.com/);
+    assert.match(liveText,/GeoSite/);
+    assert.match(liveText,/GeoIP/);
+    assert.match(liveText,/DIRECT/);
+    assert.match(liveText,/VPN/);
+    assert.match(liveText,/Расширенное правило/);
+    assert.match(liveText,/только просмотр/);
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,0,'live visualization must be read-only');
 
     // Bounded GeoData search is read-only and surfaces partial-file warnings.
     await page.locator('#rv2Kind').selectOption('geosite');
@@ -85,13 +117,42 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForSelector('.rv2-search-result');
     assert.match(await page.locator('.rv2-search-result').first().textContent(),/geosite:youtube/);
     assert.match(await page.locator('.rv2-search-result').first().textContent(),/ограничен безопасным лимитом/);
-    assert.match(await page.locator('#rv2RuleNotice').textContent(),/предупреждениями/);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Часть GeoData недоступна/);
     assert.match(await page.locator('#rv2RuleNotice').textContent(),/broken\.dat/);
     const geoMutationCalls = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
     assert.equal(geoMutationCalls,0,'GeoData search must not mutate runtime state');
     await page.locator('.rv2-search-result').first().click();
     assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
-    assert.match(await page.locator('#rv2RuleNotice').textContent(),/MUTATION: NONE/);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Добавить правило/);
+
+    // Add a GeoSite rule without touching live state, validate it, then use the shared transactional apply engine.
+    await page.locator('#rv2AddRule').click();
+    await page.waitForFunction(()=>document.querySelectorAll('#rv2RuleList .rv2-rule').length===1);
+    assert.match(await page.locator('#rv2RuleList').innerText(),/GeoSite · youtube/);
+    assert.equal(await page.locator('#rv2LiveRuleList .rv2-live-rule').count(),4,'draft must not rewrite live visualization before apply');
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,0,'adding a rule must remain read-only');
+
+    await page.locator('#rv2ValidateRules').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
+    assert.match(await page.locator('#rv2RulesApplyPreview').textContent(),/Существующие правила сохранены/);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Проверка пройдена/);
+
+    const visualBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
+    await page.locator('#rv2ApplyRules').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('APPLIED'),null,{timeout:10000});
+    const visualAfter=calls.filter(x=>x==='POST /api/routing/apply').length;
+    assert.equal(visualAfter,visualBefore+1,'visual rules apply must issue exactly one transactional mutation');
+    assert.equal(routingLive.routing.rules.length,5,'new rule must be prepended while all existing live rules are preserved');
+    assert.deepEqual(routingLive.routing.rules[0],{type:'field',outboundTag:'direct',domain:['geosite:youtube']});
+    assert.deepEqual(routingLive.routing.rules[4],{type:'field',network:'tcp,udp',outboundTag:'vless-reality'},'complex existing rule must be preserved exact');
+
+    // Reload returns to Overview; reopen Routing and confirm the applied rule is now live.
+    await page.waitForSelector('#routingV2Workspace',{state:'attached'});
+    const navAfterApply=page.locator('.nav-btn[data-page="routing"]');
+    await navAfterApply.click();
+    await page.waitForSelector('#routingV2Workspace',{state:'visible'});
+    await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('5 активных'));
+    assert.match(await page.locator('#rv2LiveRuleList').innerText(),/youtube/);
 
     await page.locator('.rv2-mode[data-mode="config"]').click();
     await page.waitForSelector('#rv2ConfigEditor',{state:'visible'});
