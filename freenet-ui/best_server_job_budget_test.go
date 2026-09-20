@@ -80,9 +80,15 @@ func TestBestServerBrowserTimeoutContract(t *testing.T) {
 }
 
 
-func TestBestServerPreflightIsSingleSampleRankingOnly(t *testing.T) {
-	if bestServerPreflightHTTPRuns != 1 {
-		t.Fatalf("preflight HTTP runs=%d want=1; deep quality owns strict acceptance", bestServerPreflightHTTPRuns)
+func TestBestServerPreflightUsesTwoBoundedRankingSamples(t *testing.T) {
+	if bestServerPreflightHTTPRuns != 2 {
+		t.Fatalf("preflight HTTP runs=%d want=2; ranking should resist a single transient sample", bestServerPreflightHTTPRuns)
+	}
+	const socksStartupBudget = 3 * time.Second
+	const perHTTPBudget = 2 * time.Second
+	minimumCandidateBudget := socksStartupBudget + time.Duration(bestServerPreflightHTTPRuns)*perHTTPBudget
+	if bestServerPreflightCandidateTimeout < minimumCandidateBudget {
+		t.Fatalf("preflight candidate timeout=%s below two-sample floor %s", bestServerPreflightCandidateTimeout, minimumCandidateBudget)
 	}
 	data, err := os.ReadFile("best_server_preflight.go")
 	if err != nil {

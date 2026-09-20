@@ -69,19 +69,20 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 	return filtered
 }
 
-// The browser presents up to three real measured comparison cards. A card does
-// not need to be eligible to occupy a comparison slot: a measured rejected
-// result is still useful diagnostic evidence and remains non-switchable.
-// Eligibility controls recommendation/apply only. Public endpoint is used here
-// solely for presentation diversity; it is not logical profile identity.
-func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate, currentEndpoint string) int {
+// Best Server keeps deep-testing until it has up to three real Eligible
+// alternatives on distinct non-current public endpoints, or the bounded budget
+// or candidate pool is exhausted. Rejected deep results remain useful
+// diagnostics, but they must not consume an Eligible completion slot.
+// Public endpoint is used here solely for presentation diversity; it is not
+// logical profile identity.
+func eligibleBestServerAlternativeCount(candidates []bestServerQualityCandidate, currentEndpoint string) int {
 	seenEndpoints := map[string]struct{}{}
 	if endpoint := strings.TrimSpace(currentEndpoint); endpoint != "" {
 		seenEndpoints[endpoint] = struct{}{}
 	}
 	count := 0
 	for _, candidate := range candidates {
-		if candidate.Current || !candidate.Tested || (!candidate.Available && !candidate.Reachable) {
+		if candidate.Current || !candidate.Tested || !candidate.Eligible || !candidate.Available {
 			continue
 		}
 		endpoint := strings.TrimSpace(candidate.Endpoint)
@@ -98,12 +99,13 @@ func measuredBestServerAlternativeCount(candidates []bestServerQualityCandidate,
 }
 
 // Partial is a user-facing completion signal, not a statement that the scan
-// was intentionally non-exhaustive. Once the browser-visible Top-3 target is
-// complete, a short remaining budget must not turn a successful result into a
-// false timeout warning. Conversely, natural candidate exhaustion below three
-// is complete (not partial) when budget did not stop the scan.
+// was intentionally non-exhaustive. Once the Eligible Top-3 target is complete,
+// a short remaining budget must not turn a successful result into a false
+// timeout warning. Conversely, natural candidate exhaustion below three
+// Eligible alternatives is complete (not partial) when budget did not stop the
+// scan.
 func bestServerCompletionPartial(budgetLimited bool, candidates []bestServerQualityCandidate, currentEndpoint string) bool {
-	return budgetLimited && measuredBestServerAlternativeCount(candidates, currentEndpoint) < bestServerVisibleAlternatives
+	return budgetLimited && eligibleBestServerAlternativeCount(candidates, currentEndpoint) < bestServerVisibleAlternatives
 }
 
 func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
@@ -151,7 +153,7 @@ func (a *app) rankMeasuredBestServerBatches(
 	}
 	budgetLimited := false
 	for start := 0; start < len(candidates); start += bestServerMeasuredBatchSize {
-		if measuredBestServerAlternativeCount(aggregate.Candidates, currentEndpoint) >= bestServerVisibleAlternatives {
+		if eligibleBestServerAlternativeCount(aggregate.Candidates, currentEndpoint) >= bestServerVisibleAlternatives {
 			break
 		}
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerMinimumDeepAttemptBudget {
@@ -323,8 +325,9 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 
 	// First compare the real application path through each candidate VPN. Keep a
 	// reserve shortlist, then deep-test one logical profile per batch. Stop after
-	// three browser-visible measured alternatives (eligible first, diagnostics
-	// allowed), or when the bounded job budget can no longer start a real probe.
+	// three distinct Eligible alternatives. Rejected deep results are retained
+	// for diagnostics but do not stop the search; the bounded job budget still
+	// caps the total work.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {
