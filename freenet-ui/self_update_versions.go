@@ -17,6 +17,8 @@ const (
 	selfUpdateReleasePageSize = 100
 	selfUpdateReleaseMaxPages = 5
 	selfUpdateReleaseBodyLimit = 4 << 20
+	selfUpdateReleaseCacheTTL = 5 * time.Minute
+	selfUpdateReleaseFreshMinAge = 1 * time.Minute
 )
 
 var (
@@ -105,9 +107,23 @@ func normalizeSelfUpdateReleases(raw []githubFreeNetRelease, current string) []s
 	return out
 }
 
-func fetchSelfUpdateReleaseCatalog(ctx context.Context, current string) ([]selfUpdateRelease, error) {
+func selfUpdateReleaseCacheUsable(at time.Time, itemCount int, forceFresh bool, now time.Time) bool {
+	if itemCount == 0 || at.IsZero() {
+		return false
+	}
+	age := now.Sub(at)
+	if age < 0 {
+		return false
+	}
+	if forceFresh {
+		return age < selfUpdateReleaseFreshMinAge
+	}
+	return age < selfUpdateReleaseCacheTTL
+}
+
+func fetchSelfUpdateReleaseCatalog(ctx context.Context, current string, forceFresh bool) ([]selfUpdateRelease, error) {
 	selfUpdateReleaseCache.Lock()
-	if time.Since(selfUpdateReleaseCache.at) < 5*time.Minute && len(selfUpdateReleaseCache.items) > 0 {
+	if selfUpdateReleaseCacheUsable(selfUpdateReleaseCache.at, len(selfUpdateReleaseCache.items), forceFresh, time.Now()) {
 		cached := append([]selfUpdateRelease(nil), selfUpdateReleaseCache.items...)
 		selfUpdateReleaseCache.Unlock()
 		for i := range cached {
@@ -162,7 +178,8 @@ func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 	current := "v" + version
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	defer cancel()
-	items, err := fetchSelfUpdateReleaseCatalog(ctx, current)
+	forceFresh := r.URL.Query().Get("fresh") == "1"
+	items, err := fetchSelfUpdateReleaseCatalog(ctx, current, forceFresh)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, selfUpdateReleaseCatalogResponse{
 			Success: false, CurrentVersion: current, Error: "cannot load FreeNet release catalog",
