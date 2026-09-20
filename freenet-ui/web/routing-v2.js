@@ -308,17 +308,22 @@
   }
 
   function modeMeta() {
-    if (state.family === 'ip') {
-      return {
-        kinds: [
-          ['ip', 'IP-адрес'], ['cidr', 'Подсеть CIDR'], ['geoip', 'Группа GeoIP']
-        ],
-        placeholder: state.kind === 'geoip' ? 'Например, ru или private' : (state.kind === 'cidr' ? 'Например, 10.20.0.0/16' : 'Например, 1.1.1.1')
-      };
-    }
+    const placeholders = {
+      domain: 'Например, example.com',
+      geosite: 'Например, youtube или category-social',
+      ip: 'Например, 1.1.1.1',
+      cidr: 'Например, 10.20.0.0/16',
+      geoip: 'Например, ru или private'
+    };
     return {
-      kinds: [['domain', 'Сайт / домен'], ['geosite', 'Группа GeoSite']],
-      placeholder: state.kind === 'geosite' ? 'Например, youtube' : 'Например, example.com'
+      kinds: [
+        ['domain', 'Сайт / домен'],
+        ['geosite', 'GeoSite'],
+        ['ip', 'IP-адрес'],
+        ['cidr', 'Подсеть'],
+        ['geoip', 'GeoIP']
+      ],
+      placeholder: placeholders[state.kind] || placeholders.domain
     };
   }
 
@@ -327,7 +332,8 @@
     const input = qs('#rv2Value');
     if (!select || !input) return;
     const meta = modeMeta();
-    if (!meta.kinds.some(([value]) => value === state.kind)) state.kind = meta.kinds[0][0];
+    if (!meta.kinds.some(([value]) => value === state.kind)) state.kind = 'domain';
+    state.family = ['ip','cidr','geoip'].includes(state.kind) ? 'ip' : 'domain';
     select.textContent = '';
     meta.kinds.forEach(([value, label]) => {
       const option = document.createElement('option');
@@ -339,29 +345,67 @@
     if (search) search.hidden = !(state.kind === 'geosite' || state.kind === 'geoip');
   }
 
-  function setFamily(family) {
-    state.family = family === 'ip' ? 'ip' : 'domain';
-    state.kind = state.family === 'ip' ? 'ip' : 'domain';
-    state.selectedSource = '';
-    qsa('.rv2-family').forEach(button => button.classList.toggle('active', button.dataset.family === state.family));
-    const input = qs('#rv2Value'); if (input) input.value = '';
-    const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
-    syncKindOptions();
+  function setAction(action) {
+    state.action = ['DIRECT','VPN','BLOCK'].includes(action) ? action : 'DIRECT';
   }
 
-  function setAction(action) {
-    state.action = ['DIRECT', 'VPN', 'BLOCK'].includes(action) ? action : 'DIRECT';
-    qsa('.rv2-action').forEach(button => button.classList.toggle('active', button.dataset.action === state.action));
+  function actionHuman(action) {
+    if (action === 'VPN') return 'через VPN';
+    if (action === 'BLOCK') return 'в блокировку';
+    return 'напрямую';
+  }
+
+  function composerSlot(action) {
+    if (action === 'VPN') return qs('#rv2VPNComposerSlot');
+    if (action === 'BLOCK') return qs('#rv2BlockComposerSlot');
+    return qs('#rv2DirectComposerSlot');
+  }
+
+  function closeInlineComposer(clear = true) {
+    const composer = qs('#rv2InlineComposer');
+    if (composer) composer.hidden = true;
+    if (clear) {
+      state.editing = -1;
+      state.selectedSource = '';
+      const input = qs('#rv2Value'); if (input) input.value = '';
+      const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
+      const cancel = qs('#rv2CancelEdit'); if (cancel) cancel.hidden = true;
+      const add = qs('#rv2AddRule'); if (add) add.textContent = 'Добавить';
+      setNotice('rv2RuleNotice', '');
+    }
+  }
+
+  function openInlineComposer(action, preserve = false) {
+    setAction(action);
+    if (!preserve) {
+      state.editing = -1;
+      state.kind = 'domain';
+      state.family = 'domain';
+      state.selectedSource = '';
+      const input = qs('#rv2Value'); if (input) input.value = '';
+      const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
+      setNotice('rv2RuleNotice', '');
+    }
+    syncKindOptions();
+
+    const composer = qs('#rv2InlineComposer');
+    const slot = composerSlot(state.action);
+    if (!composer || !slot) return;
+    slot.appendChild(composer);
+    composer.hidden = false;
+    composer.dataset.action = state.action;
+
+    const title = qs('#rv2ComposerTitle');
+    if (title) title.textContent = state.editing >= 0 ? `Изменить правило · ${actionHuman(state.action)}` : `Добавить ${actionHuman(state.action)}`;
+    const hint = qs('#rv2ComposerHint');
+    if (hint) hint.textContent = state.action === 'BLOCK' ? 'Сайт или категория будут заблокированы.' : (state.action === 'VPN' ? 'Трафик будет направлен через текущий VPN.' : 'Трафик пойдёт напрямую, минуя VPN.');
+    const add = qs('#rv2AddRule'); if (add) add.textContent = state.editing >= 0 ? 'Сохранить' : 'Добавить';
+    const cancel = qs('#rv2CancelEdit'); if (cancel) cancel.hidden = state.editing < 0;
+    const input = qs('#rv2Value'); if (input) setTimeout(() => input.focus(), 0);
   }
 
   function resetEditor() {
-    state.editing = -1;
-    state.selectedSource = '';
-    const input = qs('#rv2Value'); if (input) input.value = '';
-    const add = qs('#rv2AddRule'); if (add) add.textContent = 'Добавить правило';
-    const cancel = qs('#rv2CancelEdit'); if (cancel) cancel.hidden = true;
-    const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
-    setNotice('rv2RuleNotice', '');
+    closeInlineComposer(true);
   }
 
   function currentInputRule() {
@@ -412,10 +456,20 @@
     let rule;
     try { rule = currentInputRule(); } catch (error) { setNotice('rv2RuleNotice', error.message, 'bad'); return; }
     const candidate = state.rules.map(clone);
-    if (state.editing >= 0 && state.editing < candidate.length) candidate[state.editing] = rule;
+    const wasEditing = state.editing >= 0 && state.editing < candidate.length;
+    if (wasEditing) candidate[state.editing] = rule;
     else candidate.push(rule);
-    const ok = await compileCandidate(candidate, state.editing >= 0 ? 'Правило обновлено в черновике. На роутере пока ничего не изменено.' : 'Правило добавлено в черновик. На роутере пока ничего не изменено.');
-    if (ok) resetEditor();
+    const ok = await compileCandidate(candidate, wasEditing ? 'Изменение сохранено в черновике.' : 'Добавлено в черновик. На роутере пока ничего не изменено.');
+    if (!ok) return;
+    if (wasEditing) {
+      closeInlineComposer(true);
+      return;
+    }
+    state.editing = -1;
+    state.selectedSource = '';
+    const input = qs('#rv2Value'); if (input) { input.value = ''; input.focus(); }
+    const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
+    const add = qs('#rv2AddRule'); if (add) add.textContent = 'Добавить';
   }
 
   async function deleteRule(index) {
@@ -439,15 +493,14 @@
     const rule = state.rules[index];
     if (!rule) return;
     state.editing = index;
-    state.family = ['ip', 'cidr', 'geoip'].includes(rule.selector.kind) ? 'ip' : 'domain';
     state.kind = rule.selector.kind;
+    state.family = ['ip','cidr','geoip'].includes(rule.selector.kind) ? 'ip' : 'domain';
     state.action = rule.action;
-    qsa('.rv2-family').forEach(button => button.classList.toggle('active', button.dataset.family === state.family));
-    syncKindOptions(); setAction(state.action);
+    openInlineComposer(rule.action, true);
     const input = qs('#rv2Value'); if (input) { input.value = rule.selector.value; input.focus(); }
-    const add = qs('#rv2AddRule'); if (add) add.textContent = 'Обновить правило';
+    const add = qs('#rv2AddRule'); if (add) add.textContent = 'Сохранить';
     const cancel = qs('#rv2CancelEdit'); if (cancel) cancel.hidden = false;
-    setNotice('rv2RuleNotice', `Редактируется новое правило #${index + 1}. Действующая маршрутизация не меняется до применения.`);
+    setNotice('rv2RuleNotice', 'Редактируется правило из черновика. Действующая маршрутизация пока не меняется.');
   }
 
   function ruleDetails(index) {
@@ -468,6 +521,7 @@
       return;
     }
     if (card) card.hidden = false;
+    const draftCount = qs('#rv2DraftCount'); if (draftCount) draftCount.textContent = String(state.rules.length);
     state.rules.forEach((rule, index) => {
       const row = document.createElement('div'); row.className = 'rv2-rule'; row.dataset.ruleIndex = String(index);
       const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(index + 1);
