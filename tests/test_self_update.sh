@@ -148,6 +148,22 @@ grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must be read-only'
 [ "$(cat "$R/sbin/freenet-ui")" = "$BEFORE_UI" ] || fail 'plan mutated live UI'
 [ "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')" = "$BEFORE_XRAY" ] || fail 'plan mutated Xray'
 
+# Exact target plan must not need a separate latest-release lookup.
+# The fixture deliberately omits FREENET_LATEST_TAG; success proves that the
+# selected exact release is validated directly instead of performing redundant
+# /releases/latest discovery first.
+env \
+    FREENET_ROOT="$R" \
+    FREENET_CURRENT_VERSION=v0.2.27 \
+    FREENET_ARCH=arm64-v8a \
+    FREENET_TEST_RELEASE_DIR="$D" \
+    FREENET_UPDATE_STATE_FILE="$R/var/run/update.state" \
+    FREENET_UPDATE_LOCK_DIR="$R/var/run/update.lock" \
+    FREENET_SELF_UPDATE_TEST_MODE=yes \
+    sh "$SCRIPT" plan v0.2.28 > "$TMP/exact-target.out" || fail 'exact target plan should not require latest lookup'
+grep -Fq 'TARGET_TAG=v0.2.28' "$TMP/exact-target.out" || fail 'exact target plan target missing'
+grep -Fq 'MANIFEST_VERIFIED=yes' "$TMP/exact-target.out" || fail 'exact target plan must still verify manifest'
+
 # Already-current is a valid plan but never offers mutation.
 run_plan "$R" "$D" v0.2.28 v0.2.28 > "$TMP/current.out" || fail 'already-current plan should succeed'
 grep -Fq 'UPDATE_AVAILABLE=no' "$TMP/current.out" || fail 'already-current must be no-op'
