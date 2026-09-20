@@ -1103,7 +1103,7 @@
       anchored: true
     });
     try {
-      const r = await fetch('/api/system/update/releases', {cache:'no-store'});
+      const r = await fetch('/api/system/update/releases?fresh=1', {cache:'no-store'});
       const catalog = await r.json().catch(() => ({}));
       if (!r.ok || !catalog.success || !Array.isArray(catalog.releases)) throw new Error(catalog.error || 'Каталог релизов недоступен');
       versionCatalog = catalog;
