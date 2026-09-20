@@ -779,7 +779,7 @@
           <div id="rv2SystemWrap" class="rv2-system-wrap" hidden>
             <button id="rv2SystemToggle" class="rv2-system-toggle" type="button" aria-expanded="false">
               <span><b>Системные правила</b> · FreeNet их не меняет</span>
-              <span><span id="rv2SystemCount">0</span> · показать</span>
+              <span><span id="rv2SystemCount">0</span> · <span id="rv2SystemToggleAction">показать</span></span>
             </button>
             <div id="rv2SystemList" class="rv2-system-list" hidden></div>
           </div>
@@ -841,9 +841,8 @@
       const expanded = toggle.getAttribute('aria-expanded') === 'true';
       list.hidden = expanded;
       toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-      const count = qs('#rv2SystemCount')?.textContent || '0';
-      const end = toggle.lastElementChild;
-      if (end) end.textContent = `${count} · ${expanded ? 'показать' : 'скрыть'}`;
+      const action = qs('#rv2SystemToggleAction');
+      if (action) action.textContent = expanded ? 'показать' : 'скрыть';
     });
     qs('#rv2Value')?.addEventListener('input', syncRuleActionButtons);
     qs('#rv2Value')?.addEventListener('keydown', event => { if (event.key === 'Enter' && !(state.kind === 'geosite' || state.kind === 'geoip')) { event.preventDefault(); addOrUpdateRule(); } });
