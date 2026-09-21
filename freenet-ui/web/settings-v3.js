@@ -63,6 +63,15 @@
     } catch (_) {}
   }
 
+  function patchBackupStatusCopy() {
+    const last = document.getElementById('fn3_backup_last');
+    if (!last) return;
+    const text = last.textContent || '';
+    if (/·\s*Успешно\s*$/.test(text)) {
+      last.textContent = text.replace(/Успешно\s*$/, 'Снимок создан');
+    }
+  }
+
   function patchJournalIcon() {
     patchRouteLabels();
     const icon = document.querySelector('.nav-btn[data-page="journal"] .nav-icon');
@@ -114,6 +123,7 @@
   function patchSingleSave() {
     injectStyles();
     patchJournalIcon();
+    patchBackupStatusCopy();
     const footerRow = document.querySelector('.fn3-extra-save-row');
     if (footerRow) footerRow.remove();
     const duplicate = document.getElementById('fn3MaintenanceSave');
