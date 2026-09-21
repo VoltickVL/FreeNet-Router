@@ -21,7 +21,9 @@
     configDirty: false,
     configValidated: false,
     liveRules: [],
-    liveComplexCount: 0
+    liveComplexCount: 0,
+    removals: [],
+    collapsed: {DIRECT:false, VPN:false, BLOCK:false}
   };
 
   function installStyles() {
@@ -54,19 +56,19 @@
       .rv4-board-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:15px 15px 13px;border-bottom:1px solid #203650;background:linear-gradient(180deg,rgba(18,40,65,.72),rgba(10,25,42,.45))}
       .rv4-board-title{min-width:0}.rv4-board-title-line{display:flex;align-items:center;gap:9px}.rv4-board-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 12%,transparent)}.rv4-board-title strong{font-size:17px;color:#f2f7ff}.rv4-board-sub{margin-top:4px;color:#8fa4bf;font-size:12.5px;line-height:1.35}
       .rv4-board-head-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}.rv4-board-count{min-width:32px;padding:5px 8px;border-radius:999px;background:#10243a;color:#b8cae1;text-align:center;font-size:12.5px;font-weight:850}
-      .rv4-board-add{appearance:none;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid color-mix(in srgb,var(--accent) 55%,#304762);border-radius:10px;background:color-mix(in srgb,var(--accent) 10%,#0b1b2d);color:#eef6ff;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}.rv4-board-add:hover{background:color-mix(in srgb,var(--accent) 17%,#0b1b2d);border-color:var(--accent)}.rv4-board-add span{font-size:16px;line-height:1;color:var(--accent)}
+      .rv4-board-add{appearance:none;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid color-mix(in srgb,var(--accent) 55%,#304762);border-radius:10px;background:color-mix(in srgb,var(--accent) 10%,#0b1b2d);color:#eef6ff;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}.rv4-board-add:hover{background:color-mix(in srgb,var(--accent) 17%,#0b1b2d);border-color:var(--accent)}.rv4-board-add span{font-size:16px;line-height:1;color:var(--accent)}.rv4-board-collapse{appearance:none;display:grid;place-items:center;width:34px;height:34px;border:1px solid #304966;border-radius:10px;background:#0b1c2f;color:#9db1ca;font:inherit;font-size:16px;font-weight:900;cursor:pointer}.rv4-board-collapse:hover{border-color:var(--accent);color:#fff;background:#132a44}.rv4-board.collapsed .rv4-board-body,.rv4-board.collapsed .rv4-composer-slot{display:none!important}.rv4-board.collapsed .rv4-board-head{border-bottom-color:transparent!important}
       .rv4-board-body{padding:2px 15px 12px;min-height:88px}.rv4-type{padding:12px 0 11px}.rv4-type+.rv4-type{border-top:1px solid #1d3148}.rv4-type-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}.rv4-type-head strong{color:#92a9c5;font-size:12.5px;font-weight:850}.rv4-type-head span{color:#6f86a3;font-size:12px;font-weight:750}
-      .rv4-chips{display:flex;gap:6px;flex-wrap:wrap}.rv4-chip{display:inline-flex;align-items:center;min-height:30px;padding:5px 9px;border:1px solid #2c4a69;border-radius:9px;background:#0e2237;color:#e0ebf8;font-size:13.5px;line-height:1.15}.rv4-chip[hidden]{display:none!important}
-      .rv4-more{appearance:none;min-height:30px;padding:5px 9px;border:1px dashed #4b719b;border-radius:9px;background:#0a1c2e;color:#9fc6f5;font:inherit;font-size:12.5px;font-weight:850;cursor:pointer}.rv4-more:hover{border-style:solid;background:#122a45;color:#fff}
+      .rv4-chips{display:flex;gap:7px;flex-wrap:wrap}.rv4-chip{appearance:none;display:inline-flex;align-items:center;gap:7px;min-height:32px;padding:5px 8px 5px 10px;border:1px solid #2c4a69;border-radius:10px;background:#0e2237;color:#e0ebf8;font:inherit;font-size:13.5px;line-height:1.15;cursor:pointer;transition:.15s ease}.rv4-chip:hover,.rv4-chip:focus-visible{border-color:var(--accent);background:#142d48;outline:none;transform:translateY(-1px)}.rv4-chip[hidden]{display:none!important}.rv4-chip-remove{display:grid;place-items:center;width:18px;height:18px;border-radius:6px;color:#7990aa;font-size:15px;font-weight:900;line-height:1}.rv4-chip:hover .rv4-chip-remove,.rv4-chip:focus-visible .rv4-chip-remove{background:rgba(255,255,255,.07);color:#ff9ca5}.rv4-chip.pending-remove{border-color:#a65362;background:#311923;color:#ffcbd1;text-decoration:line-through}.rv4-chip.pending-remove .rv4-chip-remove{background:#5b2531;color:#ffbbc3;text-decoration:none}
+      .rv4-more{appearance:none;min-height:32px;padding:5px 9px;border:1px dashed #4b719b;border-radius:10px;background:#0a1c2e;color:#9fc6f5;font:inherit;font-size:12.5px;font-weight:850;cursor:pointer}.rv4-more:hover{border-style:solid;background:#122a45;color:#fff}
       .rv4-empty{display:grid;place-items:center;min-height:94px;padding:16px;text-align:center;color:#7890ad;font-size:13px;line-height:1.45}.rv4-empty b{display:block;margin-bottom:4px;color:#b9cbe0;font-size:14px}
       .rv4-composer-slot:empty{display:none}.rv4-composer-slot{padding:0 12px 12px}.rv4-composer{border:1px solid #33506f;border-radius:13px;background:#0b1c2f;padding:12px;box-shadow:0 10px 28px rgba(0,0,0,.16)}.rv4-composer[hidden]{display:none!important}
       .rv4-composer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}.rv4-composer-head strong{display:block;color:#f2f7ff;font-size:14px}.rv4-composer-head span{display:block;margin-top:3px;color:#89a0bc;font-size:12px}.rv4-composer-close{appearance:none;width:30px;height:30px;border:1px solid #314a67;border-radius:9px;background:#0a1828;color:#aabbd0;font:inherit;font-size:17px;cursor:pointer}.rv4-composer-close:hover{border-color:#5f83ad;color:#fff}
       .rv4-composer-grid{display:grid;gap:8px}.rv4-field label{display:block;margin-bottom:5px;color:#859bb7;font-size:12px;font-weight:750}.rv4-composer select,.rv4-composer input{width:100%;box-sizing:border-box;min-height:41px;padding:9px 10px;border:1px solid #2e4968;border-radius:10px;background:#071522;color:#eef5ff;outline:none;font:inherit;font-size:13px}.rv4-composer select:focus,.rv4-composer input:focus{border-color:#5b8cff;box-shadow:0 0 0 2px rgba(91,140,255,.08)}
       .rv4-composer .rv2-search{margin-top:8px}.rv4-composer .rv2-search-result{padding:9px 10px}.rv4-composer-submit{width:100%;min-height:41px;margin-top:1px}
-      .rv4-system{margin-top:12px}.rv4-system .rv2-system-toggle{border-radius:12px;background:#091724}
-      .rv2-system-toggle{appearance:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 13px;border:1px solid #283e58;border-radius:12px;background:#091724;color:#a8bbd2;font:inherit;font-size:13px;font-weight:750;cursor:pointer}.rv2-system-toggle:hover{border-color:#3e5d81;background:#0d1f33}.rv2-system-toggle b{color:#dce8f8}.rv2-system-list{display:grid;margin-top:7px;border:1px solid #233951;border-radius:12px;overflow:hidden}.rv2-system-list[hidden]{display:none!important}.rv2-system-rule{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;background:#081522;color:#9eb1c9;font-size:13px}.rv2-system-rule+.rv2-system-rule{border-top:1px solid #1d3148}.rv2-system-route{padding:4px 8px;border:1px solid #304965;border-radius:999px;color:#aec2db;font-size:12px;font-weight:800}
+      .rv4-system{margin-top:14px}.rv4-system .rv2-system-toggle{border-radius:13px;background:#091724}
+      .rv2-system-toggle{appearance:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border:1px solid #283e58;border-radius:13px;background:#091724;color:#a8bbd2;font:inherit;font-size:13px;font-weight:750;cursor:pointer}.rv2-system-toggle:hover{border-color:#3e5d81;background:#0d1f33}.rv2-system-toggle b{color:#dce8f8}.rv2-system-list{display:grid;gap:7px;margin-top:8px}.rv2-system-list[hidden]{display:none!important}.rv2-system-rule{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 13px;border:1px solid #233951;border-radius:11px;background:#081522;color:#9eb1c9;font-size:13px}.rv2-system-copy b{display:block;color:#d9e6f5;font-size:13.5px}.rv2-system-copy span{display:block;margin-top:3px;color:#8298b3;font-size:12px;line-height:1.4}.rv2-system-route{padding:5px 9px;border:1px solid #304965;border-radius:999px;color:#aec2db;font-size:12px;font-weight:800;white-space:nowrap}.rv2-system-protected{color:#7f95ae;font-size:11.5px;font-weight:650}
       .rv2-draft-card[hidden]{display:none!important}.rv2-draft-head{display:flex;align-items:center;gap:9px}.rv2-draft-count{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 7px;border-radius:9px;background:#18325a;color:#cfe0ff;font-size:12px;font-weight:850}.rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:12px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}.rv2-workspace button:disabled{opacity:.38!important;cursor:not-allowed!important;filter:saturate(.55);box-shadow:none!important}.rv2-compiled[hidden]{display:none!important}
-      .rv2-rule-list{display:grid;gap:8px;margin-top:12px}.rv2-rule-empty{padding:14px;border:1px dashed #2d425d;border-radius:12px;color:#8498b4;font-size:13px;text-align:center}.rv2-rule{display:grid;grid-template-columns:34px minmax(0,1fr) 100px 155px;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-selector b{font-size:13px}.rv2-selector span{font-size:12px}.rv2-rule-action{font-size:12px}
+      .rv2-rule-list{display:grid;gap:8px;margin-top:12px}.rv2-rule-empty{padding:14px;border:1px dashed #2d425d;border-radius:12px;color:#8498b4;font-size:13px;text-align:center}.rv2-rule{display:grid;grid-template-columns:34px minmax(0,1fr) 100px 155px;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-rule.removal{border-color:#663342;background:#25151d}.rv2-rule.removal .rv2-order{background:#48202b;color:#ffafb8}.rv2-rule.removal .rv2-rule-action{color:#ff9aa5}.rv2-selector b{font-size:13px}.rv2-selector span{font-size:12px}.rv2-rule-action{font-size:12px}
       .rv2-notice.warn{border-color:rgba(255,190,67,.38);background:rgba(103,70,15,.16);color:#f0cf8e}
       @media(max-width:1120px){.rv4-board-grid{grid-template-columns:1fr 1fr}.rv4-board.direct{grid-column:1/-1}.rv4-board.block{min-height:100%}}
       @media(max-width:760px){.rv4-board-grid{grid-template-columns:1fr}.rv4-board.direct{grid-column:auto}.rv2-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}.rv2-system-rule{grid-template-columns:1fr}.rv2-system-route{justify-self:start}}
@@ -197,19 +199,66 @@
     return order.filter(key => grouped.has(key)).map(key => ({kind:key, items:grouped.get(key)}));
   }
 
+  function removalSourceKey(source) {
+    return `${source.ruleIndex}\u0000${source.family}\u0000${source.raw}`;
+  }
+
   function aggregateSelectors(items) {
     const result = [];
-    const seen = new Set();
+    const index = new Map();
     items.forEach(item => item.selectors.forEach(selector => {
       const key = `${selector.kind}\u0000${selector.value}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      result.push(selector);
+      let target = index.get(key);
+      if (!target) {
+        target = Object.assign({}, selector, {sources: []});
+        index.set(key, target);
+        result.push(target);
+      }
+      target.sources.push({
+        ruleIndex: item.index,
+        family: ['domain','geosite'].includes(selector.kind) ? 'domain' : 'ip',
+        raw: String(selector.raw || selector.value),
+        kind: selector.kind,
+        value: selector.value,
+        action: item.action
+      });
     }));
     return result;
   }
 
-  function renderAggregateType(container, group) {
+  function selectorRemovalStaged(selector) {
+    const staged = new Set(state.removals.map(removalSourceKey));
+    return selector.sources.length > 0 && selector.sources.every(source => staged.has(removalSourceKey(source)));
+  }
+
+  function toggleLiveSelectorRemoval(selector, action) {
+    const sources = Array.isArray(selector.sources) ? selector.sources : [];
+    if (!sources.length) return;
+    const staged = new Set(state.removals.map(removalSourceKey));
+    const undo = sources.every(source => staged.has(removalSourceKey(source)));
+    if (undo) {
+      const keys = new Set(sources.map(removalSourceKey));
+      state.removals = state.removals.filter(item => !keys.has(removalSourceKey(item)));
+    } else {
+      sources.forEach(source => {
+        const key = removalSourceKey(source);
+        if (!staged.has(key)) {
+          state.removals.push(Object.assign({}, source, {action}));
+          staged.add(key);
+        }
+      });
+    }
+    signalRuleDraftChanged();
+    renderLiveRules();
+    renderRuleList();
+    renderCompileState();
+    setNotice('rv2RulesApplyResult', undo
+      ? `${humanKind(selector.kind)} «${selector.value}» возвращён в live draft. На роутере ничего не изменено.`
+      : `${humanKind(selector.kind)} «${selector.value}» будет удалён после проверки и явного применения. На роутере пока ничего не изменено.`,
+      undo ? '' : 'warn');
+  }
+
+  function renderAggregateType(container, group, action) {
     const section = document.createElement('section'); section.className = 'rv4-type';
     const head = document.createElement('div'); head.className = 'rv4-type-head';
     const title = document.createElement('strong'); title.textContent = selectorGroupLabel(group.kind);
@@ -219,7 +268,17 @@
     const chips = document.createElement('div'); chips.className = 'rv4-chips';
     const limit = 10;
     group.items.forEach((selector, index) => {
-      const chip = document.createElement('span'); chip.className = 'rv4-chip'; chip.textContent = String(selector.value);
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'rv4-chip';
+      const pending = selectorRemovalStaged(selector);
+      chip.classList.toggle('pending-remove', pending);
+      chip.title = pending ? 'Вернуть в черновик' : 'Удалить это правило';
+      chip.setAttribute('aria-label', pending ? `Вернуть ${selector.value}` : `Удалить ${selector.value}`);
+      const value = document.createElement('span'); value.textContent = String(selector.value);
+      const remove = document.createElement('span'); remove.className = 'rv4-chip-remove'; remove.setAttribute('aria-hidden','true'); remove.textContent = pending ? '↶' : '×';
+      chip.append(value, remove);
+      chip.addEventListener('click', () => toggleLiveSelectorRemoval(selector, action));
       if (index >= limit) chip.hidden = true;
       chips.appendChild(chip);
     });
@@ -261,15 +320,39 @@
       container.appendChild(empty);
       return;
     }
-    groupSelectors(selectors).forEach(group => renderAggregateType(container, group));
+    groupSelectors(selectors).forEach(group => renderAggregateType(container, group, action));
+  }
+
+  function systemRuleCopy(item) {
+    if (item.actionLabel === 'DNS' || /^dns-/i.test(item.outboundTag || '')) {
+      return ['DNS-запросы', 'Служебный DNS-маршрут Xray. FreeNet сохраняет его без изменений.'];
+    }
+    if (item.extraKeys.includes('inboundTag')) {
+      return ['Входящий трафик', 'Служебное правило по входящему подключению Xray.'];
+    }
+    if (item.extraKeys.includes('network')) {
+      return ['Сетевой транспорт', 'Служебное правило по типу сети (TCP/UDP).'];
+    }
+    if (item.extraKeys.includes('port')) {
+      return ['Служебный порт', 'Правило Xray по порту назначения.'];
+    }
+    if (item.selectors.length) {
+      return ['Сложное правило Xray', 'Содержит дополнительные условия и поэтому защищено от быстрого редактирования.'];
+    }
+    return ['Служебное правило Xray', 'Техническое правило, необходимое для работы текущей конфигурации.'];
   }
 
   function renderSystemRule(container, item) {
     const row = document.createElement('div'); row.className = 'rv2-system-rule';
-    const text = document.createElement('div');
-    text.textContent = item.conditions.length ? item.conditions.join(', ') : (item.selectors.length ? 'сложное условие' : 'служебное правило');
+    const copy = document.createElement('div'); copy.className = 'rv2-system-copy';
+    const [titleText, detailText] = systemRuleCopy(item);
+    const title = document.createElement('b'); title.textContent = titleText;
+    const detail = document.createElement('span');
+    const condition = item.conditions.length ? ` Условие: ${item.conditions.join(', ')}.` : '';
+    detail.textContent = `${detailText}${condition} Только просмотр.`;
+    copy.append(title, detail);
     const route = document.createElement('span'); route.className = 'rv2-system-route'; route.textContent = item.actionLabel || 'Системный маршрут';
-    row.append(text, route); container.appendChild(row);
+    row.append(copy, route); container.appendChild(row);
   }
 
   function renderLiveRules() {
@@ -348,6 +431,29 @@
     state.action = ['DIRECT','VPN','BLOCK'].includes(action) ? action : 'DIRECT';
   }
 
+  function boardForAction(action) {
+    if (action === 'VPN') return qs('#rv2VPNBoard');
+    if (action === 'BLOCK') return qs('#rv2BlockBoard');
+    return qs('#rv2DirectBoard');
+  }
+
+  function setBoardCollapsed(action, collapsed) {
+    const normalized = ['DIRECT','VPN','BLOCK'].includes(action) ? action : 'DIRECT';
+    state.collapsed[normalized] = !!collapsed;
+    const board = boardForAction(normalized);
+    const button = board?.querySelector('.rv4-board-collapse');
+    board?.classList.toggle('collapsed', !!collapsed);
+    if (button) {
+      button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      button.textContent = collapsed ? '⌄' : '⌃';
+      button.title = collapsed ? 'Развернуть блок' : 'Свернуть блок';
+    }
+  }
+
+  function toggleBoard(action) {
+    setBoardCollapsed(action, !state.collapsed[action]);
+  }
+
   function actionHuman(action) {
     if (action === 'VPN') return 'через VPN';
     if (action === 'BLOCK') return 'в блокировку';
@@ -379,6 +485,7 @@
 
   function openInlineComposer(action, preserve = false) {
     setAction(action);
+    setBoardCollapsed(state.action, false);
     if (!preserve) {
       state.editing = -1;
       state.kind = 'domain';
@@ -513,17 +620,43 @@
     return `${actionCopy(action)} · ${dns}`;
   }
 
+  function removalGroups() {
+    const grouped = new Map();
+    state.removals.forEach(item => {
+      const key = `${item.action}\u0000${item.kind}\u0000${item.value}`;
+      if (!grouped.has(key)) grouped.set(key, {action:item.action, kind:item.kind, value:item.value, sources:[]});
+      grouped.get(key).sources.push(item);
+    });
+    return Array.from(grouped.values());
+  }
+
+  function hasRuleDraft() {
+    return state.rules.length > 0 || state.removals.length > 0;
+  }
+
+  function undoRemovalGroup(group) {
+    const keys = new Set(group.sources.map(removalSourceKey));
+    state.removals = state.removals.filter(item => !keys.has(removalSourceKey(item)));
+    signalRuleDraftChanged();
+    renderLiveRules();
+    renderRuleList();
+    renderCompileState();
+    setNotice('rv2RulesApplyResult', `${humanKind(group.kind)} «${group.value}» возвращён. На роутере ничего не изменено.`);
+  }
+
   function renderRuleList() {
     const list = qs('#rv2RuleList');
     const card = qs('#rv2DraftCard');
     if (!list) return;
     list.textContent = '';
-    if (!state.rules.length) {
+    const removals = removalGroups();
+    if (!state.rules.length && !removals.length) {
       if (card) card.hidden = true;
       return;
     }
     if (card) card.hidden = false;
-    const draftCount = qs('#rv2DraftCount'); if (draftCount) draftCount.textContent = String(state.rules.length);
+    const draftCount = qs('#rv2DraftCount'); if (draftCount) draftCount.textContent = String(state.rules.length + removals.length);
+
     state.rules.forEach((rule, index) => {
       const row = document.createElement('div'); row.className = 'rv2-rule'; row.dataset.ruleIndex = String(index);
       const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(index + 1);
@@ -537,17 +670,31 @@
         ['↑', 'Выше', () => moveRule(index, -1), index === 0],
         ['↓', 'Ниже', () => moveRule(index, 1), index === state.rules.length - 1],
         ['✎', 'Изменить', () => editRule(index), false],
-        ['×', 'Удалить', () => deleteRule(index), false]
+        ['×', 'Убрать из черновика', () => deleteRule(index), false]
       ];
       actions.forEach(([text, title, handler, disabled]) => {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'rv2-icon-btn'; button.textContent = text; button.title = title; button.disabled = disabled; button.addEventListener('click', handler); tools.appendChild(button);
       });
       row.append(order, selector, action, tools); list.appendChild(row);
     });
+
+    removals.forEach(group => {
+      const row = document.createElement('div'); row.className = 'rv2-rule removal';
+      const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = '−';
+      const selector = document.createElement('div'); selector.className = 'rv2-selector';
+      const strong = document.createElement('b'); strong.textContent = `Удалить · ${humanKind(group.kind)} · ${group.value}`;
+      const meta = document.createElement('span'); meta.textContent = `Сейчас: ${actionCopy(group.action)} · удаление только после проверки и Apply`;
+      selector.append(strong, meta);
+      const action = document.createElement('div'); action.className = 'rv2-rule-action block'; action.textContent = 'УДАЛИТЬ';
+      const tools = document.createElement('div'); tools.className = 'rv2-rule-tools';
+      const undo = document.createElement('button'); undo.type = 'button'; undo.className = 'rv2-icon-btn'; undo.textContent = '↶'; undo.title = 'Отменить удаление'; undo.addEventListener('click', () => undoRemovalGroup(group)); tools.appendChild(undo);
+      row.append(order, selector, action, tools); list.appendChild(row);
+    });
   }
 
   function syncRuleActionButtons() {
-    const hasDraft = state.rules.length > 0 && !!state.compiled;
+    const additionsReady = state.rules.length === 0 || !!state.compiled;
+    const hasDraft = hasRuleDraft() && additionsReady;
     const validate = qs('#rv2ValidateRules'); if (validate) validate.disabled = !hasDraft;
     if (!hasDraft) {
       const apply = qs('#rv2ApplyRules'); if (apply) apply.disabled = true;
@@ -558,17 +705,17 @@
     const summary = qs('#rv2CompiledSummary');
     syncRuleActionButtons();
     if (!summary) return;
-    if (!state.rules.length) {
+    const removals = removalGroups();
+    if (!state.rules.length && !removals.length) {
       summary.hidden = true;
       summary.textContent = '';
       return;
     }
     summary.hidden = false;
-    if (state.compiled) {
-      summary.innerHTML = `<strong>${state.rules.length} новых правил</strong> · они будут поставлены перед существующими; порядок сверху вниз важен.`;
-    } else {
-      summary.textContent = 'Черновик нужно проверить перед применением.';
-    }
+    const parts = [];
+    if (state.rules.length) parts.push(`добавить: ${state.rules.length}`);
+    if (removals.length) parts.push(`удалить: ${removals.length}`);
+    summary.innerHTML = `<strong>Черновик · ${parts.join(' · ')}</strong> · live-маршрутизация не изменится до проверки и явного применения.`;
   }
 
   async function searchGeo() {
@@ -706,8 +853,8 @@
   }
 
   async function buildRoutingDraftFromRules(openConfig = true) {
-    if (!state.compiled || !state.rules.length) {
-      setNotice('rv2RulesApplyResult', 'Сначала добавьте хотя бы одно новое правило.', 'bad');
+    if (!hasRuleDraft() || (state.rules.length > 0 && !state.compiled)) {
+      setNotice('rv2RulesApplyResult', 'Сначала добавьте или отметьте для удаления хотя бы одно правило.', 'bad');
       return null;
     }
     if (!state.configLoaded) await loadConfig();
@@ -715,19 +862,58 @@
     try {
       const base = clone(state.live.routing);
       if (!base.routing || typeof base.routing !== 'object') base.routing = {};
-      const existing = Array.isArray(base.routing.rules) ? clone(base.routing.rules) : [];
-      const managed = (state.compiled.payload || []).map(compiledRuleToXray);
+      const originalExisting = Array.isArray(base.routing.rules) ? clone(base.routing.rules) : [];
+      const removalsByRule = new Map();
+      state.removals.forEach(removal => {
+        if (!removalsByRule.has(removal.ruleIndex)) removalsByRule.set(removal.ruleIndex, []);
+        removalsByRule.get(removal.ruleIndex).push(removal);
+      });
+
+      const existing = [];
+      originalExisting.forEach((rule, index) => {
+        const targets = removalsByRule.get(index) || [];
+        if (!targets.length) {
+          existing.push(rule);
+          return;
+        }
+        const presented = presentLiveRule(rule, index);
+        if (presented.complex || !['DIRECT','VPN','BLOCK'].includes(presented.action)) {
+          throw new Error('Служебное или сложное правило нельзя удалить быстрым действием.');
+        }
+        const next = clone(rule);
+        targets.forEach(target => {
+          const key = target.family === 'domain' ? 'domain' : 'ip';
+          const values = Array.isArray(next[key]) ? next[key] : [];
+          next[key] = values.filter(value => String(value) !== String(target.raw));
+          if (!next[key].length) delete next[key];
+        });
+        const selectorCount = (Array.isArray(next.domain) ? next.domain.length : 0) + (Array.isArray(next.ip) ? next.ip.length : 0);
+        if (selectorCount > 0) existing.push(next);
+      });
+
+      const managed = state.rules.length ? (state.compiled.payload || []).map(compiledRuleToXray) : [];
       base.routing.rules = managed.concat(existing);
       state.draft.routing = JSON.stringify(base, null, 2);
       state.draft.policy = JSON.stringify(state.live.policy, null, 2);
       state.configDirty = true; state.configValidated = false; state.configTab = 'routing'; showActiveEditor();
       setConfigStatus('Черновик', 'warn');
-      const copy = `${managed.length} новых правил будут добавлены перед ${existing.length} существующими. Существующие правила сохраняются без изменений.`;
+      const removalCount = removalGroups().length;
+      const parts = [];
+      if (managed.length) parts.push(`добавить ${managed.length}`);
+      if (removalCount) parts.push(`удалить ${removalCount}`);
+      const copy = `Изменения: ${parts.join(', ')}. Остальные пользовательские и все служебные правила сохраняются без изменений.`;
       setNotice('rv2RulesApplyResult', copy, 'ok');
       setNotice('rv2ConfigNotice', `${copy} Это пока только черновик.`, 'ok');
-      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку.`;
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку Xray.`;
       if (openConfig) setMode('config');
-      return {routing: base, policy: clone(state.live.policy), managedCount: managed.length, existingCount: existing.length};
+      return {
+        routing: base,
+        policy: clone(state.live.policy),
+        managedCount: managed.length,
+        removedCount: removalCount,
+        existingCount: originalExisting.length,
+        remainingCount: existing.length
+      };
     } catch (error) {
       const message = safeError(error, 'Не удалось подготовить изменения');
       setNotice('rv2RulesApplyResult', message, 'bad'); setNotice('rv2ConfigNotice', message, 'bad');
@@ -765,17 +951,20 @@
   }
 
   async function validateRulesCandidate() {
-    if (!state.rules.length || !state.compiled) {
+    if (!hasRuleDraft() || (state.rules.length > 0 && !state.compiled)) {
       syncRuleActionButtons();
-      setNotice('rv2RulesApplyResult', 'Сначала добавьте хотя бы одно правило.', 'bad');
+      setNotice('rv2RulesApplyResult', 'Сначала добавьте правило или отметьте live-chip для удаления.', 'bad');
       return;
     }
     const prepared = await buildRoutingDraftFromRules(false);
     if (!prepared) return;
     const ok = await validateConfig();
     if (ok) {
-      setNotice('rv2RulesApplyResult', `Проверка пройдена. Новых правил: ${prepared.managedCount}. Текущие правила будут сохранены без изменений.`, 'ok');
-      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. Новых правил: ${prepared.managedCount}. Существующие правила сохранены без изменений: ${prepared.existingCount}. Перед записью FreeNet создаст резервную точку и автоматически откатит изменение при ошибке.`;
+      const changes = [];
+      if (prepared.managedCount) changes.push(`добавить: ${prepared.managedCount}`);
+      if (prepared.removedCount) changes.push(`удалить: ${prepared.removedCount}`);
+      setNotice('rv2RulesApplyResult', `Проверка пройдена · ${changes.join(' · ')}. Остальные правила сохраняются без изменений.`, 'ok');
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. ${changes.join(' · ')}. Существующие правила сохранены, кроме явно отмеченных удалений. Служебные правила сохранены без изменений. Перед записью FreeNet создаст резервную точку и автоматически откатит изменение при ошибке.`;
     } else {
       setNotice('rv2RulesApplyResult', 'Проверка не пройдена. Применение заблокировано; текущая маршрутизация не изменена.', 'bad');
     }
@@ -820,6 +1009,7 @@
                 <div class="rv4-board-head-actions">
                   <span id="rv2DirectCount" class="rv4-board-count">0</span>
                   <button type="button" class="rv4-board-add" data-add-action="DIRECT"><span>+</span> Добавить</button>
+                  <button type="button" class="rv4-board-collapse" data-collapse-action="DIRECT" aria-expanded="true" title="Свернуть блок">⌃</button>
                 </div>
               </div>
               <div id="rv2DirectContent" class="rv4-board-body"></div>
@@ -835,6 +1025,7 @@
                 <div class="rv4-board-head-actions">
                   <span id="rv2VPNCount" class="rv4-board-count">0</span>
                   <button type="button" class="rv4-board-add" data-add-action="VPN"><span>+</span> Добавить</button>
+                  <button type="button" class="rv4-board-collapse" data-collapse-action="VPN" aria-expanded="true" title="Свернуть блок">⌃</button>
                 </div>
               </div>
               <div id="rv2VPNContent" class="rv4-board-body"></div>
@@ -850,6 +1041,7 @@
                 <div class="rv4-board-head-actions">
                   <span id="rv2BlockCount" class="rv4-board-count">0</span>
                   <button type="button" class="rv4-board-add" data-add-action="BLOCK"><span>+</span> Добавить</button>
+                  <button type="button" class="rv4-board-collapse" data-collapse-action="BLOCK" aria-expanded="true" title="Свернуть блок">⌃</button>
                 </div>
               </div>
               <div id="rv2BlockContent" class="rv4-board-body"></div>
@@ -876,7 +1068,7 @@
 
           <div id="rv2SystemWrap" class="rv4-system" hidden>
             <button id="rv2SystemToggle" class="rv2-system-toggle" type="button" aria-expanded="false">
-              <span><b>Системные правила</b> · FreeNet сохраняет их без изменений</span>
+              <span><b>Служебные правила Xray</b> · <span class="rv2-system-protected">защищены FreeNet · только просмотр</span></span>
               <span><span id="rv2SystemCount">0</span> · <span id="rv2SystemToggleAction">показать</span></span>
             </button>
             <div id="rv2SystemList" class="rv2-system-list" hidden></div>
@@ -914,6 +1106,7 @@
   function bind() {
     qsa('.rv2-mode').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
     qsa('.rv4-board-add').forEach(button => button.addEventListener('click', () => openInlineComposer(button.dataset.addAction || 'DIRECT')));
+    qsa('.rv4-board-collapse').forEach(button => button.addEventListener('click', () => toggleBoard(button.dataset.collapseAction || 'DIRECT')));
     qs('#rv2ComposerClose')?.addEventListener('click', () => closeInlineComposer(true));
     qs('#rv2Kind')?.addEventListener('change', event => {
       state.kind = String(event.target.value || 'domain');
@@ -953,6 +1146,7 @@
     if (!page || qs('#routingV2Workspace')) return;
     installStyles(); page.classList.add('fn-routing-v2'); page.dataset.routingV2 = '1';
     mountMarkup(page); bind(); syncKindOptions(); renderRuleList(); renderCompileState(); renderLiveRules();
+    ['DIRECT','VPN','BLOCK'].forEach(action => setBoardCollapsed(action, state.collapsed[action]));
     void loadConfig();
   }
 

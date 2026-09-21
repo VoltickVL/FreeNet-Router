@@ -10,9 +10,9 @@ func TestCanonicalRoutingV2UsesRowBoardPolish(t *testing.T) {
 	checks := []string{
 		"routingV2RowPolishStyles",
 		".rv4-board-grid{grid-template-columns:1fr!important",
-		".rv4-board{display:grid!important;grid-template-columns:minmax(250px,320px) minmax(0,1fr)!important",
+		".rv4-board{display:block!important;border-left:4px solid var(--accent)!important;overflow:hidden!important",
 		".rv4-board-title-line strong{white-space:normal!important;overflow:visible!important;text-overflow:clip!important",
-		".rv4-board-head{border-right:0!important;border-bottom:1px solid #203650!important",
+		".rv4-board-head{min-height:auto!important;border-right:0!important;border-bottom:1px solid #203650!important",
 	}
 	for _, want := range checks {
 		if !strings.Contains(script, want) {
