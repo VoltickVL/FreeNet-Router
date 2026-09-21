@@ -20,7 +20,7 @@ const (
 // deadline from the generic quality ranker. The outer foreign-scan loop owns
 // the remaining-budget decision, so a real third candidate may still be
 // attempted with the bounded time left instead of being rejected merely
-// because a full 55 s candidate window no longer fits.
+// because a full deep-candidate window no longer fits.
 type bestServerAttemptContext struct{ context.Context }
 
 func (bestServerAttemptContext) Deadline() (time.Time, bool) { return time.Time{}, false }
@@ -164,8 +164,15 @@ func (a *app) rankMeasuredBestServerBatches(
 		if end > len(candidates) {
 			end = len(candidates)
 		}
+		attemptCtx := context.WithValue(bestServerAttemptContext{Context: ctx}, bestServerProgressKey{}, func(stage string, completed, _ int) {
+			if stage == "quality" {
+				reportBestServerProgress(ctx, "quality", start+completed, len(candidates))
+				return
+			}
+			reportBestServerProgress(ctx, stage, completed, end-start)
+		})
 		batch := rankBestServerQualityCandidates(
-			bestServerAttemptContext{Context: ctx}, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
+			attemptCtx, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
 			defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
 		)
 		// If the parent job deadline fired during this deep attempt, its final
@@ -180,6 +187,7 @@ func (a *app) rankMeasuredBestServerBatches(
 			budgetLimited = true
 		}
 		aggregate.Candidates = append(aggregate.Candidates, filterMeasuredBestServerResults(batch.Candidates)...)
+		reportBestServerProgress(ctx, "quality", end, len(candidates))
 	}
 	aggregate.Partial = bestServerCompletionPartial(budgetLimited, aggregate.Candidates, currentEndpoint)
 	sortMeasuredBestServerResults(aggregate.Candidates)
