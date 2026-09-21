@@ -48,9 +48,13 @@ func (a *app) discoverSubscriptionProfiles(ctx context.Context) ([]subscriptionP
 		return nil, errors.New("stored subscription URL is invalid")
 	}
 
-	body, directErr := directSubscriptionBodyFetch(ctx, u)
+	directCtx, cancelDirect := context.WithTimeout(ctx, 12*time.Second)
+	body, directErr := directSubscriptionBodyFetch(directCtx, u)
+	cancelDirect()
 	if directErr != nil {
-		body, err = activeVPNSubscriptionBodyFetch(a, ctx, u)
+		vpnCtx, cancelVPN := context.WithTimeout(ctx, 18*time.Second)
+		body, err = activeVPNSubscriptionBodyFetch(a, vpnCtx, u)
+		cancelVPN()
 		if err != nil {
 			return nil, errors.New("subscription fetch failed")
 		}
