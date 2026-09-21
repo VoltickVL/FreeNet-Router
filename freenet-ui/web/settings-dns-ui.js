@@ -31,13 +31,13 @@
       <div class="fn3-dns-head"><div class="fn3-dns-title"><span class="fn3-dns-icon">DNS</span><div><h2>Режим DNS</h2><p>Выберите, где FreeNet должен разрешать DNS-запросы.</p></div></div><span id="fn3DnsState" class="fn3-dns-state"><i></i><span>Определяем…</span></span></div>
       <div class="fn3-dns-layout">
         <div class="fn3-dns-modes">
-          <label class="fn3-dns-mode" data-dns-mode="firmware"><input type="radio" name="fnDnsMode" value="firmware"><span class="fn3-dns-mode-dot"></span><span>DNS через роутер</span></label>
-          <label class="fn3-dns-mode" data-dns-mode="xkeen"><input type="radio" name="fnDnsMode" value="xkeen"><span class="fn3-dns-mode-dot"></span><span>Раздельный DNS</span></label>
+          <label class="fn3-dns-mode" data-dns-mode="firmware"><input type="radio" name="fnDnsMode" value="firmware"><span class="fn3-dns-mode-dot"></span><span>Прямой</span></label>
+          <label class="fn3-dns-mode" data-dns-mode="xkeen"><input type="radio" name="fnDnsMode" value="xkeen"><span class="fn3-dns-mode-dot"></span><span>Раздельный</span></label>
         </div>
         <div class="fn3-dns-resolvers">
           <article class="fn3-dns-resolver direct"><div class="fn3-dns-resolver-top"><span class="fn3-dns-resolver-label"><span class="fn3-dns-provider-icon">D</span>DIRECT DNS</span><span class="fn3-dns-path">DIRECT</span></div><select id="fnDnsDirect" aria-label="DIRECT DNS provider"></select><span id="fnDnsDirectEndpoint" class="fn3-dns-endpoint">—</span></article>
           <article class="fn3-dns-resolver vpn"><div class="fn3-dns-resolver-top"><span class="fn3-dns-resolver-label"><span class="fn3-dns-provider-icon">V</span>VPN DNS</span><span class="fn3-dns-path">VPN</span></div><select id="fnDnsVPN" aria-label="VPN DNS provider"></select><span id="fnDnsVPNEndpoint" class="fn3-dns-endpoint">—</span></article>
-          <div class="fn3-dns-note">По умолчанию FreeNet использует <b>Яндекс DoH</b> для DIRECT и <b>Google DoH</b> для VPN. В режиме «Раздельный DNS» VPN DNS следует через защищённый VPN path.</div>
+          <div class="fn3-dns-note">По умолчанию FreeNet использует <b>Яндекс DoH</b> для DIRECT и <b>Google DoH</b> для VPN. В режиме «Раздельный» VPN DNS следует через защищённый VPN path.</div>
           <div id="fn3DnsWarning" class="fn3-dns-warning"></div>
         </div>
       </div>
@@ -68,7 +68,7 @@
   function renderState() {
     const chip = q('#fn3DnsState');
     if (!chip || !state.data) return;
-    const mode = state.data.active_mode === 'xkeen' ? 'Раздельный DNS' : 'DNS через роутер';
+    const mode = state.data.active_mode === 'xkeen' ? 'Раздельный' : 'Прямой';
     const healthy = state.data.active_mode !== 'xkeen' || state.data.runtime_state === 'accepted' || state.data.runtime_state === 'legacy';
     chip.classList.toggle('ok', healthy);
     q('span', chip).textContent = mode;
