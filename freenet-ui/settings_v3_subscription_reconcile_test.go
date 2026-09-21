@@ -114,3 +114,17 @@ func TestSubscriptionFreshEndpointDetectionUsesLogicalProfileAndFailsClosed(t *t
 		t.Fatal("ambiguous endpoint rotation must fail closed")
 	}
 }
+
+
+func TestScheduledSubscriptionRefreshDoesNotRaceHealthWatchdog(t *testing.T) {
+	a, calls := prepareScheduledSubscriptionTest(t, true)
+	if err := os.Mkdir(os.Getenv("FREENET_AUTO_HEALTH_LOCK"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.runV3ScheduledSubscription(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 0 {
+		t.Fatalf("scheduled endpoint reconcile must not race an active health-watch mutation path; calls=%d", *calls)
+	}
+}
