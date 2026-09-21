@@ -1,6 +1,8 @@
 package main
 
 import (
+    "context"
+    "os"
     "regexp"
     "strings"
     "testing"
@@ -52,5 +54,85 @@ func TestBestServerFreshEndpointRotationUsesFreshEligibilityNotOldScore(t *testi
 	fresh.Eligible = false
 	if fresh.Tested && fresh.Available && fresh.Eligible {
 		t.Fatal("fresh endpoint without full eligibility must never be auto-applied")
+	}
+}
+
+
+func TestFreshEndpointReadinessUsesLightOffPathProbes(t *testing.T) {
+	oldTCP := bestServerEndpointTCPProbe
+	oldApp := bestServerEndpointApplicationProbe
+	t.Cleanup(func() {
+		bestServerEndpointTCPProbe = oldTCP
+		bestServerEndpointApplicationProbe = oldApp
+	})
+
+	bestServerEndpointTCPProbe = func(_ context.Context, _ subscriptionProfile) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{11}, Median: 11}
+	}
+	bestServerEndpointApplicationProbe = func(_ *app, _ context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{42, 44}, Median: 43, Jitter: 2}
+	}
+
+	candidate := bestServerInternalCandidate{Profile: subscriptionProfile{
+		ID: "0123456789abcdef", Name: "DE Frankfurt Extra", CountryCode: "de", Address: "203.0.113.20", Port: 443,
+	}}
+	got := (&app{}).probeBestServerFreshEndpointReadiness(context.Background(), candidate)
+	if got == nil || !got.Tested || !got.Available || !got.Eligible {
+		t.Fatalf("validated fresh endpoint must be eligible: %#v", got)
+	}
+	if got.TCPRTTMS != 11 || got.ApplicationMS != 43 || got.DownloadMbps != 0 || got.MediaSamples != 0 {
+		t.Fatalf("same-profile readiness must use TCP+application evidence only, without Speedtest/media ranking: %#v", got)
+	}
+}
+
+func TestFreshEndpointReadinessFailsClosedOnApplicationProbe(t *testing.T) {
+	oldTCP := bestServerEndpointTCPProbe
+	oldApp := bestServerEndpointApplicationProbe
+	t.Cleanup(func() {
+		bestServerEndpointTCPProbe = oldTCP
+		bestServerEndpointApplicationProbe = oldApp
+	})
+
+	bestServerEndpointTCPProbe = func(_ context.Context, _ subscriptionProfile) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{10}, Median: 10}
+	}
+	bestServerEndpointApplicationProbe = func(_ *app, _ context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
+		return bestServerProbeResult{}
+	}
+	got := (&app{}).probeBestServerFreshEndpointReadiness(context.Background(), bestServerInternalCandidate{Profile: subscriptionProfile{
+		ID: "fedcba9876543210", Name: "DE Frankfurt Extra", Address: "203.0.113.21", Port: 443,
+	}})
+	if got == nil || !got.Tested || got.Available || got.Eligible {
+		t.Fatalf("failed isolated VPN application probe must prevent mutation: %#v", got)
+	}
+}
+
+func TestCurrentEndpointRefreshDoesNotUseFullBestServerQualityGate(t *testing.T) {
+	data, err := os.ReadFile("best_server_targeted.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func (a *app) executeBestServerCurrentRefresh")
+	end := strings.Index(src, "func (a *app) applyBestServerRefreshCandidate")
+	if start < 0 || end <= start {
+		t.Fatal("current refresh implementation not found")
+	}
+	body := src[start:end]
+	if !strings.Contains(body, "probeBestServerFreshEndpointReadiness") {
+		t.Fatal("current endpoint rotation must use lightweight readiness probe")
+	}
+	if strings.Contains(body, "rankBestServerQualityCandidates") || strings.Contains(body, "probeBestServerQualityApplication") {
+		t.Fatal("same-profile endpoint rotation must not run full Best Server Speedtest/media quality gate")
+	}
+
+	applyStart := end
+	next := strings.Index(src[applyStart+1:], "func ")
+	applyBody := src[applyStart:]
+	if next >= 0 {
+		applyBody = src[applyStart : applyStart+1+next]
+	}
+	if !strings.Contains(applyBody, `providerHelperPath(), "apply-core"`) {
+		t.Fatal("same-profile endpoint apply must use core-only provider cutover")
 	}
 }
