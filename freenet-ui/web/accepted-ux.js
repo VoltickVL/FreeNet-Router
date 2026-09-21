@@ -375,6 +375,8 @@
     syncSubscriptionPage();
   }
 
+  window.refreshSubscriptionCatalog = checkSubscription;
+
   function bindSubscriptionActions(saveButton, refreshButton) {
     const checkButton = qs('#checkSubscriptionBtn');
     if (checkButton && checkButton.dataset.freenetSubscriptionBound !== '1') {
