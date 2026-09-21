@@ -44,7 +44,6 @@
   const VERSION_PROGRESS_STYLE_ID = 'freenetVersionPickerProgressStyles';
   const JOURNAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg>';
   let patchQueued = false;
-  let versionProgressTimer = null;
 
   function coreURL() {
     try {
@@ -236,6 +235,7 @@
     if (window.__freenetVersionPickerProgress) return;
     window.__freenetVersionPickerProgress = true;
     injectVersionProgressStyles();
+    const syncSoon = () => requestAnimationFrame(syncVersionPickerProgress);
     document.addEventListener('click', event => {
       const root = document.getElementById('fnModalRoot');
       const busy = !!root && root.classList.contains('fn-version-plan-checking');
@@ -244,7 +244,7 @@
         event.stopImmediatePropagation();
         return;
       }
-      if (event.target.closest?.('.fn-version-release')) setTimeout(syncVersionPickerProgress, 0);
+      if (event.target.closest?.('.fn-version-release')) syncSoon();
     }, true);
     document.addEventListener('keydown', event => {
       const root = document.getElementById('fnModalRoot');
@@ -253,7 +253,16 @@
         event.stopImmediatePropagation();
       }
     }, true);
-    versionProgressTimer = setInterval(syncVersionPickerProgress, 180);
+    if (document.documentElement) {
+      new MutationObserver(syncSoon).observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'hidden', 'disabled']
+      });
+    }
+    window.addEventListener('resize', syncSoon);
+    syncSoon();
   }
 
   injectStyles();
