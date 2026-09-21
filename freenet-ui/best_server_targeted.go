@@ -263,16 +263,16 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 			RollbackState: "NOT_APPLIED", Error: "quality-gated refresh timed out before mutation; current VPN was preserved",
 		}
 	}
-	if candidate == nil || !candidate.Tested || !candidate.Eligible {
-		return http.StatusOK, bestServerRefreshResponse{
-			Success: true, Outcome: "check_failed", Applied: false, Mutation: "NONE", Current: current, Candidate: candidate, RollbackState: "NOT_NEEDED",
-			Message: "Свежий endpoint не прошёл проверку качества. Текущий VPN сохранён.",
+	if candidate == nil || !bestServerFreshEndpointAcceptable(*current, *candidate) {
+		message := "Свежий endpoint не прошёл проверку качества. Текущий VPN сохранён."
+		outcome := "check_failed"
+		if candidate != nil && candidate.Tested && candidate.Eligible && candidate.Available {
+			message = "Свежий endpoint проверен, но текущий VPN заметно лучше. Автоматическое обновление пропущено."
+			outcome = "current_better"
 		}
-	}
-	if !bestServerMeaningfullyBetter(*current, *candidate) {
 		return http.StatusOK, bestServerRefreshResponse{
-			Success: true, Outcome: "current_better", Applied: false, Mutation: "NONE", Current: current, Candidate: candidate, RollbackState: "NOT_NEEDED",
-			Message: "Свежий endpoint проверен, но текущий VPN лучше или разница несущественна. Переключение не выполнялось.",
+			Success: true, Outcome: outcome, Applied: false, Mutation: "NONE", Current: current, Candidate: candidate, RollbackState: "NOT_NEEDED",
+			Message: message,
 		}
 	}
 
@@ -349,9 +349,24 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 		}
 	}
 
+	probeCtx, cancelProbe := context.WithTimeout(context.Background(), automationHealthProbeTimeout)
+	postProbe := a.probeAutomationCurrentVPN(probeCtx)
+	cancelProbe()
+	if postProbe.State != automationHealthHealthy {
+		rollback := "SUCCESS"
+		if rbErr := a.restoreSnapshot(snap); rbErr != nil {
+			rollback = "FAILED/UNKNOWN"
+		}
+		return http.StatusBadGateway, bestServerRefreshResponse{
+			Success: false, Outcome: "check_failed", Applied: false, Mutation: "ROLLED_BACK",
+			PrimaryError: "post-apply VPN Internet probe did not confirm the refreshed endpoint", RollbackState: rollback,
+			Error: "свежий endpoint применён, но проверка доступа через VPN не подтвердилась; выполнен откат либо операция остановлена для проверки состояния",
+		}
+	}
+
 	return http.StatusOK, bestServerRefreshResponse{
 		Success: true, Outcome: "applied", Applied: true, Mutation: "APPLIED", RollbackState: "NOT_NEEDED",
-		Message: "Свежий endpoint проверен, оказался заметно лучше и применён. Соединение подтверждено.",
+		Message: "Свежий endpoint текущего VPN проверен, применён и подтверждён доступом через VPN.",
 	}
 }
 
@@ -369,24 +384,39 @@ func bestServerFreshCandidateForCurrent(candidates []bestServerInternalCandidate
 		return bestServerInternalCandidate{}, false
 	}
 	exactLabel = sanitizeProfileName(exactLabel)
-	var fallback *bestServerInternalCandidate
+	matches := make([]bestServerInternalCandidate, 0, 2)
+	exact := make([]bestServerInternalCandidate, 0, 2)
 	for i := range candidates {
 		candidate := candidates[i]
 		if endpointsEqual(profileEndpoint(candidate.Profile), currentEndpoint) || !matcher.MatchString(candidate.Profile.Name) {
 			continue
 		}
+		matches = append(matches, candidate)
 		if exactLabel != "" && sanitizeProfileName(candidate.Profile.Name) == exactLabel {
-			return candidate, true
-		}
-		if fallback == nil {
-			copyValue := candidate
-			fallback = &copyValue
+			exact = append(exact, candidate)
 		}
 	}
-	if fallback != nil {
-		return *fallback, true
+	if exactLabel != "" {
+		if len(exact) == 1 {
+			return exact[0], true
+		}
+		if len(exact) > 1 {
+			return bestServerInternalCandidate{}, false
+		}
+	}
+	if len(matches) == 1 {
+		return matches[0], true
 	}
 	return bestServerInternalCandidate{}, false
+}
+
+func bestServerFreshEndpointAcceptable(current, candidate bestServerQualityCandidate) bool {
+	if !candidate.Tested || !candidate.Available || !candidate.Eligible {
+		return false
+	}
+	previous := current
+	previous.Current = false
+	return !bestServerMeaningfullyBetter(candidate, previous)
 }
 
 func qualityCandidateByID(candidates []bestServerQualityCandidate, id string) *bestServerQualityCandidate {
