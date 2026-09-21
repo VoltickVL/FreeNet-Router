@@ -254,12 +254,12 @@
     document.head.appendChild(style);
   }
 
-  function dnsLabel(status) { return status && status.dns_mode === 'xkeen' ? 'XKeen/Xray DNS' : 'DNS напрямую'; }
+  function dnsLabel(status) { return status && status.dns_mode === 'xkeen' ? 'Раздельный' : 'Прямой'; }
   function healthState(status) {
     if (!status) return {healthy: false, label: 'Проверяем состояние'};
     if (!status.xray_online) return {healthy: false, label: 'VPN не работает'};
     if (status.dns_mode === 'xkeen' && !status.dns_out_present) return {healthy: false, label: 'DNS требует внимания'};
-    return {healthy: true, label: status.dns_mode === 'xkeen' ? 'VPN + DNS OK' : 'VPN OK · DNS напрямую'};
+    return {healthy: true, label: status.dns_mode === 'xkeen' ? 'VPN + DNS OK' : 'VPN OK · DNS: Прямой'};
   }
 
   function flagClass(code) {
