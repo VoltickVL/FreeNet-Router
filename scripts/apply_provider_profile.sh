@@ -12,6 +12,7 @@ FILTER_FILE="${FREENET_FILTER_FILE:-/opt/etc/xray/blanc_profile_filter.regex}"
 HISTORY_FILE="${FREENET_AUTOMATION_HISTORY:-/opt/var/log/freenet-automation.history}"
 XRAY_BIN="${FREENET_XRAY_BIN:-/opt/sbin/xray}"
 XKEEN_BIN="${FREENET_XKEEN_BIN:-/opt/sbin/xkeen}"
+CORE_RESTART_HELPER="${FREENET_XRAY_CORE_RESTART_HELPER:-}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
 BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
 BOOTSTRAP_DNS_SECONDARY="8.8.8.8"
@@ -305,8 +306,114 @@ snapshot_state() {
     pidof xray >/dev/null 2>&1 && WAS_RUNNING=1 || WAS_RUNNING=0
 }
 
+short_pause() {
+    if command -v usleep >/dev/null 2>&1; then
+        usleep 50000
+    else
+        sleep 1
+    fi
+}
+
+single_xray_pid() {
+    PIDS="$(pidof xray 2>/dev/null || true)"
+    set -- $PIDS
+    [ "$#" -eq 1 ] || return 1
+    printf '%s\n' "$1"
+}
+
+core_restart_preflight() {
+    if [ -n "$CORE_RESTART_HELPER" ]; then
+        [ -x "$CORE_RESTART_HELPER" ] || return 1
+        return 0
+    fi
+    command -v kill >/dev/null 2>&1 || return 1
+    command -v nohup >/dev/null 2>&1 || return 1
+    [ -x "$XRAY_BIN" ] || return 1
+    single_xray_pid >/dev/null 2>&1
+}
+
+restart_xray_core() {
+    ALLOW_STOPPED="${1:-no}"
+    if [ -n "$CORE_RESTART_HELPER" ]; then
+        "$CORE_RESTART_HELPER" "$ALLOW_STOPPED"
+        return $?
+    fi
+
+    OLD_PID=""
+    PIDS="$(pidof xray 2>/dev/null || true)"
+    set -- $PIDS
+    case "$#" in
+        0)
+            [ "$ALLOW_STOPPED" = yes ] || return 1
+            ;;
+        1)
+            OLD_PID="$1"
+            ;;
+        *)
+            err 'core-only restart refused: multiple Xray processes are active'
+            return 1
+            ;;
+    esac
+
+    NOFILE=""
+    if [ -n "$OLD_PID" ] && [ -r "/proc/$OLD_PID/limits" ]; then
+        NOFILE="$(awk '/Max open files/ {print $4; exit}' "/proc/$OLD_PID/limits" 2>/dev/null)"
+    fi
+
+    if [ -n "$OLD_PID" ]; then
+        kill "$OLD_PID" 2>/dev/null || return 1
+        I=0
+        while kill -0 "$OLD_PID" 2>/dev/null && [ "$I" -lt 40 ]; do
+            short_pause
+            I=$((I + 1))
+        done
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+            kill -9 "$OLD_PID" 2>/dev/null || return 1
+            I=0
+            while kill -0 "$OLD_PID" 2>/dev/null && [ "$I" -lt 10 ]; do
+                short_pause
+                I=$((I + 1))
+            done
+        fi
+        kill -0 "$OLD_PID" 2>/dev/null && return 1
+    fi
+
+    CORE_PID_FILE="$TMP_DIR/xray-core.pid"
+    (
+        case "$NOFILE" in
+            ''|*[!0-9]*) ;;
+            *) ulimit -n "$NOFILE" 2>/dev/null || true ;;
+        esac
+        export XRAY_LOCATION_CONFDIR="$CONFIG_DIR"
+        export XRAY_LOCATION_ASSET="$ASSET_DIR"
+        [ -f /opt/etc/ssl/certs/ca-certificates.crt ] && export SSL_CERT_FILE=/opt/etc/ssl/certs/ca-certificates.crt
+        nohup "$XRAY_BIN" run >/dev/null 2>&1 &
+        printf '%s\n' "$!" > "$CORE_PID_FILE"
+    ) || return 1
+    NEW_PID="$(cat "$CORE_PID_FILE" 2>/dev/null)"
+    case "$NEW_PID" in ''|*[!0-9]*) return 1 ;; esac
+
+    I=0
+    STABLE=0
+    while [ "$I" -lt 60 ]; do
+        if kill -0 "$NEW_PID" 2>/dev/null && pidof xray >/dev/null 2>&1; then
+            STABLE=$((STABLE + 1))
+            [ "$STABLE" -ge 3 ] && return 0
+        else
+            STABLE=0
+        fi
+        short_pause
+        I=$((I + 1))
+    done
+    return 1
+}
+
 restart_if_needed() {
     [ "$WAS_RUNNING" -eq 1 ] || return 0
+    if [ "$MODE" = apply-core ]; then
+        restart_xray_core no
+        return $?
+    fi
     "$XKEEN_BIN" -restart >/dev/null 2>&1 || return 1
     sleep 4
     pidof xray >/dev/null 2>&1
@@ -339,9 +446,13 @@ rollback_state() {
     fi
 
     if [ "$WAS_RUNNING" -eq 1 ]; then
-        "$XKEEN_BIN" -restart >/dev/null 2>&1 || RB=1
-        sleep 4
-        pidof xray >/dev/null 2>&1 || RB=1
+        if [ "$MODE" = apply-core ]; then
+            restart_xray_core yes || RB=1
+        else
+            "$XKEEN_BIN" -restart >/dev/null 2>&1 || RB=1
+            sleep 4
+            pidof xray >/dev/null 2>&1 || RB=1
+        fi
     fi
     ROLLBACK_ACTIVE=0
     [ "$RB" -eq 0 ]
@@ -377,7 +488,16 @@ fail_apply() {
 
 MODE="${1:-plan}"
 REQUESTED_ID="${2:-}"
-case "$MODE" in plan|apply) ;; *) err 'usage: apply_provider_profile.sh [plan|apply] PROFILE_ID'; exit 2 ;; esac
+
+if [ "$MODE" = core-restart ]; then
+    TMP_DIR="$(mktemp -d /tmp/freenet-core-restart.XXXXXX 2>/dev/null)"
+    [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] || { err 'cannot create core restart temporary directory'; exit 1; }
+    restart_xray_core yes || { err 'core-only Xray restart failed'; exit 1; }
+    say '[FreeNet Provider] CORE_RESTART=SUCCESS'
+    exit 0
+fi
+
+case "$MODE" in plan|apply|apply-core) ;; *) err 'usage: apply_provider_profile.sh [plan|apply|apply-core|core-restart] PROFILE_ID'; exit 2 ;; esac
 case "$REQUESTED_ID" in
     ''|*[!0-9a-f]*) err 'PROFILE_ID must be 16 lowercase hex characters'; exit 2 ;;
 esac
@@ -437,12 +557,18 @@ if pidof xray >/dev/null 2>&1; then say 'XRAY_RUNNING=yes'; else say 'XRAY_RUNNI
 say 'CANDIDATE_XRAY_VALID=yes'
 say 'EXPECTED_DELTA=install or replace exactly one vless-reality outbound; preserve existing non-VLESS outbounds; persist safe preferred profile name and exact active profile filter'
 say 'EXPECTED_NO_DELTA=subscription URL and VLESS/Reality credentials are never printed; ISP/DNS/routing are not changed by this helper'
-say "MUTATION=$( [ "$MODE" = apply ] && printf 'PENDING' || printf 'NONE' )"
+case "$MODE" in
+    apply|apply-core) say 'MUTATION=PENDING' ;;
+    *) say 'MUTATION=NONE' ;;
+esac
 say '========== END =========='
 
 [ "$MODE" = plan ] && exit 0
 
 snapshot_state || fail_apply 'cannot snapshot current provider state'
+if [ "$MODE" = apply-core ] && [ "$WAS_RUNNING" -eq 1 ]; then
+    core_restart_preflight || fail_apply 'safe core-only Xray restart is unavailable or runtime state is ambiguous'
+fi
 APPLIED=1
 mkdir -p "$(dirname "$PROFILE_FILE")" || fail_apply 'cannot create FreeNet config directory'
 mkdir -p "$(dirname "$FILTER_FILE")" || fail_apply 'cannot create profile filter directory'
