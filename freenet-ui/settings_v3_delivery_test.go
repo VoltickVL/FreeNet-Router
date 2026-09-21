@@ -41,11 +41,37 @@ func TestSettingsV3IsDeliveredByCanonicalAutomationPipeline(t *testing.T) {
 	if got := assetRec.Header().Get("Content-Type"); !strings.Contains(got, "application/javascript") {
 		t.Fatalf("settings-v3 content-type=%q", got)
 	}
-	if !strings.Contains(assetRec.Body.String(), "Настройки / Система") {
+	servedWrapper := assetRec.Body.String()
+	if !strings.Contains(servedWrapper, "Настройки / Система") {
 		t.Fatal("served settings-v3 asset is not the accepted render")
 	}
-	if !strings.Contains(assetRec.Body.String(), "freenet:settings-v3-updated") {
+	if !strings.Contains(servedWrapper, "freenet:settings-v3-updated") {
 		t.Fatal("settings-v3 must publish saved schedule state to the accepted shell")
+	}
+	if !strings.Contains(servedWrapper, "settings-v3-core.js") {
+		t.Fatal("settings-v3 wrapper must load the canonical Settings v3 core asset")
+	}
+
+	coreReq := httptest.NewRequest("GET", "http://router/api/automation/assets/settings-v3-core.js", nil)
+	coreRec := httptest.NewRecorder()
+	serveAutomationAsset("web/settings-v3-core.js")(coreRec, coreReq)
+	if coreRec.Code != http.StatusOK {
+		t.Fatalf("settings-v3 core asset status=%d want 200", coreRec.Code)
+	}
+	if got := coreRec.Header().Get("Content-Type"); !strings.Contains(got, "application/javascript") {
+		t.Fatalf("settings-v3 core content-type=%q", got)
+	}
+	servedCore := coreRec.Body.String()
+	for _, want := range []string{
+		"ensureSettingsPage()",
+		"ensureSettingsNav()",
+		"page.dataset.pageView = 'settings'",
+		"q('#fn3AllEvents').onclick = () =>",
+		"window.setPage('journal')",
+	} {
+		if !strings.Contains(servedCore, want) {
+			t.Fatalf("settings-v3 core asset missing %q", want)
+		}
 	}
 }
 
@@ -54,7 +80,7 @@ func TestSettingsV3RoutesAreRegisteredThroughProductionGeoDataChain(t *testing.T
 	mux := http.NewServeMux()
 	registerGeoDataAPI(mux, a)
 
-	for _, path := range []string{"/api/settings-v3", "/api/settings-v3/action", "/api/automation/assets/settings-v3.js"} {
+	for _, path := range []string{"/api/settings-v3", "/api/settings-v3/action", "/api/automation/assets/settings-v3.js", "/api/automation/assets/settings-v3-core.js"} {
 		req := httptest.NewRequest("GET", "http://router"+path, nil)
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)

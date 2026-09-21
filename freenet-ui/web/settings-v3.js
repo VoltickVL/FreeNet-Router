@@ -41,6 +41,7 @@
 
   const CORE_SCRIPT = 'settings-v3-core.js';
   const STYLE_ID = 'freenetSettingsSingleSaveStyles';
+  const JOURNAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg>';
   let patchQueued = false;
 
   function coreURL() {
@@ -50,6 +51,26 @@
     } catch (_) {
       return `/${CORE_SCRIPT}`;
     }
+  }
+
+  function patchRouteLabels() {
+    try {
+      if (typeof pageLabels === 'object' && pageLabels) {
+        if (pageLabels.settings !== 'Настройки') pageLabels.settings = 'Настройки';
+        if (pageLabels.journal !== 'Журнал') pageLabels.journal = 'Журнал';
+      }
+    } catch (_) {}
+  }
+
+  function patchJournalIcon() {
+    patchRouteLabels();
+    const icon = document.querySelector('.nav-btn[data-page="journal"] .nav-icon');
+    if (!icon) return;
+    if (icon.dataset.freenetJournalIcon !== '1') {
+      icon.innerHTML = JOURNAL_ICON;
+      icon.dataset.freenetJournalIcon = '1';
+    }
+    if (icon.getAttribute('aria-label') !== 'Журнал') icon.setAttribute('aria-label', 'Журнал');
   }
 
   function injectStyles() {
@@ -70,24 +91,27 @@
 
   function patchSingleSave() {
     injectStyles();
+    patchJournalIcon();
     const footerRow = document.querySelector('.fn3-extra-save-row');
     if (footerRow) footerRow.remove();
     const duplicate = document.getElementById('fn3MaintenanceSave');
     if (duplicate) duplicate.remove();
     const save = document.getElementById('fn3Save');
     if (!save) return;
-    save.classList.add('fn3-single-save');
-    save.setAttribute('aria-label', 'Сохранить изменения настроек FreeNet');
-    save.title = save.disabled ? 'Настройки сохранены' : 'Сохранить изменения';
+    if (!save.classList.contains('fn3-single-save')) save.classList.add('fn3-single-save');
+    const label = 'Сохранить изменения настроек FreeNet';
+    if (save.getAttribute('aria-label') !== label) save.setAttribute('aria-label', label);
+    const title = save.disabled ? 'Настройки сохранены' : 'Сохранить изменения';
+    if (save.title !== title) save.title = title;
   }
 
   function schedulePatch() {
     if (patchQueued) return;
     patchQueued = true;
-    queueMicrotask(() => {
+    setTimeout(() => {
       patchQueued = false;
       patchSingleSave();
-    });
+    }, 0);
   }
 
   function watchSettingsDOM() {
@@ -114,7 +138,7 @@
     }
     const script = document.createElement('script');
     script.src = coreURL();
-    script.async = false;
+    script.async = true;
     script.dataset.freenetSettingsV3Core = '1';
     script.onload = schedulePatch;
     script.onerror = () => console.error('Settings v3 core failed to load');
