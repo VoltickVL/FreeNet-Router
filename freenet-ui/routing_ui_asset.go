@@ -21,16 +21,16 @@ const routingV2RowBoardPolishScript = `
     style.id = styleId;
     style.textContent = [
       ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-grid{grid-template-columns:1fr!important;gap:12px!important;align-items:stretch!important}',
-      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board{display:grid!important;grid-template-columns:minmax(250px,320px) minmax(0,1fr)!important;border-left:4px solid var(--accent)!important;overflow:visible!important}',
-      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-head{min-height:100%;border-bottom:0!important;border-right:1px solid #203650!important;align-content:flex-start!important}',
-      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-title{min-width:0!important;max-width:none!important}',
+      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board{display:block!important;border-left:4px solid var(--accent)!important;overflow:hidden!important}',
+      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-head{min-height:auto!important;border-right:0!important;border-bottom:1px solid #203650!important;align-items:center!important;padding:14px 16px!important}',
+      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-title{min-width:0!important;max-width:none!important;flex:1 1 auto!important}',
       ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-title-line strong{white-space:normal!important;overflow:visible!important;text-overflow:clip!important}',
-      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-head-actions{width:100%!important;justify-content:flex-start!important;margin-top:8px!important}',
+      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-head-actions{width:auto!important;justify-content:flex-end!important;margin-top:0!important}',
       ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-count{min-width:36px!important}',
       ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-add{white-space:nowrap!important}',
-      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-body{padding:12px 15px!important;min-height:unset!important}',
-      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-empty{min-height:72px!important;text-align:left!important;place-items:center start!important}',
-      '@media(max-width:760px){:is([data-page-view="routing"],[data-page-view="network"]) .rv4-board{grid-template-columns:1fr!important}:is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-head{border-right:0!important;border-bottom:1px solid #203650!important}:is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-head-actions{width:auto!important}}'
+      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-body{padding:10px 16px 13px!important;min-height:unset!important}',
+      ':is([data-page-view="routing"],[data-page-view="network"]) .rv4-empty{min-height:64px!important;text-align:left!important;place-items:center start!important}',
+      '@media(max-width:760px){:is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-head{align-items:flex-start!important;flex-wrap:wrap!important}:is([data-page-view="routing"],[data-page-view="network"]) .rv4-board-head-actions{width:100%!important;justify-content:flex-start!important}}'
     ].join('\n');
     document.head.appendChild(style);
   }
