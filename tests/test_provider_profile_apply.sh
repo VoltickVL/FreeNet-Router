@@ -132,13 +132,13 @@ EOF
 chmod 755 "$TMP/bin/pidof"
 cat > "$TMP/bin/xkeen" <<EOF
 #!/bin/sh
-printf '%s\n' "$*" >> "$TMP/xkeen.calls"
+printf '%s\n' "\$*" >> "$TMP/xkeen.calls"
 exit 99
 EOF
 chmod 755 "$TMP/bin/xkeen"
 cat > "$TMP/bin/core-restart" <<EOF
 #!/bin/sh
-printf '%s\n' "${1:-no}" >> "$TMP/core.calls"
+printf '%s\n' "\${1:-no}" >> "$TMP/core.calls"
 exit 0
 EOF
 chmod 755 "$TMP/bin/core-restart"
@@ -223,7 +223,7 @@ EOF
 chmod 755 "$TMP/bin/pidof"
 cat > "$TMP/bin/xkeen" <<EOF
 #!/bin/sh
-printf '%s\n' "$*" >> "$TMP/xkeen-core-rb.calls"
+printf '%s\n' "\$*" >> "$TMP/xkeen-core-rb.calls"
 exit 99
 EOF
 chmod 755 "$TMP/bin/xkeen"
@@ -231,10 +231,10 @@ cat > "$TMP/bin/core-restart-rb" <<EOF
 #!/bin/sh
 COUNT_FILE="$TMP/core-rb.count"
 COUNT=0
-[ -f "$COUNT_FILE" ] && COUNT="$(cat "$COUNT_FILE")"
-COUNT=$((COUNT+1))
-printf '%s\n' "$COUNT" > "$COUNT_FILE"
-[ "$COUNT" -eq 1 ] && exit 1
+[ -f "\$COUNT_FILE" ] && COUNT="\$(cat "\$COUNT_FILE")"
+COUNT=\$((COUNT+1))
+printf '%s\n' "\$COUNT" > "\$COUNT_FILE"
+[ "\$COUNT" -eq 1 ] && exit 1
 exit 0
 EOF
 chmod 755 "$TMP/bin/core-restart-rb"
