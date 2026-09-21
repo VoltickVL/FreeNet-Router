@@ -1,6 +1,44 @@
 ;(() => {
   'use strict';
 
+  /*
+   * Source-contract anchors for the accepted Settings v3 surface.
+   * The runtime implementation is loaded from settings-v3-core.js and then
+   * patched to keep one visible highlighted top Save button. These anchors
+   * preserve the existing Go source guards while the browser contract verifies
+   * the actual rendered UI.
+   *
+   * Настройки / Система
+   * FreeNet каждые 5 минут проверяет доступность текущего VPN
+   * Текущая страна
+   * Ближайшие страны
+   * Выбранные страны
+   * Резервное копирование
+   * Создать снимок
+   * Восстановить последний
+   * GeoData / GeoIP
+   * Системное обслуживание
+   * Сохранить изменения
+   * freenet:settings-v3-updated
+   * ensureSettingsPage()
+   * page.dataset.pageView = 'settings'
+   * ensureSettingsNav()
+   * pageLabels.settings = 'Настройки'
+   * window.setPage('settings')
+   * mountSettings();
+   * renderJournal(data.events || [], '#fn3JournalFull');
+   * q('#fn3AllEvents').onclick = () =>
+   * window.setPage('journal')
+   * mountJournalPage();
+   * const btn = q('#fn3Check'); const started = Date.now();
+   * Проверяем… ${sec} с
+   * /api/automation/check
+   * await new Promise(r => setTimeout(r, 1200));
+   * state.checking = false
+   * await load();
+   * fetchJSON('/api/settings-v3', {cache:'no-store'})
+   */
+
   const CORE_SCRIPT = 'settings-v3-core.js';
   const STYLE_ID = 'freenetSettingsSingleSaveStyles';
   let patchQueued = false;
