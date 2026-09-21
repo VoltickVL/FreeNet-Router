@@ -16,9 +16,7 @@ import (
 )
 
 func curlConfigQuote(value string) string {
-	value = strings.ReplaceAll(value, "\\", "\\\\")
-	value = strings.ReplaceAll(value, """, "\\"")
-	return """ + value + """
+	return strconv.Quote(value)
 }
 
 func (a *app) fetchSubscriptionBodyViaActiveVPN(ctx context.Context, subscriptionURL *url.URL) ([]byte, error) {
