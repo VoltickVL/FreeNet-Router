@@ -156,8 +156,8 @@
       if (!label || !value || label.textContent.trim().toUpperCase() !== 'DNS') return;
       fact.classList.add('fn-shell-dns');
       const raw = value.textContent.trim();
-      if (/^Раздельный DNS$/i.test(raw)) value.textContent = 'Раздельный';
-      else if (/^DNS через роутер$/i.test(raw)) value.textContent = 'Через роутер';
+      if (/xkeen\s*\/\s*xray/i.test(raw) || /^Раздельный(?: DNS)?$/i.test(raw)) value.textContent = 'Раздельный';
+      else if (/^Прямой$/i.test(raw) || /^DNS напрямую(?: через роутер)?$/i.test(raw) || /^Штатный DNS роутера$/i.test(raw) || /^DNS через роутер$/i.test(raw) || /^Через роутер$/i.test(raw)) value.textContent = 'Прямой';
     });
   }
 
