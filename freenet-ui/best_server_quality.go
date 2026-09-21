@@ -159,6 +159,7 @@ func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServer
 	if err != nil {
 		return bestServerQualityResponse{}, err
 	}
+	all = withoutBestServerCurrentLogicalAlternatives(all, currentEndpoint, currentFilter, currentExactProfileLabel(a.cfg.FilterPath))
 	response := rankBestServerQualityCandidates(ctx, all, total, truncated, currentEndpoint, currentFilter, defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication)
 	if ctx.Err() != nil {
 		return bestServerQualityResponse{}, ctx.Err()
