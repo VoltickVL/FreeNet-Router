@@ -9,27 +9,27 @@
   let presentationUsesRAF = false;
 
   function dnsLabel(mode) {
-    return mode === 'xkeen' ? 'Раздельный DNS' : 'DNS через роутер';
+    return mode === 'xkeen' ? 'Раздельный' : 'Прямой';
   }
 
   function dnsTopbarLabel(mode) {
-    return mode === 'xkeen' ? 'Раздельный' : 'Через роутер';
+    return mode === 'xkeen' ? 'Раздельный' : 'Прямой';
   }
 
   function normalizeLegacyDNSLabels() {
     try {
       if (typeof dnsLabels !== 'object' || !dnsLabels) return;
-      dnsLabels.auto = 'DNS через роутер';
-      dnsLabels.firmware = 'DNS через роутер';
-      dnsLabels.xkeen = 'Раздельный DNS';
-      dnsLabels.custom = 'DNS через роутер';
+      dnsLabels.auto = 'Авто';
+      dnsLabels.firmware = 'Прямой';
+      dnsLabels.xkeen = 'Раздельный';
+      dnsLabels.custom = 'Свой';
     } catch (_) {}
   }
 
   function canonicalizeDNSCopy(value) {
     const text = String(value ?? '').trim();
     if (/xkeen\s*\/\s*xray/i.test(text) || /^Раздельный(?: DNS)?$/i.test(text)) return 'Раздельный';
-    if (/^DNS напрямую(?: через роутер)?$/i.test(text) || /^Штатный DNS роутера$/i.test(text) || /^DNS через роутер$/i.test(text) || /^Через роутер$/i.test(text)) return 'Через роутер';
+    if (/^Прямой$/i.test(text) || /^DNS напрямую(?: через роутер)?$/i.test(text) || /^Штатный DNS роутера$/i.test(text) || /^DNS через роутер$/i.test(text) || /^Через роутер$/i.test(text)) return 'Прямой';
     return text;
   }
 
