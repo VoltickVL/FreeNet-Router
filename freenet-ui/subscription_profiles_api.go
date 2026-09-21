@@ -21,6 +21,11 @@ import (
 
 const maxSubscriptionBytes = 2 * 1024 * 1024
 
+var directSubscriptionBodyFetch = fetchSubscriptionBody
+var activeVPNSubscriptionBodyFetch = func(a *app, ctx context.Context, u *url.URL) ([]byte, error) {
+	return a.fetchSubscriptionBodyViaActiveVPN(ctx, u)
+}
+
 type subscriptionProfile struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -43,11 +48,21 @@ func (a *app) discoverSubscriptionProfiles(ctx context.Context) ([]subscriptionP
 		return nil, errors.New("stored subscription URL is invalid")
 	}
 
-	body, err := fetchSubscriptionBody(ctx, u)
+	body, directErr := directSubscriptionBodyFetch(ctx, u)
+	if directErr != nil {
+		body, err = activeVPNSubscriptionBodyFetch(a, ctx, u)
+		if err != nil {
+			return nil, errors.New("subscription fetch failed")
+		}
+	}
+	profiles, err := parseSubscriptionBody(body)
 	if err != nil {
 		return nil, err
 	}
-	return parseSubscriptionBody(body)
+	if err := saveProviderSubscriptionCache(secretURL, body); err != nil {
+		return nil, errors.New("cannot persist secure provider subscription cache")
+	}
+	return profiles, nil
 }
 
 func fetchSubscriptionBody(ctx context.Context, subscriptionURL *url.URL) ([]byte, error) {
