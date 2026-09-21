@@ -749,8 +749,8 @@
     if (intro) intro.textContent = 'Выберите интернет-провайдера и DNS. Сначала FreeNet проверит изменения без записи настроек, затем применит их одной транзакцией.';
     if (oldSave) oldSave.hidden = true;
     const firmwareOption = dns.querySelector('option[value="firmware"]');
-    if (firmwareOption) firmwareOption.textContent = 'DNS напрямую через роутер';
-    dnsLabels.firmware = 'DNS напрямую через роутер';
+    if (firmwareOption) firmwareOption.textContent = 'Прямой';
+    dnsLabels.firmware = 'Прямой';
 
     const planButton = oldPlan.cloneNode(true);
     planButton.textContent = 'Проверить изменения';

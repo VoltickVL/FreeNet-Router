@@ -150,7 +150,7 @@ func TestOverviewKeepsSystemSummaryAndSingleVPNCard(t *testing.T) {
 		"queueMicrotask",
 		"typeof lastStatus !== 'undefined'",
 		"VPN + DNS OK",
-		"VPN OK · DNS напрямую",
+		"VPN OK · DNS: Прямой",
 		"VPN не работает",
 		"DNS требует внимания",
 	} {
