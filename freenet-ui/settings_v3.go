@@ -534,6 +534,65 @@ func (a *app) runV3Subscription(ctx context.Context) error {
 	return err
 }
 
+var settingsV3ScheduledCurrentRefresh = func(a *app, ctx context.Context) (int, bestServerRefreshResponse) {
+	return a.executeBestServerCurrentRefresh(ctx)
+}
+
+func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
+	if _, err := a.runV3SubscriptionResult(ctx); err != nil {
+		return err
+	}
+	settings := readAutomationSettings(a.cfg.ConfigPath)
+	if !settings.Enabled || !settings.AutoApply {
+		return nil
+	}
+
+	status, refresh := settingsV3ScheduledCurrentRefresh(a, ctx)
+	message := strings.TrimSpace(refresh.Message)
+	if message == "" {
+		message = strings.TrimSpace(refresh.Error)
+	}
+	if refresh.Applied {
+		if message == "" {
+			message = "AUTO VPN обновил endpoint текущего профиля после обновления подписки."
+		}
+		writeAutomationStateV2("updated", message, refresh.RollbackState, false)
+		appendAutomationHistoryV2("updated", message)
+		v3AppendEvent("auto_vpn", "updated", message)
+		return nil
+	}
+	if status >= 200 && status < 300 && refresh.Success {
+		if refresh.Outcome == "no_new" {
+			return nil
+		}
+		if message == "" {
+			message = "Свежий endpoint текущего профиля не применён; рабочий VPN сохранён."
+		}
+		appendAutomationHistoryV2("same", message)
+		v3AppendEvent("auto_vpn", "same", message)
+		return nil
+	}
+
+	rollback := strings.TrimSpace(refresh.RollbackState)
+	if rollback == "" {
+		rollback = "NOT_APPLIED"
+	}
+	if message == "" {
+		message = "Проверка свежего endpoint после обновления подписки не завершена."
+	}
+	result := "uncertain"
+	if refresh.Mutation != "NONE" || rollback == "FAILED/UNKNOWN" {
+		result = "failed"
+	}
+	writeAutomationStateV2(result, message, rollback, false)
+	appendAutomationHistoryV2(result, message+"; rollback="+rollback)
+	v3AppendEvent("auto_vpn", result, message)
+	if rollback == "FAILED/UNKNOWN" {
+		return errors.New("scheduled current endpoint reconcile rollback failed or is unknown")
+	}
+	return nil
+}
+
 func (a *app) runV3GeoData(ctx context.Context) error {
 	if _, err := os.Stat(a.cfg.XKeenPath); err != nil {
 		v3Mark("geodata", "failed", "XKeen updater недоступен.")
@@ -719,7 +778,7 @@ func runSettingsV3CLI(command string) int {
 	var err error
 	switch command {
 	case "settings-v3-subscription":
-		err = a.runV3Subscription(ctx)
+		err = a.runV3ScheduledSubscription(ctx)
 	case "settings-v3-geodata":
 		err = a.runV3GeoData(ctx)
 	case "settings-v3-freenet-check":
