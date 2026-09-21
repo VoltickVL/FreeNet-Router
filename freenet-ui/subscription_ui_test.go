@@ -47,6 +47,7 @@ func TestAcceptedSubscriptionUXContract(t *testing.T) {
 		"revealSubscription",
 		"await window.loadNetworkPlan()",
 		"await window.refreshProfiles()",
+		"latestSuccessfulSubscriptionUpdate",
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("subscription UX contains forbidden secret surface %q", forbidden)
