@@ -941,10 +941,9 @@ func (a *app) restoreSnapshot(s snapshot) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	if out, err := runCommand(ctx, a.cfg.XKeenPath, "-restart"); err != nil {
-		return fmt.Errorf("restart XKeen: %v (%s)", err, sanitizeOutput(string(out)))
+	if out, err := runCommand(ctx, providerHelperPath(), "core-restart"); err != nil {
+		return fmt.Errorf("safe Xray core restart after rollback: %v (%s)", err, sanitizeOutput(string(out)))
 	}
-	time.Sleep(4 * time.Second)
 	if !processRunning("xray") {
 		return errors.New("Xray offline after rollback")
 	}
