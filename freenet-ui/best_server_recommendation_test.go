@@ -57,6 +57,8 @@ func TestBestServerRecommendationDoesNotProtectUnhealthyCurrent(t *testing.T) {
 	}
 }
 
+// Different endpoints of the same logical profile are refreshed through the
+// explicit current-VPN endpoint action, not offered as switchable alternatives.
 func TestBestServerRecommendationRemovesSameLogicalCurrentAlternatives(t *testing.T) {
 	current := healthyRecommendationCandidate("current-frankfurt", true, 99.2, 162, 10000)
 	current.Name = "DE Франкфурт-на-Майне, Германия, Extra"
