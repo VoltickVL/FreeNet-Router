@@ -272,24 +272,31 @@ func withoutBestServerCurrentLogicalAlternatives(candidates []bestServerInternal
 		return candidates
 	}
 	exactLabel = sanitizeProfileName(exactLabel)
-	remove := make([]bool, len(candidates))
-	matched := 0
+	filterMatches := make([]int, 0, 2)
+	exactMatches := make([]int, 0, 2)
 	for i, candidate := range candidates {
 		if endpointsEqual(profileEndpoint(candidate.Profile), currentEndpoint) || !matcher.MatchString(candidate.Profile.Name) {
 			continue
 		}
-		if exactLabel != "" && sanitizeProfileName(candidate.Profile.Name) != exactLabel {
-			continue
+		filterMatches = append(filterMatches, i)
+		if exactLabel != "" && sanitizeProfileName(candidate.Profile.Name) == exactLabel {
+			exactMatches = append(exactMatches, i)
 		}
-		remove[i] = true
-		matched++
 	}
-	if matched == 0 || (exactLabel == "" && matched != 1) {
-		return candidates
+	removeIndexes := exactMatches
+	if len(removeIndexes) == 0 {
+		if len(filterMatches) != 1 {
+			return candidates
+		}
+		removeIndexes = filterMatches
 	}
-	out := make([]bestServerInternalCandidate, 0, len(candidates)-matched)
+	remove := make(map[int]struct{}, len(removeIndexes))
+	for _, index := range removeIndexes {
+		remove[index] = struct{}{}
+	}
+	out := make([]bestServerInternalCandidate, 0, len(candidates)-len(removeIndexes))
 	for i, candidate := range candidates {
-		if !remove[i] {
+		if _, drop := remove[i]; !drop {
 			out = append(out, candidate)
 		}
 	}
