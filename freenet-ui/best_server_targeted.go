@@ -21,6 +21,74 @@ type bestServerRefreshRequest struct {
 	Confirm bool `json:"confirm"`
 }
 
+type endpointRefreshSnapshot struct {
+	base          snapshot
+	profilePath   string
+	profileExists bool
+	profile       []byte
+	profileMode   os.FileMode
+}
+
+func endpointRefreshProfilePath() string {
+	if path := strings.TrimSpace(os.Getenv("FREENET_PROFILE_FILE")); path != "" {
+		return path
+	}
+	return "/opt/etc/freenet/vpn_profile_name"
+}
+
+func (a *app) takeEndpointRefreshSnapshot() (endpointRefreshSnapshot, error) {
+	base, err := a.takeSnapshot()
+	if err != nil {
+		return endpointRefreshSnapshot{}, err
+	}
+	s := endpointRefreshSnapshot{base: base, profilePath: endpointRefreshProfilePath()}
+	info, err := os.Stat(s.profilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return s, nil
+		}
+		return endpointRefreshSnapshot{}, err
+	}
+	s.profileMode = info.Mode().Perm()
+	s.profile, err = os.ReadFile(s.profilePath)
+	if err != nil {
+		return endpointRefreshSnapshot{}, err
+	}
+	s.profileExists = true
+	return s, nil
+}
+
+func (a *app) restoreEndpointRefreshFiles(s endpointRefreshSnapshot) error {
+	if s.base.filterExists {
+		if err := atomicWrite(a.cfg.FilterPath, s.base.filter, 0644); err != nil {
+			return err
+		}
+	} else if err := os.Remove(a.cfg.FilterPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	mode := s.base.outMode
+	if mode == 0 {
+		mode = 0600
+	}
+	if err := atomicWrite(a.cfg.OutPath, s.base.out, mode); err != nil {
+		return err
+	}
+
+	if s.profileExists {
+		profileMode := s.profileMode
+		if profileMode == 0 {
+			profileMode = 0600
+		}
+		if err := atomicWrite(s.profilePath, s.profile, profileMode); err != nil {
+			return err
+		}
+	} else if err := os.Remove(s.profilePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 var bestServerEndpointTCPProbe = defaultBestServerTCPProbe
 var bestServerEndpointApplicationProbe = func(a *app, ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
 	return a.probeBestServerApplication(ctx, candidate)
@@ -314,7 +382,7 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 }
 
 func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestServerInternalCandidate) (int, bestServerRefreshResponse) {
-	snap, err := a.takeSnapshot()
+	snap, err := a.takeEndpointRefreshSnapshot()
 	if err != nil {
 		return http.StatusInternalServerError, bestServerRefreshResponse{
 			Success: false, Outcome: "check_failed", Applied: false, Mutation: "NONE", RollbackState: "NOT_APPLIED",
@@ -332,7 +400,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 			primary = cmdErr.Error()
 		}
 		if rollback == "UNKNOWN" || rollback == "FAILED/UNKNOWN" {
-			if rbErr := a.restoreSnapshotCoreOnly(snap); rbErr == nil {
+			if rbErr := a.restoreEndpointRefreshSnapshotCoreOnly(snap); rbErr == nil {
 				rollback = "SUCCESS"
 			} else {
 				rollback = "FAILED/UNKNOWN"
@@ -355,7 +423,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 	}
 	if !postOK {
 		rollback := "SUCCESS"
-		if rbErr := a.restoreSnapshotCoreOnly(snap); rbErr != nil {
+		if rbErr := a.restoreEndpointRefreshSnapshotCoreOnly(snap); rbErr != nil {
 			rollback = "FAILED/UNKNOWN"
 		}
 		return http.StatusBadGateway, bestServerRefreshResponse{
@@ -370,7 +438,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 	cancelProbe()
 	if postProbe.State != automationHealthHealthy {
 		rollback := "SUCCESS"
-		if rbErr := a.restoreSnapshotCoreOnly(snap); rbErr != nil {
+		if rbErr := a.restoreEndpointRefreshSnapshotCoreOnly(snap); rbErr != nil {
 			rollback = "FAILED/UNKNOWN"
 		}
 		return http.StatusBadGateway, bestServerRefreshResponse{
@@ -386,19 +454,8 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 	}
 }
 
-func (a *app) restoreSnapshotCoreOnly(s snapshot) error {
-	if s.filterExists {
-		if err := atomicWrite(a.cfg.FilterPath, s.filter, 0644); err != nil {
-			return err
-		}
-	} else if err := os.Remove(a.cfg.FilterPath); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	mode := s.outMode
-	if mode == 0 {
-		mode = 0600
-	}
-	if err := atomicWrite(a.cfg.OutPath, s.out, mode); err != nil {
+func (a *app) restoreEndpointRefreshSnapshotCoreOnly(s endpointRefreshSnapshot) error {
+	if err := a.restoreEndpointRefreshFiles(s); err != nil {
 		return err
 	}
 	restartCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
