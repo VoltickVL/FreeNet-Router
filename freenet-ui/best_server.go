@@ -153,6 +153,7 @@ func (a *app) scanBestServer(ctx context.Context, force bool) (bestServerRespons
 	if err != nil {
 		return bestServerResponse{}, err
 	}
+	all = withoutBestServerCurrentLogicalAlternatives(all, currentEndpoint, currentFilter, currentExactProfileLabel(a.cfg.FilterPath))
 	response := rankBestServerCandidatesWithFilter(ctx, all, total, truncated, currentEndpoint, currentFilter, defaultBestServerTCPProbe, a.probeBestServerApplication)
 	if ctx.Err() != nil {
 		return bestServerResponse{}, ctx.Err()
@@ -259,6 +260,40 @@ func parseBestServerCandidates(body []byte) ([]bestServerInternalCandidate, int,
 		return nil, 0, false, errors.New("no active Extra profiles found")
 	}
 	return all, total, truncated, nil
+}
+
+func withoutBestServerCurrentLogicalAlternatives(candidates []bestServerInternalCandidate, currentEndpoint, currentFilter, exactLabel string) []bestServerInternalCandidate {
+	currentFilter = strings.TrimSpace(currentFilter)
+	if currentFilter == "" {
+		return candidates
+	}
+	matcher, err := regexp.Compile(currentFilter)
+	if err != nil {
+		return candidates
+	}
+	exactLabel = sanitizeProfileName(exactLabel)
+	remove := make([]bool, len(candidates))
+	matched := 0
+	for i, candidate := range candidates {
+		if endpointsEqual(profileEndpoint(candidate.Profile), currentEndpoint) || !matcher.MatchString(candidate.Profile.Name) {
+			continue
+		}
+		if exactLabel != "" && sanitizeProfileName(candidate.Profile.Name) != exactLabel {
+			continue
+		}
+		remove[i] = true
+		matched++
+	}
+	if matched == 0 || (exactLabel == "" && matched != 1) {
+		return candidates
+	}
+	out := make([]bestServerInternalCandidate, 0, len(candidates)-matched)
+	for i, candidate := range candidates {
+		if !remove[i] {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }
 
 func rankBestServerCandidates(
