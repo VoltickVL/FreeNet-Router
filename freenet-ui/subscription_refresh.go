@@ -69,9 +69,14 @@ func selectableSubscriptionProfiles(profiles []subscriptionProfile) []subscripti
 // provider fetch every time an unrelated page requests a plan. A fresh fetch
 // is used only to bootstrap the cache when no last-known-good catalog exists.
 func (a *app) subscriptionProfilesForRead(ctx context.Context) (subscriptionRefreshResult, error) {
-	if cached, err := loadSubscriptionProfilesCache(); err == nil {
-		cached.Stale = false
-		return cached, nil
+	cacheInfo, cacheErr := os.Stat(subscriptionProfilesCachePath())
+	subInfo, subErr := os.Stat(a.cfg.SubPath)
+	cacheMatchesSource := cacheErr == nil && subErr == nil && !cacheInfo.ModTime().Before(subInfo.ModTime())
+	if cacheMatchesSource {
+		if cached, err := loadSubscriptionProfilesCache(); err == nil {
+			cached.Stale = false
+			return cached, nil
+		}
 	}
 	return a.refreshSubscriptionProfiles(ctx)
 }
