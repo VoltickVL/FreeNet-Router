@@ -718,6 +718,15 @@ func (a *app) runProviderPlan(profileID string) (providerPlanResponse, error) {
 	if !validProfileID(profileID) {
 		return providerPlanResponse{ProfileID: profileID}, errors.New("invalid provider profile id")
 	}
+	prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 32*time.Second)
+	prepareErr := a.ensureProviderSubscriptionCache(prepareCtx)
+	cancelPrepare()
+	if prepareErr != nil {
+		if strings.Contains(strings.ToLower(prepareErr.Error()), "fresh subscription unavailable") {
+			return providerPlanResponse{ProfileID: profileID}, errors.New("Свежая подписка недоступна, а защищённый локальный список для переключения ещё не создан.")
+		}
+		return providerPlanResponse{ProfileID: profileID}, errors.New("Не удалось подготовить защищённый список VPN-серверов.")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
 	output, err := runCommand(ctx, providerHelperPath(), "plan", profileID)
