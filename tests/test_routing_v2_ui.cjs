@@ -156,9 +156,25 @@ const server=http.createServer(async(req,res)=>{
     await geositeGroup.locator('.rv4-more').click();
     assert.equal(await geositeGroup.locator('.rv4-chip:visible').count(),16);
     assert.match(await geositeGroup.innerText(),/Свернуть/);
+    assert.equal(await geositeGroup.locator('.rv4-chip').first().evaluate(el=>el.tagName),'BUTTON','live chips must be interactive controls');
+
+    // Chip removal is only a draft until explicit validation/apply, and can be undone inline.
+    const categoryRU=geositeGroup.locator('.rv4-chip').filter({hasText:'category-ru'}).first();
+    const chipApplyBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
+    await categoryRU.click();
+    assert.equal(await categoryRU.evaluate(el=>el.classList.contains('pending-remove')),true);
+    assert.equal(await page.locator('#rv2DraftCard').isVisible(),true);
+    assert.match(await page.locator('#rv2RuleList').innerText(),/Удалить · GeoSite · category-ru/);
+    assert.equal(await page.locator('#rv2ValidateRules').isDisabled(),false,'deletion-only draft must be validatable');
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,chipApplyBefore,'staging removal must not mutate runtime');
+    await categoryRU.click();
+    assert.equal(await page.locator('#rv2DraftCard').isHidden(),true,'inline undo must clear the deletion-only draft');
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,chipApplyBefore,'undo must remain read-only');
 
     // System rules stay outside the main boards and are collapsed by default.
     assert.equal(await page.locator('#rv2SystemList').isHidden(),true);
+    assert.match(await page.locator('#rv2SystemToggle').innerText(),/Служебные правила Xray/);
+    assert.match(await page.locator('#rv2SystemToggle').innerText(),/защищены FreeNet/);
     assert.match(await page.locator('#rv2SystemToggle').innerText(),/4 · показать/);
     await page.locator('#rv2SystemToggle').click();
     assert.equal(await page.locator('#rv2SystemList .rv2-system-rule').count(),4);
@@ -172,8 +188,15 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#rv2DraftCard').isHidden(),true);
     assert.equal(await page.locator('#rv2InlineComposer').isHidden(),true);
 
+    // Boards collapse independently; Add expands only the selected board.
+    await page.locator('#rv2VPNBoard .rv4-board-collapse').click();
+    assert.equal(await page.locator('#rv2VPNBoard').evaluate(el=>el.classList.contains('collapsed')),true);
+    assert.equal(await page.locator('#rv2VPNContent').isHidden(),true);
+    assert.equal(await page.locator('#rv2DirectContent').isVisible(),true);
+
     // Add from the VPN board: action is contextual, no separate DIRECT/VPN/BLOCK switch is required.
     await page.locator('.rv4-board-add[data-add-action="VPN"]').click();
+    assert.equal(await page.locator('#rv2VPNBoard').evaluate(el=>el.classList.contains('collapsed')),false,'Add must expand the selected board');
     assert.equal(await page.locator('#rv2InlineComposer').isVisible(),true);
     assert.equal(await page.locator('#rv2VPNComposerSlot #rv2InlineComposer').count(),1);
     assert.match(await page.locator('#rv2ComposerTitle').textContent(),/Добавить через VPN/);
@@ -232,6 +255,30 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#rv2DirectCount').textContent(),'23');
     assert.equal(await page.locator('#rv2VPNCount').textContent(),'5');
     assert.match(await page.locator('#rv2VPNContent').innerText(),/youtube/);
+
+    // Apply a deletion-only draft through the same validation/snapshot/rollback engine.
+    const removeApplyBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
+    const liveCategoryRU=page.locator('#rv2DirectContent .rv4-chip').filter({hasText:'category-ru'}).first();
+    await liveCategoryRU.click();
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,removeApplyBefore,'live chip click must only stage a deletion');
+    assert.match(await page.locator('#rv2RuleList').innerText(),/Удалить · GeoSite · category-ru/);
+    await page.locator('#rv2ValidateRules').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
+    assert.match(await page.locator('#rv2RulesApplyResult').textContent(),/удалить: 1/);
+    await page.locator('#rv2ApplyRules').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('APPLIED'),null,{timeout:10000});
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,removeApplyBefore+1,'deletion must use exactly one controlled apply');
+    assert.equal(routingLive.routing.rules.length,9,'removing one selector must not drop its containing rule or unrelated rules');
+    assert.equal(routingLive.routing.rules.some(rule=>Array.isArray(rule.domain)&&rule.domain.includes('ext:geosite.dat:category-ru')),false,'selected live selector must be removed');
+    assert.equal(routingLive.routing.rules.some(rule=>Array.isArray(rule.domain)&&rule.domain.includes('ext:geosite.dat:google')),true,'unrelated selectors must remain');
+    assert.deepEqual(routingLive.routing.rules[8],{type:'field',network:'tcp,udp',outboundTag:'vless-reality'},'system/complex rule must remain exact after chip deletion');
+
+    await page.waitForSelector('#routingV2Workspace',{state:'attached'});
+    const navAfterDelete=page.locator('.nav-btn[data-page="routing"]');
+    await navAfterDelete.click();
+    await page.waitForSelector('#routingV2Workspace',{state:'visible'});
+    assert.doesNotMatch(await page.locator('#rv2DirectContent').innerText(),/category-ru/);
+    assert.match(await page.locator('#rv2DirectContent').innerText(),/google/);
 
     await page.locator('.rv2-mode[data-mode="config"]').click();
     await page.waitForSelector('#rv2ConfigEditor',{state:'visible'});
