@@ -14,10 +14,10 @@ func TestRuntimePickerParityContract(t *testing.T) {
 	runtime := string(runtimeData)
 	for _, want := range []string{
 		"function dnsTopbarLabel(mode)",
-		"return mode === 'xkeen' ? 'Раздельный' : 'Через роутер';",
+		"return mode === 'xkeen' ? 'Раздельный' : 'Прямой';",
 		"value.textContent = topbarText;",
 		"return 'Раздельный';",
-		"return 'Через роутер';",
+		"return 'Прямой';",
 	} {
 		if !strings.Contains(runtime, want) {
 			t.Fatalf("runtime DNS parity missing %q", want)
