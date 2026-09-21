@@ -135,6 +135,36 @@ func TestEnsureProviderSubscriptionCacheUsesMatchingLKGWithoutNetwork(t *testing
 	}
 }
 
+func TestEnsureProviderSubscriptionCacheFailsClosedWhenDirectAndVPNSourcesFail(t *testing.T) {
+	setProviderCachePathsForTest(t)
+	oldDirect := directSubscriptionBodyFetch
+	oldVPN := activeVPNSubscriptionBodyFetch
+	t.Cleanup(func() {
+		directSubscriptionBodyFetch = oldDirect
+		activeVPNSubscriptionBodyFetch = oldVPN
+	})
+	directSubscriptionBodyFetch = func(context.Context, *url.URL) ([]byte, error) {
+		return nil, errors.New("direct unavailable")
+	}
+	activeVPNSubscriptionBodyFetch = func(*app, context.Context, *url.URL) ([]byte, error) {
+		return nil, errors.New("vpn unavailable")
+	}
+	dir := t.TempDir()
+	subPath := filepath.Join(dir, "subscription.url")
+	const subURL = "https://subscription.example.invalid/private-token"
+	if err := os.WriteFile(subPath, []byte(subURL+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{SubPath: subPath}}
+	err := a.ensureProviderSubscriptionCache(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "secure provider cache is missing") {
+		t.Fatalf("unexpected failure: %v", err)
+	}
+	if _, statErr := os.Stat(providerSubscriptionCachePath()); !os.IsNotExist(statErr) {
+		t.Fatalf("failed preparation must not fabricate provider cache: %v", statErr)
+	}
+}
+
 func TestActiveVPNSubscriptionFetchIsReadOnlyAndSecretSafeByContract(t *testing.T) {
 	data, err := os.ReadFile("subscription_active_vpn_fetch.go")
 	if err != nil {
