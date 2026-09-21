@@ -41,6 +41,7 @@
 
   const CORE_SCRIPT = 'settings-v3-core.js';
   const STYLE_ID = 'freenetSettingsSingleSaveStyles';
+  const JOURNAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg>';
   let patchQueued = false;
 
   function coreURL() {
@@ -50,6 +51,24 @@
     } catch (_) {
       return `/${CORE_SCRIPT}`;
     }
+  }
+
+  function patchRouteLabels() {
+    try {
+      if (typeof pageLabels === 'object' && pageLabels) {
+        pageLabels.settings = 'Настройки';
+        pageLabels.journal = 'Журнал';
+      }
+    } catch (_) {}
+  }
+
+  function patchJournalIcon() {
+    patchRouteLabels();
+    const icon = document.querySelector('.nav-btn[data-page="journal"] .nav-icon');
+    if (!icon) return;
+    icon.innerHTML = JOURNAL_ICON;
+    icon.dataset.freenetJournalIcon = '1';
+    icon.setAttribute('aria-label', 'Журнал');
   }
 
   function injectStyles() {
@@ -70,6 +89,7 @@
 
   function patchSingleSave() {
     injectStyles();
+    patchJournalIcon();
     const footerRow = document.querySelector('.fn3-extra-save-row');
     if (footerRow) footerRow.remove();
     const duplicate = document.getElementById('fn3MaintenanceSave');
