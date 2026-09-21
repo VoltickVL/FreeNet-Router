@@ -63,9 +63,12 @@ func TestCurrentEndpointRefreshUsesShortIsolatedProbe(t *testing.T) {
 	}
 	src := string(data)
 	start := strings.Index(src, "func (a *app) executeBestServerCurrentRefresh")
+	if start < 0 {
+		t.Fatal("current refresh function start not found")
+	}
 	end := strings.Index(src[start:], "func (a *app) applyBestServerRefreshCandidate")
-	if start < 0 || end < 0 {
-		t.Fatal("current refresh function boundaries not found")
+	if end < 0 {
+		t.Fatal("current refresh function end not found")
 	}
 	body := src[start : start+end]
 	if !strings.Contains(body, "probeBestServerCurrentRefreshCandidate") {
@@ -103,9 +106,12 @@ func TestEndpointCutoverContractForbidsFailOpenXKeenRestart(t *testing.T) {
 	}
 	mainSrc := string(mainData)
 	start := strings.Index(mainSrc, "func (a *app) restoreSnapshot")
+	if start < 0 {
+		t.Fatal("restoreSnapshot start not found")
+	}
 	end := strings.Index(mainSrc[start:], "func atomicWrite")
-	if start < 0 || end < 0 {
-		t.Fatal("restoreSnapshot boundaries not found")
+	if end < 0 {
+		t.Fatal("restoreSnapshot end not found")
 	}
 	restore := mainSrc[start : start+end]
 	if !strings.Contains(restore, `providerHelperPath(), "core-restart"`) {
