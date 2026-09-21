@@ -254,18 +254,6 @@
     catch (_) { return date.toLocaleString(); }
   }
 
-  function latestSuccessfulSubscriptionUpdate() {
-    return subscriptionHistory().find(item => item && item.kind === 'refresh' && item.ok === true) || null;
-  }
-
-  function renderSubscriptionLastUpdate() {
-    const node = qs('#fnSubscriptionLastAction');
-    if (!node) return;
-    const last = latestSuccessfulSubscriptionUpdate();
-    node.innerHTML = '<span>Последнее обновление</span><strong></strong>';
-    qs('strong', node).textContent = last ? formatSubscriptionTime(last.ts) : 'Нет данных';
-  }
-
   function renderSubscriptionHistory() {
     const body = qs('#fnSubscriptionHistoryBody');
     if (!body) return;
