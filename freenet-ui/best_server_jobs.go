@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-const bestServerAsyncJobTimeout = 180 * time.Second
+const bestServerAsyncJobTimeout = 190 * time.Second
 
 // One bounded, read-only quality job per app. Polling never starts a scan.
-// The Best Server job is intentionally capped at 180 s. Cheap preflight ranks
+// The Best Server job is intentionally capped at 190 s. Cheap preflight ranks
 // the pool first; deep checks then spend the remaining budget on the strongest
 // candidates and return measured partial results rather than holding the UI for
 // almost four minutes. Current-quality remains a separate explicit operation.
