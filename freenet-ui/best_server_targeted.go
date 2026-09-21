@@ -5,18 +5,61 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
 )
 
 const (
-	bestServerTargetedRetryTimeout = 75 * time.Second
-	bestServerRefreshTimeout       = 210 * time.Second
+	bestServerTargetedRetryTimeout     = 75 * time.Second
+	bestServerRefreshTimeout           = 150 * time.Second
+	bestServerEndpointReadinessTimeout = 20 * time.Second
 )
 
 type bestServerRefreshRequest struct {
 	Confirm bool `json:"confirm"`
+}
+
+var bestServerEndpointTCPProbe = defaultBestServerTCPProbe
+var bestServerEndpointApplicationProbe = func(a *app, ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+	return a.probeBestServerApplication(ctx, candidate)
+}
+
+func (a *app) probeBestServerFreshEndpointReadiness(parent context.Context, candidate bestServerInternalCandidate) *bestServerQualityCandidate {
+	ctx, cancel := context.WithTimeout(parent, bestServerEndpointReadinessTimeout)
+	defer cancel()
+
+	tcpCh := make(chan bestServerProbeResult, 1)
+	appCh := make(chan bestServerProbeResult, 1)
+	go func() { tcpCh <- bestServerEndpointTCPProbe(ctx, candidate.Profile) }()
+	go func() { appCh <- bestServerEndpointApplicationProbe(a, ctx, candidate) }()
+
+	tcp := <-tcpCh
+	app := <-appCh
+	result := &bestServerQualityCandidate{
+		ID: candidate.Profile.ID, Name: candidate.Profile.Name, CountryCode: candidate.Profile.CountryCode,
+		Endpoint: profileEndpoint(candidate.Profile),
+		Tested: ctx.Err() == nil,
+		Reachable: tcp.OK,
+		TCPRTTMS: tcp.Median, TCPJitterMS: tcp.Jitter,
+		ApplicationMS: app.Median, JitterMS: app.Jitter,
+		HTTPSamples: len(app.Samples),
+	}
+	result.Available = result.Tested && tcp.OK && app.OK
+	result.Eligible = result.Available
+	switch {
+	case result.Eligible:
+		result.Confidence = "high"
+		result.Reason = "fresh endpoint TCP and isolated VPN application probes passed"
+	case ctx.Err() != nil:
+		result.Reason = "fresh endpoint readiness timed out"
+	case !tcp.OK:
+		result.Reason = "fresh endpoint TCP probe failed"
+	default:
+		result.Reason = "fresh endpoint isolated VPN application probe failed"
+	}
+	return result
 }
 
 type bestServerRefreshResponse struct {
@@ -243,27 +286,17 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 		current = &copyValue
 	}
 
-	candidateResponse := rankBestServerQualityCandidates(
-		ctx,
-		[]bestServerInternalCandidate{fresh},
-		1,
-		false,
-		currentEndpoint,
-		currentFilter,
-		defaultBestServerQualityTCPProbe,
-		a.probeBestServerQualityApplication,
-	)
-	candidate := qualityCandidateByID(candidateResponse.Candidates, fresh.Profile.ID)
-	if ctx.Err() != nil {
+	candidate := a.probeBestServerFreshEndpointReadiness(ctx, fresh)
+	if ctx.Err() != nil || candidate == nil || !candidate.Tested {
 		return http.StatusGatewayTimeout, bestServerRefreshResponse{
 			Success: false, Outcome: "check_failed", Applied: false, Mutation: "NONE", Current: current, Candidate: candidate,
-			RollbackState: "NOT_APPLIED", Error: "quality-gated refresh timed out before mutation; current VPN was preserved",
+			RollbackState: "NOT_APPLIED", Error: "fresh endpoint readiness timed out before mutation; current VPN was preserved",
 		}
 	}
-	if candidate == nil || !candidate.Tested || !candidate.Available || !candidate.Eligible {
+	if !candidate.Available || !candidate.Eligible {
 		return http.StatusOK, bestServerRefreshResponse{
 			Success: true, Outcome: "check_failed", Applied: false, Mutation: "NONE", Current: current, Candidate: candidate, RollbackState: "NOT_NEEDED",
-			Message: "Свежий endpoint текущего профиля не прошёл полную проверку. Текущий VPN сохранён.",
+			Message: "Свежий endpoint текущего профиля не прошёл быструю isolated VPN readiness-проверку. Текущий VPN сохранён.",
 		}
 	}
 
@@ -281,15 +314,6 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 }
 
 func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestServerInternalCandidate) (int, bestServerRefreshResponse) {
-	plan, err := a.runProviderPlan(target.Profile.ID)
-	if err != nil || !plan.CandidateValid || plan.Mutation != "NONE" || !endpointsEqual(plan.Endpoint, profileEndpoint(target.Profile)) {
-		return http.StatusConflict, bestServerRefreshResponse{
-			Success: false, Outcome: "check_failed", Applied: false, Mutation: "NONE", RollbackState: "NOT_APPLIED",
-			PrimaryError: "fresh endpoint did not pass exact provider plan validation",
-			Error: "fresh endpoint validation failed; current VPN was preserved",
-		}
-	}
-
 	snap, err := a.takeSnapshot()
 	if err != nil {
 		return http.StatusInternalServerError, bestServerRefreshResponse{
@@ -299,7 +323,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 	}
 
 	applyCtx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
-	output, cmdErr := runCommand(applyCtx, providerHelperPath(), "apply", target.Profile.ID)
+	output, cmdErr := runCommand(applyCtx, providerHelperPath(), "apply-core", target.Profile.ID)
 	cancel()
 	safeOutput := sanitizeOutput(string(output))
 	if cmdErr != nil {
@@ -308,7 +332,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 			primary = cmdErr.Error()
 		}
 		if rollback == "UNKNOWN" || rollback == "FAILED/UNKNOWN" {
-			if rbErr := a.restoreSnapshot(snap); rbErr == nil {
+			if rbErr := a.restoreSnapshotCoreOnly(snap); rbErr == nil {
 				rollback = "SUCCESS"
 			} else {
 				rollback = "FAILED/UNKNOWN"
@@ -325,12 +349,13 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 	activeEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	activeLabel := currentExactProfileLabel(a.cfg.FilterPath)
 	postOK := endpointsEqual(activeEndpoint, expectedEndpoint) && processRunning("xray")
-	if plan.ProfileName != "" {
-		postOK = postOK && activeLabel == sanitizeProfileName(plan.ProfileName)
+	expectedLabel := sanitizeProfileName(target.Profile.Name)
+	if expectedLabel != "" {
+		postOK = postOK && activeLabel == expectedLabel
 	}
 	if !postOK {
 		rollback := "SUCCESS"
-		if rbErr := a.restoreSnapshot(snap); rbErr != nil {
+		if rbErr := a.restoreSnapshotCoreOnly(snap); rbErr != nil {
 			rollback = "FAILED/UNKNOWN"
 		}
 		return http.StatusBadGateway, bestServerRefreshResponse{
@@ -345,7 +370,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 	cancelProbe()
 	if postProbe.State != automationHealthHealthy {
 		rollback := "SUCCESS"
-		if rbErr := a.restoreSnapshot(snap); rbErr != nil {
+		if rbErr := a.restoreSnapshotCoreOnly(snap); rbErr != nil {
 			rollback = "FAILED/UNKNOWN"
 		}
 		return http.StatusBadGateway, bestServerRefreshResponse{
@@ -359,6 +384,30 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 		Success: true, Outcome: "applied", Applied: true, Mutation: "APPLIED", RollbackState: "NOT_NEEDED",
 		Message: "Свежий endpoint текущего VPN проверен, применён и подтверждён доступом через VPN.",
 	}
+}
+
+func (a *app) restoreSnapshotCoreOnly(s snapshot) error {
+	if s.filterExists {
+		if err := atomicWrite(a.cfg.FilterPath, s.filter, 0644); err != nil {
+			return err
+		}
+	} else if err := os.Remove(a.cfg.FilterPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	mode := s.outMode
+	if mode == 0 {
+		mode = 0600
+	}
+	if err := atomicWrite(a.cfg.OutPath, s.out, mode); err != nil {
+		return err
+	}
+	restartCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	output, err := runCommand(restartCtx, providerHelperPath(), "core-restart")
+	if err != nil {
+		return errors.New("core-only Xray rollback restart failed: " + sanitizeOutput(string(output)))
+	}
+	return nil
 }
 
 func bestServerCandidateByID(candidates []bestServerInternalCandidate, id string) (bestServerInternalCandidate, bool) {
