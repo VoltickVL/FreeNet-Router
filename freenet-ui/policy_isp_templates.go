@@ -6,12 +6,11 @@ import (
 )
 
 type policyISPPresetTemplate struct {
-	ID           string         `json:"id"`
-	Name         string         `json:"name"`
-	YouTubeRoute string         `json:"youtube_route"`
-	Rules        []PolicyRule   `json:"rules"`
-	Compiled     CompiledPolicy `json:"compiled"`
-	Message      string         `json:"message,omitempty"`
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Rules    []PolicyRule   `json:"rules"`
+	Compiled CompiledPolicy `json:"compiled"`
+	Message  string         `json:"message,omitempty"`
 }
 
 type policyISPPresetsResponse struct {
@@ -22,54 +21,34 @@ type policyISPPresetsResponse struct {
 }
 
 type policyISPPresetSpec struct {
-	ID           string
-	YouTubeRoute string
-	Rules        []PolicyRule
-	Message      string
+	ID      string
+	Message string
 }
 
 var policyISPPresetSpecs = []policyISPPresetSpec{
 	{
-		ID:           "auto",
-		YouTubeRoute: "detect",
-		Message:      "Авто не создаёт routing policy без runtime-факта; mutation: NONE.",
+		ID:      "auto",
+		Message: "Авто не создаёт routing policy без явного пользовательского правила или подтверждённого runtime-факта; mutation: NONE.",
 	},
 	{
-		ID:           "vladlink",
-		YouTubeRoute: "direct",
-		Rules: []PolicyRule{{
-			Selector: PolicySelector{Kind: PolicySelectorGeoSite, Value: "youtube"},
-			Action:   PolicyActionDirect,
-		}},
-		Message: "Владлинк baseline: YouTube → DIRECT.",
+		ID:      "vladlink",
+		Message: "Владлинк: ISP profile хранит сетевые метаданные; routing policy задаётся явно, без автоматического YouTube-правила.",
 	},
 	{
-		ID:           "alliancetelecom",
-		YouTubeRoute: "direct",
-		Rules: []PolicyRule{{
-			Selector: PolicySelector{Kind: PolicySelectorGeoSite, Value: "youtube"},
-			Action:   PolicyActionDirect,
-		}},
-		Message: "АльянсТелеком baseline: YouTube → DIRECT.",
+		ID:      "alliancetelecom",
+		Message: "АльянсТелеком: ISP profile хранит сетевые метаданные; routing policy задаётся явно, без автоматического YouTube-правила.",
 	},
 	{
-		ID:           "rostelecom",
-		YouTubeRoute: "vpn",
-		Rules: []PolicyRule{{
-			Selector: PolicySelector{Kind: PolicySelectorGeoSite, Value: "youtube"},
-			Action:   PolicyActionVPN,
-		}},
-		Message: "Ростелеком baseline: YouTube → VPN.",
+		ID:      "rostelecom",
+		Message: "Ростелеком: ISP profile хранит сетевые метаданные; routing policy задаётся явно, без автоматического YouTube-правила.",
 	},
 	{
-		ID:           "podryad",
-		YouTubeRoute: "detect",
-		Message:      "Подряд — отдельный ISP profile; FreeNet не наследует чужую policy без подтверждения. Mutation: NONE.",
+		ID:      "podryad",
+		Message: "Подряд: отдельный ISP profile; FreeNet не наследует чужую routing policy и не создаёт автоматическое YouTube-правило.",
 	},
 	{
-		ID:           "custom",
-		YouTubeRoute: "custom",
-		Message:      "Custom — ручная экспертная policy; FreeNet не создаёт автоматический template.",
+		ID:      "custom",
+		Message: "Custom: ручная экспертная policy; FreeNet не создаёт автоматический routing template.",
 	},
 }
 
@@ -80,18 +59,17 @@ func buildPolicyISPPresets() ([]policyISPPresetTemplate, error) {
 		if !ok {
 			return nil, errors.New("policy ISP preset references unknown ISP")
 		}
-		rules := append([]PolicyRule{}, spec.Rules...)
+		rules := []PolicyRule{}
 		compiled, err := CompilePolicy(rules)
 		if err != nil {
 			return nil, err
 		}
 		presets = append(presets, policyISPPresetTemplate{
-			ID:           spec.ID,
-			Name:         meta.Label,
-			YouTubeRoute: spec.YouTubeRoute,
-			Rules:        rules,
-			Compiled:     compiled,
-			Message:      spec.Message,
+			ID:       spec.ID,
+			Name:     meta.Label,
+			Rules:    rules,
+			Compiled: compiled,
+			Message:  spec.Message,
 		})
 	}
 	return presets, nil
