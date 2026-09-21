@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -534,16 +535,44 @@ func (a *app) runV3Subscription(ctx context.Context) error {
 	return err
 }
 
+func subscriptionHasFreshEndpointForCurrent(profiles []subscriptionProfile, currentEndpoint, currentFilter, exactLabel string) bool {
+	currentEndpoint = strings.TrimSpace(currentEndpoint)
+	currentFilter = strings.TrimSpace(currentFilter)
+	if currentEndpoint == "" || currentFilter == "" {
+		return false
+	}
+	matcher, err := regexp.Compile(currentFilter)
+	if err != nil {
+		return false
+	}
+	candidates := make([]bestServerInternalCandidate, 0, len(profiles))
+	for _, profile := range profiles {
+		candidates = append(candidates, bestServerInternalCandidate{Profile: profile})
+	}
+	_, ok := bestServerFreshCandidateForCurrent(candidates, matcher, exactLabel, currentEndpoint)
+	return ok
+}
+
+var settingsV3ScheduledCurrentEndpointChanged = func(a *app, profiles []subscriptionProfile) bool {
+	return subscriptionHasFreshEndpointForCurrent(
+		profiles,
+		readBestServerCurrentEndpoint(a.cfg.OutPath),
+		readBestServerCurrentFilter(a.cfg.FilterPath),
+		currentExactProfileLabel(a.cfg.FilterPath),
+	)
+}
+
 var settingsV3ScheduledCurrentRefresh = func(a *app, ctx context.Context) (int, bestServerRefreshResponse) {
 	return a.executeBestServerCurrentRefresh(ctx)
 }
 
 func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
-	if _, err := a.runV3SubscriptionResult(ctx); err != nil {
+	subscription, err := a.runV3SubscriptionResult(ctx)
+	if err != nil {
 		return err
 	}
 	settings := readAutomationSettings(a.cfg.ConfigPath)
-	if !settings.Enabled || !settings.AutoApply {
+	if !settings.Enabled || !settings.AutoApply || !settingsV3ScheduledCurrentEndpointChanged(a, subscription.Profiles) {
 		return nil
 	}
 
