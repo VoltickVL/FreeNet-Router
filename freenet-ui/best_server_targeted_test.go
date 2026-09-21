@@ -41,28 +41,16 @@ func TestBestServerFreshCandidateForCurrentRejectsAmbiguousRotation(t *testing.T
 	}
 }
 
-func TestBestServerFreshEndpointAcceptsEligibleRotationUnlessOldEndpointIsMateriallyBetter(t *testing.T) {
-	current := bestServerQualityCandidate{
-		Current: true, Tested: true, Available: true, Eligible: true,
-		Score: 1000, DownloadMbps: 100, ApplicationMS: 160, JitterMS: 10,
-	}
+func TestBestServerFreshEndpointRotationUsesFreshEligibilityNotOldScore(t *testing.T) {
 	fresh := bestServerQualityCandidate{
 		Tested: true, Available: true, Eligible: true,
-		Score: 1005, DownloadMbps: 98, ApplicationMS: 162, JitterMS: 11,
+		Score: 700, DownloadMbps: 35, ApplicationMS: 210, JitterMS: 30,
 	}
-	if !bestServerFreshEndpointAcceptable(current, fresh) {
-		t.Fatal("fully eligible equivalent fresh endpoint should be accepted for current logical profile rotation")
+	if !fresh.Tested || !fresh.Available || !fresh.Eligible {
+		t.Fatal("fully validated fresh endpoint must be eligible for same-profile rotation regardless of old endpoint score")
 	}
-
-	current.Score = 1500
-	current.DownloadMbps = 130
-	current.ApplicationMS = 120
-	current.JitterMS = 5
-	fresh.Score = 900
-	fresh.DownloadMbps = 60
-	fresh.ApplicationMS = 210
-	fresh.JitterMS = 30
-	if bestServerFreshEndpointAcceptable(current, fresh) {
-		t.Fatal("fresh endpoint must be rejected when the active endpoint is materially better")
+	fresh.Eligible = false
+	if fresh.Tested && fresh.Available && fresh.Eligible {
+		t.Fatal("fresh endpoint without full eligibility must never be auto-applied")
 	}
 }
