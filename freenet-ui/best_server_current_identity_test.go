@@ -62,3 +62,32 @@ func TestBestServerInvalidActiveFilterFailsClosed(t *testing.T) {
 		t.Fatalf("invalid active filter must fail closed, got index %d", got)
 	}
 }
+
+
+func TestBestServerRotatedCurrentLogicalEndpointIsNotSwitchCandidate(t *testing.T) {
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "frankfurt-new", Name: "DE Frankfurt Germany Extra", CountryCode: "de", Address: "203.0.113.20", Port: 443}},
+		{Profile: subscriptionProfile{ID: "bratislava", Name: "SK Bratislava Slovakia Extra", CountryCode: "sk", Address: "203.0.113.30", Port: 443}},
+	}
+	filtered := withoutBestServerCurrentLogicalAlternatives(
+		candidates,
+		"198.51.100.10:443",
+		"Frankfurt|Germany|Германия",
+		"DE Frankfurt Germany Extra",
+	)
+	if len(filtered) != 1 || filtered[0].Profile.ID != "bratislava" {
+		t.Fatalf("rotated current logical endpoint must be removed from alternatives, got %#v", filtered)
+	}
+}
+
+func TestBestServerRotatedCurrentLogicalFilterFailsClosedWhenAmbiguous(t *testing.T) {
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "de-a", Name: "DE Frankfurt A Extra", Address: "203.0.113.20", Port: 443}},
+		{Profile: subscriptionProfile{ID: "de-b", Name: "DE Frankfurt B Extra", Address: "203.0.113.21", Port: 443}},
+		{Profile: subscriptionProfile{ID: "sk", Name: "SK Bratislava Extra", Address: "203.0.113.30", Port: 443}},
+	}
+	filtered := withoutBestServerCurrentLogicalAlternatives(candidates, "198.51.100.10:443", "Frankfurt", "")
+	if len(filtered) != len(candidates) {
+		t.Fatalf("ambiguous broad current filter must not guess which logical profile to remove: %#v", filtered)
+	}
+}
