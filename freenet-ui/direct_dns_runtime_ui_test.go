@@ -16,7 +16,7 @@ func TestDirectDNSRuntimeStatusDoesNotRequireDNSOut(t *testing.T) {
 		`ensureLegacyVPNStatusNodes();`,
 		`const xrayDNS = s.dns_mode === 'xkeen';`,
 		`const dnsHealthy = xrayDNS ? !!s.dns_out_present : true;`,
-		`dnsState.textContent = xrayDNS ? (s.dns_out_present ? 'DNS через XKeen/Xray' : 'DNS требует внимания') : 'DNS напрямую';`,
+		`dnsState.textContent = xrayDNS ? (s.dns_out_present ? 'Раздельный' : 'Раздельный · требует внимания') : 'Прямой';`,
 		`topStatus.textContent = 'FreeNet доступен';`,
 		`VPN-действия не меняют ISP и DNS.`,
 	} {
