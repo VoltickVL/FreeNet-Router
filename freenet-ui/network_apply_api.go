@@ -693,6 +693,8 @@ func providerPlanFailureReason(output []byte) string {
 			return ""
 		}
 		switch {
+		case strings.Contains(lower, "secure provider cache is missing") || strings.Contains(lower, "fresh subscription unavailable"):
+			return "Свежая подписка недоступна, а защищённый локальный список для переключения ещё не создан."
 		case strings.Contains(lower, "subscription fetch failed"):
 			return "Не удалось обновить список VPN-серверов из подписки."
 		case strings.Contains(lower, "requested extra profile is not present"):
