@@ -23,7 +23,15 @@
   function codeOf(profile) {
     const direct = String(profile?.country_code || '').trim().toLowerCase();
     if (/^[a-z]{2}$/.test(direct)) return direct;
-    const match = String(profile?.name || profile?.profile_label || '').trim().match(/^([a-z]{2})[\s,:]/i);
+    const label = String(profile?.name || profile?.profile_label || '').trim();
+    const chars = Array.from(label);
+    if (chars.length >= 2) {
+      const a = chars[0].codePointAt(0), b = chars[1].codePointAt(0), first = 0x1F1E6, last = 0x1F1FF;
+      if (a >= first && a <= last && b >= first && b <= last) {
+        return String.fromCharCode(97 + a - first, 97 + b - first);
+      }
+    }
+    const match = label.match(/^([a-z]{2})[\s,:]/i);
     return match ? match[1].toLowerCase() : '';
   }
   function countryName(code, fallback = '') {
@@ -44,7 +52,7 @@
   }
   let sourceKey = '', rows = [], selected = null, choosing = false, error = '', sent = false;
   let host, toggle, panel, search, list, footer, statusText, detail, connect, reset, currentName, currentCopy, currentFlag, badge;
-  let paintQueued = false, listKey = '', timer = null, observedCard = null, observedButton = null;
+  let paintQueued = false, listKey = '', timer = null, observedCard = null, observedButton = null, staleRefresh = null;
   const atlas = new Map();
   function readAtlas() {
     // Reuse the EXACT integrated freenetCanonicalAllFlags SVG data, including
@@ -80,15 +88,18 @@
     return {stale};
   }
   function currentIdentity(s) {
-    const labelCode = codeOf({profile_label:s?.profile_label});
-    const match = rows.find(p => s?.endpoint && p.endpoint === s.endpoint);
-    let code = codeOf(s) || labelCode || codeOf(match);
-    // Overview is a fallback only for the SAME confirmed endpoint, never for a
-    // candidate being measured or a selected-but-not-connected server.
-    if (!code && s?.endpoint && q('#bestCurrentEndpoint')?.textContent.trim() === s.endpoint) {
-      code = q('#bestCurrentFlag')?.className.match(/(?:^|\s)flag-([a-z]{2})(?:\s|$)/)?.[1] || '';
+    const exactLabel = String(s?.profile_label || '').trim();
+    const labelCode = codeOf({profile_label:exactLabel});
+    // Exact logical profile identity is authoritative. Endpoint address:port is
+    // deliberately NOT used here: provider endpoints can be shared/reused and
+    // cached rows may belong to another router or an older subscription state.
+    let code = labelCode || codeOf(s);
+    let label = clean(exactLabel);
+    if (!code && exactLabel) {
+      const exact = rows.find(p => normalize(clean(p.name)) === normalize(label));
+      code = codeOf(exact);
     }
-    return {code, country:countryName(code, s?.country), label:clean(s?.profile_label || match?.name || '')};
+    return {code, country:countryName(code, s?.country), label};
   }
   function mountStyles() {
     if (q('#freenetVPNPickerV2Styles')) return;
@@ -285,7 +296,21 @@
     panel.style.top=top+'px'; panel.style.bottom='auto';
     panel.style.setProperty('--fnv2-space',Math.max(240,vh-top-12)+'px');
   }
-  function open() { panel.hidden=false; toggle.setAttribute('aria-expanded','true'); listKey=''; paint(); search.focus({preventScroll:true}); }
+  function refreshStaleCatalogOnOpen() {
+    if (staleRefresh || selected || choosing || busy()) return;
+    if (!profileSource().stale) return;
+    let loader = null;
+    try { if (typeof loadNetworkPlan === 'function') loader = loadNetworkPlan; } catch (_) {}
+    if (!loader) return;
+    staleRefresh = Promise.resolve(loader(''))
+      .catch(() => {})
+      .finally(() => { staleRefresh = null; schedulePaint(); });
+  }
+  function open() {
+    panel.hidden=false; toggle.setAttribute('aria-expanded','true'); listKey=''; paint();
+    refreshStaleCatalogOnOpen();
+    search.focus({preventScroll:true});
+  }
   function close(restore=false) { if (!panel) return; panel.hidden=true; toggle.setAttribute('aria-expanded','false'); if (restore) toggle.focus({preventScroll:true}); }
   function boot() {
     paint(); timer=setInterval(schedulePaint,1000); // Reads shared state only; no extra requests.
