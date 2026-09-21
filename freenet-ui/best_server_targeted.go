@@ -4,16 +4,168 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 )
 
 const (
-	bestServerTargetedRetryTimeout = 75 * time.Second
-	bestServerRefreshTimeout       = 210 * time.Second
+	bestServerTargetedRetryTimeout       = 75 * time.Second
+	bestServerRefreshTimeout             = 210 * time.Second
+	bestServerCurrentRefreshProbeTimeout = 15 * time.Second
 )
+
+func (a *app) probeBestServerCurrentRefreshCandidate(ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityCandidate {
+	result := bestServerQualityCandidate{
+		Tested: true,
+		ID: candidate.Profile.ID,
+		Name: candidate.Profile.Name,
+		CountryCode: candidate.Profile.CountryCode,
+		Endpoint: profileEndpoint(candidate.Profile),
+		Reason: "fresh endpoint validation started",
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, bestServerCurrentRefreshProbeTimeout)
+	defer cancel()
+
+	tcp := defaultBestServerQualityTCPProbe(probeCtx, candidate.Profile)
+	if !tcp.OK {
+		result.Reason = "fresh endpoint TCP probe failed"
+		result.Rejections = []string{"TCP endpoint unreachable"}
+		return result
+	}
+	result.Reachable = true
+	result.TCPRTTMS = tcp.Median
+	result.TCPJitterMS = tcp.Jitter
+
+	appProbe := a.probeBestServerCurrentRefreshApplication(probeCtx, candidate)
+	if !appProbe.OK {
+		result.Reason = "fresh endpoint isolated VPN probe failed"
+		result.Rejections = []string{"isolated Xray tunnel probe failed"}
+		return result
+	}
+	result.Available = true
+	result.Eligible = true
+	result.ApplicationMS = appProbe.Median
+	result.HTTPSamples = len(appProbe.Samples)
+	result.Confidence = "verified"
+	result.Reason = "fresh endpoint verified through isolated Xray tunnel; performance ranking skipped"
+	return result
+}
+
+func (a *app) probeBestServerCurrentRefreshApplication(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+	outbound, err := buildBestServerProbeOutbound(candidate.Raw, candidate.Profile)
+	if err != nil {
+		return bestServerProbeResult{}
+	}
+	xrayPath := strings.TrimSpace(os.Getenv("FREENET_XRAY_BIN"))
+	if xrayPath == "" {
+		xrayPath = defaultBestServerXrayPath
+	}
+	if _, err := os.Stat(xrayPath); err != nil {
+		return bestServerProbeResult{}
+	}
+	curlPath, err := exec.LookPath("curl")
+	if err != nil {
+		return bestServerProbeResult{}
+	}
+
+	port, err := reserveBestServerPort()
+	if err != nil {
+		return bestServerProbeResult{}
+	}
+	tmpDir, err := os.MkdirTemp("", "freenet-current-refresh-")
+	if err != nil {
+		return bestServerProbeResult{}
+	}
+	defer os.RemoveAll(tmpDir)
+	_ = os.Chmod(tmpDir, 0700)
+
+	config := map[string]any{
+		"log": map[string]any{"loglevel": "warning"},
+		"inbounds": []any{map[string]any{
+			"listen": "127.0.0.1", "port": port, "protocol": "socks",
+			"settings": map[string]any{"udp": false}, "tag": "freenet-current-refresh",
+		}},
+		"outbounds": []any{outbound},
+		"routing": map[string]any{
+			"domainStrategy": "AsIs",
+			"rules": []any{map[string]any{
+				"type": "field", "inboundTag": []string{"freenet-current-refresh"}, "outboundTag": "vless-reality",
+			}},
+		},
+	}
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		return bestServerProbeResult{}
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "00_probe.json"), encoded, 0600); err != nil {
+		return bestServerProbeResult{}
+	}
+
+	env := append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir())
+	testCtx, cancelTest := context.WithTimeout(ctx, 4*time.Second)
+	testCmd := exec.CommandContext(testCtx, xrayPath, "run", "-test", "-confdir", tmpDir)
+	testCmd.Env = env
+	testCmd.Stdout = io.Discard
+	testCmd.Stderr = io.Discard
+	testErr := testCmd.Run()
+	cancelTest()
+	if testErr != nil {
+		return bestServerProbeResult{}
+	}
+
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	cmd := exec.CommandContext(runCtx, xrayPath, "run", "-confdir", tmpDir)
+	cmd.Env = env
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		return bestServerProbeResult{}
+	}
+	defer func() {
+		cancelRun()
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	}()
+	if !waitBestServerSOCKS(ctx, port) {
+		return bestServerProbeResult{}
+	}
+
+	socks := fmt.Sprintf("127.0.0.1:%d", port)
+	probeCtx, cancelProbe := context.WithTimeout(ctx, 5*time.Second)
+	started := time.Now()
+	output, err := exec.CommandContext(probeCtx, curlPath,
+		"--socks5-hostname", socks,
+		"-sS", "--connect-timeout", "3", "--max-time", "5",
+		"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}",
+		bestServerQualityProbeURL,
+	).Output()
+	elapsed := int(time.Since(started).Milliseconds())
+	cancelProbe()
+	if err != nil {
+		return bestServerProbeResult{}
+	}
+	ms, ok := parseBestServerHTTPResponseMS(string(output))
+	if !ok {
+		return bestServerProbeResult{}
+	}
+	if elapsed > ms {
+		ms = elapsed
+	}
+	if ms < 1 {
+		ms = 1
+	}
+	return bestServerProbeResult{OK: true, Samples: []int{ms}, Median: ms, Jitter: 0}
+}
 
 type bestServerRefreshRequest struct {
 	Confirm bool `json:"confirm"`
@@ -243,34 +395,25 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 		current = &copyValue
 	}
 
-	candidateResponse := rankBestServerQualityCandidates(
-		ctx,
-		[]bestServerInternalCandidate{fresh},
-		1,
-		false,
-		currentEndpoint,
-		currentFilter,
-		defaultBestServerQualityTCPProbe,
-		a.probeBestServerQualityApplication,
-	)
-	candidate := qualityCandidateByID(candidateResponse.Candidates, fresh.Profile.ID)
+	candidateValue := a.probeBestServerCurrentRefreshCandidate(ctx, fresh)
+	candidate := &candidateValue
 	if ctx.Err() != nil {
 		return http.StatusGatewayTimeout, bestServerRefreshResponse{
 			Success: false, Outcome: "check_failed", Applied: false, Mutation: "NONE", Current: current, Candidate: candidate,
-			RollbackState: "NOT_APPLIED", Error: "quality-gated refresh timed out before mutation; current VPN was preserved",
+			RollbackState: "NOT_APPLIED", Error: "fresh endpoint validation timed out before mutation; current VPN was preserved",
 		}
 	}
-	if candidate == nil || !candidate.Tested || !candidate.Available || !candidate.Eligible {
+	if !candidate.Tested || !candidate.Available || !candidate.Eligible {
 		return http.StatusOK, bestServerRefreshResponse{
 			Success: true, Outcome: "check_failed", Applied: false, Mutation: "NONE", Current: current, Candidate: candidate, RollbackState: "NOT_NEEDED",
-			Message: "Свежий endpoint текущего профиля не прошёл полную проверку. Текущий VPN сохранён.",
+			Message: "Свежий endpoint текущего профиля не прошёл короткую проверку VPN. Текущий VPN сохранён.",
 		}
 	}
 
 	if readBestServerCurrentEndpoint(a.cfg.OutPath) != currentEndpoint || readBestServerCurrentFilter(a.cfg.FilterPath) != currentFilter {
 		return http.StatusConflict, bestServerRefreshResponse{
 			Success: false, Outcome: "check_failed", Applied: false, Mutation: "NONE", Current: current, Candidate: candidate, RollbackState: "NOT_APPLIED",
-			Error: "current VPN changed during quality decision; refresh stopped without mutation",
+			Error: "current VPN changed during endpoint validation; refresh stopped without mutation",
 		}
 	}
 
