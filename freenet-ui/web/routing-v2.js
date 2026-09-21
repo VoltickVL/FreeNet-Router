@@ -964,7 +964,7 @@
       if (prepared.managedCount) changes.push(`добавить: ${prepared.managedCount}`);
       if (prepared.removedCount) changes.push(`удалить: ${prepared.removedCount}`);
       setNotice('rv2RulesApplyResult', `Проверка пройдена · ${changes.join(' · ')}. Остальные правила сохраняются без изменений.`, 'ok');
-      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. ${changes.join(' · ')}. Служебные/complex rules сохранены exact. Перед записью FreeNet создаст резервную точку и автоматически откатит изменение при ошибке.`;
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. ${changes.join(' · ')}. Существующие правила сохранены, кроме явно отмеченных удалений. Служебные правила сохранены без изменений. Перед записью FreeNet создаст резервную точку и автоматически откатит изменение при ошибке.`;
     } else {
       setNotice('rv2RulesApplyResult', 'Проверка не пройдена. Применение заблокировано; текущая маршрутизация не изменена.', 'bad');
     }
