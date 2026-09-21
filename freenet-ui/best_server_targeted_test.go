@@ -3,6 +3,7 @@ package main
 import (
     "context"
     "os"
+    "path/filepath"
     "regexp"
     "strings"
     "testing"
@@ -134,5 +135,62 @@ func TestCurrentEndpointRefreshDoesNotUseFullBestServerQualityGate(t *testing.T)
 	}
 	if !strings.Contains(applyBody, `providerHelperPath(), "apply-core"`) {
 		t.Fatal("same-profile endpoint apply must use core-only provider cutover")
+	}
+}
+
+
+func TestEndpointRefreshSnapshotRestoresPreferredProfileMetadata(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "04_outbounds.json")
+	filterPath := filepath.Join(dir, "profile.filter")
+	profilePath := filepath.Join(dir, "vpn_profile_name")
+	t.Setenv("FREENET_PROFILE_FILE", profilePath)
+
+	if err := os.WriteFile(outPath, []byte("old-outbound\n"), 0640); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filterPath, []byte("old-filter\n"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(profilePath, []byte("old-profile\n"), 0600); err != nil { t.Fatal(err) }
+
+	a := &app{cfg: config{OutPath: outPath, FilterPath: filterPath}}
+	snap, err := a.takeEndpointRefreshSnapshot()
+	if err != nil { t.Fatal(err) }
+
+	if err := os.WriteFile(outPath, []byte("new-outbound\n"), 0600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filterPath, []byte("new-filter\n"), 0644); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(profilePath, []byte("new-profile\n"), 0644); err != nil { t.Fatal(err) }
+
+	if err := a.restoreEndpointRefreshFiles(snap); err != nil { t.Fatal(err) }
+
+	for path, want := range map[string]string{
+		outPath: "old-outbound\n",
+		filterPath: "old-filter\n",
+		profilePath: "old-profile\n",
+	} {
+		got, err := os.ReadFile(path)
+		if err != nil { t.Fatal(err) }
+		if string(got) != want { t.Fatalf("%s=%q want %q", path, got, want) }
+	}
+	info, err := os.Stat(profilePath)
+	if err != nil { t.Fatal(err) }
+	if info.Mode().Perm() != 0600 { t.Fatalf("preferred profile mode=%o want 600", info.Mode().Perm()) }
+}
+
+func TestEndpointRefreshSnapshotRemovesProfileCreatedAfterAbsentSnapshot(t *testing.T) {
+	dir := t.TempDir()
+	outPath := filepath.Join(dir, "04_outbounds.json")
+	filterPath := filepath.Join(dir, "profile.filter")
+	profilePath := filepath.Join(dir, "vpn_profile_name")
+	t.Setenv("FREENET_PROFILE_FILE", profilePath)
+
+	if err := os.WriteFile(outPath, []byte("old-outbound\n"), 0600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filterPath, []byte("old-filter\n"), 0644); err != nil { t.Fatal(err) }
+	a := &app{cfg: config{OutPath: outPath, FilterPath: filterPath}}
+	snap, err := a.takeEndpointRefreshSnapshot()
+	if err != nil { t.Fatal(err) }
+	if snap.profileExists { t.Fatal("preferred profile unexpectedly existed in snapshot") }
+
+	if err := os.WriteFile(profilePath, []byte("new-profile\n"), 0600); err != nil { t.Fatal(err) }
+	if err := a.restoreEndpointRefreshFiles(snap); err != nil { t.Fatal(err) }
+	if _, err := os.Stat(profilePath); !os.IsNotExist(err) {
+		t.Fatalf("preferred profile created by failed apply must be removed on rollback; err=%v", err)
 	}
 }
