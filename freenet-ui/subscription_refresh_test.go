@@ -188,12 +188,16 @@ func TestSubscriptionProfilesForReadUsesLastKnownGoodWithoutFreshFetch(t *testin
 		resetSubscriptionRefreshGroupForTest()
 	})
 
+	subPath := filepath.Join(t.TempDir(), "subscription.url")
+	if err := os.WriteFile(subPath, []byte("https://example.invalid/key\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	var calls int32
 	subscriptionProfileDiscovery = func(_ *app, _ context.Context) ([]subscriptionProfile, error) {
 		atomic.AddInt32(&calls, 1)
 		return testSafeSubscriptionProfiles(), nil
 	}
-	a := &app{}
+	a := &app{cfg: config{SubPath: subPath}}
 	if _, err := a.refreshSubscriptionProfiles(context.Background()); err != nil {
 		t.Fatal(err)
 	}
