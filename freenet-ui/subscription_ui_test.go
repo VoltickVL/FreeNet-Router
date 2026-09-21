@@ -27,7 +27,10 @@ func TestAcceptedSubscriptionUXContract(t *testing.T) {
 		"AUTO VPN будет настраиваться отдельно",
 		"input.type = 'password'",
 		"input.removeAttribute('value')",
-		"await window.loadNetworkPlan()",
+		"/api/settings-v3/action",
+		"profiles_available",
+		"applySubscriptionActionCatalog",
+		"refreshSubscriptionScheduleState",
 	} {
 		if !strings.Contains(js, required) {
 			t.Fatalf("accepted subscription UX missing %q", required)
@@ -41,6 +44,8 @@ func TestAcceptedSubscriptionUXContract(t *testing.T) {
 		"storedSubscriptionURL",
 		"copySubscription",
 		"revealSubscription",
+		"await window.loadNetworkPlan()",
+		"await window.refreshProfiles()",
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("subscription UX contains forbidden secret surface %q", forbidden)
