@@ -151,8 +151,16 @@ printf '%s\n' "\$PID"
 EOF
 chmod 755 "$TMP/bin/pidof"
 
+cat > "$TMP/bin/dummy-xray" <<'EOF'
+#!/bin/sh
+PID_FILE="$1"
+trap 'rm -f "$PID_FILE"; exit 0' TERM INT
+while :; do sleep 1; done
+EOF
+chmod 755 "$TMP/bin/dummy-xray"
+
 start_dummy_xray() {
-    sh -c 'trap "rm -f "$1"; exit 0" TERM INT; while :; do sleep 1; done' sh "$TMP/runtime.pid" &
+    "$TMP/bin/dummy-xray" "$TMP/runtime.pid" &
     printf '%s\n' "$!" > "$TMP/runtime.pid"
 }
 start_dummy_xray
@@ -167,7 +175,7 @@ COUNT=0
 COUNT=\$((COUNT+1))
 printf '%s\n' "\$COUNT" > "\$COUNT_FILE"
 [ "\$COUNT" -eq 1 ] && exit 1
-sh -c 'trap "rm -f "$1"; exit 0" TERM INT; while :; do sleep 1; done' sh "$TMP/runtime.pid" &
+"$TMP/bin/dummy-xray" "$TMP/runtime.pid" &
 printf '%s\n' "\$!" > "$TMP/runtime.pid"
 exit 0
 EOF
