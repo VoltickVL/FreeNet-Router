@@ -237,13 +237,10 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 		}
 	}
 
-	currentResponse := a.scanActiveCurrentVPNQuality(ctx, currentEndpoint, currentFilter)
-	current := currentCandidateFromQuality(currentResponse)
-	if current == nil || !completeBestServerCurrentBaseline(*current) {
-		return http.StatusOK, bestServerRefreshResponse{
-			Success: true, Outcome: "check_failed", Applied: false, Mutation: "NONE", Current: current, RollbackState: "NOT_NEEDED",
-			Message: "Не удалось получить сопоставимый baseline текущего VPN. Переключение не выполнялось.",
-		}
+	var current *bestServerQualityCandidate
+	if cached, ok := loadBestServerCurrentQuality(currentEndpoint, currentFilter); ok {
+		copyValue := cached
+		current = &copyValue
 	}
 
 	candidateResponse := rankBestServerQualityCandidates(
@@ -263,16 +260,10 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 			RollbackState: "NOT_APPLIED", Error: "quality-gated refresh timed out before mutation; current VPN was preserved",
 		}
 	}
-	if candidate == nil || !bestServerFreshEndpointAcceptable(*current, *candidate) {
-		message := "Свежий endpoint не прошёл проверку качества. Текущий VPN сохранён."
-		outcome := "check_failed"
-		if candidate != nil && candidate.Tested && candidate.Eligible && candidate.Available {
-			message = "Свежий endpoint проверен, но текущий VPN заметно лучше. Автоматическое обновление пропущено."
-			outcome = "current_better"
-		}
+	if candidate == nil || !candidate.Tested || !candidate.Available || !candidate.Eligible {
 		return http.StatusOK, bestServerRefreshResponse{
-			Success: true, Outcome: outcome, Applied: false, Mutation: "NONE", Current: current, Candidate: candidate, RollbackState: "NOT_NEEDED",
-			Message: message,
+			Success: true, Outcome: "check_failed", Applied: false, Mutation: "NONE", Current: current, Candidate: candidate, RollbackState: "NOT_NEEDED",
+			Message: "Свежий endpoint текущего профиля не прошёл полную проверку. Текущий VPN сохранён.",
 		}
 	}
 
@@ -408,15 +399,6 @@ func bestServerFreshCandidateForCurrent(candidates []bestServerInternalCandidate
 		return matches[0], true
 	}
 	return bestServerInternalCandidate{}, false
-}
-
-func bestServerFreshEndpointAcceptable(current, candidate bestServerQualityCandidate) bool {
-	if !candidate.Tested || !candidate.Available || !candidate.Eligible {
-		return false
-	}
-	previous := current
-	previous.Current = false
-	return !bestServerMeaningfullyBetter(candidate, previous)
 }
 
 func qualityCandidateByID(candidates []bestServerQualityCandidate, id string) *bestServerQualityCandidate {

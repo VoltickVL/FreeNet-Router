@@ -18,7 +18,7 @@ import (
 const (
 	bestServerPreflightWorkers          = 4
 	bestServerPreflightCandidateTimeout = 8 * time.Second
-	bestServerPreflightPhaseTimeout     = 35 * time.Second
+	bestServerPreflightPhaseTimeout     = 20 * time.Second
 	bestServerPreflightShortlist        = 12
 	bestServerPreflightHTTPRuns         = 2
 )
