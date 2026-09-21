@@ -457,12 +457,18 @@
       value.textContent = next || 'Включено';
       meta.textContent = `Автопроверка · ${intervalCopy(schedule.interval)}`;
     }
+    const result = String(schedule && schedule.result || '');
+    const updaterState = q('#subscriptionUpdaterState');
+    if (updaterState) {
+      updaterState.textContent = result === 'success' ? 'Актуально' : result === 'failed' ? 'Ошибка' : 'Ожидает проверки';
+      updaterState.classList.toggle('ok', result === 'success');
+      updaterState.classList.toggle('bad', result === 'failed');
+    }
     const lastNode = q('#fnSubscriptionLastAction');
     if (lastNode) {
       const strong = q('strong', lastNode);
       if (strong) {
         const last = formatNextRun(schedule && schedule.last_run);
-        const result = String(schedule && schedule.result || '');
         const resultText = result === 'success' ? ' · Успешно' : result === 'failed' ? ' · Ошибка' : '';
         strong.textContent = last ? last + resultText : 'Нет данных';
       }
