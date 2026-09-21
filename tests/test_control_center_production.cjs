@@ -121,6 +121,7 @@ async function capture(label){
   // Real-upgrade regression: an exact Swiss profile may share an endpoint with
   // stale Belgian rows. Current logical identity must come from the exact
   // profile label, never endpoint equality or browser cache.
+  const connectedStatus={...status};
   status={...status,country:'',country_code:'',city:'',profile_label:'🇨🇭 Цюрих, Швейцария, Extra',endpoint:ep(current)};
   await page.evaluate(()=>loadStatus());
   await until(()=>document.querySelector('#fnVpnPickerV2Flag')?.dataset.country==='ch','Swiss exact current identity');
@@ -147,7 +148,7 @@ async function capture(label){
   for(let i=0;i<10;i++){await page.locator(T).click();await page.keyboard.press('Escape')}
   await page.evaluate(()=>new Promise(resolve=>{const n=document.createElement('div');document.body.appendChild(n);for(let i=0;i<100;i++)n.textContent=String(i);setTimeout(()=>{n.remove();resolve()},80)}));
   assert.equal(await page.locator(T).count(),1);assert.equal(await page.locator(P).count(),1);assert.equal(countApply(),1);
-  status={...status,xray_online:false};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Не подключён','offline');await page.locator(T).click();assert.equal(await page.locator('#fnVpnPickerV2State').getAttribute('data-online'),'false');
+  status={...connectedStatus,xray_online:false};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Не подключён','offline');await page.locator(T).click();assert.equal(await page.locator('#fnVpnPickerV2State').getAttribute('data-online'),'false');
   status={...status,xray_online:true};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','online again');await page.locator(S).fill('FI');await page.locator(R+' button').first().click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','ready before unknown');
   applyMode='unknown';await page.locator(C).click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','unknown result');assert.equal(await page.locator(C).isDisabled(),true);assert.equal(await page.locator('#fnVpnPickerV2Reset').isDisabled(),true);assert.equal(await page.locator(R+' button:not(:disabled)').count(),0,'unknown rollback STOP');await page.locator(C).dispatchEvent('click');assert.equal(countApply(),2,'no blind retry');assert.deepEqual(errors,[]);
   console.log('PASS: actual production HTML/CSP, canonical flags, current identity, search, read-only check, exact apply, cache, errors/STOP, five viewports, navigation and liveness.');console.log('Other mocked GET surfaces: '+JSON.stringify([...new Set(unhandled)]));
