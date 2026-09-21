@@ -1,6 +1,7 @@
 package main
 
 import (
+    "os"
     "regexp"
     "strings"
     "testing"
@@ -54,3 +55,64 @@ func TestBestServerFreshEndpointRotationUsesFreshEligibilityNotOldScore(t *testi
 		t.Fatal("fresh endpoint without full eligibility must never be auto-applied")
 	}
 }
+
+func TestCurrentEndpointRefreshUsesShortIsolatedProbe(t *testing.T) {
+	data, err := os.ReadFile("best_server_targeted.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func (a *app) executeBestServerCurrentRefresh")
+	end := strings.Index(src[start:], "func (a *app) applyBestServerRefreshCandidate")
+	if start < 0 || end < 0 {
+		t.Fatal("current refresh function boundaries not found")
+	}
+	body := src[start : start+end]
+	if !strings.Contains(body, "probeBestServerCurrentRefreshCandidate") {
+		t.Fatal("same-profile refresh must use the short isolated endpoint probe")
+	}
+	for _, forbidden := range []string{"rankBestServerQualityCandidates", "probeBestServerQualityApplication"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("same-profile refresh must not use full Best Server quality path: %s", forbidden)
+		}
+	}
+	if !strings.Contains(src, "bestServerCurrentRefreshProbeTimeout = 15 * time.Second") {
+		t.Fatal("same-profile endpoint validation must stay explicitly bounded below the deep 50s quality window")
+	}
+}
+
+func TestEndpointCutoverContractForbidsFailOpenXKeenRestart(t *testing.T) {
+	data, err := os.ReadFile("../scripts/apply_provider_profile.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	if strings.Contains(src, `"$XKEEN_BIN" -restart`) {
+		t.Fatal("provider endpoint cutover must never use full xkeen -restart")
+	}
+	if strings.Contains(src, "sleep 4") {
+		t.Fatal("provider endpoint cutover must use readiness polling, not fixed sleep 4")
+	}
+	if !strings.Contains(src, `XKEEN_FOREGROUND=1 "$XKEEN_BIN" -start`) {
+		t.Fatal("provider endpoint cutover must restart only the Xray core via xkeen -start")
+	}
+
+	mainData, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainSrc := string(mainData)
+	start := strings.Index(mainSrc, "func (a *app) restoreSnapshot")
+	end := strings.Index(mainSrc[start:], "func atomicWrite")
+	if start < 0 || end < 0 {
+		t.Fatal("restoreSnapshot boundaries not found")
+	}
+	restore := mainSrc[start : start+end]
+	if !strings.Contains(restore, `providerHelperPath(), "core-restart"`) {
+		t.Fatal("rollback must use the same safe core-only restart primitive")
+	}
+	if strings.Contains(restore, `a.cfg.XKeenPath, "-restart"`) || strings.Contains(restore, "sleep 4") {
+		t.Fatal("rollback reintroduced fail-open XKeen restart behavior")
+	}
+}
+
