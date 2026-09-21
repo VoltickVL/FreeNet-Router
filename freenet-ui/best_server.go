@@ -153,6 +153,7 @@ func (a *app) scanBestServer(ctx context.Context, force bool) (bestServerRespons
 	if err != nil {
 		return bestServerResponse{}, err
 	}
+	all = withoutBestServerCurrentLogicalAlternatives(all, currentEndpoint, currentFilter, currentExactProfileLabel(a.cfg.FilterPath))
 	response := rankBestServerCandidatesWithFilter(ctx, all, total, truncated, currentEndpoint, currentFilter, defaultBestServerTCPProbe, a.probeBestServerApplication)
 	if ctx.Err() != nil {
 		return bestServerResponse{}, ctx.Err()
@@ -259,6 +260,47 @@ func parseBestServerCandidates(body []byte) ([]bestServerInternalCandidate, int,
 		return nil, 0, false, errors.New("no active Extra profiles found")
 	}
 	return all, total, truncated, nil
+}
+
+func withoutBestServerCurrentLogicalAlternatives(candidates []bestServerInternalCandidate, currentEndpoint, currentFilter, exactLabel string) []bestServerInternalCandidate {
+	currentFilter = strings.TrimSpace(currentFilter)
+	if currentFilter == "" {
+		return candidates
+	}
+	matcher, err := regexp.Compile(currentFilter)
+	if err != nil {
+		return candidates
+	}
+	exactLabel = sanitizeProfileName(exactLabel)
+	filterMatches := make([]int, 0, 2)
+	exactMatches := make([]int, 0, 2)
+	for i, candidate := range candidates {
+		if endpointsEqual(profileEndpoint(candidate.Profile), currentEndpoint) || !matcher.MatchString(candidate.Profile.Name) {
+			continue
+		}
+		filterMatches = append(filterMatches, i)
+		if exactLabel != "" && sanitizeProfileName(candidate.Profile.Name) == exactLabel {
+			exactMatches = append(exactMatches, i)
+		}
+	}
+	removeIndexes := exactMatches
+	if len(removeIndexes) == 0 {
+		if len(filterMatches) != 1 {
+			return candidates
+		}
+		removeIndexes = filterMatches
+	}
+	remove := make(map[int]struct{}, len(removeIndexes))
+	for _, index := range removeIndexes {
+		remove[index] = struct{}{}
+	}
+	out := make([]bestServerInternalCandidate, 0, len(candidates)-len(removeIndexes))
+	for i, candidate := range candidates {
+		if _, drop := remove[i]; !drop {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }
 
 func rankBestServerCandidates(

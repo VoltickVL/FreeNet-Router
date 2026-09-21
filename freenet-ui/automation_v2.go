@@ -30,6 +30,10 @@ const (
 
 var errAutomationBusy = errors.New("AUTO VPN operation is already active")
 
+var automationBestCurrentRefresh = func(a *app, ctx context.Context) (int, bestServerRefreshResponse) {
+	return a.executeBestServerCurrentRefresh(ctx)
+}
+
 type automationBestCycleResult struct {
 	Result        string
 	Reason        string
@@ -529,6 +533,7 @@ func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings a
 	if err != nil {
 		return bestServerQualityResponse{}, err
 	}
+	all = withoutBestServerCurrentLogicalAlternatives(all, currentEndpoint, currentFilter, currentExactProfileLabel(a.cfg.FilterPath))
 	foreign := filterForeignBestServerCandidates(all)
 	filtered := make([]bestServerInternalCandidate, 0, len(foreign))
 	for _, candidate := range foreign {
@@ -599,6 +604,34 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 
 	ctx, cancel := context.WithTimeout(parent, automationBestTimeout)
 	defer cancel()
+
+	if settings.AutoEndpointUpdate && settings.AutoApply {
+		refreshStatus, refresh := automationBestCurrentRefresh(a, ctx)
+		if refresh.Applied {
+			reason := "AUTO VPN обновил endpoint текущего логического VPN и подтвердил доступ через обновлённое подключение."
+			writeAutomationStateV2("updated", reason, refresh.RollbackState, false)
+			appendAutomationHistoryV2("updated", reason)
+			return automationBestCycleResult{Result: "updated", Reason: reason, Mutated: true, RollbackState: refresh.RollbackState}, nil
+		}
+		if refreshStatus < 200 || refreshStatus >= 300 || !refresh.Success {
+			rollback := strings.TrimSpace(refresh.RollbackState)
+			if rollback == "" {
+				rollback = "NOT_APPLIED"
+			}
+			reason := "Проверка свежего endpoint текущего VPN не завершена безопасно; дальнейшее переключение в этом цикле отменено."
+			if strings.TrimSpace(refresh.Error) != "" {
+				reason += " " + strings.TrimSpace(refresh.Error)
+			}
+			result := "uncertain"
+			if refresh.Mutation != "NONE" || rollback == "FAILED/UNKNOWN" {
+				result = "failed"
+			}
+			writeAutomationStateV2(result, reason, rollback, false)
+			appendAutomationHistoryV2(result, reason+"; rollback="+rollback)
+			return automationBestCycleResult{Result: result, Reason: reason, RollbackState: rollback}, errors.New("AUTO VPN current endpoint refresh did not complete safely")
+		}
+	}
+
 	currentResponse, err := a.scanCurrentVPNQuality(ctx)
 	if err != nil {
 		reason := "Не удалось подтвердить качество текущего VPN; переключение не выполнялось."

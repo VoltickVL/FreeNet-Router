@@ -145,7 +145,7 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServerQualityResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	cacheKey := "quality-v7|" + a.bestServerCacheKey(currentEndpoint)
+	cacheKey := "quality-v8|" + a.bestServerCacheKey(currentEndpoint)
 	if !force {
 		bestServerQualityCache.Lock()
 		entry := bestServerQualityCache.Entry
@@ -159,9 +159,23 @@ func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServer
 	if err != nil {
 		return bestServerQualityResponse{}, err
 	}
+	all = withoutBestServerCurrentLogicalAlternatives(all, currentEndpoint, currentFilter, currentExactProfileLabel(a.cfg.FilterPath))
 	response := rankBestServerQualityCandidates(ctx, all, total, truncated, currentEndpoint, currentFilter, defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication)
 	if ctx.Err() != nil {
 		return bestServerQualityResponse{}, ctx.Err()
+	}
+	currentPresent := false
+	for i := range response.Candidates {
+		if response.Candidates[i].Current {
+			currentPresent = true
+			break
+		}
+	}
+	if !currentPresent && currentEndpoint != "" && currentFilter != "" {
+		liveCurrent := a.scanActiveCurrentVPNQuality(ctx, currentEndpoint, currentFilter)
+		if len(liveCurrent.Candidates) == 1 && liveCurrent.Candidates[0].Current {
+			response.Candidates = append([]bestServerQualityCandidate{liveCurrent.Candidates[0]}, response.Candidates...)
+		}
 	}
 	response.Success = true
 	response.Mutation = "NONE"
