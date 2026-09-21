@@ -38,16 +38,24 @@ type settingsV3AutoVPN struct {
 	NextHealth   string   `json:"next_health,omitempty"`
 }
 
+type settingsV3BackupInfo struct {
+	Root       string `json:"root"`
+	Latest     string `json:"latest,omitempty"`
+	LatestPath string `json:"latest_path,omitempty"`
+	Tracked    int    `json:"tracked"`
+}
+
 type settingsV3Response struct {
-	Success      bool               `json:"success"`
-	AutoVPN      settingsV3AutoVPN  `json:"auto_vpn"`
-	Automation   automationResponse `json:"automation"`
-	Subscription settingsV3Schedule `json:"subscription"`
-	GeoData      settingsV3Schedule `json:"geodata"`
-	FreeNet      settingsV3Schedule `json:"freenet"`
-	Backup       settingsV3Schedule `json:"backup"`
-	Events       []automationEvent  `json:"events"`
-	Error        string             `json:"error,omitempty"`
+	Success      bool                 `json:"success"`
+	AutoVPN      settingsV3AutoVPN    `json:"auto_vpn"`
+	Automation   automationResponse   `json:"automation"`
+	Subscription settingsV3Schedule   `json:"subscription"`
+	GeoData      settingsV3Schedule   `json:"geodata"`
+	FreeNet      settingsV3Schedule   `json:"freenet"`
+	Backup       settingsV3Schedule   `json:"backup"`
+	BackupInfo   settingsV3BackupInfo `json:"backup_info"`
+	Events       []automationEvent    `json:"events"`
+	Error        string               `json:"error,omitempty"`
 }
 
 type settingsV3SaveRequest struct {
@@ -76,6 +84,7 @@ type settingsV3ActionResponse struct {
 	ProfilesAvailable int                   `json:"profiles_available,omitempty"`
 	ProfilesStale     bool                  `json:"profiles_stale,omitempty"`
 	ProfilesUpdatedAt string                `json:"profiles_updated_at,omitempty"`
+	BackupInfo        *settingsV3BackupInfo `json:"backup_info,omitempty"`
 	Error             string                `json:"error,omitempty"`
 }
 
@@ -104,6 +113,37 @@ func settingsV3BackupRoot() string {
 		return value
 	}
 	return settingsV3BackupRootDefault
+}
+
+func latestV3BackupSnapshot() (string, string, error) {
+	root := settingsV3BackupRoot()
+	latestRaw, err := os.ReadFile(filepath.Join(root, "latest"))
+	if err != nil {
+		return "", "", errors.New("backup is unavailable")
+	}
+	name := strings.TrimSpace(string(latestRaw))
+	if name == "" || filepath.Base(name) != name || !strings.HasPrefix(name, "backup-") {
+		return "", "", errors.New("backup reference is invalid")
+	}
+	source := filepath.Join(root, name)
+	info, err := os.Stat(source)
+	if err != nil || !info.IsDir() {
+		return "", "", errors.New("backup directory is unavailable")
+	}
+	return name, source, nil
+}
+
+func (a *app) v3BackupInfo() settingsV3BackupInfo {
+	info := settingsV3BackupInfo{
+		Root:    settingsV3BackupRoot(),
+		Tracked: len(a.v3BackupTrackedFiles()),
+	}
+	name, path, err := latestV3BackupSnapshot()
+	if err == nil {
+		info.Latest = name
+		info.LatestPath = path
+	}
+	return info
 }
 
 func settingsV3UpdaterPath() string {
@@ -325,9 +365,10 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 		Automation: auto,
 		Subscription: subscription,
 		GeoData: v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_GEODATA", "geodata", automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA", "yes") == "yes"),
-		FreeNet: v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_FREENET_CHECK", "freenet", false),
-		Backup: v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_BACKUP", "backup", false),
-		Events: events,
+		FreeNet:    v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_FREENET_CHECK", "freenet", false),
+		Backup:     v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_BACKUP", "backup", false),
+		BackupInfo: a.v3BackupInfo(),
+		Events:     events,
 	}
 }
 
@@ -557,30 +598,25 @@ func (a *app) createV3Backup(updateLatest bool) (string, error) {
 	return dir, nil
 }
 
-func (a *app) runV3Backup() error {
-	_, err := a.createV3Backup(true)
+func (a *app) createAndMarkV3Backup() (string, error) {
+	dir, err := a.createV3Backup(true)
 	if err != nil {
 		v3Mark("backup", "failed", "Не удалось создать резервную копию настроек FreeNet.")
-		return err
+		return "", err
 	}
-	v3Mark("backup", "success", "Резервная копия настроек FreeNet создана.")
-	return nil
+	v3Mark("backup", "success", "Снимок настроек FreeNet создан: "+filepath.Base(dir)+".")
+	return dir, nil
+}
+
+func (a *app) runV3Backup() error {
+	_, err := a.createAndMarkV3Backup()
+	return err
 }
 
 func (a *app) restoreV3Backup() error {
-	root := settingsV3BackupRoot()
-	latestRaw, err := os.ReadFile(filepath.Join(root, "latest"))
+	_, source, err := latestV3BackupSnapshot()
 	if err != nil {
-		return errors.New("backup is unavailable")
-	}
-	name := strings.TrimSpace(string(latestRaw))
-	if name == "" || filepath.Base(name) != name || !strings.HasPrefix(name, "backup-") {
-		return errors.New("backup reference is invalid")
-	}
-	source := filepath.Join(root, name)
-	info, err := os.Stat(source)
-	if err != nil || !info.IsDir() {
-		return errors.New("backup directory is unavailable")
+		return err
 	}
 
 	rollback, err := a.createV3Backup(false)
@@ -618,6 +654,7 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var err error
 	var message string
+	var backupInfo *settingsV3BackupInfo
 	switch strings.TrimSpace(req.Action) {
 	case "subscription_check":
 		result, subscriptionErr := a.runV3SubscriptionResult(ctx)
@@ -638,9 +675,22 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 	case "freenet_check":
 		err = a.runV3FreeNetCheck(ctx); message = "Проверка версии FreeNet завершена."
 	case "backup_create":
-		err = a.runV3Backup(); message = "Резервная копия создана."
+		var dir string
+		dir, err = a.createAndMarkV3Backup()
+		if err == nil {
+			info := a.v3BackupInfo()
+			info.Latest = filepath.Base(dir)
+			info.LatestPath = dir
+			backupInfo = &info
+			message = "Снимок настроек FreeNet создан."
+		}
 	case "backup_restore":
-		err = a.restoreV3Backup(); message = "Последняя резервная копия восстановлена. Перезагрузите страницу и проверьте настройки."
+		err = a.restoreV3Backup()
+		if err == nil {
+			info := a.v3BackupInfo()
+			backupInfo = &info
+			message = "Последний снимок восстановлен и проверен."
+		}
 	default:
 		writeJSON(w, http.StatusBadRequest, settingsV3ActionResponse{Success: false, Error: "unsupported action"})
 		return
@@ -649,7 +699,7 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, settingsV3ActionResponse{Success: false, Error: sanitizeAutomationReason(err.Error())})
 		return
 	}
-	writeJSON(w, http.StatusOK, settingsV3ActionResponse{Success: true, Message: message})
+	writeJSON(w, http.StatusOK, settingsV3ActionResponse{Success: true, Message: message, BackupInfo: backupInfo})
 }
 
 func recordSettingsV3Health(result automationHealthResult) {
