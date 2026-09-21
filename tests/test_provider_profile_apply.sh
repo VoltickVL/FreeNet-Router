@@ -82,6 +82,7 @@ run_helper() {
     FREENET_AUTOMATION_HISTORY="$HISTORY_FILE" \
     FREENET_XRAY_BIN="$TMP/bin/xray" \
     FREENET_XKEEN_BIN="$TMP/bin/xkeen" \
+    FREENET_XRAY_CORE_RESTART_HELPER="${CORE_HELPER:-}" \
     FREENET_CURL_BIN="$TMP/bin/curl" \
     sh "$SCRIPT" "$@"
 }
@@ -120,6 +121,47 @@ grep -Fq '203.0.113.10:443' "$HISTORY_FILE" || fail 'provider switch journal end
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/apply.out" "$TMP/apply.err" "$HISTORY_FILE"; then
     fail 'apply leaked provider/subscription credentials'
 fi
+
+# Endpoint-only apply must preserve XKeen/netfilter ownership: it uses the
+# core-only restart hook and must never call xkeen -restart.
+cat > "$TMP/bin/pidof" <<'EOF'
+#!/bin/sh
+[ "$1" = xray ] && { echo 4242; exit 0; }
+exit 1
+EOF
+chmod 755 "$TMP/bin/pidof"
+cat > "$TMP/bin/xkeen" <<EOF
+#!/bin/sh
+printf '%s\n' "$*" >> "$TMP/xkeen.calls"
+exit 99
+EOF
+chmod 755 "$TMP/bin/xkeen"
+cat > "$TMP/bin/core-restart" <<EOF
+#!/bin/sh
+printf '%s\n' "${1:-no}" >> "$TMP/core.calls"
+exit 0
+EOF
+chmod 755 "$TMP/bin/core-restart"
+CORE_HELPER="$TMP/bin/core-restart"
+export CORE_HELPER
+run_helper apply-core "$PROFILE_ID" > "$TMP/core.out" 2> "$TMP/core.err"
+grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/core.out" || fail 'core-only apply success missing'
+[ -s "$TMP/core.calls" ] || fail 'core-only apply did not invoke core restart helper'
+[ ! -s "$TMP/xkeen.calls" ] || fail 'endpoint-only apply called xkeen and may tear down firewall rules'
+unset CORE_HELPER
+rm -f "$TMP/core.calls" "$TMP/xkeen.calls"
+
+# Restore default non-running stubs for the remaining generic apply tests.
+cat > "$TMP/bin/pidof" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod 755 "$TMP/bin/pidof"
+cat > "$TMP/bin/xkeen" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod 755 "$TMP/bin/xkeen"
 
 # A stale/nonexistent id must fail before live mutation.
 HASH_VALID="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
@@ -167,5 +209,53 @@ grep -Fq 'Xray/XKeen runtime acceptance failed after provider apply' "$HISTORY_F
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/rb.out" "$TMP/rb.err" "$HISTORY_FILE"; then
     fail 'rollback path leaked credentials'
 fi
+
+# Core-only restart failure must restore snapshot and retry the same core-only
+# restart path. It must not fall back to xkeen -restart.
+cp "$TMP/configs/04_outbounds.json" "$TMP/configs/04_outbounds.core.good"
+printf '%s\n' 'CORE OLD PROFILE' > "$TMP/etc/vpn_profile_name"
+printf '%s\n' 'CORE|OLD' > "$TMP/profile.filter"
+cat > "$TMP/bin/pidof" <<'EOF'
+#!/bin/sh
+[ "$1" = xray ] && { echo 4242; exit 0; }
+exit 1
+EOF
+chmod 755 "$TMP/bin/pidof"
+cat > "$TMP/bin/xkeen" <<EOF
+#!/bin/sh
+printf '%s\n' "$*" >> "$TMP/xkeen-core-rb.calls"
+exit 99
+EOF
+chmod 755 "$TMP/bin/xkeen"
+cat > "$TMP/bin/core-restart-rb" <<EOF
+#!/bin/sh
+COUNT_FILE="$TMP/core-rb.count"
+COUNT=0
+[ -f "$COUNT_FILE" ] && COUNT="$(cat "$COUNT_FILE")"
+COUNT=$((COUNT+1))
+printf '%s\n' "$COUNT" > "$COUNT_FILE"
+[ "$COUNT" -eq 1 ] && exit 1
+exit 0
+EOF
+chmod 755 "$TMP/bin/core-restart-rb"
+CORE_HELPER="$TMP/bin/core-restart-rb"
+export CORE_HELPER
+CORE_RB_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+if run_helper apply-core "$PROFILE_ID" > "$TMP/core-rb.out" 2> "$TMP/core-rb.err"; then
+    fail 'core-only restart failure unexpectedly succeeded'
+fi
+[ "$CORE_RB_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'core-only rollback did not restore outbound'
+[ "$(cat "$TMP/etc/vpn_profile_name")" = 'CORE OLD PROFILE' ] || fail 'core-only rollback did not restore preferred profile'
+[ "$(cat "$TMP/profile.filter")" = 'CORE|OLD' ] || fail 'core-only rollback did not restore active filter'
+[ "$(cat "$TMP/core-rb.count")" = '2' ] || fail 'core-only rollback did not retry core restart after restoring snapshot'
+[ ! -s "$TMP/xkeen-core-rb.calls" ] || fail 'core-only rollback fell back to xkeen restart'
+grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/core-rb.err" || fail 'core-only rollback success not reported'
+unset CORE_HELPER
+
+# Source contract: endpoint-only mode must not contain a fixed wait and must
+# explicitly dispatch to the core-only restart path.
+grep -Fq '[ "$MODE" = apply-core ]' "$SCRIPT" || fail 'apply-core mode dispatch missing'
+grep -Fq 'restart_xray_core no' "$SCRIPT" || fail 'apply-core does not use core-only restart'
+grep -Fq 'restart_xray_core yes' "$SCRIPT" || fail 'apply-core rollback does not use core-only restart'
 
 echo 'provider profile apply test PASS'
