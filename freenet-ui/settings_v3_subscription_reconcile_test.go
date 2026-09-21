@@ -19,6 +19,7 @@ func prepareScheduledSubscriptionTest(t *testing.T, enabled bool) (*app, *int) {
 	t.Setenv("FREENET_SETTINGS_V3_HISTORY", filepath.Join(dir, "settings.history"))
 	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))
 	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", filepath.Join(dir, "auto-health.lock"))
 
 	oldDiscovery := subscriptionProfileDiscovery
 	oldDetect := settingsV3ScheduledCurrentEndpointChanged
