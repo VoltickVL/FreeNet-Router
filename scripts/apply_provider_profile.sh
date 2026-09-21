@@ -324,10 +324,6 @@ capture_xray_runtime() {
         return 1
     }
     XRAY_PID_BEFORE="$1"
-    XRAY_SSL_CERT=""
-    if [ -r "/proc/$XRAY_PID_BEFORE/environ" ]; then
-        XRAY_SSL_CERT="$(tr '\000' '\n' < "/proc/$XRAY_PID_BEFORE/environ" 2>/dev/null | sed -n 's/^SSL_CERT_FILE=//p' | head -n 1)"
-    fi
     return 0
 }
 
@@ -374,16 +370,11 @@ stop_xray_core_only() {
 }
 
 start_xray_core_only() {
-    if [ -n "$XRAY_SSL_CERT" ]; then
-        SSL_CERT_FILE="$XRAY_SSL_CERT" \
-        XRAY_LOCATION_CONFDIR="$CONFIG_DIR" \
-        XRAY_LOCATION_ASSET="$ASSET_DIR" \
-        "$XRAY_BIN" run >/dev/null 2>&1 &
-    else
-        XRAY_LOCATION_CONFDIR="$CONFIG_DIR" \
-        XRAY_LOCATION_ASSET="$ASSET_DIR" \
-        "$XRAY_BIN" run >/dev/null 2>&1 &
-    fi
+    [ -x "$XKEEN_BIN" ] || {
+        err "safe Xray core start unavailable: XKeen executable is missing"
+        return 1
+    }
+    XKEEN_FOREGROUND=1 "$XKEEN_BIN" -start >/dev/null 2>&1 || return 1
     wait_xray_ready
 }
 
@@ -474,9 +465,7 @@ case "$MODE" in
         for C in sed tr head pidof; do
             command -v "$C" >/dev/null 2>&1 || { err "required command missing: $C"; exit 1; }
         done
-        [ -d "$CONFIG_DIR" ] || { err 'Xray config directory is missing'; exit 1; }
-        [ -d "$ASSET_DIR" ] || { err 'Xray asset directory is missing'; exit 1; }
-        prepare_xray_core_restart || exit 1
+        [ -x "$XKEEN_BIN" ] || { err 'XKeen executable is missing'; exit 1; }
         restart_xray_core_only || { err 'safe Xray core restart failed'; exit 1; }
         say '[FreeNet Provider] CORE_RESTART=SUCCESS'
         exit 0
