@@ -32,19 +32,19 @@ var policyISPPresetSpecs = []policyISPPresetSpec{
 	},
 	{
 		ID:      "vladlink",
-		Message: "Владлинк: ISP profile хранит сетевые метаданные; routing policy задаётся явно, без YouTube baseline.",
+		Message: "Владлинк: ISP profile хранит сетевые метаданные; routing policy задаётся явно, без автоматического YouTube-правила.",
 	},
 	{
 		ID:      "alliancetelecom",
-		Message: "АльянсТелеком: ISP profile хранит сетевые метаданные; routing policy задаётся явно, без YouTube baseline.",
+		Message: "АльянсТелеком: ISP profile хранит сетевые метаданные; routing policy задаётся явно, без автоматического YouTube-правила.",
 	},
 	{
 		ID:      "rostelecom",
-		Message: "Ростелеком: ISP profile хранит сетевые метаданные; routing policy задаётся явно, без YouTube baseline.",
+		Message: "Ростелеком: ISP profile хранит сетевые метаданные; routing policy задаётся явно, без автоматического YouTube-правила.",
 	},
 	{
 		ID:      "podryad",
-		Message: "Подряд: отдельный ISP profile; FreeNet не наследует чужую routing policy и не создаёт YouTube baseline.",
+		Message: "Подряд: отдельный ISP profile; FreeNet не наследует чужую routing policy и не создаёт автоматическое YouTube-правило.",
 	},
 	{
 		ID:      "custom",
