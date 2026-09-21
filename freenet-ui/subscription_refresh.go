@@ -49,6 +49,33 @@ func cloneSubscriptionProfiles(profiles []subscriptionProfile) []subscriptionPro
 	return out
 }
 
+func selectableSubscriptionProfiles(profiles []subscriptionProfile) []subscriptionProfile {
+	out := make([]subscriptionProfile, 0, len(profiles))
+	for _, profile := range profiles {
+		code := strings.ToLower(strings.TrimSpace(profile.CountryCode))
+		name := strings.ToLower(strings.TrimSpace(profile.Name))
+		if code == "ru" || strings.Contains(name, "russia") || strings.Contains(name, "росси") {
+			continue
+		}
+		if !isBaseExtraProfileName(profile.Name) {
+			continue
+		}
+		out = append(out, profile)
+	}
+	return out
+}
+
+// Read paths consume the last successful safe catalog without forcing a
+// provider fetch every time an unrelated page requests a plan. A fresh fetch
+// is used only to bootstrap the cache when no last-known-good catalog exists.
+func (a *app) subscriptionProfilesForRead(ctx context.Context) (subscriptionRefreshResult, error) {
+	if cached, err := loadSubscriptionProfilesCache(); err == nil {
+		cached.Stale = false
+		return cached, nil
+	}
+	return a.refreshSubscriptionProfiles(ctx)
+}
+
 func validCachedSubscriptionProfile(p subscriptionProfile) bool {
 	if len(p.ID) != 16 || p.Name == "" || p.Address == "" || p.Port < 1 || p.Port > 65535 {
 		return false
