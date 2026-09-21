@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -49,6 +50,27 @@ func TestAcceptedSubscriptionUXContract(t *testing.T) {
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("subscription UX contains forbidden secret surface %q", forbidden)
+		}
+	}
+}
+
+
+func TestSubscriptionUpdaterCardUsesAuthoritativeScheduleResult(t *testing.T) {
+	index, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(index), "subscriptionUpdaterState').textContent=s.updater_busy?'обновляется':'готово'") {
+		t.Fatal("subscription updater card must not map generic updater idle state to «готово»")
+	}
+	cacheJS, err := os.ReadFile("web/topbar-settings-profile-cache.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(cacheJS)
+	for _, want := range []string{"#subscriptionUpdaterState", "Актуально", "Ожидает проверки", "Ошибка"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("authoritative subscription state renderer missing %q", want)
 		}
 	}
 }
