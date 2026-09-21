@@ -616,7 +616,7 @@
     const compiled = state.compiled?.rules?.[index];
     if (!compiled) return 'Ожидает проверки';
     const action = String(compiled.action || '');
-    const dns = compiled.dns_leg ? (action === 'DIRECT' ? 'DNS напрямую' : action === 'VPN' ? 'DNS через VPN' : 'DNS блокируется') : 'DNS не меняется';
+    const dns = compiled.dns_leg ? (action === 'DIRECT' ? 'DNS: Прямой' : action === 'VPN' ? 'DNS: Раздельный · VPN' : 'DNS блокируется') : 'DNS не меняется';
     return `${actionCopy(action)} · ${dns}`;
   }
 
