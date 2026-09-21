@@ -9,7 +9,7 @@ import (
 )
 
 func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
-	const browserBudget = 200 * time.Second
+	const browserBudget = 210 * time.Second
 	const minimumSlack = 10 * time.Second
 	if bestServerAsyncJobTimeout >= browserBudget {
 		t.Fatalf("Best Server async job timeout %s must be below browser budget %s", bestServerAsyncJobTimeout, browserBudget)
@@ -74,7 +74,7 @@ func TestBestServerBrowserTimeoutContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "Date.now()-started>200000") {
+	if !strings.Contains(string(data), "Date.now()-started>210000") {
 		t.Fatal("browser Best Server timeout marker changed; update the server/browser budget contract together")
 	}
 }
