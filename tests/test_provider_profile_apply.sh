@@ -80,6 +80,8 @@ run_helper() {
     FREENET_PROFILE_FILE="$TMP/etc/vpn_profile_name" \
     FREENET_FILTER_FILE="$TMP/profile.filter" \
     FREENET_AUTOMATION_HISTORY="$HISTORY_FILE" \
+    FREENET_PROVIDER_SUBSCRIPTION_CACHE="$TMP/provider-subscription.lkg" \
+    FREENET_PROVIDER_SUBSCRIPTION_SOURCE="$TMP/provider-subscription.source" \
     FREENET_XRAY_BIN="$TMP/bin/xray" \
     FREENET_XKEEN_BIN="$TMP/bin/xkeen" \
     FREENET_XRAY_CORE_RESTART_HELPER="${CORE_HELPER:-}" \
@@ -104,6 +106,48 @@ grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must report MUTATION=NONE
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/plan.out" "$TMP/plan.err"; then
     fail 'plan leaked provider/subscription credentials'
 fi
+[ -s "$TMP/provider-subscription.lkg" ] || fail 'fresh plan did not persist secure provider LKG'
+[ -s "$TMP/provider-subscription.source" ] || fail 'fresh plan did not persist provider source fingerprint'
+[ "$(stat -c '%a' "$TMP/provider-subscription.lkg" 2>/dev/null || stat -f '%Lp' "$TMP/provider-subscription.lkg" 2>/dev/null)" = "600" ] || fail 'secure provider LKG mode is not 0600'
+
+# Once a source-bound secure LKG exists, exact plan must not depend on another
+# provider fetch. This is the real stale-catalog WORK/MOM regression.
+cat > "$TMP/bin/curl" <<EOF
+#!/bin/sh
+echo called >> "$TMP/curl-after-cache.calls"
+exit 1
+EOF
+chmod 755 "$TMP/bin/curl"
+run_helper plan "$PROFILE_ID" > "$TMP/cache-plan.out" 2> "$TMP/cache-plan.err"
+grep -Fq 'CANDIDATE_XRAY_VALID=yes' "$TMP/cache-plan.out" || fail 'secure-LKG plan did not validate candidate'
+[ ! -s "$TMP/curl-after-cache.calls" ] || fail 'matching secure LKG still performed provider fetch'
+if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/cache-plan.out" "$TMP/cache-plan.err"; then
+    fail 'secure-LKG plan leaked credentials'
+fi
+
+# A different subscription source must never reuse credential-bearing LKG.
+cp "$TMP/sub.url" "$TMP/sub.url.good"
+printf '%s\n' 'https://other-subscription.invalid/private-token' > "$TMP/sub.url"
+CACHE_HASH_BEFORE="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+FILTER_CACHE_BEFORE="$(cat "$TMP/profile.filter")"
+if run_helper plan "$PROFILE_ID" > "$TMP/source-mismatch.out" 2> "$TMP/source-mismatch.err"; then
+    fail 'source-mismatched secure LKG unexpectedly passed'
+fi
+[ "$CACHE_HASH_BEFORE" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'source mismatch mutated live outbound'
+[ "$FILTER_CACHE_BEFORE" = "$(cat "$TMP/profile.filter")" ] || fail 'source mismatch mutated active filter'
+grep -Fq 'secure provider cache is missing or does not match' "$TMP/source-mismatch.err" || fail 'source mismatch did not fail with safe provider-cache reason'
+if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/source-mismatch.out" "$TMP/source-mismatch.err"; then
+    fail 'source mismatch leaked credentials'
+fi
+mv "$TMP/sub.url.good" "$TMP/sub.url"
+
+# Restore successful fresh-fetch stub for remaining tests that intentionally
+# exercise direct shell behavior after deleting/overwriting state.
+cat > "$TMP/bin/curl" <<EOF
+#!/bin/sh
+cat "$TMP/sub.fixture"
+EOF
+chmod 755 "$TMP/bin/curl"
 
 # apply installs exactly one vless-reality, preserves unrelated outbounds and
 # commits the exact profile selector used by status/Refresh/Rotate.
