@@ -32,6 +32,7 @@ func TestAcceptedSubscriptionUXContract(t *testing.T) {
 		"profiles_available",
 		"applySubscriptionActionCatalog",
 		"refreshSubscriptionScheduleState",
+		"window.refreshSubscriptionCatalog = checkSubscription",
 	} {
 		if !strings.Contains(js, required) {
 			t.Fatalf("accepted subscription UX missing %q", required)
