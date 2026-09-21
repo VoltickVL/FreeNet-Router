@@ -327,8 +327,7 @@ core_restart_preflight() {
         return 0
     fi
     command -v kill >/dev/null 2>&1 || return 1
-    command -v nohup >/dev/null 2>&1 || return 1
-    [ -x "$XRAY_BIN" ] || return 1
+    [ -x "$XKEEN_BIN" ] || return 1
     single_xray_pid >/dev/null 2>&1
 }
 
@@ -355,11 +354,6 @@ restart_xray_core() {
             ;;
     esac
 
-    NOFILE=""
-    if [ -n "$OLD_PID" ] && [ -r "/proc/$OLD_PID/limits" ]; then
-        NOFILE="$(awk '/Max open files/ {print $4; exit}' "/proc/$OLD_PID/limits" 2>/dev/null)"
-    fi
-
     if [ -n "$OLD_PID" ]; then
         kill "$OLD_PID" 2>/dev/null || return 1
         I=0
@@ -378,25 +372,17 @@ restart_xray_core() {
         kill -0 "$OLD_PID" 2>/dev/null && return 1
     fi
 
-    CORE_PID_FILE="$TMP_DIR/xray-core.pid"
-    (
-        case "$NOFILE" in
-            ''|*[!0-9]*) ;;
-            *) ulimit -n "$NOFILE" 2>/dev/null || true ;;
-        esac
-        export XRAY_LOCATION_CONFDIR="$CONFIG_DIR"
-        export XRAY_LOCATION_ASSET="$ASSET_DIR"
-        [ -f /opt/etc/ssl/certs/ca-certificates.crt ] && export SSL_CERT_FILE=/opt/etc/ssl/certs/ca-certificates.crt
-        nohup "$XRAY_BIN" run >/dev/null 2>&1 &
-        printf '%s\n' "$!" > "$CORE_PID_FILE"
-    ) || return 1
-    NEW_PID="$(cat "$CORE_PID_FILE" 2>/dev/null)"
-    case "$NEW_PID" in ''|*[!0-9]*) return 1 ;; esac
+    # Keep XKeen/netfilter ownership intact: do not call XKeen stop/restart.
+    # Start the Xray core through XKeen's canonical synchronous start path so
+    # its runtime environment, limits and acceptance checks remain authoritative.
+    XKEEN_FOREGROUND=1 "$XKEEN_BIN" -start >/dev/null 2>&1 || return 1
 
     I=0
     STABLE=0
     while [ "$I" -lt 60 ]; do
-        if kill -0 "$NEW_PID" 2>/dev/null && pidof xray >/dev/null 2>&1; then
+        PIDS="$(pidof xray 2>/dev/null || true)"
+        set -- $PIDS
+        if [ "$#" -eq 1 ] && kill -0 "$1" 2>/dev/null; then
             STABLE=$((STABLE + 1))
             [ "$STABLE" -ge 3 ] && return 0
         else
@@ -566,7 +552,8 @@ say '========== END =========='
 [ "$MODE" = plan ] && exit 0
 
 snapshot_state || fail_apply 'cannot snapshot current provider state'
-if [ "$MODE" = apply-core ] && [ "$WAS_RUNNING" -eq 1 ]; then
+if [ "$MODE" = apply-core ]; then
+    [ "$WAS_RUNNING" -eq 1 ] || fail_apply 'safe core-only Xray restart requires exactly one running Xray process'
     core_restart_preflight || fail_apply 'safe core-only Xray restart is unavailable or runtime state is ambiguous'
 fi
 APPLIED=1
