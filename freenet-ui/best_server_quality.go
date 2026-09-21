@@ -28,7 +28,7 @@ const (
 	bestServerQualityHTTPRuns             = 3
 	bestServerQualityHTTPRequired         = 2
 	bestServerQualityHTTPTimeout          = 5 * time.Second
-	bestServerQualityCandidateTimeout     = 42 * time.Second
+	bestServerQualityCandidateTimeout     = 50 * time.Second
 	bestServerQualityScanTimeout          = 420 * time.Second
 	bestServerQualityCacheTTL             = 3 * time.Minute
 	bestServerQualityProbeURL             = "https://www.gstatic.com/generate_204"
