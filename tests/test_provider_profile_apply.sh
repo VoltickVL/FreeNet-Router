@@ -148,6 +148,11 @@ run_helper apply-core "$PROFILE_ID" > "$TMP/core.out" 2> "$TMP/core.err"
 grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/core.out" || fail 'core-only apply success missing'
 [ -s "$TMP/core.calls" ] || fail 'core-only apply did not invoke core restart helper'
 [ ! -s "$TMP/xkeen.calls" ] || fail 'endpoint-only apply called xkeen and may tear down firewall rules'
+# The standalone core-restart command used by Go-side rollback must use the
+# same firewall-preserving mechanism.
+run_helper core-restart > "$TMP/core-command.out" 2> "$TMP/core-command.err"
+grep -Fq '[FreeNet Provider] CORE_RESTART=SUCCESS' "$TMP/core-command.out" || fail 'standalone core-restart command failed'
+[ ! -s "$TMP/xkeen.calls" ] || fail 'standalone core restart called xkeen'
 unset CORE_HELPER
 rm -f "$TMP/core.calls" "$TMP/xkeen.calls"
 
