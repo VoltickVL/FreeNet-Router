@@ -17,6 +17,8 @@ const calls = [];
 let versionApplyPosts = 0;
 let installedFreeNetVersion = 'v0.3.43';
 let activeFreeNetTarget = '';
+let backupCreatePosts = 0;
+let backupRestorePosts = 0;
 
 const settings = {
   success: true,
@@ -33,6 +35,12 @@ const settings = {
   geodata:{enabled:true,interval:'3h',last_run:'2026-09-12T10:05:00Z',next_run:'2026-09-12T13:05:00Z',result:'success'},
   freenet:{enabled:true,interval:'12h',last_run:'2026-09-12T00:15:00Z',next_run:'2026-09-12T12:15:00Z',result:'success'},
   backup:{enabled:true,interval:'24h',last_run:'2026-09-12T02:30:00Z',next_run:'2026-09-13T02:30:00Z',result:'success'},
+  backup_info:{
+    root:'/opt/backups/freenet-settings',
+    latest:'backup-20260912-023000.000000000',
+    latest_path:'/opt/backups/freenet-settings/backup-20260912-023000.000000000',
+    tracked:4
+  },
   events:[
     {at:'2026-09-12T11:35:00Z',kind:'auto_vpn',result:'success',message:'Текущий VPN работает нормально, смена не требуется.'},
     {at:'2026-09-12T10:35:00Z',kind:'auto_vpn',result:'same',message:'Для текущего VPN нет нового адреса подключения.'},
@@ -81,6 +89,31 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/auth/status') return json(res, {configured:true,authenticated:true});
   if (url.pathname === '/api/status') return json(res, status);
   if (url.pathname === '/api/settings-v3') return json(res, settings);
+  if (url.pathname === '/api/settings-v3/action' && req.method === 'POST') {
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      const body = JSON.parse(raw || '{}');
+      if (body.action === 'backup_create') {
+        backupCreatePosts += 1;
+        settings.backup_info = {
+          root:'/opt/backups/freenet-settings',
+          latest:'backup-20260921-174500.123456789',
+          latest_path:'/opt/backups/freenet-settings/backup-20260921-174500.123456789',
+          tracked:4
+        };
+        settings.backup.last_run = '2026-09-21T07:45:00Z';
+        settings.backup.result = 'success';
+        return json(res, {success:true,message:'Снимок настроек FreeNet создан.',backup_info:settings.backup_info});
+      }
+      if (body.action === 'backup_restore') {
+        backupRestorePosts += 1;
+        return json(res, {success:true,message:'Последний снимок восстановлен и проверен.',backup_info:settings.backup_info});
+      }
+      return json(res, {success:true,message:'Операция завершена.'});
+    });
+    return;
+  }
   if (url.pathname === '/api/settings-v3/countries') return json(res, countryCatalog);
   if (url.pathname === '/api/subscription') return json(res, {success:true,configured:true});
   if (url.pathname === '/api/geodata/files') return json(res, {success:true,files:[],search_enabled:false});
@@ -204,7 +237,11 @@ const server = http.createServer((req, res) => {
       navHeight: Math.round(document.querySelector('.nav-btn[data-page="overview"]')?.getBoundingClientRect().height || 0),
       autoLabelVisible: !!document.querySelector('#fn3AutoLabel') && getComputedStyle(document.querySelector('#fn3AutoLabel')).display !== 'none',
       currentVpnCardCount: document.querySelectorAll('.fn3-right, #fn3Profile, #fn3Endpoint, #fn3LastQuality, #fn3VPNState').length,
-      controlTitle: document.querySelector('#fn3ControlTitle')?.textContent || ''
+      controlTitle: document.querySelector('#fn3ControlTitle')?.textContent || '',
+      backupRoot: document.querySelector('#fn3_backup_root')?.textContent || '',
+      backupSnapshot: document.querySelector('#fn3_backup_snapshot')?.textContent || '',
+      backupPath: document.querySelector('#fn3_backup_path')?.textContent || '',
+      backupLast: document.querySelector('#fn3_backup_last')?.textContent || ''
     }));
     console.log('SETTINGS_V3_RUNTIME', JSON.stringify(runtime));
     console.log('SETTINGS_V3_CALLS', JSON.stringify(calls.filter(call => call.includes('/api/'))));
@@ -228,6 +265,10 @@ const server = http.createServer((req, res) => {
     assert.equal(runtime.autoLabelVisible, false, 'duplicate AUTO VPN enabled label must be hidden');
     assert.equal(runtime.currentVpnCardCount, 0, 'Settings must not render the duplicate Current VPN card or its metrics');
     assert.equal(runtime.controlTitle, 'Автопроверка', `unexpected AUTO VPN control copy: ${runtime.controlTitle}`);
+    assert.equal(runtime.backupRoot, '/opt/backups/freenet-settings', `backup root must be visible: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.backupSnapshot, 'backup-20260912-023000.000000000', `latest snapshot id must be visible: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.backupPath, '/opt/backups/freenet-settings/backup-20260912-023000.000000000', `latest snapshot path must be visible: ${JSON.stringify(runtime)}`);
+    assert.match(runtime.backupLast, /Снимок создан/, `backup schedule must explain success: ${runtime.backupLast}`);
 
     const settingsPage = page.locator('[data-page-view="settings"]');
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
@@ -257,6 +298,30 @@ const server = http.createServer((req, res) => {
     });
     assert.ok(Math.abs(settingsGeometry.autoWidth - settingsGeometry.maintenanceWidth) <= 2, `AUTO VPN and System maintenance must use the same full width: ${JSON.stringify(settingsGeometry)}`);
     assert.ok(settingsGeometry.maintenanceTop > settingsGeometry.autoBottom, `System maintenance must follow AUTO VPN without a duplicate Current VPN block: ${JSON.stringify(settingsGeometry)}`);
+
+    // Backup actions must explain exactly which local snapshot was created/restored.
+    await page.locator('[data-v3-action="backup_create"]').click();
+    await page.waitForFunction(() => {
+      const node = document.querySelector('#fn3_backup_result');
+      return node && !node.hidden && node.textContent.includes('Снимок создан') && node.textContent.includes('backup-20260921-174500.123456789');
+    });
+    assert.equal(backupCreatePosts, 1, 'Create snapshot must issue exactly one backup action');
+    assert.equal(await page.locator('#fn3_backup_snapshot').textContent(), 'backup-20260921-174500.123456789');
+    assert.equal(await page.locator('#fn3_backup_path').textContent(), '/opt/backups/freenet-settings/backup-20260921-174500.123456789');
+    const createResult = (await page.locator('#fn3_backup_result').textContent()) || '';
+    assert.match(createResult, /Зафиксировано состояние 4 контролируемых компонентов/);
+    assert.doesNotMatch(createResult, /token=|vless:\/\/|uuid|pbk=|sid=/i, 'backup result must not expose secret-bearing values');
+
+    page.once('dialog', async dialog => {
+      assert.match(dialog.message(), /backup-20260921-174500\.123456789/, 'restore confirmation must name the selected snapshot');
+      await dialog.accept();
+    });
+    await page.locator('[data-v3-action="backup_restore"]').click();
+    await page.waitForFunction(() => document.querySelector('#fn3_backup_result')?.textContent.includes('Снимок восстановлен и проверен'));
+    assert.equal(backupRestorePosts, 1, 'Restore snapshot must issue exactly one backup action');
+    const restoreResult = (await page.locator('#fn3_backup_result').textContent()) || '';
+    assert.match(restoreResult, /проверил восстановленные файлы/);
+    assert.match(restoreResult, /backup-20260921-174500\.123456789/);
 
     const visibleProvider = await page.evaluate(() => [...document.querySelectorAll('.topbar *')].some(el => {
       if ((el.textContent || '').trim() !== 'Владлинк') return false;
