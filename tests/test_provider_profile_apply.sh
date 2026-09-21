@@ -5,7 +5,13 @@ set -eu
 ROOT_DIR="$(CDPATH= cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/apply_provider_profile.sh"
 TMP="$(mktemp -d /tmp/freenet-provider-test.XXXXXX)"
-trap 'rm -rf "$TMP"' EXIT HUP INT TERM
+cleanup() {
+    if [ -s "$TMP/runtime.pid" ]; then
+        kill "$(cat "$TMP/runtime.pid")" 2>/dev/null || true
+    fi
+    rm -rf "$TMP"
+}
+trap cleanup EXIT HUP INT TERM
 
 fail() { echo "provider profile test FAIL: $*" >&2; exit 1; }
 
@@ -130,32 +136,46 @@ fi
 [ "$HASH_VALID" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'missing id changed live outbound'
 [ "$FILTER_VALID" = "$(cat "$TMP/profile.filter")" ] || fail 'missing id changed active profile filter'
 
-# Simulate running Xray + first restart failure: outbound, preferred profile and
-# exact active filter must all roll back to the previous accepted state.
+# Simulate running Xray + first core-start failure. The helper must stop only
+# the Xray process, never use xkeen -restart, and restore the exact previous state.
 cp "$TMP/configs/04_outbounds.json" "$TMP/configs/04_outbounds.good"
 printf '%s\n' 'OLD SAFE PROFILE' > "$TMP/etc/vpn_profile_name"
 printf '%s\n' 'OLD|FILTER' > "$TMP/profile.filter"
-cat > "$TMP/bin/pidof" <<'EOF'
+cat > "$TMP/bin/pidof" <<EOF
 #!/bin/sh
-[ "$1" = xray ] && exit 0
-exit 1
+[ "\$1" = xray ] || exit 1
+[ -s "$TMP/runtime.pid" ] || exit 1
+PID="\$(cat "$TMP/runtime.pid")"
+kill -0 "\$PID" 2>/dev/null || exit 1
+printf '%s\n' "\$PID"
 EOF
 chmod 755 "$TMP/bin/pidof"
+
+start_dummy_xray() {
+    sh -c 'trap "rm -f "$1"; exit 0" TERM INT; while :; do sleep 1; done' sh "$TMP/runtime.pid" &
+    printf '%s\n' "$!" > "$TMP/runtime.pid"
+}
+start_dummy_xray
+
 cat > "$TMP/bin/xkeen" <<EOF
 #!/bin/sh
-COUNT_FILE="$TMP/restart.count"
+printf '%s\n' "\$*" >> "$TMP/xkeen.calls"
+[ "\$1" = "-start" ] || exit 9
+COUNT_FILE="$TMP/start.count"
 COUNT=0
 [ -f "\$COUNT_FILE" ] && COUNT="\$(cat "\$COUNT_FILE")"
 COUNT=\$((COUNT+1))
 printf '%s\n' "\$COUNT" > "\$COUNT_FILE"
 [ "\$COUNT" -eq 1 ] && exit 1
+sh -c 'trap "rm -f "$1"; exit 0" TERM INT; while :; do sleep 1; done' sh "$TMP/runtime.pid" &
+printf '%s\n' "\$!" > "$TMP/runtime.pid"
 exit 0
 EOF
 chmod 755 "$TMP/bin/xkeen"
 
 ROLLBACK_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
 if run_helper apply "$PROFILE_ID" > "$TMP/rb.out" 2> "$TMP/rb.err"; then
-    fail 'restart failure unexpectedly succeeded'
+    fail 'core-start failure unexpectedly succeeded'
 fi
 [ "$ROLLBACK_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'rollback did not restore outbound'
 [ "$(cat "$TMP/etc/vpn_profile_name")" = 'OLD SAFE PROFILE' ] || fail 'rollback did not restore preferred profile'
@@ -163,7 +183,11 @@ fi
 grep -Fq 'PRIMARY ERROR:' "$TMP/rb.err" || fail 'primary error not separated'
 grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/rb.err" || fail 'rollback success not reported'
 grep -Fq 'failed' "$HISTORY_FILE" || fail 'failed provider switch journal result missing'
-grep -Fq 'Xray/XKeen runtime acceptance failed after provider apply' "$HISTORY_FILE" || fail 'failed provider switch journal reason missing'
+grep -Fq 'Xray core restart failed after provider apply' "$HISTORY_FILE" || fail 'failed provider switch journal reason missing'
+grep -Fxq -- '-start' "$TMP/xkeen.calls" || fail 'core-only rollback did not use xkeen -start'
+if grep -Fq -- '-restart' "$TMP/xkeen.calls"; then
+    fail 'provider apply used fail-open xkeen -restart'
+fi
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/rb.out" "$TMP/rb.err" "$HISTORY_FILE"; then
     fail 'rollback path leaked credentials'
 fi
