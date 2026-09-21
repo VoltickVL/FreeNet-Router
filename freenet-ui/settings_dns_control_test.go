@@ -135,8 +135,8 @@ func TestSettingsDNSUIContractMatchesAcceptedRender(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"Режим DNS",
-		"DNS через роутер",
-		"Раздельный DNS",
+		"Прямой",
+		"Раздельный",
 		"DIRECT DNS",
 		"VPN DNS",
 		"Яндекс DoH",
