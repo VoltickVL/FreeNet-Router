@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,5 +136,43 @@ func TestSettingsV3FreeNetAutomationIsCheckOnly(t *testing.T) {
 	}
 	if strings.Contains(segment, `"apply"`) {
 		t.Fatal("automatic FreeNet update must never install without explicit confirmation")
+	}
+}
+
+
+func TestSettingsV3SubscriptionActionReturnsSelectableSafeCatalog(t *testing.T) {
+	resetSubscriptionRefreshGroupForTest()
+	t.Setenv("FREENET_SUBSCRIPTION_PROFILES_CACHE", filepath.Join(t.TempDir(), "profiles.json"))
+	t.Setenv("FREENET_SETTINGS_V3_STATE", filepath.Join(t.TempDir(), "settings.state"))
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", filepath.Join(t.TempDir(), "settings.history"))
+	oldDiscovery := subscriptionProfileDiscovery
+	t.Cleanup(func() {
+		subscriptionProfileDiscovery = oldDiscovery
+		resetSubscriptionRefreshGroupForTest()
+	})
+	subscriptionProfileDiscovery = func(_ *app, _ context.Context) ([]subscriptionProfile, error) {
+		return []subscriptionProfile{
+			{ID: "0123456789abcdef", Name: "DE Frankfurt, Germany, Extra", CountryCode: "de", Address: "203.0.113.10", Port: 443},
+			{ID: "fedcba9876543210", Name: "RU Moscow, Russia, Extra", CountryCode: "ru", Address: "203.0.113.20", Port: 443},
+		}, nil
+	}
+	a := &app{cfg: config{UpdateLock: filepath.Join(t.TempDir(), "no-update-lock")}}
+	req := httptest.NewRequest(http.MethodPost, "/api/settings-v3/action", strings.NewReader(`{"action":"subscription_check"}`))
+	rec := httptest.NewRecorder()
+	a.handleSettingsV3Action(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response settingsV3ActionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.Success || response.ProfilesAvailable != 1 || len(response.Profiles) != 1 || response.Profiles[0].CountryCode != "de" {
+		t.Fatalf("unexpected subscription action response: %+v", response)
+	}
+	for _, forbidden := range []string{"vless://", "uuid", "pbk=", "sid=", "https://"} {
+		if strings.Contains(strings.ToLower(rec.Body.String()), forbidden) {
+			t.Fatalf("subscription action leaked forbidden material %q: %s", forbidden, rec.Body.String())
+		}
 	}
 }

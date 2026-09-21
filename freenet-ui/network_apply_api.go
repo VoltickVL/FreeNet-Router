@@ -177,6 +177,26 @@ func networkTargetProductStateMatches(isp, dnsMode, provider, activeISP, activeD
 	return true
 }
 
+func (a *app) attachSubscriptionCatalogForPlan(plan *networkPlanResponse) {
+	if plan == nil || !subscriptionConfigured(a.cfg.SubPath) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 32*time.Second)
+	defer cancel()
+	catalog, err := a.subscriptionProfilesForRead(ctx)
+	if len(catalog.Profiles) > 0 {
+		plan.ExtraProfiles = selectableSubscriptionProfiles(catalog.Profiles)
+	}
+	if err != nil {
+		if catalog.Stale && len(catalog.Profiles) > 0 {
+			plan.ProfilesError = "Свежий список Extra-профилей не получен; используется последний успешный список."
+			plan.ProfilesStale = true
+		} else {
+			plan.ProfilesError = err.Error()
+		}
+	}
+}
+
 func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 	isp, dnsMode, activeISP, activeDNS, selectionErr := a.requestedNetworkSelection(r)
 	if selectionErr != nil {
@@ -204,28 +224,15 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 	plan.ActiveDNSMode = activeDNS
 	decorateNativeDNSProviderPlan(&plan, provider, activeProvider)
 	plan.Active = plan.Active && networkTargetProductStateMatches(isp, dnsMode, provider, activeISP, activeDNS, activeProvider)
+	// The VPN catalog is independent from the ISP/DNS plan. Attach the last
+	// successful safe catalog before returning a network-plan error so a broken
+	// or unsupported network draft cannot erase the subscription state.
+	a.attachSubscriptionCatalogForPlan(&plan)
 	if err != nil {
 		plan.Success = false
 		plan.Error = err.Error()
 		writeJSON(w, http.StatusServiceUnavailable, plan)
 		return
-	}
-
-	if subscriptionConfigured(a.cfg.SubPath) {
-		ctx, cancel := context.WithTimeout(context.Background(), 32*time.Second)
-		catalog, profileErr := a.refreshSubscriptionProfiles(ctx)
-		cancel()
-		if len(catalog.Profiles) > 0 {
-			plan.ExtraProfiles = catalog.Profiles
-		}
-		if profileErr != nil {
-			if catalog.Stale && len(catalog.Profiles) > 0 {
-				plan.ProfilesError = "Свежий список Extra-профилей не получен; используется последний успешный список."
-				plan.ProfilesStale = true
-			} else {
-				plan.ProfilesError = profileErr.Error()
-			}
-		}
 	}
 
 	if profileID := strings.TrimSpace(r.URL.Query().Get("provider_profile_id")); profileID != "" {

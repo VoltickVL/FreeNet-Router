@@ -70,9 +70,13 @@ type settingsV3ActionRequest struct {
 }
 
 type settingsV3ActionResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Success           bool                  `json:"success"`
+	Message           string                `json:"message,omitempty"`
+	Profiles          []subscriptionProfile `json:"profiles,omitempty"`
+	ProfilesAvailable int                   `json:"profiles_available,omitempty"`
+	ProfilesStale     bool                  `json:"profiles_stale,omitempty"`
+	ProfilesUpdatedAt string                `json:"profiles_updated_at,omitempty"`
+	Error             string                `json:"error,omitempty"`
 }
 
 func registerSettingsV3API(mux *http.ServeMux, a *app) {
@@ -469,18 +473,24 @@ func v3Mark(kind, result, message string) {
 	v3AppendEvent(kind, result, message)
 }
 
-func (a *app) runV3Subscription(ctx context.Context) error {
+func (a *app) runV3SubscriptionResult(ctx context.Context) (subscriptionRefreshResult, error) {
 	result, err := a.refreshSubscriptionProfiles(ctx)
+	visible := selectableSubscriptionProfiles(result.Profiles)
 	if err != nil {
-		if len(result.Profiles) > 0 && result.Stale {
-			v3Mark("subscription", "failed", fmt.Sprintf("Свежий список VPN не получен. Используется последний успешный список: %d.", len(result.Profiles)))
+		if len(visible) > 0 && result.Stale {
+			v3Mark("subscription", "failed", fmt.Sprintf("Свежий список VPN не получен. Используется последний успешный зарубежный Extra-каталог: %d.", len(visible)))
 		} else {
 			v3Mark("subscription", "failed", "Не удалось получить безопасный список VPN из подписки.")
 		}
-		return err
+		return result, err
 	}
-	v3Mark("subscription", "success", fmt.Sprintf("Подписка проверена. Доступно Extra-профилей: %d.", len(result.Profiles)))
-	return nil
+	v3Mark("subscription", "success", fmt.Sprintf("Подписка проверена. Доступно зарубежных Extra-профилей: %d.", len(visible)))
+	return result, nil
+}
+
+func (a *app) runV3Subscription(ctx context.Context) error {
+	_, err := a.runV3SubscriptionResult(ctx)
+	return err
 }
 
 func (a *app) runV3GeoData(ctx context.Context) error {
@@ -610,7 +620,19 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 	var message string
 	switch strings.TrimSpace(req.Action) {
 	case "subscription_check":
-		err = a.runV3Subscription(ctx); message = "Подписка проверена и обновлена."
+		result, subscriptionErr := a.runV3SubscriptionResult(ctx)
+		visible := selectableSubscriptionProfiles(result.Profiles)
+		response := settingsV3ActionResponse{
+			Success: subscriptionErr == nil, Message: "Подписка проверена и каталог Extra-профилей обновлён.",
+			Profiles: visible, ProfilesAvailable: len(visible), ProfilesStale: result.Stale, ProfilesUpdatedAt: result.UpdatedAt,
+		}
+		if subscriptionErr != nil {
+			response.Error = sanitizeAutomationReason(subscriptionErr.Error())
+			writeJSON(w, http.StatusBadGateway, response)
+			return
+		}
+		writeJSON(w, http.StatusOK, response)
+		return
 	case "geodata_update":
 		err = a.runV3GeoData(ctx); message = "GeoData / GeoIP обновлены."
 	case "freenet_check":

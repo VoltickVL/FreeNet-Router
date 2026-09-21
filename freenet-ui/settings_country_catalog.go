@@ -86,11 +86,12 @@ func (a *app) handleSettingsCountryCatalog(w http.ResponseWriter, r *http.Reques
 	ctx, cancel := context.WithTimeout(r.Context(), settingsCountryCatalogTimeout)
 	defer cancel()
 
-	profiles, err := a.discoverSubscriptionProfiles(ctx)
+	catalog, err := a.subscriptionProfilesForRead(ctx)
+	profiles := selectableSubscriptionProfiles(catalog.Profiles)
 	if err != nil {
 		writeJSON(w, http.StatusOK, settingsCountryCatalogResponse{
 			Success:   true,
-			Countries: settingsCountryOptions(nil, selected),
+			Countries: settingsCountryOptions(profiles, selected),
 			Selected:  selected,
 			Fresh:     false,
 			Warning:   "Каталог стран временно недоступен. Сохранённый выбор не изменён.",
@@ -102,6 +103,6 @@ func (a *app) handleSettingsCountryCatalog(w http.ResponseWriter, r *http.Reques
 		Success:   true,
 		Countries: settingsCountryOptions(profiles, selected),
 		Selected:  selected,
-		Fresh:     true,
+		Fresh:     !catalog.Stale,
 	})
 }

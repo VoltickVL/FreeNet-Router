@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,7 +120,7 @@ func TestEmergencyBestPathBypassesOnlyOptimizationCooldown(t *testing.T) {
 	}
 }
 
-func TestEndpointEmergencyStaysOnEndpointOnlyHelper(t *testing.T) {
+func TestEndpointEmergencyUsesCanonicalManualRefreshAndPostProbe(t *testing.T) {
 	data, err := os.ReadFile("automation_health.go")
 	if err != nil {
 		t.Fatal(err)
@@ -130,10 +132,79 @@ func TestEndpointEmergencyStaysOnEndpointOnlyHelper(t *testing.T) {
 		t.Fatal("endpoint emergency contract is missing")
 	}
 	segment := text[start:end]
-	if !strings.Contains(segment, "ensureAutomationHelper()") || !strings.Contains(segment, "helper, \"run\"") {
-		t.Fatal("endpoint emergency must reuse the canonical endpoint-only helper")
+	if !strings.Contains(segment, "automationEndpointUpdateCommand") || !strings.Contains(segment, "automationEndpointPostProbe") {
+		t.Fatal("endpoint emergency must use the canonical vpn update path and verify Internet through the refreshed VPN")
+	}
+	if strings.Contains(segment, "ensureAutomationHelper()") || strings.Contains(segment, "helper, \"run\"") {
+		t.Fatal("health recovery must not keep a second legacy endpoint-refresh engine")
 	}
 	if strings.Contains(segment, "executeProviderProfileApply") || strings.Contains(segment, "runAutomationBestEmergencyCycle") {
-		t.Fatal("endpoint-only emergency must not change country/profile")
+		t.Fatal("endpoint refresh itself must not change country/profile")
+	}
+}
+
+func TestEndpointEmergencyRequiresHealthyPostProbe(t *testing.T) {
+	oldCommand, oldProbe := automationEndpointUpdateCommand, automationEndpointPostProbe
+	t.Cleanup(func() {
+		automationEndpointUpdateCommand = oldCommand
+		automationEndpointPostProbe = oldProbe
+	})
+	outPath := filepath.Join(t.TempDir(), "04_outbounds.json")
+	if err := os.WriteFile(outPath, []byte("before"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{VPNPath: "/opt/bin/vpn", OutPath: outPath}}
+	settings := automationSettings{Mode: automationModeEndpoint, AutoApply: true}
+
+	automationEndpointUpdateCommand = func(_ *app, _ context.Context) ([]byte, error) {
+		if err := os.WriteFile(outPath, []byte("after"), 0600); err != nil {
+			return nil, err
+		}
+		return []byte("updated"), nil
+	}
+	automationEndpointPostProbe = func(_ *app, _ context.Context) automationHealthProbe {
+		return automationHealthProbe{State: automationHealthFailed, Reason: "still failed"}
+	}
+	result, err := a.runAutomationEndpointEmergency(context.Background(), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != automationHealthFailed || !result.Mutated {
+		t.Fatalf("post-refresh failed probe result=%+v want failed + mutated", result)
+	}
+
+	automationEndpointPostProbe = func(_ *app, _ context.Context) automationHealthProbe {
+		return automationHealthProbe{State: automationHealthHealthy, Reason: "healthy"}
+	}
+	result, err = a.runAutomationEndpointEmergency(context.Background(), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State != automationHealthHealthy {
+		t.Fatalf("healthy post-refresh probe result=%+v want healthy", result)
+	}
+}
+
+func TestEndpointEmergencyBusyFailsClosed(t *testing.T) {
+	oldCommand, oldProbe := automationEndpointUpdateCommand, automationEndpointPostProbe
+	t.Cleanup(func() {
+		automationEndpointUpdateCommand = oldCommand
+		automationEndpointPostProbe = oldProbe
+	})
+	probeCalled := false
+	automationEndpointUpdateCommand = func(_ *app, _ context.Context) ([]byte, error) {
+		return []byte("[blanc-xkeen] ERROR: another updater instance is already running"), errors.New("exit status 1")
+	}
+	automationEndpointPostProbe = func(_ *app, _ context.Context) automationHealthProbe {
+		probeCalled = true
+		return automationHealthProbe{State: automationHealthHealthy}
+	}
+	a := &app{cfg: config{VPNPath: "/opt/bin/vpn", OutPath: filepath.Join(t.TempDir(), "missing")}}
+	result, err := a.runAutomationEndpointEmergency(context.Background(), automationSettings{Mode: automationModeEndpoint, AutoApply: true})
+	if !errors.Is(err, errAutomationBusy) {
+		t.Fatalf("busy error=%v want errAutomationBusy", err)
+	}
+	if result.State != automationHealthUncertain || probeCalled {
+		t.Fatalf("busy recovery result=%+v probeCalled=%v; must fail closed before a second mutation/probe", result, probeCalled)
 	}
 }

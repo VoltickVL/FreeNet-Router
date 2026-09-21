@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -35,6 +36,29 @@ type automationHealthResult struct {
 type automationHealthProbe struct {
 	State  string
 	Reason string
+}
+
+var automationEndpointUpdateCommand = func(a *app, ctx context.Context) ([]byte, error) {
+	return runCommand(ctx, a.cfg.VPNPath, "update")
+}
+
+var automationEndpointPostProbe = func(a *app, ctx context.Context) automationHealthProbe {
+	return a.probeAutomationCurrentVPN(ctx)
+}
+
+func automationEndpointUpdateBusy(out []byte) bool {
+	text := strings.ToLower(sanitizeOutput(string(out)))
+	return strings.Contains(text, "another updater instance is already running") ||
+		strings.Contains(text, "updater is already busy") ||
+		strings.Contains(text, "another freenet operation is already running")
+}
+
+func automationEndpointRollbackUnknown(out []byte) bool {
+	text := strings.ToLower(sanitizeOutput(string(out)))
+	return strings.Contains(text, "rollback error") ||
+		strings.Contains(text, "rollback failed") ||
+		strings.Contains(text, "rollback unknown") ||
+		strings.Contains(text, "failed_unknown")
 }
 
 func classifyAutomationHealth(first automationHealthProbe, wanHealthy bool, second automationHealthProbe) automationHealthProbe {
@@ -269,23 +293,35 @@ func (a *app) runAutomationEndpointEmergency(parent context.Context, settings au
 	if !settings.AutoApply {
 		return automationHealthResult{State: automationHealthCritical, Reason: "Текущий VPN недоступен, но автоматическое восстановление выключено."}, nil
 	}
-	helper, err := ensureAutomationHelper()
-	if err != nil {
-		return automationHealthResult{State: automationHealthCritical, Reason: err.Error()}, err
-	}
+
+	before, _ := os.ReadFile(a.cfg.OutPath)
 	ctx, cancel := context.WithTimeout(parent, 150*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, helper, "run").CombinedOutput()
+	out, err := automationEndpointUpdateCommand(a, ctx)
 	if err != nil {
-		return automationHealthResult{State: automationHealthCritical, Reason: safeAutomationHelperError(out)}, err
+		if automationEndpointUpdateBusy(out) {
+			return automationHealthResult{State: automationHealthUncertain, Reason: "Обновление текущего VPN уже выполняется другой операцией; следующая mutation отменена."}, errAutomationBusy
+		}
+		if automationEndpointRollbackUnknown(out) {
+			return automationHealthResult{State: automationHealthCritical, Reason: "Штатное обновление текущего VPN завершилось ошибкой; rollback failed or unknown."}, err
+		}
+		return automationHealthResult{State: automationHealthCritical, Reason: "Штатное обновление текущего VPN не завершено; текущая конфигурация не считается восстановленной."}, err
 	}
-	values := parseKVOutput(string(out))
-	result := strings.TrimSpace(values["RESULT"])
-	reason := strings.TrimSpace(values["REASON"])
-	if reason == "" {
-		reason = "Проверка нового адреса текущего VPN завершена без изменений."
+
+	after, _ := os.ReadFile(a.cfg.OutPath)
+	mutated := len(before) > 0 && len(after) > 0 && !bytes.Equal(before, after)
+	probeCtx, cancelProbe := context.WithTimeout(parent, automationHealthProbeTimeout)
+	probe := automationEndpointPostProbe(a, probeCtx)
+	cancelProbe()
+	switch probe.State {
+	case automationHealthHealthy:
+		reason := "Текущий VPN восстановлен штатным обновлением профиля и подтверждён проверкой доступа через VPN."
+		return automationHealthResult{State: automationHealthHealthy, Reason: reason, Mutated: mutated}, nil
+	case automationHealthUncertain:
+		return automationHealthResult{State: automationHealthUncertain, Reason: "После штатного обновления состояние VPN не удалось однозначно подтвердить; следующая mutation отменена.", Mutated: mutated}, nil
+	default:
+		return automationHealthResult{State: automationHealthFailed, Reason: "Штатное обновление профиля выполнено, но доступ через текущий VPN не восстановился.", Mutated: mutated}, nil
 	}
-	return automationHealthResult{State: result, Reason: reason, Mutated: result == "updated"}, nil
 }
 
 func recordAndReturnHealth(result automationHealthResult, err error) (automationHealthResult, error) {
@@ -357,13 +393,16 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	endpointSettings := settings
 	endpointSettings.Mode = automationModeEndpoint
 	endpointSettings.AutoApply = true
-	appendAutomationRecoveryStage("endpoint_refresh", "start", "Пробуем обновить endpoint текущего VPN перед заменой сервера.")
+	appendAutomationRecoveryStage("endpoint_refresh", "start", "Пробуем штатно обновить текущий VPN перед заменой сервера.")
 	endpointResult, endpointErr := a.runAutomationEndpointEmergency(parent, endpointSettings)
 	appendAutomationRecoveryStage("endpoint_refresh", endpointResult.State, endpointResult.Reason)
-	if endpointErr == nil && endpointResult.Mutated {
-		endpointResult.Reason = "Текущий VPN восстановлен с новым адресом подключения."
+	if endpointErr == nil && endpointResult.State == automationHealthHealthy {
 		appendAutomationRecoveryStage("post_check", "success", endpointResult.Reason)
 		return recordAndReturnHealth(endpointResult, nil)
+	}
+	if endpointResult.State == automationHealthUncertain {
+		appendAutomationRecoveryStage("post_check", automationHealthUncertain, endpointResult.Reason)
+		return recordAndReturnHealth(endpointResult, endpointErr)
 	}
 	if endpointErr != nil {
 		lower := strings.ToLower(endpointResult.Reason)

@@ -296,3 +296,30 @@ func TestNetworkPlanHandlerUsesExactAllowlistedHelper(t *testing.T) {
 		t.Fatal("helper path must not be exposed")
 	}
 }
+
+
+func TestNetworkPlanCatalogReadIsIndependentFromNetworkPlanHealth(t *testing.T) {
+	resetSubscriptionRefreshGroupForTest()
+	cachePath := filepath.Join(t.TempDir(), "profiles.json")
+	t.Setenv("FREENET_SUBSCRIPTION_PROFILES_CACHE", cachePath)
+	subPath := filepath.Join(t.TempDir(), "subscription.url")
+	if err := os.WriteFile(subPath, []byte("https://example.invalid/key\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	profiles := []subscriptionProfile{
+		{ID: "0123456789abcdef", Name: "DE Frankfurt, Germany, Extra", CountryCode: "de", Address: "203.0.113.10", Port: 443},
+		{ID: "fedcba9876543210", Name: "RU Moscow, Russia, Extra", CountryCode: "ru", Address: "203.0.113.20", Port: 443},
+	}
+	if err := saveSubscriptionProfilesCache(profiles, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{SubPath: subPath}}
+	plan := networkPlanResponse{Success: false, Error: "unrelated network plan failure"}
+	a.attachSubscriptionCatalogForPlan(&plan)
+	if len(plan.ExtraProfiles) != 1 || plan.ExtraProfiles[0].CountryCode != "de" {
+		t.Fatalf("catalog=%#v want foreign LKG even when network plan itself failed", plan.ExtraProfiles)
+	}
+	if plan.ProfilesError != "" || plan.ProfilesStale {
+		t.Fatalf("cache-first read should not fabricate a refresh failure: error=%q stale=%v", plan.ProfilesError, plan.ProfilesStale)
+	}
+}

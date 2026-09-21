@@ -163,3 +163,60 @@ func TestSubscriptionNextCronRunMatchesManagedSchedule(t *testing.T) {
 		}
 	}
 }
+
+
+func TestSelectableSubscriptionProfilesMatchesForeignBaseExtra(t *testing.T) {
+	profiles := []subscriptionProfile{
+		{ID: "a", Name: "DE Frankfurt, Germany, Extra", CountryCode: "de", Address: "203.0.113.1", Port: 443},
+		{ID: "b", Name: "RU Moscow, Russia, Extra", CountryCode: "ru", Address: "203.0.113.2", Port: 443},
+		{ID: "c", Name: "Russia, Extra", Address: "203.0.113.3", Port: 443},
+		{ID: "d", Name: "DE Frankfurt, Whitelist, Extra", CountryCode: "de", Address: "203.0.113.4", Port: 443},
+		{ID: "e", Name: "FR Paris, Expired, Extra", CountryCode: "fr", Address: "203.0.113.5", Port: 443},
+	}
+	got := selectableSubscriptionProfiles(profiles)
+	if len(got) != 1 || got[0].ID != "a" {
+		t.Fatalf("selectable profiles=%#v want only foreign base Extra", got)
+	}
+}
+
+func TestSubscriptionProfilesForReadUsesLastKnownGoodWithoutFreshFetch(t *testing.T) {
+	resetSubscriptionRefreshGroupForTest()
+	t.Setenv("FREENET_SUBSCRIPTION_PROFILES_CACHE", filepath.Join(t.TempDir(), "profiles.json"))
+	oldDiscovery := subscriptionProfileDiscovery
+	t.Cleanup(func() {
+		subscriptionProfileDiscovery = oldDiscovery
+		resetSubscriptionRefreshGroupForTest()
+	})
+
+	subPath := filepath.Join(t.TempDir(), "subscription.url")
+	if err := os.WriteFile(subPath, []byte("https://example.invalid/key\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var calls int32
+	subscriptionProfileDiscovery = func(_ *app, _ context.Context) ([]subscriptionProfile, error) {
+		atomic.AddInt32(&calls, 1)
+		return testSafeSubscriptionProfiles(), nil
+	}
+	a := &app{cfg: config{SubPath: subPath}}
+	if _, err := a.refreshSubscriptionProfiles(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("initial discovery calls=%d want 1", got)
+	}
+
+	subscriptionProfileDiscovery = func(_ *app, _ context.Context) ([]subscriptionProfile, error) {
+		atomic.AddInt32(&calls, 1)
+		return nil, errors.New("must not fetch")
+	}
+	catalog, err := a.subscriptionProfilesForRead(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if catalog.Stale || len(catalog.Profiles) != 2 {
+		t.Fatalf("read catalog=%+v want fresh-use LKG with two profiles", catalog)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("read path unexpectedly fetched provider; calls=%d", got)
+	}
+}
