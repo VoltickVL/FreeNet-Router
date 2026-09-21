@@ -116,7 +116,29 @@ async function capture(label){
   await page.locator('#fnVpnPickerV2Reset').click();planDelay=0;planMode='error';await page.locator(S).fill('NL');await page.locator(R+' button').first().click();
   await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','validation error');assert.equal(await page.locator(C).isDisabled(),true);assert.match(await page.locator('#fnVpnPickerV2Detail').textContent(),/Xray/);await geometry('validation-error');assert.equal(countApply(),1);
   await page.locator('#fnVpnPickerV2Reset').click();planMode='offline';await page.evaluate(()=>loadNetworkPlan());await page.locator(S).fill('');
-  await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'cached list');await until(()=>!document.querySelector('#fnVpnPickerV2Stale').hidden,'stale banner');assert.equal(countApply(),1);planMode='ok';
+  await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'cached list');await until(()=>!document.querySelector('#fnVpnPickerV2Stale').hidden,'stale banner');assert.equal(countApply(),1);
+
+  // Real-upgrade regression: an exact Swiss profile may share an endpoint with
+  // stale Belgian rows. Current logical identity must come from the exact
+  // profile label, never endpoint equality or browser cache.
+  status={...status,country:'',country_code:'',city:'',profile_label:'🇨🇭 Цюрих, Швейцария, Extra',endpoint:ep(current)};
+  await page.evaluate(()=>loadStatus());
+  await until(()=>document.querySelector('#fnVpnPickerV2Flag')?.dataset.country==='ch','Swiss exact current identity');
+  assert.equal(await page.locator('#fnVpnPickerV2Country').textContent(),'Швейцария');
+  assert.match(await page.locator('.fnv2-current-copy').textContent(),/Цюрих, Швейцария/);
+  assert.equal(countApply(),1,'identity reconcile must not mutate VPN');
+
+  // A stale cache is only a temporary safe presentation fallback. Reopening the
+  // picker must perform one read-only fresh plan attempt and clear stale state
+  // when the catalog is available again.
+  planMode='ok';
+  await page.keyboard.press('Escape');
+  const planReadsBeforeReopen=calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length;
+  await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});
+  await until(()=>document.querySelector('#fnVpnPickerV2Stale')?.hidden===true,'stale cache refreshed on reopen');
+  const planReadsAfterReopen=calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length;
+  assert.equal(planReadsAfterReopen,planReadsBeforeReopen+1,'stale reopen must perform exactly one read-only refresh');
+  assert.equal(countApply(),1,'stale refresh must not apply VPN');
   await page.keyboard.press('Escape');
   for(const viewport of [{width:1440,height:900},{width:980,height:800},{width:760,height:700},{width:390,height:844},{width:844,height:390}]){
     await page.setViewportSize(viewport);await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await delay(100);await geometry(`${viewport.width}x${viewport.height}`);if(viewport.width===390)await capture('mobile-list');await page.keyboard.press('Escape');assert.equal(await page.locator(P).isHidden(),true);
