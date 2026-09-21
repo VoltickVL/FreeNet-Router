@@ -99,3 +99,36 @@ func TestBestServerPreflightUsesTwoBoundedRankingSamples(t *testing.T) {
 		t.Fatal("preflight must remain explicitly ranking-only; acceptance belongs to deep quality")
 	}
 }
+
+
+func TestBestServerDeepProgressIsCumulativeAcrossBatches(t *testing.T) {
+	type progress struct {
+		stage     string
+		completed int
+		total     int
+	}
+	var got []progress
+	parent := context.WithValue(context.Background(), bestServerProgressKey{}, func(stage string, completed, total int) {
+		got = append(got, progress{stage: stage, completed: completed, total: total})
+	})
+	ctx := bestServerDeepProgressContext(parent, 2, 7)
+	reportBestServerProgress(ctx, "quality", 0, 1)
+	reportBestServerProgress(ctx, "quality", 1, 1)
+	if len(got) != 2 || got[0].completed != 2 || got[0].total != 7 || got[1].completed != 3 || got[1].total != 7 {
+		t.Fatalf("deep progress must map batch-local progress onto the global candidate sequence: %#v", got)
+	}
+}
+
+func TestBestServerBrowserShowsAdaptiveDeepProgress(t *testing.T) {
+	data, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	if !strings.Contains(src, "Глубоко проверяем лучшие VPN · проверено ${job.completed} · цель до 3 подходящих") {
+		t.Fatal("Best Server UI must show cumulative adaptive deep-check progress")
+	}
+	if strings.Contains(src, "Глубоко проверяем лучшие VPN · завершено ${job.completed} из ${job.total}") {
+		t.Fatal("Best Server UI must not reset sequential deep checks to misleading 0 из 1 progress")
+	}
+}
