@@ -25,6 +25,16 @@ type bestServerAttemptContext struct{ context.Context }
 
 func (bestServerAttemptContext) Deadline() (time.Time, bool) { return time.Time{}, false }
 
+func bestServerDeepProgressContext(ctx context.Context, start, total int) context.Context {
+	return context.WithValue(bestServerAttemptContext{Context: ctx}, bestServerProgressKey{}, func(stage string, completed, innerTotal int) {
+		if stage == "quality" {
+			reportBestServerProgress(ctx, "quality", start+completed, total)
+			return
+		}
+		reportBestServerProgress(ctx, stage, completed, innerTotal)
+	})
+}
+
 func registerBestServerUXAPI(mux *http.ServeMux, a *app) {
 	jobs := &bestServerJobs{}
 	mux.HandleFunc("GET /api/vpn/current-quality", a.requireAuth(jobs.wrap(a, "current", a.handleCurrentVPNQuality, a.scanCurrentVPNQuality)))
@@ -164,13 +174,7 @@ func (a *app) rankMeasuredBestServerBatches(
 		if end > len(candidates) {
 			end = len(candidates)
 		}
-		attemptCtx := context.WithValue(bestServerAttemptContext{Context: ctx}, bestServerProgressKey{}, func(stage string, completed, _ int) {
-			if stage == "quality" {
-				reportBestServerProgress(ctx, "quality", start+completed, len(candidates))
-				return
-			}
-			reportBestServerProgress(ctx, stage, completed, end-start)
-		})
+		attemptCtx := bestServerDeepProgressContext(ctx, start, len(candidates))
 		batch := rankBestServerQualityCandidates(
 			attemptCtx, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
 			defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
