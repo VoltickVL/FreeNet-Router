@@ -193,9 +193,11 @@ const server = http.createServer((req, res) => {
       settingsActive: document.querySelector('[data-page-view="settings"]')?.classList.contains('active'),
       settingsV3: document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 || '',
       nav: [...document.querySelectorAll('.sidebar .nav-btn')].map(n => (n.textContent || '').trim()),
-      svgWidths: ['#fn3Save svg','#fn3Check svg','.fn3-extra-action svg'].map(s => {
+      svgWidths: ['#fn3Save svg','#fn3MaintenanceSave svg','#fn3Check svg','.fn3-extra-action svg'].map(s => {
         const el = document.querySelector(s); return el ? Math.round(el.getBoundingClientRect().width) : 0;
       }),
+      saveHeight: Math.round(document.querySelector('#fn3Save')?.getBoundingClientRect().height || 0),
+      maintenanceSaveHeight: Math.round(document.querySelector('#fn3MaintenanceSave')?.getBoundingClientRect().height || 0),
       checkHeight: Math.round(document.querySelector('#fn3Check')?.getBoundingClientRect().height || 0),
       sidebarWidth: Math.round(document.querySelector('.sidebar')?.getBoundingClientRect().width || 0),
       navFontSize: getComputedStyle(document.querySelector('.nav-btn[data-page="overview"]')).fontSize,
@@ -217,6 +219,8 @@ const server = http.createServer((req, res) => {
     assert.match(runtime.maintenanceSaveText, /Сохранено/);
     assert.deepEqual(runtime.nav, ['Обзор','Подписка','Настройки','Маршрутизация','Журнал']);
     assert.ok(runtime.svgWidths.every(width => width > 0 && width <= 24), `oversized action icon detected: ${runtime.svgWidths}`);
+    assert.ok(runtime.saveHeight >= 34 && runtime.saveHeight <= 48, `header save has wrong height: ${runtime.saveHeight}`);
+    assert.ok(runtime.maintenanceSaveHeight >= 32 && runtime.maintenanceSaveHeight <= 44, `maintenance save has wrong height: ${runtime.maintenanceSaveHeight}`);
     assert.ok(runtime.checkHeight >= 40 && runtime.checkHeight <= 70, `check action has wrong height: ${runtime.checkHeight}`);
     assert.equal(runtime.sidebarWidth, cold.sidebarWidth, `Settings changed sidebar width: overview=${cold.sidebarWidth}, settings=${runtime.sidebarWidth}`);
     assert.equal(runtime.navFontSize, cold.navFontSize, `Settings changed sidebar font size: overview=${cold.navFontSize}, settings=${runtime.navFontSize}`);
@@ -306,9 +310,19 @@ const server = http.createServer((req, res) => {
     const maintenanceSaveGeometry = await page.evaluate(() => {
       const button = document.querySelector('#fn3MaintenanceSave')?.getBoundingClientRect();
       const section = document.querySelector('.fn3-extra')?.getBoundingClientRect();
-      return {buttonWidth: Math.round(button?.width || 0), sectionWidth: Math.round(section?.width || 0)};
+      const icon = document.querySelector('#fn3MaintenanceSave svg')?.getBoundingClientRect();
+      return {
+        buttonWidth: Math.round(button?.width || 0),
+        buttonHeight: Math.round(button?.height || 0),
+        iconWidth: Math.round(icon?.width || 0),
+        iconHeight: Math.round(icon?.height || 0),
+        sectionWidth: Math.round(section?.width || 0)
+      };
     });
-    assert.ok(maintenanceSaveGeometry.buttonWidth > 0 && maintenanceSaveGeometry.buttonWidth < maintenanceSaveGeometry.sectionWidth, `desktop maintenance save must be a compact footer action: ${JSON.stringify(maintenanceSaveGeometry)}`);
+    assert.ok(maintenanceSaveGeometry.buttonWidth >= 140 && maintenanceSaveGeometry.buttonWidth <= 260, `desktop maintenance save must stay compact: ${JSON.stringify(maintenanceSaveGeometry)}`);
+    assert.ok(maintenanceSaveGeometry.buttonHeight >= 32 && maintenanceSaveGeometry.buttonHeight <= 44, `desktop maintenance save height escaped control range: ${JSON.stringify(maintenanceSaveGeometry)}`);
+    assert.ok(maintenanceSaveGeometry.iconWidth <= 18 && maintenanceSaveGeometry.iconHeight <= 18, `maintenance save icon must remain a normal button icon: ${JSON.stringify(maintenanceSaveGeometry)}`);
+    assert.ok(maintenanceSaveGeometry.buttonWidth < maintenanceSaveGeometry.sectionWidth, `desktop maintenance save must remain a footer action: ${JSON.stringify(maintenanceSaveGeometry)}`);
 
     await page.locator('.nav-btn[data-page="overview"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
