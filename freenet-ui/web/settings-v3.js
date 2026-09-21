@@ -41,6 +41,7 @@
 
   const CORE_SCRIPT = 'settings-v3-core.js';
   const STYLE_ID = 'freenetSettingsSingleSaveStyles';
+  const VERSION_PROGRESS_STYLE_ID = 'freenetVersionPickerProgressStyles';
   const JOURNAL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg>';
   let patchQueued = false;
 
@@ -85,6 +86,27 @@
       #fn3Save.fn3-save:not([disabled]):hover{transform:translateY(-1px);box-shadow:0 0 0 1px rgba(150,190,255,.65),0 0 0 5px rgba(73,126,244,.2),0 16px 38px rgba(50,100,215,.42)!important}
       .fn3-extra-save-row{display:none!important}
       @media(max-width:760px){#fn3Save.fn3-save{width:100%;min-width:0!important;margin-top:10px}}
+    `;
+    document.head.appendChild(style);
+  }
+
+  function injectVersionProgressStyles() {
+    if (document.getElementById(VERSION_PROGRESS_STYLE_ID)) return;
+    const style = document.createElement('style');
+    style.id = VERSION_PROGRESS_STYLE_ID;
+    style.textContent = `
+      .fn-modal-root.fn-version-picker-mode.fn-version-plan-checking{pointer-events:auto!important;cursor:wait}
+      .fn-modal-root.fn-version-picker-mode.fn-version-plan-checking .fn-modal-backdrop{display:block!important;background:rgba(3,10,20,.56)!important;backdrop-filter:blur(5px)!important}
+      .fn-modal-root.fn-version-picker-mode.fn-version-plan-checking .fn-modal{pointer-events:auto!important;box-shadow:0 22px 70px rgba(0,0,0,.66),0 0 0 1px rgba(95,143,230,.18)}
+      .fn-modal-root.fn-version-picker-mode.fn-version-plan-checking #fnModalClose{opacity:.5;cursor:wait}
+      .fn-version-manager-body.fn-version-plan-busy .fn-version-search,
+      .fn-version-manager-body.fn-version-plan-busy .fn-version-release{opacity:.54;cursor:wait!important;filter:saturate(.72)}
+      .fn-version-manager-body.fn-version-plan-busy .fn-version-search{pointer-events:none}
+      .fn-version-manager-body.fn-version-plan-busy .fn-version-release{pointer-events:none}
+      .fn-version-detail.checking{border-color:#5a8dcc!important;background:linear-gradient(180deg,rgba(16,44,74,.98),rgba(8,24,42,.98))!important;color:#d7e8ff!important;box-shadow:inset 0 0 0 1px rgba(95,148,223,.16)}
+      .fn-version-progress{width:100%;height:10px;accent-color:#5189ff}
+      .fn-version-progress-note{color:#9fb7d5;font-size:10.5px;line-height:1.45}
+      .fn-version-plan-page-frozen{overflow:hidden}
     `;
     document.head.appendChild(style);
   }
@@ -145,8 +167,108 @@
     document.head.appendChild(script);
   }
 
+  function selectedVersionLabel() {
+    const selected = document.querySelector('.fn-version-release.selected');
+    return selected?.dataset?.version || selected?.querySelector('strong')?.textContent || 'выбранную версию';
+  }
+
+  function renderVersionBusyDetail(detail) {
+    if (!detail || detail.dataset.freenetProgressRendered === '1') return;
+    detail.dataset.freenetProgressRendered = '1';
+    detail.textContent = '';
+    const title = document.createElement('strong');
+    title.textContent = `Проверяем ${selectedVersionLabel()}…`;
+    const progress = document.createElement('progress');
+    progress.className = 'fn-version-progress';
+    progress.setAttribute('aria-label', 'Проверка версии FreeNet выполняется');
+    const note = document.createElement('span');
+    note.className = 'fn-version-progress-note';
+    note.textContent = 'Формируем безопасный plan: release metadata, manifest/SHA-256 и compatibility. Изменения пока не применяются; фон временно заблокирован.';
+    detail.append(title, progress, note);
+  }
+
+  function setVersionPickerBusy(busy) {
+    const root = document.getElementById('fnModalRoot');
+    const body = document.getElementById('fnModalBody');
+    if (!root || root.hidden || !root.classList.contains('fn-version-picker-mode')) {
+      document.body?.classList.remove('fn-version-plan-page-frozen');
+      return;
+    }
+    root.classList.toggle('fn-version-plan-checking', busy);
+    root.setAttribute('aria-busy', busy ? 'true' : 'false');
+    body?.classList.toggle('fn-version-plan-busy', busy);
+    document.body?.classList.toggle('fn-version-plan-page-frozen', busy);
+
+    const close = document.getElementById('fnModalClose');
+    if (close) {
+      close.disabled = busy;
+      if (busy) close.setAttribute('aria-disabled', 'true');
+      else close.removeAttribute('aria-disabled');
+    }
+    const search = document.getElementById('fnVersionSearch');
+    if (search) search.disabled = busy;
+    document.querySelectorAll('.fn-version-release').forEach(btn => {
+      btn.disabled = busy;
+      if (busy) btn.setAttribute('aria-disabled', 'true');
+      else btn.removeAttribute('aria-disabled');
+    });
+    const topbar = document.getElementById('topFreenetUpdate');
+    if (topbar) {
+      if (busy) topbar.setAttribute('aria-disabled', 'true');
+      else topbar.removeAttribute('aria-disabled');
+    }
+  }
+
+  function syncVersionPickerProgress() {
+    const root = document.getElementById('fnModalRoot');
+    if (!root || root.hidden || !root.classList.contains('fn-version-picker-mode')) {
+      setVersionPickerBusy(false);
+      return;
+    }
+    const detail = document.getElementById('fnVersionDetail');
+    const busy = !!detail && detail.classList.contains('checking');
+    if (busy) renderVersionBusyDetail(detail);
+    setVersionPickerBusy(busy);
+  }
+
+  function watchVersionPickerProgress() {
+    if (window.__freenetVersionPickerProgress) return;
+    window.__freenetVersionPickerProgress = true;
+    injectVersionProgressStyles();
+    const syncSoon = () => requestAnimationFrame(syncVersionPickerProgress);
+    document.addEventListener('click', event => {
+      const root = document.getElementById('fnModalRoot');
+      const busy = !!root && root.classList.contains('fn-version-plan-checking');
+      if (busy && (event.target.closest?.('#topFreenetUpdate') || event.target.closest?.('#fnModalRoot .fn-modal-backdrop'))) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (event.target.closest?.('.fn-version-release')) syncSoon();
+    }, true);
+    document.addEventListener('keydown', event => {
+      const root = document.getElementById('fnModalRoot');
+      if (event.key === 'Escape' && root?.classList.contains('fn-version-plan-checking')) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    }, true);
+    if (document.documentElement) {
+      new MutationObserver(syncSoon).observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['class', 'hidden', 'disabled']
+      });
+    }
+    window.addEventListener('resize', syncSoon);
+    syncSoon();
+  }
+
   injectStyles();
+  injectVersionProgressStyles();
   watchSettingsDOM();
+  watchVersionPickerProgress();
   loadCore();
   schedulePatch();
 })();
