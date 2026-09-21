@@ -21,9 +21,11 @@ func prepareScheduledSubscriptionTest(t *testing.T, enabled bool) (*app, *int) {
 	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
 
 	oldDiscovery := subscriptionProfileDiscovery
+	oldDetect := settingsV3ScheduledCurrentEndpointChanged
 	oldRefresh := settingsV3ScheduledCurrentRefresh
 	t.Cleanup(func() {
 		subscriptionProfileDiscovery = oldDiscovery
+		settingsV3ScheduledCurrentEndpointChanged = oldDetect
 		settingsV3ScheduledCurrentRefresh = oldRefresh
 		resetSubscriptionRefreshGroupForTest()
 	})
@@ -47,6 +49,7 @@ func prepareScheduledSubscriptionTest(t *testing.T, enabled bool) (*app, *int) {
 		t.Fatal(err)
 	}
 	calls := 0
+	settingsV3ScheduledCurrentEndpointChanged = func(_ *app, _ []subscriptionProfile) bool { return true }
 	settingsV3ScheduledCurrentRefresh = func(_ *app, _ context.Context) (int, bestServerRefreshResponse) {
 		calls++
 		return http.StatusOK, bestServerRefreshResponse{
@@ -86,5 +89,27 @@ func TestManualSubscriptionCheckRemainsReadOnly(t *testing.T) {
 	}
 	if *calls != 0 {
 		t.Fatalf("manual subscription_check must remain read-only; scheduled current-endpoint reconcile calls=%d", *calls)
+	}
+}
+
+
+func TestSubscriptionFreshEndpointDetectionUsesLogicalProfileAndFailsClosed(t *testing.T) {
+	profiles := []subscriptionProfile{
+		{ID: "0123456789abcdef", Name: "DE Frankfurt Germany Extra", Address: "203.0.113.20", Port: 443},
+		{ID: "fedcba9876543210", Name: "SK Bratislava Slovakia Extra", Address: "203.0.113.30", Port: 443},
+	}
+	if !subscriptionHasFreshEndpointForCurrent(profiles, "198.51.100.10:443", "Frankfurt|Germany", "DE Frankfurt Germany Extra") {
+		t.Fatal("fresh unique endpoint of the current logical profile must trigger scheduled reconciliation")
+	}
+	if subscriptionHasFreshEndpointForCurrent(profiles, "203.0.113.20:443", "Frankfurt|Germany", "DE Frankfurt Germany Extra") {
+		t.Fatal("already-active endpoint must not trigger scheduled reconciliation")
+	}
+
+	ambiguous := []subscriptionProfile{
+		{ID: "1111111111111111", Name: "DE Frankfurt Germany Extra", Address: "203.0.113.20", Port: 443},
+		{ID: "2222222222222222", Name: "DE Frankfurt Germany Extra", Address: "203.0.113.21", Port: 443},
+	}
+	if subscriptionHasFreshEndpointForCurrent(ambiguous, "198.51.100.10:443", "Frankfurt|Germany", "DE Frankfurt Germany Extra") {
+		t.Fatal("ambiguous endpoint rotation must fail closed")
 	}
 }
