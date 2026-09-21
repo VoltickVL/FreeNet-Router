@@ -10,6 +10,8 @@ OUT_FILE="$CONFIG_DIR/04_outbounds.json"
 PROFILE_FILE="${FREENET_PROFILE_FILE:-/opt/etc/freenet/vpn_profile_name}"
 FILTER_FILE="${FREENET_FILTER_FILE:-/opt/etc/xray/blanc_profile_filter.regex}"
 HISTORY_FILE="${FREENET_AUTOMATION_HISTORY:-/opt/var/log/freenet-automation.history}"
+PROVIDER_CACHE="${FREENET_PROVIDER_SUBSCRIPTION_CACHE:-/opt/var/lib/freenet/provider-subscription.lkg}"
+PROVIDER_CACHE_SOURCE="${FREENET_PROVIDER_SUBSCRIPTION_SOURCE:-${PROVIDER_CACHE}.source.sha256}"
 XRAY_BIN="${FREENET_XRAY_BIN:-/opt/sbin/xray}"
 XKEEN_BIN="${FREENET_XKEEN_BIN:-/opt/sbin/xkeen}"
 CORE_RESTART_HELPER="${FREENET_XRAY_CORE_RESTART_HELPER:-}"
@@ -103,6 +105,58 @@ fetch_subscription() {
         --max-time 60 \
         -A 'Mozilla/5.0' \
         "$SUB_URL" > "$RAW_FILE" 2> "$CURL_ERR"
+}
+
+subscription_source_fingerprint() {
+    printf '%s' "$SUB_URL" | sha256sum | awk '{print $1}'
+}
+
+load_provider_cache() {
+    [ -s "$PROVIDER_CACHE" ] || return 1
+    [ -s "$PROVIDER_CACHE_SOURCE" ] || return 1
+    EXPECTED_SOURCE="$(subscription_source_fingerprint)"
+    CACHED_SOURCE="$(tr -d '\r\n ' < "$PROVIDER_CACHE_SOURCE" 2>/dev/null)"
+    [ -n "$EXPECTED_SOURCE" ] && [ "$CACHED_SOURCE" = "$EXPECTED_SOURCE" ] || return 1
+    cp "$PROVIDER_CACHE" "$DECODED_FILE" || return 1
+    tr -d '\r' < "$DECODED_FILE" > "$DECODED_FILE.clean" || return 1
+    mv "$DECODED_FILE.clean" "$DECODED_FILE" || return 1
+    grep -q '^vless://' "$DECODED_FILE" || return 1
+    SUBSCRIPTION_SOURCE='secure-lkg'
+    return 0
+}
+
+save_provider_cache() {
+    CACHE_DIR="$(dirname "$PROVIDER_CACHE")"
+    SOURCE_DIR="$(dirname "$PROVIDER_CACHE_SOURCE")"
+    mkdir -p "$CACHE_DIR" "$SOURCE_DIR" 2>/dev/null || return 1
+    CACHE_STAGE="$PROVIDER_CACHE.new.$"
+    SOURCE_STAGE="$PROVIDER_CACHE_SOURCE.new.$"
+    cp "$DECODED_FILE" "$CACHE_STAGE" || return 1
+    chmod 600 "$CACHE_STAGE" 2>/dev/null || true
+    printf '%s\n' "$(subscription_source_fingerprint)" > "$SOURCE_STAGE" || { rm -f "$CACHE_STAGE"; return 1; }
+    chmod 600 "$SOURCE_STAGE" 2>/dev/null || true
+    mv -f "$CACHE_STAGE" "$PROVIDER_CACHE" || { rm -f "$CACHE_STAGE" "$SOURCE_STAGE"; return 1; }
+    mv -f "$SOURCE_STAGE" "$PROVIDER_CACHE_SOURCE" || return 1
+    return 0
+}
+
+prepare_subscription() {
+    if load_provider_cache; then
+        return 0
+    fi
+    fetch_subscription || return 1
+    [ -s "$RAW_FILE" ] || return 1
+    if grep -q '^vless://' "$RAW_FILE"; then
+        cp "$RAW_FILE" "$DECODED_FILE" || return 1
+    else
+        base64 -d "$RAW_FILE" > "$DECODED_FILE" 2>/dev/null || return 1
+    fi
+    tr -d '\r' < "$DECODED_FILE" > "$DECODED_FILE.clean" || return 1
+    mv "$DECODED_FILE.clean" "$DECODED_FILE" || return 1
+    grep -q '^vless://' "$DECODED_FILE" || return 1
+    SUBSCRIPTION_SOURCE='fresh'
+    save_provider_cache || return 1
+    return 0
 }
 
 sanitize_name() {
@@ -519,17 +573,9 @@ OUT_BEFORE="$TMP_DIR/out.before"
 PROFILE_BEFORE="$TMP_DIR/profile.before"
 FILTER_BEFORE="$TMP_DIR/filter.before"
 
-fetch_subscription || { err 'subscription fetch failed'; exit 1; }
-[ -s "$RAW_FILE" ] || { err 'subscription response is empty'; exit 1; }
-if grep -q '^vless://' "$RAW_FILE"; then
-    cp "$RAW_FILE" "$DECODED_FILE" || exit 1
-else
-    base64 -d "$RAW_FILE" > "$DECODED_FILE" 2>/dev/null || { err 'subscription decode failed'; exit 1; }
-fi
-tr -d '\r' < "$DECODED_FILE" > "$DECODED_FILE.clean" || exit 1
-mv "$DECODED_FILE.clean" "$DECODED_FILE" || exit 1
+prepare_subscription || { err 'fresh subscription unavailable and secure provider cache is missing or does not match'; exit 1; }
 
-select_profile || { err 'requested Extra profile is not present in the fresh subscription'; exit 1; }
+select_profile || { err 'requested Extra profile is not present in the prepared subscription'; exit 1; }
 build_vless_object || { err 'cannot build selected VLESS profile'; exit 1; }
 build_candidate || { err 'cannot build candidate 04_outbounds.json'; exit 1; }
 validate_candidate || { err 'candidate Xray configuration validation failed'; exit 1; }

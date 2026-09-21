@@ -59,6 +59,17 @@ func TestProviderPlanRejectsMutationAndInvalidID(t *testing.T) {
 	}
 }
 
+func TestProviderPlanFailureReasonDistinguishesSubscriptionAvailabilityFromXrayValidation(t *testing.T) {
+	cacheReason := providerPlanFailureReason([]byte("[FreeNet Provider] ERROR: fresh subscription unavailable and secure provider cache is missing or does not match\n"))
+	if cacheReason != "Свежая подписка недоступна, а защищённый локальный список для переключения ещё не создан." {
+		t.Fatalf("cache availability reason=%q", cacheReason)
+	}
+	xrayReason := providerPlanFailureReason([]byte("[FreeNet Provider] ERROR: candidate Xray configuration validation failed\n"))
+	if xrayReason != "Конфигурация выбранного VPN-сервера не прошла проверку Xray." {
+		t.Fatalf("Xray validation reason=%q", xrayReason)
+	}
+}
+
 func TestRunProviderPlanPreservesSafeHelperFailure(t *testing.T) {
 	provider := writeFakeNetworkHelper(t, "echo '[FreeNet Provider] ERROR: candidate Xray configuration validation failed' >&2\nexit 1")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
