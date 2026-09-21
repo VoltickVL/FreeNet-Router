@@ -44,7 +44,7 @@ func TestDNSUserFacingCopyIsCanonical(t *testing.T) {
 		},
 		"web/routing-v2.js": {
 			"DNS: Прямой",
-			"DNS: Раздельный · VPN",
+			"DNS: Раздельный",
 		},
 		"web/index.html": {
 			"<option value=\"firmware\">Прямой</option>",
@@ -68,27 +68,34 @@ func TestDNSUserFacingCopyIsCanonical(t *testing.T) {
 	// These assets emit user-visible mode names directly. Historical copy must
 	// not reappear there. runtime-acceptance.js / accepted-ux.js intentionally
 	// retain old phrases only inside legacy-input recognition regexes.
-	for _, path := range []string{
-		"web/settings-dns-ui.js",
-		"web/settings-v3-core.js",
-		"web/self-update.js",
-		"web/vpn-ux-fix.js",
-		"web/operation-coordinator.js",
-		"web/index.html",
-	} {
+	entries, err := os.ReadDir("web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := "web/" + entry.Name()
+		if path == "web/runtime-acceptance.js" || path == "web/accepted-ux.js" {
+			continue // legacy-input recognition is intentionally retained here.
+		}
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		src := string(data)
 		for _, forbidden := range []string{
+			"Через роутер",
 			"DNS через роутер",
 			"DNS напрямую через роутер",
 			"Штатный DNS роутера",
+			"DNS напрямую",
+			"XKeen/Xray DNS",
 			"Раздельный DNS",
 		} {
 			if strings.Contains(src, forbidden) {
-				t.Fatalf("%s still emits legacy DNS mode copy %q", path, forbidden)
+				t.Fatalf("%s still contains legacy user-facing DNS mode copy %q", path, forbidden)
 			}
 		}
 	}
