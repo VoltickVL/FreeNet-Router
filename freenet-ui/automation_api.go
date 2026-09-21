@@ -21,7 +21,7 @@ const (
 // The helper is shipped inside the UI binary so Web Self-Update can deploy the
 // AUTO VPN runtime atomically. Settings v3 keeps legacy assets embedded for
 // migration compatibility while presenting one human-facing automatic policy.
-//go:embed web/automation.js web/automation-async.js web/runtime-acceptance.js web/settings-v3.js auto_vpn.sh
+//go:embed web/automation.js web/automation-async.js web/runtime-acceptance.js web/settings-v3.js web/settings-v3-core.js auto_vpn.sh
 var automationWebFS embed.FS
 
 type automationSettings struct {
@@ -92,6 +92,7 @@ func registerAutomationAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/automation/assets/automation-async.js", serveAutomationAsset("web/automation-async.js"))
 	mux.HandleFunc("GET /api/automation/assets/runtime-acceptance.js", serveAutomationAsset("web/runtime-acceptance.js"))
 	mux.HandleFunc("GET /api/automation/assets/settings-v3.js", serveAutomationAsset("web/settings-v3.js"))
+	mux.HandleFunc("GET /api/automation/assets/settings-v3-core.js", serveAutomationAsset("web/settings-v3-core.js"))
 	registerSettingsV3API(mux, a)
 	mux.HandleFunc("GET /accepted-ux.js", serveAcceptedUXWithAutomation)
 }
