@@ -576,6 +576,15 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 		return nil
 	}
 
+	release, lockErr := acquireAutomationHealthLock()
+	if lockErr != nil {
+		message := "Свежий endpoint найден после обновления подписки, но AUTO VPN уже выполняет другую проверку. Текущий VPN не изменён."
+		appendAutomationHistoryV2("busy", message)
+		v3AppendEvent("auto_vpn", "busy", message)
+		return nil
+	}
+	defer release()
+
 	status, refresh := settingsV3ScheduledCurrentRefresh(a, ctx)
 	message := strings.TrimSpace(refresh.Message)
 	if message == "" {
