@@ -29,3 +29,40 @@ func TestBestServerTargetedUIContract(t *testing.T) {
     }
     if strings.Contains(src, "button.id==='bestServerRefresh'||button.matches('.vpn-option-retry')") { t.Fatal("retry must not share full-scan path") }
 }
+
+
+func TestBestServerFreshCandidateForCurrentRejectsAmbiguousRotation(t *testing.T) {
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID:"a", Name:"DE Frankfurt Main", Address:"198.51.100.2", Port:443}},
+		{Profile: subscriptionProfile{ID:"b", Name:"DE Frankfurt Main", Address:"198.51.100.3", Port:443}},
+	}
+	if _, ok := bestServerFreshCandidateForCurrent(candidates, regexp.MustCompile(`Frankfurt`), "DE Frankfurt Main", "198.51.100.1:443"); ok {
+		t.Fatal("multiple fresh endpoints for the exact current logical profile must fail closed")
+	}
+}
+
+func TestBestServerFreshEndpointAcceptsEligibleRotationUnlessOldEndpointIsMateriallyBetter(t *testing.T) {
+	current := bestServerQualityCandidate{
+		Current: true, Tested: true, Available: true, Eligible: true,
+		Score: 1000, DownloadMbps: 100, ApplicationMS: 160, JitterMS: 10,
+	}
+	fresh := bestServerQualityCandidate{
+		Tested: true, Available: true, Eligible: true,
+		Score: 1005, DownloadMbps: 98, ApplicationMS: 162, JitterMS: 11,
+	}
+	if !bestServerFreshEndpointAcceptable(current, fresh) {
+		t.Fatal("fully eligible equivalent fresh endpoint should be accepted for current logical profile rotation")
+	}
+
+	current.Score = 1500
+	current.DownloadMbps = 130
+	current.ApplicationMS = 120
+	current.JitterMS = 5
+	fresh.Score = 900
+	fresh.DownloadMbps = 60
+	fresh.ApplicationMS = 210
+	fresh.JitterMS = 30
+	if bestServerFreshEndpointAcceptable(current, fresh) {
+		t.Fatal("fresh endpoint must be rejected when the active endpoint is materially better")
+	}
+}
