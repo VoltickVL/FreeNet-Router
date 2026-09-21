@@ -305,11 +305,104 @@ snapshot_state() {
     pidof xray >/dev/null 2>&1 && WAS_RUNNING=1 || WAS_RUNNING=0
 }
 
+short_pause() {
+    if command -v usleep >/dev/null 2>&1; then
+        usleep 100000
+    else
+        sleep 1
+    fi
+}
+
+xray_pid_list() {
+    pidof xray 2>/dev/null || true
+}
+
+capture_xray_runtime() {
+    set -- $(xray_pid_list)
+    [ "$#" -eq 1 ] || {
+        err "safe Xray core restart unavailable: expected exactly one running Xray process"
+        return 1
+    }
+    XRAY_PID_BEFORE="$1"
+    XRAY_SSL_CERT=""
+    if [ -r "/proc/$XRAY_PID_BEFORE/environ" ]; then
+        XRAY_SSL_CERT="$(tr '\000' '\n' < "/proc/$XRAY_PID_BEFORE/environ" 2>/dev/null | sed -n 's/^SSL_CERT_FILE=//p' | head -n 1)"
+    fi
+    return 0
+}
+
+wait_xray_stopped() {
+    N=0
+    while [ "$N" -lt 30 ]; do
+        [ -z "$(xray_pid_list)" ] && return 0
+        short_pause
+        N=$((N + 1))
+    done
+    return 1
+}
+
+wait_xray_ready() {
+    N=0
+    while [ "$N" -lt 50 ]; do
+        PIDS="$(xray_pid_list)"
+        set -- $PIDS
+        if [ "$#" -eq 1 ]; then
+            READY_PID="$1"
+            short_pause
+            kill -0 "$READY_PID" 2>/dev/null && return 0
+        fi
+        short_pause
+        N=$((N + 1))
+    done
+    return 1
+}
+
+stop_xray_core_only() {
+    PIDS="$(xray_pid_list)"
+    [ -n "$PIDS" ] || return 0
+    set -- $PIDS
+    [ "$#" -eq 1 ] || {
+        err "safe Xray core stop refused: multiple Xray processes are running"
+        return 1
+    }
+    kill "$1" 2>/dev/null || return 1
+    if wait_xray_stopped; then
+        return 0
+    fi
+    kill -9 "$1" 2>/dev/null || true
+    wait_xray_stopped
+}
+
+start_xray_core_only() {
+    if [ -n "$XRAY_SSL_CERT" ]; then
+        SSL_CERT_FILE="$XRAY_SSL_CERT" \
+        XRAY_LOCATION_CONFDIR="$CONFIG_DIR" \
+        XRAY_LOCATION_ASSET="$ASSET_DIR" \
+        "$XRAY_BIN" run >/dev/null 2>&1 &
+    else
+        XRAY_LOCATION_CONFDIR="$CONFIG_DIR" \
+        XRAY_LOCATION_ASSET="$ASSET_DIR" \
+        "$XRAY_BIN" run >/dev/null 2>&1 &
+    fi
+    wait_xray_ready
+}
+
+restart_xray_core_only() {
+    stop_xray_core_only || return 1
+    start_xray_core_only
+}
+
+prepare_xray_core_restart() {
+    [ -x "$XRAY_BIN" ] || {
+        err "safe Xray core restart unavailable: Xray binary is missing"
+        return 1
+    }
+    capture_xray_runtime
+}
+
 restart_if_needed() {
     [ "$WAS_RUNNING" -eq 1 ] || return 0
-    "$XKEEN_BIN" -restart >/dev/null 2>&1 || return 1
-    sleep 4
-    pidof xray >/dev/null 2>&1
+    restart_xray_core_only
 }
 
 rollback_state() {
@@ -339,8 +432,7 @@ rollback_state() {
     fi
 
     if [ "$WAS_RUNNING" -eq 1 ]; then
-        "$XKEEN_BIN" -restart >/dev/null 2>&1 || RB=1
-        sleep 4
+        restart_xray_core_only || RB=1
         pidof xray >/dev/null 2>&1 || RB=1
     fi
     ROLLBACK_ACTIVE=0
@@ -377,7 +469,21 @@ fail_apply() {
 
 MODE="${1:-plan}"
 REQUESTED_ID="${2:-}"
-case "$MODE" in plan|apply) ;; *) err 'usage: apply_provider_profile.sh [plan|apply] PROFILE_ID'; exit 2 ;; esac
+case "$MODE" in
+    core-restart)
+        for C in sed tr head pidof; do
+            command -v "$C" >/dev/null 2>&1 || { err "required command missing: $C"; exit 1; }
+        done
+        [ -d "$CONFIG_DIR" ] || { err 'Xray config directory is missing'; exit 1; }
+        [ -d "$ASSET_DIR" ] || { err 'Xray asset directory is missing'; exit 1; }
+        prepare_xray_core_restart || exit 1
+        restart_xray_core_only || { err 'safe Xray core restart failed'; exit 1; }
+        say '[FreeNet Provider] CORE_RESTART=SUCCESS'
+        exit 0
+        ;;
+    plan|apply) ;;
+    *) err 'usage: apply_provider_profile.sh [plan|apply] PROFILE_ID | core-restart'; exit 2 ;;
+esac
 case "$REQUESTED_ID" in
     ''|*[!0-9a-f]*) err 'PROFILE_ID must be 16 lowercase hex characters'; exit 2 ;;
 esac
@@ -443,6 +549,9 @@ say '========== END =========='
 [ "$MODE" = plan ] && exit 0
 
 snapshot_state || fail_apply 'cannot snapshot current provider state'
+if [ "$WAS_RUNNING" -eq 1 ]; then
+    prepare_xray_core_restart || fail_apply 'safe Xray core restart preflight failed before provider apply'
+fi
 APPLIED=1
 mkdir -p "$(dirname "$PROFILE_FILE")" || fail_apply 'cannot create FreeNet config directory'
 mkdir -p "$(dirname "$FILTER_FILE")" || fail_apply 'cannot create profile filter directory'
@@ -456,7 +565,7 @@ printf '%s\n' "$SELECTED_NAME" | escape_ere > "$FILTER_FILE.new.$$" || fail_appl
 chmod 644 "$FILTER_FILE.new.$$" 2>/dev/null || true
 mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" || fail_apply 'cannot commit exact active profile filter'
 
-restart_if_needed || fail_apply 'Xray/XKeen runtime acceptance failed after provider apply'
+restart_if_needed || fail_apply 'Xray core restart failed after provider apply'
 XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
     || fail_apply 'live Xray configuration validation failed after provider apply'
 
