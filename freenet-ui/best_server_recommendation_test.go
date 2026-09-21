@@ -56,3 +56,41 @@ func TestBestServerRecommendationDoesNotProtectUnhealthyCurrent(t *testing.T) {
 		t.Fatalf("unhealthy current must not block a valid replacement: %#v", final.Recommendation)
 	}
 }
+
+// Different endpoints of the same logical profile are refreshed through the
+// explicit current-VPN endpoint action, not offered as switchable alternatives.
+func TestBestServerRecommendationRemovesSameLogicalCurrentAlternatives(t *testing.T) {
+	current := healthyRecommendationCandidate("current-frankfurt", true, 99.2, 162, 10000)
+	current.Name = "DE Франкфурт-на-Майне, Германия, Extra"
+	current.Endpoint = "87.85.241.87:443"
+	sameLogical := healthyRecommendationCandidate("same-frankfurt-new-endpoint", false, 122.0, 167, 12000)
+	sameLogical.Name = "DE Франкфурт-на-Майне, Германия, Extra"
+	sameLogical.Endpoint = "203.0.113.10:443"
+	other := healthyRecommendationCandidate("bratislava", false, 94.2, 180, 9000)
+	other.Name = "SK Братислава, Словакия, Extra"
+	other.Endpoint = "203.0.113.20:443"
+
+	response := bestServerQualityResponse{
+		Available:      true,
+		Candidates:     []bestServerQualityCandidate{sameLogical, other, current},
+		Recommendation: &sameLogical,
+	}
+	final := applyBestServerRecommendationDeadband(response)
+	for _, candidate := range final.Candidates {
+		if candidate.ID == sameLogical.ID {
+			t.Fatalf("same logical current profile must not be exposed as a switchable alternative: %#v", candidate)
+		}
+	}
+	if final.Recommendation != nil && final.Recommendation.ID == sameLogical.ID {
+		t.Fatalf("same logical current profile must not remain the recommendation: %#v", final.Recommendation)
+	}
+	foundOther := false
+	for _, candidate := range final.Candidates {
+		if candidate.ID == other.ID {
+			foundOther = true
+		}
+	}
+	if !foundOther {
+		t.Fatalf("different logical profile must remain available for comparison: %#v", final.Candidates)
+	}
+}

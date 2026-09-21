@@ -34,24 +34,94 @@ func completeBestServerCurrentBaseline(candidate bestServerQualityCandidate) boo
 	return candidate.ApplicationMS > 0 && candidate.MediaSamples >= bestServerMediaRequiredRuns && candidate.ServiceTotal >= 3
 }
 
-func applyBestServerRecommendationDeadband(response bestServerQualityResponse) bestServerQualityResponse {
-	out := cloneBestServerQualityResponse(response)
-	for i := range out.Candidates {
-		out.Candidates[i].Reason = strings.ReplaceAll(out.Candidates[i].Reason, "Speedtest single-stream median", "Speedtest aggregate capacity")
-	}
+func bestServerCurrentCandidateIndexes(candidates []bestServerQualityCandidate) (int, int) {
 	currentAnyIndex := -1
 	currentEligibleIndex := -1
-	for i := range out.Candidates {
-		if !out.Candidates[i].Current {
+	for i := range candidates {
+		if !candidates[i].Current {
 			continue
 		}
 		if currentAnyIndex < 0 {
 			currentAnyIndex = i
 		}
-		if out.Candidates[i].Eligible {
+		if candidates[i].Eligible {
 			currentEligibleIndex = i
 			break
 		}
+	}
+	return currentAnyIndex, currentEligibleIndex
+}
+
+func bestServerLogicalProfileKey(candidate bestServerQualityCandidate) string {
+	key := strings.ToLower(strings.Join(strings.Fields(profileDisplayName(candidate.Name)), " "))
+	if key == "" || key == "extra profile" {
+		return ""
+	}
+	return key
+}
+
+func bestServerSameLogicalProfile(a, b bestServerQualityCandidate) bool {
+	left := bestServerLogicalProfileKey(a)
+	right := bestServerLogicalProfileKey(b)
+	return left != "" && left == right
+}
+
+func removeBestServerCurrentLogicalAlternatives(candidates []bestServerQualityCandidate, currentIndex int) []bestServerQualityCandidate {
+	if currentIndex < 0 || currentIndex >= len(candidates) {
+		return candidates
+	}
+	current := candidates[currentIndex]
+	out := make([]bestServerQualityCandidate, 0, len(candidates))
+	for i, candidate := range candidates {
+		if i != currentIndex && !candidate.Current && bestServerSameLogicalProfile(current, candidate) {
+			continue
+		}
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func bestServerRecommendationExists(candidates []bestServerQualityCandidate, recommendation *bestServerQualityCandidate) bool {
+	if recommendation == nil {
+		return false
+	}
+	for i := range candidates {
+		candidate := candidates[i]
+		if candidate.ID != "" && recommendation.ID != "" && candidate.ID == recommendation.ID {
+			return true
+		}
+		if candidate.Endpoint != "" && recommendation.Endpoint != "" && endpointsEqual(candidate.Endpoint, recommendation.Endpoint) {
+			return true
+		}
+	}
+	return false
+}
+
+func resetBestServerRecommendationToFirstEligible(response *bestServerQualityResponse) {
+	response.Recommendation = nil
+	response.Available = false
+	for i := range response.Candidates {
+		if response.Candidates[i].Eligible {
+			candidate := response.Candidates[i]
+			response.Recommendation = &candidate
+			response.Available = true
+			return
+		}
+	}
+}
+
+func applyBestServerRecommendationDeadband(response bestServerQualityResponse) bestServerQualityResponse {
+	out := cloneBestServerQualityResponse(response)
+	for i := range out.Candidates {
+		out.Candidates[i].Reason = strings.ReplaceAll(out.Candidates[i].Reason, "Speedtest single-stream median", "Speedtest aggregate capacity")
+	}
+	currentAnyIndex, currentEligibleIndex := bestServerCurrentCandidateIndexes(out.Candidates)
+	if currentAnyIndex >= 0 {
+		out.Candidates = removeBestServerCurrentLogicalAlternatives(out.Candidates, currentAnyIndex)
+		if !bestServerRecommendationExists(out.Candidates, out.Recommendation) {
+			resetBestServerRecommendationToFirstEligible(&out)
+		}
+		currentAnyIndex, currentEligibleIndex = bestServerCurrentCandidateIndexes(out.Candidates)
 	}
 
 	// Missing evidence is different from a measured unhealthy current VPN. If
