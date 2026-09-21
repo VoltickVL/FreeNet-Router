@@ -156,6 +156,31 @@ grep -Fq '[FreeNet Provider] CORE_RESTART=SUCCESS' "$TMP/core-command.out" || fa
 unset CORE_HELPER
 rm -f "$TMP/core.calls" "$TMP/xkeen.calls"
 
+# apply-core must fail closed before live mutation when Xray is stopped.
+# This prevents rollback from changing an originally-stopped runtime into running.
+cat > "$TMP/bin/pidof" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod 755 "$TMP/bin/pidof"
+cat > "$TMP/bin/xkeen" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$TMP/xkeen-stopped.calls"
+exit 0
+EOF
+chmod 755 "$TMP/bin/xkeen"
+STOPPED_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+STOPPED_FILTER="$(cat "$TMP/profile.filter")"
+STOPPED_PROFILE="$(cat "$TMP/etc/vpn_profile_name")"
+if run_helper apply-core "$PROFILE_ID" > "$TMP/stopped-core.out" 2> "$TMP/stopped-core.err"; then
+    fail 'apply-core unexpectedly mutated with stopped Xray'
+fi
+[ "$STOPPED_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'stopped Xray apply-core changed outbound'
+[ "$STOPPED_FILTER" = "$(cat "$TMP/profile.filter")" ] || fail 'stopped Xray apply-core changed filter'
+[ "$STOPPED_PROFILE" = "$(cat "$TMP/etc/vpn_profile_name")" ] || fail 'stopped Xray apply-core changed preferred profile'
+[ ! -s "$TMP/xkeen-stopped.calls" ] || fail 'stopped Xray apply-core invoked XKeen before STOP'
+grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/stopped-core.err" || fail 'stopped Xray STOP was misclassified as live rollback'
+
 # Restore default non-running stubs for the remaining generic apply tests.
 cat > "$TMP/bin/pidof" <<'EOF'
 #!/bin/sh
@@ -257,10 +282,16 @@ fi
 grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/core-rb.err" || fail 'core-only rollback success not reported'
 unset CORE_HELPER
 
-# Source contract: endpoint-only mode must not contain a fixed wait and must
-# explicitly dispatch to the core-only restart path.
+# Source contract: endpoint-only mode must keep XKeen/netfilter ownership,
+# use canonical synchronous XKeen start after the controlled Xray kill, and
+# never fall back to full XKeen restart.
 grep -Fq '[ "$MODE" = apply-core ]' "$SCRIPT" || fail 'apply-core mode dispatch missing'
 grep -Fq 'restart_xray_core no' "$SCRIPT" || fail 'apply-core does not use core-only restart'
 grep -Fq 'restart_xray_core yes' "$SCRIPT" || fail 'apply-core rollback does not use core-only restart'
+grep -Fq 'XKEEN_FOREGROUND=1 "$XKEEN_BIN" -start' "$SCRIPT" || fail 'core-only restart must use canonical synchronous XKeen start'
+if sed -n '/restart_xray_core() {/,/^}/p' "$SCRIPT" | grep -Fq 'nohup "$XRAY_BIN" run'; then
+    fail 'core-only restart bypasses canonical XKeen start with direct Xray launch'
+fi
+grep -Fq '"$XKEEN_BIN" -restart' "$SCRIPT" || fail 'normal provider apply restart semantics were unexpectedly removed'
 
 echo 'provider profile apply test PASS'
