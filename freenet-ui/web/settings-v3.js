@@ -56,8 +56,8 @@
   function patchRouteLabels() {
     try {
       if (typeof pageLabels === 'object' && pageLabels) {
-        pageLabels.settings = 'Настройки';
-        pageLabels.journal = 'Журнал';
+        if (pageLabels.settings !== 'Настройки') pageLabels.settings = 'Настройки';
+        if (pageLabels.journal !== 'Журнал') pageLabels.journal = 'Журнал';
       }
     } catch (_) {}
   }
@@ -66,9 +66,11 @@
     patchRouteLabels();
     const icon = document.querySelector('.nav-btn[data-page="journal"] .nav-icon');
     if (!icon) return;
-    icon.innerHTML = JOURNAL_ICON;
-    icon.dataset.freenetJournalIcon = '1';
-    icon.setAttribute('aria-label', 'Журнал');
+    if (icon.dataset.freenetJournalIcon !== '1') {
+      icon.innerHTML = JOURNAL_ICON;
+      icon.dataset.freenetJournalIcon = '1';
+    }
+    if (icon.getAttribute('aria-label') !== 'Журнал') icon.setAttribute('aria-label', 'Журнал');
   }
 
   function injectStyles() {
@@ -96,18 +98,20 @@
     if (duplicate) duplicate.remove();
     const save = document.getElementById('fn3Save');
     if (!save) return;
-    save.classList.add('fn3-single-save');
-    save.setAttribute('aria-label', 'Сохранить изменения настроек FreeNet');
-    save.title = save.disabled ? 'Настройки сохранены' : 'Сохранить изменения';
+    if (!save.classList.contains('fn3-single-save')) save.classList.add('fn3-single-save');
+    const label = 'Сохранить изменения настроек FreeNet';
+    if (save.getAttribute('aria-label') !== label) save.setAttribute('aria-label', label);
+    const title = save.disabled ? 'Настройки сохранены' : 'Сохранить изменения';
+    if (save.title !== title) save.title = title;
   }
 
   function schedulePatch() {
     if (patchQueued) return;
     patchQueued = true;
-    queueMicrotask(() => {
+    setTimeout(() => {
       patchQueued = false;
       patchSingleSave();
-    });
+    }, 0);
   }
 
   function watchSettingsDOM() {
@@ -134,7 +138,7 @@
     }
     const script = document.createElement('script');
     script.src = coreURL();
-    script.async = false;
+    script.async = true;
     script.dataset.freenetSettingsV3Core = '1';
     script.onload = schedulePatch;
     script.onerror = () => console.error('Settings v3 core failed to load');
