@@ -207,3 +207,67 @@ func TestProviderApplyFailureSeparatesPrimaryAndRollback(t *testing.T) {
 		t.Fatalf("failure state not separated: %+v", resp)
 	}
 }
+
+
+func TestProviderPlanEndpointIsIndependentFromNetworkPlan(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "network-plan-called")
+	provider := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\n[ \"$2\" = \""+testProviderID+"\" ] || exit 8\ncat <<'EOF'\n"+providerPlanOutput(testProviderID)+"\nEOF")
+	network := writeFakeNetworkHelper(t, "echo called > \""+marker+"\"\nexit 1")
+	t.Setenv("FREENET_PROVIDER_HELPER", provider)
+	t.Setenv("FREENET_NETWORK_HELPER", network)
+	a := testNetworkApp(t, "ISP_ID=custom\nDNS_MODE=custom\n")
+
+	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/provider-profile/plan?profile_id="+testProviderID, nil)
+	w := httptest.NewRecorder()
+	a.handleProviderProfilePlan(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var plan providerPlanResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if !plan.Success || !plan.CandidateValid || plan.ProfileID != testProviderID || plan.Mutation != "NONE" {
+		t.Fatalf("unexpected provider-only plan: %+v", plan)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("provider-only plan invoked unrelated network helper: %v", err)
+	}
+}
+
+func TestProviderPlanEndpointRejectsInvalidProfileID(t *testing.T) {
+	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/provider-profile/plan?profile_id=BAD", nil)
+	w := httptest.NewRecorder()
+	a.handleProviderProfilePlan(w, r)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var plan providerPlanResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Success || plan.Mutation != "NONE" || plan.Error != "invalid provider profile id" {
+		t.Fatalf("invalid id was not fail-closed: %+v", plan)
+	}
+}
+
+func TestProviderPlanEndpointSurfacesSafeProviderFailure(t *testing.T) {
+	provider := writeFakeNetworkHelper(t, "echo '[FreeNet Provider] ERROR: candidate Xray configuration validation failed' >&2\nexit 1")
+	t.Setenv("FREENET_PROVIDER_HELPER", provider)
+	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+
+	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/provider-profile/plan?profile_id="+testProviderID, nil)
+	w := httptest.NewRecorder()
+	a.handleProviderProfilePlan(w, r)
+	if w.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var plan providerPlanResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &plan); err != nil {
+		t.Fatal(err)
+	}
+	if plan.Success || plan.Mutation != "NONE" || plan.Error != "Конфигурация выбранного VPN-сервера не прошла проверку Xray." {
+		t.Fatalf("safe provider failure not preserved: %+v", plan)
+	}
+}
