@@ -42,7 +42,7 @@ cleanup() {
 acquire_mutation_lock() {
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         LOCK_HELD=1
-        printf '%s\n' "$" > "$LOCK_DIR/pid" 2>/dev/null || {
+        printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null || {
             rm -rf "$LOCK_DIR" 2>/dev/null || true
             LOCK_HELD=0
             return 1
@@ -59,7 +59,7 @@ acquire_mutation_lock() {
     rm -rf "$LOCK_DIR" 2>/dev/null || return 1
     mkdir "$LOCK_DIR" 2>/dev/null || return 1
     LOCK_HELD=1
-    printf '%s\n' "$" > "$LOCK_DIR/pid" 2>/dev/null || {
+    printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null || {
         rm -rf "$LOCK_DIR" 2>/dev/null || true
         LOCK_HELD=0
         return 1
@@ -163,8 +163,8 @@ save_provider_cache() {
     CACHE_DIR="$(dirname "$PROVIDER_CACHE")"
     SOURCE_DIR="$(dirname "$PROVIDER_CACHE_SOURCE")"
     mkdir -p "$CACHE_DIR" "$SOURCE_DIR" 2>/dev/null || return 1
-    CACHE_STAGE="$PROVIDER_CACHE.new.$"
-    SOURCE_STAGE="$PROVIDER_CACHE_SOURCE.new.$"
+    CACHE_STAGE="$PROVIDER_CACHE.new.$$"
+    SOURCE_STAGE="$PROVIDER_CACHE_SOURCE.new.$$"
     cp "$DECODED_FILE" "$CACHE_STAGE" || return 1
     chmod 600 "$CACHE_STAGE" 2>/dev/null || true
     printf '%s\n' "$(subscription_source_fingerprint)" > "$SOURCE_STAGE" || { rm -f "$CACHE_STAGE"; return 1; }
