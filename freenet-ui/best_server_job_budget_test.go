@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"context"
 	"os"
 	"strings"
@@ -130,5 +131,53 @@ func TestBestServerBrowserShowsAdaptiveDeepProgress(t *testing.T) {
 	}
 	if strings.Contains(src, "Глубоко проверяем лучшие VPN · завершено ${job.completed} из ${job.total}") {
 		t.Fatal("Best Server UI must not reset sequential deep checks to misleading 0 из 1 progress")
+	}
+}
+
+
+func TestBestServerPreflightTimeoutKeepsUnknownProfilesAsReserve(t *testing.T) {
+	candidates := make([]bestServerInternalCandidate, 20)
+	for i := range candidates {
+		candidates[i].Profile = subscriptionProfile{ID: fmt.Sprintf("p-%02d", i)}
+	}
+	attempted := map[int]bool{}
+	for i := 0; i < 8; i++ {
+		attempted[i] = true
+	}
+	measured := []bestServerPreflightResult{{
+		Index: 7,
+		Probe: bestServerProbeResult{OK: true, Median: 80},
+	}}
+
+	got := selectBestServerPreflightIndexes(candidates, measured, attempted, -1)
+	if len(got) != bestServerPreflightShortlist {
+		t.Fatalf("preflight reserve len=%d want=%d: %#v", len(got), bestServerPreflightShortlist, got)
+	}
+	if got[0] != 7 {
+		t.Fatalf("measured success must stay first, got %#v", got)
+	}
+	for _, index := range got[1:] {
+		if index < 8 {
+			t.Fatalf("timed-out unknown profiles must be preferred over explicit preflight failures, got %#v", got)
+		}
+	}
+}
+
+func TestBestServerPreflightZeroSuccessStillReturnsUnknownReserve(t *testing.T) {
+	candidates := make([]bestServerInternalCandidate, 20)
+	for i := range candidates {
+		candidates[i].Profile = subscriptionProfile{ID: fmt.Sprintf("p-%02d", i)}
+	}
+	attempted := map[int]bool{}
+	for i := 0; i < 8; i++ {
+		attempted[i] = true
+	}
+
+	got := selectBestServerPreflightIndexes(candidates, nil, attempted, -1)
+	if len(got) != bestServerPreflightShortlist {
+		t.Fatalf("zero-success preflight must retain a full unknown reserve: len=%d got=%#v", len(got), got)
+	}
+	if got[0] != 8 {
+		t.Fatalf("first unattempted profile should lead the reserve, got %#v", got)
 	}
 }
