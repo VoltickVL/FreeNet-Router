@@ -278,6 +278,7 @@ func (a *app) handleBestServerCurrentRefresh(w http.ResponseWriter, r *http.Requ
 	op, leader, conflict := vpnOperations.begin("refresh", "current")
 	if !leader {
 		if conflict != nil {
+			v3AppendEvent("VPN", "busy", "Ручное обновление endpoint пропущено: другая VPN-операция уже выполняется.")
 			writeJSON(w, http.StatusConflict, operationConflictPayload("другая VPN-операция уже выполняется", *conflict))
 			return
 		}
