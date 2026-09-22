@@ -66,8 +66,9 @@ func TestSettingsV3IsDeliveredByCanonicalAutomationPipeline(t *testing.T) {
 		"ensureSettingsPage()",
 		"ensureSettingsNav()",
 		"page.dataset.pageView = 'settings'",
-		"q('#fn3AllEvents').onclick = () =>",
-		"window.setPage('journal')",
+		"q('#fn3AllEvents').onclick = () => window.openFreeNetJournal('all')",
+		"window.openFreeNetJournal = filter =>",
+		"data-journal-filter",
 	} {
 		if !strings.Contains(servedCore, want) {
 			t.Fatalf("settings-v3 core asset missing %q", want)
