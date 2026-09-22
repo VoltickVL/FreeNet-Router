@@ -16,8 +16,11 @@ func TestOverviewCurrentQualityMemoryDeliveredBeforeBootRelease(t *testing.T) {
 	}
 	for _, want := range []string{
 		`id="freenetOverviewCurrentQualityMemory"`,
+		`/api/status`,
 		`/api/vpn/current-quality?job=cache`,
 		`Последний замер: `,
+		`VPN сейчас не подключен.`,
+		`latencyOnlyWarning`,
 		`seedMissingMeasurement`,
 		`/api/vpn/current-quality?job=start&id=`,
 		`renderMetrics(candidate)`,
@@ -44,7 +47,7 @@ func TestOverviewCurrentQualityMemoryDoesNotHideMutation(t *testing.T) {
 			t.Fatalf("overview first-paint memory must not contain mutation/broad-scan endpoint %q", forbidden)
 		}
 	}
-	if !strings.Contains(overviewCurrentQualityMemoryScript, `if (!renderQuality(data)) void seedMissingMeasurement();`) {
+	if !strings.Contains(overviewCurrentQualityMemoryScript, `if (!renderQuality(data, status)) void seedMissingMeasurement();`) {
 		t.Fatal("silent current-VPN seed must run only when exact cached display data is missing")
 	}
 }
