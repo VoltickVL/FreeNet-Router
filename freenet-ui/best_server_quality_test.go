@@ -84,7 +84,7 @@ func TestBestServerQualityPenalizesMissingThroughput(t *testing.T) {
 		if c.Profile.ID == "fast-latency" {
 			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{145, 150, 155}, Median: 150, Jitter: 10}}
 		}
-		return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{210, 220, 230}, Median: 220, Jitter: 20}, DownloadOK: true, DownloadMbps: 70, Media: stableTestMedia(68)}
+		return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{150, 160, 170}, Median: 160, Jitter: 20}, DownloadOK: true, DownloadMbps: 70, Media: stableTestMedia(68)}
 	}
 
 	result := rankBestServerQualityCandidates(context.Background(), candidates, 2, false, "", "", tcp, app)
