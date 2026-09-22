@@ -429,6 +429,13 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		}
 	}
 
+	if settings.Mode == automationModeEndpoint {
+		reason := "Режим «Только текущий VPN»: endpoint текущего профиля не восстановил соединение; автоматическая смена страны или VPN-профиля запрещена."
+		appendAutomationRecoveryStage("candidate_selection", "blocked", reason)
+		result := automationHealthResult{State: automationHealthCritical, Reason: reason, Mutated: endpointResult.Mutated}
+		return recordAndReturnHealth(result, endpointErr)
+	}
+
 	bestSettings := settings
 	bestSettings.Mode = automationModeBest
 	bestSettings.Policy = automationPolicyDegraded
