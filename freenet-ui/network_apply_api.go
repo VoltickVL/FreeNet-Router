@@ -258,6 +258,37 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, plan)
 }
 
+func (a *app) handleProviderProfilePlan(w http.ResponseWriter, r *http.Request) {
+	profileID := strings.TrimSpace(r.URL.Query().Get("profile_id"))
+	if !validProfileID(profileID) {
+		writeJSON(w, http.StatusBadRequest, providerPlanResponse{
+			Success: false, ProfileID: profileID, Mutation: "NONE",
+			Error: "invalid provider profile id",
+		})
+		return
+	}
+	plan, err := a.runProviderPlan(profileID)
+	if err != nil {
+		plan.Success = false
+		if plan.ProfileID == "" {
+			plan.ProfileID = profileID
+		}
+		plan.Mutation = "NONE"
+		plan.Error = err.Error()
+		writeJSON(w, http.StatusConflict, plan)
+		return
+	}
+	if !plan.CandidateValid || plan.Mutation != "NONE" {
+		plan.Success = false
+		if strings.TrimSpace(plan.Error) == "" {
+			plan.Error = "Сервер не прошёл безопасную read-only проверку Xray."
+		}
+		writeJSON(w, http.StatusConflict, plan)
+		return
+	}
+	writeJSON(w, http.StatusOK, plan)
+}
+
 func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) {
 	if a.mutationBlockedBySelfUpdate(w) {
 		return

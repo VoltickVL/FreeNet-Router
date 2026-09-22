@@ -174,9 +174,14 @@
     selectedCardText(`Проверяем: ${selectedProviderName}`, profileEndpoint(p), 'Проверяем доступность и конфигурацию сервера перед подключением.', 'checking');
 
     try {
-      await loadNetworkPlan(selectedProviderID);
-      const pp = lastNetworkPlan && lastNetworkPlan.provider_plan;
-      if (!providerPlanReady || !pp || !pp.success || !pp.candidate_xray_valid || pp.mutation !== 'NONE' || pp.error) {
+      const r = await fetch('/api/provider-profile/plan?profile_id=' + encodeURIComponent(selectedProviderID), {cache:'no-store'});
+      if (r.status === 401) {
+        if (typeof loadAuthStatus === 'function') await loadAuthStatus();
+        return;
+      }
+      const pp = await r.json();
+      providerPlanReady = !!(r.ok && pp && pp.success && pp.candidate_xray_valid && pp.mutation === 'NONE' && !pp.error);
+      if (!providerPlanReady) {
         const reason = humanProviderPlanError((pp && pp.error) || 'Сервер не прошёл проверку перед подключением.');
         selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), reason, 'error');
         if (controls && controls.connect) {

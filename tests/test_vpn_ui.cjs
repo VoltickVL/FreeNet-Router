@@ -45,6 +45,14 @@ const server = http.createServer((req,res)=>{
         if(operationReads===1)return answer(route,{success:true,active:true,operation:{...operation,state:'running',result:''}});
         return answer(route,{success:true,active:false,operation});
       }
+      if(url.pathname==='/api/provider-profile/plan'){
+        const id=url.searchParams.get('profile_id');
+        const selected=[current,winner,second].find(p=>p.id===id) || expectedApply;
+        const providerPlan=providerPlanMode==='error'
+          ?{success:false,profile_id:id,candidate_xray_valid:false,mutation:'NONE',error:'FreeNet получил неполный ответ проверки VPN-сервера.'}
+          :{success:true,profile_id:id,candidate_xray_valid:true,mutation:'NONE',endpoint:selected.endpoint};
+        return answer(route,providerPlan,providerPlan.success?200:409);
+      }
       if(url.pathname==='/api/network-profile/plan'){
         const hasProvider=url.searchParams.has('provider_profile_id');
         const providerPlan=!hasProvider?undefined:providerPlanMode==='error'
