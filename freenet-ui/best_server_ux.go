@@ -313,7 +313,6 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		return bestServerQualityResponse{}, err
 	}
 	candidates := filterForeignBestServerCandidates(all)
-	poolSize := len(candidates)
 
 	// Current VPN quality remains an explicit operation. A fresh strict RAM
 	// baseline can be reused for comparison, but the Best Server button never
@@ -322,6 +321,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
 		candidates = withoutBestServerCandidate(candidates, currentIndex)
 	}
+	poolSize := len(candidates)
 	if len(candidates) == 0 {
 		currentCandidates := []bestServerQualityCandidate{}
 		if currentBaselineOK {
