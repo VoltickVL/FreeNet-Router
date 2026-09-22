@@ -31,7 +31,7 @@ const server = http.createServer((req,res)=>{
   try {
     const page=await browser.newPage({viewport:{width:1440,height:1000}});
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
-    const calls=[];let pending=[];let mode='ok';let bestMode='winner';
+    const calls=[];let pending=[];let mode='ok';let bestMode='winner';let strictMode='pass';
     let applyMode='ok', operation=null, operationReads=0, providerPlanMode='ok';
     const answer = (route,body,code=200)=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
     await page.route('**/api/**',async route=>{
@@ -52,6 +52,13 @@ const server = http.createServer((req,res)=>{
           :{success:true,candidate_xray_valid:true,mutation:'NONE',endpoint:expectedApply.endpoint};
         return answer(route,{success:true,supported:true,active:true,provider_plan:providerPlan,extra_profiles:[{...current,address:'192.0.2.10',port:443},{...winner,address:'192.0.2.20',port:443},{...second,address:'192.0.2.40',port:443},{id:'fixture-ru',name:'Россия',country_code:'ru',address:'192.0.2.30',port:443}]});
       }
+      if(url.pathname==='/api/vpn/best-candidate'){
+        const id=url.searchParams.get('id');
+        const source=[winner,second,third].find(item=>item.id===id);
+        if(!source)return answer(route,{success:false,error:'candidate missing'},404);
+        if(strictMode==='fail')return answer(route,{success:true,available:false,candidates:[{...source,validation:'strict',tested:true,eligible:false,available:true,download_mbps:8,media_samples:4,service_ok:4,service_total:4,rejections:['Speedtest ниже 20 Мбит/с']}],profiles_scanned:1,profiles_total:1,strict_tested:1,message:'Сервер не прошёл строгую проверку.'});
+        return answer(route,{success:true,available:true,candidates:[{...source,validation:'strict',tested:true,eligible:true,available:true,media_samples:4,service_ok:4,service_total:4}],profiles_scanned:1,profiles_total:1,strict_tested:1,message:'Сервер прошёл строгую проверку.'});
+      }
       if(url.pathname==='/api/vpn/current-quality'||url.pathname==='/api/vpn/best-foreign'){
         if(mode==='job') {
           const job={id:url.searchParams.get('id'),mode:url.pathname.endsWith('best-foreign')?'best':'current'};
@@ -71,13 +78,17 @@ const server = http.createServer((req,res)=>{
           {...winner,tested:true,eligible:false,download_mbps:4.2,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Speedtest ниже 20 Мбит/с']},
           {...third,tested:true,eligible:false,available:true,reachable:true,download_mbps:146,application_rtt_ms:186,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Отклик сайтов выше 180 мс']}],profiles_scanned:3});
         const best=url.pathname.endsWith('best-foreign');
-        const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
-        const bestCandidates = bestMode==='ru'
-          ? [current,{...winner,country_code:'ru'}]
-          : bestMode==='no-current'
-            ? [winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}]
-            : [current,winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}];
-        return answer(route,{success:true,available:true,candidates:best?bestCandidates:[current],recommendation:best?recommendation:null,profiles_scanned:best?6:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
+        const quick = item => ({...item,validation:'quick',tested:true,eligible:false,available:true,reachable:true,download_mbps:0,media_samples:0,service_ok:0,service_total:0,http_samples:2});
+        const quickWinner=quick(winner),quickSecond=quick(second),quickThird=quick(third);
+        const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:bestMode==='quick'?quickWinner:winner;
+        const bestCandidates = bestMode==='quick'
+          ? [current,quickWinner,quickSecond,quickThird]
+          : bestMode==='ru'
+            ? [current,{...winner,country_code:'ru'}]
+            : bestMode==='no-current'
+              ? [winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}]
+              : [current,winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}];
+        return answer(route,{success:true,available:true,candidates:best?bestCandidates:[current],recommendation:best?recommendation:null,profiles_scanned:best?49:1,profiles_total:best?49:1,express_measured:best?49:0,quick_measured:bestMode==='quick'?8:0,strict_tested:0,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
       }
       if(url.pathname==='/api/network-profile/apply'){
         assert.deepEqual(JSON.parse(req.postData()),{operation:'provider',profile_id:expectedApply.id,confirm:true});
@@ -355,11 +366,37 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
     assert.equal(await page.locator('.vpn-option').count(),3,'current winner still permits measured alternatives');
     assert.match(await page.locator('#bestServerStatus').textContent(),/Текущий VPN остаётся предпочтительным/);
-    bestMode='winner';await page.locator('#bestServerRefresh').click();
+    // Cascade regression: a quick Top-3 must not mutate until the chosen
+    // candidate passes targeted strict acceptance.
+    bestMode='quick';strictMode='pass';expectedApply=winner;
+    await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    assert.equal(await page.locator('.vpn-quick').count(),3,'quick cascade renders three bounded finalists');
+    assert.match(await page.locator('#bestServerStatus').textContent(),/Пул: 49 · DIRECT: 49 · VPN quick: 8 · строгих: 0/);
+    assert.equal(await page.locator('#bestServerApply').textContent(),'Проверить и использовать');
+    const quickApplyBefore=calls.filter(x=>x.path==='/api/network-profile/apply').length;
+    const strictBefore=calls.filter(x=>x.path==='/api/vpn/best-candidate').length;
     await page.locator('#bestServerApply').click();
     await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent==='VPN переключён. Соединение проверено.');
-    assert.equal(calls.filter(c=>c.method==='POST').length,1,'apply issues one transactional request');
+    assert.equal(calls.filter(x=>x.path==='/api/vpn/best-candidate').length,strictBefore+1,'quick candidate must receive strict validation first');
+    assert.equal(calls.filter(x=>x.path==='/api/network-profile/apply').length,quickApplyBefore+1,'apply occurs only after strict acceptance');
+
+    status={...status,country:'Польша',city:'Варшава',country_code:'pl',endpoint:current.endpoint};strictMode='fail';
+    await page.goto(base);bestMode='quick';
+    await page.locator('#bestServerRefresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    const blockedApplyBefore=calls.filter(x=>x.path==='/api/network-profile/apply').length;
+    await page.locator('#bestServerApply').click();
+    await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent.includes('строгую проверку'));
+    assert.equal(calls.filter(x=>x.path==='/api/network-profile/apply').length,blockedApplyBefore,'failed strict acceptance must block mutation');
+    strictMode='pass';
+
+    bestMode='winner';await page.locator('#bestServerRefresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    const winnerPostBefore=calls.filter(c=>c.method==='POST').length;
+    await page.locator('#bestServerApply').click();
+    await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent==='VPN переключён. Соединение проверено.');
+    assert.equal(calls.filter(c=>c.method==='POST').length,winnerPostBefore+1,'apply issues exactly one transactional request');
     assert.match(await page.locator('#bestCurrentName').textContent(),/Германия/);
     expectedApply=second;
     status={...status,endpoint:current.endpoint,country:'Польша',city:'Варшава',country_code:'pl'};
