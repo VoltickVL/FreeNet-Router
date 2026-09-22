@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -216,6 +217,38 @@ exit 0
 	matches, err := filepath.Glob(filepath.Join(dir, ".freenet-backups", "config-studio-*", "04_outbounds.json"))
 	if err != nil || len(matches) != 1 {
 		t.Fatalf("outbounds snapshot not created: matches=%d err=%v", len(matches), err)
+	}
+}
+
+
+func TestConfigStudioApplyStopsBeforeMutationWhenSharedLockIsBusy(t *testing.T) {
+	a, dir := configStudioTestApp(t)
+	configStudioFakeXray(t, "#!/bin/sh\nexit 0\n")
+	lock := filepath.Join(t.TempDir(), "vpn.lock")
+	t.Setenv("FREENET_LOCK_DIR", lock)
+	if err := os.Mkdir(lock, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lock, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	before, _ := os.ReadFile(filepath.Join(dir, "01_log.json"))
+	payload := `{"file":"01_log.json","content":{"log":{"loglevel":"debug"}}}`
+	req := httptest.NewRequest(http.MethodPost, "http://router/api/config-studio/apply", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://router")
+	rec := httptest.NewRecorder()
+	a.handleConfigStudioApply(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"mutation":"NONE"`) || !strings.Contains(rec.Body.String(), `"rollback":"NOT_APPLIED"`) {
+		t.Fatalf("busy response lost no-mutation contract: %s", rec.Body.String())
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, "01_log.json"))
+	if !bytes.Equal(before, after) {
+		t.Fatal("Config Studio changed live file while canonical mutation lock was busy")
 	}
 }
 
