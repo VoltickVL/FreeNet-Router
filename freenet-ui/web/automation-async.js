@@ -196,7 +196,12 @@
 
   function normalizeSettingsCopy() {
     const title = q('#fn3ControlTitle');
-    if (title && title.textContent !== 'Автопроверка') title.textContent = 'Автопроверка';
+    if (title) {
+      const enabled = !!q('#fn3AutoEnabled')?.checked;
+      const mode = q('input[name="fn3Mode"]:checked')?.value === 'endpoint' ? 'endpoint' : 'best';
+      const expected = !enabled ? 'Автоматика выключена' : mode === 'endpoint' ? 'Только текущий VPN' : 'Полный AUTO VPN';
+      if (title.textContent !== expected) title.textContent = expected;
+    }
 
     const extraTitle = q('.fn3-extra-title h2');
     if (extraTitle && extraTitle.textContent !== 'Системное обслуживание') extraTitle.textContent = 'Системное обслуживание';
