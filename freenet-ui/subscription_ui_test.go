@@ -21,7 +21,9 @@ func TestAcceptedSubscriptionUXContract(t *testing.T) {
 		"Сохранить изменения",
 		"Проверить подписку",
 		"Обновить сейчас",
-		"Последние обновления",
+		"Общий журнал",
+		"Открыть журнал подписки",
+		"openFreeNetJournal",
 		"Информация",
 		"https://••••••••••••••••••••",
 		"Сохранённое значение никогда не выводится обратно",
@@ -49,6 +51,10 @@ func TestAcceptedSubscriptionUXContract(t *testing.T) {
 		"await window.loadNetworkPlan()",
 		"await window.refreshProfiles()",
 		"latestSuccessfulSubscriptionUpdate",
+		"freenet-subscription-history-v2",
+		"subscriptionHistory",
+		"fnSubscriptionHistoryBody",
+		"localStorage",
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("subscription UX contains forbidden secret surface %q", forbidden)
