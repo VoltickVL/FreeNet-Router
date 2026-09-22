@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -50,6 +53,30 @@ func TestRestartXrayControlledStopsBeforeRestartOnInvalidConfig(t *testing.T) {
 	err := a.restartXrayControlled(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "перезапуск отменён") { t.Fatalf("expected validation stop, got %v", err) }
 	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) { t.Fatalf("xkeen restart must not run after validation failure") }
+}
+
+
+func TestXrayServiceRestartStopsWhenSharedMutationLockIsBusy(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 0)
+	lock := filepath.Join(t.TempDir(), "vpn.lock")
+	t.Setenv("FREENET_LOCK_DIR", lock)
+	if err := os.Mkdir(lock, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lock, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://router/api/xray/service", strings.NewReader(`{"action":"restart"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://router")
+	rec := httptest.NewRecorder()
+	a.handleXrayServicePost(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("XKeen restart ran while canonical mutation lock was busy: %v", err)
+	}
 }
 
 func TestXrayServiceEventsFilterUserFacingHistory(t *testing.T) {
