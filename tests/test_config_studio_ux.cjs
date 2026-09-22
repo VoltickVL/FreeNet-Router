@@ -8,6 +8,8 @@ const { chromium } = require('playwright');
 
 const uxScript = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'config-studio-ux.js'), 'utf8');
 let restartPosts = 0;
+let startPosts = 0;
+let serviceOnline = true;
 let events = [{at:'2026-09-17T10:01:00Z', kind:'xray', result:'success', message:'Предыдущая операция Xray завершена.'}];
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Config Studio UX fixture</title></head><body>
@@ -45,18 +47,33 @@ const server = http.createServer((req, res) => {
   }
   if (req.url === '/api/xray/service' && req.method === 'GET') {
     res.writeHead(200, {'content-type':'application/json'});
-    res.end(JSON.stringify({success:true, online:true, version:'26.9.9', events}));
+    res.end(JSON.stringify({success:true, online:serviceOnline, version:'26.9.9', events}));
     return;
   }
   if (req.url === '/api/xray/service' && req.method === 'POST') {
-    restartPosts += 1;
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
-      assert.deepEqual(JSON.parse(body), {action:'restart'});
-      events = [{at:'2026-09-17T10:02:00Z', kind:'xray', result:'success', message:'Xray перезапущен через FreeNet.'}, ...events];
-      res.writeHead(200, {'content-type':'application/json'});
-      res.end(JSON.stringify({success:true, online:true, version:'26.9.9', message:'Xray перезапущен и снова работает.', events}));
+      const payload = JSON.parse(body);
+      if (payload.action === 'restart') {
+        restartPosts += 1;
+        assert.equal(serviceOnline, true, 'restart fixture requires online Xray');
+        events = [{at:'2026-09-17T10:02:00Z', kind:'xray', result:'success', message:'Xray перезапущен через FreeNet.'}, ...events];
+        res.writeHead(200, {'content-type':'application/json'});
+        res.end(JSON.stringify({success:true, online:true, version:'26.9.9', message:'Xray перезапущен и снова работает.', events}));
+        return;
+      }
+      if (payload.action === 'start') {
+        startPosts += 1;
+        assert.equal(serviceOnline, false, 'start fixture requires stopped Xray');
+        serviceOnline = true;
+        events = [{at:'2026-09-17T10:03:00Z', kind:'xray', result:'success', message:'Xray запущен через FreeNet.'}, ...events];
+        res.writeHead(200, {'content-type':'application/json'});
+        res.end(JSON.stringify({success:true, online:true, version:'26.9.9', message:'Xray запущен и работает.', events}));
+        return;
+      }
+      res.writeHead(400, {'content-type':'application/json'});
+      res.end(JSON.stringify({success:false,error:'unsupported action',events}));
     });
     return;
   }
@@ -171,7 +188,20 @@ const server = http.createServer((req, res) => {
     ]);
     assert.equal(afterMutationAlive, 'alive', 'unrelated DOM mutation must not trigger a runaway observer loop');
     assert.equal(restartPosts, 1, 'observer/rerender must not repeat restart automatically');
-    console.log('Config Studio simplified UX + responsive observer + Xray restart journal: OK');
+
+    serviceOnline = false;
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#csServiceStatus')?.textContent.includes('Остановлен'));
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Запустить Xray', 'offline service must expose explicit start recovery');
+    await page.locator('#csRestartXray').click();
+    await page.waitForFunction(() => document.querySelector('#csNotice')?.textContent.includes('запущен и работает'));
+    assert.equal(startPosts, 1, 'offline recovery must issue exactly one start POST');
+    assert.equal(restartPosts, 1, 'offline recovery must not disguise start as restart');
+    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Перезапустить');
+    assert((await page.locator('#csServiceJournal').innerText()).includes('Xray запущен через FreeNet.'));
+
+    console.log('Config Studio simplified UX + Xray restart/offline recovery journal: OK');
   } finally {
     await browser.close();
     server.close();
