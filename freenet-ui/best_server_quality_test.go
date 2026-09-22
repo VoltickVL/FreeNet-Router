@@ -31,7 +31,7 @@ func TestBestServerQualityBalancesLatencyAndThroughput(t *testing.T) {
 	app := func(_ context.Context, c bestServerInternalCandidate) bestServerQualityApplicationResult {
 		switch c.Profile.ID {
 		case "de":
-			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{210, 220, 230}, Median: 220, Jitter: 20}, DownloadOK: true, DownloadMbps: 120, Media: stableTestMedia(115)}
+			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{150, 160, 170}, Median: 160, Jitter: 20}, DownloadOK: true, DownloadMbps: 120, Media: stableTestMedia(115)}
 		case "pl":
 			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{174, 180, 188}, Median: 180, Jitter: 14}, DownloadOK: true, DownloadMbps: 25, Media: stableTestMedia(24)}
 		default:
@@ -51,6 +51,21 @@ func TestBestServerQualityBalancesLatencyAndThroughput(t *testing.T) {
 	}
 	if result.Recommendation.Confidence != "high" {
 		t.Fatalf("expected high confidence from stable HTTP + throughput + media probes, got %q", result.Recommendation.Confidence)
+	}
+}
+
+func TestBestServerQualityRejectsHighApplicationLatencyDespiteThroughput(t *testing.T) {
+	candidate := bestServerQualityCandidate{
+		Tested: true, Available: true, ApplicationMS: bestServerQualityMaxApplicationMS + 13,
+		DownloadMbps: 114, MediaSamples: bestServerMediaChunkRuns, MediaStalls: 0,
+		MediaGrade: "excellent", ServiceOK: 4, ServiceTotal: 4, JitterMS: 13, TCPJitterMS: 10,
+	}
+	if eligibleBestServerQuality(candidate) {
+		t.Fatalf("high-latency candidate must fail eligibility even with strong throughput: %+v", candidate)
+	}
+	candidate.ApplicationMS = bestServerQualityMaxApplicationMS
+	if !eligibleBestServerQuality(candidate) {
+		t.Fatalf("candidate at latency ceiling should remain eligible when all other gates pass: %+v", candidate)
 	}
 }
 
