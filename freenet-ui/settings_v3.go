@@ -386,7 +386,10 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 	if subscription.Enabled {
 		subscription.NextRun = subscriptionNextCronRun(subscription.Interval, time.Now())
 	}
-	mode := normalizeAutomationMode(auto.Settings.Mode)
+	mode := automationModeBest
+	if rawMode := strings.TrimSpace(automationConfigValue(a.cfg.ConfigPath, "AUTO_VPN_MODE", "")); rawMode != "" {
+		mode = normalizeAutomationMode(rawMode)
+	}
 	endpointInterval := auto.Settings.Interval
 	if v3IntervalDuration(endpointInterval) <= 0 {
 		endpointInterval = v3DefaultInterval("auto_vpn_endpoint")
