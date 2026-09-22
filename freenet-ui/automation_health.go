@@ -22,9 +22,9 @@ const (
 	automationHealthUncertain = "uncertain"
 	automationHealthCritical  = "critical"
 
-	automationHealthProbeTimeout = 8 * time.Second
+	automationHealthProbeTimeout = 12 * time.Second
 	automationHealthConfirmDelay = 2 * time.Second
-	automationHealthRunTimeout   = 25 * time.Second
+	automationHealthRunTimeout   = 35 * time.Second
 )
 
 type automationHealthResult struct {
@@ -106,6 +106,10 @@ func acquireAutomationHealthLock() (func(), error) {
 		}
 	}
 	return nil, errAutomationBusy
+}
+
+func automationServicePathHealthy(ok, total int) bool {
+	return total >= 3 && ok == total
 }
 
 func probeAutomationWAN(ctx context.Context) bool {
@@ -219,7 +223,11 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	if _, ok := parseBestServerHTTPResponseMS(string(output)); !ok {
 		return automationHealthProbe{State: automationHealthFailed, Reason: "Текущий VPN не подтвердил доступ к интернету."}
 	}
-	return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN работает стабильно."}
+	serviceOK, serviceTotal := probeBestServerServiceReachability(ctx, curlPath, socks)
+	if !automationServicePathHealthy(serviceOK, serviceTotal) {
+		return automationHealthProbe{State: automationHealthFailed, Reason: fmt.Sprintf("Текущий VPN отвечает базово, но сервисные маршруты нестабильны: %d/%d.", serviceOK, serviceTotal)}
+	}
+	return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."}
 }
 
 func automationCurrentCountry(a *app) string {
