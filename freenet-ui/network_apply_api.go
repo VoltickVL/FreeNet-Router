@@ -484,6 +484,7 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 	op, leader, conflict := vpnOperations.begin("provider", profileID)
 	if !leader {
 		if conflict != nil {
+			v3AppendEvent("VPN", "busy", "Ручной выбор VPN пропущен: другая VPN-операция уже выполняется.")
 			writeJSON(w, http.StatusConflict, operationConflictPayload("другая VPN-операция уже выполняется", *conflict))
 			return
 		}
