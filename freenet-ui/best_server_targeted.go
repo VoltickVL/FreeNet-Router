@@ -227,6 +227,9 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 	response.CurrentEndpoint = currentEndpoint
 	response.ProfilesScanned = 1
 	response.ProfilesTotal = 1
+	response.ExpressMeasured = 0
+	response.QuickMeasured = 0
+	response.StrictTested = 1
 	response = applyBestServerRecommendationDeadband(response)
 	if candidate := qualityCandidateByID(response.Candidates, profileID); candidate != nil {
 		if candidate.Eligible {
