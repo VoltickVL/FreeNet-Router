@@ -32,11 +32,13 @@ type settingsV3Schedule struct {
 }
 
 type settingsV3AutoVPN struct {
-	Enabled      bool     `json:"enabled"`
-	CountryScope string   `json:"country_scope"`
-	Countries    []string `json:"countries"`
-	LastHealth   string   `json:"last_health,omitempty"`
-	NextHealth   string   `json:"next_health,omitempty"`
+	Enabled          bool     `json:"enabled"`
+	Mode             string   `json:"mode"`
+	EndpointInterval string   `json:"endpoint_interval"`
+	CountryScope     string   `json:"country_scope"`
+	Countries        []string `json:"countries"`
+	LastHealth       string   `json:"last_health,omitempty"`
+	NextHealth       string   `json:"next_health,omitempty"`
 }
 
 type settingsV3BackupInfo struct {
@@ -60,9 +62,11 @@ type settingsV3Response struct {
 }
 
 type settingsV3SaveRequest struct {
-	Action               string   `json:"action"`
-	AutoVPNEnabled       *bool    `json:"auto_vpn_enabled,omitempty"`
-	CountryScope         string   `json:"country_scope,omitempty"`
+	Action                   string   `json:"action"`
+	AutoVPNEnabled           *bool    `json:"auto_vpn_enabled,omitempty"`
+	AutoVPNMode              string   `json:"auto_vpn_mode,omitempty"`
+	AutoVPNEndpointInterval  string   `json:"auto_vpn_endpoint_interval,omitempty"`
+	CountryScope             string   `json:"country_scope,omitempty"`
 	Countries            []string `json:"countries,omitempty"`
 	SubscriptionEnabled  *bool    `json:"subscription_enabled,omitempty"`
 	SubscriptionInterval string   `json:"subscription_interval,omitempty"`
@@ -201,6 +205,8 @@ func v3IntervalCron(interval string) (string, bool) {
 
 func v3DefaultInterval(key string) string {
 	switch key {
+	case "auto_vpn_endpoint":
+		return "1h"
 	case "subscription":
 		return "6h"
 	case "geodata":
@@ -380,9 +386,20 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 	if subscription.Enabled {
 		subscription.NextRun = subscriptionNextCronRun(subscription.Interval, time.Now())
 	}
+	mode := automationModeBest
+	if rawMode := strings.TrimSpace(automationConfigValue(a.cfg.ConfigPath, "AUTO_VPN_MODE", "")); rawMode != "" {
+		mode = normalizeAutomationMode(rawMode)
+	}
+	endpointInterval := auto.Settings.Interval
+	if v3IntervalDuration(endpointInterval) <= 0 {
+		endpointInterval = v3DefaultInterval("auto_vpn_endpoint")
+	}
 	return settingsV3Response{
 		Success: true,
-		AutoVPN: settingsV3AutoVPN{Enabled: auto.Settings.Enabled, CountryScope: scope, Countries: auto.Settings.Countries, LastHealth: lastHealth, NextHealth: nextHealth},
+		AutoVPN: settingsV3AutoVPN{
+			Enabled: auto.Settings.Enabled, Mode: mode, EndpointInterval: endpointInterval,
+			CountryScope: scope, Countries: auto.Settings.Countries, LastHealth: lastHealth, NextHealth: nextHealth,
+		},
 		Automation: auto,
 		Subscription: subscription,
 		GeoData: v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_GEODATA", "geodata", automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA", "yes") == "yes"),
@@ -409,6 +426,18 @@ func buildManagedAutomationCronV3(a *app, existing []byte, values map[string]str
 
 	if values["AUTO_VPN_V1"] == "yes" {
 		lines = append(lines, "*/5 * * * * "+bin+" automation-health-watch"+configArg)
+		mode := automationModeBest
+		if strings.TrimSpace(values["AUTO_VPN_MODE"]) != "" {
+			mode = normalizeAutomationMode(values["AUTO_VPN_MODE"])
+		}
+		if mode == automationModeEndpoint {
+			interval := v3NormalizeInterval(values["AUTO_VPN_V1_INTERVAL"], "auto_vpn_endpoint")
+			cron, ok := v3IntervalCron(interval)
+			if !ok {
+				return nil, errors.New("unsupported AUTO VPN endpoint interval")
+			}
+			lines = append(lines, cron+" "+bin+" settings-v3-endpoint-refresh"+configArg)
+		}
 	}
 	appendJob := func(enabledKey, intervalKey, command string) error {
 		if values[enabledKey] != "yes" {
@@ -441,6 +470,11 @@ func settingsV3ManagedCronValuesFromConfig(configPath string) map[string]string 
 	geodataDefault := automationConfigValue(configPath, "AUTO_XKEEN_GEODATA", "yes")
 	return map[string]string{
 		"AUTO_VPN_V1": automationConfigValue(configPath, "AUTO_VPN_V1", "no"),
+		"AUTO_VPN_MODE": normalizeAutomationMode(automationConfigValue(configPath, "AUTO_VPN_MODE", automationModeBest)),
+		"AUTO_VPN_V1_INTERVAL": v3NormalizeInterval(
+			automationConfigValue(configPath, "AUTO_VPN_V1_INTERVAL", v3DefaultInterval("auto_vpn_endpoint")),
+			"auto_vpn_endpoint",
+		),
 		"AUTO_SUBSCRIPTION_REFRESH_ENABLED": automationConfigValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_ENABLED", "yes"),
 		"AUTO_SUBSCRIPTION_REFRESH_INTERVAL": v3NormalizeInterval(automationConfigValue(configPath, "AUTO_SUBSCRIPTION_REFRESH_INTERVAL", v3DefaultInterval("subscription")), "subscription"),
 		"AUTO_GEODATA_ENABLED": automationConfigValue(configPath, "AUTO_GEODATA_ENABLED", geodataDefault),
@@ -456,24 +490,53 @@ func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 	if req.AutoVPNEnabled == nil || req.SubscriptionEnabled == nil || req.GeoDataEnabled == nil || req.FreeNetEnabled == nil || req.BackupEnabled == nil {
 		return errors.New("all automation switches are required")
 	}
+	currentAuto := readAutomationSettings(a.cfg.ConfigPath)
+	mode := normalizeAutomationMode(automationConfigValue(a.cfg.ConfigPath, "AUTO_VPN_MODE", automationModeBest))
+	if strings.TrimSpace(req.AutoVPNMode) != "" {
+		mode = normalizeAutomationMode(req.AutoVPNMode)
+	}
+	endpointInterval := strings.TrimSpace(req.AutoVPNEndpointInterval)
+	if v3IntervalDuration(endpointInterval) <= 0 {
+		if mode == automationModeEndpoint && v3IntervalDuration(currentAuto.Interval) > 0 {
+			endpointInterval = currentAuto.Interval
+		} else {
+			endpointInterval = v3DefaultInterval("auto_vpn_endpoint")
+		}
+	}
 	scope := normalizeAutomationCountryScope(req.CountryScope)
 	if scope != automationCountryCurrent && scope != automationCountryRegion && scope != automationCountryAllowlist {
 		return errors.New("unsupported replacement geography")
 	}
 	countries := normalizeAutomationCountries(req.Countries)
-	if scope == automationCountryAllowlist && len(countries) == 0 {
+	if mode == automationModeBest && scope == automationCountryAllowlist && len(countries) == 0 {
 		return errors.New("selected countries list is empty")
+	}
+	if *req.AutoVPNEnabled && mode == automationModeEndpoint {
+		if _, err := ensureAutomationHelper(); err != nil {
+			return err
+		}
+	}
+	autoInterval := "manual"
+	autoEndpointUpdate := "no"
+	autoEndpointCron := ""
+	if mode == automationModeEndpoint {
+		autoInterval = endpointInterval
+		autoEndpointUpdate = v3Bool(*req.AutoVPNEnabled)
+		if cron, ok := v3IntervalCron(endpointInterval); ok {
+			autoEndpointCron = cron
+		}
 	}
 	values := map[string]string{
 		"AUTO_VPN_V1": v3Bool(*req.AutoVPNEnabled),
-		"AUTO_VPN_V1_INTERVAL": "manual",
-		"AUTO_VPN_MODE": automationModeBest,
+		"AUTO_VPN_V1_INTERVAL": autoInterval,
+		"AUTO_VPN_MODE": mode,
 		"AUTO_VPN_POLICY": automationPolicyDegraded,
 		"AUTO_VPN_COUNTRY_SCOPE": scope,
 		"AUTO_VPN_COUNTRIES": strings.Join(countries, ","),
 		"AUTO_VPN_AUTO_APPLY": "yes",
 		"AUTO_VPN_FAILOVER": "no",
-		"AUTO_ENDPOINT_UPDATE": "no",
+		"AUTO_ENDPOINT_UPDATE": autoEndpointUpdate,
+		"AUTO_ENDPOINT_CRON": autoEndpointCron,
 		"AUTO_SUBSCRIPTION_REFRESH_ENABLED": v3Bool(*req.SubscriptionEnabled),
 		"AUTO_SUBSCRIPTION_REFRESH_INTERVAL": v3NormalizeInterval(req.SubscriptionInterval, "subscription"),
 		"AUTO_GEODATA_ENABLED": v3Bool(*req.GeoDataEnabled),
@@ -584,6 +647,55 @@ var settingsV3ScheduledCurrentEndpointChanged = func(a *app, profiles []subscrip
 
 var settingsV3ScheduledCurrentRefresh = func(a *app, ctx context.Context) (int, bestServerRefreshResponse) {
 	return a.executeBestServerCurrentRefresh(ctx)
+}
+
+var settingsV3ScheduledEndpointRefresh = func(a *app, ctx context.Context) error {
+	helper, err := ensureAutomationHelper()
+	if err != nil {
+		return err
+	}
+	cmd := exec.CommandContext(ctx, helper, "run")
+	cmd.Env = append(os.Environ(),
+		"FREENET_CONFIG_FILE="+a.cfg.ConfigPath,
+		"FREENET_SUB_FILE="+a.cfg.SubPath,
+		"FREENET_FILTER_FILE="+a.cfg.FilterPath,
+		"FREENET_OUT_FILE="+a.cfg.OutPath,
+		"FREENET_XKEEN_BIN="+a.cfg.XKeenPath,
+	)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	lower := strings.ToLower(sanitizeOutput(string(out)))
+	if strings.Contains(lower, "another auto vpn operation") || automationEndpointUpdateBusy(out) {
+		return errAutomationBusy
+	}
+	if automationEndpointRollbackUnknown(out) {
+		return errors.New("scheduled endpoint refresh rollback failed or is unknown")
+	}
+	if reason := safeAutomationHelperError(out); reason != "" {
+		return errors.New(reason)
+	}
+	return err
+}
+
+func (a *app) runV3ScheduledEndpointRefresh(ctx context.Context) error {
+	settings := readAutomationSettings(a.cfg.ConfigPath)
+	if !settings.Enabled || !settings.AutoApply || settings.Mode != automationModeEndpoint {
+		return nil
+	}
+	release, lockErr := acquireAutomationHealthLock()
+	if lockErr != nil {
+		appendAutomationHistoryV2("busy", "Плановое обновление endpoint пропущено: другая AUTO VPN операция уже выполняется.")
+		return nil
+	}
+	defer release()
+	err := settingsV3ScheduledEndpointRefresh(a, ctx)
+	if errors.Is(err, errAutomationBusy) {
+		appendAutomationHistoryV2("busy", "Плановое обновление endpoint пропущено: другой безопасный updater уже выполняется.")
+		return nil
+	}
+	return err
 }
 
 func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
@@ -831,6 +943,8 @@ func runSettingsV3CLI(command string) int {
 	defer cancel()
 	var err error
 	switch command {
+	case "settings-v3-endpoint-refresh":
+		err = a.runV3ScheduledEndpointRefresh(ctx)
 	case "settings-v3-subscription":
 		err = a.runV3ScheduledSubscription(ctx)
 	case "settings-v3-geodata":
