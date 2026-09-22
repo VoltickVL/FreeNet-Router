@@ -81,7 +81,9 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 	close(results)
 
 	measured := make([]bestServerPreflightResult, 0, len(candidates))
+	attempted := make(map[int]bool, len(candidates))
 	for result := range results {
+		attempted[result.Index] = true
 		if result.Probe.OK {
 			measured = append(measured, result)
 		}
@@ -97,28 +99,8 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 		return candidates[aResult.Index].Profile.ID < candidates[bResult.Index].Profile.ID
 	})
 
-	selectedIndexes := make([]int, 0, bestServerPreflightShortlist)
-	seen := make(map[int]bool)
-	for _, result := range measured {
-		if len(selectedIndexes) >= bestServerPreflightShortlist {
-			break
-		}
-		selectedIndexes = append(selectedIndexes, result.Index)
-		seen[result.Index] = true
-	}
-
-	// The current VPN must always get a full quality measurement when it is not
-	// represented by a complete fresh cache entry. Without that baseline FreeNet
-	// must not recommend a switch.
 	currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter)
-	if currentIndex >= 0 && !seen[currentIndex] {
-		if len(selectedIndexes) >= bestServerPreflightShortlist {
-			selectedIndexes[len(selectedIndexes)-1] = currentIndex
-		} else {
-			selectedIndexes = append(selectedIndexes, currentIndex)
-		}
-		seen[currentIndex] = true
-	}
+	selectedIndexes := selectBestServerPreflightIndexes(candidates, measured, attempted, currentIndex)
 	if len(selectedIndexes) == 0 {
 		return nil
 	}
@@ -126,6 +108,70 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 	selected := make([]bestServerInternalCandidate, 0, len(selectedIndexes))
 	for _, index := range selectedIndexes {
 		selected = append(selected, candidates[index])
+	}
+	return selected
+}
+
+// Preflight is ranking-only. A candidate that did not finish before the bounded
+// phase deadline is UNKNOWN, not failed. Successful measurements stay first,
+// then unattempted candidates fill the deep-check reserve. Explicit preflight
+// failures are only used as a last resort. This prevents a busy/slow router
+// from collapsing a large subscription pool to one (or zero) deep candidates.
+func selectBestServerPreflightIndexes(
+	candidates []bestServerInternalCandidate,
+	measured []bestServerPreflightResult,
+	attempted map[int]bool,
+	currentIndex int,
+) []int {
+	if len(candidates) == 0 {
+		return nil
+	}
+	limit := bestServerPreflightShortlist
+	if limit > len(candidates) {
+		limit = len(candidates)
+	}
+	selected := make([]int, 0, limit)
+	seen := make(map[int]bool, limit)
+	add := func(index int) {
+		if index < 0 || index >= len(candidates) || len(selected) >= limit || seen[index] {
+			return
+		}
+		selected = append(selected, index)
+		seen[index] = true
+	}
+
+	for _, result := range measured {
+		if result.Probe.OK {
+			add(result.Index)
+		}
+	}
+
+	// Phase timeout means "unknown". Give those profiles a strict deep-check
+	// chance before retrying endpoints that already produced a negative preflight.
+	for index := range candidates {
+		if attempted[index] {
+			continue
+		}
+		add(index)
+	}
+	for index := range candidates {
+		if !attempted[index] {
+			continue
+		}
+		add(index)
+	}
+
+	// Generic caller contract: current VPN must remain representable when this
+	// helper is used outside the foreign-only path.
+	if currentIndex >= 0 && currentIndex < len(candidates) && !seen[currentIndex] {
+		if len(selected) >= limit && limit > 0 {
+			replaced := selected[len(selected)-1]
+			delete(seen, replaced)
+			selected[len(selected)-1] = currentIndex
+			seen[currentIndex] = true
+		} else {
+			add(currentIndex)
+		}
 	}
 	return selected
 }
