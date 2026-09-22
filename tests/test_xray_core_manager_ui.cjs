@@ -11,6 +11,8 @@ const managerScript = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', '
 let catalogGets = 0;
 let applyPosts = 0;
 let applyBody = null;
+let serviceOnline = true;
+const serviceActions = [];
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Xray Core Manager fixture</title>
 <style>
@@ -51,7 +53,7 @@ const server = http.createServer((req, res) => {
   if (req.url === '/xray-core-manager.js') { res.writeHead(200, {'content-type':'application/javascript'}); res.end(managerScript); return; }
   if (req.url === '/api/xray/service' && req.method === 'GET') {
     res.writeHead(200, {'content-type':'application/json'});
-    res.end(JSON.stringify({success:true, online:true, version:'26.9.9 (Xray, Penetrates Everything.) 52a412d (go1.27.1 linux/arm64)', events:[]}));
+    res.end(JSON.stringify({success:true, online:serviceOnline, version:'26.9.9 (Xray, Penetrates Everything.) 52a412d (go1.27.1 linux/arm64)', events:[]}));
     return;
   }
   if (req.url === '/api/xray/core/catalog' && req.method === 'GET') {
@@ -68,7 +70,26 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.url === '/api/xray/service' && req.method === 'POST') {
-    res.writeHead(200, {'content-type':'application/json'}); res.end(JSON.stringify({success:true,online:true,version:'26.9.9',message:'ok',events:[]})); return;
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      const payload = JSON.parse(raw);
+      serviceActions.push(payload.action);
+      if (payload.action === 'start') {
+        serviceOnline = true;
+        res.writeHead(200, {'content-type':'application/json'});
+        res.end(JSON.stringify({success:true,online:true,version:'26.9.9',message:'Xray запущен и работает.',events:[]}));
+        return;
+      }
+      if (payload.action === 'restart') {
+        res.writeHead(200, {'content-type':'application/json'});
+        res.end(JSON.stringify({success:true,online:true,version:'26.9.9',message:'Xray перезапущен и снова работает.',events:[]}));
+        return;
+      }
+      res.writeHead(400, {'content-type':'application/json'});
+      res.end(JSON.stringify({success:false,error:'unsupported action',events:[]}));
+    });
+    return;
   }
   res.writeHead(404); res.end('not found');
 });
@@ -155,9 +176,26 @@ const server = http.createServer((req, res) => {
     assert.ok(mobileGeometry.modal <= mobileGeometry.viewport - 20, 'mobile Xray panel must fit viewport');
     await page.keyboard.press('Escape');
 
+    serviceOnline = false;
+    const catalogBeforeOfflineRecovery = catalogGets;
+    await page.reload();
+    await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.includes('остановлен'));
+    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'остановлен', 'topbar must expose stopped Xray truthfully');
+    await page.locator('#xrayTopbarChip').click();
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray остановлен'));
+    assert.equal(catalogGets, catalogBeforeOfflineRecovery, 'offline recovery must not browse core catalog before runtime is healthy');
+    const recoveryButton = page.locator('#xrayCoreManager').getByRole('button', {name:'Запустить Xray'});
+    assert.equal(await recoveryButton.count(), 1, 'offline Xray manager must expose one direct recovery action');
+    await recoveryButton.click();
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray запущен и работает'));
+    assert.deepEqual(serviceActions, ['start'], 'topbar recovery must use explicit start, never stop/restart');
+    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'successful recovery must restore topbar version');
+    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает', 'Config Studio status must reconcile after topbar recovery');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Перезапустить', 'recovered service returns to restart action');
+
     const responsive = await page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('alive'), 20)));
     assert.equal(responsive, 'alive', 'Xray manager UI must not starve browser event loop');
-    console.log('Xray Core Manager selector + clean Config Studio UX: OK');
+    console.log('Xray Core Manager selector + offline recovery + clean Config Studio UX: OK');
   } finally {
     await browser.close(); server.close();
   }

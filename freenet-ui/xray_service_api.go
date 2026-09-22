@@ -76,11 +76,12 @@ func decodeXrayServiceAction(w http.ResponseWriter, r *http.Request) (string, bo
 		writeJSON(w, http.StatusBadRequest, xrayServiceResponse{Success: false, Events: []automationEvent{}, Error: "invalid action request"})
 		return "", false
 	}
-	if strings.TrimSpace(req.Action) != "restart" {
+	action := strings.TrimSpace(req.Action)
+	if action != "start" && action != "restart" {
 		writeJSON(w, http.StatusBadRequest, xrayServiceResponse{Success: false, Events: []automationEvent{}, Error: "unsupported action"})
 		return "", false
 	}
-	return "restart", true
+	return action, true
 }
 
 func waitForXrayOnline(ctx context.Context) bool {
@@ -98,27 +99,59 @@ func waitForXrayOnline(ctx context.Context) bool {
 	}
 }
 
-func (a *app) restartXrayControlled(parent context.Context) error {
+func (a *app) controlXrayService(parent context.Context, action string) (bool, error) {
+	if action != "start" && action != "restart" {
+		return false, errors.New("unsupported Xray service action")
+	}
+	if action == "start" && xrayServiceProcessRunning("xray") {
+		return false, nil
+	}
+
 	ctx, cancel := context.WithTimeout(parent, xrayRestartTimeout)
 	defer cancel()
 	if err := a.validateConfigStudioLive(ctx); err != nil {
-		return errors.New("текущая конфигурация Xray не прошла проверку; перезапуск отменён")
+		if action == "start" {
+			return false, errors.New("текущая конфигурация Xray не прошла проверку; запуск отменён")
+		}
+		return false, errors.New("текущая конфигурация Xray не прошла проверку; перезапуск отменён")
 	}
-	if _, err := runCommand(ctx, a.cfg.XKeenPath, "-restart"); err != nil {
-		return errors.New("Xray не удалось перезапустить")
+
+	arg := "-restart"
+	if action == "start" {
+		arg = "-start"
+	}
+	if _, err := runCommand(ctx, a.cfg.XKeenPath, arg); err != nil {
+		if action == "start" {
+			return false, errors.New("Xray не удалось запустить")
+		}
+		return false, errors.New("Xray не удалось перезапустить")
 	}
 	if !waitForXrayOnline(ctx) {
-		return errors.New("Xray не вернулся в рабочее состояние после перезапуска")
+		if action == "start" {
+			return true, errors.New("Xray не перешёл в рабочее состояние после запуска")
+		}
+		return true, errors.New("Xray не вернулся в рабочее состояние после перезапуска")
 	}
 	if err := a.validateConfigStudioLive(ctx); err != nil {
-		return errors.New("Xray запущен, но post-check конфигурации не подтверждён")
+		return true, errors.New("Xray запущен, но post-check конфигурации не подтверждён")
 	}
-	return nil
+	return true, nil
+}
+
+func (a *app) startXrayControlled(parent context.Context) error {
+	_, err := a.controlXrayService(parent, "start")
+	return err
+}
+
+func (a *app) restartXrayControlled(parent context.Context) error {
+	_, err := a.controlXrayService(parent, "restart")
+	return err
 }
 
 func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 	if a.mutationBlockedBySelfUpdate(w) { return }
-	if _, ok := decodeXrayServiceAction(w, r); !ok { return }
+	action, ok := decodeXrayServiceAction(w, r)
+	if !ok { return }
 	select {
 	case a.sem <- struct{}{}:
 		defer func() { <-a.sem }()
@@ -126,7 +159,9 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, xrayServiceResponse{Success: false, Events: xrayServiceEvents(8), Error: "другая операция FreeNet уже выполняется"})
 		return
 	}
-	if err := a.restartXrayControlled(r.Context()); err != nil {
+	wasOnline := xrayServiceProcessRunning("xray")
+	changed, err := a.controlXrayService(r.Context(), action)
+	if err != nil {
 		message := sanitizeAutomationReason(err.Error())
 		v3AppendEvent("xray", "failed", message)
 		resp := a.xrayServiceSnapshot(r.Context())
@@ -135,8 +170,20 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, resp)
 		return
 	}
-	v3AppendEvent("xray", "success", "Xray перезапущен через FreeNet.")
+
 	resp := a.xrayServiceSnapshot(r.Context())
-	resp.Message = "Xray перезапущен и снова работает."
+	if action == "start" {
+		if !changed && wasOnline {
+			resp.Message = "Xray уже работает; запуск не требовался."
+			v3AppendEvent("xray", "success", resp.Message)
+		} else {
+			resp.Message = "Xray запущен и работает."
+			v3AppendEvent("xray", "success", "Xray запущен через FreeNet.")
+		}
+	} else {
+		resp.Message = "Xray перезапущен и снова работает."
+		v3AppendEvent("xray", "success", "Xray перезапущен через FreeNet.")
+	}
+	resp.Events = xrayServiceEvents(8)
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -47,7 +47,7 @@
     node.className = 'cs-service';
     node.innerHTML = `
       <div class="cs-service-main"><span class="cs-service-title">Xray</span><span id="csServiceStatus" class="cs-service-status">Проверяю…</span><button id="csServiceVersion" type="button" class="cs-version" title="Выбрать версию Xray">Версия…</button></div>
-      <div class="cs-service-actions"><button id="csRestartXray" type="button" class="cs-service-btn">Перезапустить</button><button id="csToggleJournal" type="button" class="cs-service-btn">Журнал</button></div>
+      <div class="cs-service-actions"><button id="csRestartXray" type="button" class="cs-service-btn">Управление Xray</button><button id="csToggleJournal" type="button" class="cs-service-btn">Журнал</button></div>
       <div id="csServiceJournal" class="cs-journal"><div class="cs-journal-head"><span class="cs-journal-title">Последние действия Xray</span><button id="csOpenFullJournal" type="button" class="cs-service-btn">Все события</button></div><div id="csServiceJournalList" class="cs-journal-list"></div></div>`;
     return node;
   }
@@ -65,9 +65,10 @@
     const status = qs('#csServiceStatus');
     const version = qs('#csServiceVersion');
     const restart = qs('#csRestartXray');
+    const unavailable = service.unavailable === true;
     if (status) {
-      setText(status, service.online ? 'Работает' : 'Остановлен');
-      const nextClass = `cs-service-status ${service.online ? 'ok' : 'bad'}`;
+      setText(status, unavailable ? 'Статус недоступен' : (service.online ? 'Работает' : 'Остановлен'));
+      const nextClass = `cs-service-status ${!unavailable && service.online ? 'ok' : 'bad'}`;
       if (status.className !== nextClass) status.className = nextClass;
     }
     if (version) {
@@ -75,7 +76,10 @@
       setText(version, shortVersion ? `${shortVersion} ▾` : 'Версия неизвестна');
       version.disabled = !shortVersion || busy;
     }
-    if (restart && restart.disabled !== busy) restart.disabled = busy;
+    if (restart) {
+      setText(restart, service.online ? 'Перезапустить' : 'Запустить Xray');
+      restart.disabled = busy || unavailable;
+    }
     const list = qs('#csServiceJournalList');
     if (list) {
       list.textContent = '';
@@ -101,27 +105,29 @@
       if (!response.ok || !body.success) throw new Error(body.error || `HTTP ${response.status}`);
       renderService(body);
     } catch (_) {
-      renderService({online:false,version:'',events:[]});
+      renderService({online:false,version:'',events:[],unavailable:true});
     }
   }
 
-  async function restartXray() {
-    if (busy) return;
+  async function controlXray() {
+    if (busy || service?.unavailable) return;
+    const action = service?.online ? 'restart' : 'start';
+    const starting = action === 'start';
     busy = true; renderService(service || {});
-    const button = qs('#csRestartXray'); setText(button, 'Перезапускаю…');
-    setNotice('Проверяю конфигурацию и перезапускаю Xray…');
+    const button = qs('#csRestartXray');
+    setText(button, starting ? 'Запускаю…' : 'Перезапускаю…');
+    setNotice(starting ? 'Проверяю конфигурацию и запускаю Xray…' : 'Проверяю конфигурацию и перезапускаю Xray…');
     try {
-      const response = await fetch('/api/xray/service', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'restart'}),cache:'no-store'});
+      const response = await fetch('/api/xray/service', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action}),cache:'no-store'});
       let body = {}; try { body = await response.json(); } catch (_) {}
-      if (!response.ok || !body.success) throw new Error(body.error || 'Не удалось перезапустить Xray');
+      if (!response.ok || !body.success) throw new Error(body.error || (starting ? 'Не удалось запустить Xray' : 'Не удалось перезапустить Xray'));
       renderService(body);
-      setNotice(body.message || 'Xray перезапущен.', 'ok');
+      setNotice(body.message || (starting ? 'Xray запущен.' : 'Xray перезапущен.'), 'ok');
     } catch (error) {
-      setNotice(error.message || 'Не удалось перезапустить Xray.', 'bad');
+      setNotice(error.message || (starting ? 'Не удалось запустить Xray.' : 'Не удалось перезапустить Xray.'), 'bad');
       await loadService();
     } finally {
       busy = false;
-      setText(button, 'Перезапустить');
       renderService(service || {});
     }
   }
@@ -150,7 +156,7 @@
       const groups = qs('.cs-tab-groups', shell) || qs('#csTabsMain', shell);
       if (groups) groups.parentNode.insertBefore(serviceMarkup(), groups);
       else shell.prepend(serviceMarkup());
-      qs('#csRestartXray')?.addEventListener('click', restartXray);
+      qs('#csRestartXray')?.addEventListener('click', controlXray);
       qs('#csToggleJournal')?.addEventListener('click', () => qs('#csServiceJournal')?.classList.toggle('show'));
       qs('#csOpenFullJournal')?.addEventListener('click', openFullJournal);
       loadService();

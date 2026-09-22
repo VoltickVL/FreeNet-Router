@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,6 +52,87 @@ func TestRestartXrayControlledStopsBeforeRestartOnInvalidConfig(t *testing.T) {
 	err := a.restartXrayControlled(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "перезапуск отменён") { t.Fatalf("expected validation stop, got %v", err) }
 	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) { t.Fatalf("xkeen restart must not run after validation failure") }
+}
+
+func TestStartXrayControlledStartsStoppedServiceOnce(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 0)
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(name string) bool {
+		if name != "xray" {
+			return false
+		}
+		_, err := os.Stat(marker)
+		return err == nil
+	}
+	defer func() { xrayServiceProcessRunning = previous }()
+
+	if err := a.startXrayControlled(context.Background()); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil { t.Fatal(err) }
+	lines := strings.Fields(strings.TrimSpace(string(data)))
+	if len(lines) != 1 || lines[0] != "-start" {
+		t.Fatalf("expected exactly one -start call, got %q", string(data))
+	}
+}
+
+func TestStartXrayControlledDoesNotRestartAlreadyOnlineService(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 0)
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(name string) bool { return name == "xray" }
+	defer func() { xrayServiceProcessRunning = previous }()
+
+	if err := a.startXrayControlled(context.Background()); err != nil {
+		t.Fatalf("start no-op failed: %v", err)
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("already-online start must not call XKeen")
+	}
+}
+
+func TestStartXrayControlledStopsBeforeStartOnInvalidConfig(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 1)
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(string) bool { return false }
+	defer func() { xrayServiceProcessRunning = previous }()
+
+	err := a.startXrayControlled(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "запуск отменён") {
+		t.Fatalf("expected validation stop, got %v", err)
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("xkeen start must not run after validation failure")
+	}
+}
+
+func TestDecodeXrayServiceActionAllowsStartAndRestartOnly(t *testing.T) {
+	for _, tc := range []struct {
+		action string
+		ok     bool
+	}{
+		{action: "start", ok: true},
+		{action: "restart", ok: true},
+		{action: "stop", ok: false},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "http://router/api/xray/service", strings.NewReader(`{"action":"`+tc.action+`"}`))
+			req.Host = "router"
+			req.Header.Set("Origin", "http://router")
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			action, ok := decodeXrayServiceAction(rec, req)
+			if ok != tc.ok {
+				t.Fatalf("ok=%v want=%v status=%d body=%s", ok, tc.ok, rec.Code, rec.Body.String())
+			}
+			if tc.ok && action != tc.action {
+				t.Fatalf("action=%q want=%q", action, tc.action)
+			}
+			if !tc.ok && rec.Code != http.StatusBadRequest {
+				t.Fatalf("unsupported action status=%d want=%d", rec.Code, http.StatusBadRequest)
+			}
+		})
+	}
 }
 
 func TestXrayServiceEventsFilterUserFacingHistory(t *testing.T) {
