@@ -3,6 +3,7 @@
 
   const qs = (s, root = document) => root.querySelector(s);
   let catalog = null;
+  let serviceState = null;
   let selectedVersion = '';
   let applying = false;
   let topbarVersionLoading = false;
@@ -15,7 +16,7 @@
     style.textContent = `
       .cs-version{cursor:pointer!important}.cs-version:hover{border-color:#5b8cff!important;background:#183253!important;color:#fff!important}
       .fn-xray-topbar{appearance:none;display:grid;grid-template-columns:30px minmax(0,1fr);gap:11px;align-items:center;text-align:left;width:148px;height:60px;padding:9px 14px;border:1px solid #315276;border-radius:11px;background:linear-gradient(180deg,#0d1d30,#0a1727);color:#f3f7ff;font:inherit;cursor:pointer}
-      .fn-xray-topbar:hover,.fn-xray-topbar[aria-expanded="true"]{border-color:#6597d9;background:#10243c}.fn-xray-topbar:focus-visible{outline:2px solid #80adff;outline-offset:2px}
+      .fn-xray-topbar:hover,.fn-xray-topbar[aria-expanded="true"]{border-color:#6597d9;background:#10243c}.fn-xray-topbar.offline{border-color:#8f4a55;background:linear-gradient(180deg,#321820,#21131a)}.fn-xray-topbar.offline .fn-xray-topbar-icon{color:#ff7785}.fn-xray-topbar.offline .fn-xray-chip strong{color:#ff9da6}.fn-xray-topbar:focus-visible{outline:2px solid #80adff;outline-offset:2px}
       .fn-xray-topbar-icon{display:grid;place-items:center;width:30px;height:30px;color:#72a8ff}.fn-xray-topbar-icon svg{width:26px;height:26px}
       .fn-xray-chip{display:flex;flex-direction:column;justify-content:center;gap:3px;min-width:0}.fn-xray-chip small{font-weight:750;color:#8da4c2;font-size:11px;line-height:1.05}.fn-xray-chip strong{font-size:14px;line-height:1.15;font-weight:750;color:#f3f7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
       .xcm-root{position:fixed;inset:0;z-index:2700;display:block;pointer-events:none}.xcm-root[hidden]{display:none!important}.xcm-root.xcm-open{pointer-events:none}
@@ -64,6 +65,17 @@
     node.textContent = compactVersion(value) || String(value || '').trim() || 'версия…';
   }
 
+  function syncTopbarService(result) {
+    const chip = qs('#xrayTopbarChip');
+    const offline = result && result.success && result.online === false;
+    chip?.classList.toggle('offline', !!offline);
+    if (offline) {
+      syncTopbarVersion('остановлен');
+      return;
+    }
+    syncTopbarVersion(result?.version || result?.current_version || '');
+  }
+
   function mountTopbarChip() {
     const topbar = qs('.topbar.overview-approved') || qs('.topbar');
     if (!topbar) return null;
@@ -102,7 +114,10 @@
         return;
       }
       const result = await response.json();
-      if (response.ok && result && result.success) syncTopbarVersion(result.version || result.current_version);
+      if (response.ok && result && result.success) {
+        serviceState = result;
+        syncTopbarService(result);
+      }
     } catch (_) {
       if (topbarVersionAttempts < 3) setTimeout(refreshTopbarVersion, 1200);
     } finally {
@@ -112,6 +127,14 @@
 
   function body() { return qs('#xcmBody', ensureRoot()); }
   function actions() { return qs('#xcmActions', ensureRoot()); }
+
+  function setManagerHeading(title, subtitle) {
+    const root = ensureRoot();
+    const heading = qs('#xcmTitle', root);
+    const sub = qs('.xcm-subtitle', root);
+    if (heading) heading.textContent = title;
+    if (sub) sub.textContent = subtitle;
+  }
 
   function clearNode(node) { while (node.firstChild) node.removeChild(node.firstChild); }
   function addButton(parent, text, className, handler, disabled = false) {
@@ -180,6 +203,7 @@
   }
 
   function renderCatalog() {
+    setManagerHeading('Версия Xray Core', 'Выбор версии, затем проверка и установка');
     const target = body();
     const footer = actions();
     clearNode(target); clearNode(footer);
@@ -300,6 +324,87 @@
     requestAnimationFrame(positionManager);
   }
 
+  function syncConfigStudioService(result) {
+    const status = qs('#csServiceStatus');
+    const button = qs('#csRestartXray');
+    const version = qs('#csServiceVersion');
+    if (status) {
+      status.textContent = result?.online ? 'Работает' : 'Остановлен';
+      status.className = `cs-service-status ${result?.online ? 'ok' : 'bad'}`;
+    }
+    if (button) {
+      button.textContent = result?.online ? 'Перезапустить' : 'Запустить Xray';
+      button.disabled = false;
+    }
+    if (version && result?.version) version.textContent = `${compactVersion(result.version) || result.version} ▾`;
+  }
+
+  function renderOfflineRecovery(result) {
+    serviceState = result || {success:true, online:false};
+    syncTopbarService(serviceState);
+    syncConfigStudioService(serviceState);
+    setManagerHeading('Xray остановлен', 'Восстановление сервиса без XKeen UI');
+    const target = body();
+    const footer = actions();
+    clearNode(target); clearNode(footer);
+
+    const box = document.createElement('div');
+    box.className = 'xcm-error';
+    box.textContent = 'Сервис Xray остановлен. FreeNet проверит текущую конфигурацию и запустит Xray штатно через XKeen.';
+    target.appendChild(box);
+
+    addButton(footer, 'Закрыть', '', closeManager);
+    addButton(footer, 'Запустить Xray', 'primary', recoverOfflineXray);
+    requestAnimationFrame(positionManager);
+  }
+
+  async function recoverOfflineXray() {
+    if (applying) return;
+    applying = true;
+    const target = body();
+    const footer = actions();
+    clearNode(target); clearNode(footer);
+    const progress = document.createElement('div');
+    progress.className = 'xcm-progress';
+    progress.textContent = 'Проверяю конфигурацию и запускаю Xray…';
+    target.appendChild(progress);
+    try {
+      const response = await fetch('/api/xray/service', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'start'}), cache:'no-store'});
+      let result = {}; try { result = await response.json(); } catch (_) {}
+      clearNode(target);
+      const box = document.createElement('div');
+      if (response.ok && result.success && result.online) {
+        serviceState = result;
+        syncTopbarService(result);
+        syncConfigStudioService(result);
+        box.className = 'xcm-result ok';
+        box.textContent = result.message || 'Xray запущен и работает.';
+        target.appendChild(box);
+        addButton(footer, 'Готово', 'primary', closeManager);
+      } else {
+        box.className = 'xcm-result bad';
+        box.textContent = result.error || 'Xray не удалось запустить. Состояние не подтверждено.';
+        target.appendChild(box);
+        addButton(footer, 'Закрыть', '', closeManager);
+        addButton(footer, 'Проверить снова', 'primary', async () => {
+          applying = false;
+          closeManager();
+          await openManager();
+        });
+      }
+    } catch (_) {
+      clearNode(target);
+      const box = document.createElement('div');
+      box.className = 'xcm-result bad';
+      box.textContent = 'Связь с FreeNet прервалась во время запуска Xray. Не повторяйте действие вслепую: сначала обновите состояние.';
+      target.appendChild(box);
+      addButton(footer, 'Закрыть', '', closeManager);
+    } finally {
+      applying = false;
+      requestAnimationFrame(positionManager);
+    }
+  }
+
   async function applyRelease(release) {
     if (applying) return;
     applying = true;
@@ -347,8 +452,21 @@
     requestAnimationFrame(() => qs('.xcm-modal', root)?.focus({preventScroll:true}));
     selectedVersion = '';
     const target = body(); const footer = actions(); clearNode(target); clearNode(footer);
-    const progress = document.createElement('div'); progress.className = 'xcm-progress'; progress.textContent = 'Получаю список официальных версий Xray…'; target.appendChild(progress);
+    setManagerHeading('Xray', 'Проверка состояния сервиса');
+    const progress = document.createElement('div'); progress.className = 'xcm-progress'; progress.textContent = 'Проверяю состояние Xray…'; target.appendChild(progress);
     try {
+      const serviceResponse = await fetch('/api/xray/service', {cache:'no-store'});
+      const currentService = await serviceResponse.json();
+      if (!serviceResponse.ok || !currentService.success) throw new Error(currentService.error || 'Состояние Xray недоступно');
+      serviceState = currentService;
+      syncTopbarService(currentService);
+      syncConfigStudioService(currentService);
+      if (!currentService.online) {
+        renderOfflineRecovery(currentService);
+        return;
+      }
+
+      progress.textContent = 'Получаю список официальных версий Xray…';
       const response = await fetch('/api/xray/core/catalog', {cache:'no-store'});
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Каталог Xray недоступен');
@@ -359,7 +477,7 @@
       renderCatalog();
     } catch (error) {
       clearNode(target); clearNode(footer);
-      const box = document.createElement('div'); box.className = 'xcm-error'; box.textContent = error.message || 'Каталог Xray недоступен.'; target.appendChild(box);
+      const box = document.createElement('div'); box.className = 'xcm-error'; box.textContent = error.message || 'Состояние Xray недоступно.'; target.appendChild(box);
       addButton(footer, 'Закрыть', '', closeManager);
     }
   }
