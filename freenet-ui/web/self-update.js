@@ -658,12 +658,39 @@
     if (!qs('#fnModalRoot')?.hidden) modalStatus(lines.join('\n'), terminalGood ? 'ok' : terminalBad ? 'bad' : '');
   }
 
+  async function targetVersionIsLive(target) {
+    const expected = String(target || '').trim();
+    if (!expected) return false;
+    try {
+      const response = await fetch('/versionz', {cache: 'no-store', signal: AbortSignal.timeout(5000)});
+      if (!response.ok) return false;
+      return (await response.text()).trim() === expected;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  async function reloadIfTargetVersionIsLive(target) {
+    if (!(await targetVersionIsLive(target))) return false;
+    polling = false;
+    setUpdateSummary('Новая версия уже запущена');
+    updateNotice('Сервер уже работает на целевой версии. Перезагружаем Control Center, чтобы убрать старый интерфейс.');
+    modalStatus('Целевая версия уже запущена. Обновляем интерфейс без повторного запуска update.', '');
+    setTimeout(() => location.reload(), 250);
+    return true;
+  }
+
   async function pollState(target) {
     if (!polling) return;
     if (updateProgressStarted && Date.now() - updateProgressStarted > 300000) {
-      polling = false;
-      modalResult('Результат обновления пока неизвестен', 'Ожидание ограничено пятью минутами. Не запускайте обновление повторно до проверки фактической версии и состояния FreeNet.', 'bad');
-      return;
+      if (await reloadIfTargetVersionIsLive(target)) return;
+      if (Date.now() - updateProgressStarted > 600000) {
+        polling = false;
+        modalResult('Результат обновления пока неизвестен', 'FreeNet не подтвердил целевую версию за десять минут. Не запускайте обновление повторно до проверки фактической версии и состояния.', 'bad');
+        return;
+      }
+      setUpdateSummary('Обновление выполняется дольше обычного…');
+      modalStatus('Продолжаем следить за текущей операцией. Повторный запуск обновления не выполняется.', '');
     }
     try {
       const r = await fetch('/api/system/update/state', {cache: 'no-store', signal: AbortSignal.timeout(10000)});

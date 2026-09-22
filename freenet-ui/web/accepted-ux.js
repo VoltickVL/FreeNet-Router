@@ -523,9 +523,29 @@
     setStatus(`Целевая версия ${target} не подтверждена. Не запускайте обновление повторно до проверки фактического состояния.`, 'bad');
   }
 
+  async function targetVersionIsLive(target) {
+    const expected = String(target || '').trim();
+    if (!expected) return false;
+    try {
+      const response = await fetch('/versionz', {cache: 'no-store', signal: AbortSignal.timeout(5000)});
+      if (!response.ok) return false;
+      return (await response.text()).trim() === expected;
+    } catch (_) {
+      return false;
+    }
+  }
+
   async function pollUpdate(target) {
-    const deadline = Date.now() + 5 * 60 * 1000;
-    while (updatePolling && Date.now() < deadline) {
+    const started = Date.now();
+    const reconcileAfter = started + 5 * 60 * 1000;
+    const hardDeadline = started + 10 * 60 * 1000;
+    while (updatePolling && Date.now() < hardDeadline) {
+      if (Date.now() >= reconcileAfter && await targetVersionIsLive(target)) {
+        updatePolling = false;
+        setStatus('Целевая версия уже запущена. Перезагружаем интерфейс без повторного запуска update…', 'ok');
+        setTimeout(() => location.reload(), 250);
+        return;
+      }
       try {
         const response = await fetch('/api/system/update/state', {cache: 'no-store', signal: AbortSignal.timeout(10000)});
         if (response.status === 401) {
@@ -555,10 +575,16 @@
       }
       await wait(1400);
     }
+    if (await targetVersionIsLive(target)) {
+      updatePolling = false;
+      setStatus('Целевая версия уже запущена. Перезагружаем интерфейс без повторного запуска update…', 'ok');
+      setTimeout(() => location.reload(), 250);
+      return;
+    }
     updatePolling = false;
     setProgress(false);
     setBusy(false);
-    setStatus('Результат обновления пока неизвестен. Не запускайте обновление повторно до проверки фактической версии.', 'bad');
+    setStatus('Результат обновления пока неизвестен. FreeNet не подтвердил целевую версию за десять минут; повторный запуск update не выполняйте до проверки состояния.', 'bad');
   }
 
   async function startUpdate() {
