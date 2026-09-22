@@ -1,15 +1,14 @@
 package main
 
 import (
-	"context"
 	"os"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
-	const browserBudget = 210 * time.Second
+func TestBestServerAsyncJobFitsInteractiveBrowserBudget(t *testing.T) {
+	const browserBudget = 60 * time.Second
 	const minimumSlack = 10 * time.Second
 	if bestServerAsyncJobTimeout >= browserBudget {
 		t.Fatalf("Best Server async job timeout %s must be below browser budget %s", bestServerAsyncJobTimeout, browserBudget)
@@ -19,53 +18,43 @@ func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
 	}
 }
 
-func TestBestServerJobBudgetCompletesThreeVisibleAttempts(t *testing.T) {
-	// The UI promises up to three real measured alternatives. Reserving only
-	// enough time to START the third deep probe is insufficient: parent deadline
-	// cancellation makes that batch untrusted and it is intentionally dropped.
-	// Cover bounded preflight plus three complete deep windows and their TCP
-	// probes, with a small scheduler/process-cleanup reserve.
-	tcpWindow := time.Duration(bestServerQualityTCPRuns) * bestServerQualityTCPTimeout
-	const completionReserve = 5 * time.Second
-	minimum := bestServerPreflightPhaseTimeout +
-		time.Duration(bestServerVisibleAlternatives)*(bestServerQualityCandidateTimeout+tcpWindow) +
-		completionReserve
+func TestBestServerCascadeBudgetCoversNormalExpressAndQuickPath(t *testing.T) {
+	// 8 quick candidates / 4 workers = two bounded waves. DIRECT express runs
+	// concurrently and should fit in a few seconds; keep explicit room for one
+	// bounded fresh-catalog read without returning to the former 190 s job.
+	quickWaves := (bestServerCascadeShortlist + bestServerQuickWorkers - 1) / bestServerQuickWorkers
+	minimum := time.Duration(quickWaves)*bestServerQuickCandidateTimeout +
+		bestServerFreshCatalogTimeout + 5*time.Second
 	if bestServerAsyncJobTimeout < minimum {
-		t.Fatalf("Best Server async job %s is below Top-3 completion floor %s", bestServerAsyncJobTimeout, minimum)
+		t.Fatalf("Best Server async job %s below cascade floor %s", bestServerAsyncJobTimeout, minimum)
+	}
+	if bestServerAsyncJobTimeout >= 60*time.Second {
+		t.Fatalf("interactive Best Server budget regressed to long-running scan: %s", bestServerAsyncJobTimeout)
 	}
 }
 
-func TestBestServerForeignDoesNotImplicitlyRecheckCurrent(t *testing.T) {
+func TestBestServerForeignUsesCascadeAndDoesNotImplicitlyRecheckCurrent(t *testing.T) {
 	data, err := os.ReadFile("best_server_ux.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := string(data)
-	if strings.Contains(s, "baselineResponse := a.scanActiveCurrentVPNQuality") {
-		t.Fatal("Best Server alternatives job must not spend its bounded budget on an implicit current VPN Speedtest")
+	start := strings.Index(s, "func (a *app) scanBestServerForeign(ctx context.Context)")
+	if start < 0 {
+		t.Fatal("scanBestServerForeign missing")
+	}
+	body := s[start:]
+	if strings.Contains(body, "baselineResponse := a.scanActiveCurrentVPNQuality") {
+		t.Fatal("Best Server alternatives job must not spend discovery budget on implicit current VPN Speedtest")
 	}
 	for _, want := range []string{
 		"loadBestServerCurrentQuality(currentEndpoint, currentFilter)",
-		"bestServerMinimumDeepAttemptBudget",
-		"bestServerAttemptContext{Context: ctx}",
+		"scanBestServerCascade(ctx, candidates, poolSize",
+		"strict acceptance is deliberately",
 	} {
-		if !strings.Contains(s, want) {
-			t.Fatalf("Top-3 bounded completion contract missing %q", want)
+		if !strings.Contains(body, want) {
+			t.Fatalf("cascade contract missing %q", want)
 		}
-	}
-}
-
-func TestBestServerAttemptContextHidesDeadlineButKeepsCancellation(t *testing.T) {
-	parent, cancel := context.WithCancel(context.Background())
-	ctx := bestServerAttemptContext{Context: parent}
-	if _, ok := ctx.Deadline(); ok {
-		t.Fatal("deep-attempt wrapper must hide the absolute deadline from the generic full-window guard")
-	}
-	cancel()
-	select {
-	case <-ctx.Done():
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("deep-attempt wrapper must preserve parent cancellation")
 	}
 }
 
@@ -74,61 +63,51 @@ func TestBestServerBrowserTimeoutContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "Date.now()-started>210000") {
-		t.Fatal("browser Best Server timeout marker changed; update the server/browser budget contract together")
-	}
-}
-
-
-func TestBestServerPreflightUsesTwoBoundedRankingSamples(t *testing.T) {
-	if bestServerPreflightHTTPRuns != 2 {
-		t.Fatalf("preflight HTTP runs=%d want=2; ranking should resist a single transient sample", bestServerPreflightHTTPRuns)
-	}
-	const socksStartupBudget = 3 * time.Second
-	const perHTTPBudget = 2 * time.Second
-	minimumCandidateBudget := socksStartupBudget + time.Duration(bestServerPreflightHTTPRuns)*perHTTPBudget
-	if bestServerPreflightCandidateTimeout < minimumCandidateBudget {
-		t.Fatalf("preflight candidate timeout=%s below two-sample floor %s", bestServerPreflightCandidateTimeout, minimumCandidateBudget)
-	}
-	data, err := os.ReadFile("best_server_preflight.go")
-	if err != nil {
-		t.Fatal(err)
-	}
 	src := string(data)
-	if !strings.Contains(src, "ranking-only evidence") || !strings.Contains(src, "strict acceptance") {
-		t.Fatal("preflight must remain explicitly ranking-only; acceptance belongs to deep quality")
+	if !strings.Contains(src, "const maxWait = mode === 'best' ? 60000 : 90000") {
+		t.Fatal("browser Best Server timeout must remain 60 s while current-quality keeps a larger bounded window")
+	}
+	if strings.Contains(src, "Date.now()-started>210000") {
+		t.Fatal("legacy 210 s interactive Best Server timeout must stay removed")
 	}
 }
 
-
-func TestBestServerDeepProgressIsCumulativeAcrossBatches(t *testing.T) {
-	type progress struct {
-		stage     string
-		completed int
-		total     int
-	}
-	var got []progress
-	parent := context.WithValue(context.Background(), bestServerProgressKey{}, func(stage string, completed, total int) {
-		got = append(got, progress{stage: stage, completed: completed, total: total})
-	})
-	ctx := bestServerDeepProgressContext(parent, 2, 7)
-	reportBestServerProgress(ctx, "quality", 0, 1)
-	reportBestServerProgress(ctx, "quality", 1, 1)
-	if len(got) != 2 || got[0].completed != 2 || got[0].total != 7 || got[1].completed != 3 || got[1].total != 7 {
-		t.Fatalf("deep progress must map batch-local progress onto the global candidate sequence: %#v", got)
-	}
-}
-
-func TestBestServerBrowserShowsAdaptiveDeepProgress(t *testing.T) {
+func TestBestServerBrowserShowsCascadeProgressAndTruthfulTelemetry(t *testing.T) {
 	data, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(data)
-	if !strings.Contains(src, "Глубоко проверяем лучшие VPN · проверено ${job.completed} · цель до 3 подходящих") {
-		t.Fatal("Best Server UI must show cumulative adaptive deep-check progress")
+	for _, want := range []string{
+		"DIRECT express: проверено ${job.completed} из ${job.total}",
+		"VPN quick: проверено ${job.completed} из ${job.total}",
+		"Пул: ${pool} · DIRECT: ${express} · VPN quick: ${quick} · строгих: ${strict}",
+		"Проверить и использовать",
+		"Строгая проверка пройдена. Переключаем VPN",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("cascade browser marker missing %q", want)
+		}
 	}
-	if strings.Contains(src, "Глубоко проверяем лучшие VPN · завершено ${job.completed} из ${job.total}") {
-		t.Fatal("Best Server UI must not reset sequential deep checks to misleading 0 из 1 progress")
+	if strings.Contains(src, "Проверено профилей: ${data.profiles_scanned") {
+		t.Fatal("pool size must not be presented as fully checked profiles")
+	}
+}
+
+func TestBestServerExpressAndQuickAreRankingOnly(t *testing.T) {
+	data, err := os.ReadFile("best_server_cascade.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"DIRECT-only",
+		"Quick evidence is ranking-only. Never set Eligible here.",
+		"probeBestServerApplicationPreflight",
+		"strictBestServerFinalists",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("cascade safety marker missing %q", want)
+		}
 	}
 }
