@@ -278,6 +278,7 @@ func (a *app) handleBestServerCurrentRefresh(w http.ResponseWriter, r *http.Requ
 	op, leader, conflict := vpnOperations.begin("refresh", "current")
 	if !leader {
 		if conflict != nil {
+			v3AppendEvent("VPN", "busy", "Ручное обновление endpoint пропущено: другая VPN-операция уже выполняется.")
 			writeJSON(w, http.StatusConflict, operationConflictPayload("другая VPN-операция уже выполняется", *conflict))
 			return
 		}
@@ -304,6 +305,25 @@ func (a *app) handleBestServerCurrentRefresh(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), bestServerRefreshTimeout)
 	defer cancel()
 	status, result := a.executeBestServerCurrentRefresh(ctx)
+	journalResult := "failed"
+	journalMessage := "Ручное обновление endpoint текущего VPN не выполнено."
+	if result.Success {
+		switch result.Outcome {
+		case "applied":
+			journalResult = "success"
+		default:
+			journalResult = "same"
+		}
+		if strings.TrimSpace(result.Message) != "" {
+			journalMessage = result.Message
+		}
+	} else if safe := sanitizeAutomationReason(result.Error); safe != "" {
+		journalMessage += " " + safe
+	}
+	if rollback := sanitizeAutomationReason(result.RollbackState); rollback != "" && rollback != "NOT_NEEDED" && rollback != "NOT_APPLIED" {
+		journalMessage += " Rollback: " + rollback + "."
+	}
+	v3AppendEvent("VPN", journalResult, journalMessage)
 	vpnOperations.finish(op, status, result, result.Success, result.Message, result.Error)
 	writeJSON(w, status, result)
 }

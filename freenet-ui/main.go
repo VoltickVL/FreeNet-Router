@@ -433,9 +433,11 @@ func (a *app) handleSubscriptionPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := writeSubscriptionURL(a.cfg.SubPath, req.URL); err != nil {
+		v3AppendEvent("subscription", "failed", "Ключ подписки не сохранён: адрес не прошёл проверку.")
 		writeJSON(w, http.StatusBadRequest, subscriptionResponse{Success: false, Configured: subscriptionConfigured(a.cfg.SubPath), Error: "invalid subscription URL"})
 		return
 	}
+	v3AppendEvent("subscription", "success", "Ключ подписки сохранён или заменён локально; секрет в журнал не записан.")
 	writeJSON(w, http.StatusOK, subscriptionResponse{Success: true, Configured: true, Message: "Подписка сохранена локально. Секрет не отображается."})
 }
 
@@ -692,6 +694,7 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 	op, leader, conflict := vpnOperations.begin("quick", req.Action)
 	if !leader {
 		if conflict != nil {
+			v3AppendEvent("VPN", "busy", "Ручное действие VPN пропущено: другая VPN-операция уже выполняется.")
 			writeJSON(w, http.StatusConflict, operationConflictPayload("другая VPN-операция уже выполняется", *conflict))
 			return
 		}
@@ -713,6 +716,7 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 		defer func() { <-a.sem }()
 	default:
 		result := actionResult{Action: req.Action, OperationID: op.state.ID, Success: false, Error: "another FreeNet operation is already running"}
+		v3AppendEvent("VPN", "busy", "Ручное действие VPN пропущено: другая операция FreeNet уже выполняется.")
 		vpnOperations.finish(op, http.StatusConflict, result, false, "", result.Error)
 		writeJSON(w, http.StatusConflict, result)
 		return
@@ -724,6 +728,15 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 	if !result.Success {
 		code = http.StatusBadGateway
 	}
+	journalResult := "failed"
+	journalMessage := "Ручное действие VPN не выполнено."
+	if result.Success {
+		journalResult = "success"
+		journalMessage = result.Message
+	} else if safe := sanitizeAutomationReason(result.Error); safe != "" {
+		journalMessage += " " + safe
+	}
+	v3AppendEvent("VPN", journalResult, journalMessage)
 	a.mu.Lock()
 	a.last = result
 	a.mu.Unlock()

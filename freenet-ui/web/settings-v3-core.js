@@ -7,7 +7,8 @@
   const qa = (s, r = document) => Array.from(r.querySelectorAll(s));
   const state = {
     data: null, status: null, baseline: '', dirty: false, saving: false, checking: false, controlsBusy: false,
-    countries: [], countryCatalog: [], countryCatalogFresh: false, countryCatalogLoading: false, countryCatalogWarning: ''
+    countries: [], countryCatalog: [], countryCatalogFresh: false, countryCatalogLoading: false, countryCatalogWarning: '',
+    journalFilter: 'all'
   };
 
   const svg = (name) => {
@@ -51,7 +52,7 @@
       .fn3-journal-linkrow{display:flex;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid #244663}.fn3-link{border:0;background:transparent;color:#9dc7f2;font-size:12px;cursor:pointer}.fn3-link:hover{color:#c9e2ff;text-decoration:underline}.fn3-table{width:100%;border-collapse:collapse;font-size:12.5px;line-height:1.42}.fn3-table th{text-align:left;padding:9px 10px;background:#123655;color:#b9cce0;font-size:11.5px;font-weight:800}.fn3-table td{padding:9px 10px;border-top:1px solid #254765;color:#d8e4ef;vertical-align:top}.fn3-table td:first-child{white-space:nowrap;color:#a9bfd6}.fn3-table td:nth-child(2){font-weight:720;color:#c8d8e8}.fn3-kind{display:inline-flex;align-items:center;min-height:24px;padding:3px 8px;border:1px solid #355878;border-radius:999px;background:#0a2035;color:#bdd0e4;font-size:10.5px;font-weight:800;white-space:nowrap}.fn3-kind.auto{border-color:#2e679a;color:#a9cfff;background:#0b2947}.fn3-kind.system{border-color:#41627f;color:#c4d1df;background:#112339}.fn3-result{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:3px 8px;border:1px solid rgba(82,228,168,.26);border-radius:999px;background:rgba(35,124,90,.16);color:#52e4a8;font-weight:760;white-space:nowrap}.fn3-result.neutral{border-color:#3c5875;background:#102239;color:#c4d0dc}.fn3-result.bad{border-color:rgba(255,103,115,.4);background:rgba(102,34,45,.24);color:#ff9da7}.fn3-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
       .fn3-extra{grid-column:1/-1}.fn3-extra-title{margin-bottom:10px}.fn3-extra-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.fn3-extra-card{border:1px solid #2c5274;border-radius:11px;background:#081b2f;padding:11px;min-width:0}.fn3-extra-head{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:start}.fn3-extra-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#1555a5;color:#b4d4ff}.fn3-extra-icon svg{width:20px;height:20px}.fn3-extra-card h3{font-size:12px}.fn3-extra-card p{margin:3px 0 0;color:#8fa5bf;font-size:10px;line-height:1.4}.fn3-extra-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center;margin-top:10px}.fn3-extra-row label{color:#9eb2c9;font-size:10.5px}.fn3-extra-row select{height:31px;border:1px solid #315777;border-radius:7px;background:#091a2b;color:#e7eff9;padding:0 8px;font-size:11px}.fn3-extra-meta{display:grid;grid-template-columns:auto 1fr;gap:7px;margin-top:7px;font-size:10px}.fn3-extra-meta span{color:#879db7}.fn3-extra-meta b{color:#dce7f2}.fn3-extra-meta b.ok{color:#4de0a5}.fn3-extra-action{width:100%;margin-top:9px;min-height:34px!important;justify-content:center!important;font-size:11px!important}.fn3-extra-save-row{display:flex;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid #244663}.fn3-extra-save{min-width:170px;min-height:36px!important;gap:7px;justify-content:center!important;font-size:11px!important}.fn3-extra-save[disabled]{opacity:.52;filter:saturate(.7)}.fn3-backup-storage{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 8px;margin-top:9px;padding:9px 10px;border:1px solid #2b506f;border-radius:9px;background:#07192a;font-size:10px}.fn3-backup-storage span{color:#879db7}.fn3-backup-storage code{color:#d9e7f6;font:600 10px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;word-break:break-word}.fn3-backup-contents{margin-top:8px;color:#8fa7c1;font-size:10px;line-height:1.42}.fn3-backup-result{display:grid;gap:4px;margin-top:9px;padding:9px 10px;border:1px solid #16815e;border-radius:9px;background:#073c30;color:#cdeee0;font-size:10.5px;line-height:1.4}.fn3-backup-result[hidden]{display:none!important}.fn3-backup-result.bad{border-color:#9b3b51;background:#351725;color:#ffd4dc}.fn3-backup-result strong{font-size:11.5px;color:#5ee7af}.fn3-backup-result.bad strong{color:#ffb1bf}.fn3-backup-result code{font:600 10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;word-break:break-word;color:#eef7ff}.fn3-backup-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.fn3-backup-actions .btn{min-height:34px!important;justify-content:center!important;font-size:10.5px!important}.fn3-danger{border-color:#9b3b51!important;color:#ffc0cc!important;background:#351725!important}
       .fn3-country-pop{position:fixed;z-index:1900;width:min(520px,calc(100vw - 28px));max-height:min(620px,calc(100vh - 36px));overflow:auto;padding:14px;border:1px solid #35638e;border-radius:14px;background:#091c30;box-shadow:0 24px 74px #0009}.fn3-country-pop[hidden]{display:none!important}.fn3-country-list{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}.fn3-country-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border:1px solid #294f70;border-radius:8px;font-size:11.5px;min-height:42px}.fn3-country-item input{accent-color:#2fdfa1}.fn3-country-flag{width:24px!important;height:16px!important;flex:0 0 24px!important;border-radius:3px!important}.fn3-country-copy{display:flex;flex-direction:column;gap:2px;min-width:0}.fn3-country-copy small{font-size:9.5px;color:#8098b2}.fn3-country-item.unavailable{border-style:dashed;opacity:.78}.fn3-country-state{margin-top:10px;padding:10px 11px;border:1px solid #2a567d;border-radius:8px;background:#07192a;color:#9eb5cf;font-size:11px}.fn3-pop-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:11px}.fn3-compat{display:none!important}
-      .fn3-journal-page .fn3-card{margin-top:14px;padding:18px 16px}.fn3-journal-page h1{font-size:32px;margin:0}.fn3-journal-page p{color:#9bb0c9;margin:6px 0 0;font-size:14px;line-height:1.5}.fn3-journal-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:16px}.fn3-journal-stat{padding:11px 12px;border:1px solid #2b506f;border-radius:11px;background:#0a1d30}.fn3-journal-stat span{display:block;color:#8ea6c1;font-size:10.5px;font-weight:720}.fn3-journal-stat strong{display:block;margin-top:4px;color:#eef5ff;font-size:18px}.fn3-journal-stat.ok strong{color:#58e2aa}.fn3-journal-stat.bad strong{color:#ff9ba5}.fn3-journal-page .fn3-table,#fn3JournalTable{margin-top:0;font-size:14px!important;line-height:1.5}.fn3-journal-page .fn3-table th{padding:11px 12px;font-size:12px!important}.fn3-journal-page .fn3-table td{padding:11px 12px;font-size:13.5px!important}.fn3-journal-page .fn3-table td:nth-child(4){min-width:320px}.fn3-journal-page .fn3-kind,.fn3-journal-page .fn3-result{font-size:11.5px;min-height:27px;padding:4px 9px}
+      .fn3-journal-page .fn3-card{margin-top:14px;padding:18px 16px}.fn3-journal-page h1{font-size:32px;margin:0}.fn3-journal-page p{color:#9bb0c9;margin:6px 0 0;font-size:14px;line-height:1.5}.fn3-journal-filters{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.fn3-journal-filter{min-height:34px;padding:6px 12px;border:1px solid #315777;border-radius:999px;background:#091c30;color:#b9cce0;font:700 11px/1.2 inherit;cursor:pointer}.fn3-journal-filter.active{border-color:#2f8cf8;background:#0d345c;color:#e8f3ff;box-shadow:inset 0 0 0 1px #2f8cf8}.fn3-journal-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:16px}.fn3-journal-stat{padding:11px 12px;border:1px solid #2b506f;border-radius:11px;background:#0a1d30}.fn3-journal-stat span{display:block;color:#8ea6c1;font-size:10.5px;font-weight:720}.fn3-journal-stat strong{display:block;margin-top:4px;color:#eef5ff;font-size:18px}.fn3-journal-stat.ok strong{color:#58e2aa}.fn3-journal-stat.bad strong{color:#ff9ba5}.fn3-journal-page .fn3-table,#fn3JournalTable{margin-top:0;font-size:14px!important;line-height:1.5}.fn3-journal-page .fn3-table th{padding:11px 12px;font-size:12px!important}.fn3-journal-page .fn3-table td{padding:11px 12px;font-size:13.5px!important}.fn3-journal-page .fn3-table td:nth-child(4){min-width:320px}.fn3-journal-page .fn3-kind,.fn3-journal-page .fn3-result{font-size:11.5px;min-height:27px;padding:4px 9px}
       @media(max-width:1120px){.fn3-extra{grid-column:auto}.fn3-extra-grid{grid-template-columns:1fr 1fr}.fn3-journal-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:760px){.fn3-head{display:block}.fn3-save{width:100%;margin-top:10px}.fn3-extra-save-row{display:block}.fn3-extra-save{width:100%;min-width:0}.fn3-auto-actions,.fn3-profile-facts{grid-template-columns:1fr}.fn3-metrics{grid-template-columns:1fr 1fr}.fn3-extra-grid{grid-template-columns:1fr}.fn3-country-list{grid-template-columns:1fr}.fn3-table{font-size:11.5px}.fn3-table th,.fn3-table td{padding:8px 7px}.fn3-journal-page .fn3-card{overflow-x:auto}}
     `;
     document.head.appendChild(style);
@@ -339,16 +340,42 @@
     document.dispatchEvent(new CustomEvent('freenet:settings-v3-updated', {detail:data}));
   }
 
+  function journalCategory(event) {
+    const kind = String(event?.kind || '').trim().toLowerCase();
+    if (kind === 'vpn') return 'vpn';
+    if (kind === 'auto vpn' || kind === 'auto_vpn') return 'auto';
+    if (kind === 'subscription') return 'subscription';
+    return 'system';
+  }
+
+  function journalKind(event) {
+    const kind = String(event?.kind || '').trim();
+    const category = journalCategory(event);
+    if (category === 'vpn') return ['VPN', 'vpn'];
+    if (category === 'auto') return ['AUTO VPN', 'auto'];
+    if (category === 'subscription') return ['Подписка', 'system'];
+    if (kind === 'geodata') return ['GeoData / GeoIP', 'system'];
+    if (kind === 'freenet') return ['FreeNet', 'system'];
+    if (kind === 'backup') return ['Резервная копия', 'system'];
+    return [kind || 'Система', 'system'];
+  }
+
+  function filteredJournalEvents(events) {
+    const rows = Array.isArray(events) ? events : [];
+    if (state.journalFilter === 'all') return rows;
+    return rows.filter(event => journalCategory(event) === state.journalFilter);
+  }
+
   function renderJournal(events, target = '#fn3Journal') {
     const body = q(target); if (!body) return;
-    const filtered = (events || []).slice(0, target === '#fn3Journal' ? 4 : 30);
-    if (!filtered.length) { body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#8198b2;padding:16px">Событий пока нет.</td></tr>'; return; }
+    const source = target === '#fn3JournalFull' ? filteredJournalEvents(events) : (events || []);
+    const filtered = source.slice(0, target === '#fn3Journal' ? 4 : 50);
+    if (!filtered.length) { body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#8198b2;padding:16px">Событий по выбранному фильтру пока нет.</td></tr>'; return; }
     body.innerHTML = filtered.map(e => {
       const [result, msg, tone] = humanResult(e.result, e.message);
-      const autoKind = e.kind === 'auto_vpn' || e.kind === 'AUTO VPN';
-      const kind = autoKind ? 'Автопроверка' : e.kind === 'subscription' ? 'Подписка' : e.kind === 'geodata' ? 'GeoData / GeoIP' : e.kind === 'freenet' ? 'FreeNet' : e.kind === 'backup' ? 'Резервная копия' : 'AUTO VPN';
+      const [kind, kindClass] = journalKind(e);
       const toneClass = tone === 'ok' ? '' : tone === 'bad' ? 'bad' : 'neutral';
-      return `<tr><td>${formatDate(e.at)}</td><td><span class="fn3-kind ${autoKind?'auto':'system'}">${kind}</span></td><td><span class="fn3-result ${toneClass}"><i class="fn3-dot"></i>${result}</span></td><td>${escapeHTML(msg)}</td></tr>`;
+      return `<tr><td>${formatDate(e.at)}</td><td><span class="fn3-kind ${kindClass}">${escapeHTML(kind)}</span></td><td><span class="fn3-result ${toneClass}"><i class="fn3-dot"></i>${result}</span></td><td>${escapeHTML(msg)}</td></tr>`;
     }).join('');
   }
 
@@ -496,7 +523,7 @@
     qa('input[name="fn3Scope"]').forEach(i => i.onchange = () => { if (i.value === 'allowlist') openCountries(); markDirty(); });
     ['subscription','geodata','freenet','backup'].forEach(k => { q(`#fn3_${k}_enabled`).onchange = markDirty; q(`#fn3_${k}_interval`).onchange = markDirty; });
     qa('[data-v3-action]').forEach(b => b.onclick = () => action(b.dataset.v3Action));
-    q('#fn3AllEvents').onclick = () => { if (typeof window.setPage === 'function') window.setPage('journal'); mountJournalPage(); };
+    q('#fn3AllEvents').onclick = () => window.openFreeNetJournal('all');
     q('[data-scope-card="allowlist"]').ondblclick = openCountries;
   }
 
@@ -526,7 +553,7 @@
 
   function renderJournalSummary(events) {
     const host = q('#fn3JournalSummary'); if (!host) return;
-    const rows = (events || []).slice(0, 30);
+    const rows = filteredJournalEvents(events).slice(0, 50);
     let ok = 0, neutral = 0, bad = 0;
     rows.forEach(e => {
       const [, , tone] = humanResult(e.result, e.message);
@@ -543,11 +570,23 @@
 
   function mountJournalPage() {
     const page = q('[data-page-view="journal"]'); if (!page) return;
-    page.innerHTML = `<h1>Журнал</h1><p>История AUTO VPN, обновлений, GeoData и резервного копирования FreeNet. Здесь показаны последние 30 событий без секретов и credential-bearing данных.</p><div id="fn3JournalSummary" class="fn3-journal-summary"></div><section class="fn3-card"><table id="fn3JournalTable" class="fn3-table"><thead><tr><th>Время</th><th>Событие</th><th>Результат</th><th>Комментарий</th></tr></thead><tbody id="fn3JournalFull"></tbody></table></section>`;
+    const filters = [['all','Все'],['vpn','VPN'],['auto','AUTO VPN'],['subscription','Подписка'],['system','Система']];
+    page.innerHTML = `<h1>Журнал</h1><p>Единая серверная история ручных VPN-действий, AUTO VPN, подписки и системного обслуживания. До 50 последних событий; секреты и credential-bearing данные не записываются.</p><div class="fn3-journal-filters">${filters.map(([key,label]) => `<button class="fn3-journal-filter${state.journalFilter===key?' active':''}" type="button" data-journal-filter="${key}">${label}</button>`).join('')}</div><div id="fn3JournalSummary" class="fn3-journal-summary"></div><section class="fn3-card"><table id="fn3JournalTable" class="fn3-table"><thead><tr><th>Время</th><th>Событие</th><th>Результат</th><th>Комментарий</th></tr></thead><tbody id="fn3JournalFull"></tbody></table></section>`;
+    qa('[data-journal-filter]', page).forEach(button => button.onclick = () => {
+      state.journalFilter = button.dataset.journalFilter || 'all';
+      mountJournalPage();
+    });
     const events = state.data?.events || [];
     renderJournalSummary(events);
     renderJournal(events, '#fn3JournalFull');
   }
+
+  window.openFreeNetJournal = filter => {
+    const allowed = new Set(['all','vpn','auto','subscription','system']);
+    state.journalFilter = allowed.has(String(filter || '')) ? String(filter) : 'all';
+    if (typeof window.setPage === 'function') window.setPage('journal');
+    mountJournalPage();
+  };
 
   function boot() {
     hideProviderTopbar();

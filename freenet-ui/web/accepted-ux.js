@@ -5,9 +5,8 @@
   let updatePolling = false;
   let authFetchWrapped = false;
   let subscriptionMounted = false;
-  let subscriptionHistoryExpanded = false;
 
-  const visibilityRule = '#authSection[hidden],#controlCenter[hidden],#fnSubscriptionHistoryToggle[hidden]{display:none!important}';
+  const visibilityRule = '#authSection[hidden],#controlCenter[hidden]{display:none!important}';
   if (!qs('#freenetVisibilityGuard')) {
     const visibilityGuard = document.createElement('style');
     visibilityGuard.id = 'freenetVisibilityGuard';
@@ -239,67 +238,6 @@
     };
   }
 
-  const subscriptionHistoryKey = 'freenet-subscription-history-v2';
-
-  function subscriptionHistory() {
-    try {
-      const value = JSON.parse(localStorage.getItem(subscriptionHistoryKey) || '[]');
-      return Array.isArray(value) ? value.slice(0, 20) : [];
-    } catch (_) { return []; }
-  }
-
-  function formatSubscriptionTime(value) {
-    const date = value ? new Date(value) : new Date();
-    try { return new Intl.DateTimeFormat('ru-RU', {day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(date); }
-    catch (_) { return date.toLocaleString(); }
-  }
-
-  function renderSubscriptionHistory() {
-    const body = qs('#fnSubscriptionHistoryBody');
-    if (!body) return;
-    body.replaceChildren();
-    const items = subscriptionHistory();
-    const visible = subscriptionHistoryExpanded ? items : items.slice(0, 4);
-    if (!visible.length) {
-      const row = document.createElement('tr');
-      const cell = document.createElement('td');
-      cell.colSpan = 3;
-      cell.className = 'fn-sub-empty';
-      cell.textContent = 'Фактических действий с подпиской в этом браузере ещё нет.';
-      row.appendChild(cell);
-      body.appendChild(row);
-    } else {
-      visible.forEach(item => {
-        const row = document.createElement('tr');
-        [formatSubscriptionTime(item.ts), item.action, item.result].forEach(value => {
-          const cell = document.createElement('td');
-          cell.textContent = String(value || '');
-          row.appendChild(cell);
-        });
-        body.appendChild(row);
-      });
-    }
-    const toggle = qs('#fnSubscriptionHistoryToggle');
-    if (toggle) {
-      toggle.hidden = items.length <= 4;
-      toggle.textContent = subscriptionHistoryExpanded ? 'Свернуть историю' : 'Показать всю историю';
-    }
-  }
-
-  function addSubscriptionHistory(action, result, details = {}) {
-    const items = subscriptionHistory();
-    const item = {
-      ts: Date.now(),
-      action: String(action || ''),
-      result: String(result || ''),
-      kind: String(details.kind || ''),
-      ok: details.ok === true
-    };
-    items.unshift(item);
-    try { localStorage.setItem(subscriptionHistoryKey, JSON.stringify(items.slice(0, 20))); } catch (_) {}
-    renderSubscriptionHistory();
-  }
-
   function subscriptionConfigured() {
     return !!(lastStatus && lastStatus.subscription_configured === true);
   }
@@ -366,10 +304,8 @@
       if (!response.ok || actionData.success === false) throw new Error(actionData.error || 'subscription check failed');
       const shown = count > 0 ? String(count) : '—';
       setSubscriptionNotice(`Подписка доступна. Зарубежных Extra-профилей: ${shown}.`, 'ok');
-      addSubscriptionHistory(label, `Доступна (${shown})`, {kind: 'check', ok: true});
     } catch (_) {
       setSubscriptionNotice('Свежий список получить не удалось. Рабочее VPN-подключение не изменено; последний успешный список сохранён.', 'bad');
-      addSubscriptionHistory(label, 'Ошибка', {kind: 'check', ok: false});
     }
     await refreshSubscriptionScheduleState();
     syncSubscriptionPage();
@@ -383,14 +319,6 @@
       checkButton.dataset.freenetSubscriptionBound = '1';
       checkButton.addEventListener('click', () => checkSubscription());
     }
-    const historyToggle = qs('#fnSubscriptionHistoryToggle');
-    if (historyToggle && historyToggle.dataset.freenetSubscriptionBound !== '1') {
-      historyToggle.dataset.freenetSubscriptionBound = '1';
-      historyToggle.addEventListener('click', () => {
-        subscriptionHistoryExpanded = !subscriptionHistoryExpanded;
-        renderSubscriptionHistory();
-      });
-    }
     if (refreshButton && refreshButton.dataset.freenetSubscriptionBound !== '1') {
       refreshButton.dataset.freenetSubscriptionBound = '1';
       refreshButton.addEventListener('click', async event => {
@@ -400,6 +328,14 @@
         await checkSubscription('Обновление списка');
       }, true);
     }
+    const journalButton = qs('#fnSubscriptionJournalBtn');
+    if (journalButton && journalButton.dataset.freenetSubscriptionBound !== '1') {
+      journalButton.dataset.freenetSubscriptionBound = '1';
+      journalButton.addEventListener('click', () => {
+        if (typeof window.openFreeNetJournal === 'function') window.openFreeNetJournal('subscription');
+        else if (typeof window.setPage === 'function') window.setPage('journal');
+      });
+    }
     if (saveButton && saveButton.dataset.freenetSubscriptionBound !== '1') {
       saveButton.dataset.freenetSubscriptionBound = '1';
       saveButton.addEventListener('click', async event => {
@@ -407,8 +343,6 @@
         event.stopImmediatePropagation();
         if (saveButton.disabled || typeof window.saveSubscription !== 'function') return;
         await window.saveSubscription();
-        const failed = qs('#subscriptionNotice')?.classList.contains('bad');
-        addSubscriptionHistory('Сохранение ключа', failed ? 'Ошибка' : 'Сохранено', {kind: 'save', ok: !failed});
         syncSubscriptionPage();
       }, true);
     }
@@ -444,7 +378,7 @@
         <div id="fnSubscriptionNoticeMount" style="display:contents"></div>
       </section>
       <div class="fn-sub-lower">
-        <section class="fn-sub-history"><div class="fn-sub-heading"><span class="fn-sub-section-icon">${shellSVG('history')}</span><div><h2>Последние обновления</h2><div class="fn-sub-meta">Фактические действия этого браузера</div></div></div><table class="fn-sub-table"><thead><tr><th>Дата и время</th><th>Действие</th><th>Результат</th></tr></thead><tbody id="fnSubscriptionHistoryBody"></tbody></table><button id="fnSubscriptionHistoryToggle" class="btn secondary fn-sub-history-toggle" type="button" hidden>Показать всю историю</button></section>
+        <section class="fn-sub-history"><div class="fn-sub-heading"><span class="fn-sub-section-icon">${shellSVG('history')}</span><div><h2>Общий журнал</h2><div class="fn-sub-meta">Ручные и плановые проверки подписки вместе с остальными событиями FreeNet</div></div></div><p class="fn-sub-meta">История хранится на роутере и одинакова для всех браузеров.</p><button id="fnSubscriptionJournalBtn" class="btn secondary fn-sub-history-toggle" type="button">Открыть журнал подписки</button></section>
         <section class="fn-sub-info"><div class="fn-sub-heading"><span class="fn-sub-section-icon">${shellSVG('info')}</span><h2>Информация</h2></div><dl class="fn-sub-info-grid"><dt>VPN-провайдер</dt><dd>BlancVPN</dd><dt>Тип подписки</dt><dd>Extra-профили</dd><dt>Доступно профилей</dt><dd id="fnSubscriptionInfoCount">—</dd><dt>Статус</dt><dd id="fnSubscriptionInfoState">—</dd></dl></section>
       </div>`;
 
@@ -470,7 +404,6 @@
     qs('#fnSubscriptionNoticeMount', page).appendChild(notice);
 
     bindSubscriptionActions(save, refresh);
-    renderSubscriptionHistory();
     syncSubscriptionPage();
     document.addEventListener('freenet:controls-busy', syncSubscriptionPage);
   }
