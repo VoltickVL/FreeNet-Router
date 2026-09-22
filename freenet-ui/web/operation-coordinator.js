@@ -560,7 +560,7 @@
     const status = qs('#bestServerStatus');
     if (!status) return;
     const best = states.filter(state => state.kind === 'best').length;
-    const quick = states.filter(state => state.kind === 'quick').length;
+    const quickStates = states.filter(state => state.kind === 'quick').length;
     const comparisons = states.filter(state => state.kind === 'comparison').length;
     const warnings = states.filter(state => state.kind === 'warning').length;
     const rejected = states.filter(state => state.kind === 'rejected').length;
@@ -570,7 +570,7 @@
     const main = document.createElement('div'); main.className = 'summary-main';
     const pieces = [];
     if (best) pieces.push(`${best} подходит`);
-    if (quick) pieces.push(`${quick} быстрых кандидата`);
+    if (quickStates) pieces.push(`${quickStates} быстрых кандидата`);
     if (comparisons) pieces.push(`${comparisons} для сравнения`);
     if (warnings) pieces.push(`${warnings} выше целевого отклика`);
     if (rejected) pieces.push(`${rejected} не прошёл проверку`);
@@ -774,7 +774,7 @@
         setText(qs('#bestServerStatus'),`Подбор не завершён (HTTP ${response.status}). ${detail}`);return;
       }
       renderBestResult(body);if(body.partial)setText(qs('#bestServerStatus'),'Проверка завершена в пределах лимита времени. Показаны только измеренные варианты; часть кандидатов не проверена.');
-    } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено время ожидания ответа (210 с).':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
+    } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено время ожидания ответа (60 с).':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
   }
 
   async function waitForEndpoint(expected) {
