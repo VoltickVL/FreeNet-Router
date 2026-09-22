@@ -129,3 +129,12 @@ func vpnMutationLockMessage(err error) string {
 	}
 	return "shared VPN/Xray mutation lock is unavailable"
 }
+
+func (a *app) restoreSnapshotWithVPNMutationLock(s snapshot) error {
+	releaseMutation, err := acquireVPNMutationLock()
+	if err != nil {
+		return errors.New(vpnMutationLockMessage(err))
+	}
+	defer releaseMutation()
+	return a.restoreSnapshot(s)
+}
