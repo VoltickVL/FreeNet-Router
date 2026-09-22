@@ -2,8 +2,10 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSupportedActionIncludesRotate(t *testing.T) {
@@ -75,6 +77,37 @@ func TestRotateBaselineRequiresKnownProfileAndEndpoint(t *testing.T) {
 		if err := rotateBaselineValid(s); err == nil {
 			t.Fatalf("invalid rotate baseline accepted: %+v", s)
 		}
+	}
+}
+
+
+func TestQuickVPNBusyDoesNotRollbackConcurrentOwnerState(t *testing.T) {
+	dir := t.TempDir()
+	filter := filepath.Join(dir, "profile.regex")
+	out := filepath.Join(dir, "04_outbounds.json")
+	vpn := filepath.Join(dir, "vpn")
+	if err := os.WriteFile(filter, []byte("before-filter\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(out, []byte("{\"before\":true}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nprintf 'other-owner-filter\\n' > " + filter + "\nprintf '{\"other_owner\":true}\\n' > " + out + "\necho 'another updater instance is already running' >&2\nexit 1\n"
+	if err := os.WriteFile(vpn, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{
+		VPNPath: vpn, FilterPath: filter, OutPath: out,
+		LockPath: filepath.Join(dir, "no-preexisting-lock"), Timeout: 5 * time.Second,
+	}}
+	result := a.runAction("de")
+	if result.Success || !strings.Contains(result.Error, "another VPN/Xray mutation is already running") {
+		t.Fatalf("busy result=%+v", result)
+	}
+	gotFilter, _ := os.ReadFile(filter)
+	gotOut, _ := os.ReadFile(out)
+	if string(gotFilter) != "other-owner-filter\n" || !strings.Contains(string(gotOut), "other_owner") {
+		t.Fatalf("busy child state was overwritten by outer rollback: filter=%q out=%q", gotFilter, gotOut)
 	}
 }
 
