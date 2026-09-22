@@ -43,6 +43,8 @@ const (
 
 type bestServerQualityCandidate struct {
 	Tested        bool     `json:"tested"`
+	Validation    string   `json:"validation,omitempty"`
+	FreshEndpointRetry bool `json:"fresh_endpoint_retry,omitempty"`
 	Rejections    []string `json:"rejections,omitempty"`
 	DownloadIssue string   `json:"download_issue,omitempty"`
 	MediaIssue    string   `json:"media_issue,omitempty"`
@@ -81,6 +83,9 @@ type bestServerQualityResponse struct {
 	Candidates        []bestServerQualityCandidate `json:"candidates"`
 	ProfilesScanned   int                          `json:"profiles_scanned"`
 	ProfilesTotal     int                          `json:"profiles_total"`
+	ExpressMeasured  int                          `json:"express_measured,omitempty"`
+	QuickMeasured    int                          `json:"quick_measured,omitempty"`
+	StrictTested     int                          `json:"strict_tested,omitempty"`
 	ProfilesTruncated bool                         `json:"profiles_truncated,omitempty"`
 	Mutation          string                       `json:"mutation"`
 	Message           string                       `json:"message,omitempty"`
@@ -230,6 +235,7 @@ func rankBestServerQualityCandidates(
 	results := make([]bestServerQualityCandidate, len(internal))
 	for i, candidate := range internal {
 		results[i] = bestServerQualityCandidate{
+			Validation: "strict",
 			ID: candidate.Profile.ID, Name: candidate.Profile.Name, CountryCode: candidate.Profile.CountryCode,
 			Endpoint: profileEndpoint(candidate.Profile), Current: i == currentIndex,
 			Reason: "endpoint has not been verified",
