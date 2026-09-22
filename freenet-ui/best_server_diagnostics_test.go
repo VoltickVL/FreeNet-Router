@@ -39,6 +39,10 @@ func TestBestServerRejectionsDistinguishUnmeasuredAndSlow(t *testing.T) {
 	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Скорость Speedtest не измерена") || !strings.Contains(got, "0/4") {
 		t.Fatal(got)
 	}
+	c.ApplicationMS = bestServerQualityMaxApplicationMS + 13
+	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Отклик сайтов выше 180 мс") {
+		t.Fatal(got)
+	}
 	c.DownloadMbps = 4
 	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Speedtest ниже 20") || strings.Contains(got, "не измерена") {
 		t.Fatal(got)
