@@ -17,6 +17,7 @@ XRAY_ASSET_DIR="${FREENET_XRAY_ASSET_DIR:-$ROOT/etc/xray/dat}"
 BACKUP_ROOT="${FREENET_BACKUP_ROOT:-$ROOT/backups}"
 NATIVE_STATE_DIR="${FREENET_NATIVE_DNS_STATE_DIR:-$ROOT/etc/freenet/native-dns}"
 RUNTIME_TIMEOUT="${FREENET_XKEEN_RUNTIME_TIMEOUT:-75}"
+LOCK_DIR="${FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock}"
 MODE="${1:-plan}"
 TEST_MODE="${FREENET_NETWORK_TEST_MODE:-no}"
 TEST_STATE="${FREENET_NETWORK_TEST_STATE:-}"
@@ -30,6 +31,7 @@ NDM_PROTECTED_HASH_INITIAL=""
 NDM_ASSIGNMENTS_INITIAL=""
 XRAY_WAS_RUNNING="no"
 CONFIG_SNAPSHOT_KIND="none"
+LOCK_HELD=0
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Network] ERROR: %s\n' "$*" >&2; }
@@ -41,8 +43,45 @@ fail_not_applied() {
 
 cleanup() {
     [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR" 2>/dev/null || true
+    if [ "$LOCK_HELD" -eq 1 ]; then
+        OWNER="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+        if [ "$OWNER" = "$" ]; then
+            rm -rf "$LOCK_DIR" 2>/dev/null || true
+        fi
+        LOCK_HELD=0
+    fi
 }
 trap cleanup 0 1 2 15
+
+acquire_mutation_lock() {
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        LOCK_HELD=1
+        printf '%s\n' "$" > "$LOCK_DIR/pid" 2>/dev/null || {
+            rm -rf "$LOCK_DIR" 2>/dev/null || true
+            LOCK_HELD=0
+            return 1
+        }
+        return 0
+    fi
+
+    # Match updater/provider semantics: allow the owner a short window to
+    # publish its pid before considering an incomplete lock stale.
+    sleep 1
+    OLD_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        return 1
+    fi
+
+    rm -rf "$LOCK_DIR" 2>/dev/null || return 1
+    mkdir "$LOCK_DIR" 2>/dev/null || return 1
+    LOCK_HELD=1
+    printf '%s\n' "$" > "$LOCK_DIR/pid" 2>/dev/null || {
+        rm -rf "$LOCK_DIR" 2>/dev/null || true
+        LOCK_HELD=0
+        return 1
+    }
+    return 0
+}
 
 make_tmp() {
     [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] && return 0
@@ -1185,6 +1224,12 @@ build_native_candidate() {
 
 case "$MODE" in
     plan) plan ;;
-    apply) apply_profile ;;
+    apply)
+        acquire_mutation_lock || {
+            fail_not_applied 'another VPN/Xray mutation is already running'
+            exit 1
+        }
+        apply_profile
+        ;;
     *) err 'usage: apply_network_profile.sh [plan|apply]'; exit 2 ;;
 esac
