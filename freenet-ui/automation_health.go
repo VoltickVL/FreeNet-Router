@@ -112,6 +112,10 @@ func automationServicePathHealthy(ok, total int) bool {
 	return total >= 3 && ok == total
 }
 
+func automationApplicationLatencyHealthy(applicationMS int) bool {
+	return applicationMS > 0 && applicationMS <= bestServerQualityMaxApplicationMS
+}
+
 func probeAutomationWAN(ctx context.Context) bool {
 	targets := []string{"1.1.1.1:443", "77.88.8.8:53"}
 	dialer := &net.Dialer{Timeout: 2 * time.Second}
@@ -220,8 +224,12 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	if err != nil {
 		return automationHealthProbe{State: automationHealthFailed, Reason: "Текущий VPN не даёт доступ к интернету."}
 	}
-	if _, ok := parseBestServerHTTPResponseMS(string(output)); !ok {
+	applicationMS, ok := parseBestServerHTTPResponseMS(string(output))
+	if !ok {
 		return automationHealthProbe{State: automationHealthFailed, Reason: "Текущий VPN не подтвердил доступ к интернету."}
+	}
+	if !automationApplicationLatencyHealthy(applicationMS) {
+		return automationHealthProbe{State: automationHealthFailed, Reason: fmt.Sprintf("Текущий VPN доступен, но отклик сайтов выше %d мс.", bestServerQualityMaxApplicationMS)}
 	}
 	serviceOK, serviceTotal := probeBestServerServiceReachability(ctx, curlPath, socks)
 	if !automationServicePathHealthy(serviceOK, serviceTotal) {
