@@ -38,6 +38,7 @@ const (
 	bestServerQualityModerateSpeedPenalty = 500
 	bestServerQualityHighJitterMS         = 80
 	bestServerQualityHighTCPJitterMS      = 60
+	bestServerQualityMaxApplicationMS     = 180
 )
 
 type bestServerQualityCandidate struct {
@@ -145,7 +146,7 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServerQualityResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	cacheKey := "quality-v8|" + a.bestServerCacheKey(currentEndpoint)
+	cacheKey := "quality-v9|" + a.bestServerCacheKey(currentEndpoint)
 	if !force {
 		bestServerQualityCache.Lock()
 		entry := bestServerQualityCache.Entry
@@ -369,7 +370,7 @@ func rankBestServerQualityCandidates(
 			results[index].Score = 1
 		}
 		stableTransfer := probe.Media.OK && (probe.Media.Grade == "excellent" || probe.Media.Grade == "good")
-		if len(probe.HTTP.Samples) >= bestServerQualityHTTPRuns && probe.DownloadOK && stableTransfer && probe.HTTP.Jitter <= bestServerQualityHighJitterMS && results[index].TCPJitterMS <= bestServerQualityHighTCPJitterMS {
+		if len(probe.HTTP.Samples) >= bestServerQualityHTTPRuns && probe.DownloadOK && stableTransfer && probe.HTTP.Median <= bestServerQualityMaxApplicationMS && probe.HTTP.Jitter <= bestServerQualityHighJitterMS && results[index].TCPJitterMS <= bestServerQualityHighTCPJitterMS {
 			results[index].Confidence = "high"
 		} else {
 			results[index].Confidence = "medium"
@@ -622,8 +623,8 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 }
 
 func eligibleBestServerQuality(c bestServerQualityCandidate) bool {
-	return c.Available && c.DownloadMbps >= 20 && c.MediaSamples >= bestServerMediaRequiredRuns &&
-		c.MediaStalls == 0 && (c.MediaGrade == "good" || c.MediaGrade == "excellent") &&
+	return c.Available && c.ApplicationMS > 0 && c.ApplicationMS <= bestServerQualityMaxApplicationMS &&
+		c.DownloadMbps >= 20 && c.MediaSamples >= bestServerMediaRequiredRuns && c.MediaStalls == 0 && (c.MediaGrade == "good" || c.MediaGrade == "excellent") &&
 		c.ServiceTotal >= 3 && c.ServiceOK == c.ServiceTotal &&
 		c.JitterMS <= bestServerQualityHighJitterMS && c.TCPJitterMS <= bestServerQualityHighTCPJitterMS
 }

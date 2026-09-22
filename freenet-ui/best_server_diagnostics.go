@@ -39,6 +39,11 @@ func bestServerRejectionReasons(c bestServerQualityCandidate) []string {
 		return []string{"Не подтверждён HTTP-отклик через VPN"}
 	}
 	var reasons []string
+	if c.ApplicationMS <= 0 {
+		reasons = append(reasons, "Отклик сайтов не измерен")
+	} else if c.ApplicationMS > bestServerQualityMaxApplicationMS {
+		reasons = append(reasons, fmt.Sprintf("Отклик сайтов выше %d мс", bestServerQualityMaxApplicationMS))
+	}
 	if c.DownloadMbps <= 0 {
 		reasons = append(reasons, "Скорость Speedtest не измерена")
 	} else if c.DownloadMbps < 20 {

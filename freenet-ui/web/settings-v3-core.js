@@ -203,7 +203,7 @@
             <div class="fn3-section-label">Где искать замену VPN</div>
             <div class="fn3-scope-list">
               <label class="fn3-scope" data-scope-card="current"><input type="radio" name="fn3Scope" value="current"><span><strong>Текущая страна</strong><small>Замена только в той же стране — другой сервер или город.</small></span><span class="fn3-chevron">${svg('chevron')}</span></label>
-              <label class="fn3-scope" data-scope-card="region"><input type="radio" name="fn3Scope" value="region"><span><strong>Ближайшие страны <em class="fn3-recommended">Рекомендуется</em></strong><small>Страны текущего региона — наиболее стабильный вариант.</small></span><span class="fn3-chevron">${svg('chevron')}</span></label>
+              <label class="fn3-scope" data-scope-card="region"><input type="radio" name="fn3Scope" value="region"><span><strong>Ближайшие страны <em class="fn3-recommended">Рекомендуется</em></strong><small>Кандидаты текущего региона проходят строгий отбор по фактическому отклику; дальние по сети не применяются.</small></span><span class="fn3-chevron">${svg('chevron')}</span></label>
               <label class="fn3-scope" data-scope-card="allowlist"><input type="radio" name="fn3Scope" value="allowlist"><span><strong>Выбранные страны</strong><small>Вы сами выбираете список стран.</small></span><span class="fn3-chevron">${svg('chevron')}</span></label>
             </div>
             <div class="fn3-safety">${svg('shield')}<span>Рабочий VPN не меняется без причины. Все переключения выполняются только при подтверждённом сбое, с проверкой и автоматическим возвратом при необходимости.</span></div>

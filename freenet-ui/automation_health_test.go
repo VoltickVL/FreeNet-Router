@@ -9,6 +9,17 @@ import (
 	"testing"
 )
 
+func TestAutomationServicePathHealthRequiresAllBoundedTargets(t *testing.T) {
+	if !automationServicePathHealthy(4, 4) {
+		t.Fatal("4/4 service paths must be healthy")
+	}
+	for _, tc := range []struct{ ok, total int }{{3, 4}, {2, 4}, {1, 1}, {0, 4}} {
+		if automationServicePathHealthy(tc.ok, tc.total) {
+			t.Fatalf("partial service path %d/%d must not be healthy", tc.ok, tc.total)
+		}
+	}
+}
+
 func TestAutomationHealthRequiresConfirmedWANAndTwoVPNFailures(t *testing.T) {
 	failed := automationHealthProbe{State: automationHealthFailed, Reason: "failed"}
 	healthy := automationHealthProbe{State: automationHealthHealthy, Reason: "healthy"}
