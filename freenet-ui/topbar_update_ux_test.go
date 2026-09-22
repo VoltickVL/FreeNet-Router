@@ -79,6 +79,17 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 	if strings.Contains(s, "MutationObserver") {
 		t.Fatal("topbar/sidebar implementation must not introduce MutationObserver")
 	}
+	for _, want := range []string{
+		"targetVersionIsLive",
+		"reloadIfTargetVersionIsLive",
+		"Date.now() - updateProgressStarted > 300000",
+		"Date.now() - updateProgressStarted > 600000",
+		"Сервер уже работает на целевой версии",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("self-update stale-UI recovery marker missing %q", want)
+		}
+	}
 
 	accepted, err := os.ReadFile("web/accepted-ux.js")
 	if err != nil {
@@ -94,6 +105,16 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 	} {
 		if !strings.Contains(ux, want) {
 			t.Fatalf("missing updater release-notes UX marker %q", want)
+		}
+	}
+	for _, want := range []string{
+		"targetVersionIsLive",
+		"const reconcileAfter = started + 5 * 60 * 1000",
+		"const hardDeadline = started + 10 * 60 * 1000",
+		"Целевая версия уже запущена. Перезагружаем интерфейс",
+	} {
+		if !strings.Contains(ux, want) {
+			t.Fatalf("accepted updater stale-UI recovery marker missing %q", want)
 		}
 	}
 	for _, unwanted := range []string{"Обновление безопасно", "Backup, SHA-256, staging и post-check выполняются автоматически", "fn-update-safety"} {
