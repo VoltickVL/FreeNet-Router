@@ -600,7 +600,6 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 	if lockErr != nil {
 		message := "Свежий endpoint найден после обновления подписки, но AUTO VPN уже выполняет другую проверку. Текущий VPN не изменён."
 		appendAutomationHistoryV2("busy", message)
-		v3AppendEvent("auto_vpn", "busy", message)
 		return nil
 	}
 	defer release()
@@ -616,7 +615,6 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 		}
 		writeAutomationStateV2("updated", message, refresh.RollbackState, false)
 		appendAutomationHistoryV2("updated", message)
-		v3AppendEvent("auto_vpn", "updated", message)
 		return nil
 	}
 	if status >= 200 && status < 300 && refresh.Success {
@@ -627,7 +625,6 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 			message = "Свежий endpoint текущего профиля не применён; рабочий VPN сохранён."
 		}
 		appendAutomationHistoryV2("same", message)
-		v3AppendEvent("auto_vpn", "same", message)
 		return nil
 	}
 
@@ -644,7 +641,6 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 	}
 	writeAutomationStateV2(result, message, rollback, false)
 	appendAutomationHistoryV2(result, message+"; rollback="+rollback)
-	v3AppendEvent("auto_vpn", result, message)
 	if rollback == "FAILED/UNKNOWN" {
 		return errors.New("scheduled current endpoint reconcile rollback failed or is unknown")
 	}
