@@ -452,6 +452,17 @@ func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	releaseMutation, lockErr := acquireVPNMutationLock()
+	if lockErr != nil {
+		status := http.StatusServiceUnavailable
+		if errors.Is(lockErr, errVPNMutationBusy) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, routingApplyResponse{Success: false, Mutation: "NONE", XrayValid: true, Rollback: "NOT_APPLIED", Error: vpnMutationLockMessage(lockErr)})
+		return
+	}
+	defer releaseMutation()
+
 	dir := a.routingConfigDir()
 	backup, err := readRoutingManagedBackup(dir)
 	if err != nil {
