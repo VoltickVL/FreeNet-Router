@@ -19,17 +19,16 @@ func TestSubscriptionApprovedRenderParityContracts(t *testing.T) {
 	for _, want := range []string{
 		"Активна",
 		"Последнее обновление",
-		"Показать всю историю",
-		"Свернуть историю",
-		"localStorage.getItem(subscriptionHistoryKey)",
+		"Общий журнал",
+		"Открыть журнал подписки",
+		"openFreeNetJournal",
 		`body:has([data-page-view="subscription"].active) #pageTitle`,
 		`body:has([data-page-view="subscription"].active) .footer`,
-		"#fnSubscriptionHistoryToggle[hidden]{display:none!important}",
 		"https://••••••••••••••••••••",
 		"Вручную",
 		"shellSVG('save')",
 		"shellSVG('refresh')",
-		"Фактические действия этого браузера",
+		"История хранится на роутере и одинакова для всех браузеров.",
 		"input.type = 'password'",
 		"input.autocomplete = 'new-password'",
 	} {
@@ -40,6 +39,9 @@ func TestSubscriptionApprovedRenderParityContracts(t *testing.T) {
 
 	for _, forbidden := range []string{
 		"sessionStorage.getItem(subscriptionHistoryKey)",
+		"localStorage",
+		"subscriptionHistoryKey",
+		"fnSubscriptionHistoryToggle",
 		"fnSubscriptionInfoUpdate",
 		"MutationObserver",
 	} {
