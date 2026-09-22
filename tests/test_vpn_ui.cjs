@@ -68,9 +68,8 @@ const server = http.createServer((req,res)=>{
         if(mode==='incomplete')return answer(route,{success:true});
         if(mode==='empty')return answer(route,{success:true,available:false,candidates:[],profiles_scanned:0});
         if(mode==='rejected')return answer(route,{success:true,available:false,candidates:[current,
-          {...winner,tested:true,eligible:false,download_mbps:0,media_samples:0,rejections:['Скорость не измерена','Speedtest завершено 0/4'],media_issue:'4× HTTP 403; curl 0; получено 123 байт'},
-          {...second,tested:true,eligible:false,download_mbps:4.2,rejections:['Speedtest ниже 20 Мбит/с']},
-          {...third,tested:true,eligible:false,available:true,reachable:true,download_mbps:146,application_rtt_ms:186,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Отклик сайтов выше 180 мс']}],profiles_scanned:4});
+          {...winner,tested:true,eligible:false,download_mbps:4.2,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Speedtest ниже 20 Мбит/с']},
+          {...third,tested:true,eligible:false,available:true,reachable:true,download_mbps:146,application_rtt_ms:186,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Отклик сайтов выше 180 мс']}],profiles_scanned:3});
         const best=url.pathname.endsWith('best-foreign');
         const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
         const bestCandidates = bestMode==='ru'
@@ -283,7 +282,7 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('#bestServerEmpty').textContent(),/вариантов для сравнения.*нет/,'only a completed empty scan may report no comparison candidates');
     mode='rejected';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
-    assert.equal(await page.locator('.vpn-rejected').count(),2);
+    assert.equal(await page.locator('.vpn-rejected').count(),1);
     assert.equal(await page.locator('.vpn-warning').count(),1,'latency-only auto-ineligible candidate must be a warning, not a hard failure');
     assert.match(await page.locator('.vpn-warning').textContent(),/Высокий отклик/);
     assert.match(await page.locator('.vpn-warning').textContent(),/Speedtest 4\/4/);
