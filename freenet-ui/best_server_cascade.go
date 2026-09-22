@@ -30,6 +30,12 @@ type bestServerCascadeOutcome struct {
 }
 
 var bestServerExpressProbe = defaultBestServerExpressProbe
+var bestServerQuickProbe = func(a *app, ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+	return a.probeBestServerApplicationPreflight(ctx, candidate)
+}
+var bestServerFreshCatalog = func(a *app, ctx context.Context) ([]bestServerInternalCandidate, int, bool, error) {
+	return a.discoverBestServerCandidates(ctx)
+}
 
 // defaultBestServerExpressProbe is intentionally DIRECT-only. It never starts
 // Xray and never downloads Speedtest/media payloads. Two bounded TCP connects
@@ -249,7 +255,7 @@ func (a *app) quickBestServerProbe(ctx context.Context, candidates []bestServerI
 					Reason: "DIRECT express completed; isolated VPN quick probe pending",
 				}
 				probeCtx, cancel := context.WithTimeout(ctx, bestServerQuickCandidateTimeout)
-				probe := a.probeBestServerApplicationPreflight(probeCtx, candidate)
+				probe := bestServerQuickProbe(a, probeCtx, candidate)
 				cancel()
 				if probe.OK {
 					value.Available = true
@@ -338,7 +344,7 @@ func (a *app) retryBestServerFreshEndpoints(ctx context.Context, initial []bestS
 	}
 
 	fetchCtx, cancel := context.WithTimeout(ctx, bestServerFreshCatalogTimeout)
-	fresh, _, _, err := a.discoverBestServerCandidates(fetchCtx)
+	fresh, _, _, err := bestServerFreshCatalog(a, fetchCtx)
 	cancel()
 	if err != nil || len(fresh) == 0 {
 		return nil, quick
