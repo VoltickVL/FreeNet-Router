@@ -442,7 +442,7 @@ func (a *app) scanBestServerCascade(ctx context.Context, candidates []bestServer
 		outcome.InternalByID[candidate.Profile.ID] = candidate
 	}
 
-	quickMeasured := len(quick)
+	quickMeasured := len(quick) + len(retryInternal)
 	visible := quick
 	if len(visible) > bestServerCascadeVisible {
 		visible = visible[:bestServerCascadeVisible]
