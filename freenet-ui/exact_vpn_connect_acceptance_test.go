@@ -25,6 +25,8 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 		"waitExactState",
 		"showExactMode(true)",
 		"controls.routine.hidden = enabled",
+		"/api/provider-profile/plan?profile_id=",
+		"encodeURIComponent(selectedProviderID)",
 	} {
 		if !strings.Contains(ux, required) {
 			t.Fatalf("exact VPN UX contract missing %q", required)
@@ -47,6 +49,9 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 	exactConnect := ux[start:end]
 	if strings.Contains(exactConnect, "confirm(") || strings.Contains(exactConnect, "openModal(") {
 		t.Fatal("routine exact VPN connect must not require an extra confirmation dialog")
+	}
+	if strings.Contains(exactConnect, "loadNetworkPlan(selectedProviderID)") || strings.Contains(exactConnect, "provider_profile_id=") {
+		t.Fatal("exact VPN pre-connect must not depend on ISP/DNS network-plan flow")
 	}
 }
 
