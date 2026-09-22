@@ -393,9 +393,10 @@ const server = http.createServer((req,res)=>{
 
     bestMode='winner';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    const winnerPostBefore=calls.filter(c=>c.method==='POST').length;
     await page.locator('#bestServerApply').click();
     await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent==='VPN переключён. Соединение проверено.');
-    assert.equal(calls.filter(c=>c.method==='POST').length,1,'apply issues one transactional request');
+    assert.equal(calls.filter(c=>c.method==='POST').length,winnerPostBefore+1,'apply issues exactly one transactional request');
     assert.match(await page.locator('#bestCurrentName').textContent(),/Германия/);
     expectedApply=second;
     status={...status,endpoint:current.endpoint,country:'Польша',city:'Варшава',country_code:'pl'};
