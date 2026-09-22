@@ -47,7 +47,7 @@ func TestOverviewCurrentQualityMemoryDoesNotHideMutation(t *testing.T) {
 			t.Fatalf("overview first-paint memory must not contain mutation/broad-scan endpoint %q", forbidden)
 		}
 	}
-	if !strings.Contains(overviewCurrentQualityMemoryScript, `if (!renderQuality(data)) void seedMissingMeasurement();`) {
+	if !strings.Contains(overviewCurrentQualityMemoryScript, `if (!renderQuality(data, status)) void seedMissingMeasurement();`) {
 		t.Fatal("silent current-VPN seed must run only when exact cached display data is missing")
 	}
 }
