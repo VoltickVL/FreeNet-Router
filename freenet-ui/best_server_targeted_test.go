@@ -86,6 +86,37 @@ func TestFreshEndpointReadinessUsesLightOffPathProbes(t *testing.T) {
 	}
 }
 
+func TestFreshEndpointReadinessRejectsHighApplicationLatency(t *testing.T) {
+	oldTCP := bestServerEndpointTCPProbe
+	oldApp := bestServerEndpointApplicationProbe
+	t.Cleanup(func() {
+		bestServerEndpointTCPProbe = oldTCP
+		bestServerEndpointApplicationProbe = oldApp
+	})
+
+	bestServerEndpointTCPProbe = func(_ context.Context, _ subscriptionProfile) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{10}, Median: 10}
+	}
+	bestServerEndpointApplicationProbe = func(_ *app, _ context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
+		return bestServerProbeResult{
+			OK: true,
+			Samples: []int{bestServerQualityMaxApplicationMS + 10, bestServerQualityMaxApplicationMS + 16},
+			Median: bestServerQualityMaxApplicationMS + 13,
+			Jitter: 6,
+		}
+	}
+
+	got := (&app{}).probeBestServerFreshEndpointReadiness(context.Background(), bestServerInternalCandidate{Profile: subscriptionProfile{
+		ID: "0123456789abcdef", Name: "DE Frankfurt Extra", CountryCode: "de", Address: "203.0.113.22", Port: 443,
+	}})
+	if got == nil || !got.Tested || !got.Available || got.Eligible {
+		t.Fatalf("high-latency fresh endpoint must stay available but fail automatic eligibility: %#v", got)
+	}
+	if got.ApplicationMS != bestServerQualityMaxApplicationMS+13 {
+		t.Fatalf("application RTT=%d want %d", got.ApplicationMS, bestServerQualityMaxApplicationMS+13)
+	}
+}
+
 func TestFreshEndpointReadinessFailsClosedOnApplicationProbe(t *testing.T) {
 	oldTCP := bestServerEndpointTCPProbe
 	oldApp := bestServerEndpointApplicationProbe
