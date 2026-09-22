@@ -85,6 +85,7 @@ run_helper() {
     FREENET_XRAY_BIN="$TMP/bin/xray" \
     FREENET_XKEEN_BIN="$TMP/bin/xkeen" \
     FREENET_XRAY_CORE_RESTART_HELPER="${CORE_HELPER:-}" \
+    FREENET_LOCK_DIR="$TMP/vpn-mutation.lock" \
     FREENET_CURL_BIN="$TMP/bin/curl" \
     sh "$SCRIPT" "$@"
 }
@@ -148,6 +149,20 @@ cat > "$TMP/bin/curl" <<EOF
 cat "$TMP/sub.fixture"
 EOF
 chmod 755 "$TMP/bin/curl"
+
+# Provider mutation must share the updater lock and fail closed before touching live state.
+mkdir -p "$TMP/vpn-mutation.lock"
+printf '%s\n' "$" > "$TMP/vpn-mutation.lock/pid"
+LOCK_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+LOCK_FILTER="$(cat "$TMP/profile.filter")"
+if run_helper apply "$PROFILE_ID" > "$TMP/locked.out" 2> "$TMP/locked.err"; then
+    fail 'provider apply unexpectedly ran while shared VPN mutation lock was held'
+fi
+[ "$LOCK_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'busy provider apply changed live outbound'
+[ "$LOCK_FILTER" = "$(cat "$TMP/profile.filter")" ] || fail 'busy provider apply changed active filter'
+grep -Fq 'PRIMARY ERROR: another VPN mutation is already running' "$TMP/locked.err" || fail 'busy provider apply primary error missing'
+grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/locked.err" || fail 'busy provider apply must be NOT_APPLIED'
+rm -rf "$TMP/vpn-mutation.lock"
 
 # apply installs exactly one vless-reality, preserves unrelated outbounds and
 # commits the exact profile selector used by status/Refresh/Rotate.
@@ -337,5 +352,7 @@ if sed -n '/restart_xray_core() {/,/^}/p' "$SCRIPT" | grep -Fq 'nohup "$XRAY_BIN
     fail 'core-only restart bypasses canonical XKeen start with direct Xray launch'
 fi
 grep -Fq '"$XKEEN_BIN" -restart' "$SCRIPT" || fail 'normal provider apply restart semantics were unexpectedly removed'
+grep -Fq 'FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock' "$SCRIPT" || fail 'provider helper does not share canonical updater lock'
+grep -Fq 'FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock' "$ROOT_DIR/scripts/blanc_xkeen_update_outbounds.sh" || fail 'updater helper canonical lock contract changed'
 
 echo 'provider profile apply test PASS'
