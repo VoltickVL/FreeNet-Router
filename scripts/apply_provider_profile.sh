@@ -15,6 +15,7 @@ PROVIDER_CACHE_SOURCE="${FREENET_PROVIDER_SUBSCRIPTION_SOURCE:-${PROVIDER_CACHE}
 XRAY_BIN="${FREENET_XRAY_BIN:-/opt/sbin/xray}"
 XKEEN_BIN="${FREENET_XKEEN_BIN:-/opt/sbin/xkeen}"
 CORE_RESTART_HELPER="${FREENET_XRAY_CORE_RESTART_HELPER:-}"
+LOCK_DIR="${FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
 BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
 BOOTSTRAP_DNS_SECONDARY="8.8.8.8"
@@ -25,12 +26,45 @@ PROFILE_BEFORE_EXISTS=no
 FILTER_BEFORE_EXISTS=no
 APPLIED=0
 ROLLBACK_ACTIVE=0
+LOCK_HELD=0
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Provider] ERROR: %s\n' "$*" >&2; }
 
 cleanup() {
     [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR" 2>/dev/null || true
+    if [ "$LOCK_HELD" -eq 1 ]; then
+        rm -rf "$LOCK_DIR" 2>/dev/null || true
+        LOCK_HELD=0
+    fi
+}
+
+acquire_mutation_lock() {
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+        LOCK_HELD=1
+        printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null || {
+            rm -rf "$LOCK_DIR" 2>/dev/null || true
+            LOCK_HELD=0
+            return 1
+        }
+        return 0
+    fi
+
+    sleep 1
+    OLD_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+        return 1
+    fi
+
+    rm -rf "$LOCK_DIR" 2>/dev/null || return 1
+    mkdir "$LOCK_DIR" 2>/dev/null || return 1
+    LOCK_HELD=1
+    printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null || {
+        rm -rf "$LOCK_DIR" 2>/dev/null || true
+        LOCK_HELD=0
+        return 1
+    }
+    return 0
 }
 trap cleanup 0 1 2 15
 
@@ -129,8 +163,8 @@ save_provider_cache() {
     CACHE_DIR="$(dirname "$PROVIDER_CACHE")"
     SOURCE_DIR="$(dirname "$PROVIDER_CACHE_SOURCE")"
     mkdir -p "$CACHE_DIR" "$SOURCE_DIR" 2>/dev/null || return 1
-    CACHE_STAGE="$PROVIDER_CACHE.new.$"
-    SOURCE_STAGE="$PROVIDER_CACHE_SOURCE.new.$"
+    CACHE_STAGE="$PROVIDER_CACHE.new.$$"
+    SOURCE_STAGE="$PROVIDER_CACHE_SOURCE.new.$$"
     cp "$DECODED_FILE" "$CACHE_STAGE" || return 1
     chmod 600 "$CACHE_STAGE" 2>/dev/null || true
     printf '%s\n' "$(subscription_source_fingerprint)" > "$SOURCE_STAGE" || { rm -f "$CACHE_STAGE"; return 1; }
@@ -530,6 +564,11 @@ MODE="${1:-plan}"
 REQUESTED_ID="${2:-}"
 
 if [ "$MODE" = core-restart ]; then
+    acquire_mutation_lock || {
+        err 'PRIMARY ERROR: another VPN mutation is already running'
+        err 'ROLLBACK ERROR/STATE: no live apply'
+        exit 1
+    }
     TMP_DIR="$(mktemp -d /tmp/freenet-core-restart.XXXXXX 2>/dev/null)"
     [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] || { err 'cannot create core restart temporary directory'; exit 1; }
     restart_xray_core yes || { err 'core-only Xray restart failed'; exit 1; }
@@ -550,6 +589,10 @@ done
 [ -d "$CONFIG_DIR" ] || { err 'Xray config directory is missing'; exit 1; }
 [ -d "$ASSET_DIR" ] || { err 'Xray asset directory is missing'; exit 1; }
 [ -s "$SUB_FILE" ] || { err 'subscription is not configured'; exit 1; }
+
+if [ "$MODE" != plan ]; then
+    acquire_mutation_lock || fail_apply 'another VPN mutation is already running'
+fi
 
 SUB_URL="$(tr -d '\r\n' < "$SUB_FILE")"
 case "$SUB_URL" in https://*) SUB_PORT=443 ;; *) err 'subscription URL must use HTTPS'; exit 1 ;; esac
