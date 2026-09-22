@@ -1186,7 +1186,7 @@
       const note = row.querySelector('.vpn-rejected-note');
       if (incomplete && note) note.textContent = 'Проверка не завершена. Текущий VPN не изменён; при необходимости можно проверить этот вариант снова.';
       const apply = row.querySelector('.vpn-option-apply');
-      if (apply && !apply.disabled && apply.textContent.trim() !== 'Использовать') {
+      if (apply && !apply.disabled && !row.classList.contains('vpn-quick') && apply.textContent.trim() !== 'Использовать') {
         apply.textContent = 'Использовать';
         const name = row.querySelector('.vpn-option-title h4')?.textContent?.trim() || 'VPN';
         apply.setAttribute('aria-label', `Использовать: ${name}`);
