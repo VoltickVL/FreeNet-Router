@@ -541,11 +541,11 @@ func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings a
 			filtered = append(filtered, candidate)
 		}
 	}
-	poolSize := len(filtered)
 	currentBaseline, currentBaselineOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
 	if currentIndex := bestServerCurrentCandidateIndex(filtered, currentEndpoint, currentFilter); currentIndex >= 0 {
 		filtered = withoutBestServerCandidate(filtered, currentIndex)
 	}
+	poolSize := len(filtered)
 	if len(filtered) == 0 {
 		return bestServerQualityResponse{
 			Success: true, Available: false, Candidates: []bestServerQualityCandidate{},
