@@ -20,6 +20,18 @@ func TestAutomationServicePathHealthRequiresAllBoundedTargets(t *testing.T) {
 	}
 }
 
+func TestAutomationApplicationLatencyHealthUsesQualityCeiling(t *testing.T) {
+	if !automationApplicationLatencyHealthy(bestServerQualityMaxApplicationMS) {
+		t.Fatalf("application RTT at %d ms ceiling must remain healthy", bestServerQualityMaxApplicationMS)
+	}
+	if automationApplicationLatencyHealthy(bestServerQualityMaxApplicationMS + 1) {
+		t.Fatalf("application RTT above %d ms must be unhealthy", bestServerQualityMaxApplicationMS)
+	}
+	if automationApplicationLatencyHealthy(0) {
+		t.Fatal("unmeasured application RTT must not be healthy")
+	}
+}
+
 func TestAutomationHealthRequiresConfirmedWANAndTwoVPNFailures(t *testing.T) {
 	failed := automationHealthProbe{State: automationHealthFailed, Reason: "failed"}
 	healthy := automationHealthProbe{State: automationHealthHealthy, Reason: "healthy"}
