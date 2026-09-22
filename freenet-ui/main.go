@@ -694,6 +694,7 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 	op, leader, conflict := vpnOperations.begin("quick", req.Action)
 	if !leader {
 		if conflict != nil {
+			v3AppendEvent("VPN", "busy", "Ручное действие VPN пропущено: другая VPN-операция уже выполняется.")
 			writeJSON(w, http.StatusConflict, operationConflictPayload("другая VPN-операция уже выполняется", *conflict))
 			return
 		}
@@ -715,6 +716,7 @@ func (a *app) handleAction(w http.ResponseWriter, r *http.Request) {
 		defer func() { <-a.sem }()
 	default:
 		result := actionResult{Action: req.Action, OperationID: op.state.ID, Success: false, Error: "another FreeNet operation is already running"}
+		v3AppendEvent("VPN", "busy", "Ручное действие VPN пропущено: другая операция FreeNet уже выполняется.")
 		vpnOperations.finish(op, http.StatusConflict, result, false, "", result.Error)
 		writeJSON(w, http.StatusConflict, result)
 		return
