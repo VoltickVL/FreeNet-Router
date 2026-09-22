@@ -63,6 +63,7 @@ type xrayCoreApplyRequest struct {
 
 type xrayCoreApplyResponse struct {
 	Success        bool              `json:"success"`
+	Busy           bool              `json:"-"`
 	Action         string            `json:"action,omitempty"`
 	Previous       string            `json:"previous_version,omitempty"`
 	CurrentVersion string            `json:"current_version,omitempty"`
@@ -599,7 +600,6 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "current Xray configuration is invalid; version change cancelled"
 		return result
 	}
-	before := a.status()
 	catalog, err := a.fetchXrayCoreCatalog(ctx)
 	if err != nil {
 		result.Error = err.Error()
@@ -631,6 +631,32 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = err.Error()
 		return result
 	}
+
+	releaseMutation, lockErr := acquireVPNMutationLock()
+	if lockErr != nil {
+		result.Busy = errors.Is(lockErr, errVPNMutationBusy)
+		result.Rollback = "NOT_APPLIED"
+		result.Error = vpnMutationLockMessage(lockErr)
+		return result
+	}
+	defer releaseMutation()
+
+	// Preparation may take tens of seconds. Re-check the live baseline only
+	// after owning the canonical mutation lock so another process cannot make
+	// the downloaded candidate stale underneath the apply.
+	currentVersion, err := xrayCoreVersionAt(ctx, binary)
+	if err != nil || currentVersion != previous {
+		result.Rollback = "NOT_APPLIED"
+		result.Error = "Xray version changed during preparation; retry the operation"
+		return result
+	}
+	if err := a.validateConfigStudioLive(ctx); err != nil {
+		result.Rollback = "NOT_APPLIED"
+		result.Error = "current Xray configuration changed or is invalid; version change cancelled"
+		return result
+	}
+	before := a.status()
+
 	backupFile, err := os.CreateTemp(filepath.Dir(binary), ".freenet-xray-backup-*")
 	if err != nil {
 		result.Error = "cannot create Xray rollback snapshot"
@@ -722,6 +748,10 @@ func (a *app) handleXrayCoreApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := a.applyXrayCore(r.Context(), target)
+	if result.Busy {
+		writeJSON(w, http.StatusConflict, result)
+		return
+	}
 	if result.Success {
 		writeJSON(w, http.StatusOK, result)
 		return
