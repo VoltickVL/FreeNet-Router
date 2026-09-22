@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -101,6 +103,35 @@ func TestStartXrayControlledStopsBeforeStartOnInvalidConfig(t *testing.T) {
 	}
 	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
 		t.Fatalf("xkeen start must not run after validation failure")
+	}
+}
+
+func TestDecodeXrayServiceActionAllowsStartAndRestartOnly(t *testing.T) {
+	for _, tc := range []struct {
+		action string
+		ok     bool
+	}{
+		{action: "start", ok: true},
+		{action: "restart", ok: true},
+		{action: "stop", ok: false},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "http://router/api/xray/service", strings.NewReader(`{"action":"`+tc.action+`"}`))
+			req.Host = "router"
+			req.Header.Set("Origin", "http://router")
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			action, ok := decodeXrayServiceAction(rec, req)
+			if ok != tc.ok {
+				t.Fatalf("ok=%v want=%v status=%d body=%s", ok, tc.ok, rec.Code, rec.Body.String())
+			}
+			if tc.ok && action != tc.action {
+				t.Fatalf("action=%q want=%q", action, tc.action)
+			}
+			if !tc.ok && rec.Code != http.StatusBadRequest {
+				t.Fatalf("unsupported action status=%d want=%d", rec.Code, http.StatusBadRequest)
+			}
+		})
 	}
 }
 
