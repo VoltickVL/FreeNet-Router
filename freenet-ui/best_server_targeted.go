@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	bestServerTargetedRetryTimeout     = 75 * time.Second
+	bestServerTargetedRetryTimeout     = 60 * time.Second
 	bestServerRefreshTimeout           = 150 * time.Second
 	bestServerEndpointReadinessTimeout = 20 * time.Second
 )
