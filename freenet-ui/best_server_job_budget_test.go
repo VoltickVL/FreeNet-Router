@@ -50,7 +50,7 @@ func TestBestServerForeignUsesCascadeAndDoesNotImplicitlyRecheckCurrent(t *testi
 	for _, want := range []string{
 		"loadBestServerCurrentQuality(currentEndpoint, currentFilter)",
 		"scanBestServerCascade(ctx, candidates, poolSize",
-		"strict acceptance is deliberately",
+		"Heavy Speedtest/media acceptance is deliberately",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("cascade contract missing %q", want)
