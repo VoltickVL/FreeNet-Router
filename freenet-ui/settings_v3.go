@@ -423,8 +423,13 @@ func buildManagedAutomationCronV3(a *app, existing []byte, values map[string]str
 
 	if values["AUTO_VPN_V1"] == "yes" {
 		lines = append(lines, "*/5 * * * * "+bin+" automation-health-watch"+configArg)
-		if normalizeAutomationMode(values["AUTO_VPN_MODE"]) == automationModeEndpoint {
-			cron, ok := v3IntervalCron(values["AUTO_VPN_V1_INTERVAL"])
+		mode := automationModeBest
+		if strings.TrimSpace(values["AUTO_VPN_MODE"]) != "" {
+			mode = normalizeAutomationMode(values["AUTO_VPN_MODE"])
+		}
+		if mode == automationModeEndpoint {
+			interval := v3NormalizeInterval(values["AUTO_VPN_V1_INTERVAL"], "auto_vpn_endpoint")
+			cron, ok := v3IntervalCron(interval)
 			if !ok {
 				return nil, errors.New("unsupported AUTO VPN endpoint interval")
 			}
