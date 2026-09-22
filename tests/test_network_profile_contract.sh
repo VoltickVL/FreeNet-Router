@@ -36,7 +36,7 @@ if grep -Fq "ip -4 addr show br0" "$SCRIPT"; then fail 'DNS acceptance hardcodes
 if grep -Ei 'subscription.*url=|uuid=|publicKey|shortId|vless://' "$SCRIPT" >/dev/null; then fail 'network controller contains secret material'; fi
 
 TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT INT TERM
-TROOT="$TMP/opt"; STATE="$TMP/runtime.state"
+TROOT="$TMP/opt"; STATE="$TMP/runtime.state"; MUTATION_LOCK="$TMP/vpn-mutation.lock"
 mkdir -p "$TROOT/etc/freenet" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$TROOT/etc/init.d" "$TROOT/sbin" "$TROOT/backups"
 cat > "$TROOT/etc/freenet/freenet.conf" <<'EOF'
 ISP_ID=rostelecom
@@ -86,6 +86,7 @@ run_network() {
     FREENET_CONFIG_FILE="$TROOT/etc/freenet/freenet.conf" FREENET_CONFIG_DIR="$TROOT/etc/xray/configs" \
     FREENET_XRAY_ASSET_DIR="$TROOT/etc/xray/dat" FREENET_XKEEN_BIN="$TROOT/sbin/xkeen" \
     FREENET_XRAY_BIN="$TROOT/sbin/xray" FREENET_XKEEN_RUNTIME_TIMEOUT=2 \
+    FREENET_LOCK_DIR="$MUTATION_LOCK" \
     FREENET_NETWORK_TEST_MODE=yes FREENET_NETWORK_TEST_STATE="$STATE" sh "$SCRIPT" "$@"
 }
 state_set() { key="$1"; value="$2"; t="$STATE.tmp.$$"; grep -v "^${key}=" "$STATE" > "$t" || true; echo "${key}=${value}" >> "$t"; mv "$t" "$STATE"; }
@@ -97,6 +98,18 @@ H02="$(sha256sum "$TROOT/etc/xray/configs/02_dns.json" | awk '{print $1}')"; HIN
 
 run_network plan > "$TMP/native.plan"
 for x in 'EFFECTIVE_DNS_MODE=firmware' 'PROXY_DNS=on' 'NDM_DNS_OVERRIDE=off' 'NDM_FILTER_ENGINE=public' 'NDM_DNS_INTERCEPT=on' 'NDM_DNS_ASSIGNMENTS=present' 'PORT53_OWNER=ndnproxy' 'DNS_OUT=no' 'DNS_ROUTING_MODE=native'; do grep -Fq "$x" "$TMP/native.plan" || fail "native fact missing: $x"; done
+
+# Read-only plan stays available while another mutation owns the canonical lock,
+# but apply must STOP before touching Xray/Keenetic state.
+mkdir "$MUTATION_LOCK"
+printf '%s\n' "$" > "$MUTATION_LOCK/pid"
+run_network plan > "$TMP/busy.plan" || fail 'read-only network plan was blocked by mutation lock'
+if run_network apply > "$TMP/busy.apply" 2>&1; then
+    fail 'network apply unexpectedly ran while canonical mutation lock was held'
+fi
+grep -Fq 'PRIMARY ERROR: another VPN/Xray mutation is already running' "$TMP/busy.apply" || fail 'network busy primary error missing'
+grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/busy.apply" || fail 'network busy path must be NOT_APPLIED'
+rm -rf "$MUTATION_LOCK"
 
 # WORK-like existing stack: healthy native DNS may carry legacy proxy_dns=on in init.
 # FreeNet must normalize the persisted init value without restarting a working native runtime.
