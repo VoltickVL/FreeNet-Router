@@ -483,7 +483,7 @@ func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 		return errors.New("all automation switches are required")
 	}
 	currentAuto := readAutomationSettings(a.cfg.ConfigPath)
-	mode := currentAuto.Mode
+	mode := normalizeAutomationMode(automationConfigValue(a.cfg.ConfigPath, "AUTO_VPN_MODE", automationModeBest))
 	if strings.TrimSpace(req.AutoVPNMode) != "" {
 		mode = normalizeAutomationMode(req.AutoVPNMode)
 	}
