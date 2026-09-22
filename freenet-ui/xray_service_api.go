@@ -126,6 +126,16 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, xrayServiceResponse{Success: false, Events: xrayServiceEvents(8), Error: "другая операция FreeNet уже выполняется"})
 		return
 	}
+	releaseMutation, lockErr := acquireVPNMutationLock()
+	if lockErr != nil {
+		status := http.StatusServiceUnavailable
+		if errors.Is(lockErr, errVPNMutationBusy) {
+			status = http.StatusConflict
+		}
+		writeJSON(w, status, xrayServiceResponse{Success: false, Events: xrayServiceEvents(8), Error: vpnMutationLockMessage(lockErr)})
+		return
+	}
+	defer releaseMutation()
 	if err := a.restartXrayControlled(r.Context()); err != nil {
 		message := sanitizeAutomationReason(err.Error())
 		v3AppendEvent("xray", "failed", message)
