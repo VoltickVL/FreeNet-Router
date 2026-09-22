@@ -184,8 +184,9 @@ const server = http.createServer((req, res) => {
     await page.locator('#xrayTopbarChip').click();
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray остановлен'));
     assert.equal(catalogGets, catalogBeforeOfflineRecovery, 'offline recovery must not browse core catalog before runtime is healthy');
-    assert.equal(await page.getByRole('button', {name:'Запустить Xray'}).count(), 1, 'offline Xray must expose direct recovery action');
-    await page.getByRole('button', {name:'Запустить Xray'}).click();
+    const recoveryButton = page.locator('#xrayCoreManager').getByRole('button', {name:'Запустить Xray'});
+    assert.equal(await recoveryButton.count(), 1, 'offline Xray manager must expose one direct recovery action');
+    await recoveryButton.click();
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray запущен и работает'));
     assert.deepEqual(serviceActions, ['start'], 'topbar recovery must use explicit start, never stop/restart');
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'successful recovery must restore topbar version');
