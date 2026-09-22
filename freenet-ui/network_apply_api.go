@@ -502,6 +502,21 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 
 	status, result := a.executeProviderProfileApply(req)
 	result.OperationID = op.state.ID
+	journalResult := "failed"
+	journalMessage := "Ручной выбор VPN не выполнен."
+	if result.Success {
+		journalResult = "success"
+		journalMessage = "Ручной выбор VPN применён."
+		if result.ProviderPlan != nil && strings.TrimSpace(result.ProviderPlan.ProfileName) != "" {
+			journalMessage = "Ручной выбор VPN: " + sanitizeProfileName(result.ProviderPlan.ProfileName) + "."
+		}
+	} else if safe := sanitizeAutomationReason(result.Error); safe != "" {
+		journalMessage += " " + safe
+	}
+	if rollback := sanitizeAutomationReason(result.RollbackState); rollback != "" && rollback != "NOT_NEEDED" && rollback != "NOT_APPLIED" {
+		journalMessage += " Rollback: " + rollback + "."
+	}
+	v3AppendEvent("VPN", journalResult, journalMessage)
 	vpnOperations.finish(op, status, result, result.Success, result.Message, result.Error)
 	writeJSON(w, status, result)
 }
