@@ -81,7 +81,13 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
     return Array.isArray(data && data.candidates) ? data.candidates.find(item => item && item.current) || null : null;
   }
 
-  function renderQuality(data) {
+  function latencyOnlyWarning(candidate) {
+    const reasons = Array.isArray(candidate && candidate.rejections) ? candidate.rejections.map(value => String(value || '').trim()).filter(Boolean) : [];
+    return !!(candidate && candidate.tested && candidate.available && candidate.eligible !== true &&
+      reasons.length === 1 && /^Отклик сайтов выше \d+ мс$/i.test(reasons[0]));
+  }
+
+  function renderQuality(data, status = null) {
     const candidate = currentCandidate(data);
     if (!candidate || !candidate.endpoint) return false;
     const liveEndpoint = String((q('#bestCurrentEndpoint') || {}).textContent || '').trim();
@@ -92,10 +98,19 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
     if (quality) quality.textContent = 'Последний замер: ' + ageText(data.scanned_at);
     const health = q('#bestCurrentHealth');
     if (health) {
-      health.className = candidate.eligible ? 'current-health' : 'current-health neutral';
-      health.textContent = candidate.eligible
-        ? 'Текущий VPN работает стабильно.\nПоказан последний подтверждённый замер.'
-        : 'Показан последний подтверждённый замер.\nДля свежей оценки можно запустить проверку вручную.';
+      if (status && status.xray_online === false) {
+        health.className = 'current-health offline';
+        health.textContent = 'VPN сейчас не подключен.\nПоказанные метрики — последний подтверждённый замер.';
+      } else if (candidate.eligible) {
+        health.className = 'current-health';
+        health.textContent = 'Текущий VPN работает стабильно.\nПоказан последний подтверждённый замер.';
+      } else if (latencyOnlyWarning(candidate)) {
+        health.className = 'current-health warning';
+        health.textContent = 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nПоказан последний подтверждённый замер.';
+      } else {
+        health.className = 'current-health neutral';
+        health.textContent = 'Показан последний подтверждённый замер.\nЧасть критериев качества не пройдена.';
+      }
     }
     document.dispatchEvent(new CustomEvent('freenet:current-quality-display', {
       detail: {candidate: Object.assign({}, candidate, {current:true}), scanned_at: data.scanned_at || ''}
@@ -137,7 +152,7 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
       while (response.status === 202 && Date.now() - started < 80000) {
         const job = await response.json();
         if (job.state === 'completed' && job.result) {
-          renderQuality(job.result);
+          renderQuality(job.result, status);
           return;
         }
         if (job.state === 'failed') return;
@@ -154,10 +169,15 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
   async function hydrate() {
     if (!overviewActive()) return;
     try {
+      let status = null;
+      try {
+        const statusResponse = await fetch('/api/status', {cache:'no-store', signal:AbortSignal.timeout(7000)});
+        if (statusResponse.ok) status = await statusResponse.json();
+      } catch (_) {}
       const response = await fetch('/api/vpn/current-quality?job=cache', {cache:'no-store', signal:AbortSignal.timeout(7000)});
       if (!response.ok) return;
       const data = await response.json();
-      if (!renderQuality(data)) void seedMissingMeasurement();
+      if (!renderQuality(data, status)) void seedMissingMeasurement();
     } catch (_) {
       // Do not turn a first-paint cache read into repeated background traffic.
     }
