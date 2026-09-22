@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-const bestServerAsyncJobTimeout = 45 * time.Second
+const bestServerAsyncJobTimeout = 190 * time.Second
 
 // One bounded, read-only quality job per app. Polling never starts a scan.
-// The Best Server job is intentionally capped at 45 s. DIRECT express measures
-// the complete pool first, then quick isolated VPN probes rank a small shortlist.
-// Heavy strict acceptance is deferred to finalist apply/AUTO paths. Current-quality
-// remains a separate explicit operation.
+// The Best Server job is intentionally capped at 190 s. Cheap preflight ranks
+// the pool first; deep checks then spend the remaining budget on the strongest
+// candidates and return measured partial results rather than holding the UI for
+// almost four minutes. Current-quality remains a separate explicit operation.
 // Retain only the latest result, with no credentials or raw probe output.
 type bestServerJob struct {
 	ID        string                     `json:"id"`

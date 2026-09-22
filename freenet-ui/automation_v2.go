@@ -541,25 +541,20 @@ func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings a
 			filtered = append(filtered, candidate)
 		}
 	}
+	profilesScanned := len(filtered)
 	currentBaseline, currentBaselineOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
 	if currentIndex := bestServerCurrentCandidateIndex(filtered, currentEndpoint, currentFilter); currentIndex >= 0 {
 		filtered = withoutBestServerCandidate(filtered, currentIndex)
 	}
-	poolSize := len(filtered)
 	if len(filtered) == 0 {
 		return bestServerQualityResponse{
-			Success: true, Available: false, Candidates: []bestServerQualityCandidate{},
-			ProfilesScanned: 0, ProfilesTotal: poolSize, ExpressMeasured: 0, QuickMeasured: 0, StrictTested: 0,
+			Success: true, Available: false, Candidates: []bestServerQualityCandidate{}, ProfilesScanned: profilesScanned, ProfilesTotal: profilesScanned,
 			ProfilesTruncated: truncated, Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
 			Message: "Нет разрешённых кандидатов для автоматического переключения.",
 		}, nil
 	}
-
-	// AUTO VPN uses the same fast discovery cascade as the UI, but it is never
-	// allowed to mutate on quick evidence. Strict Speedtest/service acceptance is
-	// run only for ranked finalists and stops on the first fully Eligible result.
-	outcome := a.scanBestServerCascade(ctx, filtered, poolSize, truncated, currentEndpoint, currentFilter)
-	response := strictBestServerFinalists(ctx, a, outcome, currentEndpoint, currentFilter)
+	filtered = a.applicationAwareBestServerShortlist(ctx, filtered, currentEndpoint, currentFilter)
+	response := a.rankMeasuredBestServerBatches(ctx, filtered, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil && len(response.Candidates) == 0 {
 		return bestServerQualityResponse{}, ctx.Err()
 	}
@@ -570,6 +565,7 @@ func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings a
 	response.Mutation = "NONE"
 	response.ScannedAt = time.Now().UTC().Format(time.RFC3339)
 	response.CurrentEndpoint = currentEndpoint
+	response.ProfilesScanned = profilesScanned
 	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
 		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during AUTO VPN scan")
 	}

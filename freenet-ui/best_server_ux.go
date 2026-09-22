@@ -313,50 +313,57 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		return bestServerQualityResponse{}, err
 	}
 	candidates := filterForeignBestServerCandidates(all)
+	profilesScanned := len(candidates)
 
-	// Current VPN quality remains an explicit operation. A fresh strict RAM
-	// baseline can be reused for comparison, but the Best Server button never
-	// spends its discovery budget on a hidden current-VPN Speedtest.
+	// "Проверить текущий VPN" is a separate explicit operation. Best Server may
+	// reuse a fresh complete current measurement, but it must not spend the
+	// alternatives job budget on an implicit heavy current Speedtest. This keeps
+	// the bounded 180 s browser contract focused on producing the Top-3 cards.
 	currentBaseline, currentBaselineOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
 	if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
 		candidates = withoutBestServerCandidate(candidates, currentIndex)
 	}
-	poolSize := len(candidates)
 	if len(candidates) == 0 {
 		currentCandidates := []bestServerQualityCandidate{}
 		if currentBaselineOK {
 			currentCandidates = append(currentCandidates, currentBaseline)
 		}
 		return bestServerQualityResponse{
-			Success: true, Available: currentBaselineOK && currentBaseline.Eligible, Candidates: currentCandidates,
-			ProfilesScanned: 0, ProfilesTotal: poolSize, ExpressMeasured: 0, QuickMeasured: 0, StrictTested: 0,
+			Success: true, Available: currentBaselineOK && currentBaseline.Eligible, Candidates: currentCandidates, ProfilesScanned: profilesScanned, ProfilesTotal: profilesScanned,
 			ProfilesTruncated: truncated, Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
 			Message: "Подходящих зарубежных Extra-профилей нет; текущий VPN не изменён.",
 		}, nil
 	}
 
-	// Cascade: DIRECT express over the complete pool -> bounded shortlist ->
-	// isolated quick VPN probes. Heavy Speedtest/media acceptance is deliberately
-	// deferred until the user chooses a finalist (or AUTO VPN is about to apply).
-	outcome := a.scanBestServerCascade(ctx, candidates, poolSize, truncated, currentEndpoint, currentFilter)
-	response := outcome.Response
+	// First compare the real application path through each candidate VPN. Keep a
+	// reserve shortlist, then deep-test one logical profile per batch. Stop after
+	// three distinct Eligible alternatives. Rejected deep results are retained
+	// for diagnostics but do not stop the search; the bounded job budget still
+	// caps the total work.
+	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
+	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {
 		return bestServerQualityResponse{}, ctx.Err()
 	}
 	if currentBaselineOK {
 		response.Candidates = append(response.Candidates, currentBaseline)
 	}
+	response.ProfilesScanned = profilesScanned
 	response.Success = true
 	response.Mutation = "NONE"
 	response.ScannedAt = time.Now().UTC().Format(time.RFC3339)
 	response.CurrentEndpoint = currentEndpoint
 	if response.Available && response.Recommendation != nil {
-		response.Message = "FreeNet быстро сравнил весь зарубежный пул и показал лучшие кандидаты. Перед переключением выбранный сервер пройдёт строгую проверку."
+		if response.Recommendation.Current {
+			response.Message = "Текущий VPN уже лучший среди проверенных зарубежных профилей."
+		} else {
+			response.Message = "FreeNet нашёл лучший зарубежный VPN-профиль среди измеренных вариантов."
+		}
 	} else {
-		response.Message = "Весь зарубежный пул прошёл DIRECT express scan, но подтверждённого быстрого VPN-кандидата сейчас нет. Текущий VPN не изменён."
+		response.Message = "Достоверная рекомендация среди зарубежных профилей сейчас недоступна; текущий VPN не изменён."
 	}
 	if currentBaselineOK {
-		response.Message += " Свежий строгий замер текущего VPN переиспользован без повторной Speedtest-проверки."
+		response.Message += " Свежий подтверждённый замер текущего VPN переиспользован без повторной тяжёлой Speedtest-проверки."
 	} else {
 		response.Message += " Текущий VPN не перепроверялся автоматически: для него есть отдельная кнопка «Проверить текущий VPN»."
 	}
