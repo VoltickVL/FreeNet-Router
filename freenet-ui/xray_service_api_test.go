@@ -52,6 +52,58 @@ func TestRestartXrayControlledStopsBeforeRestartOnInvalidConfig(t *testing.T) {
 	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) { t.Fatalf("xkeen restart must not run after validation failure") }
 }
 
+func TestStartXrayControlledStartsStoppedServiceOnce(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 0)
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(name string) bool {
+		if name != "xray" {
+			return false
+		}
+		_, err := os.Stat(marker)
+		return err == nil
+	}
+	defer func() { xrayServiceProcessRunning = previous }()
+
+	if err := a.startXrayControlled(context.Background()); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil { t.Fatal(err) }
+	lines := strings.Fields(strings.TrimSpace(string(data)))
+	if len(lines) != 1 || lines[0] != "-start" {
+		t.Fatalf("expected exactly one -start call, got %q", string(data))
+	}
+}
+
+func TestStartXrayControlledDoesNotRestartAlreadyOnlineService(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 0)
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(name string) bool { return name == "xray" }
+	defer func() { xrayServiceProcessRunning = previous }()
+
+	if err := a.startXrayControlled(context.Background()); err != nil {
+		t.Fatalf("start no-op failed: %v", err)
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("already-online start must not call XKeen")
+	}
+}
+
+func TestStartXrayControlledStopsBeforeStartOnInvalidConfig(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 1)
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(string) bool { return false }
+	defer func() { xrayServiceProcessRunning = previous }()
+
+	err := a.startXrayControlled(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "запуск отменён") {
+		t.Fatalf("expected validation stop, got %v", err)
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("xkeen start must not run after validation failure")
+	}
+}
+
 func TestXrayServiceEventsFilterUserFacingHistory(t *testing.T) {
 	root := t.TempDir()
 	history := filepath.Join(root, "history")
