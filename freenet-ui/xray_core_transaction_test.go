@@ -107,6 +107,8 @@ type xrayCoreScenario struct {
 	name                 string
 	badDigest            bool
 	targetFailsInstalled bool
+	holdMutationLock     bool
+	wantBusy             bool
 	xkeenExit            int
 	wantSuccess          bool
 	wantRollback         string
@@ -138,6 +140,17 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRollback:     "NOT_NEEDED",
 			wantCurrent:      target,
 			wantRestartCalls: 1,
+		},
+		{
+			name:              "busy shared mutation lock stops before binary replacement",
+			holdMutationLock:  true,
+			wantBusy:          true,
+			xkeenExit:         0,
+			wantSuccess:       false,
+			wantRollback:      "NOT_APPLIED",
+			wantCurrent:       previous,
+			wantErrorContains: "another VPN/Xray mutation is already running",
+			wantRestartCalls:  0,
 		},
 		{
 			name:                 "apply failure rolls back previous core",
@@ -204,6 +217,16 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			t.Setenv("FREENET_XRAY_BIN", binary)
 			t.Setenv("FREENET_ROUTING_CONFIG_DIR", configDir)
 			t.Setenv("FREENET_SETTINGS_V3_HISTORY", historyPath)
+			mutationLock := filepath.Join(root, "vpn-mutation.lock")
+			t.Setenv("FREENET_LOCK_DIR", mutationLock)
+			if scenario.holdMutationLock {
+				if err := os.Mkdir(mutationLock, 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(mutationLock, "pid"), []byte(fmt.Sprintf("%d\n", os.Getpid())), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
 
 			assetName, ok := xrayCoreAssetName(runtime.GOARCH)
 			if !ok {
@@ -253,6 +276,9 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			}, sem: make(chan struct{}, 1)}
 
 			result := a.applyXrayCore(context.Background(), target)
+			if result.Busy != scenario.wantBusy {
+				t.Fatalf("busy: got %v want %v; result=%+v", result.Busy, scenario.wantBusy, result)
+			}
 			if result.Success != scenario.wantSuccess {
 				t.Fatalf("success: got %v want %v; result=%+v", result.Success, scenario.wantSuccess, result)
 			}
