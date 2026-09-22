@@ -732,6 +732,12 @@ func (a *app) restoreV3Backup() error {
 		return err
 	}
 
+	releaseMutation, lockErr := acquireVPNMutationLock()
+	if lockErr != nil {
+		return lockErr
+	}
+	defer releaseMutation()
+
 	rollback, err := a.createV3Backup(false)
 	if err != nil {
 		return errors.New("cannot create pre-restore snapshot")
@@ -809,7 +815,13 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, settingsV3ActionResponse{Success: false, Error: sanitizeAutomationReason(err.Error())})
+		status := http.StatusBadGateway
+		if errors.Is(err, errVPNMutationBusy) {
+			status = http.StatusConflict
+		} else if errors.Is(err, errVPNMutationLockUnknown) {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, settingsV3ActionResponse{Success: false, Error: sanitizeAutomationReason(err.Error())})
 		return
 	}
 	writeJSON(w, http.StatusOK, settingsV3ActionResponse{Success: true, Message: message, BackupInfo: backupInfo})
