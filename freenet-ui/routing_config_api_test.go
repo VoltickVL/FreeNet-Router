@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -144,6 +145,42 @@ func TestRoutingValidateRejectsUnsafeRequestsBeforeXray(t *testing.T) {
 				t.Fatalf("failure lost no-mutation contract: %s", rec.Body.String())
 			}
 		})
+	}
+}
+
+
+func TestRoutingApplyStopsBeforeMutationWhenSharedLockIsBusy(t *testing.T) {
+	a, dir := routingTestApp(t)
+	fakeXray := filepath.Join(t.TempDir(), "xray")
+	writeRoutingTestFile(t, fakeXray, "#!/bin/sh\nexit 0\n", 0700)
+	t.Setenv("FREENET_XRAY_BIN", fakeXray)
+	lock := filepath.Join(t.TempDir(), "vpn.lock")
+	t.Setenv("FREENET_LOCK_DIR", lock)
+	if err := os.Mkdir(lock, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lock, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	before05, _ := os.ReadFile(filepath.Join(dir, "05_routing.json"))
+	before06, _ := os.ReadFile(filepath.Join(dir, "06_policy.json"))
+	payload := `{"routing":{"routing":{"domainStrategy":"AsIs","rules":[{"type":"field","domain":["domain:busy.example"],"outboundTag":"direct"}]}},"policy":{"policy":{"levels":{"0":{"handshake":9}}}}}`
+	req := httptest.NewRequest(http.MethodPost, "http://router/api/routing/apply", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://router")
+	rec := httptest.NewRecorder()
+	a.handleRoutingConfigApply(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"mutation":"NONE"`) || !strings.Contains(rec.Body.String(), `"rollback":"NOT_APPLIED"`) {
+		t.Fatalf("busy response lost no-mutation contract: %s", rec.Body.String())
+	}
+	after05, _ := os.ReadFile(filepath.Join(dir, "05_routing.json"))
+	after06, _ := os.ReadFile(filepath.Join(dir, "06_policy.json"))
+	if !bytes.Equal(before05, after05) || !bytes.Equal(before06, after06) {
+		t.Fatal("routing files changed while canonical mutation lock was busy")
 	}
 }
 
