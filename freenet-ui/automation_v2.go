@@ -479,23 +479,8 @@ func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 
 func appendAutomationHistoryV2(result, reason string) {
 	path := automationHistoryPath()
-	_ = os.MkdirAll(filepath.Dir(path), 0755)
 	line := fmt.Sprintf("%s\tAUTO VPN\t%s\t%s\n", time.Now().UTC().Format(time.RFC3339), sanitizeAutomationReason(result), sanitizeAutomationReason(reason))
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err != nil {
-		return
-	}
-	_, _ = file.WriteString(line)
-	_ = file.Close()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-	if len(lines) > 50 {
-		lines = lines[len(lines)-50:]
-		_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600)
-	}
+	appendBoundedJournalLine(path, line, journalHistoryRetention)
 }
 
 func automationBestLockPath() string {
