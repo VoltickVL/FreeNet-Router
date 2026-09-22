@@ -22,7 +22,7 @@ let backupRestorePosts = 0;
 
 const settings = {
   success: true,
-  auto_vpn: {enabled:true,country_scope:'region',countries:['pl','fr'],last_health:'2026-09-12T11:35:00Z',next_health:'2026-09-12T11:40:00Z'},
+  auto_vpn: {enabled:true,mode:'best',endpoint_interval:'1h',country_scope:'region',countries:['pl','fr'],last_health:'2026-09-12T11:35:00Z',next_health:'2026-09-12T11:40:00Z'},
   automation: {
     current_profile:'PL Варшава, Польша, Extra',current_endpoint:'192.0.2.42:443',country_code:'pl',
     current_quality_known:true,current_quality_checked_at:'2026-09-12T11:35:00Z',current_latency_ms:171,current_download_mbps:168,current_jitter_ms:7,
@@ -88,7 +88,21 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/api/auth/status') return json(res, {configured:true,authenticated:true});
   if (url.pathname === '/api/status') return json(res, status);
-  if (url.pathname === '/api/settings-v3') return json(res, settings);
+  if (url.pathname === '/api/settings-v3') {
+    if (req.method !== 'POST') return json(res, settings);
+    let raw = '';
+    req.on('data', chunk => { raw += chunk; });
+    req.on('end', () => {
+      const body = JSON.parse(raw || '{}');
+      settings.auto_vpn.enabled = !!body.auto_vpn_enabled;
+      settings.auto_vpn.mode = body.auto_vpn_mode === 'endpoint' ? 'endpoint' : 'best';
+      settings.auto_vpn.endpoint_interval = body.auto_vpn_endpoint_interval || '1h';
+      settings.auto_vpn.country_scope = body.country_scope || settings.auto_vpn.country_scope;
+      settings.auto_vpn.countries = Array.isArray(body.countries) ? body.countries : settings.auto_vpn.countries;
+      return json(res, settings);
+    });
+    return;
+  }
   if (url.pathname === '/api/settings-v3/action' && req.method === 'POST') {
     let raw = '';
     req.on('data', chunk => { raw += chunk; });
@@ -222,6 +236,10 @@ const server = http.createServer((req, res) => {
       maintenanceSaveText: document.querySelector('#fn3MaintenanceSave')?.textContent || '',
       maintenanceSaveVisible: !!document.querySelector('#fn3MaintenanceSave') && document.querySelector('#fn3MaintenanceSave').getClientRects().length > 0,
       autoChecked: document.querySelector('#fn3AutoEnabled')?.checked,
+      mode: document.querySelector('input[name="fn3Mode"]:checked')?.value || '',
+      modeCards: document.querySelectorAll('[data-mode-card]').length,
+      endpointScheduleHidden: document.querySelector('#fn3EndpointSchedule')?.hidden,
+      replacementHidden: document.querySelector('#fn3ReplacementSettings')?.hidden,
       scope: document.querySelector('input[name="fn3Scope"]:checked')?.value || '',
       settingsActive: document.querySelector('[data-page-view="settings"]')?.classList.contains('active'),
       settingsV3: document.querySelector('[data-page-view="settings"]')?.dataset.settingsV3 || '',
@@ -264,7 +282,11 @@ const server = http.createServer((req, res) => {
     assert.equal(runtime.navHeight, cold.navHeight, `Settings changed sidebar item height: overview=${cold.navHeight}, settings=${runtime.navHeight}`);
     assert.equal(runtime.autoLabelVisible, false, 'duplicate AUTO VPN enabled label must be hidden');
     assert.equal(runtime.currentVpnCardCount, 0, 'Settings must not render the duplicate Current VPN card or its metrics');
-    assert.equal(runtime.controlTitle, 'Автопроверка', `unexpected AUTO VPN control copy: ${runtime.controlTitle}`);
+    assert.equal(runtime.mode, 'best', `full AUTO VPN must be the saved fixture mode: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.modeCards, 2, `Settings must show exactly two AUTO VPN modes: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.endpointScheduleHidden, true, `endpoint interval must stay hidden in full mode: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.replacementHidden, false, `replacement geography must stay visible in full mode: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.controlTitle, 'Полный AUTO VPN', `unexpected AUTO VPN control copy: ${runtime.controlTitle}`);
     assert.equal(runtime.backupRoot, '/opt/backups/freenet-settings', `backup root must be visible: ${JSON.stringify(runtime)}`);
     assert.equal(runtime.backupSnapshot, 'backup-20260912-023000.000000000', `latest snapshot id must be visible: ${JSON.stringify(runtime)}`);
     assert.equal(runtime.backupPath, '/opt/backups/freenet-settings/backup-20260912-023000.000000000', `latest snapshot path must be visible: ${JSON.stringify(runtime)}`);
@@ -276,6 +298,7 @@ const server = http.createServer((req, res) => {
     assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Лучший VPN автоматически', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Системное обслуживание', {exact:true}).count(), 1);
+    assert.equal(await settingsPage.locator('[data-mode-card]').count(), 2);
     assert.equal(await settingsPage.locator('[data-scope-card]').count(), 3);
     assert.equal(await settingsPage.locator('.fn3-extra-card').count(), 4);
     assert.equal(await settingsPage.locator('#fn3MaintenanceSave').count(), 1, 'System maintenance must expose one explicit save action');
@@ -298,6 +321,22 @@ const server = http.createServer((req, res) => {
     });
     assert.ok(Math.abs(settingsGeometry.autoWidth - settingsGeometry.maintenanceWidth) <= 2, `AUTO VPN and System maintenance must use the same full width: ${JSON.stringify(settingsGeometry)}`);
     assert.ok(settingsGeometry.maintenanceTop > settingsGeometry.autoBottom, `System maintenance must follow AUTO VPN without a duplicate Current VPN block: ${JSON.stringify(settingsGeometry)}`);
+
+    // AUTO VPN exposes two explicit user modes. Endpoint-only must hide all
+    // replacement geography and reveal only the same-profile refresh interval.
+    await page.locator('input[name="fn3Mode"][value="endpoint"]').check();
+    await page.waitForFunction(() => !document.querySelector('#fn3EndpointSchedule')?.hidden && document.querySelector('#fn3ReplacementSettings')?.hidden);
+    assert.equal(await page.locator('#fn3EndpointInterval').isVisible(), true, 'endpoint-only mode must expose its refresh interval');
+    assert.equal(await page.locator('input[name="fn3Scope"][value="region"]').isDisabled(), true, 'replacement geography must be inactive in endpoint-only mode');
+    assert.equal((await page.locator('#fn3ControlTitle').textContent()).trim(), 'Только текущий VPN');
+    assert.match((await page.locator('#fn3SafetyText').textContent()) || '', /STOP без смены сервера/);
+    await page.locator('#fn3EndpointInterval').selectOption('30m');
+    assert.equal(await page.locator('#fn3Save').isDisabled(), false, 'mode/interval change must become a saveable Settings draft');
+
+    await page.locator('input[name="fn3Mode"][value="best"]').check();
+    await page.waitForFunction(() => document.querySelector('#fn3EndpointSchedule')?.hidden && !document.querySelector('#fn3ReplacementSettings')?.hidden);
+    assert.equal(await page.locator('input[name="fn3Scope"][value="region"]').isDisabled(), false, 'full mode must restore replacement geography controls');
+    assert.equal((await page.locator('#fn3ControlTitle').textContent()).trim(), 'Полный AUTO VPN');
 
     // Backup actions must explain exactly which local snapshot was created/restored.
     await page.locator('[data-v3-action="backup_create"]').click();
