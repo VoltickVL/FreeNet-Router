@@ -243,7 +243,7 @@
       .vpn-current-panel .best-v4-pill{min-height:78px;padding:12px 11px;border:1px solid #315985;border-radius:11px;background:#0d1c2e}.vpn-current-panel .best-v4-pill span.metric-label{font-size:11px}.vpn-current-panel .best-v4-pill b{font-size:20px}.vpn-current-panel .best-v4-pill.speed b{font-size:20px}.best-quality{margin:12px 0 11px;color:#9eb2cb;font-size:12px;line-height:1.35}.vpn-current-panel>#bestServerCheckCurrent{width:100%;min-height:48px;justify-content:center;background:linear-gradient(180deg,#347eff,#2367e7);border-color:#69a0ff;border-radius:11px;font-size:14px;box-shadow:0 8px 22px rgba(27,94,218,.18)}.vpn-current-panel>.action-row{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:9px}.vpn-current-panel>.action-row[hidden]{display:none}.vpn-current-panel>.action-row .btn{min-height:43px;padding:7px 9px;justify-content:center;text-align:center;font-size:12px;background:#0f2035;border-color:#315275;border-radius:11px}.vpn-current-panel>.action-row .btn .button-icon{width:18px;height:18px;color:#6e9fff}
       .current-health{margin-top:12px;padding:11px 12px;border:1px solid rgba(52,226,160,.62);border-radius:11px;background:linear-gradient(90deg,rgba(15,112,80,.26),rgba(13,70,60,.14));color:#bdf9df;font-size:12px;line-height:1.4;display:flex;gap:10px;align-items:flex-start}.current-health:before{content:'✓';flex:0 0 23px;width:23px;height:23px;border-radius:50%;display:grid;place-items:center;background:#36e3a2;color:#052416;font-weight:950;font-size:14px}.current-health.neutral{border-color:#385473;background:#0c1a2b;color:#a9bad1}.current-health.neutral:before{content:'i';background:#4e7eae;color:#eef6ff}.current-health.warning{border-color:#b9862e;background:linear-gradient(90deg,rgba(125,86,18,.26),rgba(72,53,18,.14));color:#ffe0a3}.current-health.warning:before{content:'!';background:#d6a33d;color:#251800}.current-health.offline{border-color:#a63f50;background:linear-gradient(90deg,rgba(111,30,44,.3),rgba(58,24,34,.18));color:#ffc2ca}.current-health.offline:before{content:'!';background:#e06070;color:#2b080d}.current-help{margin:10px 0 0;color:#96abc5;font-size:11px;line-height:1.48}
       .vpn-section-head{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:12px}.vpn-section-head h3{margin:0;font-size:20px;line-height:1.15}.vpn-section-head .hint{margin-top:4px;font-size:12px;color:#9eb3cc}.vpn-section-head #bestServerRefresh{min-height:48px;padding:9px 18px;border-radius:11px;background:linear-gradient(180deg,#347eff,#2469e9);border-color:#69a0ff;font-size:14px;box-shadow:0 8px 22px rgba(27,94,218,.18)}.vpn-section-head #bestServerRefresh .button-icon{width:19px;height:19px}.vpn-empty{padding:39px 24px;border:1px dashed #385472;border-radius:13px;color:#aab9cb;font-size:13px;line-height:1.5;background:rgba(7,18,31,.18)}
-      .best-v4-result,.best-v4-result.show{padding:0;border:0;background:none}.best-v4-result.show{display:grid;gap:12px}.vpn-option{min-height:145px;padding:13px 14px 12px;border:1px solid #315276;background:linear-gradient(155deg,#122941,#0e1e32);border-radius:14px;box-shadow:inset 0 1px rgba(255,255,255,.018)}.vpn-option.vpn-best{border-color:#1fd697;background:linear-gradient(155deg,rgba(12,83,68,.74),rgba(8,33,43,.97));box-shadow:inset 0 0 0 1px rgba(25,207,137,.13),0 0 22px rgba(22,193,132,.04)}.vpn-option.vpn-rejected{border-color:#db4858;background:linear-gradient(155deg,rgba(69,27,39,.76),rgba(19,27,42,.97))}.vpn-option.vpn-warning{border-color:#c49338;background:linear-gradient(155deg,rgba(82,61,24,.72),rgba(25,29,38,.97))}.vpn-option-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:11px}.vpn-option-title{display:flex;align-items:center;gap:11px;min-width:0}.vpn-option-title .flag-icon{width:34px;height:24px;border-radius:4px}.vpn-option-title h4{font-size:17px;line-height:1.2;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-.01em}.vpn-option-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}.vpn-state-badge{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:6px 12px;border:1px solid #405e80;border-radius:999px;color:#c1cfe0;background:#14263b;font-size:11px;font-weight:820;white-space:nowrap}.vpn-best .vpn-state-badge{border-color:#20d895;color:#5cebb3;background:rgba(13,90,65,.42)}.vpn-rejected .vpn-state-badge{border-color:#df5060;color:#ff7885;background:rgba(100,28,41,.43)}.vpn-warning .vpn-state-badge{border-color:#d7a643;color:#ffd67f;background:rgba(105,76,24,.4)}.vpn-option .btn{min-height:40px;padding:7px 14px;border-radius:10px;font-size:12px;justify-content:center}.vpn-best .vpn-option-apply{background:linear-gradient(180deg,#347eff,#2367e7);border-color:#69a0ff}.vpn-option-retry{background:#17293e;border-color:#49698d}.vpn-option .best-v4-metrics{margin:0}.vpn-option .best-v4-pill{min-height:58px;padding:4px 12px 4px 8px;border:0;border-right:1px solid #334a65;border-radius:0;background:none;grid-template-columns:27px minmax(0,1fr);column-gap:8px}.vpn-option .best-v4-pill:last-child{border-right:0}.vpn-option .best-v4-pill span.metric-label{font-size:10px}.vpn-option .best-v4-pill b{font-size:16px}.vpn-option .metric-icon{width:23px;height:23px}.best-v4-reason{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;font-size:11px;line-height:1.25}.vpn-detail-chip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 9px;border:1px solid #3a5877;border-radius:8px;background:#0c1b2d;color:#bdcad9;white-space:nowrap}.vpn-detail-chip.ok{border-color:rgba(52,226,160,.42);color:#a4edcb;background:rgba(12,81,58,.23)}.vpn-detail-chip.warn{border-color:rgba(215,166,67,.55);color:#ffdb91;background:rgba(105,76,24,.28)}.vpn-detail-chip.bad{border-color:rgba(255,95,109,.53);color:#ffa0a8;background:rgba(104,28,42,.27)}.vpn-rejected-note{margin:9px 0 0;color:#b9c6d7;font-size:11px;line-height:1.4}
+      .best-v4-result,.best-v4-result.show{padding:0;border:0;background:none}.best-v4-result.show{display:grid;gap:12px}.vpn-option{min-height:145px;padding:13px 14px 12px;border:1px solid #315276;background:linear-gradient(155deg,#122941,#0e1e32);border-radius:14px;box-shadow:inset 0 1px rgba(255,255,255,.018)}.vpn-option.vpn-best{border-color:#1fd697;background:linear-gradient(155deg,rgba(12,83,68,.74),rgba(8,33,43,.97));box-shadow:inset 0 0 0 1px rgba(25,207,137,.13),0 0 22px rgba(22,193,132,.04)}.vpn-option.vpn-rejected{border-color:#db4858;background:linear-gradient(155deg,rgba(69,27,39,.76),rgba(19,27,42,.97))}.vpn-option.vpn-quick{border-color:#4b83c5;background:linear-gradient(155deg,rgba(24,58,96,.78),rgba(14,30,50,.97))}.vpn-option.vpn-warning{border-color:#c49338;background:linear-gradient(155deg,rgba(82,61,24,.72),rgba(25,29,38,.97))}.vpn-option-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:11px}.vpn-option-title{display:flex;align-items:center;gap:11px;min-width:0}.vpn-option-title .flag-icon{width:34px;height:24px;border-radius:4px}.vpn-option-title h4{font-size:17px;line-height:1.2;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;letter-spacing:-.01em}.vpn-option-actions{display:flex;align-items:center;gap:10px;flex-shrink:0}.vpn-state-badge{display:inline-flex;align-items:center;gap:7px;min-height:34px;padding:6px 12px;border:1px solid #405e80;border-radius:999px;color:#c1cfe0;background:#14263b;font-size:11px;font-weight:820;white-space:nowrap}.vpn-best .vpn-state-badge{border-color:#20d895;color:#5cebb3;background:rgba(13,90,65,.42)}.vpn-rejected .vpn-state-badge{border-color:#df5060;color:#ff7885;background:rgba(100,28,41,.43)}.vpn-quick .vpn-state-badge{border-color:#5d91cf;color:#9dc8ff;background:rgba(30,74,122,.38)}.vpn-warning .vpn-state-badge{border-color:#d7a643;color:#ffd67f;background:rgba(105,76,24,.4)}.vpn-option .btn{min-height:40px;padding:7px 14px;border-radius:10px;font-size:12px;justify-content:center}.vpn-best .vpn-option-apply{background:linear-gradient(180deg,#347eff,#2367e7);border-color:#69a0ff}.vpn-option-retry{background:#17293e;border-color:#49698d}.vpn-option .best-v4-metrics{margin:0}.vpn-option .best-v4-pill{min-height:58px;padding:4px 12px 4px 8px;border:0;border-right:1px solid #334a65;border-radius:0;background:none;grid-template-columns:27px minmax(0,1fr);column-gap:8px}.vpn-option .best-v4-pill:last-child{border-right:0}.vpn-option .best-v4-pill span.metric-label{font-size:10px}.vpn-option .best-v4-pill b{font-size:16px}.vpn-option .metric-icon{width:23px;height:23px}.best-v4-reason{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;font-size:11px;line-height:1.25}.vpn-detail-chip{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:4px 9px;border:1px solid #3a5877;border-radius:8px;background:#0c1b2d;color:#bdcad9;white-space:nowrap}.vpn-detail-chip.ok{border-color:rgba(52,226,160,.42);color:#a4edcb;background:rgba(12,81,58,.23)}.vpn-detail-chip.warn{border-color:rgba(215,166,67,.55);color:#ffdb91;background:rgba(105,76,24,.28)}.vpn-detail-chip.bad{border-color:rgba(255,95,109,.53);color:#ffa0a8;background:rgba(104,28,42,.27)}.vpn-rejected-note{margin:9px 0 0;color:#b9c6d7;font-size:11px;line-height:1.4}
       .best-v4-status{margin-top:12px;padding:10px 12px;border:1px solid #31699f;border-radius:11px;background:linear-gradient(90deg,#0c3155,#0a2846);color:#c3daf4;font-size:11px;line-height:1.4;min-height:0}.best-v4-status:empty{display:none}.best-v4-status.busy{color:#d5e7fb}.best-v4-status.summary{display:flex;align-items:flex-start;gap:10px}.best-v4-status.summary .status-icon{flex:0 0 22px;width:22px;height:22px;color:#8fc5ff}.best-v4-status.summary .summary-copy{display:grid;gap:2px}.best-v4-status.summary .summary-main{color:#c6dcf4}.best-v4-status.summary .summary-sub{color:#9fb8d4}.vpn-measure-note{display:none}
       #bestServerAdvanced{margin:0 4px;padding:0;display:grid;grid-template-columns:1fr;gap:8px;background:transparent;border:0;min-height:0!important}#bestServerAdvanced h3{margin:0;font-size:18px;line-height:1.2}#bestServerAdvanced:before{content:'ПОИСК ПО СТРАНЕ ИЛИ ГОРОДУ';font-size:10px;font-weight:860;letter-spacing:.1em;color:#9fb2ca;order:1}#bestServerAdvanced h3{order:0}#bestServerAdvanced #profilesList.profiles{order:2;display:grid!important;grid-template-columns:minmax(260px,.88fr) minmax(360px,1.45fr);gap:10px;align-items:end;margin:0!important;min-height:0!important}#profilesList .field{position:relative;padding:0;border:0;background:none;min-height:0!important}#profilesList .field label{display:none}#profilesList .profile-combobox{margin:0!important;min-height:0!important}#profilesList input,#profilesTrigger{min-height:48px;background:#0b1929;border-color:#315276;border-radius:10px;font-size:12px}#profilesList input{padding-left:42px}#profilesList #selectedProfileCard{grid-column:1/-1;margin:0;padding:8px 10px;border-color:#2f4d6e;background:#0c1a2b;font-size:10px}#bestServerAdvanced .action-row{order:3;display:flex;gap:8px;margin:0}#bestServerAdvanced .action-row[hidden]{display:none}#bestServerAdvanced .btn{min-height:39px;padding:7px 11px;font-size:11px}#bestServerAdvanced:has(#exactConnectRow[hidden]) #selectedProfileCard{display:none}#quickNetworkGuard{display:none}
       .flag-dk{background:linear-gradient(to right,transparent 0 31%,#fff 31% 42%,transparent 42%),linear-gradient(to bottom,transparent 0 42%,#fff 42% 57%,transparent 57%),#c8102e}.flag-no{background:linear-gradient(to right,transparent 0 28%,#fff 28% 46%,transparent 46%),linear-gradient(to bottom,transparent 0 38%,#fff 38% 63%,transparent 63%),#ba0c2f}.flag-no:after{content:'';position:absolute;inset:0;background:linear-gradient(to right,transparent 0 33%,#00205b 33% 41%,transparent 41%),linear-gradient(to bottom,transparent 0 45%,#00205b 45% 56%,transparent 56%)}.flag-se{background:linear-gradient(to right,transparent 0 31%,#fecc00 31% 42%,transparent 42%),linear-gradient(to bottom,transparent 0 43%,#fecc00 43% 58%,transparent 58%),#006aa7}.flag-fi{background:linear-gradient(to right,transparent 0 30%,#003580 30% 45%,transparent 45%),linear-gradient(to bottom,transparent 0 40%,#003580 40% 60%,transparent 60%),#fff}.flag-is{background:linear-gradient(to right,transparent 0 29%,#fff 29% 48%,transparent 48%),linear-gradient(to bottom,transparent 0 37%,#fff 37% 64%,transparent 64%),#02529c}.flag-is:after{content:'';position:absolute;inset:0;background:linear-gradient(to right,transparent 0 35%,#dc1e35 35% 42%,transparent 42%),linear-gradient(to bottom,transparent 0 46%,#dc1e35 46% 56%,transparent 56%)}.flag-ch{background:#d52b1e}.flag-ch:before{content:'';position:absolute;left:39%;top:18%;width:22%;height:64%;background:#fff}.flag-ch:after{content:'';position:absolute;left:23%;top:39%;width:54%;height:22%;background:#fff}.flag-hr{background:linear-gradient(to bottom,#ff0000 0 33.33%,#fff 33.33% 66.66%,#171796 66.66%)}.flag-hr:after{content:'';position:absolute;left:41%;top:27%;width:18%;height:43%;background:repeating-conic-gradient(#e5232e 0 25%,#fff 0 50%) 0/5px 5px;border:1px solid #1d4d9b}.flag-sk{background:linear-gradient(to bottom,#fff 0 33.33%,#0b4ea2 33.33% 66.66%,#ee1c25 66.66%)}.flag-za{background:linear-gradient(to bottom,#de3831 0 43%,#fff 43% 57%,#002395 57%)}.flag-za:before{content:'';position:absolute;inset:0;background:#007749;clip-path:polygon(0 18%,48% 50%,0 82%,0 64%,28% 50%,0 36%)}.flag-si{background:linear-gradient(to bottom,#fff 0 33.33%,#0056a4 33.33% 66.66%,#ed1c24 66.66%)}.flag-rs{background:linear-gradient(to bottom,#c6363c 0 33.33%,#0c4076 33.33% 66.66%,#fff 66.66%)}.flag-lu{background:linear-gradient(to bottom,#ed2939 0 33.33%,#fff 33.33% 66.66%,#00a1de 66.66%)}
@@ -532,7 +532,22 @@
     return !!(a && b && ((a.id && b.id && a.id === b.id) || (a.endpoint && b.endpoint && a.endpoint === b.endpoint)));
   }
 
+  function isQuickCandidate(candidate) {
+    return !!(candidate && candidate.validation === 'quick');
+  }
+
+  function quickCandidateHealthy(candidate) {
+    const ms = Number(candidate && candidate.application_rtt_ms || 0);
+    return !!(isQuickCandidate(candidate) && candidate.available && ms > 0 && ms <= 180);
+  }
+
   function stateForCandidate(data, candidate) {
+    if (isQuickCandidate(candidate)) {
+      if (candidate.available && Number(candidate.application_rtt_ms || 0) > 180) return {kind: 'warning', label: 'Высокий отклик', icon: 'alert'};
+      if (!candidate.available) return {kind: 'rejected', label: 'VPN-путь не подтверждён', icon: 'alert'};
+      const first = data && data.recommendation && sameCandidate(data.recommendation, candidate);
+      return {kind: 'quick', label: first ? 'Быстрый лидер' : 'Кандидат', icon: 'compare'};
+    }
     if (!candidate.eligible && latencyOnlyWarning(candidate)) return {kind: 'warning', label: 'Высокий отклик', icon: 'alert'};
     if (!candidate.eligible) return {kind: 'rejected', label: 'Не прошёл проверку', icon: 'alert'};
     if (data && data.recommendation && !data.recommendation.current && sameCandidate(data.recommendation, candidate)) {
@@ -557,7 +572,11 @@
     if (comparisons) pieces.push(`${comparisons} для сравнения`);
     if (warnings) pieces.push(`${warnings} выше целевого отклика`);
     if (rejected) pieces.push(`${rejected} не прошёл проверку`);
-    main.textContent = `Проверено профилей: ${data.profiles_scanned || 0}. Показано ${states.length} вариант${states.length === 1 ? '' : states.length < 5 ? 'а' : 'ов'}: ${pieces.join(', ') || 'нет подходящих'}.`;
+    const pool = Number(data.profiles_total || 0);
+    const express = Number(data.express_measured ?? data.profiles_scanned ?? 0);
+    const quick = Number(data.quick_measured || 0);
+    const strict = Number(data.strict_tested || 0);
+    main.textContent = `Пул: ${pool} · DIRECT: ${express} · VPN quick: ${quick} · строгих: ${strict}. Показано ${states.length} вариант${states.length === 1 ? '' : states.length < 5 ? 'а' : 'ов'}: ${pieces.join(', ') || 'нет подходящих'}.`;
     copy.appendChild(main);
     if (data.recommendation && data.recommendation.current) {
       const sub = document.createElement('div'); sub.className = 'summary-sub'; sub.textContent = 'Текущий VPN остаётся предпочтительным.'; copy.appendChild(sub);
@@ -592,10 +611,10 @@
       title.appendChild(name); head.appendChild(title);
       const actions = document.createElement('div'); actions.className = 'vpn-option-actions';
       const badge = document.createElement('span'); badge.className = 'vpn-state-badge'; badge.append(makeIcon(state.icon, 'status-icon'), document.createTextNode(state.label)); actions.appendChild(badge);
-      if (candidate.eligible) {
+      if (candidate.eligible || quickCandidateHealthy(candidate)) {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'btn secondary vpn-option-apply'; button.dataset.candidateId = candidate.id;
         if (index === 0) button.id = 'bestServerApply';
-        button.textContent = state.kind === 'best' ? 'Переключиться' : 'Использовать';
+        button.textContent = quickCandidateHealthy(candidate) ? 'Проверить и использовать' : (state.kind === 'best' ? 'Переключиться' : 'Использовать');
         button.setAttribute('aria-label', `${button.textContent}: ${name.textContent}`);
         actions.appendChild(button);
       } else {
@@ -608,7 +627,11 @@
       if (candidate.eligible) {
         appendDetailChip(reason, `Speedtest ${candidate.media_samples || 0}/4`, 'ok');
         appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, 'ok');
-        appendDetailChip(reason, 'Доступен', 'ok');
+        appendDetailChip(reason, 'Строго проверен', 'ok');
+      } else if (state.kind === 'quick') {
+        appendDetailChip(reason, 'DIRECT проверен', 'ok');
+        appendDetailChip(reason, `VPN quick ${candidate.http_samples || 0}/2`, 'ok');
+        appendDetailChip(reason, candidate.fresh_endpoint_retry ? 'Свежий endpoint' : 'Строгая проверка перед подключением', candidate.fresh_endpoint_retry ? 'ok' : '');
       } else if (state.kind === 'warning') {
         appendDetailChip(reason, `Speedtest ${candidate.media_samples || 0}/4`, 'ok');
         appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, candidate.service_ok === candidate.service_total && candidate.service_total > 0 ? 'ok' : 'bad');
@@ -625,9 +648,11 @@
       row.append(head, metrics, reason);
       if (!candidate.eligible) {
         const note = document.createElement('p'); note.className = 'vpn-rejected-note';
-        note.textContent = state.kind === 'warning'
-          ? 'Сервер доступен, но его отклик выше целевого порога AUTO VPN. Автоматически FreeNet на него не переключится.'
-          : 'Сервер не прошёл все проверки и не рекомендуется для переключения.';
+        note.textContent = state.kind === 'quick'
+          ? 'Кандидат быстро проверен через реальный VPN-путь. Перед переключением FreeNet выполнит строгую проверку скорости, сервисов и стабильности.'
+          : state.kind === 'warning'
+            ? 'Сервер доступен, но его отклик выше целевого порога AUTO VPN. Автоматически FreeNet на него не переключится.'
+            : 'Сервер не прошёл проверку и не рекомендуется для переключения.';
         row.appendChild(note);
       }
       box.appendChild(row);
@@ -700,6 +725,7 @@
 
   async function requestQuality(path, mode) {
     const id = crypto.randomUUID(), started = Date.now();
+    const maxWait = mode === 'best' ? 60000 : 90000;
     const panel = document.createElement('div'); panel.id = 'fnQualityProgress'; panel.setAttribute('role','dialog'); panel.setAttribute('aria-modal','true'); panel.setAttribute('aria-label','Проверка VPN'); panel.style.cssText='position:fixed;inset:0;z-index:950;background:#030911cc;display:grid;place-items:center;padding:20px;backdrop-filter:blur(5px)';
     const card = document.createElement('section'); card.style.cssText='width:min(440px,100%);box-sizing:border-box;padding:28px;background:#101e30;border:1px solid #304963;border-radius:18px;color:#e5eefb';
     const title=document.createElement('h2');title.style.cssText='font-size:20px;margin:0 0 16px';title.textContent=mode==='current'?'Проверяем текущий VPN':'Подбираем серверы';
@@ -718,9 +744,9 @@
         if(job.state==='completed'&&job.result)return new Response(JSON.stringify(job.result),{status:200});
         if(job.state==='failed')return new Response(JSON.stringify({success:false,error:job.error||'Проверка не завершена'}),{status:503});
         if(job.state!=='running')throw new Error('Invalid quality job state');
-        stage.textContent=job.stage==='quality'?`Глубоко проверяем лучшие VPN · проверено ${job.completed} · цель до 3 подходящих`:job.stage==='preflight'?`Сравниваем реальный отклик через VPN · завершено ${job.completed} из ${job.total}`:job.stage==='tcp'?'Проверяем доступность серверов…':'Получаем профили подписки…';
-        if(job.stage==='preflight'&&job.total>0){progress.max=job.total;progress.value=job.completed}else progress.removeAttribute('value');
-        if(Date.now()-started>210000)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
+        stage.textContent=job.stage==='express'?`DIRECT express: проверено ${job.completed} из ${job.total}`:job.stage==='quick'?`VPN quick: проверено ${job.completed} из ${job.total}`:job.stage==='quality'?`Строгая проверка VPN · ${job.completed} из ${job.total}`:job.stage==='preflight'?`VPN quick · ${job.completed} из ${job.total}`:job.stage==='tcp'?'Проверяем доступность серверов…':'Получаем профили подписки…';
+        if((job.stage==='express'||job.stage==='quick'||job.stage==='preflight')&&job.total>0){progress.max=job.total;progress.value=job.completed}else progress.removeAttribute('value');
+        if(Date.now()-started>maxWait)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
       }
       return response;
     } finally {clearInterval(ticker);panel.remove();if(controls)controls.inert=wasInert;if(focused?.isConnected)focused.focus();}
@@ -754,16 +780,40 @@
   }
 
   async function applyCandidate(candidate) {
-    if(applyBusy||scanBusy||externalBusy||!candidate||candidate.current||!candidate.id||!candidate.eligible||isRussianProfile(candidate))return;
-    recommendation=candidate;applyBusy=true;setBusy(false);
-    const apply=Array.from(document.querySelectorAll('.vpn-option-apply')).find(button=>button.dataset.candidateId===candidate.id);if(apply){apply.disabled=true;apply.textContent='Переключаем…';}
-    setText(qs('#bestServerStatus'),'Переключаем VPN и проверяем соединение…');const expectedEndpoint=candidate.endpoint;
+    const quick = quickCandidateHealthy(candidate);
+    if(applyBusy||scanBusy||externalBusy||!candidate||candidate.current||!candidate.id||(!candidate.eligible&&!quick)||isRussianProfile(candidate))return;
+    applyBusy=true;setBusy(false);
+    const apply=Array.from(document.querySelectorAll('.vpn-option-apply')).find(button=>button.dataset.candidateId===candidate.id);
+    if(apply){apply.disabled=true;apply.textContent=quick?'Строго проверяем…':'Переключаем…';}
+
     try{
+      if (quick) {
+        setText(qs('#bestServerStatus'),`Строго проверяем ${profileDisplayName(candidate,'сервер')} перед переключением: скорость, сервисы и стабильность…`);
+        const validationResponse=await fetch(`/api/vpn/best-candidate?id=${encodeURIComponent(candidate.id)}`,{cache:'no-store',signal:AbortSignal.timeout(70000)});
+        const validationBody=await validationResponse.json().catch(()=>null);
+        const strict=validationBody&&Array.isArray(validationBody.candidates)?validationBody.candidates.find(item=>item&&item.id===candidate.id):null;
+        if(!validationResponse.ok||!validationBody||validationBody.success!==true||!strict||!strict.eligible){
+          if(strict){
+            alternatives=alternatives.map(item=>item.id===candidate.id?strict:item);
+            const candidates=currentQuality?[Object.assign({},currentQuality,{current:true}),...alternatives]:alternatives.slice();
+            renderBestResult(Object.assign({},validationBody||{},{candidates,strict_tested:1}));
+          }
+          setText(qs('#bestServerStatus'),validationBody&&(validationBody.message||validationBody.error)||'Кандидат не прошёл строгую проверку. Текущий VPN не изменён.');
+          return;
+        }
+        candidate=strict;
+        alternatives=alternatives.map(item=>item.id===candidate.id?candidate:item);
+      }
+
+      recommendation=candidate;
+      if(apply){apply.disabled=true;apply.textContent='Переключаем…';}
+      setText(qs('#bestServerStatus'),'Строгая проверка пройдена. Переключаем VPN и проверяем соединение…');
+      const expectedEndpoint=candidate.endpoint;
       const response=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'provider',profile_id:candidate.id,confirm:true})});const body=await response.json().catch(()=>null);
       if(!response.ok||!body||!body.success){const detail=body&&(body.primary_error||body.error);setText(qs('#bestServerStatus'),detail||'Результат переключения не подтверждён. Не повторяйте операцию.');if(!body||body.result_unknown)recommendation=null;return;}
       const status=await waitForEndpoint(expectedEndpoint);if(!status){setText(qs('#bestServerStatus'),'Переключение ещё не подтверждено. Проверьте состояние системы перед повторной попыткой.');return;}
       recommendation=null;currentQuality=null;renderOverviewTopbarFromStatus(status);renderMetrics(qs('#bestCurrentMetrics'),null);renderCurrentHealth(null);setText(qs('#bestCurrentQuality'),'Качество ещё не проверено');setText(qs('#bestServerStatus'),'VPN переключён. Соединение проверено.');
-    }catch(_){recommendation=null;setText(qs('#bestServerStatus'),'Связь прервалась во время переключения. Результат не подтверждён — проверьте состояние системы перед повторной попыткой.');}finally{clearAlternatives('Результаты подбора израсходованы. Для нового переключения подберите серверы снова.');applyBusy=false;setBusy(false);}
+    }catch(_){recommendation=null;setText(qs('#bestServerStatus'),'Связь прервалась во время проверки или переключения. Результат не подтверждён — проверьте состояние системы перед повторной попыткой.');}finally{clearAlternatives('Результаты подбора израсходованы. Для нового переключения подберите серверы снова.');applyBusy=false;setBusy(false);}
   }
 
   async function retryCandidate(candidate, button) {
