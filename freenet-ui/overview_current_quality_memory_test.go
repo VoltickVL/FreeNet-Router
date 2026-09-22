@@ -16,8 +16,11 @@ func TestOverviewCurrentQualityMemoryDeliveredBeforeBootRelease(t *testing.T) {
 	}
 	for _, want := range []string{
 		`id="freenetOverviewCurrentQualityMemory"`,
+		`/api/status`,
 		`/api/vpn/current-quality?job=cache`,
 		`Последний замер: `,
+		`VPN сейчас не подключен.`,
+		`latencyOnlyWarning`,
 		`seedMissingMeasurement`,
 		`/api/vpn/current-quality?job=start&id=`,
 		`renderMetrics(candidate)`,
