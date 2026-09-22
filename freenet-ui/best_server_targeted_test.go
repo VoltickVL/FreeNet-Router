@@ -47,7 +47,7 @@ func TestBestServerFreshCandidateForCurrentRejectsAmbiguousRotation(t *testing.T
 func TestBestServerFreshEndpointRotationUsesFreshEligibilityNotOldScore(t *testing.T) {
 	fresh := bestServerQualityCandidate{
 		Tested: true, Available: true, Eligible: true,
-		Score: 700, DownloadMbps: 35, ApplicationMS: 210, JitterMS: 30,
+		Score: 700, DownloadMbps: 35, ApplicationMS: 170, JitterMS: 30,
 	}
 	if !fresh.Tested || !fresh.Available || !fresh.Eligible {
 		t.Fatal("fully validated fresh endpoint must be eligible for same-profile rotation regardless of old endpoint score")
@@ -83,6 +83,33 @@ func TestFreshEndpointReadinessUsesLightOffPathProbes(t *testing.T) {
 	}
 	if got.TCPRTTMS != 11 || got.ApplicationMS != 43 || got.DownloadMbps != 0 || got.MediaSamples != 0 {
 		t.Fatalf("same-profile readiness must use TCP+application evidence only, without Speedtest/media ranking: %#v", got)
+	}
+}
+
+func TestFreshEndpointReadinessRejectsHighApplicationLatencyWithoutSpeedtest(t *testing.T) {
+	oldTCP := bestServerEndpointTCPProbe
+	oldApp := bestServerEndpointApplicationProbe
+	t.Cleanup(func() {
+		bestServerEndpointTCPProbe = oldTCP
+		bestServerEndpointApplicationProbe = oldApp
+	})
+
+	bestServerEndpointTCPProbe = func(_ context.Context, _ subscriptionProfile) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{11}, Median: 11}
+	}
+	bestServerEndpointApplicationProbe = func(_ *app, _ context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
+		ms := bestServerQualityMaxApplicationMS + 10
+		return bestServerProbeResult{OK: true, Samples: []int{ms, ms}, Median: ms, Jitter: 0}
+	}
+
+	got := (&app{}).probeBestServerFreshEndpointReadiness(context.Background(), bestServerInternalCandidate{Profile: subscriptionProfile{
+		ID: "abcdef0123456789", Name: "DE Frankfurt Extra", CountryCode: "de", Address: "203.0.113.22", Port: 443,
+	}})
+	if got == nil || !got.Tested || !got.Available || got.Eligible {
+		t.Fatalf("high-latency fresh endpoint must stay available but fail automatic eligibility: %#v", got)
+	}
+	if got.ApplicationMS != bestServerQualityMaxApplicationMS+10 || got.DownloadMbps != 0 || got.MediaSamples != 0 {
+		t.Fatalf("same-profile latency gate must remain lightweight without Speedtest/media: %#v", got)
 	}
 }
 

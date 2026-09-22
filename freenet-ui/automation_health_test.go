@@ -9,6 +9,18 @@ import (
 	"testing"
 )
 
+func TestAutomationApplicationLatencyGate(t *testing.T) {
+	if !automationApplicationPathHealthy(bestServerQualityMaxApplicationMS) {
+		t.Fatal("application RTT at the safety ceiling must remain healthy")
+	}
+	if automationApplicationPathHealthy(bestServerQualityMaxApplicationMS + 1) {
+		t.Fatal("application RTT above the safety ceiling must trigger recovery")
+	}
+	if automationApplicationPathHealthy(0) {
+		t.Fatal("missing application RTT must not be treated as healthy")
+	}
+}
+
 func TestAutomationServicePathHealthRequiresAllBoundedTargets(t *testing.T) {
 	if !automationServicePathHealthy(4, 4) {
 		t.Fatal("4/4 service paths must be healthy")

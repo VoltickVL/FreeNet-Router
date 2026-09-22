@@ -115,7 +115,7 @@ func (a *app) probeBestServerFreshEndpointReadiness(parent context.Context, cand
 		HTTPSamples: len(app.Samples),
 	}
 	result.Available = result.Tested && tcp.OK && app.OK
-	result.Eligible = result.Available
+	result.Eligible = result.Available && automationApplicationPathHealthy(result.ApplicationMS)
 	switch {
 	case result.Eligible:
 		result.Confidence = "high"
@@ -124,8 +124,10 @@ func (a *app) probeBestServerFreshEndpointReadiness(parent context.Context, cand
 		result.Reason = "fresh endpoint readiness timed out"
 	case !tcp.OK:
 		result.Reason = "fresh endpoint TCP probe failed"
-	default:
+	case !app.OK:
 		result.Reason = "fresh endpoint isolated VPN application probe failed"
+	default:
+		result.Reason = "fresh endpoint application RTT is above the automatic safety ceiling"
 	}
 	return result
 }
