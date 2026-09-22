@@ -283,7 +283,7 @@ func TestSettingsV3SaveSwitchesEndpointAndFullModesTransactionally(t *testing.T)
 		"AUTO_VPN_MODE=endpoint",
 		"AUTO_VPN_V1_INTERVAL=30m",
 		"AUTO_ENDPOINT_UPDATE=yes",
-		"AUTO_ENDPOINT_CRON=*/30 * * * *",
+		"AUTO_ENDPOINT_CRON='*/30 * * * *'",
 	} {
 		if !strings.Contains(configText, want) {
 			t.Fatalf("endpoint-only save missing %q:\n%s", want, configText)
