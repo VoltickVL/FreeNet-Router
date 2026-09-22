@@ -152,7 +152,7 @@ chmod 755 "$TMP/bin/curl"
 
 # Provider mutation must share the updater lock and fail closed before touching live state.
 mkdir -p "$TMP/vpn-mutation.lock"
-printf '%s\n' "$" > "$TMP/vpn-mutation.lock/pid"
+printf '%s\n' "$$" > "$TMP/vpn-mutation.lock/pid"
 LOCK_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
 LOCK_FILTER="$(cat "$TMP/profile.filter")"
 if run_helper apply "$PROFILE_ID" > "$TMP/locked.out" 2> "$TMP/locked.err"; then
