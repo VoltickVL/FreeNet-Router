@@ -846,6 +846,11 @@ func (a *app) runAction(action string) actionResult {
 	}
 
 	if cmdErr != nil {
+		if automationEndpointUpdateBusy(output) {
+			result.Error = "another VPN/Xray mutation is already running"
+			result.EndedAt = time.Now().Format(time.RFC3339)
+			return result
+		}
 		if action == "rotate" && commandExitCode(cmdErr) == 3 {
 			result.Error = "another VPN endpoint is not available in the current profile group"
 			if safeOutput != "" {
@@ -856,7 +861,7 @@ func (a *app) runAction(action string) actionResult {
 		}
 
 		if action != "update" {
-			if rbErr := a.restoreSnapshot(snap); rbErr != nil {
+			if rbErr := a.restoreSnapshotWithVPNMutationLock(snap); rbErr != nil {
 				result.Error = fmt.Sprintf("%v; rollback failed: %v", cmdErr, rbErr)
 				if safeOutput != "" {
 					result.Error += "; " + safeOutput
@@ -875,7 +880,7 @@ func (a *app) runAction(action string) actionResult {
 
 	if !processRunning("xray") {
 		if action != "update" {
-			if rbErr := a.restoreSnapshot(snap); rbErr != nil {
+			if rbErr := a.restoreSnapshotWithVPNMutationLock(snap); rbErr != nil {
 				result.Error = "Xray is offline after operation; rollback failed: " + rbErr.Error()
 				result.EndedAt = time.Now().Format(time.RFC3339)
 				return result
@@ -889,7 +894,7 @@ func (a *app) runAction(action string) actionResult {
 	after := a.status()
 	if err := validateActionPostcondition(action, before, after); err != nil {
 		if action != "update" {
-			if rbErr := a.restoreSnapshot(snap); rbErr != nil {
+			if rbErr := a.restoreSnapshotWithVPNMutationLock(snap); rbErr != nil {
 				result.Error = err.Error() + "; rollback failed: " + rbErr.Error()
 				result.EndedAt = time.Now().Format(time.RFC3339)
 				return result
