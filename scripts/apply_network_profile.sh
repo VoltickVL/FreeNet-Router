@@ -167,6 +167,7 @@ xray_pid() {
     # choosing an arbitrary process for DNS/runtime acceptance.
     [ "$EXACT_COUNT" -gt 1 ] && return 0
 
+    # Fallback may use the expected runtime group and still reject an explicitly marked probe.
     FALLBACK_PID=""
     FALLBACK_COUNT=0
     for PID in $PIDS; do
