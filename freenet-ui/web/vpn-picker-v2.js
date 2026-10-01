@@ -120,7 +120,7 @@
       .fnv2-flag::before,.fnv2-flag::after{display:none!important;content:none!important}
       html body #controlCenter #fnVpnPickerV2Toggle .fnv2-flag svg,html body #fnVpnPickerV2Panel .fnv2-flag svg{display:none!important}
       #fnVpnPickerV2Toggle .fnv2-flag{width:20px;height:14px}
-      #fnVpnPickerV2Panel{position:fixed;z-index:2600;box-sizing:border-box;display:flex;flex-direction:column;gap:0;width:540px;max-width:calc(100vw - 24px);max-height:var(--fnv2-space,680px);margin:0;padding:0;color:#eef4ff;background:#0c1c2e;border:1px solid #355473;border-radius:16px;box-shadow:0 24px 70px #0009;font-family:Inter,ui-sans-serif,system-ui,sans-serif;overflow:hidden}
+      #fnVpnPickerV2Panel{position:fixed;z-index:2600;box-sizing:border-box;display:flex;flex-direction:column;gap:0;width:540px;max-width:calc(100vw - 24px);height:min(760px,var(--fnv2-space,760px));max-height:var(--fnv2-space,760px);margin:0;padding:0;color:#eef4ff;background:#0c1c2e;border:1px solid #355473;border-radius:16px;box-shadow:0 24px 70px #0009;font-family:Inter,ui-sans-serif,system-ui,sans-serif;overflow:hidden}
       #fnVpnPickerV2Panel[hidden]{display:none!important}
       #fnVpnPickerV2Panel *{box-sizing:border-box}
       #fnVpnPickerV2Panel button,#fnVpnPickerV2Panel input{font:inherit}
@@ -149,7 +149,7 @@
       #fnVpnPickerV2Search:focus{border-color:#79a8f7;box-shadow:0 0 0 2px #4b7bc426}
       #fnVpnPickerV2RTTState{margin:-2px 16px 8px;font-size:10px;line-height:1.35;color:#8fa8c3;flex:none}
       #fnVpnPickerV2RTTState[data-error=true]{color:#ef9da5}
-      #fnVpnPickerV2Results{margin:0 12px;padding:4px;min-height:70px;max-height:280px;flex:1 1 280px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;border:1px solid #243f59;border-radius:10px;background:#081727}
+      #fnVpnPickerV2Results{margin:0 12px;padding:4px;min-height:70px;min-width:0;flex:1 1 auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;border:1px solid #243f59;border-radius:10px;background:#081727}
       #fnVpnPickerV2Results .fnv2-option{appearance:none;width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid transparent;border-radius:8px;background:none;color:#eef4ff;text-align:left;cursor:pointer}
       #fnVpnPickerV2Results .fnv2-option:hover,#fnVpnPickerV2Results .fnv2-option[aria-selected=true]{background:#132d49;border-color:#345b87}
       #fnVpnPickerV2Results .fnv2-option:disabled{opacity:.55;cursor:wait}
@@ -172,7 +172,7 @@
       #fnVpnPickerV2Footer button{height:41px;appearance:none;border:1px solid #3b638c;border-radius:9px;color:#edf5ff;background:#12283f;cursor:pointer;font-size:12px;font-weight:750}
       #fnVpnPickerV2Connect{background:linear-gradient(180deg,#347eff,#2465dc)!important;border-color:#6d9ee9!important}
       #fnVpnPickerV2Footer button:disabled{opacity:.45;cursor:not-allowed}
-      @media(max-width:760px){#fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;max-height:calc(100dvh - 24px)}#fnVpnPickerV2Toggle{width:174px}#fnVpnPickerV2Results{max-height:32dvh}#fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}}
+      @media(max-width:760px){#fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;height:auto;max-height:calc(100dvh - 24px)}#fnVpnPickerV2Toggle{width:174px}#fnVpnPickerV2Results{max-height:32dvh;flex:1 1 32dvh}#fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}}
       @media(max-height:580px){#fnVpnPickerV2Panel .fnv2-current{padding-top:6px;padding-bottom:6px}#fnVpnPickerV2Panel .fnv2-current-copy span{display:none}#fnVpnPickerV2Results{min-height:55px}#fnVpnPickerV2Footer{padding-top:6px;gap:5px;margin-top:5px}}
     `;
     document.head.appendChild(style);
