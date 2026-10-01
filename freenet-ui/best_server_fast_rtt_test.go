@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -161,5 +163,22 @@ func TestSelectBestServerFastRTTPreservesCurrentCandidate(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("generic Fast RTT shortlist dropped the current candidate")
+	}
+}
+
+
+func TestRawIngressFastRTTIsNotUsedForLogicalProfileSelection(t *testing.T) {
+	for _, path := range []string{"best_server_ux.go", "automation_v2.go"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(data)
+		if strings.Contains(src, "bestServerFastRTTShortlist(ctx") {
+			t.Fatalf("%s must not shortlist logical VPN profiles by shared ingress TCP RTT", path)
+		}
+		if !strings.Contains(src, "applicationAwareBestServerShortlist") {
+			t.Fatalf("%s must retain real per-profile proxy-path preflight", path)
+		}
 	}
 }
