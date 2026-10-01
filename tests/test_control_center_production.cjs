@@ -12,7 +12,7 @@ const server=spawn('go',['test','-run','^TestControlCenterBrowserServer$','-coun
 let serverLog='',serverExited=false,browser,page;
 server.stdout.on('data',b=>serverLog+=b);server.stderr.on('data',b=>serverLog+=b);server.on('exit',()=>serverExited=true);
 const locations=[['be','Брюссель','Бельгия'],['de','Берлин','Германия'],['nl','Амстердам','Нидерланды'],['fi','Хельсинки','Финляндия'],['es','Мадрид','Испания']];
-const profiles=Array.from({length:49},(_,i)=>{const[code,city,country]=locations[i%4];return{id:`fixture-${i}`,name:`${code.toUpperCase()} ${city} ${i+1}, ${country}, Extra`,country_code:code,address:`192.0.2.${i+10}`,port:443}});
+const profiles=Array.from({length:49},(_,i)=>{const[code,city,country]=locations[i%locations.length];return{id:`fixture-${i}`,name:`${code.toUpperCase()} ${city} ${i+1}, ${country}, Extra`,country_code:code,address:`192.0.2.${i+10}`,port:443}});
 const ukraine={id:'fixture-ua',name:'UA Kyiv, Ukraine, Extra',country_code:'ua',address:'192.0.2.250',port:443};
 const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
