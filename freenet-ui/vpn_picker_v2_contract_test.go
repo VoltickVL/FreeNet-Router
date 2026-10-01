@@ -21,10 +21,11 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"selectProviderProfile(profile)", "e.button.click()", "e.button.disabled",
 		"observer.disconnect()", "requestAnimationFrame", "text(connect,L.connect)",
 		"0x1F1E6", "cached rows may belong to another router", "refreshStaleCatalogOnOpen", "loadNetworkPlan",
+		"height:min(760px,var(--fnv2-space,760px))", "flex:1 1 auto",
 	} {
 		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
 	}
-	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint"} {
+	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint", "max-height:280px"} {
 		if strings.Contains(js, forbidden) { t.Fatalf("presentation must not contain %q", forbidden) }
 	}
 	mainData, err := os.ReadFile("main.go")

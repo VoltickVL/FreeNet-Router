@@ -573,6 +573,7 @@
     de:h('#111','#dd0000','#ffce00'), hu:h('#ce2939','#fff','#477050'), ie:v('#169b62','#fff','#ff883e'),
     jp:'<rect width="60" height="40" fill="#fff"/><circle cx="30" cy="20" r="9" fill="#bc002d"/>',
     pe:v('#d91023','#fff','#d91023'), lt:h('#fdb913','#006a44','#c1272d'), it:v('#009246','#fff','#ce2b37'),
+    es:'<rect width="60" height="40" fill="#aa151b"/><rect y="10" width="60" height="20" fill="#f1bf00"/><g transform="translate(18 20)"><rect x="-3.4" y="-5.8" width="6.8" height="11.6" rx=".8" fill="#aa151b"/><rect x="-2.1" y="-4.6" width="4.2" height="3.3" fill="#f1bf00"/><path d="M-4.7 6.2h9.4" stroke="#aa151b" stroke-width="1.2"/></g>',
     pl:h('#fff','#dc143c'), ua:h('#0057b8','#ffd700'), ch:'<rect width="60" height="40" fill="#d52b1e"/><rect x="26" y="9" width="8" height="22" fill="#fff"/><rect x="19" y="16" width="22" height="8" fill="#fff"/>',
     ng:v('#008751','#fff','#008751'), lu:h('#ed2939','#fff','#00a1de'), si:h('#fff','#005da4','#ed1c24'), rs:h('#c6363c','#0c4076','#fff'),
     dk:nordic('#c8102e','#fff','#fff'), fi:nordic('#fff','#003580','#003580'), se:nordic('#006aa7','#fecc00','#fecc00'), no:nordic('#ba0c2f','#fff','#00205b'), is:nordic('#02529c','#fff','#dc1e35'),
