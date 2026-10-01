@@ -15,7 +15,7 @@ const (
 	bestServerFastRTTAttempts       = 2
 	bestServerFastRTTAttemptTimeout = 900 * time.Millisecond
 	bestServerFastRTTPhaseTimeout   = 5 * time.Second
-	bestServerFastRTTShortlist      = 20
+	bestServerFastRTTShortlistLimit = 20
 	bestServerFastRTTPreferredMS    = 200
 	bestServerFastRTTReserveMS      = 300
 
@@ -210,7 +210,7 @@ func selectBestServerFastRTTIndexes(
 		return a.ID < b.ID
 	})
 
-	limit := bestServerFastRTTShortlist
+	limit := bestServerFastRTTShortlistLimit
 	if limit > len(candidates) {
 		limit = len(candidates)
 	}
