@@ -11,7 +11,7 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const server=spawn('go',['test','-run','^TestControlCenterBrowserServer$','-count=1','-timeout=5m'],{cwd:path.join(root,'freenet-ui'),env:{...process.env,FREENET_BROWSER_ADDRESS_FILE:addressFile},stdio:['ignore','pipe','pipe']});
 let serverLog='',serverExited=false,browser,page;
 server.stdout.on('data',b=>serverLog+=b);server.stderr.on('data',b=>serverLog+=b);server.on('exit',()=>serverExited=true);
-const locations=[['be','Брюссель','Бельгия'],['de','Берлин','Германия'],['nl','Амстердам','Нидерланды'],['fi','Хельсинки','Финляндия']];
+const locations=[['be','Брюссель','Бельгия'],['de','Берлин','Германия'],['nl','Амстердам','Нидерланды'],['fi','Хельсинки','Финляндия'],['es','Мадрид','Испания']];
 const profiles=Array.from({length:49},(_,i)=>{const[code,city,country]=locations[i%4];return{id:`fixture-${i}`,name:`${code.toUpperCase()} ${city} ${i+1}, ${country}, Extra`,country_code:code,address:`192.0.2.${i+10}`,port:443}});
 const ukraine={id:'fixture-ua',name:'UA Kyiv, Ukraine, Extra',country_code:'ua',address:'192.0.2.250',port:443};
 const catalogProfiles=[...profiles,ukraine];
@@ -123,13 +123,14 @@ async function capture(label){
   const rttOrder=await page.locator(R+' button').evaluateAll(nodes=>nodes.slice(0,4).map(n=>({id:n.dataset.profileId,rtt:n.querySelector('.fnv2-rtt')?.textContent})));
   assert.deepEqual(rttOrder.map(x=>x.id),['fixture-48','fixture-47','fixture-46','fixture-45'],'picker must sort ascending RTT after refresh: '+JSON.stringify(rttOrder));
   assert.ok(rttOrder.every(x=>/мс/.test(x.rtt||'')),'RTT must be visible beside sorted rows: '+JSON.stringify(rttOrder));
-  const initial=await geometry('desktop-initial');assert.ok(initial.panel.y>=initial.toggle.bottom,'anchored below VPN');
+  const initial=await geometry('desktop-initial');assert.ok(initial.panel.y>=initial.toggle.bottom,'anchored below VPN');assert.ok(initial.results.height>=400,'desktop list must use available viewport height: '+JSON.stringify(initial));
   const flags=await page.evaluate(()=>{
     const a=document.querySelector('#fnVpnPickerV2Flag'),b=document.querySelector('#fnVpnPickerV2CurrentFlag'),c=document.querySelector('#bestCurrentFlag');
     return{source:a.dataset.flagSource,chip:getComputedStyle(a).backgroundImage,panel:getComputedStyle(b).backgroundImage,overview:getComputedStyle(c).backgroundImage,all:Array.from(document.querySelectorAll('#fnVpnPickerV2Results .fnv2-flag')).every(n=>n.dataset.flagSource==='canonical'),emoji:/[\u{1F1E6}-\u{1F1FF}]/u.test(document.querySelector('#fnVpnPickerV2Panel').textContent)};
   });
   assert.equal(flags.source,'canonical');assert.equal(flags.chip,flags.overview);assert.equal(flags.panel,flags.overview);assert.equal(flags.all,true);assert.equal(flags.emoji,false);await capture('desktop-list');
   for(const query of ['герм','Germany','DE']){await page.locator(S).fill(query);assert.ok(await page.locator(R+' button').count()>0,'search '+query);assert.equal(await page.locator(R+' .fnv2-flag:not([data-country="de"])').count(),0)}
+  await page.locator(S).fill('Мадрид');assert.ok(await page.locator(R+' button').count()>0,'Madrid must be searchable');assert.equal(await page.locator(R+' .fnv2-flag:not([data-country="es"])').count(),0,'Madrid must use canonical Spain flag');assert.equal(await page.locator(R+' .fnv2-flag[data-flag-source="canonical"]').count(),await page.locator(R+' button').count(),'Spain flag must not fall back to legacy/unknown renderer');
   await page.locator(S).fill('nonexistent-fixture');assert.equal(await page.locator(R+' button').count(),0);assert.equal(await page.locator(R+' .fnv2-empty').isVisible(),true);
   await page.locator(S).fill('DE');planDelay=1300;await page.locator(R+' button[data-profile-id="fixture-1"]').click();
   await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='checking','checking');
