@@ -57,7 +57,7 @@ func isSpecializedBestServerCandidate(candidate bestServerInternalCandidate) boo
 func filterForeignBestServerCandidates(candidates []bestServerInternalCandidate) []bestServerInternalCandidate {
 	filtered := make([]bestServerInternalCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if isRussianBestServerCandidate(candidate) || isSpecializedBestServerCandidate(candidate) {
+		if isRussianBestServerCandidate(candidate) || isUserExcludedVPNCountry(candidate.Profile.CountryCode) || isSpecializedBestServerCandidate(candidate) {
 			continue
 		}
 		filtered = append(filtered, candidate)

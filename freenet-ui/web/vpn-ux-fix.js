@@ -299,6 +299,21 @@
     }
   }
 
+  async function scanProviderProfileRTT() {
+    const r = await fetch('/api/provider-profiles/rtt', {cache:'no-store'});
+    if (r.status === 401) {
+      if (typeof loadAuthStatus === 'function') await loadAuthStatus();
+      throw new Error('authentication required');
+    }
+    let data = null;
+    try { data = await r.json(); } catch (_) {}
+    if (!r.ok || !data || !data.success || !Array.isArray(data.results) || data.mutation !== 'NONE') {
+      throw new Error((data && data.error) || 'RTT scan unavailable');
+    }
+    return data;
+  }
+  window.freenetProviderRTTScan = scanProviderProfileRTT;
+
   function patchProfileSelection() {
     if (typeof selectProviderProfile !== 'function') return;
     selectProviderProfile = selectExactProfile;

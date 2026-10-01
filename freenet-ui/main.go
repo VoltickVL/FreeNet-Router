@@ -247,6 +247,7 @@ func main() {
 	mux.HandleFunc("POST /api/network-profile", a.requireAuth(a.handleNetworkProfilePost))
 	mux.HandleFunc("GET /api/network-profile/plan", a.requireAuth(a.handleNetworkProfilePlan))
 	mux.HandleFunc("GET /api/provider-profile/plan", a.requireAuth(a.handleProviderProfilePlan))
+	mux.HandleFunc("GET /api/provider-profiles/rtt", a.requireAuth(a.handleProviderProfilesRTT))
 	mux.HandleFunc("POST /api/network-profile/apply", a.requireAuth(a.handleNetworkProfileApply))
 	registerDNSPathTrace(mux, a)
 	registerGeoDataAPI(mux, a)

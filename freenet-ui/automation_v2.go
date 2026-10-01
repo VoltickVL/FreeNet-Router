@@ -75,7 +75,7 @@ func normalizeAutomationCountries(values []string) []string {
 	for _, raw := range values {
 		for _, part := range strings.Split(raw, ",") {
 			code := strings.ToLower(strings.TrimSpace(part))
-			if len(code) != 2 || code == "ru" {
+			if len(code) != 2 || isUserExcludedVPNCountry(code) {
 				continue
 			}
 			valid := true
@@ -365,7 +365,7 @@ func automationRegion(code string) string {
 func automationCountryAllowed(settings automationSettings, currentCountry, candidateCountry string) bool {
 	candidateCountry = strings.ToLower(strings.TrimSpace(candidateCountry))
 	currentCountry = strings.ToLower(strings.TrimSpace(currentCountry))
-	if candidateCountry == "" || candidateCountry == "ru" {
+	if candidateCountry == "" || isUserExcludedVPNCountry(candidateCountry) {
 		return false
 	}
 	switch settings.CountryScope {
