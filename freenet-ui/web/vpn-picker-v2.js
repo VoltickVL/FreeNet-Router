@@ -243,13 +243,8 @@
     if (rttScanning || busy()) return;
     rttScanning=true; rttError=''; rttSummary=''; listKey=''; paint();
     try {
-      const response=await fetch('/api/provider-profiles/rtt',{cache:'no-store'});
-      if (response.status===401) {
-        try { if (typeof loadAuthStatus==='function') await loadAuthStatus(); } catch (_) {}
-        throw new Error('auth');
-      }
-      const data=await response.json();
-      if (!response.ok || !data?.success || !Array.isArray(data.results)) throw new Error(data?.error || 'rtt');
+      if (typeof window.freenetProviderRTTScan!=='function') throw new Error('rtt');
+      const data=await window.freenetProviderRTTScan();
       const next=new Map();
       let reachable=0;
       for (const item of data.results) {
