@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -59,7 +58,6 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 		workers = len(candidates)
 	}
 	var wg sync.WaitGroup
-	var completed atomic.Int32
 	for worker := 0; worker < workers; worker++ {
 		wg.Add(1)
 		go func() {
@@ -78,7 +76,6 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 					item.JitterMS = value.Jitter
 				}
 				results[index] = item
-				completed.Add(1)
 			}
 		}()
 	}
