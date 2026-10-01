@@ -167,7 +167,7 @@ func readConfigStudioListFile(name string) configStudioTab {
 }
 
 func (a *app) configStudioXrayStatus(parent context.Context) configStudioXrayStatus {
-	status := configStudioXrayStatus{Online: processRunning("xray")}
+	status := configStudioXrayStatus{Online: a.liveXrayRunning()}
 	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, a.routingXrayBin(), "version")

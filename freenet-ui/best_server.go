@@ -576,6 +576,15 @@ func (a *app) probeBestServerApplication(ctx context.Context, candidate bestServ
 	if err != nil {
 		return bestServerProbeResult{}
 	}
+	outbound, err = prepareIsolatedProbeOutbound(outbound)
+	if err != nil {
+		return bestServerProbeResult{}
+	}
+	releaseProbe, ok := acquireIsolatedXrayProbe(ctx)
+	if !ok {
+		return bestServerProbeResult{}
+	}
+	defer releaseProbe()
 	xrayPath := strings.TrimSpace(os.Getenv("FREENET_XRAY_BIN"))
 	if xrayPath == "" {
 		xrayPath = defaultBestServerXrayPath
@@ -598,6 +607,10 @@ func (a *app) probeBestServerApplication(ctx context.Context, candidate bestServ
 	}
 	defer os.RemoveAll(tmpDir)
 	_ = os.Chmod(tmpDir, 0700)
+	probeXrayPath, err := isolatedXrayProbePath(tmpDir, xrayPath)
+	if err != nil {
+		return bestServerProbeResult{}
+	}
 
 	config := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
@@ -622,12 +635,13 @@ func (a *app) probeBestServerApplication(ctx context.Context, candidate bestServ
 		return bestServerProbeResult{}
 	}
 
-	env := append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir())
+	env := isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir()))
 	testCtx, cancelTest := context.WithTimeout(ctx, 5*time.Second)
-	testCmd := exec.CommandContext(testCtx, xrayPath, "run", "-test", "-confdir", tmpDir)
+	testCmd := exec.CommandContext(testCtx, probeXrayPath, "run", "-test", "-confdir", tmpDir)
 	testCmd.Env = env
 	testCmd.Stdout = io.Discard
 	testCmd.Stderr = io.Discard
+	testCmd.WaitDelay = 2 * time.Second
 	testErr := testCmd.Run()
 	cancelTest()
 	if testErr != nil {
@@ -636,10 +650,11 @@ func (a *app) probeBestServerApplication(ctx context.Context, candidate bestServ
 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	cmd := exec.CommandContext(runCtx, xrayPath, "run", "-confdir", tmpDir)
+	cmd := exec.CommandContext(runCtx, probeXrayPath, "run", "-confdir", tmpDir)
 	cmd.Env = env
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
 		return bestServerProbeResult{}
 	}

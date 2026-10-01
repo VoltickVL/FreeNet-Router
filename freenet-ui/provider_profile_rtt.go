@@ -137,14 +137,30 @@ func countProviderUniqueEndpoints(candidates []bestServerInternalCandidate) int 
 	return len(seen)
 }
 
-func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) {
+func acquireProviderProfileRTTGuards(a *app) (func(), string) {
+	releaseOperation, operationOK := tryAcquireFreeNetOperation(a)
+	if !operationOK {
+		return nil, "another FreeNet operation is already running"
+	}
 	if !beginProviderProfileRTTScan() {
+		releaseOperation()
+		return nil, "VPN ping is already running"
+	}
+	return func() {
+		endProviderProfileRTTScan()
+		releaseOperation()
+	}, ""
+}
+
+func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) {
+	releaseGuards, guardError := acquireProviderProfileRTTGuards(a)
+	if releaseGuards == nil {
 		writeJSON(w, http.StatusConflict, providerProfileRTTResponse{
-			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "proxy_http", Mutation: "NONE", Error: "VPN ping is already running",
+			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "proxy_http", Mutation: "NONE", Error: guardError,
 		})
 		return
 	}
-	defer endProviderProfileRTTScan()
+	defer releaseGuards()
 
 	ctx, cancel := context.WithTimeout(r.Context(), providerProfileRTTTimeout)
 	defer cancel()

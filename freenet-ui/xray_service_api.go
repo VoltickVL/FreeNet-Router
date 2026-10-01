@@ -11,7 +11,7 @@ import (
 
 const xrayRestartTimeout = 45 * time.Second
 
-var xrayServiceProcessRunning = processRunning
+var xrayServiceProcessRunning = liveXrayProcessRunning
 
 type xrayServiceActionRequest struct {
 	Action string `json:"action"`

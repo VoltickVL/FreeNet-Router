@@ -24,6 +24,24 @@ else
 fi
 OUT_FILE="$CONFIG_DIR/04_outbounds.json"
 
+xray_alias_in() {
+    dir="$1"
+    alias="$dir/fn-xray-probe"
+    rm -f "$alias" 2>/dev/null || true
+    ln -s "$XRAY_BIN" "$alias" 2>/dev/null || return 1
+    printf '%s\n' "$alias"
+}
+
+xray_test_config() {
+    confdir="$1"
+    test_tmp="$(mktemp -d /tmp/freenet-xray-test.XXXXXX 2>/dev/null)" || return 1
+    test_bin="$(xray_alias_in "$test_tmp")" || { rm -rf "$test_tmp" 2>/dev/null; return 1; }
+    FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$test_bin" run -test -confdir "$confdir" >/dev/null 2>&1
+    rc=$?
+    rm -rf "$test_tmp" 2>/dev/null || true
+    return "$rc"
+}
+
 valid_positive_int() {
     case "$1" in ''|*[!0-9]*) return 1 ;; esac
     [ "$1" -gt 0 ] 2>/dev/null
@@ -170,7 +188,7 @@ route_probe() {
       {
         log:{loglevel:"warning"},
         inbounds:[{listen:"127.0.0.1",port:$port,protocol:"socks",settings:{udp:false},tag:"freenet-probe-socks"}],
-        outbounds:[$live[0].outbounds[] | select(.tag == "vless-reality")],
+        outbounds:[($live[0].outbounds[] | select(.tag == "vless-reality") | .streamSettings.sockopt.mark = 255)],
         routing:{domainStrategy:"AsIs",rules:[{type:"field",inboundTag:["freenet-probe-socks"],outboundTag:"vless-reality"}]}
       }
     ' > "$cfg" 2>/dev/null; then
@@ -178,12 +196,13 @@ route_probe() {
         return 2
     fi
     chmod 600 "$cfg" 2>/dev/null || true
-    if ! XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$tmp" >/dev/null 2>&1; then
+    probe_xray="$(xray_alias_in "$tmp")" || { rm -rf "$tmp" 2>/dev/null; return 2; }
+    if ! FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$probe_xray" run -test -confdir "$tmp" >/dev/null 2>&1; then
         rm -rf "$tmp" 2>/dev/null
         return 2
     fi
 
-    XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -confdir "$tmp" > "$log" 2>&1 &
+    FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$probe_xray" run -confdir "$tmp" > "$log" 2>&1 &
     probe_pid=$!
     ready=0
     i=0
@@ -240,6 +259,7 @@ done
 [ -x "$XRAY_BIN" ] || { REASON="Xray binary is missing"; emit; exit 2; }
 [ -d "$ASSET_DIR" ] || { REASON="Xray asset directory is missing"; emit; exit 2; }
 command -v "$PIDOF_BIN" >/dev/null 2>&1 || [ -x "$PIDOF_BIN" ] || { REASON="pidof tool is missing"; emit; exit 2; }
+command -v mktemp >/dev/null 2>&1 || { REASON="mktemp tool is missing"; emit; exit 2; }
 
 if ! "$PIDOF_BIN" xray >/dev/null 2>&1; then
     VPN_PROCESS=DOWN
@@ -254,7 +274,7 @@ dns_fact
 jq -e '((.outbounds|type)=="array") and (([.outbounds[]|select(.tag=="vless-reality")]|length)==1)' "$OUT_FILE" >/dev/null 2>&1 || {
     REASON="local Xray VPN outbound baseline is invalid"; emit; exit 2;
 }
-XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" >/dev/null 2>&1 || {
+xray_test_config "$CONFIG_DIR" || {
     REASON="live Xray configuration is invalid"; emit; exit 2;
 }
 read_endpoint || { REASON="current vless-reality endpoint is unavailable"; emit; exit 2; }

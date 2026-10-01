@@ -30,8 +30,9 @@ for marker in \
     'ordered first-match DNS policy mirrors domain routing' \
     'suppress native System DNS intercept' \
     'normalize proxy_dns=off if required without unnecessary runtime restart' \
-    'grep -Fxq "$CONFIG_DIR"' \
-    'expected runtime group, never an arbitrary root-owned probe process'; do
+    'XRAY_LOCATION_CONFDIR=$CONFIG_DIR' \
+    'FREENET_XRAY_PROBE=1' \
+    'expected runtime group and still reject an explicitly marked probe'; do
     grep -Fq "$marker" "$SCRIPT" || fail "missing contract marker: $marker"
 done
 if grep -Fq "ip -4 addr show br0" "$SCRIPT"; then fail 'DNS acceptance hardcodes br0'; fi

@@ -86,6 +86,7 @@ func startNamedXrayProcess(t *testing.T, root string) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command(servicePath, "60")
+	cmd.Env = append(os.Environ(), "XRAY_LOCATION_CONFDIR="+filepath.Join(root, "configs"))
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
