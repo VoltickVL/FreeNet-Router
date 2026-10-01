@@ -111,7 +111,7 @@ func TestBestServerQualityFailsClosedWhenSpeedUnavailable(t *testing.T) {
 	}
 }
 
-func TestBestServerQualityPrefersCurrentIdentityOnSharedEndpoint(t *testing.T) {
+func TestBestServerQualityMeasuresSharedEndpointLogicalProfilesIndependently(t *testing.T) {
 	candidates := []bestServerInternalCandidate{
 		{Profile: subscriptionProfile{ID: "be", Name: "Brussels Belgium Extra", Address: "shared.example", Port: 443}},
 		{Profile: subscriptionProfile{ID: "de", Name: "Frankfurt Germany Extra", Address: "shared.example", Port: 443}},
@@ -123,8 +123,18 @@ func TestBestServerQualityPrefersCurrentIdentityOnSharedEndpoint(t *testing.T) {
 		}
 		return bestServerProbeResult{OK: true, Samples: []int{115, 120, 125}, Median: 120, Jitter: 10}
 	}
-	app := func(_ context.Context, _ bestServerInternalCandidate) bestServerQualityApplicationResult {
-		return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{200, 205, 210}, Median: 205, Jitter: 10}, DownloadOK: true, DownloadMbps: 80, Media: stableTestMedia(78)}
+	app := func(_ context.Context, c bestServerInternalCandidate) bestServerQualityApplicationResult {
+		median := 205
+		speed := 80.0
+		if c.Profile.ID == "be" {
+			median = 175
+			speed = 95
+		}
+		return bestServerQualityApplicationResult{
+			OK: true,
+			HTTP: bestServerProbeResult{OK: true, Samples: []int{median - 5, median, median + 5}, Median: median, Jitter: 10},
+			DownloadOK: true, DownloadMbps: speed, Media: stableTestMedia(speed - 2),
+		}
 	}
 
 	result := rankBestServerQualityCandidates(context.Background(), candidates, 3, false, "shared.example:443", "Frankfurt.*Germany", tcp, app)
@@ -138,10 +148,10 @@ func TestBestServerQualityPrefersCurrentIdentityOnSharedEndpoint(t *testing.T) {
 		}
 	}
 	if germany == nil || !germany.Current || !germany.Available {
-		t.Fatalf("actual current profile must be the shared-endpoint representative: %#v", germany)
+		t.Fatalf("actual current profile must remain identified: %#v", germany)
 	}
-	if belgium == nil || belgium.Current || belgium.Available {
-		t.Fatalf("non-current label on the same endpoint must not consume a deep quality slot: %#v", belgium)
+	if belgium == nil || belgium.Current || !belgium.Available || belgium.ApplicationMS != 175 {
+		t.Fatalf("different logical profile on shared ingress must receive its own deep measurement: %#v", belgium)
 	}
 }
 
