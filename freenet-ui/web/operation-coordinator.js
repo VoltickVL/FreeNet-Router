@@ -500,7 +500,7 @@
     const lower = value.toLowerCase();
     if (lower.includes('timeout') || lower.includes('тайма')) return 'Таймауты при замере';
     if (lower.includes('стабил') || lower.includes('jitter') || lower.includes('колеб')) return 'Нестабильное соединение';
-    if (lower.includes('speedtest') && lower.includes('0/')) return 'Speedtest не завершён';
+    if ((lower.includes('speedtest') || lower.includes('throughput')) && lower.includes('0/')) return 'Скорость не измерена';
     if (lower.includes('скорость') && lower.includes('не измер')) return 'Скорость не измерена';
     return value.length > 42 ? value.slice(0, 39) + '…' : value;
   }
@@ -516,11 +516,11 @@
   }
 
   function comparisonCandidates(data, current) {
-    const seen = new Set([data && data.current_endpoint, current && current.endpoint].filter(Boolean));
+    const seen = new Set();
     const pool = (Array.isArray(data && data.candidates) ? data.candidates : []).filter(candidate => {
-      if (!candidate || !candidate.tested || candidate.current || isRussianProfile(candidate) || !candidate.id || !candidate.endpoint || seen.has(candidate.endpoint)) return false;
+      if (!candidate || !candidate.tested || candidate.current || isRussianProfile(candidate) || !candidate.id || !candidate.endpoint || seen.has(candidate.id)) return false;
       if (!candidate.available && !candidate.reachable) return false;
-      seen.add(candidate.endpoint);
+      seen.add(candidate.id);
       return true;
     });
     const preferred = pool.filter(candidate => candidate.eligible === true);
@@ -529,7 +529,9 @@
   }
 
   function sameCandidate(a, b) {
-    return !!(a && b && ((a.id && b.id && a.id === b.id) || (a.endpoint && b.endpoint && a.endpoint === b.endpoint)));
+    if (!a || !b) return false;
+    if (a.id && b.id) return a.id === b.id;
+    return !!(a.endpoint && b.endpoint && a.endpoint === b.endpoint);
   }
 
   function stateForCandidate(data, candidate) {
@@ -606,17 +608,17 @@
       const reason = document.createElement('div'); reason.className = 'best-v4-reason'; if (index === 0) reason.id = 'bestServerReason';
       const legacyDeltas = document.createElement('span'); legacyDeltas.className = 'fn-sr-only comparison-deltas'; legacyDeltas.textContent = recommendationReason(data, candidate).join(' · '); reason.appendChild(legacyDeltas);
       if (candidate.eligible) {
-        appendDetailChip(reason, `Speedtest ${candidate.media_samples || 0}/4`, 'ok');
+        appendDetailChip(reason, `Скорость ${candidate.media_samples || 0}/4`, 'ok');
         appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, 'ok');
         appendDetailChip(reason, 'Доступен', 'ok');
       } else if (state.kind === 'warning') {
-        appendDetailChip(reason, `Speedtest ${candidate.media_samples || 0}/4`, 'ok');
+        appendDetailChip(reason, `Скорость ${candidate.media_samples || 0}/4`, 'ok');
         appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, candidate.service_ok === candidate.service_total && candidate.service_total > 0 ? 'ok' : 'bad');
         const diagnostics = Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.slice(0, 2) : ['Отклик выше целевого порога AUTO VPN'];
         diagnostics.forEach(text => appendDetailChip(reason, friendlyRejection(text), 'warn'));
         const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = (candidate.rejections || []).join(' · '); reason.appendChild(originals);
       } else {
-        appendDetailChip(reason, `Speedtest ${candidate.media_samples || 0}/4`, 'bad');
+        appendDetailChip(reason, `Скорость ${candidate.media_samples || 0}/4`, 'bad');
         appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, candidate.service_ok === candidate.service_total && candidate.service_total > 0 ? 'ok' : 'bad');
         const diagnostics = Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.slice(0, 2) : ['Недостаточно подтверждённых данных'];
         diagnostics.forEach(text => appendDetailChip(reason, friendlyRejection(text), 'bad'));
@@ -1120,7 +1122,7 @@
     const text = row.textContent || '';
     const services = text.match(/Сервисы\s+(\d+)\/(\d+)/i);
     const servicesOK = !!(services && Number(services[2]) > 0 && Number(services[1]) === Number(services[2]));
-    const speedIncomplete = /Скорость не измерена|Speedtest не заверш|Speedtest\s+[0-3]\/4/i.test(text);
+    const speedIncomplete = /Скорость не измерена|(?:Speedtest|Скорость) не заверш|(?:Speedtest|Скорость)\s+[0-2]\/4/i.test(text);
     return servicesOK && speedIncomplete;
   }
 
