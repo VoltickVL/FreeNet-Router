@@ -14,7 +14,8 @@
     checking:'Проверяем сервер…', ready:'Проверка пройдена', applying:'Подключаем и проверяем соединение…',
     failed:'Проверка не пройдена', empty:'Список серверов недоступен. Проверьте подписку.',
     noMatch:'Ничего не найдено. Измените запрос.', stale:'Показан последний успешный список.',
-    busy:'Другая операция VPN ещё выполняется.', blocked:'Результат нужно подтвердить. Повтор заблокирован.'
+    busy:'Другая операция VPN ещё выполняется.', blocked:'Результат нужно подтвердить. Повтор заблокирован.',
+    ping:'Измерить задержку всех серверов', pinging:'Проверяем RTT всех серверов…', pingFailed:'Не удалось измерить RTT серверов.'
   };
   const countries = (() => { try { return new Intl.DisplayNames(['ru'], {type:'region'}); } catch (_) { return null; } })();
   const english = (() => { try { return new Intl.DisplayNames(['en'], {type:'region'}); } catch (_) { return null; } })();
@@ -51,8 +52,9 @@
     return {id, ready, applying, button, card, note:card?.querySelector('.selected-note')?.textContent || '', title:card?.querySelector('strong')?.textContent || ''};
   }
   let sourceKey = '', rows = [], selected = null, choosing = false, error = '', sent = false;
-  let host, toggle, panel, search, list, footer, statusText, detail, connect, reset, currentName, currentCopy, currentFlag, badge;
+  let host, toggle, panel, search, list, footer, statusText, detail, connect, reset, refresh, currentName, currentCopy, currentFlag, badge;
   let paintQueued = false, listKey = '', timer = null, observedCard = null, observedButton = null, staleRefresh = null;
+  let rttByID = new Map(), rttRanked = false, rttScanning = false, rttVersion = 0, rttSummary = '', rttError = '';
   const atlas = new Map();
   function readAtlas() {
     // Reuse the EXACT integrated freenetCanonicalAllFlags SVG data, including
@@ -82,9 +84,9 @@
     if (!profiles.length) {
       try { const cache = JSON.parse(localStorage.getItem('freenet-extra-profiles-last-good-v1') || '{}'); profiles = Array.isArray(cache.profiles) ? cache.profiles : []; stale = profiles.length > 0; } catch (_) {}
     }
-    const safe = profiles.filter(p => p && typeof p.id === 'string' && p.id && codeOf(p) !== 'ru').slice(0,100).map(p => ({id:p.id,name:String(p.name || p.label || ''),country_code:codeOf(p),endpoint:endpoint(p),address:String(p.address || ''),port:Number(p.port || 0)}));
+    const safe = profiles.filter(p => p && typeof p.id === 'string' && p.id && !['ru','ua'].includes(codeOf(p))).slice(0,100).map(p => ({id:p.id,name:String(p.name || p.label || ''),country_code:codeOf(p),endpoint:endpoint(p),address:String(p.address || ''),port:Number(p.port || 0)}));
     const key = JSON.stringify([safe, stale]);
-    if (key !== sourceKey) { sourceKey = key; rows = safe; listKey = ''; }
+    if (key !== sourceKey) { sourceKey = key; rows = safe; listKey = ''; rttByID.clear(); rttRanked = false; rttSummary=''; rttError=''; rttVersion++; }
     return {stale};
   }
   function currentIdentity(s) {
@@ -126,7 +128,14 @@
       #fnVpnPickerV2Panel .fnv2-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px;border-bottom:1px solid #28415b;flex:none}
       #fnVpnPickerV2Panel h2{font-size:17px;line-height:1.3;margin:0;font-weight:750}
       #fnVpnPickerV2Panel .fnv2-subtitle{font-size:11px;line-height:1.4;color:#92a8c3;margin:3px 0 0}
-      #fnVpnPickerV2Close{appearance:none;flex:none;width:30px;height:30px;border:1px solid #365674;border-radius:8px;background:#11273e;color:#b3c5da;cursor:pointer;font-size:20px!important}
+      #fnVpnPickerV2Panel .fnv2-head-actions{display:flex;align-items:center;gap:7px;flex:none}
+      #fnVpnPickerV2Refresh,#fnVpnPickerV2Close{appearance:none;display:grid;place-items:center;flex:none;width:30px;height:30px;border:1px solid #365674;border-radius:8px;background:#11273e;color:#b3c5da;cursor:pointer}
+      #fnVpnPickerV2Refresh:hover,#fnVpnPickerV2Close:hover{border-color:#6597d9;color:#eef5ff;background:#16304b}
+      #fnVpnPickerV2Refresh:disabled{opacity:.5;cursor:wait}
+      #fnVpnPickerV2Refresh svg{width:16px;height:16px}
+      #fnVpnPickerV2Refresh[data-busy=true] svg{animation:fnv2-spin .8s linear infinite}
+      #fnVpnPickerV2Close{font-size:20px!important}
+      @keyframes fnv2-spin{to{transform:rotate(360deg)}}
       #fnVpnPickerV2Panel .fnv2-current{flex:none;display:flex;align-items:center;gap:10px;padding:12px 16px}
       #fnVpnPickerV2Panel .fnv2-current>.fnv2-flag{width:34px;height:23px}
       #fnVpnPickerV2Panel .fnv2-current-copy{display:grid;gap:2px;min-width:0;flex:1}
@@ -138,6 +147,8 @@
       #fnVpnPickerV2Panel .fnv2-search-wrap{position:relative;padding:0 12px 9px;flex:none}
       #fnVpnPickerV2Search{width:100%;height:41px;border:1px solid #355473;border-radius:10px;background:#081727;color:#f2f7ff;padding:0 12px;outline:none;font-size:12px!important}
       #fnVpnPickerV2Search:focus{border-color:#79a8f7;box-shadow:0 0 0 2px #4b7bc426}
+      #fnVpnPickerV2RTTState{margin:-2px 16px 8px;font-size:10px;line-height:1.35;color:#8fa8c3;flex:none}
+      #fnVpnPickerV2RTTState[data-error=true]{color:#ef9da5}
       #fnVpnPickerV2Results{margin:0 12px;padding:4px;min-height:70px;max-height:280px;flex:1 1 280px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;border:1px solid #243f59;border-radius:10px;background:#081727}
       #fnVpnPickerV2Results .fnv2-option{appearance:none;width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid transparent;border-radius:8px;background:none;color:#eef4ff;text-align:left;cursor:pointer}
       #fnVpnPickerV2Results .fnv2-option:hover,#fnVpnPickerV2Results .fnv2-option[aria-selected=true]{background:#132d49;border-color:#345b87}
@@ -145,6 +156,8 @@
       #fnVpnPickerV2Results .fnv2-option-copy{display:grid;gap:3px;min-width:0;flex:1}
       #fnVpnPickerV2Results .fnv2-option-copy strong{font-size:12px;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       #fnVpnPickerV2Results .fnv2-option-copy small{font-size:10px;line-height:1.2;color:#92a8c3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      #fnVpnPickerV2Results .fnv2-rtt{flex:none;min-width:54px;text-align:right;font-size:10px;font-weight:800;color:#7e98b8}
+      #fnVpnPickerV2Results .fnv2-rtt.fast{color:#55dda4}#fnVpnPickerV2Results .fnv2-rtt.ok{color:#a8d77b}#fnVpnPickerV2Results .fnv2-rtt.slow{color:#efbd69}#fnVpnPickerV2Results .fnv2-rtt.dead{color:#d4828b}
       #fnVpnPickerV2Results .fnv2-empty{font-size:12px;line-height:1.6;color:#a3b7d1;padding:17px 12px}
       #fnVpnPickerV2Stale{margin:5px 16px 0;font-size:10px;color:#dcc28b;flex:none}
       #fnVpnPickerV2Stale[hidden]{display:none}
@@ -174,11 +187,12 @@
     summary.appendChild(host); toggle = q('button',host);
     panel = document.createElement('section'); panel.id = 'fnVpnPickerV2Panel'; panel.hidden = true;
     panel.setAttribute('role','dialog'); panel.setAttribute('aria-labelledby','fnVpnPickerV2Title');
-    panel.innerHTML = '<header class="fnv2-head"><div><h2 id="fnVpnPickerV2Title"></h2><p class="fnv2-subtitle"></p></div><button id="fnVpnPickerV2Close" type="button">&times;</button></header><div class="fnv2-current"><span id="fnVpnPickerV2CurrentFlag" class="fnv2-flag" aria-hidden="true"></span><div class="fnv2-current-copy"><small></small><strong></strong><span></span></div><span id="fnVpnPickerV2State"></span></div><div class="fnv2-search-wrap"><input id="fnVpnPickerV2Search" type="search" autocomplete="off" spellcheck="false"></div><div id="fnVpnPickerV2Results" role="listbox"></div><p id="fnVpnPickerV2Stale" hidden></p><footer id="fnVpnPickerV2Footer"><div class="fnv2-validation" role="status" aria-live="polite"><strong id="fnVpnPickerV2Status"></strong><span id="fnVpnPickerV2Detail"></span></div><div class="fnv2-actions"><button id="fnVpnPickerV2Connect" type="button" disabled></button><button id="fnVpnPickerV2Reset" type="button" disabled></button></div></footer>';
+    panel.innerHTML = '<header class="fnv2-head"><div><h2 id="fnVpnPickerV2Title"></h2><p class="fnv2-subtitle"></p></div><div class="fnv2-head-actions"><button id="fnVpnPickerV2Refresh" type="button" aria-label="Измерить задержку всех серверов" title="Измерить задержку всех серверов"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 9A7 7 0 0 1 18 6l2 5M4 13l2 5a7 7 0 0 0 11.9-3"/></svg></button><button id="fnVpnPickerV2Close" type="button">&times;</button></div></header><div class="fnv2-current"><span id="fnVpnPickerV2CurrentFlag" class="fnv2-flag" aria-hidden="true"></span><div class="fnv2-current-copy"><small></small><strong></strong><span></span></div><span id="fnVpnPickerV2State"></span></div><div class="fnv2-search-wrap"><input id="fnVpnPickerV2Search" type="search" autocomplete="off" spellcheck="false"></div><p id="fnVpnPickerV2RTTState" hidden></p><div id="fnVpnPickerV2Results" role="listbox"></div><p id="fnVpnPickerV2Stale" hidden></p><footer id="fnVpnPickerV2Footer"><div class="fnv2-validation" role="status" aria-live="polite"><strong id="fnVpnPickerV2Status"></strong><span id="fnVpnPickerV2Detail"></span></div><div class="fnv2-actions"><button id="fnVpnPickerV2Connect" type="button" disabled></button><button id="fnVpnPickerV2Reset" type="button" disabled></button></div></footer>';
     document.body.appendChild(panel);
     text(q('h2',panel),L.choose); text(q('.fnv2-subtitle',panel),L.hint);
     text(q('.fnv2-current-copy small',panel),L.current);
     q('#fnVpnPickerV2Close').setAttribute('aria-label',L.close);
+    refresh = q('#fnVpnPickerV2Refresh'); refresh.setAttribute('aria-label',L.ping); refresh.title=L.ping;
     search = q('input',panel); search.placeholder = L.search; search.setAttribute('aria-label',L.search);
     list = q('#fnVpnPickerV2Results'); list.setAttribute('aria-label',L.choose);
     footer = q('footer',panel); statusText = q('#fnVpnPickerV2Status'); detail = q('#fnVpnPickerV2Detail');
@@ -186,6 +200,7 @@
     currentName = q('.fnv2-current-copy strong',panel); currentCopy = q('.fnv2-current-copy span',panel); currentFlag = q('#fnVpnPickerV2CurrentFlag'); badge = q('#fnVpnPickerV2State');
     toggle.addEventListener('click',() => panel.hidden ? open() : close(true));
     q('#fnVpnPickerV2Close').addEventListener('click',() => close(true));
+    refresh.addEventListener('click',refreshRTT);
     search.addEventListener('input',() => { listKey=''; paint(); });
     list.addEventListener('keydown',event => {
       if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
@@ -224,9 +239,51 @@
     try { await selectProviderProfile(profile); } catch (_) { error=L.failed; }
     finally { choosing=false; paint(); }
   }
+  async function refreshRTT() {
+    if (rttScanning || busy()) return;
+    rttScanning=true; rttError=''; rttSummary=''; listKey=''; paint();
+    try {
+      const response=await fetch('/api/provider-profiles/rtt',{cache:'no-store'});
+      if (response.status===401) {
+        try { if (typeof loadAuthStatus==='function') await loadAuthStatus(); } catch (_) {}
+        throw new Error('auth');
+      }
+      const data=await response.json();
+      if (!response.ok || !data?.success || !Array.isArray(data.results)) throw new Error(data?.error || 'rtt');
+      const next=new Map();
+      let reachable=0;
+      for (const item of data.results) {
+        if (!item || typeof item.profile_id!=='string') continue;
+        const value={reachable:!!item.reachable,rtt_ms:Number(item.rtt_ms||0),jitter_ms:Number(item.jitter_ms||0)};
+        if (value.reachable) reachable++;
+        next.set(item.profile_id,value);
+      }
+      rttByID=next; rttRanked=true; rttVersion++;
+      rttSummary=`RTT: ответили ${reachable} из ${data.results.length}. Список отсортирован от меньшей задержки к большей.`;
+    } catch (_) {
+      rttError=L.pingFailed;
+    } finally {
+      rttScanning=false; listKey=''; paint();
+    }
+  }
+  function rttSortValue(profile) {
+    const value=rttByID.get(profile.id);
+    if (!value) return Number.MAX_SAFE_INTEGER-1;
+    if (!value.reachable || !value.rtt_ms) return Number.MAX_SAFE_INTEGER;
+    return value.rtt_ms;
+  }
+  function rttLabel(profile) {
+    const value=rttByID.get(profile.id);
+    if (!rttRanked && !rttScanning) return ['', ''];
+    if (!value) return [rttScanning?'…':'—',''];
+    if (!value.reachable || !value.rtt_ms) return ['нет ответа','dead'];
+    const ms=value.rtt_ms;
+    return [ms+' мс',ms<=120?'fast':ms<=200?'ok':ms<=300?'slow':'dead'];
+  }
+
   function renderList() {
     const disabled=busy() || uncertain(engine());
-    const key=JSON.stringify([sourceKey,search.value,selected?.id,disabled]);
+    const key=JSON.stringify([sourceKey,search.value,selected?.id,disabled,rttVersion,rttScanning]);
     if (key===listKey) return;
     listKey=key;
     const query=normalize(search.value);
@@ -235,17 +292,19 @@
       if (/^[a-z]{2}$/.test(query)) return code===query;
       return !query || normalize([p.name,p.endpoint,countryName(code),code,english?.of(code.toUpperCase() || 'ZZ') || ''].join(' ')).includes(query);
     });
+    const ordered=rttRanked ? filtered.slice().sort((a,b)=>rttSortValue(a)-rttSortValue(b) || rows.indexOf(a)-rows.indexOf(b)) : filtered;
     const fragment=document.createDocumentFragment();
-    for (const p of filtered) {
+    for (const p of ordered) {
       const button=document.createElement('button'); button.type='button'; button.className='fnv2-option'; button.dataset.profileId=p.id;
       button.setAttribute('role','option'); button.setAttribute('aria-selected',String(selected?.id===p.id)); button.disabled=disabled;
       const flag=document.createElement('span'); flag.setAttribute('aria-hidden','true'); setFlag(flag,p.country_code);
       const copy=document.createElement('span'); copy.className='fnv2-option-copy';
       const title=document.createElement('strong'); title.textContent=clean(p.name) || countryName(p.country_code);
       const meta=document.createElement('small'); meta.textContent=p.endpoint;
-      copy.append(title,meta); button.append(flag,copy); button.addEventListener('click',()=>choose(p)); fragment.appendChild(button);
+      const rtt=document.createElement('span'); rtt.className='fnv2-rtt'; const [rttText,rttTone]=rttLabel(p); rtt.textContent=rttText; if(rttTone)rtt.classList.add(rttTone);
+      copy.append(title,meta); button.append(flag,copy,rtt); button.addEventListener('click',()=>choose(p)); fragment.appendChild(button);
     }
-    if (!filtered.length) { const empty=document.createElement('div'); empty.className='fnv2-empty'; empty.textContent=rows.length?L.noMatch:L.empty; fragment.appendChild(empty); }
+    if (!ordered.length) { const empty=document.createElement('div'); empty.className='fnv2-empty'; empty.textContent=rows.length?L.noMatch:L.empty; fragment.appendChild(empty); }
     const focused=document.activeElement?.dataset?.profileId;
     list.replaceChildren(fragment);
     if (focused) Array.from(list.querySelectorAll('button')).find(n=>n.dataset.profileId===focused)?.focus({preventScroll:true});
@@ -279,6 +338,12 @@
     } else if (busy()) {title=L.busy;}
     footer.dataset.state=state; text(statusText,title); text(detail,note);
     connect.disabled=!canConnect(e); reset.disabled=!selected || busy() || uncertain(e);
+    if (refresh) { refresh.disabled=rttScanning || busy(); refresh.dataset.busy=String(rttScanning); }
+    const rttState=q('#fnVpnPickerV2RTTState');
+    if (rttState) {
+      const message=rttScanning?L.pinging:rttError||rttSummary;
+      text(rttState,message); rttState.hidden=!message; rttState.dataset.error=String(!!rttError);
+    }
     text(q('#fnVpnPickerV2Stale'),L.stale); q('#fnVpnPickerV2Stale').hidden=!stale;
     if (!panel.hidden) { renderList(); positionPanel(); }
   }
