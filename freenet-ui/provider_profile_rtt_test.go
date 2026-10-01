@@ -149,3 +149,38 @@ func TestProviderProfileRTTScanSingleFlight(t *testing.T) {
 	}
 	endProviderProfileRTTScan()
 }
+
+func TestProviderProfileRTTGuardsAcquireOnceAndReleaseBoth(t *testing.T) {
+	endProviderProfileRTTScan()
+	a := &app{sem: make(chan struct{}, 1)}
+
+	release, reason := acquireProviderProfileRTTGuards(a)
+	if release == nil || reason != "" {
+		t.Fatalf("first guard acquisition failed: release=%v reason=%q", release != nil, reason)
+	}
+	if len(a.sem) != 1 {
+		t.Fatalf("FreeNet operation semaphore occupancy=%d want=1", len(a.sem))
+	}
+	if beginProviderProfileRTTScan() {
+		endProviderProfileRTTScan()
+		t.Fatal("RTT single-flight gate was not held with operation semaphore")
+	}
+
+	other := &app{sem: make(chan struct{}, 1)}
+	if secondRelease, secondReason := acquireProviderProfileRTTGuards(other); secondRelease != nil || secondReason != "VPN ping is already running" {
+		if secondRelease != nil {
+			secondRelease()
+		}
+		t.Fatalf("second app guard result release=%v reason=%q", secondRelease != nil, secondReason)
+	}
+
+	release()
+	if len(a.sem) != 0 {
+		t.Fatalf("FreeNet operation semaphore was not released: occupancy=%d", len(a.sem))
+	}
+	if !beginProviderProfileRTTScan() {
+		t.Fatal("RTT single-flight gate was not released")
+	}
+	endProviderProfileRTTScan()
+}
+
