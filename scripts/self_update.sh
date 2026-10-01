@@ -20,9 +20,9 @@ FAIL_STAGE="${FREENET_TEST_FAIL_STAGE:-}"
 ROLLBACK_FAIL="${FREENET_TEST_ROLLBACK_FAIL:-no}"
 TEST_DOWNLOAD_FAIL_ONCE="${FREENET_TEST_DOWNLOAD_FAIL_ONCE:-}"
 TEST_VERIFY_FAIL_ONCE="${FREENET_TEST_VERIFY_FAIL_ONCE:-}"
-DOWNLOAD_RETRIES="${FREENET_UPDATE_DOWNLOAD_RETRIES:-3}"
+DOWNLOAD_RETRIES="${FREENET_UPDATE_DOWNLOAD_RETRIES:-2}"
 case "$DOWNLOAD_RETRIES" in
-    ''|*[!0-9]*|0) DOWNLOAD_RETRIES=3 ;;
+    ''|*[!0-9]*|0) DOWNLOAD_RETRIES=2 ;;
 esac
 MODE="${1:-plan}"
 TARGET_TAG="${2:-}"
@@ -223,8 +223,8 @@ download_url() {
         ERRFILE="$TMP_DIR/curl.$I.err"
         rm -f "$HDR" "$BODY" "$ERRFILE"
 
-        CONNECT_TIMEOUT=20
-        MAX_TIME=180
+        CONNECT_TIMEOUT=10
+        MAX_TIME=60
         if [ "$MODE" = plan ]; then
             CONNECT_TIMEOUT=5
             MAX_TIME=12
@@ -416,6 +416,15 @@ retry_pause() {
     sleep "$1"
 }
 
+write_checking_progress() {
+    NAME="$1"
+    ATTEMPT="$2"
+    TOTAL="$3"
+    [ "$MODE" = apply ] || return 0
+    [ "$LOCK_HELD" = 1 ] || return 0
+    write_state CHECKING "$TARGET_TAG" "Загружаем и проверяем $NAME · попытка $ATTEMPT/$TOTAL" '' NOT_NEEDED '' || true
+}
+
 download_file_with_retry() {
     NAME="$1"
     URL="$2"
@@ -423,6 +432,7 @@ download_file_with_retry() {
     ATTEMPT=1
     LAST=""
     while [ "$ATTEMPT" -le "$DOWNLOAD_RETRIES" ]; do
+        write_checking_progress "$NAME" "$ATTEMPT" "$DOWNLOAD_RETRIES"
         rm -f "$OUT" 2>/dev/null || true
         if download_url "$URL" "$OUT"; then
             return 0
@@ -442,6 +452,7 @@ download_verified_asset() {
     ATTEMPT=1
     LAST=""
     while [ "$ATTEMPT" -le "$DOWNLOAD_RETRIES" ]; do
+        write_checking_progress "$NAME" "$ATTEMPT" "$DOWNLOAD_RETRIES"
         rm -f "$OUT" 2>/dev/null || true
         if download_url "$URL" "$OUT" && verify_asset "$NAME" "$OUT"; then
             return 0
