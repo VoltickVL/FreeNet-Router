@@ -18,6 +18,12 @@ const (
 	bestServerFastRTTShortlist      = 20
 	bestServerFastRTTPreferredMS    = 200
 	bestServerFastRTTReserveMS      = 300
+
+	bestServerFastRTTBucketPreferred = 0
+	bestServerFastRTTBucketReserve   = 1
+	bestServerFastRTTBucketUnknown   = 2
+	bestServerFastRTTBucketSlow      = 3
+	bestServerFastRTTBucketFailed    = 4
 )
 
 type bestServerFastRTTEndpointResult struct {
@@ -141,23 +147,41 @@ func bestServerFastRTTShortlist(
 		measured[result.Endpoint] = result.Probe
 	}
 
+	currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter)
+	selectedIndexes := selectBestServerFastRTTIndexes(candidates, measured, attempted, currentIndex)
+	out := make([]bestServerInternalCandidate, 0, len(selectedIndexes))
+	for _, index := range selectedIndexes {
+		out = append(out, candidates[index])
+	}
+	return out
+}
+
+func selectBestServerFastRTTIndexes(
+	candidates []bestServerInternalCandidate,
+	measured map[string]bestServerProbeResult,
+	attempted map[string]bool,
+	currentIndex int,
+) []int {
+	if len(candidates) == 0 {
+		return nil
+	}
 	ranks := make([]bestServerFastRTTCandidateRank, 0, len(candidates))
 	for index, candidate := range candidates {
 		endpoint := profileEndpoint(candidate.Profile)
-		p, wasAttempted := measured[endpoint]
-		bucket := 3 // UNKNOWN: phase timeout / not attempted.
+		probe, hasResult := measured[endpoint]
+		bucket := bestServerFastRTTBucketUnknown
 		median, jitter := 0, 0
 		switch {
-		case wasAttempted && p.OK && p.Median <= bestServerFastRTTPreferredMS:
-			bucket, median, jitter = 0, p.Median, p.Jitter
-		case wasAttempted && p.OK && p.Median <= bestServerFastRTTReserveMS:
-			bucket, median, jitter = 1, p.Median, p.Jitter
-		case wasAttempted && p.OK:
-			bucket, median, jitter = 3, p.Median, p.Jitter // slow, below UNKNOWN in tie-break below
+		case hasResult && probe.OK && probe.Median <= bestServerFastRTTPreferredMS:
+			bucket, median, jitter = bestServerFastRTTBucketPreferred, probe.Median, probe.Jitter
+		case hasResult && probe.OK && probe.Median <= bestServerFastRTTReserveMS:
+			bucket, median, jitter = bestServerFastRTTBucketReserve, probe.Median, probe.Jitter
+		case hasResult && probe.OK:
+			bucket, median, jitter = bestServerFastRTTBucketSlow, probe.Median, probe.Jitter
 		case attempted[endpoint]:
-			bucket = 4 // explicit TCP failure after bounded probe
+			bucket = bestServerFastRTTBucketFailed
 		default:
-			bucket = 2 // UNKNOWN is preferred over slow/failed evidence
+			bucket = bestServerFastRTTBucketUnknown
 		}
 		ranks = append(ranks, bestServerFastRTTCandidateRank{
 			Index: index, Bucket: bucket, Median: median, Jitter: jitter,
@@ -207,12 +231,12 @@ func bestServerFastRTTShortlist(
 		}
 	}
 
-	// First keep one <=300 ms candidate per country. This prevents a dense
-	// single-country pool from evicting every other allowed country before the
-	// real VPN-path preflight has a chance to measure them.
+	// Keep one <=300 ms candidate per country before filling globally. This
+	// preserves geography diversity without forcing slow/failed endpoints into
+	// the shortlist when enough good alternatives exist.
 	seenCountry := map[string]bool{}
 	for _, rank := range ranks {
-		if rank.Bucket > 1 || rank.Country == "" || seenCountry[rank.Country] {
+		if rank.Bucket > bestServerFastRTTBucketReserve || rank.Country == "" || seenCountry[rank.Country] {
 			continue
 		}
 		before := len(selected)
@@ -221,18 +245,18 @@ func bestServerFastRTTShortlist(
 			seenCountry[rank.Country] = true
 		}
 	}
-	// Then fill with unique endpoints in rank order. UNKNOWN beats confirmed
-	// slow/failed evidence, preserving fail-safe reserve semantics.
+
+	// Unique endpoints first. UNKNOWN ranks ahead of confirmed >300 ms or failed
+	// evidence, because a bounded phase timeout is not proof of a bad server.
 	for _, rank := range ranks {
 		add(rank, true)
 	}
-	// If many logical profiles share the same endpoint, allow duplicates only
-	// after all unique endpoints have had a chance.
+	// Shared endpoints may still represent different logical profiles. Allow
+	// those only after every unique endpoint has had a chance.
 	for _, rank := range ranks {
 		add(rank, false)
 	}
 
-	currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter)
 	if currentIndex >= 0 && currentIndex < len(candidates) && !seenIndex[currentIndex] {
 		if len(selected) >= limit && limit > 0 {
 			selected[len(selected)-1] = currentIndex
@@ -240,10 +264,5 @@ func bestServerFastRTTShortlist(
 			selected = append(selected, currentIndex)
 		}
 	}
-
-	out := make([]bestServerInternalCandidate, 0, len(selected))
-	for _, index := range selected {
-		out = append(out, candidates[index])
-	}
-	return out
+	return selected
 }
