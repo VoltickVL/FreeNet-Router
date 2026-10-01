@@ -38,7 +38,7 @@ const (
 	bestServerQualityModerateSpeedPenalty = 500
 	bestServerQualityHighJitterMS         = 80
 	bestServerQualityHighTCPJitterMS      = 60
-	bestServerQualityMaxApplicationMS     = 180
+	bestServerQualityMaxApplicationMS     = 220
 )
 
 type bestServerQualityCandidate struct {
