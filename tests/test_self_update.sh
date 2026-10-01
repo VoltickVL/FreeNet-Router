@@ -115,6 +115,12 @@ if env FREENET_CURRENT_VERSION=v0.3.99 FREENET_ARCH=arm64-v8a FREENET_LATEST_TAG
 fi
 grep -Fq 'latest release tag is invalid' "$TMP/invalid-100.out" || fail 'v0.3.100 rejection reason missing'
 
+# Runtime update downloads must stay bounded and expose exact CHECKING progress.
+grep -Fq 'DOWNLOAD_RETRIES="${FREENET_UPDATE_DOWNLOAD_RETRIES:-2}"' "$SCRIPT" || fail 'apply download retries must default to 2'
+grep -Fq 'CONNECT_TIMEOUT=10' "$SCRIPT" || fail 'apply connect timeout contract missing'
+grep -Fq 'MAX_TIME=60' "$SCRIPT" || fail 'apply per-hop max-time contract missing'
+grep -Fq 'Загружаем и проверяем $NAME · попытка $ATTEMPT/$TOTAL' "$SCRIPT" || fail 'per-asset CHECKING progress contract missing'
+
 # Regression: application self-update acceptance must not require Split-DNS dns-out.
 if grep -Fq 'select(.tag == "dns-out")' "$SCRIPT"; then
     fail 'self-update acceptance must be independent from dns-out topology'
@@ -192,7 +198,7 @@ fi
 [ "$(cat "$R/bin/vpn")" = OLD_VPN ] || fail 'checksum failure mutated VPN helper'
 grep -Fq 'STATE=FAILED' "$R/var/run/update.state" || fail 'checksum failure state missing'
 grep -Fq 'ROLLBACK_STATE=NOT_NEEDED' "$R/var/run/update.state" || fail 'checksum failure should not need rollback'
-grep -Fq 'PRIMARY_ERROR=SHA-256 mismatch for vpn after 3 attempts' "$R/var/run/update.state" || fail 'checksum failure must identify the concrete asset'
+grep -Fq 'PRIMARY_ERROR=SHA-256 mismatch for vpn after 2 attempts' "$R/var/run/update.state" || fail 'checksum failure must identify the concrete asset and retry count'
 
 # Transient asset download failure is retried before declaring a pre-mutation failure.
 make_root "$R"
