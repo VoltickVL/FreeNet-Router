@@ -335,11 +335,8 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		}, nil
 	}
 
-	// Stage 0 first ranks provider endpoints with a cheap, bounded TCP RTT sweep.
-	// It never starts Xray and is ranking-only evidence. The existing isolated
-	// Xray application preflight then measures the real VPN path for the strongest
-	// reserve before deep quality testing.
-	candidates = bestServerFastRTTShortlist(ctx, candidates, currentEndpoint, currentFilter, defaultBestServerFastRTTProbe)
+	// Rank logical profiles by the real proxy path. Shared provider ingress
+	// IP:port is not logical identity and must not influence the shortlist.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {
