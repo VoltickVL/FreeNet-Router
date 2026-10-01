@@ -1787,6 +1787,13 @@
         #fnVpnPickerPopover .fn-vpn-picker-body{max-height:calc(100vh - 102px)!important}
         #fnVpnPickerPopover #exactConnectRow{grid-template-columns:1fr!important}
       }
+      @media(max-width:760px){
+        html body .topbar.overview-approved{height:70px!important;min-height:70px!important;flex-wrap:nowrap!important;padding:0 14px!important}
+        html body .topbar.overview-approved #overviewApprovedTop{display:flex!important;flex:0 0 auto!important;width:auto!important;min-width:0!important;max-width:calc(100% - 58px)!important;margin-left:auto!important;flex-wrap:nowrap!important;justify-content:flex-end!important;gap:0!important}
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar,
+        html body .topbar.overview-approved #overviewApprovedTop>.overview-approved-fact,
+        html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate{display:none!important}
+      }
     `;
     document.head.appendChild(style);
   }
