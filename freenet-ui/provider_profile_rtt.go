@@ -138,17 +138,24 @@ func countProviderUniqueEndpoints(candidates []bestServerInternalCandidate) int 
 }
 
 func acquireProviderProfileRTTGuards(a *app) (func(), string) {
+	releaseAutomationFence, fenceErr := acquireAutomationHealthLock()
+	if fenceErr != nil {
+		return nil, "AUTO VPN health/recovery operation is already running"
+	}
 	releaseOperation, operationOK := tryAcquireFreeNetOperation(a)
 	if !operationOK {
+		releaseAutomationFence()
 		return nil, "another FreeNet operation is already running"
 	}
 	if !beginProviderProfileRTTScan() {
 		releaseOperation()
+		releaseAutomationFence()
 		return nil, "VPN ping is already running"
 	}
 	return func() {
 		endProviderProfileRTTScan()
 		releaseOperation()
+		releaseAutomationFence()
 	}, ""
 }
 
