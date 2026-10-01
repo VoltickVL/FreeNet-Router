@@ -2,11 +2,13 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSettingsDNSRuntimeStateClassifiesAcceptedAndLegacy(t *testing.T) {
@@ -44,6 +46,53 @@ func TestWriteSettingsDNSProviderKeysPreservesOtherConfig(t *testing.T) {
 	for _, want := range []string{"ISP_ID=rostelecom", "DNS_MODE=xkeen", "KEEP_ME=preserved", "SPLIT_DIRECT_DNS_PROVIDER=yandex-doh", "SPLIT_VPN_DNS_PROVIDER=google-doh"} {
 		if !strings.Contains(text, want) { t.Fatalf("config missing %q: %s", want, text) }
 	}
+}
+
+func TestSettingsDNSOperationFenceExcludesAutoHealthAndReleases(t *testing.T) {
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", filepath.Join(t.TempDir(), "auto-health.lock"))
+	a := &app{sem: make(chan struct{}, 1)}
+	release, reason := acquireSettingsDNSOperation(context.Background(), a, time.Second)
+	if release == nil || reason != "" {
+		t.Fatalf("DNS guard acquisition failed: release=%v reason=%q", release != nil, reason)
+	}
+	if len(a.sem) != 1 {
+		t.Fatalf("web operation semaphore=%d want=1", len(a.sem))
+	}
+	if autoRelease, err := acquireAutomationHealthLock(); err == nil {
+		autoRelease()
+		t.Fatal("DNS operation must hold the cross-process AUTO health fence")
+	}
+	other := &app{sem: make(chan struct{}, 1)}
+	if secondRelease, secondReason := acquireSettingsDNSOperation(context.Background(), other, 10*time.Millisecond); secondRelease != nil || secondReason != "AUTO VPN health/recovery operation is active" {
+		if secondRelease != nil { secondRelease() }
+		t.Fatalf("parallel DNS/AUTO guard result release=%v reason=%q", secondRelease != nil, secondReason)
+	}
+	release()
+	if len(a.sem) != 0 {
+		t.Fatal("web operation semaphore leaked after DNS guard release")
+	}
+	autoRelease, err := acquireAutomationHealthLock()
+	if err != nil {
+		t.Fatalf("AUTO health fence leaked after DNS guard release: %v", err)
+	}
+	autoRelease()
+}
+
+func TestSettingsDNSOperationTimeoutReleasesCrossProcessFence(t *testing.T) {
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", filepath.Join(t.TempDir(), "auto-health.lock"))
+	a := &app{sem: make(chan struct{}, 1)}
+	a.sem <- struct{}{}
+	release, reason := acquireSettingsDNSOperation(context.Background(), a, 15*time.Millisecond)
+	if release != nil || reason != "another confirmed FreeNet operation is active" {
+		if release != nil { release() }
+		t.Fatalf("blocked DNS guard release=%v reason=%q", release != nil, reason)
+	}
+	<-a.sem
+	autoRelease, err := acquireAutomationHealthLock()
+	if err != nil {
+		t.Fatalf("filesystem fence leaked after web-sem timeout: %v", err)
+	}
+	autoRelease()
 }
 
 func TestSettingsDNSResolverApplyAndRestoreTestMode(t *testing.T) {
