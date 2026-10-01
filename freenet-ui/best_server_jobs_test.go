@@ -11,10 +11,10 @@ import (
 )
 
 func TestBestServerJobDetachedSingleFlightAndReadOnlyPoll(t *testing.T) {
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", t.TempDir()+"/auto-health.lock")
 	a := &app{sem: make(chan struct{}, 1)}
 	jobs := &bestServerJobs{}
 	release := make(chan struct{})
-	defer close(release)
 	var calls atomic.Int32
 	scan := func(ctx context.Context) (bestServerQualityResponse, error) {
 		calls.Add(1)
@@ -43,9 +43,26 @@ func TestBestServerJobDetachedSingleFlightAndReadOnlyPoll(t *testing.T) {
 	var state bestServerJob
 	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil { t.Fatal(err) }
 	if state.State != "running" { t.Fatalf("request cancellation killed background job: %+v", state) }
+	if fenceRelease, err := acquireAutomationHealthLock(); err == nil {
+		fenceRelease()
+		t.Fatal("manual Best Server job must hold AUTO health fence")
+	}
+	close(release)
+	deadline = time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		w = request("status", "test-quality-job-0001", context.Background())
+		if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil { t.Fatal(err) }
+		if state.State != "running" { break }
+		time.Sleep(time.Millisecond)
+	}
+	if state.State == "running" { t.Fatal("job did not release after scan completion") }
+	fenceRelease, err := acquireAutomationHealthLock()
+	if err != nil { t.Fatalf("AUTO health fence leaked after manual scan: %v", err) }
+	fenceRelease()
 }
 
 func TestBestServerJobTerminalResultAndFailure(t *testing.T) {
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", t.TempDir()+"/auto-health.lock")
 	for _, fail := range []bool{false, true} {
 		a := &app{sem: make(chan struct{}, 1)}
 		jobs := &bestServerJobs{}
@@ -71,6 +88,25 @@ func TestBestServerJobTerminalResultAndFailure(t *testing.T) {
 			time.Sleep(time.Millisecond)
 		}
 	}
+}
+
+func TestBestServerJobRejectedWhileAutoHealthFenceHeld(t *testing.T) {
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", t.TempDir()+"/auto-health.lock")
+	releaseFence, err := acquireAutomationHealthLock()
+	if err != nil { t.Fatal(err) }
+	defer releaseFence()
+	a := &app{sem: make(chan struct{}, 1)}
+	jobs := &bestServerJobs{}
+	var calls atomic.Int32
+	handler := jobs.wrap(a, "best", nil, func(context.Context) (bestServerQualityResponse, error) {
+		calls.Add(1)
+		return bestServerQualityResponse{}, nil
+	})
+	w := httptest.NewRecorder()
+	handler(w, httptest.NewRequest("GET", "/?job=start&id=test-quality-job-0001", nil))
+	if w.Code != http.StatusConflict { t.Fatalf("start during AUTO health = %d %s", w.Code, w.Body.String()) }
+	if calls.Load() != 0 { t.Fatalf("diagnostic scan started while AUTO health fence held: calls=%d", calls.Load()) }
+	if len(a.sem) != 0 { t.Fatal("operation semaphore acquired despite AUTO health fence") }
 }
 
 func TestBestServerEligibilityRejectsWeakEvidence(t *testing.T) {
