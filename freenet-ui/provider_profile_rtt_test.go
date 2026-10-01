@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestMeasureProviderProfileRTTMeasuresSharedEndpointPerLogicalProfile(t *testing.T) {
@@ -90,4 +91,61 @@ func TestUkraineExcludedFromReplacementPolicy(t *testing.T) {
 			t.Fatalf("settings country catalog kept Ukraine: %#v", options)
 		}
 	}
+}
+
+
+func TestMeasureProviderProfileRTTBoundsConcurrentProbes(t *testing.T) {
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa"}},
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb"}},
+		{Profile: subscriptionProfile{ID: "cccccccccccccccc"}},
+		{Profile: subscriptionProfile{ID: "dddddddddddddddd"}},
+	}
+	started := make(chan struct{}, len(candidates))
+	release := make(chan struct{})
+	done := make(chan struct{})
+	probe := func(_ context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
+		started <- struct{}{}
+		<-release
+		return bestServerProbeResult{OK: true, Median: 100}
+	}
+	go func() {
+		_ = measureProviderProfileRTT(context.Background(), candidates, probe)
+		close(done)
+	}()
+
+	for i := 0; i < providerProfileRTTWorkers; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("expected bounded workers to start")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatalf("more than %d isolated Xray probes started concurrently", providerProfileRTTWorkers)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("bounded probe sweep did not finish")
+	}
+}
+
+func TestProviderProfileRTTScanSingleFlight(t *testing.T) {
+	endProviderProfileRTTScan()
+	if !beginProviderProfileRTTScan() {
+		t.Fatal("first RTT scan must acquire gate")
+	}
+	if beginProviderProfileRTTScan() {
+		endProviderProfileRTTScan()
+		t.Fatal("second concurrent RTT scan must be rejected")
+	}
+	endProviderProfileRTTScan()
+	if !beginProviderProfileRTTScan() {
+		t.Fatal("gate must be reusable after release")
+	}
+	endProviderProfileRTTScan()
 }
