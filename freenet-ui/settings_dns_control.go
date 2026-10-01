@@ -136,6 +136,32 @@ func (a *app) handleSettingsDNSControlGet(w http.ResponseWriter, _ *http.Request
 	writeJSON(w, http.StatusOK, settingsDNSControlSnapshot(a.cfg.ConfigPath))
 }
 
+func acquireSettingsDNSOperation(ctx context.Context, a *app, timeout time.Duration) (func(), string) {
+	releaseAutomationFence, fenceErr := acquireAutomationHealthLock()
+	if fenceErr != nil {
+		return nil, "AUTO VPN health/recovery operation is active"
+	}
+	if a == nil || a.sem == nil {
+		releaseAutomationFence()
+		return nil, "FreeNet operation coordinator is unavailable"
+	}
+	acquire := time.NewTimer(timeout)
+	defer acquire.Stop()
+	select {
+	case a.sem <- struct{}{}:
+		return func() {
+			<-a.sem
+			releaseAutomationFence()
+		}, ""
+	case <-ctx.Done():
+		releaseAutomationFence()
+		return nil, "request canceled before DNS operation"
+	case <-acquire.C:
+		releaseAutomationFence()
+		return nil, "another confirmed FreeNet operation is active"
+	}
+}
+
 func (a *app) handleSettingsDNSControlPost(w http.ResponseWriter, r *http.Request) {
 	if a.mutationBlockedBySelfUpdate(w) {
 		return
@@ -176,18 +202,19 @@ func (a *app) handleSettingsDNSControlPost(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	acquire := time.NewTimer(12 * time.Second)
-	defer acquire.Stop()
-	select {
-	case a.sem <- struct{}{}:
-		defer func() { <-a.sem }()
-	case <-r.Context().Done():
-		writeJSON(w, http.StatusRequestTimeout, settingsDNSControlResponse{Success: false, RollbackState: "NOT_APPLIED", Error: "запрос отменён до начала DNS operation"})
-		return
-	case <-acquire.C:
-		writeJSON(w, http.StatusLocked, settingsDNSControlResponse{Success: false, RollbackState: "NOT_APPLIED", Error: "FreeNet выполняет другую подтверждённую operation"})
+	releaseOperation, guardError := acquireSettingsDNSOperation(r.Context(), a, 12*time.Second)
+	if releaseOperation == nil {
+		status := http.StatusLocked
+		if r.Context().Err() != nil {
+			status = http.StatusRequestTimeout
+		}
+		writeJSON(w, status, settingsDNSControlResponse{
+			Success: false, PrimaryError: guardError, RollbackState: "NOT_APPLIED",
+			Error: "DNS operation не началась: другая VPN/DNS operation активна",
+		})
 		return
 	}
+	defer releaseOperation()
 
 	status, result := a.executeSettingsDNSControl(req)
 	writeJSON(w, status, result)
