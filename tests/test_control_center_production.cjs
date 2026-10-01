@@ -168,7 +168,10 @@ async function capture(label){
   assert.equal(countApply(),1,'stale refresh must not apply VPN');
   await page.keyboard.press('Escape');
   for(const viewport of [{width:1440,height:900},{width:980,height:800},{width:760,height:700},{width:390,height:844},{width:844,height:390}]){
-    await page.setViewportSize(viewport);await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await delay(100);await geometry(`${viewport.width}x${viewport.height}`);if(viewport.width===390)await capture('mobile-list');await page.keyboard.press('Escape');assert.equal(await page.locator(P).isHidden(),true);
+    await page.setViewportSize(viewport);
+    const shell=await page.evaluate(()=>{const top=document.querySelector('.topbar'),summary=document.querySelector('#overviewApprovedTop'),head=document.querySelector('.page[data-page-view="overview"] .page-head');const tr=top.getBoundingClientRect(),hr=head.getBoundingClientRect();return{summaryDisplay:getComputedStyle(summary).display,topBottom:tr.bottom,headTop:hr.top};});
+    if(viewport.width<=760){assert.equal(shell.summaryDisplay,'none',`${viewport.width}px mobile topbar must hide desktop status tiles`);assert.ok(shell.headTop>=shell.topBottom-1,`${viewport.width}px Overview content must start below topbar`);}else{assert.notEqual(shell.summaryDisplay,'none',`${viewport.width}px non-mobile topbar must retain status summary`);}
+    await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await delay(100);await geometry(`${viewport.width}x${viewport.height}`);if(viewport.width===390)await capture('mobile-list');await page.keyboard.press('Escape');assert.equal(await page.locator(P).isHidden(),true);
   }
   await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>setPage('settings'));await delay(300);await page.locator(T).click();await geometry('settings-route');await page.keyboard.press('Escape');await page.evaluate(()=>setPage('overview'));
   for(let i=0;i<10;i++){await page.locator(T).click();await page.keyboard.press('Escape')}
