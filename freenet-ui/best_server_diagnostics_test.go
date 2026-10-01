@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"strings"
+	"strconv"
 	"testing"
 )
 
@@ -36,19 +37,36 @@ func TestBestServerTransferDiagnosticsExcludeRawSecrets(t *testing.T) {
 
 func TestBestServerRejectionsDistinguishUnmeasuredAndSlow(t *testing.T) {
 	c := bestServerQualityCandidate{Tested: true, Available: true, MediaSamples: 0, ServiceTotal: 4, ServiceOK: 4}
-	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Скорость Speedtest не измерена") || !strings.Contains(got, "0/4") {
+	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Скорость не измерена") || !strings.Contains(got, "0/3") {
 		t.Fatal(got)
 	}
 	c.ApplicationMS = bestServerQualityMaxApplicationMS + 13
-	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Отклик сайтов выше 180 мс") {
+	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Отклик сайтов выше "+strconv.Itoa(bestServerQualityMaxApplicationMS)+" мс") {
 		t.Fatal(got)
 	}
 	c.DownloadMbps = 4
-	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Speedtest ниже 20") || strings.Contains(got, "не измерена") {
+	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "Скорость ниже 20") || strings.Contains(got, "не измерена") {
 		t.Fatal(got)
 	}
 	c.Tested = false
 	if got := strings.Join(bestServerRejectionReasons(c), ";"); !strings.Contains(got, "не выполнялась") {
 		t.Fatal(got)
+	}
+}
+
+
+func TestBestServerThreeOfFourSpeedSamplesAreCompleteEvidence(t *testing.T) {
+	c := bestServerQualityCandidate{
+		Tested: true, Available: true, ApplicationMS: 200,
+		DownloadMbps: 90, MediaSamples: bestServerMediaRequiredRuns, MediaStalls: 0,
+		MediaGrade: "good", ServiceOK: 4, ServiceTotal: 4,
+		JitterMS: 12, TCPJitterMS: 8,
+	}
+	reasons := strings.Join(bestServerRejectionReasons(c), ";")
+	if strings.Contains(reasons, "Замеров скорости") {
+		t.Fatalf("3/4 completed streams satisfy backend evidence floor and must not be called incomplete: %s", reasons)
+	}
+	if !eligibleBestServerQuality(c) {
+		t.Fatalf("3/4 stable throughput evidence should be eligible when all other gates pass: %+v", c)
 	}
 }
