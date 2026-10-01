@@ -80,29 +80,29 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 }
 
 // Best Server keeps deep-testing until it has up to three real Eligible
-// alternatives on distinct non-current public endpoints, or the bounded budget
-// or candidate pool is exhausted. Rejected deep results remain useful
-// diagnostics, but they must not consume an Eligible completion slot.
-// Public endpoint is used here solely for presentation diversity; it is not
-// logical profile identity.
+// logical profiles, or the bounded budget/candidate pool is exhausted.
+// Public IP:port is deliberately NOT identity: multiple countries in one
+// provider subscription may share the same ingress while carrying different
+// VLESS/Reality credentials and exit paths.
 func eligibleBestServerAlternativeCount(candidates []bestServerQualityCandidate, currentEndpoint string) int {
-	seenEndpoints := map[string]struct{}{}
-	if endpoint := strings.TrimSpace(currentEndpoint); endpoint != "" {
-		seenEndpoints[endpoint] = struct{}{}
-	}
+	_ = currentEndpoint // retained in the signature for compatibility with callers/tests.
+	seenProfiles := map[string]struct{}{}
 	count := 0
 	for _, candidate := range candidates {
 		if candidate.Current || !candidate.Tested || !candidate.Eligible || !candidate.Available {
 			continue
 		}
-		endpoint := strings.TrimSpace(candidate.Endpoint)
-		if endpoint == "" {
+		key := strings.TrimSpace(candidate.ID)
+		if key == "" {
+			key = strings.ToLower(strings.Join(strings.Fields(profileDisplayName(candidate.Name)), " "))
+		}
+		if key == "" {
 			continue
 		}
-		if _, exists := seenEndpoints[endpoint]; exists {
+		if _, exists := seenProfiles[key]; exists {
 			continue
 		}
-		seenEndpoints[endpoint] = struct{}{}
+		seenProfiles[key] = struct{}{}
 		count++
 	}
 	return count
@@ -335,11 +335,8 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		}, nil
 	}
 
-	// Stage 0 first ranks provider endpoints with a cheap, bounded TCP RTT sweep.
-	// It never starts Xray and is ranking-only evidence. The existing isolated
-	// Xray application preflight then measures the real VPN path for the strongest
-	// reserve before deep quality testing.
-	candidates = bestServerFastRTTShortlist(ctx, candidates, currentEndpoint, currentFilter, defaultBestServerFastRTTProbe)
+	// Rank logical profiles by the real proxy path. Shared provider ingress
+	// IP:port is not logical identity and must not influence the shortlist.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
 	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {

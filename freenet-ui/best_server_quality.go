@@ -38,7 +38,7 @@ const (
 	bestServerQualityModerateSpeedPenalty = 500
 	bestServerQualityHighJitterMS         = 80
 	bestServerQualityHighTCPJitterMS      = 60
-	bestServerQualityMaxApplicationMS     = 180
+	bestServerQualityMaxApplicationMS     = 220
 )
 
 type bestServerQualityCandidate struct {
@@ -305,21 +305,19 @@ func rankBestServerQualityCandidates(
 	})
 
 	shortlist := make([]int, 0, bestServerQualityShortlist+1)
-	seenEndpoint := make(map[string]bool)
 	if currentIndex >= 0 && results[currentIndex].Reachable {
 		shortlist = append(shortlist, currentIndex)
-		seenEndpoint[results[currentIndex].Endpoint] = true
 	}
 	for _, index := range reachable {
 		if len(shortlist) >= bestServerQualityShortlist {
 			break
 		}
-		endpoint := results[index].Endpoint
-		if seenEndpoint[endpoint] {
+		if index == currentIndex {
 			continue
 		}
+		// Logical profiles remain distinct even when a provider reuses the same
+		// public ingress IP:port for several countries.
 		shortlist = append(shortlist, index)
-		seenEndpoint[endpoint] = true
 	}
 
 	partial := false

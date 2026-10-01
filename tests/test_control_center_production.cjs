@@ -118,7 +118,7 @@ async function capture(label){
   assert.equal(await page.locator(RTT).isVisible(),true,'RTT refresh must be visible next to close');
   assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,0,'opening picker must not auto-run RTT scan');
   await page.locator(RTT).click();
-  await until(()=>document.querySelectorAll('#fnVpnPickerV2Results .fnv2-rtt').length===49 && /RTT:/.test(document.querySelector('#fnVpnPickerV2RTTState')?.textContent||''),'RTT scan');
+  await until(()=>document.querySelectorAll('#fnVpnPickerV2Results .fnv2-rtt').length===49 && /VPN-пинг:/.test(document.querySelector('#fnVpnPickerV2RTTState')?.textContent||''),'RTT scan');
   assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,1,'RTT refresh must issue one read-only scan request');
   const rttOrder=await page.locator(R+' button').evaluateAll(nodes=>nodes.slice(0,4).map(n=>({id:n.dataset.profileId,rtt:n.querySelector('.fnv2-rtt')?.textContent})));
   assert.deepEqual(rttOrder.map(x=>x.id),['fixture-48','fixture-47','fixture-46','fixture-45'],'picker must sort ascending RTT after refresh: '+JSON.stringify(rttOrder));

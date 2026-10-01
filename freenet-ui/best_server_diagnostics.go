@@ -45,18 +45,18 @@ func bestServerRejectionReasons(c bestServerQualityCandidate) []string {
 		reasons = append(reasons, fmt.Sprintf("Отклик сайтов выше %d мс", bestServerQualityMaxApplicationMS))
 	}
 	if c.DownloadMbps <= 0 {
-		reasons = append(reasons, "Скорость Speedtest не измерена")
+		reasons = append(reasons, "Скорость не измерена")
 	} else if c.DownloadMbps < 20 {
-		reasons = append(reasons, "Speedtest ниже 20 Мбит/с")
+		reasons = append(reasons, "Скорость ниже 20 Мбит/с")
 	}
-	if c.MediaSamples < bestServerMediaChunkRuns {
-		reasons = append(reasons, fmt.Sprintf("Speedtest-замеров завершено %d/%d", c.MediaSamples, bestServerMediaChunkRuns))
+	if c.MediaSamples < bestServerMediaRequiredRuns {
+		reasons = append(reasons, fmt.Sprintf("Замеров скорости завершено %d/%d", c.MediaSamples, bestServerMediaRequiredRuns))
 	}
 	if c.MediaStalls > 0 {
-		reasons = append(reasons, fmt.Sprintf("Нестабильных Speedtest-замеров: %d", c.MediaStalls))
+		reasons = append(reasons, fmt.Sprintf("Нестабильных замеров скорости: %d", c.MediaStalls))
 	}
 	if c.MediaGrade != "good" && c.MediaGrade != "excellent" {
-		reasons = append(reasons, "Стабильность Speedtest не подтверждена")
+		reasons = append(reasons, "Стабильность передачи не подтверждена")
 	}
 	if c.ServiceTotal < 3 || c.ServiceOK != c.ServiceTotal {
 		reasons = append(reasons, fmt.Sprintf("Проверки сайтов: %d/%d", c.ServiceOK, c.ServiceTotal))

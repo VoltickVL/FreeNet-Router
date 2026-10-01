@@ -33,30 +33,30 @@ func TestFilterMeasuredBestServerResultsKeepsRejectedDeepProbe(t *testing.T) {
 func TestEligibleAlternativeTargetIgnoresRejectedDiagnostics(t *testing.T) {
 	current := "203.0.113.9:443"
 	input := []bestServerQualityCandidate{
-		{ID: "eligible-current-listener", Endpoint: current, Tested: true, Available: true, Eligible: true},
+		{ID: "eligible-current-listener", Endpoint: current, Current: true, Tested: true, Available: true, Eligible: true},
 		{ID: "eligible-a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
 		{ID: "eligible-same-listener", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
 		{ID: "eligible-b", Endpoint: "203.0.113.11:443", Tested: true, Available: true, Eligible: true},
 		{ID: "near-miss", Endpoint: "203.0.113.12:443", Tested: true, Available: true, Eligible: false},
 	}
-	if got := eligibleBestServerAlternativeCount(input, current); got != 2 {
-		t.Fatalf("eligible endpoint count=%d want=2; rejected diagnostics must not consume a Top-3 completion slot", got)
+	if got := eligibleBestServerAlternativeCount(input, current); got != 3 {
+		t.Fatalf("eligible logical profile count=%d want=3; shared ingress alternatives count independently while rejected diagnostics do not", got)
 	}
 }
 
-func TestEligibleAlternativeTargetRequiresThreeDistinctAvailableEndpoints(t *testing.T) {
+func TestEligibleAlternativeTargetCountsDistinctLogicalProfiles(t *testing.T) {
 	current := "203.0.113.9:443"
 	input := []bestServerQualityCandidate{
 		{ID: "a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
 		{ID: "duplicate-a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
 		{ID: "untested", Endpoint: "203.0.113.11:443", Tested: false, Available: true, Eligible: true},
-		{ID: "current-listener", Endpoint: current, Tested: true, Available: true, Eligible: true},
+		{ID: "current-listener", Endpoint: current, Current: true, Tested: true, Available: true, Eligible: true},
 		{ID: "reachable-only", Endpoint: "203.0.113.12:443", Tested: true, Reachable: true, Eligible: true},
 		{ID: "b", Endpoint: "203.0.113.13:443", Tested: true, Available: true, Eligible: true},
 		{ID: "c", Endpoint: "203.0.113.14:443", Tested: true, Available: true, Eligible: true},
 	}
-	if got := eligibleBestServerAlternativeCount(input, current); got != bestServerVisibleAlternatives {
-		t.Fatalf("eligible endpoint count=%d want=%d", got, bestServerVisibleAlternatives)
+	if got := eligibleBestServerAlternativeCount(input, current); got != 4 {
+		t.Fatalf("eligible logical profile count=%d want=4; same IP:port must not collapse distinct profiles", got)
 	}
 }
 

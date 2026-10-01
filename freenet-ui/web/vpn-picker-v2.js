@@ -15,7 +15,7 @@
     failed:'Проверка не пройдена', empty:'Список серверов недоступен. Проверьте подписку.',
     noMatch:'Ничего не найдено. Измените запрос.', stale:'Показан последний успешный список.',
     busy:'Другая операция VPN ещё выполняется.', blocked:'Результат нужно подтвердить. Повтор заблокирован.',
-    ping:'Измерить задержку всех серверов', pinging:'Проверяем RTT всех серверов…', pingFailed:'Не удалось измерить RTT серверов.'
+    ping:'Измерить задержку через каждый VPN', pinging:'Проверяем задержку через каждый VPN…', pingFailed:'Не удалось измерить RTT серверов.'
   };
   const countries = (() => { try { return new Intl.DisplayNames(['ru'], {type:'region'}); } catch (_) { return null; } })();
   const english = (() => { try { return new Intl.DisplayNames(['en'], {type:'region'}); } catch (_) { return null; } })();
@@ -254,7 +254,7 @@
         next.set(item.profile_id,value);
       }
       rttByID=next; rttRanked=true; rttVersion++;
-      rttSummary=`RTT: ответили ${reachable} из ${data.results.length}. Список отсортирован от меньшей задержки к большей.`;
+      rttSummary=`VPN-пинг: ответили ${reachable} из ${data.results.length}. Список отсортирован от меньшей задержки к большей.`;
     } catch (_) {
       rttError=L.pingFailed;
     } finally {
