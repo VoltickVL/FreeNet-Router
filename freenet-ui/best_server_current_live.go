@@ -70,6 +70,16 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 	if len(outbound) == 0 {
 		return bestServerQualityApplicationResult{}
 	}
+	isolatedOutbound, err := prepareIsolatedProbeOutbound(outbound)
+	if err != nil {
+		return bestServerQualityApplicationResult{}
+	}
+	releaseProbe, ok := acquireIsolatedXrayProbe(ctx)
+	if !ok {
+		return bestServerQualityApplicationResult{}
+	}
+	defer releaseProbe()
+	outbound = isolatedOutbound
 	xrayPath := strings.TrimSpace(os.Getenv("FREENET_XRAY_BIN"))
 	if xrayPath == "" {
 		xrayPath = defaultBestServerXrayPath
@@ -91,6 +101,10 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 	}
 	defer os.RemoveAll(tmpDir)
 	_ = os.Chmod(tmpDir, 0700)
+	probeXrayPath, err := isolatedXrayProbePath(tmpDir, xrayPath)
+	if err != nil {
+		return bestServerQualityApplicationResult{}
+	}
 
 	config := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
@@ -115,12 +129,13 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 		return bestServerQualityApplicationResult{}
 	}
 
-	env := append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir())
+	env := isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir()))
 	testCtx, cancelTest := context.WithTimeout(ctx, 5*time.Second)
-	testCmd := exec.CommandContext(testCtx, xrayPath, "run", "-test", "-confdir", tmpDir)
+	testCmd := exec.CommandContext(testCtx, probeXrayPath, "run", "-test", "-confdir", tmpDir)
 	testCmd.Env = env
 	testCmd.Stdout = io.Discard
 	testCmd.Stderr = io.Discard
+	testCmd.WaitDelay = 2 * time.Second
 	testErr := testCmd.Run()
 	cancelTest()
 	if testErr != nil {
@@ -129,10 +144,11 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	cmd := exec.CommandContext(runCtx, xrayPath, "run", "-confdir", tmpDir)
+	cmd := exec.CommandContext(runCtx, probeXrayPath, "run", "-confdir", tmpDir)
 	cmd.Env = env
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
 		return bestServerQualityApplicationResult{}
 	}

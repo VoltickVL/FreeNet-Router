@@ -137,6 +137,16 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	if !ok || currentEndpoint == "" || !endpointsEqual(activeEndpoint, currentEndpoint) {
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Текущий VPN не удалось безопасно определить."}
 	}
+	isolatedOutbound, err := prepareIsolatedProbeOutbound(outbound)
+	if err != nil {
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось безопасно подготовить изолированную проверку VPN."}
+	}
+	releaseProbe, acquired := acquireIsolatedXrayProbe(ctx)
+	if !acquired {
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Ресурс изолированной проверки VPN сейчас занят."}
+	}
+	defer releaseProbe()
+	outbound = isolatedOutbound
 	xrayPath := strings.TrimSpace(os.Getenv("FREENET_XRAY_BIN"))
 	if xrayPath == "" {
 		xrayPath = defaultBestServerXrayPath
@@ -158,6 +168,10 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	}
 	defer os.RemoveAll(tmpDir)
 	_ = os.Chmod(tmpDir, 0700)
+	probeXrayPath, err := isolatedXrayProbePath(tmpDir, xrayPath)
+	if err != nil {
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось изолировать процесс проверки VPN."}
+	}
 
 	config := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
@@ -181,12 +195,13 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось записать конфигурацию проверки VPN."}
 	}
 
-	env := append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir())
+	env := isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir()))
 	testCtx, cancelTest := context.WithTimeout(ctx, 4*time.Second)
-	testCmd := exec.CommandContext(testCtx, xrayPath, "run", "-test", "-confdir", tmpDir)
+	testCmd := exec.CommandContext(testCtx, probeXrayPath, "run", "-test", "-confdir", tmpDir)
 	testCmd.Env = env
 	testCmd.Stdout = io.Discard
 	testCmd.Stderr = io.Discard
+	testCmd.WaitDelay = 2 * time.Second
 	testErr := testCmd.Run()
 	cancelTest()
 	if testErr != nil {
@@ -195,10 +210,11 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	cmd := exec.CommandContext(runCtx, xrayPath, "run", "-confdir", tmpDir)
+	cmd := exec.CommandContext(runCtx, probeXrayPath, "run", "-confdir", tmpDir)
 	cmd.Env = env
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось запустить изолированную проверку VPN."}
 	}

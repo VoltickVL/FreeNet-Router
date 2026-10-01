@@ -875,7 +875,7 @@ func (a *app) runAction(action string) actionResult {
 		return result
 	}
 
-	if !processRunning("xray") {
+	if !a.liveXrayRunning() {
 		if action != "update" {
 			if rbErr := a.restoreSnapshot(snap); rbErr != nil {
 				result.Error = "Xray is offline after operation; rollback failed: " + rbErr.Error()
@@ -960,7 +960,7 @@ func (a *app) restoreSnapshot(s snapshot) error {
 		return fmt.Errorf("restart XKeen: %v (%s)", err, sanitizeOutput(string(out)))
 	}
 	time.Sleep(4 * time.Second)
-	if !processRunning("xray") {
+	if !a.liveXrayRunning() {
 		return errors.New("Xray offline after rollback")
 	}
 	return nil
@@ -1017,7 +1017,7 @@ func (a *app) status() statusResponse {
 		City:                   p.City,
 		ProfileLabel:           p.Label,
 		Endpoint:               endpoint,
-		XrayOnline:             processRunning("xray"),
+		XrayOnline:             a.liveXrayRunning(),
 		XKeenUI:                processRunning("xkeen-ui"),
 		DNSOut:                 dnsOut,
 		ISP:                    isp,

@@ -138,6 +138,15 @@ func countProviderUniqueEndpoints(candidates []bestServerInternalCandidate) int 
 }
 
 func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) {
+	releaseOperation, operationOK := tryAcquireFreeNetOperation(a)
+	if !operationOK {
+		writeJSON(w, http.StatusConflict, providerProfileRTTResponse{
+			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "proxy_http", Mutation: "NONE", Error: "another FreeNet operation is already running",
+		})
+		return
+	}
+	defer releaseOperation()
+
 	if !beginProviderProfileRTTScan() {
 		writeJSON(w, http.StatusConflict, providerProfileRTTResponse{
 			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "proxy_http", Mutation: "NONE", Error: "VPN ping is already running",
@@ -145,6 +154,16 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer endProviderProfileRTTScan()
+
+	select {
+	case a.sem <- struct{}{}:
+		defer func() { <-a.sem }()
+	default:
+		writeJSON(w, http.StatusConflict, providerProfileRTTResponse{
+			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "proxy_http", Mutation: "NONE", Error: "another FreeNet operation is active",
+		})
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), providerProfileRTTTimeout)
 	defer cancel()

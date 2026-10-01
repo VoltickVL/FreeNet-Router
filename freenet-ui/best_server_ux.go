@@ -235,13 +235,15 @@ func withoutBestServerCandidate(candidates []bestServerInternalCandidate, index 
 }
 
 func (a *app) handleCurrentVPNQuality(w http.ResponseWriter, r *http.Request) {
-	if len(a.sem) > 0 {
+	releaseOperation, ok := tryAcquireFreeNetOperation(a)
+	if !ok {
 		writeJSON(w, http.StatusConflict, bestServerQualityResponse{
 			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
 			Error: "VPN operation is active; current VPN check was not started",
 		})
 		return
 	}
+	defer releaseOperation()
 
 	ctx, cancel := context.WithTimeout(r.Context(), bestServerCurrentScanTimeout)
 	defer cancel()
@@ -277,13 +279,15 @@ func (a *app) scanCurrentVPNQuality(ctx context.Context) (bestServerQualityRespo
 }
 
 func (a *app) handleBestServerForeign(w http.ResponseWriter, r *http.Request) {
-	if len(a.sem) > 0 {
+	releaseOperation, ok := tryAcquireFreeNetOperation(a)
+	if !ok {
 		writeJSON(w, http.StatusConflict, bestServerQualityResponse{
 			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
 			Error: "VPN operation is active; Best Server scan was not started",
 		})
 		return
 	}
+	defer releaseOperation()
 
 	if !prepareBestServerResponse(w) {
 		return

@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	bestServerPreflightWorkers          = 4
+	bestServerPreflightWorkers          = 2
 	bestServerPreflightCandidateTimeout = 7 * time.Second
 	bestServerPreflightPhaseTimeout     = 21 * time.Second
 	bestServerPreflightShortlist        = 12
@@ -191,6 +191,15 @@ func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServer
 	if err != nil {
 		return bestServerProbeResult{}
 	}
+	outbound, err = prepareIsolatedProbeOutbound(outbound)
+	if err != nil {
+		return bestServerProbeResult{}
+	}
+	releaseProbe, ok := acquireIsolatedXrayProbe(ctx)
+	if !ok {
+		return bestServerProbeResult{}
+	}
+	defer releaseProbe()
 	xrayPath := strings.TrimSpace(os.Getenv("FREENET_XRAY_BIN"))
 	if xrayPath == "" {
 		xrayPath = defaultBestServerXrayPath
@@ -212,6 +221,10 @@ func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServer
 	}
 	defer os.RemoveAll(tmpDir)
 	_ = os.Chmod(tmpDir, 0700)
+	probeXrayPath, err := isolatedXrayProbePath(tmpDir, xrayPath)
+	if err != nil {
+		return bestServerProbeResult{}
+	}
 
 	config := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
@@ -237,10 +250,11 @@ func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServer
 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	cmd := exec.CommandContext(runCtx, xrayPath, "run", "-confdir", tmpDir)
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir())
+	cmd := exec.CommandContext(runCtx, probeXrayPath, "run", "-confdir", tmpDir)
+	cmd.Env = isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir()))
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
+	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
 		return bestServerProbeResult{}
 	}

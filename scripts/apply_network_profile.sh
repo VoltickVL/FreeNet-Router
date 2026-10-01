@@ -148,28 +148,40 @@ xray_pid() {
     PIDS="$(pidof xray 2>/dev/null || true)"
     [ -n "$PIDS" ] || return 0
 
-    # Full-profile VPN probes also run short-lived xray processes. Select the
-    # live XKeen instance by its exact config directory, never by pidof order.
+    EXACT_PID=""
+    EXACT_COUNT=0
     for PID in $PIDS; do
-        [ -r "/proc/$PID/cmdline" ] || continue
-        if tr '\000' '\n' < "/proc/$PID/cmdline" 2>/dev/null | grep -Fxq "$CONFIG_DIR"; then
-            printf '%s\n' "$PID"
-            return 0
+        [ -r "/proc/$PID/environ" ] || continue
+        ENV_LINES="$(tr '\000' '\n' < "/proc/$PID/environ" 2>/dev/null || true)"
+        printf '%s\n' "$ENV_LINES" | grep -Fxq 'FREENET_XRAY_PROBE=1' && continue
+        if printf '%s\n' "$ENV_LINES" | grep -Fxq "XRAY_LOCATION_CONFDIR=$CONFIG_DIR"; then
+            EXACT_PID="$PID"
+            EXACT_COUNT=$((EXACT_COUNT + 1))
         fi
     done
+    if [ "$EXACT_COUNT" -eq 1 ]; then
+        printf '%s\n' "$EXACT_PID"
+        return 0
+    fi
+    # Multiple exact live processes are ambiguous. Fail closed rather than
+    # choosing an arbitrary process for DNS/runtime acceptance.
+    [ "$EXACT_COUNT" -gt 1 ] && return 0
 
-    # Compatibility fallback for XKeen launch variants: accept only its
-    # expected runtime group, never an arbitrary root-owned probe process.
+    FALLBACK_PID=""
+    FALLBACK_COUNT=0
     for PID in $PIDS; do
+        if [ -r "/proc/$PID/environ" ]; then
+            tr '\000' '\n' < "/proc/$PID/environ" 2>/dev/null | grep -Fxq 'FREENET_XRAY_PROBE=1' && continue
+        fi
         VALUE="$(awk '/^Gid:/ {print $2; exit}' "/proc/$PID/status" 2>/dev/null)"
         if [ "$VALUE" = 11111 ]; then
-            printf '%s\n' "$PID"
-            return 0
+            FALLBACK_PID="$PID"
+            FALLBACK_COUNT=$((FALLBACK_COUNT + 1))
         fi
     done
+    [ "$FALLBACK_COUNT" -eq 1 ] && printf '%s\n' "$FALLBACK_PID"
     return 0
 }
-
 xray_gid() {
     PID="$1"
     if [ "$TEST_MODE" = yes ]; then test_state_value XRAY_GID 11111; return 0; fi

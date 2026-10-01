@@ -151,13 +151,15 @@ func registerBestServerTargetedAPI(mux *http.ServeMux, a *app) {
 }
 
 func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Request) {
-	if len(a.sem) > 0 {
+	releaseOperation, operationOK := tryAcquireFreeNetOperation(a)
+	if !operationOK {
 		writeJSON(w, http.StatusConflict, bestServerQualityResponse{
 			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
 			Error: "VPN operation is active; targeted retry was not started",
 		})
 		return
 	}
+	defer releaseOperation()
 	profileID := strings.TrimSpace(r.URL.Query().Get("id"))
 	if !validProfileID(profileID) {
 		writeJSON(w, http.StatusBadRequest, bestServerQualityResponse{
@@ -438,7 +440,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 	expectedEndpoint := profileEndpoint(target.Profile)
 	activeEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	activeLabel := currentExactProfileLabel(a.cfg.FilterPath)
-	postOK := endpointsEqual(activeEndpoint, expectedEndpoint) && processRunning("xray")
+	postOK := endpointsEqual(activeEndpoint, expectedEndpoint) && a.liveXrayRunning()
 	expectedLabel := sanitizeProfileName(target.Profile.Name)
 	if expectedLabel != "" {
 		postOK = postOK && activeLabel == expectedLabel
