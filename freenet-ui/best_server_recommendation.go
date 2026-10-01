@@ -87,8 +87,11 @@ func bestServerRecommendationExists(candidates []bestServerQualityCandidate, rec
 	}
 	for i := range candidates {
 		candidate := candidates[i]
-		if candidate.ID != "" && recommendation.ID != "" && candidate.ID == recommendation.ID {
-			return true
+		if candidate.ID != "" && recommendation.ID != "" {
+			if candidate.ID == recommendation.ID {
+				return true
+			}
+			continue
 		}
 		if candidate.Endpoint != "" && recommendation.Endpoint != "" && endpointsEqual(candidate.Endpoint, recommendation.Endpoint) {
 			return true
