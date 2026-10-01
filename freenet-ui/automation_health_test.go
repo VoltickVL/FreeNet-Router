@@ -32,6 +32,18 @@ func TestAutomationServicePathHealthRequiresAllBoundedTargets(t *testing.T) {
 	}
 }
 
+func TestAutomationReachableDegradationNeverTriggersRecovery(t *testing.T) {
+	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS+80, 4, 4); got.State != automationHealthUncertain {
+		t.Fatalf("high-latency reachable VPN state=%q want uncertain/no-mutation", got.State)
+	}
+	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS, 3, 4); got.State != automationHealthUncertain {
+		t.Fatalf("partial service degradation state=%q want uncertain/no-mutation", got.State)
+	}
+	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS, 4, 4); got.State != automationHealthHealthy {
+		t.Fatalf("fully healthy VPN state=%q want healthy", got.State)
+	}
+}
+
 func TestAutomationHealthRequiresConfirmedWANAndTwoVPNFailures(t *testing.T) {
 	failed := automationHealthProbe{State: automationHealthFailed, Reason: "failed"}
 	healthy := automationHealthProbe{State: automationHealthHealthy, Reason: "healthy"}

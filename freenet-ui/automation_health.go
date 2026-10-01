@@ -116,6 +116,22 @@ func automationApplicationPathHealthy(ms int) bool {
 	return ms > 0 && ms <= bestServerQualityMaxApplicationMS
 }
 
+func classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal int) automationHealthProbe {
+	if !automationApplicationPathHealthy(applicationMS) {
+		return automationHealthProbe{
+			State: automationHealthUncertain,
+			Reason: fmt.Sprintf("VPN отвечает, но отклик высокий: %d мс. Рабочее подключение сохраняется без переключения.", applicationMS),
+		}
+	}
+	if !automationServicePathHealthy(serviceOK, serviceTotal) {
+		return automationHealthProbe{
+			State: automationHealthUncertain,
+			Reason: fmt.Sprintf("VPN даёт доступ в интернет, но часть сервисных проверок нестабильна: %d/%d. Рабочее подключение сохраняется без переключения.", serviceOK, serviceTotal),
+		}
+	}
+	return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."}
+}
+
 func probeAutomationWAN(ctx context.Context) bool {
 	targets := []string{"1.1.1.1:443", "77.88.8.8:53"}
 	dialer := &net.Dialer{Timeout: 2 * time.Second}
@@ -244,14 +260,8 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	if !ok {
 		return automationHealthProbe{State: automationHealthFailed, Reason: "Текущий VPN не подтвердил доступ к интернету."}
 	}
-	if !automationApplicationPathHealthy(applicationMS) {
-		return automationHealthProbe{State: automationHealthFailed, Reason: fmt.Sprintf("Отклик текущего VPN слишком высокий: %d мс (допустимо до %d мс).", applicationMS, bestServerQualityMaxApplicationMS)}
-	}
 	serviceOK, serviceTotal := probeBestServerServiceReachability(ctx, curlPath, socks)
-	if !automationServicePathHealthy(serviceOK, serviceTotal) {
-		return automationHealthProbe{State: automationHealthFailed, Reason: fmt.Sprintf("Текущий VPN отвечает базово, но сервисные маршруты нестабильны: %d/%d.", serviceOK, serviceTotal)}
-	}
-	return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."}
+	return classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal)
 }
 
 func automationCurrentCountry(a *app) string {
