@@ -78,15 +78,22 @@ func (jobs *bestServerJobs) wrap(a *app, mode string, legacy http.HandlerFunc, s
 			writeJSON(w, http.StatusConflict, map[string]any{"error": "Another quality check is running"})
 			return
 		}
+		releaseAutomationFence, fenceErr := acquireAutomationHealthLock()
+		if fenceErr != nil {
+			writeJSON(w, http.StatusConflict, map[string]any{"error": "AUTO VPN health/recovery operation is active; scan was not started"})
+			return
+		}
 		select {
 		case a.sem <- struct{}{}:
 		default:
+			releaseAutomationFence()
 			writeJSON(w, http.StatusConflict, map[string]any{"error": "Another operation is active; scan was not started"})
 			return
 		}
 		job := &bestServerJob{ID: id, Mode: mode, State: "running", Stage: "discovery", StartedAt: time.Now().UTC()}
 		jobs.job = job
 		go func() {
+			defer releaseAutomationFence()
 			timeout := bestServerAsyncJobTimeout
 			if mode == "current" {
 				timeout = bestServerCurrentScanTimeout
