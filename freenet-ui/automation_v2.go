@@ -553,7 +553,6 @@ func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings a
 			Message: "Нет разрешённых кандидатов для автоматического переключения.",
 		}, nil
 	}
-	filtered = bestServerFastRTTShortlist(ctx, filtered, currentEndpoint, currentFilter, defaultBestServerFastRTTProbe)
 	filtered = a.applicationAwareBestServerShortlist(ctx, filtered, currentEndpoint, currentFilter)
 	response := a.rankMeasuredBestServerBatches(ctx, filtered, profilesScanned, truncated, currentEndpoint, currentFilter)
 	if ctx.Err() != nil && len(response.Candidates) == 0 {
