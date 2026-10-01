@@ -1787,6 +1787,10 @@
         #fnVpnPickerPopover .fn-vpn-picker-body{max-height:calc(100vh - 102px)!important}
         #fnVpnPickerPopover #exactConnectRow{grid-template-columns:1fr!important}
       }
+      @media(max-width:760px){
+        html body .topbar.overview-approved #overviewApprovedTop{display:none!important}
+        html body .topbar.overview-approved{height:70px!important;min-height:70px!important;padding-left:14px!important;padding-right:14px!important}
+      }
     `;
     document.head.appendChild(style);
   }
