@@ -2,8 +2,8 @@ package main
 
 import (
 	"errors"
-	"strings"
 	"strconv"
+	"strings"
 	"testing"
 )
 
