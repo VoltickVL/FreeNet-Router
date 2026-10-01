@@ -29,7 +29,9 @@ for marker in \
     'TARGETS="127.0.0.1"' \
     'ordered first-match DNS policy mirrors domain routing' \
     'suppress native System DNS intercept' \
-    'normalize proxy_dns=off if required without unnecessary runtime restart'; do
+    'normalize proxy_dns=off if required without unnecessary runtime restart' \
+    'grep -Fxq "$CONFIG_DIR"' \
+    'expected runtime group, never an arbitrary root-owned probe process'; do
     grep -Fq "$marker" "$SCRIPT" || fail "missing contract marker: $marker"
 done
 if grep -Fq "ip -4 addr show br0" "$SCRIPT"; then fail 'DNS acceptance hardcodes br0'; fi
