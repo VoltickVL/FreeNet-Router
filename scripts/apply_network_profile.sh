@@ -144,7 +144,30 @@ xray_pid() {
         [ "$(test_state_value XRAY_RUNNING yes)" = yes ] && printf '%s\n' 4242
         return 0
     fi
-    pidof xray 2>/dev/null | awk '{print $1}'
+
+    PIDS="$(pidof xray 2>/dev/null || true)"
+    [ -n "$PIDS" ] || return 0
+
+    # Full-profile VPN probes also run short-lived xray processes. Select the
+    # live XKeen instance by its exact config directory, never by pidof order.
+    for PID in $PIDS; do
+        [ -r "/proc/$PID/cmdline" ] || continue
+        if tr '\000' '\n' < "/proc/$PID/cmdline" 2>/dev/null | grep -Fxq "$CONFIG_DIR"; then
+            printf '%s\n' "$PID"
+            return 0
+        fi
+    done
+
+    # Compatibility fallback for XKeen launch variants: accept only its
+    # expected runtime group, never an arbitrary root-owned probe process.
+    for PID in $PIDS; do
+        VALUE="$(awk '/^Gid:/ {print $2; exit}' "/proc/$PID/status" 2>/dev/null)"
+        if [ "$VALUE" = 11111 ]; then
+            printf '%s\n' "$PID"
+            return 0
+        fi
+    done
+    return 0
 }
 
 xray_gid() {
