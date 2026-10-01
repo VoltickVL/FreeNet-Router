@@ -90,8 +90,8 @@ func TestSelectBestServerFastRTTPrioritizesUnder200AndKeepsCountryDiversity(t *t
 	}
 
 	indexes := selectBestServerFastRTTIndexes(candidates, measured, attempted, -1)
-	if len(indexes) != bestServerFastRTTShortlist {
-		t.Fatalf("selected=%d want=%d", len(indexes), bestServerFastRTTShortlist)
+	if len(indexes) != bestServerFastRTTShortlistLimit {
+		t.Fatalf("selected=%d want=%d", len(indexes), bestServerFastRTTShortlistLimit)
 	}
 	seenCountry := map[string]bool{}
 	seenID := map[string]bool{}
