@@ -17,10 +17,12 @@ import (
 
 const (
 	bestServerPreflightWorkers          = 4
-	bestServerPreflightCandidateTimeout = 8 * time.Second
-	bestServerPreflightPhaseTimeout     = 20 * time.Second
+	bestServerPreflightCandidateTimeout = 7 * time.Second
+	bestServerPreflightPhaseTimeout     = 30 * time.Second
 	bestServerPreflightShortlist        = 12
 	bestServerPreflightHTTPRuns         = 2
+	bestServerProfilePingHTTPRuns       = 1
+	bestServerProfilePingTimeout        = 6 * time.Second
 )
 
 type bestServerPreflightResult struct {
@@ -35,7 +37,7 @@ type bestServerPreflightResult struct {
 // Provider endpoint TCP latency
 // alone is not a reliable proxy for the geographic/exit path of an Extra profile.
 func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) []bestServerInternalCandidate {
-	if len(candidates) <= bestServerPreflightShortlist {
+	if len(candidates) <= 1 {
 		return candidates
 	}
 
@@ -177,6 +179,14 @@ func selectBestServerPreflightIndexes(
 }
 
 func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerPreflightHTTPRuns)
+}
+
+func (a *app) probeBestServerProfilePing(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerProfilePingHTTPRuns)
+}
+
+func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServerInternalCandidate, runs int) bestServerProbeResult {
 	outbound, err := buildBestServerProbeOutbound(candidate.Raw, candidate.Profile)
 	if err != nil {
 		return bestServerProbeResult{}
@@ -246,8 +256,11 @@ func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate
 	}
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
-	samples := make([]int, 0, bestServerPreflightHTTPRuns)
-	for run := 0; run < bestServerPreflightHTTPRuns; run++ {
+	if runs < 1 {
+		runs = 1
+	}
+	samples := make([]int, 0, runs)
+	for run := 0; run < runs; run++ {
 		if ctx.Err() != nil {
 			break
 		}
