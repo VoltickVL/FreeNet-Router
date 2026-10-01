@@ -151,6 +151,7 @@ func TestProviderProfileRTTScanSingleFlight(t *testing.T) {
 }
 
 func TestProviderProfileRTTGuardsAcquireOnceAndReleaseBoth(t *testing.T) {
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", t.TempDir()+"/auto-health.lock")
 	endProviderProfileRTTScan()
 	a := &app{sem: make(chan struct{}, 1)}
 
@@ -166,8 +167,13 @@ func TestProviderProfileRTTGuardsAcquireOnceAndReleaseBoth(t *testing.T) {
 		t.Fatal("RTT single-flight gate was not held with operation semaphore")
 	}
 
+	if fenceRelease, err := acquireAutomationHealthLock(); err == nil {
+		fenceRelease()
+		t.Fatal("provider RTT scan must hold AUTO health fence")
+	}
+
 	other := &app{sem: make(chan struct{}, 1)}
-	if secondRelease, secondReason := acquireProviderProfileRTTGuards(other); secondRelease != nil || secondReason != "VPN ping is already running" {
+	if secondRelease, secondReason := acquireProviderProfileRTTGuards(other); secondRelease != nil || secondReason != "AUTO VPN health/recovery operation is already running" {
 		if secondRelease != nil {
 			secondRelease()
 		}
@@ -182,5 +188,10 @@ func TestProviderProfileRTTGuardsAcquireOnceAndReleaseBoth(t *testing.T) {
 		t.Fatal("RTT single-flight gate was not released")
 	}
 	endProviderProfileRTTScan()
+	fenceRelease, err := acquireAutomationHealthLock()
+	if err != nil {
+		t.Fatalf("AUTO health fence was not released: %v", err)
+	}
+	fenceRelease()
 }
 
