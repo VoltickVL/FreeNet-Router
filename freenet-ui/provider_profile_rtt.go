@@ -11,7 +11,7 @@ import (
 
 const (
 	providerProfileRTTTimeout = 90 * time.Second
-	providerProfileRTTWorkers = 4
+	providerProfileRTTWorkers = 2
 )
 
 type providerProfileRTTItem struct {
@@ -33,6 +33,24 @@ type providerProfileRTTResponse struct {
 }
 
 type providerRTTProbe func(context.Context, bestServerInternalCandidate) bestServerProbeResult
+
+var providerProfileRTTScanGate = make(chan struct{}, 1)
+
+func beginProviderProfileRTTScan() bool {
+	select {
+	case providerProfileRTTScanGate <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func endProviderProfileRTTScan() {
+	select {
+	case <-providerProfileRTTScanGate:
+	default:
+	}
+}
 
 func isUserExcludedVPNCountry(code string) bool {
 	switch strings.ToLower(strings.TrimSpace(code)) {
@@ -120,6 +138,14 @@ func countProviderUniqueEndpoints(candidates []bestServerInternalCandidate) int 
 }
 
 func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) {
+	if !beginProviderProfileRTTScan() {
+		writeJSON(w, http.StatusConflict, providerProfileRTTResponse{
+			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "proxy_http", Mutation: "NONE", Error: "VPN ping is already running",
+		})
+		return
+	}
+	defer endProviderProfileRTTScan()
+
 	ctx, cancel := context.WithTimeout(r.Context(), providerProfileRTTTimeout)
 	defer cancel()
 
