@@ -14,11 +14,12 @@ import (
 )
 
 const (
-	bestServerSpeedtestServersURL       = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=1&limit=20"
+	bestServerSpeedtestServersURL       = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=true&limit=20"
+	bestServerFallbackSpeedURL          = "https://speed.cloudflare.com/__down"
 	bestServerSpeedtestBytes            = int64(8_000_000)
 	bestServerSpeedtestPreflightBytes   = int64(256_000)
 	bestServerSpeedtestPreflightMinimum = int64(32_000)
-	bestServerSpeedtestListTimeout      = 5 * time.Second
+	bestServerSpeedtestListTimeout      = 8 * time.Second
 	bestServerSpeedtestPreflightTimeout = 4 * time.Second
 	bestServerSpeedtestRunTimeout       = 8 * time.Second
 	bestServerSpeedtestServerTries      = 3
@@ -72,7 +73,7 @@ func discoverBestServerSpeedtestServers(ctx context.Context, curlPath, socks str
 	defer cancel()
 	output, err := exec.CommandContext(listCtx, curlPath,
 		"--socks5-hostname", socks,
-		"-sS", "--connect-timeout", "3", "--max-time", "5",
+		"-sS", "--connect-timeout", "3", "--max-time", "8",
 		bestServerSpeedtestServersURL,
 	).Output()
 	if err != nil {
@@ -169,16 +170,85 @@ func bestServerSpeedtestServerIndex(serverCount, streams, attempt, stream int) i
 	return (attempt*streams + stream) % serverCount
 }
 
+func probeBestServerFallbackConcurrent(ctx context.Context, curlPath, socks string, streams int) ([]float64, string) {
+	if streams < 1 {
+		return nil, "fallback stream count invalid"
+	}
+	results := make(chan bestServerSpeedtestStreamResult, streams)
+	var wg sync.WaitGroup
+	for stream := 0; stream < streams; stream++ {
+		stream := stream
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			nonce := time.Now().UnixNano() + int64(stream)
+			downloadURL := bestServerFallbackSpeedURL + "?bytes=" + strconv.FormatInt(bestServerSpeedtestBytes, 10) + "&nocache=" + strconv.FormatInt(nonce, 10)
+			runCtx, cancel := context.WithTimeout(ctx, bestServerSpeedtestRunTimeout)
+			output, transferErr := exec.CommandContext(runCtx, curlPath,
+				"--socks5-hostname", socks,
+				"-sS", "--connect-timeout", "3", "--max-time", "8",
+				"-o", "/dev/null",
+				"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
+				downloadURL,
+			).Output()
+			cancel()
+			minimum := bestServerSpeedtestBytes / 5
+			if mbps, ok := parseBestServerDownloadMbpsAtLeast(string(output), minimum); ok {
+				results <- bestServerSpeedtestStreamResult{Mbps: mbps, OK: true}
+				return
+			}
+			results <- bestServerSpeedtestStreamResult{Issue: bestServerTransferIssue(string(output), transferErr)}
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	speeds := make([]float64, 0, streams)
+	issueCounts := map[string]int{}
+	for result := range results {
+		if result.OK {
+			speeds = append(speeds, result.Mbps)
+		} else if result.Issue != "" {
+			issueCounts[result.Issue]++
+		}
+	}
+	if len(speeds) >= bestServerMediaRequiredRuns {
+		if len(speeds) == streams {
+			return speeds, ""
+		}
+		return speeds, fmt.Sprintf("Throughput streams %d/%d via Cloudflare fallback", len(speeds), streams)
+	}
+	issues := make([]string, 0, len(issueCounts))
+	for text, count := range issueCounts {
+		issues = append(issues, strconv.Itoa(count)+"× "+text)
+	}
+	sort.Strings(issues)
+	if len(issues) == 0 {
+		return speeds, "Cloudflare throughput unavailable"
+	}
+	return speeds, "Cloudflare throughput unavailable: " + strings.Join(issues, "; ")
+}
+
 func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks string, streams int) ([]float64, string) {
 	if streams < 1 {
 		return nil, "Speedtest stream count invalid"
 	}
+	fallbackSpeeds, fallbackIssue := probeBestServerFallbackConcurrent(ctx, curlPath, socks, streams)
+	if len(fallbackSpeeds) >= bestServerMediaRequiredRuns {
+		return fallbackSpeeds, fallbackIssue
+	}
 	servers, issue := discoverBestServerSpeedtestServers(ctx, curlPath, socks)
 	if len(servers) == 0 {
+		if len(fallbackSpeeds) > 0 {
+			return fallbackSpeeds, fallbackIssue
+		}
 		return nil, issue
 	}
 	servers = qualifyBestServerSpeedtestServers(ctx, curlPath, socks, servers)
 	if len(servers) == 0 {
+		if len(fallbackSpeeds) > 0 {
+			return fallbackSpeeds, fallbackIssue
+		}
 		return nil, "Speedtest origins unavailable through candidate VPN"
 	}
 
@@ -253,9 +323,15 @@ func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks str
 		}
 	}
 
+	if len(fallbackSpeeds) > len(bestSpeeds) {
+		return fallbackSpeeds, fallbackIssue
+	}
 	if len(bestSpeeds) == 0 {
 		if len(bestIssues) == 0 {
-			return nil, "Speedtest download unavailable"
+			if fallbackIssue != "" {
+				return nil, fallbackIssue
+			}
+			return nil, "throughput unavailable"
 		}
 		return nil, "Speedtest download unavailable: " + strings.Join(bestIssues, "; ")
 	}
