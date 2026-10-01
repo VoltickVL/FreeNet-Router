@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	providerProfileRTTTimeout = 75 * time.Second
+	providerProfileRTTTimeout = 90 * time.Second
 	providerProfileRTTWorkers = 4
 )
 
