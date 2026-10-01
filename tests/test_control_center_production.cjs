@@ -13,11 +13,13 @@ let serverLog='',serverExited=false,browser,page;
 server.stdout.on('data',b=>serverLog+=b);server.stderr.on('data',b=>serverLog+=b);server.on('exit',()=>serverExited=true);
 const locations=[['be','Брюссель','Бельгия'],['de','Берлин','Германия'],['nl','Амстердам','Нидерланды'],['fi','Хельсинки','Финляндия']];
 const profiles=Array.from({length:49},(_,i)=>{const[code,city,country]=locations[i%4];return{id:`fixture-${i}`,name:`${code.toUpperCase()} ${city} ${i+1}, ${country}, Extra`,country_code:code,address:`192.0.2.${i+10}`,port:443}});
+const ukraine={id:'fixture-ua',name:'UA Kyiv, Ukraine, Extra',country_code:'ua',address:'192.0.2.250',port:443};
+const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
 let status={version:'0.3.92',country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
 let planMode='ok',planDelay=0,applyMode='ok';
 const calls=[],unhandled=[],errors=[];
-const P='#fnVpnPickerV2Panel',T='#fnVpnPickerV2Toggle',S='#fnVpnPickerV2Search',R='#fnVpnPickerV2Results',F='#fnVpnPickerV2Footer',C='#fnVpnPickerV2Connect';
+const P='#fnVpnPickerV2Panel',T='#fnVpnPickerV2Toggle',S='#fnVpnPickerV2Search',R='#fnVpnPickerV2Results',F='#fnVpnPickerV2Footer',C='#fnVpnPickerV2Connect',RTT='#fnVpnPickerV2Refresh';
 const countApply=()=>calls.filter(c=>c.path==='/api/network-profile/apply').length;
 // Playwright 1.51 waitForFunction's delayed predicate uses eval in the page.
 // Poll from Node instead: production CSP remains untouched (no unsafe-eval).
@@ -63,6 +65,10 @@ async function capture(label){
       const p=profiles.find(p=>ep(p)===status.endpoint)||current;
       return answer(route,{success:true,available:true,scanned_at:new Date().toISOString(),candidates:[{...p,endpoint:status.endpoint,current:true,tested:true,eligible:true,available:true,reachable:true,download_mbps:55,application_rtt_ms:105,tcp_rtt_ms:70,jitter_ms:5,media_samples:4,media_stalls:0,service_ok:4,service_total:4}]});
     }
+    if(url.pathname==='/api/provider-profiles/rtt'){
+      const results=profiles.map((p,i)=>({profile_id:p.id,reachable:i!==7,rtt_ms:i===7?0:55+((48-i)*4),jitter_ms:i%9}));
+      return answer(route,{success:true,results,profiles:profiles.length,unique_endpoints:profiles.length,fresh:true,mutation:'NONE'});
+    }
     if(url.pathname==='/api/provider-profile/plan'){
       const id=url.searchParams.get('profile_id');
       if(planMode==='offline')return answer(route,{success:false,profile_id:id,candidate_xray_valid:false,mutation:'NONE',error:'Fixture subscription unavailable'},503);
@@ -79,7 +85,7 @@ async function capture(label){
       if(id&&planDelay)await delay(planDelay);
       const selected=profiles.find(p=>p.id===id);
       const provider_plan=!id?undefined:planMode==='error'?{success:false,candidate_xray_valid:false,mutation:'NONE',error:'Конфигурация сервера не прошла проверку Xray. Текущий VPN не изменён.'}:{success:true,candidate_xray_valid:true,mutation:'NONE',endpoint:ep(selected||target)};
-      return answer(route,{success:true,supported:true,active:true,provider_plan,extra_profiles:profiles});
+      return answer(route,{success:true,supported:true,active:true,provider_plan,extra_profiles:catalogProfiles});
     }
     if(url.pathname==='/api/network-profile/apply'){
       const body=JSON.parse(req.postData());assert.deepEqual(Object.keys(body).sort(),['confirm','operation','profile_id']);assert.equal(body.operation,'provider');assert.equal(body.confirm,true);
@@ -91,7 +97,7 @@ async function capture(label){
     if(url.pathname==='/api/xray/service')return answer(route,{success:true,version:'v26.9.9',current_version:'v26.9.9',online:true});
     if(url.pathname==='/api/settings-v3')return answer(route,{success:true,auto_vpn:{enabled:true,country_scope:'region',countries:[]},automation:{success:true,current_profile:status.profile_label,current_endpoint:status.endpoint,country_code:status.country_code,settings:{enabled:true},events:[]},subscription:{enabled:false,interval:'6h'},geodata:{enabled:true,interval:'3h'},freenet:{enabled:false,interval:'12h'},backup:{enabled:false,interval:'24h'},events:[]});
     if(url.pathname==='/api/automation')return answer(route,{success:true,settings:{enabled:true,country_scope:'region',countries:[]},current_profile:status.profile_label,current_endpoint:status.endpoint,country_code:status.country_code,events:[]});
-    if(url.pathname==='/api/settings-v3/countries')return answer(route,{success:true,countries:locations.map(([code,,name])=>({code,name,available:true})),selected:[],fresh:true});
+    if(url.pathname==='/api/settings-v3/countries')return answer(route,{success:true,countries:[...locations.map(([code,,name])=>({code,name,available:true})),{code:'ua',name:'Украина',available:true}],selected:['ua'],fresh:true});
     if(url.pathname==='/api/geodata/files')return answer(route,{success:true,files:[],search_enabled:false});
     if(url.pathname.startsWith('/api/system/update/'))return answer(route,{success:true,ready:true,state:'IDLE',current_version:'v0.3.92',latest_version:'v0.3.92',update_available:false,rollback_state:'NOT_NEEDED'});
     if(req.method()!=='GET')throw new Error('Unexpected mutation '+url.pathname);
@@ -108,6 +114,15 @@ async function capture(label){
   const order=await page.locator('#overviewApprovedTop').evaluate(n=>Array.from(n.children).map(x=>x.matches('.fn-xray-topbar')?'xray':x.id==='fnVpnPickerV2Host'?'vpn':x.id==='topFreenetUpdate'?'freenet':/DNS/i.test(x.textContent||'')?'dns':'other').filter(x=>x!=='other'));
   assert.deepEqual(order,['xray','vpn','dns','freenet']);
   await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'49 profiles');
+  assert.equal(await page.locator(R+' [data-profile-id="fixture-ua"]').count(),0,'Ukraine must be excluded from manual replacement picker');
+  assert.equal(await page.locator(RTT).isVisible(),true,'RTT refresh must be visible next to close');
+  assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,0,'opening picker must not auto-run RTT scan');
+  await page.locator(RTT).click();
+  await until(()=>document.querySelectorAll('#fnVpnPickerV2Results .fnv2-rtt').length===49 && /RTT:/.test(document.querySelector('#fnVpnPickerV2RTTState')?.textContent||''),'RTT scan');
+  assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,1,'RTT refresh must issue one read-only scan request');
+  const rttOrder=await page.locator(R+' button').evaluateAll(nodes=>nodes.slice(0,4).map(n=>({id:n.dataset.profileId,rtt:n.querySelector('.fnv2-rtt')?.textContent})));
+  assert.deepEqual(rttOrder.map(x=>x.id),['fixture-48','fixture-47','fixture-46','fixture-45'],'picker must sort ascending RTT after refresh: '+JSON.stringify(rttOrder));
+  assert.ok(rttOrder.every(x=>/мс/.test(x.rtt||'')),'RTT must be visible beside sorted rows: '+JSON.stringify(rttOrder));
   const initial=await geometry('desktop-initial');assert.ok(initial.panel.y>=initial.toggle.bottom,'anchored below VPN');
   const flags=await page.evaluate(()=>{
     const a=document.querySelector('#fnVpnPickerV2Flag'),b=document.querySelector('#fnVpnPickerV2CurrentFlag'),c=document.querySelector('#bestCurrentFlag');
@@ -161,7 +176,7 @@ async function capture(label){
   status={...connectedStatus,xray_online:false};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Не подключён','offline');await page.locator(T).click();assert.equal(await page.locator('#fnVpnPickerV2State').getAttribute('data-online'),'false');
   status={...status,xray_online:true};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','online again');await page.locator(S).fill('FI');await page.locator(R+' button').first().click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','ready before unknown');
   applyMode='unknown';await page.locator(C).click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','unknown result');assert.equal(await page.locator(C).isDisabled(),true);assert.equal(await page.locator('#fnVpnPickerV2Reset').isDisabled(),true);assert.equal(await page.locator(R+' button:not(:disabled)').count(),0,'unknown rollback STOP');await page.locator(C).dispatchEvent('click');assert.equal(countApply(),2,'no blind retry');assert.deepEqual(errors,[]);
-  console.log('PASS: actual production HTML/CSP, canonical flags, current identity, search, read-only check, exact apply, cache, errors/STOP, five viewports, navigation and liveness.');console.log('Other mocked GET surfaces: '+JSON.stringify([...new Set(unhandled)]));
+  console.log('PASS: actual production HTML/CSP, canonical flags, current identity, Ukraine exclusion, RTT refresh/sort, search, read-only check, exact apply, cache, errors/STOP, five viewports, navigation and liveness.');console.log('Other mocked GET surfaces: '+JSON.stringify([...new Set(unhandled)]));
 })().catch(async error=>{
   console.error(error);
   if(page){try{fs.mkdirSync(artifacts,{recursive:true});await page.screenshot({path:path.join(artifacts,'failure.png')});console.error('BODY '+(await page.locator('body').innerText()).slice(0,2500));console.error('PAGE ERRORS '+JSON.stringify(errors));console.error('VPN REQUESTS '+JSON.stringify(calls.filter(c=>c.path.startsWith('/api/vpn/'))));console.error('ENGINE '+JSON.stringify(await page.evaluate(()=>({card:document.querySelector('#selectedProfileCard')?.outerHTML,button:document.querySelector('#exactConnectBtn')?.outerHTML,currentFlag:document.querySelector('#bestCurrentFlag')?.outerHTML}))));}catch(_){}}
