@@ -80,29 +80,29 @@ func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []
 }
 
 // Best Server keeps deep-testing until it has up to three real Eligible
-// alternatives on distinct non-current public endpoints, or the bounded budget
-// or candidate pool is exhausted. Rejected deep results remain useful
-// diagnostics, but they must not consume an Eligible completion slot.
-// Public endpoint is used here solely for presentation diversity; it is not
-// logical profile identity.
+// logical profiles, or the bounded budget/candidate pool is exhausted.
+// Public IP:port is deliberately NOT identity: multiple countries in one
+// provider subscription may share the same ingress while carrying different
+// VLESS/Reality credentials and exit paths.
 func eligibleBestServerAlternativeCount(candidates []bestServerQualityCandidate, currentEndpoint string) int {
-	seenEndpoints := map[string]struct{}{}
-	if endpoint := strings.TrimSpace(currentEndpoint); endpoint != "" {
-		seenEndpoints[endpoint] = struct{}{}
-	}
+	_ = currentEndpoint // retained in the signature for compatibility with callers/tests.
+	seenProfiles := map[string]struct{}{}
 	count := 0
 	for _, candidate := range candidates {
 		if candidate.Current || !candidate.Tested || !candidate.Eligible || !candidate.Available {
 			continue
 		}
-		endpoint := strings.TrimSpace(candidate.Endpoint)
-		if endpoint == "" {
+		key := strings.TrimSpace(candidate.ID)
+		if key == "" {
+			key = strings.ToLower(strings.Join(strings.Fields(profileDisplayName(candidate.Name)), " "))
+		}
+		if key == "" {
 			continue
 		}
-		if _, exists := seenEndpoints[endpoint]; exists {
+		if _, exists := seenProfiles[key]; exists {
 			continue
 		}
-		seenEndpoints[endpoint] = struct{}{}
+		seenProfiles[key] = struct{}{}
 		count++
 	}
 	return count
