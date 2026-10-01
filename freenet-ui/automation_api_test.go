@@ -156,8 +156,11 @@ func TestAutomationCountryScopeIsFailClosed(t *testing.T) {
 		t.Fatal("current-country scope changed country")
 	}
 	settings.CountryScope = automationCountryRegion
-	if !automationCountryAllowed(settings, "pl", "de") || automationCountryAllowed(settings, "pl", "us") {
-		t.Fatal("region scope did not stay in current region")
+	if !automationCountryAllowed(settings, "pl", "de") || !automationCountryAllowed(settings, "pl", "us") {
+		t.Fatal("recommended best-response scope must admit the full measured foreign pool")
+	}
+	if automationCountryAllowed(settings, "pl", "ru") || automationCountryAllowed(settings, "pl", "ua") || automationCountryAllowed(settings, "pl", "") {
+		t.Fatal("recommended best-response scope must keep explicit country exclusions/fail-closed identity")
 	}
 	settings.CountryScope = automationCountryAllowlist
 	settings.Countries = []string{"nl", "de"}
