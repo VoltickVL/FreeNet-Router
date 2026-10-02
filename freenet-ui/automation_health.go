@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -87,6 +88,45 @@ func automationHealthLockPath() string {
 	return "/tmp/freenet-auto-health.lock"
 }
 
+func automationHealthLockOwnerState(path string) (alive bool, known bool) {
+	data, err := os.ReadFile(filepath.Join(path, "pid"))
+	if err != nil {
+		return false, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return false, false
+	}
+	err = syscall.Kill(pid, 0)
+	if err == nil || errors.Is(err, syscall.EPERM) {
+		return true, true
+	}
+	if errors.Is(err, syscall.ESRCH) {
+		return false, true
+	}
+	return false, false
+}
+
+func reclaimAutomationHealthLockIfStale(path string) bool {
+	alive, ownerKnown := automationHealthLockOwnerState(path)
+	if ownerKnown {
+		if alive {
+			return false
+		}
+		_ = os.RemoveAll(path)
+		return true
+	}
+	info, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return true
+	}
+	if err == nil && time.Since(info.ModTime()) > 10*time.Minute {
+		_ = os.RemoveAll(path)
+		return true
+	}
+	return false
+}
+
 func acquireAutomationHealthLock() (func(), error) {
 	path := automationHealthLockPath()
 	try := func() error {
@@ -99,8 +139,7 @@ func acquireAutomationHealthLock() (func(), error) {
 	if err := try(); err == nil {
 		return func() { _ = os.RemoveAll(path) }, nil
 	}
-	if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > 10*time.Minute {
-		_ = os.RemoveAll(path)
+	if reclaimAutomationHealthLockIfStale(path) {
 		if err := try(); err == nil {
 			return func() { _ = os.RemoveAll(path) }, nil
 		}
