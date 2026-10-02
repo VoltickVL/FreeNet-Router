@@ -146,7 +146,7 @@ func TestAutomationRecoveryStageJournalUsesStageResults(t *testing.T) {
 
 func TestManagedCronSeparatesHealthWatchdogFromHeavyBestScan(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
-	if err := os.WriteFile(path, []byte("AUTO_XKEEN_GEODATA=no\nAUTO_VPN_FAILOVER=yes\nAUTO_VPN_FAILOVER_CRON='*/5 * * * *'\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("AUTO_XKEEN_GEODATA=no\nAUTO_VPN_HEALTH_INTERVAL=1m\nAUTO_VPN_FAILOVER=yes\nAUTO_VPN_FAILOVER_CRON='*/5 * * * *'\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	settings := automationSettings{Enabled: true, Interval: "1h", Mode: automationModeBest, Policy: automationPolicyBetter, CountryScope: automationCountryRegion, AutoApply: true}
@@ -155,8 +155,8 @@ func TestManagedCronSeparatesHealthWatchdogFromHeavyBestScan(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if !strings.Contains(text, "*/5 * * * * "+automationRunnerPath()+" automation-health-watch") {
-		t.Fatalf("health watchdog is not scheduled every 5 minutes:\n%s", text)
+	if !strings.Contains(text, "* * * * * "+automationRunnerPath()+" automation-health-watch") {
+		t.Fatalf("health watchdog is not scheduled with the configured 1-minute fallback:\n%s", text)
 	}
 	if !strings.Contains(text, "0 * * * * "+automationRunnerPath()+" automation-best-run") {
 		t.Fatalf("heavy Best run does not keep the selected 1h interval:\n%s", text)
