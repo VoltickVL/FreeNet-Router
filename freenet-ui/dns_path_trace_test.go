@@ -75,6 +75,66 @@ func TestNormalizeDNSPathTraceHost(t *testing.T) {
 	}
 }
 
+func TestBuildReadOnlyTraceRoutingDropsLiveBalancerMetadata(t *testing.T) {
+	routing := traceTestRouting()
+	routingObj := routing["routing"].(map[string]any)
+	routingObj["balancers"] = []any{
+		map[string]any{
+			"tag":      "best",
+			"selector": []any{"vless"},
+			"strategy": map[string]any{"type": "leastPing"},
+		},
+	}
+	routingObj["domainMatcher"] = "hybrid"
+
+	minimal, err := buildReadOnlyTraceRouting(routing)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := minimal["balancers"]; exists {
+		t.Fatal("trace routing must not copy live balancers")
+	}
+	if _, exists := minimal["domainMatcher"]; exists {
+		t.Fatal("trace routing must not copy unsupported live routing metadata")
+	}
+	if got := legacyNativeString(minimal["domainStrategy"]); got != "AsIs" {
+		t.Fatalf("domainStrategy=%q", got)
+	}
+	rules, ok := minimal["rules"].([]any)
+	if !ok || len(rules) == 0 {
+		t.Fatal("ordered routing rules missing")
+	}
+}
+
+func TestBuildReadOnlyTraceRoutingRejectsBalancerRule(t *testing.T) {
+	routing := traceTestRouting()
+	routingObj := routing["routing"].(map[string]any)
+	rules := routingObj["rules"].([]any)
+	rules = append([]any{
+		map[string]any{"type": "field", "domain": []any{"domain:balanced.example"}, "balancerTag": "best"},
+	}, rules...)
+	routingObj["rules"] = rules
+	if _, err := buildReadOnlyTraceRouting(routing); err == nil || !strings.Contains(err.Error(), "balancerTag") {
+		t.Fatalf("expected fail-closed balancer STOP, got %v", err)
+	}
+}
+
+func TestSanitizeDNSPathTraceValidationDetail(t *testing.T) {
+	raw := "failed\n  to load /tmp/freenet-dns-trace-123/trace.json\r\nreason"
+	got := sanitizeDNSPathTraceValidationDetail(raw, "/tmp/freenet-dns-trace-123")
+	if strings.Contains(got, "/tmp/freenet-dns-trace-123") {
+		t.Fatalf("temporary path leaked: %q", got)
+	}
+	if got != "failed to load <trace>/trace.json reason" {
+		t.Fatalf("unexpected sanitized detail: %q", got)
+	}
+
+	long := strings.Repeat("x", 600)
+	if got := sanitizeDNSPathTraceValidationDetail(long, ""); len(got) > 483 || !strings.HasSuffix(got, "...") {
+		t.Fatalf("validation detail was not bounded: len=%d", len(got))
+	}
+}
+
 func TestBuildReadOnlyXrayTraceConfigHasNoLiveCredentials(t *testing.T) {
 	cfg, err := buildReadOnlyXrayTraceConfig(18080, 18081, traceTestDNS(), traceTestRouting())
 	if err != nil {
