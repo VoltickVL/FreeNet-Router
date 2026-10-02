@@ -47,6 +47,7 @@ func TestSettingsV3StartupReconcilesVPNWatchdogIdempotently(t *testing.T) {
 	countPath := filepath.Join(dir, "crontab.count")
 	if err := os.WriteFile(configPath, []byte(strings.Join([]string{
 		"AUTO_VPN_V1=yes",
+		"AUTO_VPN_HEALTH_INTERVAL=1m",
 		"AUTO_SUBSCRIPTION_REFRESH_ENABLED=no",
 		"AUTO_GEODATA_ENABLED=no",
 		"AUTO_XKEEN_GEODATA=no",
@@ -74,7 +75,7 @@ func TestSettingsV3StartupReconcilesVPNWatchdogIdempotently(t *testing.T) {
 	if !strings.Contains(text, unrelated[:len(unrelated)-1]) {
 		t.Fatalf("unrelated user cron was lost:\n%s", text)
 	}
-	if !strings.Contains(text, "*/5 * * * * '/opt/sbin/freenet-ui' automation-health-watch") {
+	if !strings.Contains(text, "* * * * * '/opt/sbin/freenet-ui' automation-health-watch") {
 		t.Fatalf("AUTO VPN watchdog was not restored:\n%s", text)
 	}
 	if strings.Contains(text, "automation-best-run") || strings.Contains(text, "/opt/bin/vpn failover") {
