@@ -60,6 +60,18 @@ func normalizeAutomationPolicy(value string) string {
 	}
 }
 
+func automationBestEligibleTarget(policy string) int {
+	if normalizeAutomationPolicy(policy) == automationPolicyDegraded {
+		return 1
+	}
+	return bestServerVisibleAlternatives
+}
+
+func automationNeedsForeignScan(policy, currentState string) bool {
+	return normalizeAutomationPolicy(policy) != automationPolicyDegraded || currentState == "degraded"
+}
+
+
 func normalizeAutomationCountryScope(value string) string {
 	switch strings.TrimSpace(strings.ToLower(value)) {
 	case automationCountryCurrent, automationCountryAllowlist:
@@ -545,10 +557,7 @@ func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings a
 		}, nil
 	}
 	filtered = a.applicationAwareBestServerShortlist(ctx, filtered, currentEndpoint, currentFilter)
-	targetEligible := bestServerVisibleAlternatives
-	if settings.Policy == automationPolicyDegraded {
-		targetEligible = 1
-	}
+	targetEligible := automationBestEligibleTarget(settings.Policy)
 	response := a.rankMeasuredBestServerBatches(ctx, filtered, profilesScanned, truncated, currentEndpoint, currentFilter, targetEligible)
 	if ctx.Err() != nil && len(response.Candidates) == 0 {
 		return bestServerQualityResponse{}, ctx.Err()
@@ -641,7 +650,7 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 		appendAutomationHistoryV2("uncertain", reason)
 		return automationBestCycleResult{Result: "uncertain", Reason: reason}, nil
 	}
-	if settings.Policy == automationPolicyDegraded && currentState != "degraded" {
+	if !automationNeedsForeignScan(settings.Policy, currentState) {
 		reason := "Текущий VPN подтверждён как рабочий; policy «только при деградации» не требует поиска замены."
 		writeAutomationStateV2("same", reason, "no", false)
 		appendAutomationHistoryV2("same", reason)
