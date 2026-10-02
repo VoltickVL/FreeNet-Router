@@ -34,6 +34,7 @@ type settingsV3Schedule struct {
 type settingsV3AutoVPN struct {
 	Enabled          bool     `json:"enabled"`
 	Mode             string   `json:"mode"`
+	HealthInterval   string   `json:"health_interval"`
 	EndpointInterval string   `json:"endpoint_interval"`
 	CountryScope     string   `json:"country_scope"`
 	Countries        []string `json:"countries"`
@@ -65,6 +66,7 @@ type settingsV3SaveRequest struct {
 	Action                   string   `json:"action"`
 	AutoVPNEnabled           *bool    `json:"auto_vpn_enabled,omitempty"`
 	AutoVPNMode              string   `json:"auto_vpn_mode,omitempty"`
+	AutoVPNHealthInterval    string   `json:"auto_vpn_health_interval,omitempty"`
 	AutoVPNEndpointInterval  string   `json:"auto_vpn_endpoint_interval,omitempty"`
 	CountryScope             string   `json:"country_scope,omitempty"`
 	Countries            []string `json:"countries,omitempty"`
@@ -163,6 +165,44 @@ func v3Bool(value bool) string {
 		return "yes"
 	}
 	return "no"
+}
+
+const defaultAutomationHealthInterval = "1m"
+
+func automationHealthIntervalDuration(interval string) time.Duration {
+	switch strings.TrimSpace(interval) {
+	case "30s":
+		return 30 * time.Second
+	case "1m":
+		return time.Minute
+	case "5m":
+		return 5 * time.Minute
+	default:
+		return 0
+	}
+}
+
+func normalizeAutomationHealthInterval(interval string) string {
+	if automationHealthIntervalDuration(interval) > 0 {
+		return strings.TrimSpace(interval)
+	}
+	return defaultAutomationHealthInterval
+}
+
+func automationHealthCron(interval string) string {
+	switch normalizeAutomationHealthInterval(interval) {
+	case "5m":
+		return "*/5 * * * *"
+	default:
+		// Cron is a resilience fallback. The 30-second cadence is owned by the
+		// long-running FreeNet service; once-per-minute fallback keeps recovery
+		// alive across a brief service restart without using sleep-based cron hacks.
+		return "* * * * *"
+	}
+}
+
+func configuredAutomationHealthInterval(configPath string) string {
+	return normalizeAutomationHealthInterval(automationConfigValue(configPath, "AUTO_VPN_HEALTH_INTERVAL", defaultAutomationHealthInterval))
 }
 
 func v3IntervalDuration(interval string) time.Duration {
@@ -331,20 +371,21 @@ func v3ScheduleFromConfig(configPath, prefix, key string, defaultEnabled bool) s
 	}
 }
 
-func v3HealthTimes(enabled bool) (string, string) {
+func v3HealthTimes(enabled bool, healthInterval string) (string, string) {
 	if !enabled {
 		return "", ""
 	}
 	state := v3ParseState(settingsV3StatePath())
 	last := state["HEALTH_LAST"]
+	interval := automationHealthIntervalDuration(normalizeAutomationHealthInterval(healthInterval))
 	if last == "" {
-		return "", time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
+		return "", time.Now().UTC().Add(interval).Format(time.RFC3339)
 	}
 	t, err := time.Parse(time.RFC3339, last)
 	if err != nil {
 		return last, ""
 	}
-	return last, t.Add(5 * time.Minute).Format(time.RFC3339)
+	return last, t.Add(interval).Format(time.RFC3339)
 }
 
 func v3MergeEvents(limit int, groups ...[]automationEvent) []automationEvent {
@@ -402,7 +443,8 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 	if scope == "" {
 		scope = automationCountryRegion
 	}
-	lastHealth, nextHealth := v3HealthTimes(auto.Settings.Enabled)
+	healthInterval := configuredAutomationHealthInterval(a.cfg.ConfigPath)
+	lastHealth, nextHealth := v3HealthTimes(auto.Settings.Enabled, healthInterval)
 	events := canonicalJournalEvents(50)
 	subscription := v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_SUBSCRIPTION_REFRESH", "subscription", true)
 	if subscription.Enabled {
@@ -419,7 +461,7 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 	return settingsV3Response{
 		Success: true,
 		AutoVPN: settingsV3AutoVPN{
-			Enabled: auto.Settings.Enabled, Mode: mode, EndpointInterval: endpointInterval,
+			Enabled: auto.Settings.Enabled, Mode: mode, HealthInterval: healthInterval, EndpointInterval: endpointInterval,
 			CountryScope: scope, Countries: auto.Settings.Countries, LastHealth: lastHealth, NextHealth: nextHealth,
 		},
 		Automation: auto,
@@ -447,7 +489,8 @@ func buildManagedAutomationCronV3(a *app, existing []byte, values map[string]str
 	configArg := " --config " + v3ShellQuote(a.cfg.ConfigPath)
 
 	if values["AUTO_VPN_V1"] == "yes" {
-		lines = append(lines, "*/5 * * * * "+bin+" automation-health-watch"+configArg)
+		healthCron := automationHealthCron(values["AUTO_VPN_HEALTH_INTERVAL"])
+		lines = append(lines, healthCron+" "+bin+" automation-health-watch"+configArg)
 		mode := automationModeBest
 		if strings.TrimSpace(values["AUTO_VPN_MODE"]) != "" {
 			mode = normalizeAutomationMode(values["AUTO_VPN_MODE"])
@@ -493,6 +536,7 @@ func settingsV3ManagedCronValuesFromConfig(configPath string) map[string]string 
 	return map[string]string{
 		"AUTO_VPN_V1": automationConfigValue(configPath, "AUTO_VPN_V1", "no"),
 		"AUTO_VPN_MODE": normalizeAutomationMode(automationConfigValue(configPath, "AUTO_VPN_MODE", automationModeBest)),
+		"AUTO_VPN_HEALTH_INTERVAL": configuredAutomationHealthInterval(configPath),
 		"AUTO_VPN_V1_INTERVAL": v3NormalizeInterval(
 			automationConfigValue(configPath, "AUTO_VPN_V1_INTERVAL", v3DefaultInterval("auto_vpn_endpoint")),
 			"auto_vpn_endpoint",
@@ -517,6 +561,11 @@ func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 	if strings.TrimSpace(req.AutoVPNMode) != "" {
 		mode = normalizeAutomationMode(req.AutoVPNMode)
 	}
+	healthInterval := normalizeAutomationHealthInterval(req.AutoVPNHealthInterval)
+	if strings.TrimSpace(req.AutoVPNHealthInterval) != "" && automationHealthIntervalDuration(req.AutoVPNHealthInterval) <= 0 {
+		return errors.New("unsupported AUTO VPN health interval")
+	}
+
 	endpointInterval := strings.TrimSpace(req.AutoVPNEndpointInterval)
 	if v3IntervalDuration(endpointInterval) <= 0 {
 		if mode == automationModeEndpoint && v3IntervalDuration(currentAuto.Interval) > 0 {
@@ -547,6 +596,7 @@ func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 		"AUTO_VPN_V1": v3Bool(*req.AutoVPNEnabled),
 		"AUTO_VPN_V1_INTERVAL": autoInterval,
 		"AUTO_VPN_MODE": mode,
+		"AUTO_VPN_HEALTH_INTERVAL": healthInterval,
 		"AUTO_VPN_POLICY": automationPolicyDegraded,
 		"AUTO_VPN_COUNTRY_SCOPE": scope,
 		"AUTO_VPN_COUNTRIES": strings.Join(countries, ","),
@@ -951,7 +1001,7 @@ func recordSettingsV3Health(result automationHealthResult) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	_ = v3WriteState(map[string]string{"HEALTH_LAST": now, "HEALTH_RESULT": result.State, "HEALTH_MESSAGE": result.Reason})
 
-	// Keep the 5-minute health timestamp current without flooding the Journal
+	// Keep the configured health timestamp current without flooding the Journal
 	// with identical rows. Recovery transitions and reason changes are still
 	// recorded immediately and remain visible much longer in the bounded log.
 	if previous["HEALTH_RESULT"] == result.State && previous["HEALTH_MESSAGE"] == result.Reason {
