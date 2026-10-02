@@ -169,6 +169,24 @@ func TestAutomationCountryScopeIsFailClosed(t *testing.T) {
 	}
 }
 
+func TestScheduledAutomationBestIsFencedByHealthRecovery(t *testing.T) {
+	data, err := os.ReadFile("automation_v2.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func (a *app) runAutomationBestCycle")
+	if start < 0 {
+		t.Fatal("runAutomationBestCycle missing")
+	}
+	body := src[start:]
+	health := strings.Index(body, "acquireAutomationHealthLock()")
+	best := strings.Index(body, "acquireAutomationBestLock()")
+	if health < 0 || best < 0 || health > best {
+		t.Fatal("scheduled AUTO Best must acquire health/recovery fence before best-cycle lock")
+	}
+}
+
 func TestAutomationBestBudgetsFollowCanonicalTargets(t *testing.T) {
 	degradedFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) + bestServerQualityCandidateTimeout + automationBestBudgetSlack
 	if got := automationBestForeignTimeout(automationPolicyDegraded); got < degradedFloor {
