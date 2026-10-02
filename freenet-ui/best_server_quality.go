@@ -173,114 +173,30 @@ func rankBestServerQualityCandidates(
 	truncated bool,
 	currentEndpoint string,
 	currentFilter string,
-	tcpProbe bestServerTCPProbe,
 	appProbe bestServerQualityApplicationProbe,
 ) bestServerQualityResponse {
-	reportBestServerProgress(ctx, "tcp", 0, len(internal))
 	currentIndex := bestServerCurrentCandidateIndex(internal, currentEndpoint, currentFilter)
 	results := make([]bestServerQualityCandidate, len(internal))
 	for i, candidate := range internal {
 		results[i] = bestServerQualityCandidate{
 			ID: candidate.Profile.ID, Name: candidate.Profile.Name, CountryCode: candidate.Profile.CountryCode,
 			Endpoint: profileEndpoint(candidate.Profile), Current: i == currentIndex,
-			Reason: "endpoint has not been verified",
+			VPNRTTMS: candidate.VPNRTTMS, VPNJitterMS: candidate.VPNJitterMS,
+			Reason: "VPN quality probe pending",
 		}
-	}
-
-	endpointIndexes := make(map[string][]int)
-	endpointOrder := make([]string, 0, len(internal))
-	for i := range internal {
-		endpoint := profileEndpoint(internal[i].Profile)
-		if _, ok := endpointIndexes[endpoint]; !ok {
-			endpointOrder = append(endpointOrder, endpoint)
-		}
-		endpointIndexes[endpoint] = append(endpointIndexes[endpoint], i)
-	}
-
-	jobs := make(chan string)
-	var wg sync.WaitGroup
-	workers := bestServerQualityTCPWorkers
-	if workers > len(endpointOrder) {
-		workers = len(endpointOrder)
-	}
-	for worker := 0; worker < workers; worker++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for endpoint := range jobs {
-				if ctx.Err() != nil {
-					continue
-				}
-				indexes := endpointIndexes[endpoint]
-				if len(indexes) == 0 {
-					continue
-				}
-				probe := tcpProbe(ctx, internal[indexes[0]].Profile)
-				for _, index := range indexes {
-					if probe.OK {
-						results[index].Reachable = true
-						results[index].TCPRTTMS = probe.Median
-						results[index].TCPJitterMS = probe.Jitter
-						results[index].Reason = "endpoint TCP verified; VPN quality probe pending"
-					} else {
-						results[index].Reason = "endpoint TCP probe failed"
-					}
-				}
-			}
-		}()
-	}
-	for _, endpoint := range endpointOrder {
-		if ctx.Err() != nil {
-			break
-		}
-		jobs <- endpoint
-	}
-	close(jobs)
-	wg.Wait()
-
-	reachable := make([]int, 0, len(results))
-	for i := range results {
-		if results[i].Reachable {
-			reachable = append(reachable, i)
-		}
-	}
-	sort.Slice(reachable, func(i, j int) bool {
-		a, b := results[reachable[i]], results[reachable[j]]
-		if a.TCPRTTMS != b.TCPRTTMS {
-			return a.TCPRTTMS < b.TCPRTTMS
-		}
-		if a.TCPJitterMS != b.TCPJitterMS {
-			return a.TCPJitterMS < b.TCPJitterMS
-		}
-		return a.ID < b.ID
-	})
-
-	shortlist := make([]int, 0, bestServerQualityShortlist+1)
-	if currentIndex >= 0 && results[currentIndex].Reachable {
-		shortlist = append(shortlist, currentIndex)
-	}
-	for _, index := range reachable {
-		if len(shortlist) >= bestServerQualityShortlist {
-			break
-		}
-		if index == currentIndex {
-			continue
-		}
-		// Logical profiles remain distinct even when a provider reuses the same
-		// public ingress IP:port for several countries.
-		shortlist = append(shortlist, index)
 	}
 
 	partial := false
-	for position, index := range shortlist {
+	for index := range internal {
 		if ctx.Err() != nil {
+			partial = true
 			break
 		}
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerQualityCandidateTimeout+2*time.Second {
 			partial = true
 			break
 		}
-		reportBestServerProgress(ctx, "quality", position, len(shortlist))
+		reportBestServerProgress(ctx, "quality", index, len(internal))
 		candidateCtx, cancel := context.WithTimeout(ctx, bestServerQualityCandidateTimeout)
 		probe := appProbe(candidateCtx, internal[index])
 		cancel()
@@ -289,6 +205,8 @@ func rankBestServerQualityCandidates(
 			results[index].Reason = "VPN application probe failed; profile is not recommended"
 			continue
 		}
+
+		results[index].Reachable = true
 		results[index].Available = true
 		results[index].DownloadIssue = probe.DownloadIssue
 		results[index].MediaIssue = probe.Media.Issue
@@ -308,9 +226,7 @@ func rankBestServerQualityCandidates(
 
 		baseScore := bestServerQualityScore(
 			probe.HTTP.Median,
-			results[index].TCPRTTMS,
 			probe.HTTP.Jitter,
-			results[index].TCPJitterMS,
 			probe.DownloadMbps,
 			probe.DownloadOK,
 		)
@@ -319,7 +235,8 @@ func rankBestServerQualityCandidates(
 			results[index].Score = 1
 		}
 		stableTransfer := probe.Media.OK && (probe.Media.Grade == "excellent" || probe.Media.Grade == "good")
-		if len(probe.HTTP.Samples) >= bestServerQualityHTTPRuns && probe.DownloadOK && stableTransfer && probe.HTTP.Median <= bestServerQualityMaxApplicationMS && probe.HTTP.Jitter <= bestServerQualityHighJitterMS && results[index].TCPJitterMS <= bestServerQualityHighTCPJitterMS {
+		if len(probe.HTTP.Samples) >= bestServerQualityHTTPRuns && probe.DownloadOK && stableTransfer &&
+			probe.HTTP.Median <= bestServerQualityMaxApplicationMS && probe.HTTP.Jitter <= bestServerQualityHighJitterMS {
 			results[index].Confidence = "high"
 		} else {
 			results[index].Confidence = "medium"
@@ -356,11 +273,14 @@ func rankBestServerQualityCandidates(
 		if results[i].Available && results[i].DownloadMbps != results[j].DownloadMbps {
 			return results[i].DownloadMbps > results[j].DownloadMbps
 		}
-		if results[i].Reachable != results[j].Reachable {
-			return results[i].Reachable
-		}
-		if results[i].TCPRTTMS != results[j].TCPRTTMS {
-			return results[i].TCPRTTMS < results[j].TCPRTTMS
+		if results[i].VPNRTTMS != results[j].VPNRTTMS {
+			if results[i].VPNRTTMS == 0 {
+				return false
+			}
+			if results[j].VPNRTTMS == 0 {
+				return true
+			}
+			return results[i].VPNRTTMS < results[j].VPNRTTMS
 		}
 		return results[i].ID < results[j].ID
 	})
