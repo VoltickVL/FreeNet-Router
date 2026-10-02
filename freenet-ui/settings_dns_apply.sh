@@ -31,7 +31,15 @@ cleanup() {
 }
 trap cleanup 0 1 2 15
 
-provider_endpoint() {
+direct_provider_endpoint() {
+    case "$1" in
+        yandex-doh) printf '%s\n' '77.88.8.8' ;;
+        google-doh) printf '%s\n' '8.8.8.8' ;;
+        *) return 1 ;;
+    esac
+}
+
+vpn_provider_endpoint() {
     case "$1" in
         yandex-doh) printf '%s\n' 'https://dns.yandex.ru/dns-query' ;;
         google-doh) printf '%s\n' 'https://dns.google/dns-query' ;;
@@ -145,7 +153,8 @@ runtime_pair_state() {
     direct="$(pair_value dns-direct 2>/dev/null || true)"
     vpn="$(pair_value dns-vless 2>/dev/null || true)"
     case "$direct|$vpn" in
-        'https://dns.yandex.ru/dns-query|https://dns.google/dns-query'|'https://dns.yandex.ru/dns-query|https://dns.yandex.ru/dns-query'|'https://dns.google/dns-query|https://dns.google/dns-query'|'https://dns.google/dns-query|https://dns.yandex.ru/dns-query') printf '%s\n' accepted ;;
+        '77.88.8.8|https://dns.google/dns-query'|'77.88.8.8|https://dns.yandex.ru/dns-query'|'8.8.8.8|https://dns.google/dns-query'|'8.8.8.8|https://dns.yandex.ru/dns-query') printf '%s\n' accepted ;;
+        'https://dns.yandex.ru/dns-query|https://dns.google/dns-query'|'https://dns.yandex.ru/dns-query|https://dns.yandex.ru/dns-query'|'https://dns.google/dns-query|https://dns.google/dns-query'|'https://dns.google/dns-query|https://dns.yandex.ru/dns-query') printf '%s\n' repairable ;;
         '77.88.8.8|https://8.8.8.8/dns-query') printf '%s\n' legacy ;;
         *) printf '%s\n' unknown ;;
     esac
@@ -177,8 +186,8 @@ preflight() {
     if [ "$TEST_MODE" != yes ]; then
         for cmd in pidof netstat nslookup; do command -v "$cmd" >/dev/null 2>&1 || { err "не найдена обязательная команда: $cmd"; return 1; }; done
     fi
-    provider_endpoint "$DIRECT_PROVIDER" >/dev/null 2>&1 || { err 'неподдерживаемый DIRECT DNS provider'; return 1; }
-    provider_endpoint "$VPN_PROVIDER" >/dev/null 2>&1 || { err 'неподдерживаемый VPN DNS provider'; return 1; }
+    direct_provider_endpoint "$DIRECT_PROVIDER" >/dev/null 2>&1 || { err 'неподдерживаемый DIRECT DNS provider'; return 1; }
+    vpn_provider_endpoint "$VPN_PROVIDER" >/dev/null 2>&1 || { err 'неподдерживаемый VPN DNS provider'; return 1; }
     [ -f "$DNS_FILE" ] || { err 'не найден 02_dns.json'; return 1; }
     [ -f "$OUT_FILE" ] || { err 'не найден 04_outbounds.json'; return 1; }
     jq -e . "$DNS_FILE" >/dev/null 2>&1 || { err '02_dns.json не является валидным managed JSON'; return 1; }
@@ -202,17 +211,17 @@ build_candidate() {
     make_tmp || return 1
     candidate="$TMP_DIR/02_dns.json"
     outbound_candidate="$TMP_DIR/04_outbounds.json"
-    direct="$(provider_endpoint "$DIRECT_PROVIDER")" || return 1
-    vpn="$(provider_endpoint "$VPN_PROVIDER")" || return 1
+    direct="$(direct_provider_endpoint "$DIRECT_PROVIDER")" || return 1
+    vpn="$(vpn_provider_endpoint "$VPN_PROVIDER")" || return 1
     jq --arg direct "$direct" --arg vpn "$vpn" '
       .dns.servers |= map(
-        if .tag == "dns-direct" then .address=$direct | del(.port)
+        if .tag == "dns-direct" then .address=$direct | .port=53
         elif .tag == "dns-vless" then .address=$vpn | del(.port)
         else . end
       )
     ' "$DNS_FILE" >"$candidate" || return 1
     jq -e --arg direct "$direct" --arg vpn "$vpn" '
-      ([.dns.servers[]? | select(.tag=="dns-direct" and .address==$direct)] | length) >= 1 and
+      ([.dns.servers[]? | select(.tag=="dns-direct" and .address==$direct and .port==53)] | length) >= 1 and
       ([.dns.servers[]? | select(.tag=="dns-vless" and .address==$vpn)] | length) >= 1
     ' "$candidate" >/dev/null 2>&1 || return 1
 
@@ -239,9 +248,10 @@ build_candidate() {
 }
 
 verify_target() {
-    direct="$(provider_endpoint "$DIRECT_PROVIDER")" || return 1
-    vpn="$(provider_endpoint "$VPN_PROVIDER")" || return 1
+    direct="$(direct_provider_endpoint "$DIRECT_PROVIDER")" || return 1
+    vpn="$(vpn_provider_endpoint "$VPN_PROVIDER")" || return 1
     [ "$(pair_value dns-direct 2>/dev/null || true)" = "$direct" ] || return 1
+    [ "$(jq -r '[.dns.servers[]? | select(.tag=="dns-direct") | (.port // 53)] | unique | if length==1 then .[0] else 0 end' "$DNS_FILE" 2>/dev/null)" = 53 ] || return 1
     [ "$(pair_value dns-vless 2>/dev/null || true)" = "$vpn" ] || return 1
     [ "$(direct_egress_state)" = accepted ] || return 1
     dns_runtime_ready || return 1
