@@ -56,6 +56,8 @@ type bestServerQualityCandidate struct {
 	Available     bool     `json:"available"`
 	TCPRTTMS      int      `json:"tcp_rtt_ms,omitempty"`
 	TCPJitterMS   int      `json:"tcp_jitter_ms,omitempty"`
+	VPNRTTMS      int      `json:"vpn_rtt_ms,omitempty"`
+	VPNJitterMS   int      `json:"vpn_jitter_ms,omitempty"`
 	ApplicationMS int      `json:"application_rtt_ms,omitempty"`
 	JitterMS      int      `json:"jitter_ms,omitempty"`
 	DownloadMbps  float64  `json:"download_mbps,omitempty"`
@@ -109,6 +111,9 @@ var bestServerQualityCache struct {
 	Entry bestServerQualityCacheEntry
 }
 
+// /api/vpn/best is a compatibility alias only. It must execute the same
+// canonical foreign-profile engine as Control Center/AUTO VPN; a second ranker
+// is forbidden.
 func registerBestServerQualityAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/vpn/best", a.requireAuth(a.handleBestServerQuality))
 }
@@ -147,65 +152,8 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServerQualityResponse, error) {
-	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
-	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	cacheKey := "quality-v9|" + a.bestServerCacheKey(currentEndpoint)
-	if !force {
-		bestServerQualityCache.Lock()
-		entry := bestServerQualityCache.Entry
-		bestServerQualityCache.Unlock()
-		if entry.Key == cacheKey && !entry.StoredAt.IsZero() && time.Since(entry.StoredAt) < bestServerQualityCacheTTL {
-			return cloneBestServerQualityResponse(entry.Response), nil
-		}
-	}
-
-	all, total, truncated, err := a.discoverBestServerCandidates(ctx)
-	if err != nil {
-		return bestServerQualityResponse{}, err
-	}
-	all = withoutBestServerCurrentLogicalAlternatives(all, currentEndpoint, currentFilter, currentExactProfileLabel(a.cfg.FilterPath))
-	response := rankBestServerQualityCandidates(ctx, all, total, truncated, currentEndpoint, currentFilter, defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication)
-	if ctx.Err() != nil {
-		return bestServerQualityResponse{}, ctx.Err()
-	}
-	currentPresent := false
-	for i := range response.Candidates {
-		if response.Candidates[i].Current {
-			currentPresent = true
-			break
-		}
-	}
-	if !currentPresent && currentEndpoint != "" && currentFilter != "" {
-		liveCurrent := a.scanActiveCurrentVPNQuality(ctx, currentEndpoint, currentFilter)
-		if len(liveCurrent.Candidates) == 1 && liveCurrent.Candidates[0].Current {
-			response.Candidates = append([]bestServerQualityCandidate{liveCurrent.Candidates[0]}, response.Candidates...)
-		}
-	}
-	response.Success = true
-	response.Mutation = "NONE"
-	response.ScannedAt = time.Now().UTC().Format(time.RFC3339)
-	response.CurrentEndpoint = currentEndpoint
-	if response.Available && response.Recommendation != nil {
-		if response.Recommendation.Current {
-			response.Message = "Текущий VPN имеет лучший подтверждённый баланс скорости, отклика и стабильности."
-		} else {
-			response.Message = "FreeNet нашёл профиль с лучшим подтверждённым балансом скорости, отклика и стабильности."
-		}
-	} else {
-		response.Message = "Недостаточно подтверждённых данных о скорости и стабильности; рекомендация не готова, текущий VPN не изменён."
-	}
-
-	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
-		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during Best Server scan")
-	}
-	if afterFilter := readBestServerCurrentFilter(a.cfg.FilterPath); afterFilter != currentFilter {
-		return bestServerQualityResponse{}, errors.New("VPN profile identity changed during Best Server scan")
-	}
-
-	bestServerQualityCache.Lock()
-	bestServerQualityCache.Entry = bestServerQualityCacheEntry{Key: cacheKey, StoredAt: time.Now(), Response: cloneBestServerQualityResponse(response)}
-	bestServerQualityCache.Unlock()
-	return response, nil
+	_ = force // retained for compatibility with the legacy query parameter.
+	return a.scanBestServerForeign(ctx)
 }
 
 func cloneBestServerQualityResponse(in bestServerQualityResponse) bestServerQualityResponse {
