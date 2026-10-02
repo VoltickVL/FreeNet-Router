@@ -333,27 +333,49 @@ build_vless_object() {
     QUERY="${QUERY_AND_NAME%%#*}"
 
     FLOW="$(get_param flow)"
-    SECURITY="$(get_param security)"
-    TYPE="$(get_param type)"
+    SECURITY="$(printf '%s' "$(get_param security)" | tr '[:upper:]' '[:lower:]')"
+    TYPE="$(printf '%s' "$(get_param type)" | tr '[:upper:]' '[:lower:]')"
     FP="$(get_param fp)"
     SNI="$(url_decode "$(get_param sni)")"
     PBK="$(get_param pbk)"
     SID="$(get_param sid)"
     SPX="$(url_decode "$(get_param spx)")"
+    WS_HOST="$(url_decode "$(get_param host)")"
+    WS_PATH="$(url_decode "$(get_param path)")"
 
-    [ -n "$FLOW" ] || FLOW='xtls-rprx-vision'
     [ -n "$SECURITY" ] || SECURITY='reality'
     [ -n "$TYPE" ] || TYPE='tcp'
     [ -n "$FP" ] || FP='firefox'
     [ -n "$SPX" ] || SPX='/'
+    if [ "$SECURITY" = reality ] && [ -z "$FLOW" ]; then
+        FLOW='xtls-rprx-vision'
+    fi
+
+    case "$SECURITY:$TYPE" in
+        reality:tcp)
+            ;;
+        tls:tcp)
+            ;;
+        tls:ws)
+            [ -z "$FLOW" ] || { err 'VLESS WS profile must not use XTLS flow'; return 1; }
+            [ -n "$WS_PATH" ] || WS_PATH='/'
+            [ -n "$WS_HOST" ] || WS_HOST="$SNI"
+            ;;
+        *)
+            err "unsupported VLESS transport: $SECURITY/$TYPE"
+            return 1
+            ;;
+    esac
 
     MISSING=''
     [ -n "$UUID" ] || MISSING="$MISSING UUID"
     [ -n "$SELECTED_ADDRESS" ] || MISSING="$MISSING ADDRESS"
     [ -n "$SELECTED_PORT" ] || MISSING="$MISSING PORT"
     [ -n "$SNI" ] || MISSING="$MISSING SNI"
-    [ -n "$PBK" ] || MISSING="$MISSING PBK"
-    [ -n "$SID" ] || MISSING="$MISSING SID"
+    if [ "$SECURITY" = reality ]; then
+        [ -n "$PBK" ] || MISSING="$MISSING PBK"
+        [ -n "$SID" ] || MISSING="$MISSING SID"
+    fi
     [ -z "$MISSING" ] || { err "selected profile is missing required fields:$MISSING"; return 1; }
 
     jq -n \
@@ -368,14 +390,28 @@ build_vless_object() {
         --arg publicKey "$PBK" \
         --arg shortId "$SID" \
         --arg spiderX "$SPX" \
-        '{
+        --arg wsHost "$WS_HOST" \
+        --arg wsPath "$WS_PATH" \
+        '
+        def user:
+          {id:$uuid,encryption:"none",level:0}
+          + (if $flow == "" then {} else {flow:$flow} end);
+        {
           tag:"vless-reality",
           protocol:"vless",
-          settings:{vnext:[{address:$address,port:$port,users:[{id:$uuid,flow:$flow,encryption:"none",level:0}]}]},
-          streamSettings:{network:$network,security:$security,realitySettings:{fingerprint:$fingerprint,serverName:$serverName,publicKey:$publicKey,shortId:$shortId,spiderX:$spiderX}}
+          settings:{vnext:[{address:$address,port:$port,users:[user]}]},
+          streamSettings:
+            if $security == "reality" then
+              {network:$network,security:"reality",realitySettings:{fingerprint:$fingerprint,serverName:$serverName,publicKey:$publicKey,shortId:$shortId,spiderX:$spiderX}}
+            elif $security == "tls" and $network == "ws" then
+              {network:"ws",security:"tls",tlsSettings:{fingerprint:$fingerprint,serverName:$serverName},wsSettings:{path:$wsPath,headers:{Host:$wsHost}}}
+            elif $security == "tls" and $network == "tcp" then
+              {network:"tcp",security:"tls",tlsSettings:{fingerprint:$fingerprint,serverName:$serverName}}
+            else
+              error("unsupported VLESS transport")
+            end
         }' > "$VLESS_OBJECT"
 }
-
 build_candidate() {
     if [ -f "$OUT_FILE" ] && jq -e '(.outbounds | type) == "array"' "$OUT_FILE" >/dev/null 2>&1; then
         jq --slurpfile replacement "$VLESS_OBJECT" '
