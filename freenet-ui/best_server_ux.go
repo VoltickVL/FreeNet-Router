@@ -188,7 +188,7 @@ func (a *app) rankMeasuredBestServerBatches(
 		attemptCtx := bestServerDeepProgressContext(ctx, start, len(candidates))
 		batch := rankBestServerQualityCandidates(
 			attemptCtx, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
-			defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
+			a.probeBestServerQualityApplication,
 		)
 		// If the parent job deadline fired during this deep attempt, its final
 		// classification is not trustworthy enough for a comparison card. Drop
