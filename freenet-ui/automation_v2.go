@@ -24,9 +24,20 @@ const (
 	automationCountryRegion    = "region"
 	automationCountryAllowlist = "allowlist"
 
-	automationBestCooldown = 6 * time.Hour
-	automationBestTimeout  = 250 * time.Second
+	automationBestCooldown   = 6 * time.Hour
+	automationBestBudgetSlack = 10 * time.Second
 )
+
+func automationBestForeignTimeout(policy string) time.Duration {
+	target := automationBestEligibleTarget(policy)
+	return bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+		time.Duration(target)*bestServerQualityCandidateTimeout +
+		automationBestBudgetSlack
+}
+
+func automationBestQualityCycleTimeout(policy string) time.Duration {
+	return bestServerCurrentScanTimeout + automationBestForeignTimeout(policy) + automationBestBudgetSlack
+}
 
 var errAutomationBusy = errors.New("AUTO VPN operation is already active")
 
@@ -606,11 +617,10 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 	}
 	defer release()
 
-	ctx, cancel := context.WithTimeout(parent, automationBestTimeout)
-	defer cancel()
-
 	if settings.AutoEndpointUpdate && settings.AutoApply {
-		refreshStatus, refresh := automationBestCurrentRefresh(a, ctx)
+		refreshCtx, cancelRefresh := context.WithTimeout(parent, bestServerRefreshTimeout)
+		refreshStatus, refresh := automationBestCurrentRefresh(a, refreshCtx)
+		cancelRefresh()
 		if refresh.Applied {
 			reason := "AUTO VPN обновил endpoint текущего логического VPN и подтвердил доступ через обновлённое подключение."
 			writeAutomationStateV2("updated", reason, refresh.RollbackState, false)
@@ -635,6 +645,9 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 			return automationBestCycleResult{Result: result, Reason: reason, RollbackState: rollback}, errors.New("AUTO VPN current endpoint refresh did not complete safely")
 		}
 	}
+
+	ctx, cancel := context.WithTimeout(parent, automationBestQualityCycleTimeout(settings.Policy))
+	defer cancel()
 
 	currentResponse, err := a.scanCurrentVPNQuality(ctx)
 	if err != nil {
