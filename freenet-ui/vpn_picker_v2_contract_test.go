@@ -22,6 +22,7 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"observer.disconnect()", "requestAnimationFrame", "text(connect,L.connect)",
 		"0x1F1E6", "cached rows may belong to another router", "refreshStaleCatalogOnOpen", "loadNetworkPlan",
 		"height:min(760px,var(--fnv2-space,760px))", "flex:1 1 auto",
+		"завершён частично", "не проверен", "transport_only",
 	} {
 		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
 	}
