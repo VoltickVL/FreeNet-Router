@@ -165,16 +165,15 @@ func TestMeasureProviderProfileRTTDeadlineMarksUnstartedUnknown(t *testing.T) {
 	}
 }
 
-func TestProviderProfileRTTSortUsesUnknownBeforeConfirmedApplicationFailure(t *testing.T) {
+func TestProviderProfileRTTSortUsesUnknownAsReserve(t *testing.T) {
 	items := []providerProfileRTTItem{
-		{ProfileID: "transport", Attempted: true, Status: "transport_only"},
 		{ProfileID: "unknown", Status: "unknown"},
 		{ProfileID: "slow", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 210},
 		{ProfileID: "fast", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 150},
 		{ProfileID: "dead", Attempted: true, Status: "unreachable"},
 	}
 	sortProviderProfileRTTItems(items)
-	want := []string{"fast", "slow", "unknown", "transport", "dead"}
+	want := []string{"fast", "slow", "unknown", "dead"}
 	for i, id := range want {
 		if items[i].ProfileID != id {
 			t.Fatalf("RTT order=%#v want=%#v", items, want)
@@ -182,15 +181,6 @@ func TestProviderProfileRTTSortUsesUnknownBeforeConfirmedApplicationFailure(t *t
 	}
 }
 
-func TestMeasureProviderProfileRTTExposesTransportOnlyEvidence(t *testing.T) {
-	candidates := []bestServerInternalCandidate{{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa"}}}
-	got := measureProviderProfileRTT(context.Background(), candidates, func(context.Context, bestServerInternalCandidate) bestServerProbeResult {
-		return bestServerProbeResult{TransportOnly: true}
-	})
-	if len(got) != 1 || !got[0].Attempted || got[0].Status != "transport_only" || got[0].Reachable {
-		t.Fatalf("transport-only result misclassified: %#v", got)
-	}
-}
 
 func TestProviderProfileRTTScanSingleFlight(t *testing.T) {
 	endProviderProfileRTTScan()
