@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
