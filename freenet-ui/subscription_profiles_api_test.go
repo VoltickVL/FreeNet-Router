@@ -136,6 +136,47 @@ func TestSanitizeProfileNameBlocksCredentialLikeFragments(t *testing.T) {
 	}
 }
 
+
+func TestVLESSTransportIdentitySupportsTLSWSAndSeparatesVariants(t *testing.T) {
+	reality := "vless://UUID-A@203.0.113.10:443?security=reality&type=tcp&sni=edge.example&pbk=KEY-A&sid=SID-A#DE%20Frankfurt%2C%20Germany%2C%20Extra"
+	wsTLS := "vless://UUID-B@203.0.113.10:443?security=tls&type=ws&fp=firefox&sni=tls.example&host=cdn.example&path=%2Fws#DE%20Frankfurt%2C%20Germany%2C%20Extra"
+	rp, ok := parseSafeVLESSProfile(reality)
+	if !ok {
+		t.Fatal("Reality/TCP profile must remain supported")
+	}
+	wp, ok := parseSafeVLESSProfile(wsTLS)
+	if !ok {
+		t.Fatal("TLS/WS profile must be supported")
+	}
+	if rp.ID == wp.ID {
+		t.Fatalf("transport variants on one endpoint collapsed to the same logical ID: %s", rp.ID)
+	}
+	if rp.Address != wp.Address || rp.Port != wp.Port || rp.Name != wp.Name {
+		t.Fatalf("fixture must differ only by transport identity: reality=%+v ws=%+v", rp, wp)
+	}
+
+	rotatedReality := "vless://UUID-ROTATED@203.0.113.10:443?security=reality&type=tcp&sni=edge.example&pbk=KEY-ROTATED&sid=SID-ROTATED#DE%20Frankfurt%2C%20Germany%2C%20Extra"
+	rotated, ok := parseSafeVLESSProfile(rotatedReality)
+	if !ok || rotated.ID != rp.ID {
+		t.Fatalf("credential rotation must preserve logical profile identity: before=%s after=%s ok=%v", rp.ID, rotated.ID, ok)
+	}
+}
+
+func TestParseSubscriptionBodyRejectsUnsupportedVLESSTransports(t *testing.T) {
+	body := strings.Join([]string{
+		"vless://A@203.0.113.10:443?security=tls&type=ws&sni=tls.example&host=cdn.example&path=%2Fws#DE%20Berlin%2C%20Germany%2C%20Extra",
+		"vless://B@203.0.113.20:443?security=tls&type=grpc&sni=grpc.example#FR%20Paris%2C%20France%2C%20Extra",
+		"vless://C@203.0.113.30:443?security=none&type=tcp#NL%20Amsterdam%2C%20Netherlands%2C%20Extra",
+	}, "\n")
+	profiles, err := parseSubscriptionBody([]byte(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 1 || profiles[0].Address != "203.0.113.10" {
+		t.Fatalf("unsupported transports must be excluded from selectable catalog: %+v", profiles)
+	}
+}
+
 func TestParseSubscriptionBodyRejectsNoExtra(t *testing.T) {
 	_, err := parseSubscriptionBody([]byte("vless://X@example.test:443?security=reality#Regular"))
 	if err == nil {
