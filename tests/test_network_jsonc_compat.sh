@@ -77,7 +77,40 @@ grep -Fq 'VLESS_PROFILE=yes' "$TMP/native.plan" || fail 'JSONC-compatible plan l
 run_network apply > "$TMP/native.apply" 2>&1 || { cat "$TMP/native.apply" >&2; fail 'native apply rejected valid JSONC'; }
 grep -Fq 'RESULT=SUCCESS' "$TMP/native.apply" || fail 'native JSONC apply result missing'
 grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'native JSONC apply mutated override'
-grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'native JSONC apply changed :53 owner'
+grep -q '^PORT53_OWNER=ndnproxy
+
+sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
+run_network apply > "$TMP/split.apply" 2>&1 || { cat "$TMP/split.apply" >&2; fail 'native JSONC -> Split failed'; }
+grep -Fq 'RESULT=SUCCESS' "$TMP/split.apply" || fail 'Split JSONC result missing'
+grep -q '^NDM_DNS_OVERRIDE=on$' "$STATE" || fail 'Split did not enable override'
+grep -q '^NDM_FILTER_ENGINE=opkg$' "$STATE" || fail 'Split did not enable OPKG engine'
+grep -q '^NDM_DNS_INTERCEPT=off$' "$STATE" || fail 'Split did not suppress native intercept'
+grep -q '^PORT53_OWNER=xray$' "$STATE" || fail 'Split did not move :53 to Xray'
+jq -e '.routing.rules | length > 3' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'Split candidate was not strict JSON after JSONC input'
+jq -e '([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'Split JSONC DIRECT self-bypass mark missing'
+
+sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$TROOT/etc/freenet/freenet.conf"
+run_network apply > "$TMP/restore.apply" 2>&1 || { cat "$TMP/restore.apply" >&2; fail 'Split -> native after JSONC input failed'; }
+grep -Fq 'RESULT=SUCCESS' "$TMP/restore.apply" || fail 'native restore result missing'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'native restore did not disable override'
+grep -q '^NDM_FILTER_ENGINE=public$' "$STATE" || fail 'native restore did not restore engine'
+grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'native restore did not restore intercept'
+grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'native restore did not restore :53 owner'
+
+# Xray semantic validation is authoritative, but FreeNet must still STOP if the
+# config cannot be converted into a safe jq read stream for transactional editing.
+cat > "$TROOT/etc/xray/configs/05_routing.json" <<'EOF'
+{"routing":{"rules":[{"type":"field","network":"tcp,udp","outboundTag":"vless-reality"}]
+EOF
+if run_network apply > "$TMP/broken.apply" 2>&1; then fail 'broken JSONC unexpectedly accepted'; fi
+grep -Fq 'Xray JSON/JSONC нельзя безопасно разобрать' "$TMP/broken.apply" || fail 'broken JSONC reason missing'
+grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/broken.apply" || fail 'broken JSONC must be NOT_APPLIED'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'broken JSONC preflight mutated NDM'
+grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'broken JSONC preflight changed :53 owner'
+
+echo 'network JSONC compat PASS'
+ "$STATE" || fail 'native JSONC apply changed :53 owner'
+jq -e '([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'native JSONC DIRECT self-bypass mark missing'
 
 sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
 run_network apply > "$TMP/split.apply" 2>&1 || { cat "$TMP/split.apply" >&2; fail 'native JSONC -> Split failed'; }
