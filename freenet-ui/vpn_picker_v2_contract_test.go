@@ -22,13 +22,15 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"observer.disconnect()", "requestAnimationFrame", "text(connect,L.connect)",
 		"0x1F1E6", "cached rows may belong to another router", "refreshStaleCatalogOnOpen", "loadNetworkPlan",
 		"height:min(760px,var(--fnv2-space,760px))", "flex:1 1 auto",
-		"завершён частично", "не проверен", "transport_only",
+		"завершён частично", "не проверен",
 	} {
 		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
 	}
-	if !strings.Contains(js, "status==='unknown') return Number.MAX_SAFE_INTEGER-3") ||
-		!strings.Contains(js, "status==='transport_only') return Number.MAX_SAFE_INTEGER-2") {
-		t.Fatal("picker fallback RTT order must be reachable -> unknown -> transport-only -> unreachable")
+	if !strings.Contains(js, "status==='unknown') return Number.MAX_SAFE_INTEGER-3") {
+		t.Fatal("picker fallback RTT order must be reachable -> unknown -> unreachable")
+	}
+	if strings.Contains(js, "VPN есть · DNS?") || strings.Contains(js, "transport_only") {
+		t.Fatal("quick VPN RTT UI must not expose obsolete named-DNS preflight states")
 	}
 	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint", "max-height:280px"} {
 		if strings.Contains(js, forbidden) { t.Fatalf("presentation must not contain %q", forbidden) }
