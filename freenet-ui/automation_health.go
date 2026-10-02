@@ -448,6 +448,48 @@ func appendAutomationRecoveryStage(stage, result, reason string) {
 	appendAutomationHistoryV2(stage+":"+result, reason)
 }
 
+func automationHealthDue(configPath string, now time.Time) bool {
+	interval := automationHealthIntervalDuration(configuredAutomationHealthInterval(configPath))
+	if interval <= 0 {
+		return false
+	}
+	state := v3ParseState(settingsV3StatePath())
+	last := strings.TrimSpace(state["HEALTH_LAST"])
+	if last == "" {
+		return true
+	}
+	stamp, err := time.Parse(time.RFC3339, last)
+	if err != nil {
+		return true
+	}
+	return !now.Before(stamp.Add(interval))
+}
+
+func (a *app) runScheduledAutomationHealthWatch(parent context.Context) (bool, automationHealthResult, error) {
+	settings := readAutomationSettings(a.cfg.ConfigPath)
+	if !settings.Enabled || !automationHealthDue(a.cfg.ConfigPath, time.Now().UTC()) {
+		return false, automationHealthResult{}, nil
+	}
+	result, err := a.runAutomationHealthWatch(parent)
+	return true, result, err
+}
+
+func (a *app) startAutomationHealthScheduler() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if configuredAutomationHealthInterval(a.cfg.ConfigPath) != "30s" {
+				continue
+			}
+			if !automationHealthDue(a.cfg.ConfigPath, time.Now().UTC()) {
+				continue
+			}
+			_, _, _ = a.runScheduledAutomationHealthWatch(context.Background())
+		}
+	}()
+}
+
 func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealthResult, error) {
 	settings := readAutomationSettings(a.cfg.ConfigPath)
 	if !settings.Enabled {
@@ -542,7 +584,13 @@ func init() {
 		return
 	}
 	a := &app{cfg: automationCLIConfig(), sem: make(chan struct{}, 1)}
-	result, err := a.runAutomationHealthWatch(context.Background())
+	ran, result, err := a.runScheduledAutomationHealthWatch(context.Background())
+	if !ran {
+		fmt.Println("RESULT=not_due")
+		fmt.Println("REASON=VPN health watchdog is not due yet")
+		fmt.Println("MUTATION=NONE")
+		os.Exit(0)
+	}
 	fmt.Printf("RESULT=%s\n", sanitizeAutomationReason(result.State))
 	fmt.Printf("REASON=%s\n", sanitizeAutomationReason(result.Reason))
 	if result.Mutated {
