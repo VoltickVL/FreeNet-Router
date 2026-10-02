@@ -347,13 +347,13 @@ build_candidate() {
         jq --slurpfile replacement "$VLESS_OBJECT" '
           .outbounds as $old
           | ($old | map(select(.tag != "vless-reality"))) as $rest0
-          | ($rest0 | if any(.[]; .tag == "direct") then . else . + [{tag:"direct",protocol:"freedom"}] end) as $rest1
+          | ($rest0 | if any(.[]; .tag == "direct") then . else . + [{tag:"direct",protocol:"freedom",streamSettings:{sockopt:{mark:255}}}] end) as $rest1
           | ($rest1 | if any(.[]; .tag == "block") then . else . + [{tag:"block",protocol:"blackhole"}] end) as $rest2
           | .outbounds = ([$replacement[0]] + $rest2)
         ' "$OUT_FILE" > "$CANDIDATE_OUT" || return 1
     else
         jq -n --slurpfile replacement "$VLESS_OBJECT" '
-          {outbounds:[$replacement[0],{tag:"direct",protocol:"freedom"},{tag:"block",protocol:"blackhole"}]}
+          {outbounds:[$replacement[0],{tag:"direct",protocol:"freedom",streamSettings:{sockopt:{mark:255}}},{tag:"block",protocol:"blackhole"}]}
         ' > "$CANDIDATE_OUT" || return 1
     fi
 
