@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -28,7 +27,6 @@ const (
 	bestServerQualityHTTPTimeout          = 5 * time.Second
 	bestServerQualityCandidateTimeout     = 50 * time.Second
 	bestServerQualityScanTimeout          = 420 * time.Second
-	bestServerQualityCacheTTL             = 3 * time.Minute
 	bestServerQualityProbeURL             = "https://www.gstatic.com/generate_204"
 	bestServerQualityNoSpeedPenalty       = 3000
 	bestServerQualityVeryLowSpeedPenalty  = 3200
@@ -97,20 +95,6 @@ type bestServerQualityApplicationResult struct {
 
 type bestServerQualityApplicationProbe func(context.Context, bestServerInternalCandidate) bestServerQualityApplicationResult
 
-type bestServerQualityCacheEntry struct {
-	Key      string
-	StoredAt time.Time
-	Response bestServerQualityResponse
-}
-
-var bestServerQualityCache struct {
-	sync.Mutex
-	Entry bestServerQualityCacheEntry
-}
-
-// /api/vpn/best is a compatibility alias only. It must execute the same
-// canonical foreign-profile engine as Control Center/AUTO VPN; a second ranker
-// is forbidden.
 func registerBestServerQualityAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/vpn/best", a.requireAuth(a.handleBestServerQuality))
 }
@@ -151,16 +135,6 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServerQualityResponse, error) {
 	_ = force // retained for compatibility with the legacy query parameter.
 	return a.scanBestServerForeign(ctx)
-}
-
-func cloneBestServerQualityResponse(in bestServerQualityResponse) bestServerQualityResponse {
-	out := in
-	out.Candidates = append([]bestServerQualityCandidate(nil), in.Candidates...)
-	if in.Recommendation != nil {
-		copyValue := *in.Recommendation
-		out.Recommendation = &copyValue
-	}
-	return out
 }
 
 func rankBestServerQualityCandidates(
