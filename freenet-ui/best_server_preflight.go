@@ -69,6 +69,7 @@ func selectBestServerRTTShortlistIndexes(candidates []bestServerInternalCandidat
 			if _, exists := indexByID[id]; !exists {
 				indexByID[id] = index
 			}
+		}
 	}
 
 	selected := make([]int, 0, limit)
