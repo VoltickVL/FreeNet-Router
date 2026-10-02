@@ -454,7 +454,10 @@ func automationHealthDue(configPath string, now time.Time) bool {
 		return false
 	}
 	state := v3ParseState(settingsV3StatePath())
-	last := strings.TrimSpace(state["HEALTH_LAST"])
+	last := strings.TrimSpace(state["HEALTH_SCHEDULE_LAST"])
+	if last == "" {
+		last = strings.TrimSpace(state["HEALTH_LAST"])
+	}
 	if last == "" {
 		return true
 	}
@@ -500,6 +503,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		return recordAndReturnHealth(automationHealthResult{State: "busy", Reason: "Проверка пропущена: предыдущая AUTO VPN операция ещё выполняется."}, nil)
 	}
 	defer release()
+	_ = v3WriteState(map[string]string{"HEALTH_SCHEDULE_LAST": time.Now().UTC().Format(time.RFC3339)})
 
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
 	first := a.probeAutomationCurrentVPN(probeCtx)
