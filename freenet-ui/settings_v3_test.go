@@ -314,7 +314,7 @@ func TestSettingsV3SaveSwitchesEndpointAndFullModesTransactionally(t *testing.T)
 
 	enabled, disabled := true, false
 	req := settingsV3SaveRequest{
-		Action: "save", AutoVPNEnabled: &enabled, AutoVPNMode: automationModeEndpoint, AutoVPNEndpointInterval: "30m",
+		Action: "save", AutoVPNEnabled: &enabled, AutoVPNMode: automationModeEndpoint, AutoVPNHealthInterval: "30s", AutoVPNEndpointInterval: "30m",
 		CountryScope: automationCountryRegion, Countries: []string{"de"},
 		SubscriptionEnabled: &disabled, GeoDataEnabled: &disabled, FreeNetEnabled: &disabled, BackupEnabled: &disabled,
 	}
@@ -329,6 +329,7 @@ func TestSettingsV3SaveSwitchesEndpointAndFullModesTransactionally(t *testing.T)
 	configText := string(configData)
 	for _, want := range []string{
 		"AUTO_VPN_MODE=endpoint",
+		"AUTO_VPN_HEALTH_INTERVAL=30s",
 		"AUTO_VPN_V1_INTERVAL=30m",
 		"AUTO_ENDPOINT_UPDATE=yes",
 		"AUTO_ENDPOINT_CRON='*/30 * * * *'",
