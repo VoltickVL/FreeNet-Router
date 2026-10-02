@@ -21,9 +21,7 @@ import (
 const (
 	bestServerQualityTCPRuns              = 3
 	bestServerQualityTCPRequired          = 2
-	bestServerQualityTCPWorkers           = 8
 	bestServerQualityTCPTimeout           = 1200 * time.Millisecond
-	bestServerQualityShortlist            = 6
 	bestServerQualityWarmupRuns           = 1
 	bestServerQualityHTTPRuns             = 3
 	bestServerQualityHTTPRequired         = 2
@@ -37,7 +35,6 @@ const (
 	bestServerQualityLowSpeedPenalty      = 1600
 	bestServerQualityModerateSpeedPenalty = 500
 	bestServerQualityHighJitterMS         = 80
-	bestServerQualityHighTCPJitterMS      = 60
 	bestServerQualityMaxApplicationMS     = 220
 )
 
@@ -324,12 +321,10 @@ func defaultBestServerQualityTCPProbe(ctx context.Context, profile subscriptionP
 	return summarizeBestServerSamples(samples, bestServerQualityTCPRequired)
 }
 
-func bestServerQualityScore(httpMS, tcpMS, httpJitterMS, tcpJitterMS int, downloadMbps float64, downloadOK bool) int {
+func bestServerQualityScore(httpMS, httpJitterMS int, downloadMbps float64, downloadOK bool) int {
 	score := 10000
 	score -= minInt(httpMS, 2500) * 2
-	score -= minInt(tcpMS, 1000) * 2
 	score -= minInt(httpJitterMS, 1000) * 3
-	score -= minInt(tcpJitterMS, 500)
 	if downloadOK {
 		score += int(math.Min(downloadMbps, 200) * 25)
 		switch {
@@ -492,5 +487,5 @@ func eligibleBestServerQuality(c bestServerQualityCandidate) bool {
 	return c.Available && c.ApplicationMS > 0 && c.ApplicationMS <= bestServerQualityMaxApplicationMS &&
 		c.DownloadMbps >= 20 && c.MediaSamples >= bestServerMediaRequiredRuns && c.MediaStalls == 0 && (c.MediaGrade == "good" || c.MediaGrade == "excellent") &&
 		c.ServiceTotal >= 3 && c.ServiceOK == c.ServiceTotal &&
-		c.JitterMS <= bestServerQualityHighJitterMS && c.TCPJitterMS <= bestServerQualityHighTCPJitterMS
+		c.JitterMS <= bestServerQualityHighJitterMS
 }
