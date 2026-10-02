@@ -70,8 +70,8 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 
 // selectBestServerRTTShortlistIndexes builds the bounded deep-check queue from
 // canonical VPN application RTT evidence. Confirmed reachable profiles are
-// ordered by RTT, UNKNOWN is only reserve evidence, transport-only comes after
-// UNKNOWN, and explicit application failures are last. The hard deep maximum is
+// ordered by RTT, UNKNOWN is reserve evidence, and explicit quick-path failures
+// are last. The hard deep maximum is
 // ten profiles; rankMeasuredBestServerBatches normally stops much earlier as
 // soon as the requested Eligible target is reached.
 func selectBestServerRTTShortlistIndexes(candidates []bestServerInternalCandidate, items []providerProfileRTTItem, currentIndex int) []int {
