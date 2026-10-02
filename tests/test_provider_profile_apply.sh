@@ -354,5 +354,6 @@ fi
 grep -Fq '"$XKEEN_BIN" -restart' "$SCRIPT" || fail 'normal provider apply restart semantics were unexpectedly removed'
 grep -Fq 'FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock' "$SCRIPT" || fail 'provider helper does not share canonical updater lock'
 grep -Fq 'FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock' "$ROOT_DIR/scripts/blanc_xkeen_update_outbounds.sh" || fail 'updater helper canonical lock contract changed'
+grep -Fq 'tag:"direct",protocol:"freedom",streamSettings:{sockopt:{mark:255}}' "$SCRIPT" || fail 'new DIRECT outbound is missing XKeen self-bypass mark 255'
 
 echo 'provider profile apply test PASS'
