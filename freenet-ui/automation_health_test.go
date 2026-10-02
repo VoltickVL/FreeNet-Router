@@ -11,6 +11,54 @@ import (
 	"time"
 )
 
+func TestAutomationHealthDueUsesProbeStartCadence(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "freenet.conf")
+	statePath := filepath.Join(dir, "settings.state")
+	t.Setenv("FREENET_SETTINGS_V3_STATE", statePath)
+	if err := os.WriteFile(configPath, []byte("AUTO_VPN_HEALTH_INTERVAL=1m\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 10, 3, 6, 30, 0, 0, time.UTC)
+	if err := os.WriteFile(statePath, []byte("HEALTH_SCHEDULE_LAST="+base.Format(time.RFC3339)+"\nHEALTH_LAST="+base.Add(8*time.Second).Format(time.RFC3339)+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if automationHealthDue(configPath, base.Add(59*time.Second)) {
+		t.Fatal("1-minute watchdog became due before one minute from probe start")
+	}
+	if !automationHealthDue(configPath, base.Add(time.Minute)) {
+		t.Fatal("1-minute watchdog did not become due one minute from probe start")
+	}
+}
+
+func TestBusyHealthResultDoesNotAdvanceHealthTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "settings.state")
+	t.Setenv("FREENET_SETTINGS_V3_STATE", statePath)
+	const original = "HEALTH_LAST=2026-10-03T06:30:00Z\nHEALTH_RESULT=healthy\nHEALTH_MESSAGE=ok\n"
+	if err := os.WriteFile(statePath, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	recordSettingsV3Health(automationHealthResult{State: "busy", Reason: "another recovery is active"})
+	got, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Fatalf("busy scheduler collision changed health state:\n%s", got)
+	}
+}
+
+func TestMainStartsSubMinuteHealthScheduler(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "a.startAutomationHealthScheduler()") {
+		t.Fatal("long-running FreeNet service must own the 30-second health cadence")
+	}
+}
+
 func TestAutomationHealthLockReclaimsDeadPIDImmediately(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auto-health.lock")
 	t.Setenv("FREENET_AUTO_HEALTH_LOCK", path)
