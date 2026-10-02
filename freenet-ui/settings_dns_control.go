@@ -39,6 +39,8 @@ type settingsDNSControlResponse struct {
 	DirectOptions     []settingsDNSProviderOption `json:"direct_options"`
 	VPNOptions        []settingsDNSProviderOption `json:"vpn_options"`
 	RuntimeState      string                      `json:"runtime_state,omitempty"`
+	DirectEgressState string                      `json:"direct_egress_state,omitempty"`
+	RepairRequired    bool                        `json:"repair_required,omitempty"`
 	SplitSupported    bool                        `json:"split_supported"`
 	ApplySupported    bool                        `json:"apply_supported"`
 	Message           string                      `json:"message,omitempty"`
@@ -101,12 +103,83 @@ func settingsDNSRuntimeState() (direct, vpn, state string) {
 	return "", "", "unknown"
 }
 
+func settingsDNSDirectEgressState() string {
+	data, err := os.ReadFile(filepath.Join(settingsDNSConfigDir(), "04_outbounds.json"))
+	if err != nil {
+		return "unknown"
+	}
+	var cfg struct {
+		Outbounds []map[string]any `json:"outbounds"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return "unknown"
+	}
+	var direct map[string]any
+	for _, outbound := range cfg.Outbounds {
+		tag, _ := outbound["tag"].(string)
+		if strings.TrimSpace(tag) != "direct" {
+			continue
+		}
+		if direct != nil {
+			return "unknown"
+		}
+		direct = outbound
+	}
+	if direct == nil {
+		return "unknown"
+	}
+	protocol, _ := direct["protocol"].(string)
+	if strings.TrimSpace(protocol) != "freedom" {
+		return "unknown"
+	}
+	stream := map[string]any{}
+	if raw, exists := direct["streamSettings"]; exists && raw != nil {
+		var ok bool
+		stream, ok = raw.(map[string]any)
+		if !ok {
+			return "unknown"
+		}
+	}
+	sockopt := map[string]any{}
+	if raw, exists := stream["sockopt"]; exists && raw != nil {
+		var ok bool
+		sockopt, ok = raw.(map[string]any)
+		if !ok {
+			return "unknown"
+		}
+	}
+	mark, exists := sockopt["mark"]
+	if !exists {
+		return "repairable"
+	}
+	switch value := mark.(type) {
+	case float64:
+		if value == 255 {
+			return "accepted"
+		}
+		return "repairable"
+	case json.Number:
+		parsed, err := value.Int64()
+		if err != nil {
+			return "unknown"
+		}
+		if parsed == 255 {
+			return "accepted"
+		}
+		return "repairable"
+	default:
+		return "unknown"
+	}
+}
+
 func settingsDNSControlSnapshot(configPath string) settingsDNSControlResponse {
 	_, activeMode := readNetworkProfileConfig(configPath)
 	direct := settingsDNSDesiredProvider(configPath, "SPLIT_DIRECT_DNS_PROVIDER", settingsDNSDirectProviderYandex)
 	vpn := settingsDNSDesiredProvider(configPath, "SPLIT_VPN_DNS_PROVIDER", settingsDNSVPNProviderGoogle)
 	activeDirect, activeVPN, runtimeState := settingsDNSRuntimeState()
+	directEgressState := settingsDNSDirectEgressState()
 	splitSupported := splitDNSSelectionError("xkeen") == nil
+	repairRequired := activeMode == "xkeen" && directEgressState == "repairable"
 	response := settingsDNSControlResponse{
 		Success: true,
 		Mode: activeMode,
@@ -118,15 +191,21 @@ func settingsDNSControlSnapshot(configPath string) settingsDNSControlResponse {
 		DirectOptions: settingsDNSProviderOptions(),
 		VPNOptions: settingsDNSProviderOptions(),
 		RuntimeState: runtimeState,
+		DirectEgressState: directEgressState,
+		RepairRequired: repairRequired,
 		SplitSupported: splitSupported,
-		ApplySupported: activeMode != "xkeen" || runtimeState != "unknown",
+		ApplySupported: activeMode != "xkeen" || (runtimeState != "unknown" && directEgressState != "unknown"),
 	}
 	if activeMode == "xkeen" {
-		switch runtimeState {
-		case "legacy":
-			response.Warning = "Используется прежняя resolver-схема. Явное сохранение безопасно переведёт её на выбранные DoH resolver-ы."
-		case "unknown":
+		switch {
+		case runtimeState == "unknown":
 			response.Warning = "Активную Split DNS resolver-схему нельзя однозначно классифицировать. Изменение DNS заблокировано без догадок."
+		case directEgressState == "unknown":
+			response.Warning = "DIRECT egress нельзя однозначно классифицировать. Изменение DNS заблокировано без догадок."
+		case directEgressState == "repairable":
+			response.Warning = "DIRECT egress требует безопасного восстановления XKeen self-bypass. Сохранение применит mark 255 с snapshot, validation и rollback."
+		case runtimeState == "legacy":
+			response.Warning = "Используется прежняя resolver-схема. Явное сохранение безопасно переведёт её на выбранные DoH resolver-ы."
 		}
 	} else if !splitSupported {
 		response.Warning = "Раздельный DNS недоступен на этом устройстве. DNS через роутер продолжает работать штатно."
@@ -402,25 +481,22 @@ func (a *app) prepareSettingsDNSConfig(isp, mode, nativeProvider, direct, vpn st
 }
 
 func settingsDNSResolverSnapshot() (string, error) {
-	data, err := os.ReadFile(filepath.Join(settingsDNSConfigDir(), "02_dns.json"))
+	dir, err := os.MkdirTemp("", "freenet-dns-before-*")
 	if err != nil {
 		return "", err
 	}
-	file, err := os.CreateTemp("", "freenet-dns-before-*.json")
-	if err != nil {
-		return "", err
+	for _, name := range []string{"02_dns.json", "04_outbounds.json"} {
+		data, readErr := os.ReadFile(filepath.Join(settingsDNSConfigDir(), name))
+		if readErr != nil {
+			_ = os.RemoveAll(dir)
+			return "", readErr
+		}
+		if writeErr := os.WriteFile(filepath.Join(dir, name), data, 0600); writeErr != nil {
+			_ = os.RemoveAll(dir)
+			return "", writeErr
+		}
 	}
-	name := file.Name()
-	if err := file.Chmod(0600); err != nil {
-		_ = file.Close(); _ = os.Remove(name); return "", err
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close(); _ = os.Remove(name); return "", err
-	}
-	if err := file.Close(); err != nil {
-		_ = os.Remove(name); return "", err
-	}
-	return name, nil
+	return dir, nil
 }
 
 func restoreSettingsDNSResolver(backup string) string {
@@ -464,6 +540,14 @@ func (a *app) executeSettingsDNSControl(req settingsDNSControlRequest) (int, set
 		result.PrimaryError = "active Split DNS resolver state is ambiguous"
 		result.RollbackState = "NOT_APPLIED"
 		result.Error = "Текущий Split DNS нельзя безопасно изменить без точного runtime-факта."
+		return http.StatusConflict, result
+	}
+	if activeMode == "xkeen" && settingsDNSDirectEgressState() == "unknown" {
+		result := settingsDNSControlSnapshot(a.cfg.ConfigPath)
+		result.Success = false
+		result.PrimaryError = "active DIRECT egress state is ambiguous"
+		result.RollbackState = "NOT_APPLIED"
+		result.Error = "Текущий DIRECT egress нельзя безопасно изменить без точного runtime-факта."
 		return http.StatusConflict, result
 	}
 
@@ -510,7 +594,7 @@ func (a *app) executeSettingsDNSControl(req settingsDNSControlRequest) (int, set
 			if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeISP, activeMode, activeNativeProvider) }
 			return http.StatusBadGateway, settingsDNSControlResponse{Success: false, PrimaryError: "cannot snapshot active resolver config", RollbackState: rollback, Error: "resolver mutation не началась"}
 		}
-		defer os.Remove(resolverBackup)
+		defer os.RemoveAll(resolverBackup)
 
 		planCtx, cancelPlan := context.WithTimeout(context.Background(), 35*time.Second)
 		planOutput, helperPlanErr := runSettingsDNSApplyHelper(planCtx, "plan", req.DirectProvider, req.VPNProvider)
