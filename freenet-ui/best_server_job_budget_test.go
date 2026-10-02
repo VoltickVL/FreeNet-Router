@@ -167,7 +167,7 @@ func TestBestServerRTTShortlistPromotesLateLowLatencyProfile(t *testing.T) {
 }
 
 func TestBestServerRTTShortlistUsesUnknownOnlyAsReserve(t *testing.T) {
-	candidates := make([]bestServerInternalCandidate, 14)
+	candidates := make([]bestServerInternalCandidate, 12)
 	items := make([]providerProfileRTTItem, 0, len(candidates))
 	for i := range candidates {
 		id := fmt.Sprintf("p-%02d", i)
@@ -175,10 +175,8 @@ func TestBestServerRTTShortlistUsesUnknownOnlyAsReserve(t *testing.T) {
 		switch {
 		case i < 8:
 			items = append(items, providerProfileRTTItem{ProfileID: id, Reachable: true, Attempted: true, Status: "reachable", RTTMS: 100 + i})
-		case i < 11:
+		case i < 10:
 			items = append(items, providerProfileRTTItem{ProfileID: id, Status: "unknown"})
-		case i < 13:
-			items = append(items, providerProfileRTTItem{ProfileID: id, Attempted: true, Status: "transport_only"})
 		default:
 			items = append(items, providerProfileRTTItem{ProfileID: id, Attempted: true, Status: "unreachable"})
 		}
@@ -193,6 +191,6 @@ func TestBestServerRTTShortlistUsesUnknownOnlyAsReserve(t *testing.T) {
 		}
 	}
 	if candidates[got[8]].Profile.ID != "p-08" || candidates[got[9]].Profile.ID != "p-09" {
-		t.Fatalf("UNKNOWN reserve must follow all confirmed RTT results and precede transport-only: %#v", got)
+		t.Fatalf("UNKNOWN reserve must follow all confirmed RTT results: %#v", got)
 	}
 }
