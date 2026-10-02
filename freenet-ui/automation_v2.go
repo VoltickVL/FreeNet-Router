@@ -611,6 +611,12 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 	if !manual && !settings.Enabled {
 		return automationBestCycleResult{Result: "disabled", Reason: "AUTO VPN выключен."}, nil
 	}
+	releaseHealth, err := acquireAutomationHealthLock()
+	if err != nil {
+		return automationBestCycleResult{Result: "busy", Reason: "Проверка пропущена: другая AUTO VPN health/recovery операция уже выполняется."}, nil
+	}
+	defer releaseHealth()
+
 	release, err := acquireAutomationBestLock()
 	if err != nil {
 		return automationBestCycleResult{Result: "busy", Reason: "Проверка пропущена: другая AUTO VPN операция уже выполняется."}, nil
