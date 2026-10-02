@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -42,8 +43,8 @@ func TestManagedSplitMirrorAcceptsSupportedCurrentDoHProviders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := expected["dns"], current["dns"]; got == nil || want == nil {
-		t.Fatalf("managed modern DNS mirror missing: expected=%v current=%v", got, want)
+	if !reflect.DeepEqual(expected, current) {
+		t.Fatalf("managed modern DNS mirror mismatch: expected=%v current=%v", expected, current)
 	}
 }
 
