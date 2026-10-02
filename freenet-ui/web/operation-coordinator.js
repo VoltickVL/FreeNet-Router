@@ -700,8 +700,22 @@
     qs('#bestServerShell')?.setAttribute('aria-busy', String(scanBusy || applyBusy));
   }
 
+  function qualityJobID() {
+    const cryptoAPI = globalThis.crypto;
+    if (cryptoAPI && typeof cryptoAPI.randomUUID === 'function') {
+      try { return cryptoAPI.randomUUID(); } catch (_) {}
+    }
+    const bytes = new Uint8Array(16);
+    if (cryptoAPI && typeof cryptoAPI.getRandomValues === 'function') {
+      cryptoAPI.getRandomValues(bytes);
+    } else {
+      for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    }
+    return 'q_' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+  }
+
   async function requestQuality(path, mode) {
-    const id = crypto.randomUUID(), started = Date.now();
+    const id = qualityJobID(), started = Date.now();
     const panel = document.createElement('div'); panel.id = 'fnQualityProgress'; panel.setAttribute('role','dialog'); panel.setAttribute('aria-modal','true'); panel.setAttribute('aria-label','Проверка VPN'); panel.style.cssText='position:fixed;inset:0;z-index:950;background:#030911cc;display:grid;place-items:center;padding:20px;backdrop-filter:blur(5px)';
     const card = document.createElement('section'); card.style.cssText='width:min(440px,100%);box-sizing:border-box;padding:28px;background:#101e30;border:1px solid #304963;border-radius:18px;color:#e5eefb';
     const title=document.createElement('h2');title.style.cssText='font-size:20px;margin:0 0 16px';title.textContent=mode==='current'?'Проверяем текущий VPN':'Подбираем серверы';
