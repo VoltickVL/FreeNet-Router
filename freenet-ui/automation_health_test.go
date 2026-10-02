@@ -192,7 +192,7 @@ func TestAutomationRecoveryStageJournalUsesStageResults(t *testing.T) {
 	}
 }
 
-func TestManagedCronSeparatesHealthWatchdogFromHeavyBestScan(t *testing.T) {
+func TestManagedCronKeepsHealthWatchdogAndRetiresPeriodicBest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
 	if err := os.WriteFile(path, []byte("AUTO_XKEEN_GEODATA=no\nAUTO_VPN_HEALTH_INTERVAL=1m\nAUTO_VPN_FAILOVER=yes\nAUTO_VPN_FAILOVER_CRON='*/5 * * * *'\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -206,15 +206,14 @@ func TestManagedCronSeparatesHealthWatchdogFromHeavyBestScan(t *testing.T) {
 	if !strings.Contains(text, "* * * * * "+automationRunnerPath()+" automation-health-watch") {
 		t.Fatalf("health watchdog is not scheduled with the configured 1-minute fallback:\n%s", text)
 	}
-	if !strings.Contains(text, "0 * * * * "+automationRunnerPath()+" automation-best-run") {
-		t.Fatalf("heavy Best run does not keep the selected 1h interval:\n%s", text)
-	}
-	if strings.Contains(text, "/opt/bin/vpn failover") {
-		t.Fatalf("legacy failover scheduler must be removed to avoid duplicate mutation:\n%s", text)
+	for _, forbidden := range []string{"automation-best-run", "/opt/lib/freenet/auto_vpn.sh", "/opt/bin/vpn failover"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("periodic legacy/heavy scheduler path %q must be retired:\n%s", forbidden, text)
+		}
 	}
 }
 
-func TestManagedCronDoesNotAutoRunWhenAutomationIsManual(t *testing.T) {
+func TestManagedCronManualModeStillKeepsHealthWatchdog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
 	if err := os.WriteFile(path, []byte("AUTO_XKEEN_GEODATA=no\nAUTO_VPN_FAILOVER=no\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -225,8 +224,11 @@ func TestManagedCronDoesNotAutoRunWhenAutomationIsManual(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if strings.Contains(text, "automation-health-watch") || strings.Contains(text, "automation-best-run") {
-		t.Fatalf("manual mode must not schedule automatic checks:\n%s", text)
+	if !strings.Contains(text, "automation-health-watch") {
+		t.Fatalf("manual optimization mode must still keep VPN liveness watchdog:\n%s", text)
+	}
+	if strings.Contains(text, "automation-best-run") || strings.Contains(text, "settings-v3-endpoint-refresh") {
+		t.Fatalf("manual optimization mode must not schedule heavy optimization or endpoint refresh:\n%s", text)
 	}
 }
 
