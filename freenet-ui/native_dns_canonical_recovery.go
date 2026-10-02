@@ -141,13 +141,17 @@ func expectedFreeNetManagedSplitDNSWithResolvers(routing map[string]any, directA
 			continue
 		}
 		if legacyNativeString(rule["outboundTag"]) == "direct" {
-			servers = append(servers, map[string]any{
+			server := map[string]any{
 				"address":      directAddress,
 				"domains":      domains,
 				"skipFallback": true,
 				"finalQuery":    true,
 				"tag":           "dns-direct",
-			})
+			}
+			if directAddress == "77.88.8.8" {
+				server["port"] = float64(53)
+			}
+			servers = append(servers, server)
 			continue
 		}
 		servers = append(servers, map[string]any{
