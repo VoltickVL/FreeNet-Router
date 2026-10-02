@@ -71,10 +71,11 @@ type bestServerResponse struct {
 }
 
 type bestServerProbeResult struct {
-	OK      bool
-	Samples []int
-	Median  int
-	Jitter  int
+	OK            bool
+	TransportOnly bool
+	Samples       []int
+	Median        int
+	Jitter        int
 }
 
 type bestServerTCPProbe func(context.Context, subscriptionProfile) bestServerProbeResult

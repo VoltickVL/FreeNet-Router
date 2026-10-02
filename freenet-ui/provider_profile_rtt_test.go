@@ -134,6 +134,47 @@ func TestMeasureProviderProfileRTTBoundsConcurrentProbes(t *testing.T) {
 	}
 }
 
+func TestMeasureProviderProfileRTTDeadlineMarksUnstartedUnknown(t *testing.T) {
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa"}},
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb"}},
+		{Profile: subscriptionProfile{ID: "cccccccccccccccc"}},
+		{Profile: subscriptionProfile{ID: "dddddddddddddddd"}},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	probe := func(ctx context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
+		<-ctx.Done()
+		return bestServerProbeResult{}
+	}
+	got := measureProviderProfileRTT(ctx, candidates, probe)
+	attempted, unknown := 0, 0
+	for _, item := range got {
+		if item.Attempted {
+			attempted++
+		}
+		if !item.Attempted && item.Status == "unknown" {
+			unknown++
+		}
+	}
+	if attempted != providerProfileRTTWorkers {
+		t.Fatalf("attempted=%d want=%d; bounded workers must be the only started probes", attempted, providerProfileRTTWorkers)
+	}
+	if unknown != len(candidates)-providerProfileRTTWorkers {
+		t.Fatalf("unknown=%d want=%d; unstarted profiles must not be labeled unreachable: %#v", unknown, len(candidates)-providerProfileRTTWorkers, got)
+	}
+}
+
+func TestMeasureProviderProfileRTTExposesTransportOnlyEvidence(t *testing.T) {
+	candidates := []bestServerInternalCandidate{{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa"}}}
+	got := measureProviderProfileRTT(context.Background(), candidates, func(context.Context, bestServerInternalCandidate) bestServerProbeResult {
+		return bestServerProbeResult{TransportOnly: true}
+	})
+	if len(got) != 1 || !got[0].Attempted || got[0].Status != "transport_only" || got[0].Reachable {
+		t.Fatalf("transport-only result misclassified: %#v", got)
+	}
+}
+
 func TestProviderProfileRTTScanSingleFlight(t *testing.T) {
 	endProviderProfileRTTScan()
 	if !beginProviderProfileRTTScan() {

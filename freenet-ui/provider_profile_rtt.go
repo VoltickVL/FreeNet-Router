@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	providerProfileRTTTimeout = 90 * time.Second
+	providerProfileRTTTimeout = 45 * time.Second
 	providerProfileRTTWorkers = 2
 )
 
@@ -19,6 +19,8 @@ type providerProfileRTTItem struct {
 	RTTMS     int    `json:"rtt_ms,omitempty"`
 	JitterMS  int    `json:"jitter_ms,omitempty"`
 	Reachable bool   `json:"reachable"`
+	Attempted bool   `json:"attempted"`
+	Status    string `json:"status,omitempty"`
 }
 
 type providerProfileRTTResponse struct {
@@ -26,6 +28,11 @@ type providerProfileRTTResponse struct {
 	Results         []providerProfileRTTItem `json:"results"`
 	Profiles        int                      `json:"profiles"`
 	UniqueEndpoints int                      `json:"unique_endpoints"`
+	Checked         int                      `json:"checked"`
+	Reachable       int                      `json:"reachable"`
+	TransportOnly   int                      `json:"transport_only,omitempty"`
+	Unknown         int                      `json:"unknown,omitempty"`
+	Partial         bool                     `json:"partial,omitempty"`
 	ProbeMode       string                   `json:"probe_mode,omitempty"`
 	Fresh           bool                     `json:"fresh"`
 	Mutation        string                   `json:"mutation"`
@@ -87,11 +94,18 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 				probeCtx, cancel := context.WithTimeout(ctx, bestServerProfilePingTimeout)
 				value := probe(probeCtx, candidates[index])
 				cancel()
-				item := providerProfileRTTItem{ProfileID: candidates[index].Profile.ID}
+				item := providerProfileRTTItem{
+					ProfileID: candidates[index].Profile.ID,
+					Attempted: true,
+					Status:    "unreachable",
+				}
 				if value.OK {
 					item.Reachable = true
+					item.Status = "reachable"
 					item.RTTMS = value.Median
 					item.JitterMS = value.Jitter
+				} else if value.TransportOnly {
+					item.Status = "transport_only"
 				}
 				results[index] = item
 			}
@@ -109,17 +123,33 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 	}()
 	wg.Wait()
 
-	// Preserve IDs for jobs that could not start before the bounded deadline.
+	// A global deadline means UNKNOWN, not "server dead". Preserve identity and
+	// expose that distinction to the UI instead of manufacturing a negative
+	// measurement for work that never started.
 	for index := range results {
 		if results[index].ProfileID == "" {
 			results[index].ProfileID = candidates[index].Profile.ID
+			results[index].Status = "unknown"
+		}
+	}
+	rank := func(item providerProfileRTTItem) int {
+		switch {
+		case item.Reachable:
+			return 0
+		case item.Status == "transport_only":
+			return 1
+		case item.Status == "unknown":
+			return 2
+		default:
+			return 3
 		}
 	}
 	sort.SliceStable(results, func(i, j int) bool {
-		if results[i].Reachable != results[j].Reachable {
-			return results[i].Reachable
+		ri, rj := rank(results[i]), rank(results[j])
+		if ri != rj {
+			return ri < rj
 		}
-		if results[i].RTTMS != results[j].RTTMS {
+		if results[i].Reachable && results[i].RTTMS != results[j].RTTMS {
 			return results[i].RTTMS < results[j].RTTMS
 		}
 		return results[i].ProfileID < results[j].ProfileID
@@ -186,8 +216,23 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 	}
 
 	items := measureProviderProfileRTT(ctx, filtered, a.probeBestServerProfilePing)
+	checked, reachable, transportOnly, unknown := 0, 0, 0, 0
+	for _, item := range items {
+		if item.Attempted {
+			checked++
+		} else {
+			unknown++
+		}
+		if item.Reachable {
+			reachable++
+		}
+		if item.Status == "transport_only" {
+			transportOnly++
+		}
+	}
 	writeJSON(w, http.StatusOK, providerProfileRTTResponse{
 		Success: true, Results: items, Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
-		ProbeMode: "proxy_http", Fresh: err == nil, Mutation: "NONE",
+		Checked: checked, Reachable: reachable, TransportOnly: transportOnly, Unknown: unknown, Partial: checked < len(filtered),
+		ProbeMode: "proxy_http_multi_origin", Fresh: err == nil, Mutation: "NONE",
 	})
 }

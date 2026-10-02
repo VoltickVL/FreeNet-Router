@@ -165,29 +165,12 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
 	for i := 0; i < bestServerQualityWarmupRuns; i++ {
-		warmCtx, cancel := context.WithTimeout(ctx, bestServerQualityHTTPTimeout)
-		_ = exec.CommandContext(warmCtx, curlPath,
-			"--socks5-hostname", socks,
-			"-sS", "--connect-timeout", "3", "--max-time", "5",
-			"-o", "/dev/null", bestServerQualityProbeURL,
-		).Run()
-		cancel()
+		_, _, _ = probeBestServerHTTPAny(ctx, curlPath, socks)
 	}
 
 	samples := make([]int, 0, bestServerQualityHTTPRuns)
 	for i := 0; i < bestServerQualityHTTPRuns; i++ {
-		probeCtx, cancel := context.WithTimeout(ctx, bestServerQualityHTTPTimeout)
-		output, err := exec.CommandContext(probeCtx, curlPath,
-			"--socks5-hostname", socks,
-			"-sS", "--connect-timeout", "3", "--max-time", "5",
-			"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", bestServerQualityProbeURL,
-		).Output()
-		cancel()
-		if err != nil {
-			continue
-		}
-		ms, ok := parseBestServerHTTPResponseMS(string(output))
-		if ok {
+		if ms, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks); ok {
 			samples = append(samples, ms)
 		}
 	}

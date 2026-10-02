@@ -278,20 +278,13 @@ func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServer
 		if ctx.Err() != nil {
 			break
 		}
-		probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		output, err := exec.CommandContext(probeCtx, curlPath,
-			"--socks5-hostname", socks,
-			"-sS", "--connect-timeout", "2", "--max-time", "2",
-			"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", bestServerQualityProbeURL,
-		).Output()
-		cancel()
-		if err != nil {
-			continue
-		}
-		ms, ok := parseBestServerHTTPResponseMS(string(output))
-		if ok {
+		if ms, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks); ok {
 			samples = append(samples, ms)
 		}
 	}
-	return summarizeBestServerSamples(samples, 1)
+	result := summarizeBestServerSamples(samples, 1)
+	if !result.OK && probeBestServerTransportIP(ctx, curlPath, socks) {
+		result.TransportOnly = true
+	}
+	return result
 }
