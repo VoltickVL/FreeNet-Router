@@ -133,11 +133,20 @@
     return ({'30m':'30 минут','1h':'1 час','3h':'3 часа','6h':'6 часов','12h':'12 часов','24h':'24 часа'})[value] || '6 часов';
   }
 
+  function healthIntervalLabel(value) {
+    return ({'30s':'30 секунд','1m':'1 минуту','5m':'5 минут'})[value] || '1 минуту';
+  }
+
+  function healthIntervalOptions(selected) {
+    return ['30s','1m','5m'].map(v => `<option value="${v}"${v===selected?' selected':''}>каждые ${healthIntervalLabel(v)}</option>`).join('');
+  }
+
   function nextLabel(value) {
     if (!value) return 'не запланировано';
     const ms = new Date(value).getTime() - Date.now();
     if (!Number.isFinite(ms)) return formatDate(value);
     if (ms <= 0) return 'в ближайшее время';
+    if (ms < 60000) return `через ${Math.max(1, Math.ceil(ms / 1000))} сек`;
     const min = Math.max(1, Math.ceil(ms / 60000));
     if (min < 60) return `через ${min} мин`;
     const h = Math.floor(min / 60), m = min % 60;
@@ -200,7 +209,11 @@
         <div class="fn3-left">
           <section class="fn3-card">
             <div class="fn3-card-head"><div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>AUTO VPN</h2><span id="fn3AutoLabel" class="fn3-enabled-badge">Выключено</span><div class="fn3-sub">FreeNet автоматически поддерживает рабочий VPN.</div></div></div><label class="fn3-master"><span class="fn3-switch"><input id="fn3AutoEnabled" type="checkbox"><span></span></span></label></div>
-            <div class="fn3-info">${svg('info')}<span>FreeNet каждые 5 минут проверяет доступность текущего VPN.<br>Режим работы определяет, может ли автоматика только обновлять endpoint текущего VPN или также подбирать проверенную замену.</span></div>
+            <div class="fn3-info">${svg('info')}<span>Быстрый watchdog проверяет только живучесть текущего VPN. Тяжёлый подбор серверов запускается лишь после подтверждённого отказа.<br>Режим работы определяет, может ли автоматика только обновлять текущий профиль или также подбирать проверенную замену.</span></div>
+            <div class="fn3-endpoint-schedule fn3-health-schedule">
+              <div class="fn3-endpoint-copy"><strong>Проверка доступности VPN</strong><small>30 секунд — максимально быстро; 1 минута — рекомендуемый баланс; 5 минут — минимальная нагрузка.</small></div>
+              <select id="fn3HealthInterval" aria-label="Интервал проверки доступности VPN">${healthIntervalOptions('1m')}</select>
+            </div>
             <div class="fn3-section-label">Режим работы</div>
             <div class="fn3-mode-list">
               <label class="fn3-mode" data-mode-card="endpoint"><input type="radio" name="fn3Mode" value="endpoint"><span><strong>Только текущий VPN <em class="fn3-mode-badge">Минимум изменений</em></strong><small>Страна и VPN-профиль фиксированы. FreeNet обновляет только endpoint этого же профиля и никогда сам не переключается на другой.</small></span></label>
@@ -243,10 +256,11 @@
 
   function currentForm() {
     const mode = q('input[name="fn3Mode"]:checked')?.value === 'endpoint' ? 'endpoint' : 'best';
+    const healthInterval = q('#fn3HealthInterval')?.value || '1m';
     const endpointInterval = q('#fn3EndpointInterval')?.value || '1h';
     const scope = q('input[name="fn3Scope"]:checked')?.value || 'region';
     const read = key => ({enabled: !!q(`#fn3_${key}_enabled`)?.checked, interval: q(`#fn3_${key}_interval`)?.value || ''});
-    return {enabled: !!q('#fn3AutoEnabled')?.checked, mode, endpointInterval, scope, countries: state.countries.slice().sort(), subscription:read('subscription'), geodata:read('geodata'), freenet:read('freenet'), backup:read('backup')};
+    return {enabled: !!q('#fn3AutoEnabled')?.checked, mode, healthInterval, endpointInterval, scope, countries: state.countries.slice().sort(), subscription:read('subscription'), geodata:read('geodata'), freenet:read('freenet'), backup:read('backup')};
   }
 
   function formKey() { return JSON.stringify(currentForm()); }
@@ -286,10 +300,10 @@
       if (next) next.textContent = 'Автоматические проверки не выполняются';
     } else if (endpointOnly) {
       if (title) title.textContent = 'Только текущий VPN';
-      if (next) next.textContent = `Контроль: каждые 5 минут · endpoint: раз в ${intervalLabel(q('#fn3EndpointInterval')?.value || '1h')}`;
+      if (next) next.textContent = `Контроль: каждые ${healthIntervalLabel(q('#fn3HealthInterval')?.value || '1m')} · endpoint: раз в ${intervalLabel(q('#fn3EndpointInterval')?.value || '1h')}`;
     } else {
       if (title) title.textContent = 'Полный AUTO VPN';
-      if (next) next.textContent = `Следующая проверка: ${nextLabel(state.data?.auto_vpn?.next_health)}`;
+      if (next) next.textContent = `Следующая проверка: ${nextLabel(state.data?.auto_vpn?.next_health)} · интервал ${healthIntervalLabel(q('#fn3HealthInterval')?.value || '1m')}`;
     }
   }
 
@@ -369,6 +383,9 @@
     q('#fn3AutoLabel').textContent = auto.enabled ? 'Включено' : 'Выключено';
     const mode = auto.mode === 'endpoint' ? 'endpoint' : 'best';
     const modeInput = q(`input[name="fn3Mode"][value="${mode}"]`); if (modeInput) modeInput.checked = true;
+    const healthInterval = ['30s','1m','5m'].includes(auto.health_interval) ? auto.health_interval : '1m';
+    const healthSelect = q('#fn3HealthInterval');
+    if (healthSelect) { healthSelect.innerHTML = healthIntervalOptions(healthInterval); healthSelect.value = healthInterval; }
     const endpointInterval = ['30m','1h','3h','6h','12h','24h'].includes(auto.endpoint_interval) ? auto.endpoint_interval : '1h';
     const endpointSelect = q('#fn3EndpointInterval');
     if (endpointSelect) { endpointSelect.innerHTML = intervalOptions(endpointInterval); endpointSelect.value = endpointInterval; }
@@ -441,7 +458,7 @@
     state.saving = true; renderSave();
     const form = currentForm();
     try {
-      const data = await fetchJSON('/api/settings-v3', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',auto_vpn_enabled:form.enabled,auto_vpn_mode:form.mode,auto_vpn_endpoint_interval:form.endpointInterval,country_scope:form.scope,countries:form.countries,subscription_enabled:form.subscription.enabled,subscription_interval:form.subscription.interval,geodata_enabled:form.geodata.enabled,geodata_interval:form.geodata.interval,freenet_enabled:form.freenet.enabled,freenet_interval:form.freenet.interval,backup_enabled:form.backup.enabled,backup_interval:form.backup.interval})});
+      const data = await fetchJSON('/api/settings-v3', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'save',auto_vpn_enabled:form.enabled,auto_vpn_mode:form.mode,auto_vpn_health_interval:form.healthInterval,auto_vpn_endpoint_interval:form.endpointInterval,country_scope:form.scope,countries:form.countries,subscription_enabled:form.subscription.enabled,subscription_interval:form.subscription.interval,geodata_enabled:form.geodata.enabled,geodata_interval:form.geodata.interval,freenet_enabled:form.freenet.enabled,freenet_interval:form.freenet.interval,backup_enabled:form.backup.enabled,backup_interval:form.backup.interval})});
       applyData(data);
     } catch (err) { alert(`Не удалось сохранить настройки: ${err.message}`); }
     finally { state.saving = false; renderSave(); }
@@ -567,6 +584,7 @@
     });
     q('#fn3AutoEnabled').onchange = () => { q('#fn3AutoLabel').textContent = q('#fn3AutoEnabled').checked ? 'Включено' : 'Выключено'; markDirty(); };
     qa('input[name="fn3Mode"]').forEach(i => i.onchange = markDirty);
+    q('#fn3HealthInterval').onchange = markDirty;
     q('#fn3EndpointInterval').onchange = markDirty;
     qa('input[name="fn3Scope"]').forEach(i => i.onchange = () => { if (i.value === 'allowlist') openCountries(); markDirty(); });
     ['subscription','geodata','freenet','backup'].forEach(k => { q(`#fn3_${k}_enabled`).onchange = markDirty; q(`#fn3_${k}_interval`).onchange = markDirty; });
