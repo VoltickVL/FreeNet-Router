@@ -28,7 +28,6 @@ type providerProfileRTTResponse struct {
 	UniqueEndpoints int                      `json:"unique_endpoints"`
 	Checked         int                      `json:"checked"`
 	Reachable       int                      `json:"reachable"`
-	TransportOnly   int                      `json:"transport_only,omitempty"`
 	Unknown         int                      `json:"unknown,omitempty"`
 	Partial         bool                     `json:"partial,omitempty"`
 	ProbeMode       string                   `json:"probe_mode,omitempty"`
@@ -47,10 +46,8 @@ func providerProfileRTTStatusRank(item providerProfileRTTItem) int {
 		return 0
 	case item.Status == "unknown":
 		return 1
-	case item.Status == "transport_only":
-		return 2
 	default:
-		return 3
+		return 2
 	}
 }
 
@@ -136,8 +133,6 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 					item.Status = "reachable"
 					item.RTTMS = value.Median
 					item.JitterMS = value.Jitter
-				case value.TransportOnly:
-					item.Status = "transport_only"
 				}
 				results[index] = item
 				done := int(completed.Add(1))
@@ -230,7 +225,7 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 	sweepCtx, cancelSweep := context.WithTimeout(r.Context(), bestServerRTTSweepTimeout(len(filtered)))
 	defer cancelSweep()
 	items := measureProviderProfileRTT(sweepCtx, filtered, a.probeBestServerProfilePing)
-	checked, reachable, transportOnly, unknown := 0, 0, 0, 0
+	checked, reachable, unknown := 0, 0, 0
 	for _, item := range items {
 		if item.Attempted {
 			checked++
@@ -240,13 +235,10 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		if item.Reachable {
 			reachable++
 		}
-		if item.Status == "transport_only" {
-			transportOnly++
-		}
 	}
 	writeJSON(w, http.StatusOK, providerProfileRTTResponse{
 		Success: true, Results: items, Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
-		Checked: checked, Reachable: reachable, TransportOnly: transportOnly, Unknown: unknown, Partial: checked < len(filtered),
+		Checked: checked, Reachable: reachable, Unknown: unknown, Partial: checked < len(filtered),
 		ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
 	})
 }
