@@ -33,7 +33,8 @@ func TestRuntimePickerParityContract(t *testing.T) {
 		"Math.min(540, vw - 24)",
 		"filtered.slice(0, 5)",
 		"max-height:236px;overflow-y:auto",
-		"body.append(summary, search, list, detail)",
+		"body.append(summary);",
+		"body.append(search, list, detail)",
 		"Найти версию FreeNet",
 	} {
 		if !strings.Contains(freeNet, want) {
