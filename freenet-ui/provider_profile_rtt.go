@@ -10,10 +10,7 @@ import (
 	"time"
 )
 
-const (
-	providerProfileRTTTimeout = 50 * time.Second
-	providerProfileRTTWorkers = 2
-)
+const providerProfileRTTWorkers = 2
 
 type providerProfileRTTItem struct {
 	ProfileID string `json:"profile_id"`
@@ -209,16 +206,15 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 	releaseGuards, guardError := acquireProviderProfileRTTGuards(a)
 	if releaseGuards == nil {
 		writeJSON(w, http.StatusConflict, providerProfileRTTResponse{
-			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "proxy_http", Mutation: "NONE", Error: guardError,
+			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "logical_vpn_https_ip", Mutation: "NONE", Error: guardError,
 		})
 		return
 	}
 	defer releaseGuards()
 
-	ctx, cancel := context.WithTimeout(r.Context(), providerProfileRTTTimeout)
-	defer cancel()
-
-	all, _, _, err := a.discoverBestServerCandidates(ctx)
+	discoveryCtx, cancelDiscovery := context.WithTimeout(r.Context(), 30*time.Second)
+	all, _, _, err := a.discoverBestServerCandidates(discoveryCtx)
+	cancelDiscovery()
 	filtered := filterForeignBestServerCandidates(all)
 	if len(filtered) == 0 {
 		message := "VPN profile catalog is unavailable"
@@ -226,12 +222,14 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 			message = "no selectable VPN profiles"
 		}
 		writeJSON(w, http.StatusServiceUnavailable, providerProfileRTTResponse{
-			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "proxy_http", Mutation: "NONE", Error: message,
+			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "logical_vpn_https_ip", Mutation: "NONE", Error: message,
 		})
 		return
 	}
 
-	items := measureProviderProfileRTT(ctx, filtered, a.probeBestServerProfilePing)
+	sweepCtx, cancelSweep := context.WithTimeout(r.Context(), bestServerRTTSweepTimeout(len(filtered)))
+	defer cancelSweep()
+	items := measureProviderProfileRTT(sweepCtx, filtered, a.probeBestServerProfilePing)
 	checked, reachable, transportOnly, unknown := 0, 0, 0, 0
 	for _, item := range items {
 		if item.Attempted {
@@ -249,6 +247,6 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, providerProfileRTTResponse{
 		Success: true, Results: items, Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
 		Checked: checked, Reachable: reachable, TransportOnly: transportOnly, Unknown: unknown, Partial: checked < len(filtered),
-		ProbeMode: "proxy_http_multi_origin", Fresh: err == nil, Mutation: "NONE",
+		ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
 	})
 }
