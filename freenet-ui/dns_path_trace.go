@@ -196,16 +196,8 @@ func traceOutboundTags(routing map[string]any) ([]string, error) {
 	return tags, nil
 }
 
-func buildReadOnlyXrayTraceConfig(payloadPort, dnsPort int, currentDNS, routing map[string]any) (map[string]any, error) {
-	dnsObj, ok := currentDNS["dns"].(map[string]any)
-	if !ok {
-		return nil, errors.New("current Split DNS object отсутствует")
-	}
-	routingClone, err := cloneJSONObject(routing)
-	if err != nil {
-		return nil, err
-	}
-	routingObj, ok := routingClone["routing"].(map[string]any)
+func buildReadOnlyTraceRouting(routing map[string]any) (map[string]any, error) {
+	routingObj, ok := routing["routing"].(map[string]any)
 	if !ok {
 		return nil, errors.New("routing object отсутствует")
 	}
@@ -213,6 +205,45 @@ func buildReadOnlyXrayTraceConfig(payloadPort, dnsPort int, currentDNS, routing 
 	if !ok {
 		return nil, errors.New("routing rules отсутствуют")
 	}
+
+	rulesData, err := json.Marshal(rawRules)
+	if err != nil {
+		return nil, errors.New("routing rules нельзя клонировать")
+	}
+	var rules []any
+	if err := json.Unmarshal(rulesData, &rules); err != nil {
+		return nil, errors.New("routing rules нельзя клонировать")
+	}
+	for _, raw := range rules {
+		rule, ok := raw.(map[string]any)
+		if !ok {
+			return nil, errors.New("routing rule имеет неизвестный формат")
+		}
+		if legacyNativeString(rule["balancerTag"]) != "" {
+			return nil, errors.New("read-only trace не поддерживает balancerTag; STOP без догадки")
+		}
+		if legacyNativeString(rule["outboundTag"]) == "" {
+			return nil, errors.New("routing rule без outboundTag; STOP без догадки")
+		}
+	}
+
+	minimal := map[string]any{"rules": rules}
+	if strategy := legacyNativeString(routingObj["domainStrategy"]); strategy != "" {
+		minimal["domainStrategy"] = strategy
+	}
+	return minimal, nil
+}
+
+func buildReadOnlyXrayTraceConfig(payloadPort, dnsPort int, currentDNS, routing map[string]any) (map[string]any, error) {
+	dnsObj, ok := currentDNS["dns"].(map[string]any)
+	if !ok {
+		return nil, errors.New("current Split DNS object отсутствует")
+	}
+	routingObj, err := buildReadOnlyTraceRouting(routing)
+	if err != nil {
+		return nil, err
+	}
+	rawRules := routingObj["rules"].([]any)
 	forcedDNS := map[string]any{"type": "field", "inboundTag": []any{dnsTraceDNSInbound}, "outboundTag": dnsTraceResolveOutbound}
 	routingObj["rules"] = append([]any{forcedDNS}, rawRules...)
 
@@ -240,6 +271,17 @@ func buildReadOnlyXrayTraceConfig(payloadPort, dnsPort int, currentDNS, routing 
 		"outbounds": outbounds,
 		"routing":   routingObj,
 	}, nil
+}
+
+func sanitizeDNSPathTraceValidationDetail(raw, tmp string) string {
+	raw = strings.ReplaceAll(raw, tmp, "<trace>")
+	raw = strings.ReplaceAll(raw, "\r", " ")
+	raw = strings.ReplaceAll(raw, "\n", " ")
+	raw = strings.Join(strings.Fields(raw), " ")
+	if len(raw) > 480 {
+		raw = raw[:480] + "..."
+	}
+	return raw
 }
 
 func reserveTraceTCPPort() (int, error) {
@@ -323,9 +365,13 @@ func runReadOnlyXrayPathProbe(host string, currentDNS, routing map[string]any) (
 	testCtx, testCancel := context.WithTimeout(context.Background(), 8*time.Second)
 	testCmd := exec.CommandContext(testCtx, legacyNativeXrayBin(), "run", "-test", "-confdir", tmp)
 	testCmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+legacyNativeXrayAssetDir())
-	testErr := testCmd.Run()
+	testOutput, testErr := testCmd.CombinedOutput()
 	testCancel()
 	if testErr != nil {
+		detail := sanitizeDNSPathTraceValidationDetail(string(testOutput), tmp)
+		if detail != "" {
+			return "", fmt.Errorf("временный read-only Xray trace candidate не прошёл validation: %s", detail)
+		}
 		return "", errors.New("временный read-only Xray trace candidate не прошёл validation")
 	}
 
