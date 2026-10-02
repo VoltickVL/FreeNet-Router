@@ -203,6 +203,28 @@ func v3IntervalCron(interval string) (string, bool) {
 	}
 }
 
+func v3IntervalCronOffset(interval string, minute int) (string, bool) {
+	if minute < 0 || minute > 29 {
+		return "", false
+	}
+	switch strings.TrimSpace(interval) {
+	case "30m":
+		return fmt.Sprintf("%d,%d * * * *", minute, minute+30), true
+	case "1h":
+		return fmt.Sprintf("%d * * * *", minute), true
+	case "3h":
+		return fmt.Sprintf("%d */3 * * *", minute), true
+	case "6h":
+		return fmt.Sprintf("%d */6 * * *", minute), true
+	case "12h":
+		return fmt.Sprintf("%d */12 * * *", minute), true
+	case "24h":
+		return fmt.Sprintf("%d 4 * * *", minute), true
+	default:
+		return "", false
+	}
+}
+
 func v3DefaultInterval(key string) string {
 	switch key {
 	case "auto_vpn_endpoint":
@@ -432,34 +454,34 @@ func buildManagedAutomationCronV3(a *app, existing []byte, values map[string]str
 		}
 		if mode == automationModeEndpoint {
 			interval := v3NormalizeInterval(values["AUTO_VPN_V1_INTERVAL"], "auto_vpn_endpoint")
-			cron, ok := v3IntervalCron(interval)
+			cron, ok := v3IntervalCronOffset(interval, 1)
 			if !ok {
 				return nil, errors.New("unsupported AUTO VPN endpoint interval")
 			}
 			lines = append(lines, cron+" "+bin+" settings-v3-endpoint-refresh"+configArg)
 		}
 	}
-	appendJob := func(enabledKey, intervalKey, command string) error {
+	appendJob := func(enabledKey, intervalKey, command string, minute int) error {
 		if values[enabledKey] != "yes" {
 			return nil
 		}
-		cron, ok := v3IntervalCron(values[intervalKey])
+		cron, ok := v3IntervalCronOffset(values[intervalKey], minute)
 		if !ok {
 			return fmt.Errorf("unsupported interval for %s", enabledKey)
 		}
 		lines = append(lines, cron+" "+bin+" "+command+configArg)
 		return nil
 	}
-	if err := appendJob("AUTO_SUBSCRIPTION_REFRESH_ENABLED", "AUTO_SUBSCRIPTION_REFRESH_INTERVAL", "settings-v3-subscription"); err != nil {
+	if err := appendJob("AUTO_SUBSCRIPTION_REFRESH_ENABLED", "AUTO_SUBSCRIPTION_REFRESH_INTERVAL", "settings-v3-subscription", 2); err != nil {
 		return nil, err
 	}
-	if err := appendJob("AUTO_GEODATA_ENABLED", "AUTO_GEODATA_INTERVAL", "settings-v3-geodata"); err != nil {
+	if err := appendJob("AUTO_GEODATA_ENABLED", "AUTO_GEODATA_INTERVAL", "settings-v3-geodata", 3); err != nil {
 		return nil, err
 	}
-	if err := appendJob("AUTO_FREENET_CHECK_ENABLED", "AUTO_FREENET_CHECK_INTERVAL", "settings-v3-freenet-check"); err != nil {
+	if err := appendJob("AUTO_FREENET_CHECK_ENABLED", "AUTO_FREENET_CHECK_INTERVAL", "settings-v3-freenet-check", 4); err != nil {
 		return nil, err
 	}
-	if err := appendJob("AUTO_BACKUP_ENABLED", "AUTO_BACKUP_INTERVAL", "settings-v3-backup"); err != nil {
+	if err := appendJob("AUTO_BACKUP_ENABLED", "AUTO_BACKUP_INTERVAL", "settings-v3-backup", 6); err != nil {
 		return nil, err
 	}
 	lines = append(lines, "# END FREENET")
@@ -510,11 +532,6 @@ func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 	countries := normalizeAutomationCountries(req.Countries)
 	if mode == automationModeBest && scope == automationCountryAllowlist && len(countries) == 0 {
 		return errors.New("selected countries list is empty")
-	}
-	if *req.AutoVPNEnabled && mode == automationModeEndpoint {
-		if _, err := ensureAutomationHelper(); err != nil {
-			return err
-		}
 	}
 	autoInterval := "manual"
 	autoEndpointUpdate := "no"
