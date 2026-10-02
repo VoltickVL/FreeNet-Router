@@ -61,8 +61,8 @@ func bestServerRejectionReasons(c bestServerQualityCandidate) []string {
 	if c.ServiceTotal < 3 || c.ServiceOK != c.ServiceTotal {
 		reasons = append(reasons, fmt.Sprintf("Проверки сайтов: %d/%d", c.ServiceOK, c.ServiceTotal))
 	}
-	if c.JitterMS > bestServerQualityHighJitterMS || c.TCPJitterMS > bestServerQualityHighTCPJitterMS {
-		reasons = append(reasons, "Высокие колебания задержки")
+	if c.JitterMS > bestServerQualityHighJitterMS {
+		reasons = append(reasons, "Высокие колебания задержки VPN HTTP")
 	}
 	return reasons
 }
