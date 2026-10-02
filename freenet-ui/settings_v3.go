@@ -997,6 +997,11 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 }
 
 func recordSettingsV3Health(result automationHealthResult) {
+	// "busy" is scheduler contention, not a health observation. It must not
+	// advance HEALTH_LAST or postpone the next real liveness check.
+	if result.State == "busy" {
+		return
+	}
 	previous := v3ParseState(settingsV3StatePath())
 	now := time.Now().UTC().Format(time.RFC3339)
 	_ = v3WriteState(map[string]string{"HEALTH_LAST": now, "HEALTH_RESULT": result.State, "HEALTH_MESSAGE": result.Reason})
