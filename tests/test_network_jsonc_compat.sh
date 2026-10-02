@@ -87,6 +87,7 @@ grep -q '^NDM_FILTER_ENGINE=opkg$' "$STATE" || fail 'Split did not enable OPKG e
 grep -q '^NDM_DNS_INTERCEPT=off$' "$STATE" || fail 'Split did not suppress native intercept'
 grep -q '^PORT53_OWNER=xray$' "$STATE" || fail 'Split did not move :53 to Xray'
 jq -e '.routing.rules | length > 3' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'Split candidate was not strict JSON after JSONC input'
+jq -e '([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'Split JSONC DIRECT self-bypass mark missing'
 
 sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$TROOT/etc/freenet/freenet.conf"
 run_network apply > "$TMP/restore.apply" 2>&1 || { cat "$TMP/restore.apply" >&2; fail 'Split -> native after JSONC input failed'; }

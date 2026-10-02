@@ -68,6 +68,7 @@ jq -e '
 jq -e '.dns.servers[-1].tag == "dns-vless" and .dns.servers[-1].address == "https://8.8.8.8/dns-query" and .dns.servers[-1].finalQuery == true and (.dns.servers[-1] | has("domains") | not)' "$DST/02_dns.json" >/dev/null
 jq -e 'any(.outbounds[]; .tag == "vless-reality")' "$DST/04_outbounds.json" >/dev/null
 jq -e 'any(.outbounds[]; .tag == "direct")' "$DST/04_outbounds.json" >/dev/null
+jq -e '([.outbounds[]? | select(.tag == "direct" and .protocol == "freedom" and .streamSettings.sockopt.mark == 255)] | length) == 1' "$DST/04_outbounds.json" >/dev/null || { echo "DIRECT self-bypass mark missing" >&2; exit 1; }
 jq -e 'any(.outbounds[]; .tag == "block")' "$DST/04_outbounds.json" >/dev/null
 jq -e 'any(.outbounds[]; .tag == "dns-out" and .protocol == "dns")' "$DST/04_outbounds.json" >/dev/null
 jq -e '.routing.rules[0].inboundTag == ["dns-vless"] and .routing.rules[0].outboundTag == "vless-reality"' "$DST/05_routing.json" >/dev/null

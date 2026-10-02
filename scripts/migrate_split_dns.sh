@@ -104,8 +104,15 @@ build_split_candidate() {
 
     cp -p "$SRC/03_inbounds.json" "$DST/03_inbounds.json" || return 1
 
-    jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out")] + [{"protocol":"dns","tag":"dns-out"}])' \
-        "$SRC/04_outbounds.json" > "$DST/04_outbounds.json" || return 1
+    jq '
+      .outbounds = ([
+        .outbounds[]?
+        | select((.tag // "") != "dns-out")
+        | if .tag == "direct" then
+            .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255}))
+          else . end
+      ] + [{"protocol":"dns","tag":"dns-out"}])
+    ' "$SRC/04_outbounds.json" > "$DST/04_outbounds.json" || return 1
 
     jq '.routing.rules = (
         [
@@ -124,6 +131,7 @@ build_split_candidate() {
     jq -e '.dns.tag == "dns-vless" and ([.dns.servers[]?.tag] | index("dns-direct") != null) and ([.dns.servers[]?.tag] | index("dns-vless") != null)' "$DST/02_dns.json" >/dev/null 2>&1 || return 1
     jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) >= 1' "$DST/02_dns.json" >/dev/null 2>&1 || return 1
     jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | length) == 1' "$DST/04_outbounds.json" >/dev/null 2>&1 || return 1
+    jq -e '([.outbounds[]? | select(.tag == "direct")] | length) == 1 and ([.outbounds[]? | select(.tag == "direct" and .protocol == "freedom" and .streamSettings.sockopt.mark == 255)] | length) == 1' "$DST/04_outbounds.json" >/dev/null 2>&1 || return 1
     jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-vless")) != null and .outboundTag == "vless-reality")] | length) == 1' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
     jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-direct")) != null and .outboundTag == "direct")] | length) == 1' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
     jq -e '([.routing.rules[]? | select((((.port // "") | tostring) == "53") and .outboundTag == "dns-out")] | length) == 1' "$DST/05_routing.json" >/dev/null 2>&1 || return 1
@@ -174,9 +182,15 @@ VLESS_BEFORE="$(jq -cS '[.outbounds[]? | select(.tag == "vless-reality")]' "$OUT
 VLESS_CANDIDATE="$(jq -cS '[.outbounds[]? | select(.tag == "vless-reality")]' "$CANDIDATE_DIR/04_outbounds.json" | sha256sum | awk '{print $1}')" || exit 1
 [ "$VLESS_BEFORE" = "$VLESS_CANDIDATE" ] || { err 'candidate неожиданно меняет VLESS credentials'; exit 1; }
 
-NON_VLESS_BEFORE="$(jq -cS '[.outbounds[]? | select(.tag != "vless-reality" and .tag != "dns-out")]' "$OUTBOUND_FILE" | sha256sum | awk '{print $1}')" || exit 1
+NON_VLESS_EXPECTED="$(jq -cS '[
+  .outbounds[]?
+  | select(.tag != "vless-reality" and .tag != "dns-out")
+  | if .tag == "direct" then
+      .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255}))
+    else . end
+]' "$OUTBOUND_FILE" | sha256sum | awk '{print $1}')" || exit 1
 NON_VLESS_CANDIDATE="$(jq -cS '[.outbounds[]? | select(.tag != "vless-reality" and .tag != "dns-out")]' "$CANDIDATE_DIR/04_outbounds.json" | sha256sum | awk '{print $1}')" || exit 1
-[ "$NON_VLESS_BEFORE" = "$NON_VLESS_CANDIDATE" ] || { err 'candidate неожиданно меняет существующие non-VLESS outbounds'; exit 1; }
+[ "$NON_VLESS_EXPECTED" = "$NON_VLESS_CANDIDATE" ] || { err 'candidate меняет non-VLESS outbounds за пределами canonical DIRECT self-mark'; exit 1; }
 
 INBOUND_BEFORE="$(jq -cS . "$INBOUND_FILE" | sha256sum | awk '{print $1}')"
 INBOUND_CANDIDATE="$(jq -cS . "$CANDIDATE_DIR/03_inbounds.json" | sha256sum | awk '{print $1}')"
@@ -224,6 +238,7 @@ XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DI
 
 jq -e '([.dns.servers[]? | select(type == "object" and .tag == "dns-vless" and .address == "https://8.8.8.8/dns-query" and (has("port") | not))] | length) >= 1' "$DNS_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-vless DoH transport отсутствует после apply'
 jq -e '([.outbounds[]? | select(.tag == "dns-out" and .protocol == "dns")] | length) == 1' "$OUTBOUND_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-out отсутствует после apply'
+jq -e '([.outbounds[]? | select(.tag == "direct")] | length) == 1 and ([.outbounds[]? | select(.tag == "direct" and .protocol == "freedom" and .streamSettings.sockopt.mark == 255)] | length) == 1' "$OUTBOUND_FILE" >/dev/null 2>&1 || fail_after_apply 'DIRECT egress self-bypass mark 255 отсутствует после apply'
 jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-vless")) != null and .outboundTag == "vless-reality")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-vless не направлен через vless-reality'
 jq -e '([.routing.rules[]? | select(((.inboundTag // []) | index("dns-direct")) != null and .outboundTag == "direct")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-direct не направлен через direct'
 jq -e '([.routing.rules[]? | select((((.port // "") | tostring) == "53") and .outboundTag == "dns-out")] | length) == 1' "$ROUTING_FILE" >/dev/null 2>&1 || fail_after_apply 'dns-out routing rule отсутствует после apply'
@@ -232,7 +247,7 @@ grep -Eq '^[[:space:]]*proxy_dns="?off"?[[:space:]]*$' "$XKEEN_INIT" || fail_aft
 VLESS_AFTER="$(jq -cS '[.outbounds[]? | select(.tag == "vless-reality")]' "$OUTBOUND_FILE" | sha256sum | awk '{print $1}')" || fail_after_apply 'не удалось проверить VLESS после apply'
 [ "$VLESS_BEFORE" = "$VLESS_AFTER" ] || fail_after_apply 'VLESS credentials изменились после apply'
 NON_VLESS_AFTER="$(jq -cS '[.outbounds[]? | select(.tag != "vless-reality" and .tag != "dns-out")]' "$OUTBOUND_FILE" | sha256sum | awk '{print $1}')" || fail_after_apply 'не удалось проверить non-VLESS outbounds после apply'
-[ "$NON_VLESS_BEFORE" = "$NON_VLESS_AFTER" ] || fail_after_apply 'существующие non-VLESS outbounds изменились после apply'
+[ "$NON_VLESS_EXPECTED" = "$NON_VLESS_AFTER" ] || fail_after_apply 'non-VLESS outbounds изменились за пределами canonical DIRECT self-mark'
 INBOUND_AFTER="$(jq -cS . "$INBOUND_FILE" | sha256sum | awk '{print $1}')"
 [ "$INBOUND_BEFORE" = "$INBOUND_AFTER" ] || fail_after_apply 'Xray inbounds изменились после apply'
 
@@ -240,6 +255,7 @@ info "Split DNS operation: SUCCESS ($MODE)"
 info 'Xray validation: PASS'
 info 'XKeen proxy_dns: off; Keenetic/ndnproxy DNS path preserved'
 info 'Existing expert DNS selectors preserved; new baseline uses ordered first-match routing parity'
+info 'DIRECT freedom egress: XKeen self-bypass mark 255'
 info 'dns-vless transport: routed DoH/443 via vless-reality'
 info 'dns-out/VLESS/non-VLESS/inbounds preservation: PASS'
 info "Backup: $BACKUP_DIR"

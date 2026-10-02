@@ -69,7 +69,7 @@
     const chip = q('#fn3DnsState');
     if (!chip || !state.data) return;
     const mode = state.data.active_mode === 'xkeen' ? 'Раздельный' : 'Прямой';
-    const healthy = state.data.active_mode !== 'xkeen' || state.data.runtime_state === 'accepted' || state.data.runtime_state === 'legacy';
+    const healthy = state.data.active_mode !== 'xkeen' || ((state.data.runtime_state === 'accepted' || state.data.runtime_state === 'legacy') && state.data.direct_egress_state === 'accepted');
     chip.classList.toggle('ok', healthy);
     q('span', chip).textContent = mode;
     const warning = q('#fn3DnsWarning');
@@ -81,11 +81,11 @@
     if (!btn || !state.dirty) return;
     btn.disabled = false;
     const label = q('span', btn);
-    if (label) label.textContent = 'Сохранить изменения';
+    if (label) label.textContent = state.data?.repair_required && formKey() === state.baseline ? 'Восстановить DIRECT' : 'Сохранить изменения';
   }
 
   function markDirty() {
-    state.dirty = formKey() !== state.baseline;
+    state.dirty = formKey() !== state.baseline || !!state.data?.repair_required;
     renderMode(); renderEndpoint(); syncSaveButton();
   }
 
@@ -112,7 +112,7 @@
       if (direct) { direct.innerHTML = optionHTML(data.direct_options, data.direct_provider || 'yandex-doh'); direct.value = data.direct_provider || 'yandex-doh'; }
       if (vpn) { vpn.innerHTML = optionHTML(data.vpn_options, data.vpn_provider || 'google-doh'); vpn.value = data.vpn_provider || 'google-doh'; }
       renderMode(); renderEndpoint(); renderState();
-      state.baseline = formKey(); state.dirty = false;
+      state.baseline = formKey(); state.dirty = !!data.repair_required; syncSaveButton();
     } catch (err) {
       const warning = q('#fn3DnsWarning'); if (warning) warning.textContent = `DNS state недоступен: ${err.message}`;
     }

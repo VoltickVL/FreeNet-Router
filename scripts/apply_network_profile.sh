@@ -613,7 +613,7 @@ dns_query_ok() {
 
 non_dns_hashes() {
     jq -cS '[.inbounds[]? | select((((.port // "") | tostring) != "53"))]' "$INBOUND_FILE" | sha256sum | awk '{print $1}'
-    jq -cS '[.outbounds[]? | select((.tag // "") != "dns-out")]' "$OUT_FILE" | sha256sum | awk '{print $1}'
+    jq -cS '[.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end]' "$OUT_FILE" | sha256sum | awk '{print $1}'
     jq -cS '[.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))]' "$ROUTING_FILE" | sha256sum | awk '{print $1}'
 }
 
@@ -834,7 +834,8 @@ build_split_candidate() {
       ] + [{address:"https://8.8.8.8/dns-query",tag:"dns-vless",finalQuery:true}]' "$ROUTING_FILE")" || return 1
     jq -n --argjson servers "$DNS_SERVERS" '{dns:{tag:"dns-vless",servers:$servers,queryStrategy:"UseIPv4"}}' > "$C/02_dns.json" || return 1
     jq '.inbounds = ([.inbounds[]? | select((((.port // "") | tostring) != "53"))] + [{"tag":"dns","port":53,"protocol":"dokodemo-door","settings":{"network":"tcp,udp"}}])' "$INBOUND_FILE" > "$C/03_inbounds.json" || return 1
-    jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out")] + [{"protocol":"dns","tag":"dns-out"}])' "$OUT_FILE" > "$C/04_outbounds.json" || return 1
+    jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end] + [{"protocol":"dns","tag":"dns-out"}])' "$OUT_FILE" > "$C/04_outbounds.json" || return 1
+    jq -e '([.outbounds[]? | select(.tag=="direct")] | length) == 1 and ([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length) == 1' "$C/04_outbounds.json" >/dev/null 2>&1 || return 1
     jq '.routing.rules = ([{"type":"field","inboundTag":["dns-vless"],"outboundTag":"vless-reality"},{"type":"field","inboundTag":["dns-direct"],"outboundTag":"direct"},{"type":"field","port":53,"outboundTag":"dns-out"}] + [.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))])' "$ROUTING_FILE" > "$C/05_routing.json" || return 1
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$C" > "$TMP_DIR/xray-split-candidate.log" 2>&1 || return 1
 }
@@ -844,7 +845,8 @@ build_native_candidate() {
     C="$TMP_DIR/native"; mkdir -p "$C" || return 1
     cp -p "$NATIVE_STATE_DIR/02_dns.native" "$C/02_dns.json" || return 1
     jq '.inbounds = [.inbounds[]? | select((((.port // "") | tostring) != "53"))]' "$INBOUND_FILE" > "$C/03_inbounds.json" || return 1
-    jq '.outbounds = [.outbounds[]? | select((.tag // "") != "dns-out")]' "$OUT_FILE" > "$C/04_outbounds.json" || return 1
+    jq '.outbounds = [.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end]' "$OUT_FILE" > "$C/04_outbounds.json" || return 1
+    jq -e '([.outbounds[]? | select(.tag=="direct")] | length) == 1 and ([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length) == 1' "$C/04_outbounds.json" >/dev/null 2>&1 || return 1
     jq '.routing.rules = [.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))]' "$ROUTING_FILE" > "$C/05_routing.json" || return 1
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$C" > "$TMP_DIR/xray-native-candidate.log" 2>&1 || return 1
 }
@@ -1158,7 +1160,7 @@ dns_routing_mode() {
 
 non_dns_hashes() {
     jsonc_normalize "$INBOUND_FILE" | jq -cS '[.inbounds[]? | select((((.port // "") | tostring) != "53"))]' | sha256sum | awk '{print $1}'
-    jsonc_normalize "$OUT_FILE" | jq -cS '[.outbounds[]? | select((.tag // "") != "dns-out")]' | sha256sum | awk '{print $1}'
+    jsonc_normalize "$OUT_FILE" | jq -cS '[.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end]' | sha256sum | awk '{print $1}'
     jsonc_normalize "$ROUTING_FILE" | jq -cS '[.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))]' | sha256sum | awk '{print $1}'
 }
 
@@ -1204,7 +1206,8 @@ build_split_candidate() {
       ] + [{address:"https://8.8.8.8/dns-query",tag:"dns-vless",finalQuery:true}]')" || return 1
     jq -n --argjson servers "$DNS_SERVERS" '{dns:{tag:"dns-vless",servers:$servers,queryStrategy:"UseIPv4"}}' > "$C/02_dns.json" || return 1
     jsonc_normalize "$INBOUND_FILE" | jq '.inbounds = ([.inbounds[]? | select((((.port // "") | tostring) != "53"))] + [{"tag":"dns","port":53,"protocol":"dokodemo-door","settings":{"network":"tcp,udp"}}])' > "$C/03_inbounds.json" || return 1
-    jsonc_normalize "$OUT_FILE" | jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out")] + [{"protocol":"dns","tag":"dns-out"}])' > "$C/04_outbounds.json" || return 1
+    jsonc_normalize "$OUT_FILE" | jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end] + [{"protocol":"dns","tag":"dns-out"}])' > "$C/04_outbounds.json" || return 1
+    jq -e '([.outbounds[]? | select(.tag=="direct")] | length) == 1 and ([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length) == 1' "$C/04_outbounds.json" >/dev/null 2>&1 || return 1
     jsonc_normalize "$ROUTING_FILE" | jq '.routing.rules = ([{"type":"field","inboundTag":["dns-vless"],"outboundTag":"vless-reality"},{"type":"field","inboundTag":["dns-direct"],"outboundTag":"direct"},{"type":"field","port":53,"outboundTag":"dns-out"}] + [.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))])' > "$C/05_routing.json" || return 1
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$C" > "$TMP_DIR/xray-split-candidate.log" 2>&1 || return 1
 }
@@ -1214,7 +1217,8 @@ build_native_candidate() {
     C="$TMP_DIR/native"; mkdir -p "$C" || return 1
     cp -p "$NATIVE_STATE_DIR/02_dns.native" "$C/02_dns.json" || return 1
     jsonc_normalize "$INBOUND_FILE" | jq '.inbounds = [.inbounds[]? | select((((.port // "") | tostring) != "53"))]' > "$C/03_inbounds.json" || return 1
-    jsonc_normalize "$OUT_FILE" | jq '.outbounds = [.outbounds[]? | select((.tag // "") != "dns-out")]' > "$C/04_outbounds.json" || return 1
+    jsonc_normalize "$OUT_FILE" | jq '.outbounds = [.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end]' > "$C/04_outbounds.json" || return 1
+    jq -e '([.outbounds[]? | select(.tag=="direct")] | length) == 1 and ([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length) == 1' "$C/04_outbounds.json" >/dev/null 2>&1 || return 1
     jsonc_normalize "$ROUTING_FILE" | jq '.routing.rules = [.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))]' > "$C/05_routing.json" || return 1
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$C" > "$TMP_DIR/xray-native-candidate.log" 2>&1 || return 1
 }

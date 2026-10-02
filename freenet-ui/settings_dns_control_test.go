@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +34,30 @@ func TestSettingsDNSRuntimeStateClassifiesAcceptedAndLegacy(t *testing.T) {
 	if err := os.WriteFile(path, []byte(unknown), 0600); err != nil { t.Fatal(err) }
 	if _, _, state := settingsDNSRuntimeState(); state != "unknown" {
 		t.Fatalf("unknown pair classified as %q", state)
+	}
+}
+
+func TestSettingsDNSDirectEgressStateClassifiesAcceptedRepairableAndUnknown(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FREENET_XRAY_CONFIG_DIR", dir)
+	path := filepath.Join(dir, "04_outbounds.json")
+
+	accepted := `{"outbounds":[{"tag":"direct","protocol":"freedom","streamSettings":{"sockopt":{"mark":255,"tcpFastOpen":true}}}]}`
+	if err := os.WriteFile(path, []byte(accepted), 0600); err != nil { t.Fatal(err) }
+	if got := settingsDNSDirectEgressState(); got != "accepted" {
+		t.Fatalf("marked DIRECT classified as %q", got)
+	}
+
+	repairable := `{"outbounds":[{"tag":"direct","protocol":"freedom","streamSettings":{"sockopt":{"tcpFastOpen":true}}}]}`
+	if err := os.WriteFile(path, []byte(repairable), 0600); err != nil { t.Fatal(err) }
+	if got := settingsDNSDirectEgressState(); got != "repairable" {
+		t.Fatalf("unmarked DIRECT classified as %q", got)
+	}
+
+	unknown := `{"outbounds":[{"tag":"direct","protocol":"freedom"},{"tag":"direct","protocol":"freedom"}]}`
+	if err := os.WriteFile(path, []byte(unknown), 0600); err != nil { t.Fatal(err) }
+	if got := settingsDNSDirectEgressState(); got != "unknown" {
+		t.Fatalf("ambiguous DIRECT classified as %q", got)
 	}
 }
 
@@ -137,10 +162,15 @@ func TestSettingsDNSResolverApplyAndRestoreTestMode(t *testing.T) {
 	xray := filepath.Join(binDir, "xray")
 	if err := os.WriteFile(xray, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil { t.Fatal(err) }
 	dnsFile := filepath.Join(configDir, "02_dns.json")
+	outFile := filepath.Join(configDir, "04_outbounds.json")
 	legacy := []byte(`{"dns":{"servers":[{"address":"77.88.8.8","port":53,"domains":["domain:direct.example"],"tag":"dns-direct"},{"address":"https://8.8.8.8/dns-query","domains":["domain:vpn.example"],"tag":"dns-vless"},{"address":"https://bootstrap.example/dns-query","tag":"bootstrap"}],"queryStrategy":"UseIPv4"}}`)
+	unmarkedOut := []byte(`{"outbounds":[{"tag":"vless-reality","protocol":"vless"},{"tag":"direct","protocol":"freedom","streamSettings":{"sockopt":{"tcpFastOpen":true}}},{"tag":"block","protocol":"blackhole"}]}`)
 	if err := os.WriteFile(dnsFile, legacy, 0600); err != nil { t.Fatal(err) }
-	restoreFile := filepath.Join(root, "before.json")
-	if err := os.WriteFile(restoreFile, legacy, 0600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(outFile, unmarkedOut, 0600); err != nil { t.Fatal(err) }
+	restoreDir := filepath.Join(root, "before")
+	if err := os.MkdirAll(restoreDir, 0700); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(restoreDir, "02_dns.json"), legacy, 0600); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(restoreDir, "04_outbounds.json"), unmarkedOut, 0600); err != nil { t.Fatal(err) }
 
 	env := append(os.Environ(),
 		"FREENET_ROOT="+root,
@@ -160,6 +190,7 @@ func TestSettingsDNSResolverApplyAndRestoreTestMode(t *testing.T) {
 	if err != nil { t.Fatalf("resolver plan failed: %v\n%s", err, plan) }
 	if !bytes.Contains(plan, []byte("MUTATION=NONE")) { t.Fatalf("plan is not read-only: %s", plan) }
 	if after, err := os.ReadFile(dnsFile); err != nil || !bytes.Equal(after, legacy) { t.Fatal("resolver plan mutated 02_dns.json") }
+	if after, err := os.ReadFile(outFile); err != nil || !bytes.Equal(after, unmarkedOut) { t.Fatal("resolver plan mutated 04_outbounds.json") }
 
 	apply, err := run("settings_dns_apply.sh", "apply", "yandex-doh", "google-doh")
 	if err != nil { t.Fatalf("resolver apply failed: %v\n%s", err, apply) }
@@ -171,10 +202,25 @@ func TestSettingsDNSResolverApplyAndRestoreTestMode(t *testing.T) {
 	}
 	if strings.Contains(text, `"port": 53`) || strings.Contains(text, `"port":53`) { t.Fatalf("legacy direct UDP port survived DoH migration: %s", text) }
 
-	restored, err := run("settings_dns_restore.sh", restoreFile)
+	outData, err := os.ReadFile(outFile); if err != nil { t.Fatal(err) }
+	var outCfg struct { Outbounds []map[string]any `json:"outbounds"` }
+	if err := json.Unmarshal(outData, &outCfg); err != nil { t.Fatal(err) }
+	foundDirect := false
+	for _, outbound := range outCfg.Outbounds {
+		if outbound["tag"] != "direct" { continue }
+		foundDirect = true
+		stream, _ := outbound["streamSettings"].(map[string]any)
+		sockopt, _ := stream["sockopt"].(map[string]any)
+		if sockopt["mark"] != float64(255) { t.Fatalf("DIRECT self-mark not repaired: %s", outData) }
+		if sockopt["tcpFastOpen"] != true { t.Fatalf("existing DIRECT sockopt lost: %s", outData) }
+	}
+	if !foundDirect { t.Fatal("DIRECT outbound disappeared") }
+
+	restored, err := run("settings_dns_restore.sh", restoreDir)
 	if err != nil { t.Fatalf("resolver restore failed: %v\n%s", err, restored) }
 	if !bytes.Contains(restored, []byte("RESULT=RESTORED")) { t.Fatalf("restore result missing: %s", restored) }
 	if after, err := os.ReadFile(dnsFile); err != nil || !bytes.Equal(after, legacy) { t.Fatal("resolver restore was not byte-exact") }
+	if after, err := os.ReadFile(outFile); err != nil || !bytes.Equal(after, unmarkedOut) { t.Fatal("DIRECT egress restore was not byte-exact") }
 
 	unknown := []byte(`{"dns":{"servers":[{"address":"1.1.1.1","tag":"dns-direct"},{"address":"https://dns.google/dns-query","tag":"dns-vless"}]}}`)
 	if err := os.WriteFile(dnsFile, unknown, 0600); err != nil { t.Fatal(err) }
@@ -182,6 +228,7 @@ func TestSettingsDNSResolverApplyAndRestoreTestMode(t *testing.T) {
 	if err == nil { t.Fatalf("unknown resolver state unexpectedly applied: %s", failed) }
 	if !bytes.Contains(failed, []byte("ROLLBACK ERROR/STATE: no live apply")) { t.Fatalf("unknown state not classified NOT_APPLIED: %s", failed) }
 	if after, err := os.ReadFile(dnsFile); err != nil || !bytes.Equal(after, unknown) { t.Fatal("unknown resolver state was mutated") }
+	if after, err := os.ReadFile(outFile); err != nil || !bytes.Equal(after, unmarkedOut) { t.Fatal("unknown resolver state mutated DIRECT egress") }
 }
 
 func TestSettingsDNSRuntimeHelpersKeepTransactionalContract(t *testing.T) {
@@ -196,6 +243,8 @@ func TestSettingsDNSRuntimeHelpersKeepTransactionalContract(t *testing.T) {
 		"snapshot",
 		"ROLLBACK ERROR/STATE: FAILED/UNKNOWN",
 		"post-apply resolver acceptance failed",
+		"DIRECT egress",
+		"mark:255",
 	} {
 		if !strings.Contains(applyText, want) { t.Fatalf("apply helper missing %q", want) }
 	}
@@ -221,6 +270,8 @@ func TestSettingsDNSUIContractMatchesAcceptedRender(t *testing.T) {
 		"Яндекс DoH",
 		"Google DoH",
 		"/api/settings-v3/dns/control",
+		"Восстановить DIRECT",
+		"repair_required",
 		"flag-icon flag-${code}",
 		"backgroundImage",
 	} {
