@@ -37,11 +37,11 @@ func bestServerRTTSweepTimeout(candidateCount int) time.Duration {
 
 // applicationAwareBestServerShortlist uses the same per-logical-profile
 // fixed-IP HTTPS RTT sweep as the VPN picker. Quick RTT has exactly one job:
- // rank the actual logical VPN path. Named DNS/HTTPS, throughput, services and
+// rank the actual logical VPN path. Named DNS/HTTPS, throughput, services and
 // stability are strict deep-quality concerns. Every profile gets the same
 // bounded chance; subscription position and shared ingress never rank a VPN.
 func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) []bestServerInternalCandidate {
-	if len(candidates) <= 1 {
+	if len(candidates) == 0 {
 		return candidates
 	}
 
