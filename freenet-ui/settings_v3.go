@@ -650,33 +650,35 @@ var settingsV3ScheduledCurrentRefresh = func(a *app, ctx context.Context) (int, 
 }
 
 var settingsV3ScheduledEndpointRefresh = func(a *app, ctx context.Context) error {
-	helper, err := ensureAutomationHelper()
-	if err != nil {
-		return err
+	status, refresh := settingsV3ScheduledCurrentRefresh(a, ctx)
+	message := strings.TrimSpace(refresh.Message)
+	if message == "" {
+		message = strings.TrimSpace(refresh.Error)
 	}
-	cmd := exec.CommandContext(ctx, helper, "run")
-	cmd.Env = append(os.Environ(),
-		"FREENET_CONFIG_FILE="+a.cfg.ConfigPath,
-		"FREENET_SUB_FILE="+a.cfg.SubPath,
-		"FREENET_FILTER_FILE="+a.cfg.FilterPath,
-		"FREENET_OUT_FILE="+a.cfg.OutPath,
-		"FREENET_XKEEN_BIN="+a.cfg.XKeenPath,
-	)
-	out, err := cmd.CombinedOutput()
-	if err == nil {
+	rollback := strings.TrimSpace(refresh.RollbackState)
+	if rollback == "" {
+		rollback = "NOT_APPLIED"
+	}
+	if status >= 200 && status < 300 && refresh.Success {
+		if refresh.Applied {
+			if message == "" {
+				message = "AUTO VPN обновил endpoint текущего профиля и подтвердил VPN после применения."
+			}
+			writeAutomationStateV2("updated", message, rollback, false)
+			appendAutomationHistoryV2("updated", message)
+		}
 		return nil
 	}
-	lower := strings.ToLower(sanitizeOutput(string(out)))
-	if strings.Contains(lower, "another auto vpn operation") || automationEndpointUpdateBusy(out) {
-		return errAutomationBusy
-	}
-	if automationEndpointRollbackUnknown(out) {
+	if rollback == "FAILED/UNKNOWN" {
 		return errors.New("scheduled endpoint refresh rollback failed or is unknown")
 	}
-	if reason := safeAutomationHelperError(out); reason != "" {
-		return errors.New(reason)
+	if status == 409 {
+		return errAutomationBusy
 	}
-	return err
+	if message == "" {
+		message = "Плановое обновление текущего VPN не завершено."
+	}
+	return errors.New(message)
 }
 
 func (a *app) runV3ScheduledEndpointRefresh(ctx context.Context) error {
