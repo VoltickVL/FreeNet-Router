@@ -85,6 +85,9 @@ func TestBestServerQuickRTTSweepCoversTypicalPool(t *testing.T) {
 	if bestServerProfilePingHTTPRuns != 1 {
 		t.Fatalf("quick RTT runs=%d want=1; ranking must stay lightweight while deep quality owns strict acceptance", bestServerProfilePingHTTPRuns)
 	}
+	if 2*bestServerProfilePingPerTargetTimeout >= bestServerProfilePingTimeout {
+		t.Fatalf("quick RTT needs startup reserve after two origins: origins=%s candidate=%s", 2*bestServerProfilePingPerTargetTimeout, bestServerProfilePingTimeout)
+	}
 	if providerProfileRTTWorkers != isolatedXrayProbeLimit {
 		t.Fatalf("RTT workers=%d isolated limit=%d; canonical sweep must respect the global safety cap", providerProfileRTTWorkers, isolatedXrayProbeLimit)
 	}
