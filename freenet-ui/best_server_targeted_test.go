@@ -23,6 +23,50 @@ func TestBestServerFreshCandidateForCurrentRejectsSameEndpoint(t *testing.T) {
     if _, ok := bestServerFreshCandidateForCurrent(candidates, regexp.MustCompile(`^PL Warsaw`), "PL Warsaw Main", "198.51.100.1:443"); ok { t.Fatal("same endpoint must not be treated as fresh") }
 }
 
+func TestBestServerFreshRevisionForCurrentAcceptsSameEndpointCredentialChange(t *testing.T) {
+	profile := subscriptionProfile{ID: "0123456789abcdef", Name: "PL Warsaw Main", Address: "198.51.100.1", Port: 443}
+	oldRaw := "vless://old-id@198.51.100.1:443?flow=xtls-rprx-vision&security=reality&type=tcp&fp=firefox&sni=example.test&pbk=old-pbk&sid=old-sid&spx=%2F#PL%20Warsaw%20Main"
+	freshRaw := "vless://new-id@198.51.100.1:443?flow=xtls-rprx-vision&security=reality&type=tcp&fp=firefox&sni=example.test&pbk=new-pbk&sid=new-sid&spx=%2F#PL%20Warsaw%20Main"
+	active, err := buildBestServerProbeOutbound(oldRaw, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := []bestServerInternalCandidate{{Profile: profile, Raw: freshRaw}}
+	got, ok := bestServerFreshRevisionForCurrent(candidates, regexp.MustCompile(`^PL Warsaw`), "PL Warsaw Main", "198.51.100.1:443", active)
+	if !ok || got.Profile.ID != profile.ID {
+		t.Fatalf("same-endpoint credential revision must be detected, got %#v ok=%v", got.Profile, ok)
+	}
+}
+
+func TestBestServerFreshRevisionForCurrentSkipsExactParity(t *testing.T) {
+	profile := subscriptionProfile{ID: "0123456789abcdef", Name: "PL Warsaw Main", Address: "198.51.100.1", Port: 443}
+	raw := "vless://same-id@198.51.100.1:443?flow=xtls-rprx-vision&security=reality&type=tcp&fp=firefox&sni=example.test&pbk=same-pbk&sid=same-sid&spx=%2F#PL%20Warsaw%20Main"
+	active, err := buildBestServerProbeOutbound(raw, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := []bestServerInternalCandidate{{Profile: profile, Raw: raw}}
+	if _, ok := bestServerFreshRevisionForCurrent(candidates, regexp.MustCompile(`^PL Warsaw`), "PL Warsaw Main", "198.51.100.1:443", active); ok {
+		t.Fatal("same-endpoint exact parity must not trigger mutation")
+	}
+}
+
+func TestBestServerFreshRevisionForCurrentFailsClosedOnSharedEndpointAmbiguity(t *testing.T) {
+	activeProfile := subscriptionProfile{ID: "aaaaaaaaaaaaaaaa", Name: "DE Frankfurt Main", Address: "198.51.100.1", Port: 443}
+	activeRaw := "vless://old-id@198.51.100.1:443?flow=xtls-rprx-vision&security=reality&type=tcp&fp=firefox&sni=example.test&pbk=old-pbk&sid=old-sid&spx=%2F#DE%20Frankfurt%20Main"
+	active, err := buildBestServerProbeOutbound(activeRaw, activeProfile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb", Name: "DE Frankfurt Main", Address: "198.51.100.1", Port: 443}, Raw: strings.ReplaceAll(activeRaw, "old-", "new-")},
+		{Profile: subscriptionProfile{ID: "cccccccccccccccc", Name: "DE Frankfurt Main", Address: "198.51.100.1", Port: 443}, Raw: strings.ReplaceAll(activeRaw, "old-", "other-")},
+	}
+	if _, ok := bestServerFreshRevisionForCurrent(candidates, regexp.MustCompile(`Frankfurt`), "DE Frankfurt Main", "198.51.100.1:443", active); ok {
+		t.Fatal("ambiguous same-endpoint revisions must fail closed")
+	}
+}
+
 func TestBestServerTargetedUIContract(t *testing.T) {
     data, err := webFS.ReadFile("web/operation-coordinator.js")
     if err != nil { t.Fatal(err) }
@@ -147,8 +191,14 @@ func TestCurrentEndpointRefreshDoesNotUseFullBestServerQualityGate(t *testing.T)
 		t.Fatal("current refresh implementation not found")
 	}
 	body := src[start:end]
+	if !strings.Contains(body, "ensureProviderSubscriptionCache") {
+		t.Fatal("current refresh must refresh the credential-bearing provider cache before candidate selection")
+	}
+	if !strings.Contains(body, "bestServerFreshRevisionForCurrent") {
+		t.Fatal("current refresh must detect same-endpoint credential revisions")
+	}
 	if !strings.Contains(body, "probeBestServerFreshEndpointReadiness") {
-		t.Fatal("current endpoint rotation must use lightweight readiness probe")
+		t.Fatal("current endpoint/profile refresh must use lightweight readiness probe")
 	}
 	if strings.Contains(body, "rankBestServerQualityCandidates") || strings.Contains(body, "probeBestServerQualityApplication") {
 		t.Fatal("same-profile endpoint rotation must not run full Best Server Speedtest/media quality gate")

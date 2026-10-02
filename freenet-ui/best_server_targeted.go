@@ -357,18 +357,39 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 		}
 	}
 
-	all, _, _, err := a.discoverBestServerCandidates(ctx)
+	if err := a.ensureProviderSubscriptionCache(ctx); err != nil {
+		return http.StatusServiceUnavailable, bestServerRefreshResponse{
+			Success: false, Outcome: "check_failed", Mutation: "NONE", RollbackState: "NOT_APPLIED",
+			Error: "fresh provider subscription could not be prepared; current VPN was preserved",
+		}
+	}
+	providerBody, err := os.ReadFile(providerSubscriptionCachePath())
 	if err != nil {
 		return http.StatusServiceUnavailable, bestServerRefreshResponse{
 			Success: false, Outcome: "check_failed", Mutation: "NONE", RollbackState: "NOT_APPLIED",
-			Error: "fresh subscription could not be read; current VPN was preserved",
+			Error: "prepared provider subscription could not be read; current VPN was preserved",
 		}
 	}
-	fresh, ok := bestServerFreshCandidateForCurrent(all, matcher, currentExactProfileLabel(a.cfg.FilterPath), currentEndpoint)
+	all, _, _, err := parseBestServerCandidates(providerBody)
+	if err != nil {
+		return http.StatusServiceUnavailable, bestServerRefreshResponse{
+			Success: false, Outcome: "check_failed", Mutation: "NONE", RollbackState: "NOT_APPLIED",
+			Error: "prepared provider subscription is invalid; current VPN was preserved",
+		}
+	}
+
+	exactLabel := currentExactProfileLabel(a.cfg.FilterPath)
+	fresh, ok := bestServerFreshCandidateForCurrent(all, matcher, exactLabel, currentEndpoint)
+	if !ok {
+		active, activeEndpoint, activeOK := readBestServerActiveOutbound(a.cfg.OutPath)
+		if activeOK && endpointsEqual(activeEndpoint, currentEndpoint) {
+			fresh, ok = bestServerFreshRevisionForCurrent(all, matcher, exactLabel, currentEndpoint, active)
+		}
+	}
 	if !ok {
 		return http.StatusOK, bestServerRefreshResponse{
 			Success: true, Outcome: "no_new", Applied: false, Mutation: "NONE", RollbackState: "NOT_NEEDED",
-			Message: "Нового endpoint для текущей локации нет. Текущий VPN сохранён.",
+			Message: "Свежего endpoint или новой версии текущего VPN-профиля нет. Текущий VPN сохранён.",
 		}
 	}
 
@@ -529,6 +550,43 @@ func bestServerFreshCandidateForCurrent(candidates []bestServerInternalCandidate
 		return matches[0], true
 	}
 	return bestServerInternalCandidate{}, false
+}
+
+func bestServerFreshRevisionForCurrent(candidates []bestServerInternalCandidate, matcher *regexp.Regexp, exactLabel, currentEndpoint string, active map[string]any) (bestServerInternalCandidate, bool) {
+	if matcher == nil || len(active) == 0 {
+		return bestServerInternalCandidate{}, false
+	}
+	exactLabel = sanitizeProfileName(exactLabel)
+	matches := make([]bestServerInternalCandidate, 0, 2)
+	exact := make([]bestServerInternalCandidate, 0, 2)
+	for i := range candidates {
+		candidate := candidates[i]
+		if !endpointsEqual(profileEndpoint(candidate.Profile), currentEndpoint) || !matcher.MatchString(candidate.Profile.Name) {
+			continue
+		}
+		matches = append(matches, candidate)
+		if exactLabel != "" && sanitizeProfileName(candidate.Profile.Name) == exactLabel {
+			exact = append(exact, candidate)
+		}
+	}
+
+	var selected bestServerInternalCandidate
+	switch {
+	case exactLabel != "" && len(exact) == 1:
+		selected = exact[0]
+	case exactLabel != "" && len(exact) > 1:
+		return bestServerInternalCandidate{}, false
+	case len(matches) == 1:
+		selected = matches[0]
+	default:
+		return bestServerInternalCandidate{}, false
+	}
+
+	freshOutbound, err := buildBestServerProbeOutbound(selected.Raw, selected.Profile)
+	if err != nil || vlessOutboundParity(active, freshOutbound) {
+		return bestServerInternalCandidate{}, false
+	}
+	return selected, true
 }
 
 func qualityCandidateByID(candidates []bestServerQualityCandidate, id string) *bestServerQualityCandidate {

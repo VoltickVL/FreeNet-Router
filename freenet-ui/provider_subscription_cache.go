@@ -120,14 +120,15 @@ func (a *app) ensureProviderSubscriptionCache(ctx context.Context) error {
 	if err := validateSubscriptionURL(secretURL); err != nil {
 		return errors.New("stored subscription URL is invalid")
 	}
-	if providerSubscriptionCacheMatches(secretURL) {
-		return nil
-	}
 	u, err := url.Parse(secretURL)
 	if err != nil {
 		return errors.New("stored subscription URL is invalid")
 	}
 
+	// Credential-bearing provider data must be refreshed before a plan/apply
+	// whenever a fresh source is reachable. A source-bound LKG is only a
+	// fallback: returning it first would make same-endpoint UUID/Reality
+	// rotations invisible indefinitely.
 	directCtx, cancelDirect := context.WithTimeout(ctx, 12*time.Second)
 	body, directErr := directSubscriptionBodyFetch(directCtx, u)
 	cancelDirect()
@@ -136,10 +137,16 @@ func (a *app) ensureProviderSubscriptionCache(ctx context.Context) error {
 		body, err = activeVPNSubscriptionBodyFetch(a, vpnCtx, u)
 		cancelVPN()
 		if err != nil {
+			if providerSubscriptionCacheMatches(secretURL) {
+				return nil
+			}
 			return errors.New("fresh subscription unavailable and secure provider cache is missing")
 		}
 	}
 	if _, err := parseSubscriptionBody(body); err != nil {
+		if providerSubscriptionCacheMatches(secretURL) {
+			return nil
+		}
 		return errors.New("subscription response is invalid")
 	}
 	if err := saveProviderSubscriptionCache(secretURL, body); err != nil {
