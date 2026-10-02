@@ -237,8 +237,15 @@ profile_id() {
     NAME="$1"
     ADDRESS="$2"
     PORT="$3"
+    SECURITY_ID="$4"
+    TYPE_ID="$5"
+    SNI_ID="$6"
+    HOST_ID="$7"
+    PATH_ID="$8"
     LOWER_ADDRESS="$(printf '%s' "$ADDRESS" | tr '[:upper:]' '[:lower:]')"
-    printf '%s|%s|%s' "$NAME" "$LOWER_ADDRESS" "$PORT" | sha256sum | awk '{print substr($1,1,16)}'
+    LOWER_SNI="$(printf '%s' "$SNI_ID" | tr '[:upper:]' '[:lower:]')"
+    LOWER_HOST="$(printf '%s' "$HOST_ID" | tr '[:upper:]' '[:lower:]')"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s' "$NAME" "$LOWER_ADDRESS" "$PORT" "$SECURITY_ID" "$TYPE_ID" "$LOWER_SNI" "$LOWER_HOST" "$PATH_ID" | sha256sum | awk '{print substr($1,1,16)}'
 }
 
 parse_line_identity() {
@@ -247,6 +254,8 @@ parse_line_identity() {
     case "$BODY" in *@*) ;; *) return 1 ;; esac
     REST="${BODY#*@}"
     HOSTPORT="$(printf '%s\n' "$REST" | sed 's/[?].*$//')"
+    QUERY_AND_NAME="$(printf '%s\n' "$REST" | sed 's/^[^?]*[?]//')"
+    QUERY="${QUERY_AND_NAME%%#*}"
 
     case "$HOSTPORT" in
         \[*\]:*)
@@ -266,7 +275,32 @@ parse_line_identity() {
     case "$LINE" in *#*) NAME_ENC="${LINE##*#}" ;; *) NAME_ENC='Extra profile' ;; esac
     NAME="$(sanitize_name "$(url_decode "$NAME_ENC")")"
     [ -n "$NAME" ] || NAME='Extra profile'
-    ID="$(profile_id "$NAME" "$ADDRESS" "$PORT")"
+
+    ID_SECURITY="$(printf '%s' "$(get_param security)" | tr '[:upper:]' '[:lower:]')"
+    ID_TYPE="$(printf '%s' "$(get_param type)" | tr '[:upper:]' '[:lower:]')"
+    [ -n "$ID_SECURITY" ] || ID_SECURITY='reality'
+    [ -n "$ID_TYPE" ] || ID_TYPE='tcp'
+    ID_SNI="$(url_decode "$(get_param sni)")"
+    ID_HOST="$(url_decode "$(get_param host)")"
+    ID_PATH="$(url_decode "$(get_param path)")"
+    case "$ID_SECURITY:$ID_TYPE" in
+        reality:tcp)
+            ID_HOST=''
+            ID_PATH=''
+            ;;
+        tls:tcp)
+            ID_HOST=''
+            ID_PATH=''
+            ;;
+        tls:ws)
+            [ -n "$ID_PATH" ] || ID_PATH='/'
+            [ -n "$ID_HOST" ] || ID_HOST="$ID_SNI"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    ID="$(profile_id "$NAME" "$ADDRESS" "$PORT" "$ID_SECURITY" "$ID_TYPE" "$ID_SNI" "$ID_HOST" "$ID_PATH")"
     return 0
 }
 
