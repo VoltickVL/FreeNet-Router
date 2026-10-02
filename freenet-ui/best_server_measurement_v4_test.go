@@ -53,8 +53,8 @@ func TestBestServerCapacityAcceptsUsefulPartialBodyOnTimeout(t *testing.T) {
 }
 
 func TestBestServerV4HighCapacityCurrentBeatsLowCapacityChallenger(t *testing.T) {
-	current := bestServerQualityScore(150, 165, 20, 15, 250, true)
-	challenger := bestServerQualityScore(120, 155, 15, 10, 8, true)
+	current := bestServerQualityScore(150, 20, 250, true)
+	challenger := bestServerQualityScore(120, 15, 8, true)
 	if current <= challenger {
 		t.Fatalf("high-capacity current VPN must outrank a low-capacity challenger: current=%d challenger=%d", current, challenger)
 	}
