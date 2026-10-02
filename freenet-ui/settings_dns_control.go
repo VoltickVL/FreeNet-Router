@@ -165,7 +165,10 @@ func acquireSettingsDNSOperation(ctx context.Context, a *app, timeout time.Durat
 		select {
 		case <-ctx.Done():
 			if !wait.Stop() {
-				<-wait.C
+				select {
+				case <-wait.C:
+				default:
+				}
 			}
 			return nil, "request canceled before DNS operation"
 		case <-wait.C:
