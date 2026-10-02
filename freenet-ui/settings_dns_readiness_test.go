@@ -31,6 +31,11 @@ func settingsDNSReadinessTestEnv(t *testing.T) (string, string, []byte, []string
 	if err := os.WriteFile(dnsFile, legacy, 0600); err != nil {
 		t.Fatal(err)
 	}
+	outFile := filepath.Join(configDir, "04_outbounds.json")
+	outbound := []byte(`{"outbounds":[{"tag":"vless-reality","protocol":"vless"},{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]}`)
+	if err := os.WriteFile(outFile, outbound, 0600); err != nil {
+		t.Fatal(err)
+	}
 	env := append(os.Environ(),
 		"FREENET_ROOT="+root,
 		"FREENET_XRAY_CONFIG_DIR="+configDir,
