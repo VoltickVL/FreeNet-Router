@@ -103,7 +103,7 @@ func TestBestServerFreshEndpointRotationUsesFreshEligibilityNotOldScore(t *testi
 }
 
 
-func TestFreshEndpointReadinessUsesLightOffPathProbes(t *testing.T) {
+func TestFreshEndpointReadinessUsesVPNApplicationAsOnlyMutationGate(t *testing.T) {
 	oldTCP := bestServerEndpointTCPProbe
 	oldApp := bestServerEndpointApplicationProbe
 	t.Cleanup(func() {
@@ -112,7 +112,7 @@ func TestFreshEndpointReadinessUsesLightOffPathProbes(t *testing.T) {
 	})
 
 	bestServerEndpointTCPProbe = func(_ context.Context, _ subscriptionProfile) bestServerProbeResult {
-		return bestServerProbeResult{OK: true, Samples: []int{11}, Median: 11}
+		return bestServerProbeResult{}
 	}
 	bestServerEndpointApplicationProbe = func(_ *app, _ context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
 		return bestServerProbeResult{OK: true, Samples: []int{42, 44}, Median: 43, Jitter: 2}
@@ -125,8 +125,8 @@ func TestFreshEndpointReadinessUsesLightOffPathProbes(t *testing.T) {
 	if got == nil || !got.Tested || !got.Available || !got.Eligible {
 		t.Fatalf("validated fresh endpoint must be eligible: %#v", got)
 	}
-	if got.TCPRTTMS != 11 || got.ApplicationMS != 43 || got.DownloadMbps != 0 || got.MediaSamples != 0 {
-		t.Fatalf("same-profile readiness must use TCP+application evidence only, without Speedtest/media ranking: %#v", got)
+	if got.TCPRTTMS != 0 || got.ApplicationMS != 43 || got.DownloadMbps != 0 || got.MediaSamples != 0 {
+		t.Fatalf("same-profile readiness must be gated by isolated VPN application evidence only; raw TCP is diagnostic: %#v", got)
 	}
 }
 
