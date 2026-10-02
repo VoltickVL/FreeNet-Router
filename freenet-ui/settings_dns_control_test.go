@@ -271,6 +271,8 @@ func TestSettingsDNSUIContractMatchesAcceptedRender(t *testing.T) {
 		"Google DoH",
 		"/api/settings-v3/dns/control",
 		"Восстановить DIRECT",
+		"id=\"fn3DnsRepair\"",
+		"applyDNS(true)",
 		"repair_required",
 		"flag-icon flag-${code}",
 		"backgroundImage",
@@ -279,6 +281,9 @@ func TestSettingsDNSUIContractMatchesAcceptedRender(t *testing.T) {
 	}
 	if strings.Contains(js, "Кастомный") || strings.Contains(js, "Custom DNS") {
 		t.Fatal("accepted DNS UI must not expose a Custom mode")
+	}
+	if strings.Contains(js, "state.dirty = !!data.repair_required") {
+		t.Fatal("DIRECT repair must not depend on the generic Settings Save dirty state")
 	}
 }
 
