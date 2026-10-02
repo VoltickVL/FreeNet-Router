@@ -42,6 +42,20 @@ func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 	}
 }
 
+func TestBestServerTop3ShowsEligibleOnly(t *testing.T) {
+	data, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	if !strings.Contains(js, "return pool.filter(candidate => candidate.eligible === true).slice(0, 3)") {
+		t.Fatal("Best Server final Top-3 must contain only fully Eligible candidates")
+	}
+	if strings.Contains(js, "preferred.concat(diagnostic)") {
+		t.Fatal("rejected diagnostics must never fill missing Top-3 slots")
+	}
+}
+
 func TestBestServerActionsHaveLifecycleSafeDelegation(t *testing.T) {
 	data, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
