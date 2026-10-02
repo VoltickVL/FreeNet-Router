@@ -116,3 +116,28 @@ func TestCanonicalJournalEventsIsBoundedToFiftyNewestRows(t *testing.T) {
 		t.Fatalf("newest event=%q want sub 39", got[0].Message)
 	}
 }
+
+func TestSettingsV3HealthJournalCoalescesIdenticalFiveMinuteStates(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "settings.state")
+	historyPath := filepath.Join(dir, "settings.history")
+	t.Setenv("FREENET_SETTINGS_V3_STATE", statePath)
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", historyPath)
+
+	healthy := automationHealthResult{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."}
+	recordSettingsV3Health(healthy)
+	recordSettingsV3Health(healthy)
+	recordSettingsV3Health(healthy)
+
+	events := readAutomationEvents(historyPath, 20)
+	if len(events) != 1 {
+		t.Fatalf("identical healthy checks must produce one Journal transition, got %d: %#v", len(events), events)
+	}
+
+	recordSettingsV3Health(automationHealthResult{State: automationHealthFailed, Reason: "VPN path failed"})
+	recordSettingsV3Health(automationHealthResult{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."})
+	events = readAutomationEvents(historyPath, 20)
+	if len(events) != 3 {
+		t.Fatalf("state transitions must remain visible, got %d: %#v", len(events), events)
+	}
+}
