@@ -157,11 +157,11 @@ func TestMeasureProviderProfileRTTDeadlineMarksUnstartedUnknown(t *testing.T) {
 			unknown++
 		}
 	}
-	if attempted != providerProfileRTTWorkers {
-		t.Fatalf("attempted=%d want=%d; bounded workers must be the only started probes", attempted, providerProfileRTTWorkers)
+	if attempted != 0 {
+		t.Fatalf("deadline-expired probes must remain UNKNOWN rather than explicit failures: attempted=%d got=%#v", attempted, got)
 	}
-	if unknown != len(candidates)-providerProfileRTTWorkers {
-		t.Fatalf("unknown=%d want=%d; unstarted profiles must not be labeled unreachable: %#v", unknown, len(candidates)-providerProfileRTTWorkers, got)
+	if unknown != len(candidates) {
+		t.Fatalf("unknown=%d want=%d; timed-out or unstarted profiles must not be labeled unreachable: %#v", unknown, len(candidates), got)
 	}
 }
 
