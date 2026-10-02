@@ -5,9 +5,51 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestAutomationHealthLockReclaimsDeadPIDImmediately(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auto-health.lock")
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", path)
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "pid"), []byte("1073741824\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	release, err := acquireAutomationHealthLock()
+	if err != nil {
+		t.Fatalf("dead PID fence was not reclaimed: %v", err)
+	}
+	release()
+}
+
+func TestAutomationHealthLockNeverReclaimsLiveOldPID(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "auto-health.lock")
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", path)
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "pid"), []byte(strconv.Itoa(os.Getpid())+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-20 * time.Minute)
+	if err := os.Chtimes(path, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if release, err := acquireAutomationHealthLock(); !errors.Is(err, errAutomationBusy) {
+		if release != nil {
+			release()
+		}
+		t.Fatalf("live old fence must remain protected, err=%v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("live fence was removed: %v", err)
+	}
+}
 
 func TestAutomationApplicationLatencyGate(t *testing.T) {
 	if !automationApplicationPathHealthy(bestServerQualityMaxApplicationMS) {
