@@ -12,16 +12,23 @@ import (
 	"time"
 )
 
-func TestSettingsDNSRuntimeStateClassifiesAcceptedAndLegacy(t *testing.T) {
+func TestSettingsDNSRuntimeStateClassifiesAcceptedRepairableAndLegacy(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FREENET_XRAY_CONFIG_DIR", dir)
 	path := filepath.Join(dir, "02_dns.json")
 
-	accepted := `{"dns":{"servers":[{"address":"https://dns.yandex.ru/dns-query","tag":"dns-direct"},{"address":"https://dns.google/dns-query","tag":"dns-vless"}]}}`
+	accepted := `{"dns":{"servers":[{"address":"77.88.8.8","port":53,"tag":"dns-direct"},{"address":"https://dns.google/dns-query","tag":"dns-vless"}]}}`
 	if err := os.WriteFile(path, []byte(accepted), 0600); err != nil { t.Fatal(err) }
 	direct, vpn, state := settingsDNSRuntimeState()
 	if state != "accepted" || direct != "yandex-doh" || vpn != "google-doh" {
 		t.Fatalf("accepted pair direct=%q vpn=%q state=%q", direct, vpn, state)
+	}
+
+	repairable := `{"dns":{"servers":[{"address":"https://dns.yandex.ru/dns-query","tag":"dns-direct"},{"address":"https://dns.google/dns-query","tag":"dns-vless"}]}}`
+	if err := os.WriteFile(path, []byte(repairable), 0600); err != nil { t.Fatal(err) }
+	direct, vpn, state = settingsDNSRuntimeState()
+	if state != "repairable" || direct != "yandex-doh" || vpn != "google-doh" {
+		t.Fatalf("hostname DIRECT DoH pair direct=%q vpn=%q state=%q", direct, vpn, state)
 	}
 
 	legacy := `{"dns":{"servers":[{"address":"77.88.8.8","port":53,"tag":"dns-direct"},{"address":"https://8.8.8.8/dns-query","tag":"dns-vless"}]}}`
@@ -197,10 +204,11 @@ func TestSettingsDNSResolverApplyAndRestoreTestMode(t *testing.T) {
 	if !bytes.Contains(apply, []byte("RESULT=SUCCESS")) { t.Fatalf("resolver apply missing success: %s", apply) }
 	data, err := os.ReadFile(dnsFile); if err != nil { t.Fatal(err) }
 	text := string(data)
-	for _, want := range []string{"https://dns.yandex.ru/dns-query", "https://dns.google/dns-query", "https://bootstrap.example/dns-query", "domain:direct.example", "domain:vpn.example"} {
+	for _, want := range []string{"77.88.8.8", "https://dns.google/dns-query", "https://bootstrap.example/dns-query", "domain:direct.example", "domain:vpn.example"} {
 		if !strings.Contains(text, want) { t.Fatalf("applied DNS config lost %q: %s", want, text) }
 	}
-	if strings.Contains(text, `"port": 53`) || strings.Contains(text, `"port":53`) { t.Fatalf("legacy direct UDP port survived DoH migration: %s", text) }
+	if !strings.Contains(text, `"port": 53`) && !strings.Contains(text, `"port":53`) { t.Fatalf("bootstrap-safe DIRECT DNS port 53 missing: %s", text) }
+	if strings.Contains(text, "https://dns.yandex.ru/dns-query") { t.Fatalf("hostname DoH survived on DIRECT leg: %s", text) }
 
 	outData, err := os.ReadFile(outFile); if err != nil { t.Fatal(err) }
 	var outCfg struct { Outbounds []map[string]any `json:"outbounds"` }
@@ -236,6 +244,8 @@ func TestSettingsDNSRuntimeHelpersKeepTransactionalContract(t *testing.T) {
 	restore, err := os.ReadFile("settings_dns_restore.sh"); if err != nil { t.Fatal(err) }
 	applyText, restoreText := string(apply), string(restore)
 	for _, want := range []string{
+		"77.88.8.8",
+		"8.8.8.8",
 		"https://dns.yandex.ru/dns-query",
 		"https://dns.google/dns-query",
 		"активная Split DNS resolver-схема неизвестна; STOP",

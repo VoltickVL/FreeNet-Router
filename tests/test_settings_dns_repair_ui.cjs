@@ -22,7 +22,7 @@ const settings = {
 };
 
 const status = {
-  version:'0.4.56',country:'Австрия',city:'Вена',country_code:'at',profile_label:'Вена, Австрия, Extra',endpoint:'192.0.2.56:443',
+  version:'0.4.60',country:'Австрия',city:'Вена',country_code:'at',profile_label:'Вена, Австрия, Extra',endpoint:'192.0.2.56:443',
   xray_online:true,dns_mode:'xkeen',dns_out_present:true,busy:false,updater_busy:false
 };
 
@@ -35,19 +35,19 @@ let dnsControl = {
   active_direct_provider:'yandex-doh',
   active_vpn_provider:'google-doh',
   direct_options:[
-    {id:'yandex-doh',label:'Яндекс DoH',endpoint:'https://dns.yandex.ru/dns-query'},
-    {id:'google-doh',label:'Google DoH',endpoint:'https://dns.google/dns-query'}
+    {id:'yandex-doh',label:'Яндекс DNS',endpoint:'77.88.8.8:53'},
+    {id:'google-doh',label:'Google DNS',endpoint:'8.8.8.8:53'}
   ],
   vpn_options:[
     {id:'google-doh',label:'Google DoH',endpoint:'https://dns.google/dns-query'},
     {id:'yandex-doh',label:'Яндекс DoH',endpoint:'https://dns.yandex.ru/dns-query'}
   ],
-  runtime_state:'accepted',
-  direct_egress_state:'repairable',
+  runtime_state:'repairable',
+  direct_egress_state:'accepted',
   repair_required:true,
   split_supported:true,
   apply_supported:true,
-  warning:'DIRECT egress требует безопасного восстановления XKeen self-bypass.'
+  warning:'DIRECT DNS использует hostname DoH и требует bootstrap-safe восстановления.'
 };
 
 function json(res, body, code = 200) {
@@ -83,7 +83,7 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       dnsPosts += 1;
       lastDNSBody = JSON.parse(raw || '{}');
-      dnsControl = {...dnsControl,direct_egress_state:'accepted',repair_required:false,warning:''};
+      dnsControl = {...dnsControl,runtime_state:'accepted',direct_egress_state:'accepted',repair_required:false,warning:''};
       return json(res, dnsControl);
     });
     return;
@@ -108,7 +108,7 @@ const server = http.createServer((req, res) => {
 
     await page.goto(`${base}/#settings`);
     await page.waitForSelector('#fn3DnsRepair', {state:'visible'});
-    await page.waitForFunction(() => document.querySelector('#fn3DnsWarning')?.textContent.includes('DIRECT egress'));
+    await page.waitForFunction(() => document.querySelector('#fn3DnsWarning')?.textContent.includes('DIRECT DNS'));
 
     assert.equal(await page.locator('#fn3Save').isDisabled(), true, 'generic Settings Save must remain independently disabled');
     assert.match((await page.locator('#fn3Save').textContent()) || '', /Сохранено/);

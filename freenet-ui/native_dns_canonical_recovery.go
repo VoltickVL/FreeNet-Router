@@ -107,18 +107,27 @@ func managedSplitResolverPair(currentDNS map[string]any) (direct, vpn string, er
 		if vpn == "https://8.8.8.8/dns-query" {
 			return "77.88.8.8", vpn, nil
 		}
-		if settingsDNSProviderFromEndpoint(vpn) != "" {
-			return settingsDNSYandexDoH, vpn, nil
+		if settingsDNSVPNProviderFromEndpoint(vpn) != "" {
+			return settingsDNSYandexDirect, vpn, nil
 		}
 		return "", "", errors.New("current Split vpn resolver не принадлежит поддерживаемому FreeNet catalog")
 	}
-	if direct == "77.88.8.8" && vpn == "https://8.8.8.8/dns-query" {
+	if direct == settingsDNSYandexDirect && vpn == settingsDNSGoogleLegacyDoH {
 		return direct, vpn, nil
 	}
-	if settingsDNSProviderFromEndpoint(direct) == "" || settingsDNSProviderFromEndpoint(vpn) == "" {
-		return "", "", errors.New("current Split resolver pair не принадлежит поддерживаемому FreeNet catalog")
+	vpnProvider := settingsDNSVPNProviderFromEndpoint(vpn)
+	if vpnProvider == "" {
+		return "", "", errors.New("current Split VPN resolver не принадлежит поддерживаемому FreeNet catalog")
 	}
-	return direct, vpn, nil
+	if settingsDNSDirectProviderFromEndpoint(direct) != "" {
+		return direct, vpn, nil
+	}
+	// v0.4.54-v0.4.59 used hostname DoH on the DIRECT leg. It is still a
+	// deterministic FreeNet-managed mirror, but Settings classifies it as repairable.
+	if direct == settingsDNSYandexDoH || direct == settingsDNSGoogleDoH {
+		return direct, vpn, nil
+	}
+	return "", "", errors.New("current Split DIRECT resolver не принадлежит поддерживаемому FreeNet catalog")
 }
 
 func expectedFreeNetManagedSplitDNSForCurrent(routing, currentDNS map[string]any) (map[string]any, error) {
@@ -157,7 +166,7 @@ func expectedFreeNetManagedSplitDNSWithResolvers(routing map[string]any, directA
 				"finalQuery":    true,
 				"tag":           "dns-direct",
 			}
-			if directAddress == "77.88.8.8" {
+			if settingsDNSDirectProviderFromEndpoint(directAddress) != "" {
 				server["port"] = float64(53)
 			}
 			servers = append(servers, server)
