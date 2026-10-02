@@ -342,6 +342,7 @@
       return n > 0 ? `${n.toFixed(n >= 100 ? 0 : 1)} Мбит/с` : '—';
     }
     if (key === 'http') return candidate.application_rtt_ms ? `${candidate.application_rtt_ms} мс` : '—';
+    if (key === 'vpn') return candidate.vpn_rtt_ms ? `${candidate.vpn_rtt_ms} мс` : '—';
     if (key === 'tcp') return candidate.tcp_rtt_ms ? `${candidate.tcp_rtt_ms} мс` : '—';
     if (key === 'jitter') return Number.isFinite(Number(candidate.jitter_ms)) ? `${candidate.jitter_ms} мс` : '—';
     return '—';
@@ -377,7 +378,8 @@
     root.textContent = '';
     root.appendChild(metricPill('Скорость VPN', metric(candidate, 'speed'), 'speed', candidate?.eligible === true));
     root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline)));
-    root.appendChild(metricPill('Связь с сервером', metric(candidate, 'tcp'), 'tcp', false));
+    const hasVPNPing = Number(candidate?.vpn_rtt_ms || 0) > 0;
+    root.appendChild(metricPill(hasVPNPing ? 'VPN-пинг' : 'Связь с сервером', hasVPNPing ? metric(candidate, 'vpn') : metric(candidate, 'tcp'), 'tcp', false));
     root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter'), 'jitter', false));
   }
 
