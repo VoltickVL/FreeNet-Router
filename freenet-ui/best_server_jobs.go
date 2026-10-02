@@ -8,13 +8,13 @@ import (
 	"time"
 )
 
-const bestServerAsyncJobTimeout = 220 * time.Second
+const bestServerAsyncJobTimeout = 325 * time.Second
 
 // One bounded, read-only quality job per app. Polling never starts a scan.
-// The Best Server job is intentionally capped at 220 s. Canonical VPN RTT ranking scans
+// The Best Server job is intentionally capped at 325 s. Canonical VPN RTT ranking scans
 // the pool first; deep checks then spend the remaining budget on the strongest
 // candidates and return measured partial results rather than holding the UI for
-// almost four minutes. Current-quality remains a separate explicit operation.
+// the bounded worst-case window. Current-quality remains a separate explicit operation.
 // Retain only the latest result, with no credentials or raw probe output.
 type bestServerJob struct {
 	ID        string                     `json:"id"`
