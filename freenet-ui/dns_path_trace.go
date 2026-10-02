@@ -255,7 +255,10 @@ func buildReadOnlyXrayTraceConfig(payloadPort, dnsPort int, currentDNS, routing 
 	outbounds = append(outbounds, map[string]any{
 		"tag":      dnsTraceResolveOutbound,
 		"protocol": "freedom",
-		"settings": map[string]any{"domainStrategy": "UseIPv4"},
+		"settings": map[string]any{},
+		"streamSettings": map[string]any{
+			"sockopt": map[string]any{"domainStrategy": "UseIPv4"},
+		},
 	})
 	for _, tag := range tags {
 		outbounds = append(outbounds, map[string]any{"tag": tag, "protocol": "blackhole", "settings": map[string]any{}})
@@ -279,7 +282,7 @@ func sanitizeDNSPathTraceValidationDetail(raw, tmp string) string {
 	raw = strings.ReplaceAll(raw, "\n", " ")
 	raw = strings.Join(strings.Fields(raw), " ")
 	if len(raw) > 480 {
-		raw = raw[:480] + "..."
+		raw = "..." + raw[len(raw)-480:]
 	}
 	return raw
 }
@@ -402,7 +405,7 @@ func runReadOnlyXrayPathProbe(host string, currentDNS, routing map[string]any) (
 	// The first request exercises the live ordered payload routing policy. All
 	// candidate outbounds are blackholes, so no payload leaves the router.
 	sendTraceHTTPProxyRequest(payloadPort, host)
-	// The second request is forced through a temporary freedom/UseIPv4 outbound.
+	// The second request is forced through a temporary freedom outbound with sockopt.domainStrategy=UseIPv4.
 	// That makes Xray's own DNS matcher select the resolver, while the real
 	// dns-direct/dns-vless egress tags are blackholed. This observes the decision
 	// without touching live config, credentials, :53 ownership or persistent state.
