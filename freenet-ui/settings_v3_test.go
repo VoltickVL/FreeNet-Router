@@ -345,6 +345,28 @@ func TestSettingsV3SaveSwitchesEndpointAndFullModesTransactionally(t *testing.T)
 	}
 }
 
+func TestSettingsV3EndpointSchedulerUsesCanonicalCurrentRefresh(t *testing.T) {
+	data, err := os.ReadFile("settings_v3.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "var settingsV3ScheduledEndpointRefresh")
+	end := strings.Index(src, "func (a *app) runV3ScheduledEndpointRefresh")
+	if start < 0 || end <= start {
+		t.Fatal("scheduled endpoint refresh implementation missing")
+	}
+	segment := src[start:end]
+	if !strings.Contains(segment, "settingsV3ScheduledCurrentRefresh") {
+		t.Fatal("scheduled endpoint refresh must share canonical current-profile refresh")
+	}
+	for _, legacy := range []string{"ensureAutomationHelper()", "exec.CommandContext(ctx, helper", "automationEndpointUpdateBusy"} {
+		if strings.Contains(segment, legacy) {
+			t.Fatalf("scheduled endpoint refresh still contains legacy updater path %q", legacy)
+		}
+	}
+}
+
 func TestSettingsV3ScheduledEndpointRefreshRespectsModeAndHealthLock(t *testing.T) {
 	old := settingsV3ScheduledEndpointRefresh
 	t.Cleanup(func() { settingsV3ScheduledEndpointRefresh = old })
