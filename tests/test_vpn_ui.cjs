@@ -298,18 +298,14 @@ const server = http.createServer((req,res)=>{
     }
     mode='empty';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
-    assert.match(await page.locator('#bestServerEmpty').textContent(),/вариантов для сравнения.*нет/,'only a completed empty scan may report no comparison candidates');
+    assert.match(await page.locator('#bestServerEmpty').textContent(),/Проверенных подходящих VPN сейчас нет/,'only a completed empty scan may report no eligible candidates');
     mode='rejected';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
-    assert.equal(await page.locator('.vpn-rejected').count(),1);
-    assert.equal(await page.locator('.vpn-warning').count(),1,'latency-only auto-ineligible candidate must be a warning, not a hard failure');
-    assert.match(await page.locator('.vpn-warning').textContent(),/Высокий отклик/);
-    assert.match(await page.locator('.vpn-warning').textContent(),/Скорость 4\/4/);
-    assert.match(await page.locator('.vpn-warning').textContent(),/Сервисы 4\/4/);
-    assert.match(await page.locator('.vpn-warning').textContent(),/Отклик сайтов выше 220 мс/);
-    assert.equal(await page.locator('.vpn-option-apply').count(),0,'auto-ineligible warning and rejected candidates have no suggested apply action');
-    assert.match(await page.locator('#bestServerResult').textContent(),/Скорость ниже 20/);
-    assert.equal(await page.locator('.vpn-rejected .best-v4-pill.speed').count(),0,'untrusted speed is never green');
+    assert.equal(await page.locator('.vpn-rejected').count(),0,'rejected diagnostics must not fill final Top-3 cards');
+    assert.equal(await page.locator('.vpn-warning').count(),0,'near-miss diagnostics must not fill final Top-3 cards');
+    assert.equal(await page.locator('.vpn-option-apply').count(),0,'ineligible candidates must never become apply choices');
+    assert.match(await page.locator('#bestServerEmpty').textContent(),/Проверенных подходящих VPN сейчас нет/);
+    assert.doesNotMatch(await page.locator('#bestServerResult').textContent(),/Скорость ниже 20|Отклик сайтов выше 220 мс/,'rejected diagnostic reasons must not leak into final choice cards');
     await page.setViewportSize({width:1366,height:768});
     await page.screenshot({path:path.join(artifacts,'vpn-rejected-desktop.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight),true,'diagnostics fit desktop');

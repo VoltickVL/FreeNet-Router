@@ -10,7 +10,7 @@ import (
 )
 
 func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
-	const browserBudget = 230 * time.Second
+	const browserBudget = 340 * time.Second
 	const minimumSlack = 10 * time.Second
 	if bestServerAsyncJobTimeout >= browserBudget {
 		t.Fatalf("Best Server async job timeout %s must be below browser budget %s", bestServerAsyncJobTimeout, browserBudget)
@@ -21,15 +21,12 @@ func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
 }
 
 func TestBestServerJobBudgetCompletesThreeVisibleAttempts(t *testing.T) {
-	// The UI promises up to three real measured alternatives. Reserving only
-	// enough time to START the third deep probe is insufficient: parent deadline
-	// cancellation makes that batch untrusted and it is intentionally dropped.
-	// Cover bounded preflight plus three complete deep windows and their TCP
-	// probes, with a small scheduler/process-cleanup reserve.
-	tcpWindow := time.Duration(bestServerQualityTCPRuns) * bestServerQualityTCPTimeout
+	// Cover the maximum 64-profile whole-pool VPN RTT sweep plus three complete
+	// strict deep windows. Raw endpoint TCP is not a selection gate and therefore
+	// has no separate ranking budget.
 	const completionReserve = 5 * time.Second
-	minimum := bestServerPreflightPhaseTimeout +
-		time.Duration(bestServerVisibleAlternatives)*(bestServerQualityCandidateTimeout+tcpWindow) +
+	minimum := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+		time.Duration(bestServerVisibleAlternatives)*bestServerQualityCandidateTimeout +
 		completionReserve
 	if bestServerAsyncJobTimeout < minimum {
 		t.Fatalf("Best Server async job %s is below Top-3 completion floor %s", bestServerAsyncJobTimeout, minimum)
@@ -75,40 +72,41 @@ func TestBestServerBrowserTimeoutContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "Date.now()-started>230000") {
+	if !strings.Contains(string(data), "Date.now()-started>340000") {
 		t.Fatal("browser Best Server timeout marker changed; update the server/browser budget contract together")
 	}
 }
 
 
-func TestBestServerQuickRTTSweepCoversTypicalPool(t *testing.T) {
-	if bestServerProfilePingHTTPRuns != 1 {
-		t.Fatalf("quick RTT runs=%d want=1; ranking must stay lightweight while deep quality owns strict acceptance", bestServerProfilePingHTTPRuns)
-	}
-	if 2*bestServerProfilePingPerTargetTimeout >= bestServerProfilePingTimeout {
-		t.Fatalf("quick RTT needs startup reserve after two origins: origins=%s candidate=%s", 2*bestServerProfilePingPerTargetTimeout, bestServerProfilePingTimeout)
-	}
+func TestBestServerQuickRTTSweepCoversWholePool(t *testing.T) {
 	if providerProfileRTTWorkers != isolatedXrayProbeLimit {
 		t.Fatalf("RTT workers=%d isolated limit=%d; canonical sweep must respect the global safety cap", providerProfileRTTWorkers, isolatedXrayProbeLimit)
 	}
 	if bestServerPreflightShortlist != 10 {
 		t.Fatalf("deep shortlist=%d want hard max 10", bestServerPreflightShortlist)
 	}
-	const typicalPool = 48
-	waves := (typicalPool + providerProfileRTTWorkers - 1) / providerProfileRTTWorkers
-	worstSweep := time.Duration(waves) * bestServerProfilePingTimeout
-	if worstSweep > bestServerPreflightPhaseTimeout {
-		t.Fatalf("48-profile quick RTT worst sweep %s exceeds preflight phase %s", worstSweep, bestServerPreflightPhaseTimeout)
+	minimumProfileBudget := bestServerSOCKSStartupTimeout + bestServerTransportProbeTimeout + 500*time.Millisecond
+	if bestServerProfilePingTimeout < minimumProfileBudget {
+		t.Fatalf("quick VPN RTT profile budget=%s below startup+HTTPS floor=%s", bestServerProfilePingTimeout, minimumProfileBudget)
+	}
+	for _, pool := range []int{48, bestServerMaxCandidates} {
+		waves := (pool + providerProfileRTTWorkers - 1) / providerProfileRTTWorkers
+		worstSweep := time.Duration(waves) * bestServerProfilePingTimeout
+		budget := bestServerRTTSweepTimeout(pool)
+		if budget < worstSweep+bestServerRTTSweepSlack {
+			t.Fatalf("pool=%d sweep budget=%s below bounded floor=%s", pool, budget, worstSweep+bestServerRTTSweepSlack)
+		}
 	}
 	data, err := os.ReadFile("best_server_preflight.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(data)
-	if !strings.Contains(src, "same per-logical-profile") || !strings.Contains(src, "strict HTTP/throughput/services/stability acceptance") {
-		t.Fatal("preflight must explicitly remain ranking-only and share the picker RTT engine")
+	if !strings.Contains(src, "probeBestServerTransportRTT") || !strings.Contains(src, "DNS/named-origin acceptance") {
+		t.Fatal("quick ranking must use fixed-IP VPN HTTPS RTT and defer named-origin acceptance to deep quality")
 	}
 }
+
 
 func TestBestServerDeepProgressIsCumulativeAcrossBatches(t *testing.T) {
 	type progress struct {
@@ -169,7 +167,7 @@ func TestBestServerRTTShortlistPromotesLateLowLatencyProfile(t *testing.T) {
 }
 
 func TestBestServerRTTShortlistUsesUnknownOnlyAsReserve(t *testing.T) {
-	candidates := make([]bestServerInternalCandidate, 14)
+	candidates := make([]bestServerInternalCandidate, 12)
 	items := make([]providerProfileRTTItem, 0, len(candidates))
 	for i := range candidates {
 		id := fmt.Sprintf("p-%02d", i)
@@ -177,10 +175,8 @@ func TestBestServerRTTShortlistUsesUnknownOnlyAsReserve(t *testing.T) {
 		switch {
 		case i < 8:
 			items = append(items, providerProfileRTTItem{ProfileID: id, Reachable: true, Attempted: true, Status: "reachable", RTTMS: 100 + i})
-		case i < 11:
+		case i < 10:
 			items = append(items, providerProfileRTTItem{ProfileID: id, Status: "unknown"})
-		case i < 13:
-			items = append(items, providerProfileRTTItem{ProfileID: id, Attempted: true, Status: "transport_only"})
 		default:
 			items = append(items, providerProfileRTTItem{ProfileID: id, Attempted: true, Status: "unreachable"})
 		}
@@ -195,6 +191,6 @@ func TestBestServerRTTShortlistUsesUnknownOnlyAsReserve(t *testing.T) {
 		}
 	}
 	if candidates[got[8]].Profile.ID != "p-08" || candidates[got[9]].Profile.ID != "p-09" {
-		t.Fatalf("UNKNOWN reserve must follow all confirmed RTT results and precede transport-only: %#v", got)
+		t.Fatalf("UNKNOWN reserve must follow all confirmed RTT results: %#v", got)
 	}
 }

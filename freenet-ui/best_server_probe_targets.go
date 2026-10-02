@@ -70,21 +70,55 @@ func probeBestServerHTTPAny(ctx context.Context, curlPath, socks string) (int, s
 	)
 }
 
-// probeBestServerTransportIP deliberately bypasses proxy-side hostname
-// resolution. It is not a quality/ranking sample; it only distinguishes a
-// broken DNS/application-origin path from a dead VPN transport. AUTO recovery
-// must never mutate a working VPN merely because one or more named probe
-// origins are unavailable.
-func probeBestServerTransportIP(ctx context.Context, curlPath, socks string) bool {
-	if ctx.Err() != nil {
-		return false
+// runBestServerTransportRTT deliberately bypasses proxy-side hostname
+// resolution but still performs a real HTTPS request through the candidate
+// VLESS/Reality path. This is the canonical quick ranking signal: DNS/named
+// origins are strict deep-quality concerns, not shortlist gates.
+func runBestServerTransportRTT(ctx context.Context, curlPath, socks, target string, timeout time.Duration) (int, bool) {
+	if timeout <= 0 || ctx.Err() != nil {
+		return 0, false
 	}
-	seconds := fmt.Sprintf("%.3f", bestServerTransportProbeTimeout.Seconds())
-	probeCtx, cancel := context.WithTimeout(ctx, bestServerTransportProbeTimeout)
+	seconds := fmt.Sprintf("%.3f", timeout.Seconds())
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	return exec.CommandContext(probeCtx, curlPath,
+	output, err := exec.CommandContext(probeCtx, curlPath,
 		"--socks5", socks,
 		"-k", "-sS", "--connect-timeout", seconds, "--max-time", seconds,
-		"-o", "/dev/null", bestServerTransportProbeURL,
-	).Run() == nil
+		"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", target,
+	).Output()
+	if err != nil {
+		return 0, false
+	}
+	return parseBestServerHTTPResponseMS(string(output))
+}
+
+func probeBestServerTransportRTTWith(
+	ctx context.Context,
+	curlPath, socks, target string,
+	timeout time.Duration,
+	runner bestServerHTTPProbeRunner,
+) (int, bool) {
+	if runner == nil {
+		return 0, false
+	}
+	return runner(ctx, curlPath, socks, target, timeout)
+}
+
+func probeBestServerTransportRTT(ctx context.Context, curlPath, socks string) (int, bool) {
+	return probeBestServerTransportRTTWith(
+		ctx,
+		curlPath,
+		socks,
+		bestServerTransportProbeURL,
+		bestServerTransportProbeTimeout,
+		runBestServerTransportRTT,
+	)
+}
+
+// probeBestServerTransportIP remains diagnostic-only for VPN Outbound Doctor.
+// It reuses the same fixed-IP HTTPS path but does not participate in deep
+// eligibility or final ranking.
+func probeBestServerTransportIP(ctx context.Context, curlPath, socks string) bool {
+	_, ok := probeBestServerTransportRTT(ctx, curlPath, socks)
+	return ok
 }

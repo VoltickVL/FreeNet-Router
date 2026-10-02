@@ -34,6 +34,7 @@ type settingsV3Schedule struct {
 type settingsV3AutoVPN struct {
 	Enabled          bool     `json:"enabled"`
 	Mode             string   `json:"mode"`
+	HealthInterval   string   `json:"health_interval"`
 	EndpointInterval string   `json:"endpoint_interval"`
 	CountryScope     string   `json:"country_scope"`
 	Countries        []string `json:"countries"`
@@ -65,6 +66,7 @@ type settingsV3SaveRequest struct {
 	Action                   string   `json:"action"`
 	AutoVPNEnabled           *bool    `json:"auto_vpn_enabled,omitempty"`
 	AutoVPNMode              string   `json:"auto_vpn_mode,omitempty"`
+	AutoVPNHealthInterval    string   `json:"auto_vpn_health_interval,omitempty"`
 	AutoVPNEndpointInterval  string   `json:"auto_vpn_endpoint_interval,omitempty"`
 	CountryScope             string   `json:"country_scope,omitempty"`
 	Countries            []string `json:"countries,omitempty"`
@@ -165,6 +167,44 @@ func v3Bool(value bool) string {
 	return "no"
 }
 
+const defaultAutomationHealthInterval = "1m"
+
+func automationHealthIntervalDuration(interval string) time.Duration {
+	switch strings.TrimSpace(interval) {
+	case "30s":
+		return 30 * time.Second
+	case "1m":
+		return time.Minute
+	case "5m":
+		return 5 * time.Minute
+	default:
+		return 0
+	}
+}
+
+func normalizeAutomationHealthInterval(interval string) string {
+	if automationHealthIntervalDuration(interval) > 0 {
+		return strings.TrimSpace(interval)
+	}
+	return defaultAutomationHealthInterval
+}
+
+func automationHealthCron(interval string) string {
+	switch normalizeAutomationHealthInterval(interval) {
+	case "5m":
+		return "*/5 * * * *"
+	default:
+		// Cron is a resilience fallback. The 30-second cadence is owned by the
+		// long-running FreeNet service; once-per-minute fallback keeps recovery
+		// alive across a brief service restart without using sleep-based cron hacks.
+		return "* * * * *"
+	}
+}
+
+func configuredAutomationHealthInterval(configPath string) string {
+	return normalizeAutomationHealthInterval(automationConfigValue(configPath, "AUTO_VPN_HEALTH_INTERVAL", defaultAutomationHealthInterval))
+}
+
 func v3IntervalDuration(interval string) time.Duration {
 	switch strings.TrimSpace(interval) {
 	case "30m":
@@ -198,6 +238,28 @@ func v3IntervalCron(interval string) (string, bool) {
 		return "0 */12 * * *", true
 	case "24h":
 		return "17 4 * * *", true
+	default:
+		return "", false
+	}
+}
+
+func v3IntervalCronOffset(interval string, minute int) (string, bool) {
+	if minute < 0 || minute > 29 {
+		return "", false
+	}
+	switch strings.TrimSpace(interval) {
+	case "30m":
+		return fmt.Sprintf("%d,%d * * * *", minute, minute+30), true
+	case "1h":
+		return fmt.Sprintf("%d * * * *", minute), true
+	case "3h":
+		return fmt.Sprintf("%d */3 * * *", minute), true
+	case "6h":
+		return fmt.Sprintf("%d */6 * * *", minute), true
+	case "12h":
+		return fmt.Sprintf("%d */12 * * *", minute), true
+	case "24h":
+		return fmt.Sprintf("%d 4 * * *", minute), true
 	default:
 		return "", false
 	}
@@ -309,20 +371,25 @@ func v3ScheduleFromConfig(configPath, prefix, key string, defaultEnabled bool) s
 	}
 }
 
-func v3HealthTimes(enabled bool) (string, string) {
+func v3HealthTimes(enabled bool, healthInterval string) (string, string) {
 	if !enabled {
 		return "", ""
 	}
 	state := v3ParseState(settingsV3StatePath())
 	last := state["HEALTH_LAST"]
-	if last == "" {
-		return "", time.Now().UTC().Add(5 * time.Minute).Format(time.RFC3339)
+	base := state["HEALTH_SCHEDULE_LAST"]
+	if base == "" {
+		base = last
 	}
-	t, err := time.Parse(time.RFC3339, last)
+	interval := automationHealthIntervalDuration(normalizeAutomationHealthInterval(healthInterval))
+	if base == "" {
+		return last, time.Now().UTC().Add(interval).Format(time.RFC3339)
+	}
+	t, err := time.Parse(time.RFC3339, base)
 	if err != nil {
 		return last, ""
 	}
-	return last, t.Add(5 * time.Minute).Format(time.RFC3339)
+	return last, t.Add(interval).Format(time.RFC3339)
 }
 
 func v3MergeEvents(limit int, groups ...[]automationEvent) []automationEvent {
@@ -380,7 +447,8 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 	if scope == "" {
 		scope = automationCountryRegion
 	}
-	lastHealth, nextHealth := v3HealthTimes(auto.Settings.Enabled)
+	healthInterval := configuredAutomationHealthInterval(a.cfg.ConfigPath)
+	lastHealth, nextHealth := v3HealthTimes(auto.Settings.Enabled, healthInterval)
 	events := canonicalJournalEvents(50)
 	subscription := v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_SUBSCRIPTION_REFRESH", "subscription", true)
 	if subscription.Enabled {
@@ -397,7 +465,7 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 	return settingsV3Response{
 		Success: true,
 		AutoVPN: settingsV3AutoVPN{
-			Enabled: auto.Settings.Enabled, Mode: mode, EndpointInterval: endpointInterval,
+			Enabled: auto.Settings.Enabled, Mode: mode, HealthInterval: healthInterval, EndpointInterval: endpointInterval,
 			CountryScope: scope, Countries: auto.Settings.Countries, LastHealth: lastHealth, NextHealth: nextHealth,
 		},
 		Automation: auto,
@@ -425,41 +493,42 @@ func buildManagedAutomationCronV3(a *app, existing []byte, values map[string]str
 	configArg := " --config " + v3ShellQuote(a.cfg.ConfigPath)
 
 	if values["AUTO_VPN_V1"] == "yes" {
-		lines = append(lines, "*/5 * * * * "+bin+" automation-health-watch"+configArg)
+		healthCron := automationHealthCron(values["AUTO_VPN_HEALTH_INTERVAL"])
+		lines = append(lines, healthCron+" "+bin+" automation-health-watch"+configArg)
 		mode := automationModeBest
 		if strings.TrimSpace(values["AUTO_VPN_MODE"]) != "" {
 			mode = normalizeAutomationMode(values["AUTO_VPN_MODE"])
 		}
 		if mode == automationModeEndpoint {
 			interval := v3NormalizeInterval(values["AUTO_VPN_V1_INTERVAL"], "auto_vpn_endpoint")
-			cron, ok := v3IntervalCron(interval)
+			cron, ok := v3IntervalCronOffset(interval, 1)
 			if !ok {
 				return nil, errors.New("unsupported AUTO VPN endpoint interval")
 			}
 			lines = append(lines, cron+" "+bin+" settings-v3-endpoint-refresh"+configArg)
 		}
 	}
-	appendJob := func(enabledKey, intervalKey, command string) error {
+	appendJob := func(enabledKey, intervalKey, command string, minute int) error {
 		if values[enabledKey] != "yes" {
 			return nil
 		}
-		cron, ok := v3IntervalCron(values[intervalKey])
+		cron, ok := v3IntervalCronOffset(values[intervalKey], minute)
 		if !ok {
 			return fmt.Errorf("unsupported interval for %s", enabledKey)
 		}
 		lines = append(lines, cron+" "+bin+" "+command+configArg)
 		return nil
 	}
-	if err := appendJob("AUTO_SUBSCRIPTION_REFRESH_ENABLED", "AUTO_SUBSCRIPTION_REFRESH_INTERVAL", "settings-v3-subscription"); err != nil {
+	if err := appendJob("AUTO_SUBSCRIPTION_REFRESH_ENABLED", "AUTO_SUBSCRIPTION_REFRESH_INTERVAL", "settings-v3-subscription", 2); err != nil {
 		return nil, err
 	}
-	if err := appendJob("AUTO_GEODATA_ENABLED", "AUTO_GEODATA_INTERVAL", "settings-v3-geodata"); err != nil {
+	if err := appendJob("AUTO_GEODATA_ENABLED", "AUTO_GEODATA_INTERVAL", "settings-v3-geodata", 3); err != nil {
 		return nil, err
 	}
-	if err := appendJob("AUTO_FREENET_CHECK_ENABLED", "AUTO_FREENET_CHECK_INTERVAL", "settings-v3-freenet-check"); err != nil {
+	if err := appendJob("AUTO_FREENET_CHECK_ENABLED", "AUTO_FREENET_CHECK_INTERVAL", "settings-v3-freenet-check", 4); err != nil {
 		return nil, err
 	}
-	if err := appendJob("AUTO_BACKUP_ENABLED", "AUTO_BACKUP_INTERVAL", "settings-v3-backup"); err != nil {
+	if err := appendJob("AUTO_BACKUP_ENABLED", "AUTO_BACKUP_INTERVAL", "settings-v3-backup", 6); err != nil {
 		return nil, err
 	}
 	lines = append(lines, "# END FREENET")
@@ -471,6 +540,7 @@ func settingsV3ManagedCronValuesFromConfig(configPath string) map[string]string 
 	return map[string]string{
 		"AUTO_VPN_V1": automationConfigValue(configPath, "AUTO_VPN_V1", "no"),
 		"AUTO_VPN_MODE": normalizeAutomationMode(automationConfigValue(configPath, "AUTO_VPN_MODE", automationModeBest)),
+		"AUTO_VPN_HEALTH_INTERVAL": configuredAutomationHealthInterval(configPath),
 		"AUTO_VPN_V1_INTERVAL": v3NormalizeInterval(
 			automationConfigValue(configPath, "AUTO_VPN_V1_INTERVAL", v3DefaultInterval("auto_vpn_endpoint")),
 			"auto_vpn_endpoint",
@@ -495,6 +565,11 @@ func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 	if strings.TrimSpace(req.AutoVPNMode) != "" {
 		mode = normalizeAutomationMode(req.AutoVPNMode)
 	}
+	healthInterval := normalizeAutomationHealthInterval(req.AutoVPNHealthInterval)
+	if strings.TrimSpace(req.AutoVPNHealthInterval) != "" && automationHealthIntervalDuration(req.AutoVPNHealthInterval) <= 0 {
+		return errors.New("unsupported AUTO VPN health interval")
+	}
+
 	endpointInterval := strings.TrimSpace(req.AutoVPNEndpointInterval)
 	if v3IntervalDuration(endpointInterval) <= 0 {
 		if mode == automationModeEndpoint && v3IntervalDuration(currentAuto.Interval) > 0 {
@@ -511,11 +586,6 @@ func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 	if mode == automationModeBest && scope == automationCountryAllowlist && len(countries) == 0 {
 		return errors.New("selected countries list is empty")
 	}
-	if *req.AutoVPNEnabled && mode == automationModeEndpoint {
-		if _, err := ensureAutomationHelper(); err != nil {
-			return err
-		}
-	}
 	autoInterval := "manual"
 	autoEndpointUpdate := "no"
 	autoEndpointCron := ""
@@ -530,6 +600,7 @@ func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 		"AUTO_VPN_V1": v3Bool(*req.AutoVPNEnabled),
 		"AUTO_VPN_V1_INTERVAL": autoInterval,
 		"AUTO_VPN_MODE": mode,
+		"AUTO_VPN_HEALTH_INTERVAL": healthInterval,
 		"AUTO_VPN_POLICY": automationPolicyDegraded,
 		"AUTO_VPN_COUNTRY_SCOPE": scope,
 		"AUTO_VPN_COUNTRIES": strings.Join(countries, ","),
@@ -650,33 +721,35 @@ var settingsV3ScheduledCurrentRefresh = func(a *app, ctx context.Context) (int, 
 }
 
 var settingsV3ScheduledEndpointRefresh = func(a *app, ctx context.Context) error {
-	helper, err := ensureAutomationHelper()
-	if err != nil {
-		return err
+	status, refresh := settingsV3ScheduledCurrentRefresh(a, ctx)
+	message := strings.TrimSpace(refresh.Message)
+	if message == "" {
+		message = strings.TrimSpace(refresh.Error)
 	}
-	cmd := exec.CommandContext(ctx, helper, "run")
-	cmd.Env = append(os.Environ(),
-		"FREENET_CONFIG_FILE="+a.cfg.ConfigPath,
-		"FREENET_SUB_FILE="+a.cfg.SubPath,
-		"FREENET_FILTER_FILE="+a.cfg.FilterPath,
-		"FREENET_OUT_FILE="+a.cfg.OutPath,
-		"FREENET_XKEEN_BIN="+a.cfg.XKeenPath,
-	)
-	out, err := cmd.CombinedOutput()
-	if err == nil {
+	rollback := strings.TrimSpace(refresh.RollbackState)
+	if rollback == "" {
+		rollback = "NOT_APPLIED"
+	}
+	if status >= 200 && status < 300 && refresh.Success {
+		if refresh.Applied {
+			if message == "" {
+				message = "AUTO VPN обновил endpoint текущего профиля и подтвердил VPN после применения."
+			}
+			writeAutomationStateV2("updated", message, rollback, false)
+			appendAutomationHistoryV2("updated", message)
+		}
 		return nil
 	}
-	lower := strings.ToLower(sanitizeOutput(string(out)))
-	if strings.Contains(lower, "another auto vpn operation") || automationEndpointUpdateBusy(out) {
-		return errAutomationBusy
-	}
-	if automationEndpointRollbackUnknown(out) {
+	if rollback == "FAILED/UNKNOWN" {
 		return errors.New("scheduled endpoint refresh rollback failed or is unknown")
 	}
-	if reason := safeAutomationHelperError(out); reason != "" {
-		return errors.New(reason)
+	if status == 409 {
+		return errAutomationBusy
 	}
-	return err
+	if message == "" {
+		message = "Плановое обновление текущего VPN не завершено."
+	}
+	return errors.New(message)
 }
 
 func (a *app) runV3ScheduledEndpointRefresh(ctx context.Context) error {
@@ -928,8 +1001,21 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 }
 
 func recordSettingsV3Health(result automationHealthResult) {
+	// "busy" is scheduler contention, not a health observation. It must not
+	// advance HEALTH_LAST or postpone the next real liveness check.
+	if result.State == "busy" {
+		return
+	}
+	previous := v3ParseState(settingsV3StatePath())
 	now := time.Now().UTC().Format(time.RFC3339)
 	_ = v3WriteState(map[string]string{"HEALTH_LAST": now, "HEALTH_RESULT": result.State, "HEALTH_MESSAGE": result.Reason})
+
+	// Keep the configured health timestamp current without flooding the Journal
+	// with identical rows. Recovery transitions and reason changes are still
+	// recorded immediately and remain visible much longer in the bounded log.
+	if previous["HEALTH_RESULT"] == result.State && previous["HEALTH_MESSAGE"] == result.Reason {
+		return
+	}
 	resultCode := result.State
 	if result.State == automationHealthHealthy {
 		resultCode = "success"

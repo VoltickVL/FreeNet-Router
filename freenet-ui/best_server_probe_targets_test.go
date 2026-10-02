@@ -49,3 +49,27 @@ func TestProbeBestServerHTTPAnyStopsAfterPrimarySuccess(t *testing.T) {
 		t.Fatalf("primary success ms=%d ok=%v calls=%d", ms, ok, calls)
 	}
 }
+
+func TestProbeBestServerTransportRTTUsesFixedIPHTTPSWithoutDNS(t *testing.T) {
+	calls := 0
+	runner := func(_ context.Context, curlPath, socks, target string, timeout time.Duration) (int, bool) {
+		calls++
+		if curlPath != "curl" || socks != "127.0.0.1:1080" {
+			t.Fatalf("unexpected runner args curl=%q socks=%q", curlPath, socks)
+		}
+		if target != bestServerTransportProbeURL {
+			t.Fatalf("target=%q want=%q", target, bestServerTransportProbeURL)
+		}
+		if timeout != bestServerTransportProbeTimeout {
+			t.Fatalf("timeout=%s want=%s", timeout, bestServerTransportProbeTimeout)
+		}
+		return 163, true
+	}
+	ms, ok := probeBestServerTransportRTTWith(
+		context.Background(), "curl", "127.0.0.1:1080",
+		bestServerTransportProbeURL, bestServerTransportProbeTimeout, runner,
+	)
+	if !ok || ms != 163 || calls != 1 {
+		t.Fatalf("fixed-IP VPN RTT result ms=%d ok=%v calls=%d", ms, ok, calls)
+	}
+}

@@ -11,6 +11,54 @@ import (
 	"time"
 )
 
+func TestAutomationHealthDueUsesProbeStartCadence(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "freenet.conf")
+	statePath := filepath.Join(dir, "settings.state")
+	t.Setenv("FREENET_SETTINGS_V3_STATE", statePath)
+	if err := os.WriteFile(configPath, []byte("AUTO_VPN_HEALTH_INTERVAL=1m\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 10, 3, 6, 30, 0, 0, time.UTC)
+	if err := os.WriteFile(statePath, []byte("HEALTH_SCHEDULE_LAST="+base.Format(time.RFC3339)+"\nHEALTH_LAST="+base.Add(8*time.Second).Format(time.RFC3339)+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if automationHealthDue(configPath, base.Add(59*time.Second)) {
+		t.Fatal("1-minute watchdog became due before one minute from probe start")
+	}
+	if !automationHealthDue(configPath, base.Add(time.Minute)) {
+		t.Fatal("1-minute watchdog did not become due one minute from probe start")
+	}
+}
+
+func TestBusyHealthResultDoesNotAdvanceHealthTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "settings.state")
+	t.Setenv("FREENET_SETTINGS_V3_STATE", statePath)
+	const original = "HEALTH_LAST=2026-10-03T06:30:00Z\nHEALTH_RESULT=healthy\nHEALTH_MESSAGE=ok\n"
+	if err := os.WriteFile(statePath, []byte(original), 0600); err != nil {
+		t.Fatal(err)
+	}
+	recordSettingsV3Health(automationHealthResult{State: "busy", Reason: "another recovery is active"})
+	got, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Fatalf("busy scheduler collision changed health state:\n%s", got)
+	}
+}
+
+func TestMainStartsSubMinuteHealthScheduler(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "a.startAutomationHealthScheduler()") {
+		t.Fatal("long-running FreeNet service must own the 30-second health cadence")
+	}
+}
+
 func TestAutomationHealthLockReclaimsDeadPIDImmediately(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "auto-health.lock")
 	t.Setenv("FREENET_AUTO_HEALTH_LOCK", path)
@@ -144,9 +192,9 @@ func TestAutomationRecoveryStageJournalUsesStageResults(t *testing.T) {
 	}
 }
 
-func TestManagedCronSeparatesHealthWatchdogFromHeavyBestScan(t *testing.T) {
+func TestManagedCronKeepsHealthWatchdogAndRetiresPeriodicBest(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
-	if err := os.WriteFile(path, []byte("AUTO_XKEEN_GEODATA=no\nAUTO_VPN_FAILOVER=yes\nAUTO_VPN_FAILOVER_CRON='*/5 * * * *'\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("AUTO_XKEEN_GEODATA=no\nAUTO_VPN_HEALTH_INTERVAL=1m\nAUTO_VPN_FAILOVER=yes\nAUTO_VPN_FAILOVER_CRON='*/5 * * * *'\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	settings := automationSettings{Enabled: true, Interval: "1h", Mode: automationModeBest, Policy: automationPolicyBetter, CountryScope: automationCountryRegion, AutoApply: true}
@@ -155,18 +203,17 @@ func TestManagedCronSeparatesHealthWatchdogFromHeavyBestScan(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if !strings.Contains(text, "*/5 * * * * "+automationRunnerPath()+" automation-health-watch") {
-		t.Fatalf("health watchdog is not scheduled every 5 minutes:\n%s", text)
+	if !strings.Contains(text, "* * * * * "+automationRunnerPath()+" automation-health-watch") {
+		t.Fatalf("health watchdog is not scheduled with the configured 1-minute fallback:\n%s", text)
 	}
-	if !strings.Contains(text, "0 * * * * "+automationRunnerPath()+" automation-best-run") {
-		t.Fatalf("heavy Best run does not keep the selected 1h interval:\n%s", text)
-	}
-	if strings.Contains(text, "/opt/bin/vpn failover") {
-		t.Fatalf("legacy failover scheduler must be removed to avoid duplicate mutation:\n%s", text)
+	for _, forbidden := range []string{"automation-best-run", "/opt/lib/freenet/auto_vpn.sh", "/opt/bin/vpn failover"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("periodic legacy/heavy scheduler path %q must be retired:\n%s", forbidden, text)
+		}
 	}
 }
 
-func TestManagedCronDoesNotAutoRunWhenAutomationIsManual(t *testing.T) {
+func TestManagedCronManualModeStillKeepsHealthWatchdog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
 	if err := os.WriteFile(path, []byte("AUTO_XKEEN_GEODATA=no\nAUTO_VPN_FAILOVER=no\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -177,8 +224,11 @@ func TestManagedCronDoesNotAutoRunWhenAutomationIsManual(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if strings.Contains(text, "automation-health-watch") || strings.Contains(text, "automation-best-run") {
-		t.Fatalf("manual mode must not schedule automatic checks:\n%s", text)
+	if !strings.Contains(text, "automation-health-watch") {
+		t.Fatalf("manual optimization mode must still keep VPN liveness watchdog:\n%s", text)
+	}
+	if strings.Contains(text, "automation-best-run") || strings.Contains(text, "settings-v3-endpoint-refresh") {
+		t.Fatalf("manual optimization mode must not schedule heavy optimization or endpoint refresh:\n%s", text)
 	}
 }
 
@@ -206,7 +256,7 @@ func TestEmergencyBestPathBypassesOnlyOptimizationCooldown(t *testing.T) {
 	}
 }
 
-func TestEndpointEmergencyUsesCanonicalManualRefreshAndPostProbe(t *testing.T) {
+func TestEndpointEmergencyUsesCanonicalCurrentProfileRefresh(t *testing.T) {
 	data, err := os.ReadFile("automation_health.go")
 	if err != nil {
 		t.Fatal(err)
@@ -218,79 +268,67 @@ func TestEndpointEmergencyUsesCanonicalManualRefreshAndPostProbe(t *testing.T) {
 		t.Fatal("endpoint emergency contract is missing")
 	}
 	segment := text[start:end]
-	if !strings.Contains(segment, "automationEndpointUpdateCommand") || !strings.Contains(segment, "automationEndpointPostProbe") {
-		t.Fatal("endpoint emergency must use the canonical vpn update path and verify Internet through the refreshed VPN")
+	if !strings.Contains(segment, "automationEndpointCurrentRefresh") {
+		t.Fatal("endpoint emergency must use canonical executeBestServerCurrentRefresh path")
 	}
-	if strings.Contains(segment, "ensureAutomationHelper()") || strings.Contains(segment, "helper, \"run\"") {
-		t.Fatal("health recovery must not keep a second legacy endpoint-refresh engine")
+	for _, legacy := range []string{"automationEndpointUpdateCommand", "automationEndpointPostProbe", "runCommand(ctx, a.cfg.VPNPath", "ensureAutomationHelper()", "helper, \"run\""} {
+		if strings.Contains(segment, legacy) {
+			t.Fatalf("health recovery still contains legacy/duplicate endpoint engine %q", legacy)
+		}
 	}
 	if strings.Contains(segment, "executeProviderProfileApply") || strings.Contains(segment, "runAutomationBestEmergencyCycle") {
-		t.Fatal("endpoint refresh itself must not change country/profile")
+		t.Fatal("current-profile refresh itself must not change logical VPN")
 	}
 }
 
-func TestEndpointEmergencyRequiresHealthyPostProbe(t *testing.T) {
-	oldCommand, oldProbe := automationEndpointUpdateCommand, automationEndpointPostProbe
-	t.Cleanup(func() {
-		automationEndpointUpdateCommand = oldCommand
-		automationEndpointPostProbe = oldProbe
-	})
-	outPath := filepath.Join(t.TempDir(), "04_outbounds.json")
-	if err := os.WriteFile(outPath, []byte("before"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	a := &app{cfg: config{VPNPath: "/opt/bin/vpn", OutPath: outPath}}
+func TestEndpointEmergencyInterpretsCanonicalRefreshResult(t *testing.T) {
+	oldRefresh := automationEndpointCurrentRefresh
+	t.Cleanup(func() { automationEndpointCurrentRefresh = oldRefresh })
+	a := &app{}
 	settings := automationSettings{Mode: automationModeEndpoint, AutoApply: true}
 
-	automationEndpointUpdateCommand = func(_ *app, _ context.Context) ([]byte, error) {
-		if err := os.WriteFile(outPath, []byte("after"), 0600); err != nil {
-			return nil, err
+	automationEndpointCurrentRefresh = func(_ *app, _ context.Context) (int, bestServerRefreshResponse) {
+		return 200, bestServerRefreshResponse{
+			Success: true, Applied: true, Outcome: "applied", Mutation: "APPLIED", RollbackState: "NOT_NEEDED",
+			Message: "fresh current profile applied and post-checked",
 		}
-		return []byte("updated"), nil
-	}
-	automationEndpointPostProbe = func(_ *app, _ context.Context) automationHealthProbe {
-		return automationHealthProbe{State: automationHealthFailed, Reason: "still failed"}
 	}
 	result, err := a.runAutomationEndpointEmergency(context.Background(), settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.State != automationHealthFailed || !result.Mutated {
-		t.Fatalf("post-refresh failed probe result=%+v want failed + mutated", result)
+	if err != nil || result.State != automationHealthHealthy || !result.Mutated {
+		t.Fatalf("applied canonical refresh result=%+v err=%v want healthy+mutated", result, err)
 	}
 
-	automationEndpointPostProbe = func(_ *app, _ context.Context) automationHealthProbe {
-		return automationHealthProbe{State: automationHealthHealthy, Reason: "healthy"}
+	automationEndpointCurrentRefresh = func(_ *app, _ context.Context) (int, bestServerRefreshResponse) {
+		return 200, bestServerRefreshResponse{
+			Success: true, Applied: false, Outcome: "check_failed", Mutation: "NONE", RollbackState: "NOT_NEEDED",
+			Message: "fresh current profile did not pass readiness",
+		}
 	}
 	result, err = a.runAutomationEndpointEmergency(context.Background(), settings)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.State != automationHealthHealthy {
-		t.Fatalf("healthy post-refresh probe result=%+v want healthy", result)
+	if err != nil || result.State != automationHealthFailed || result.Mutated {
+		t.Fatalf("safe non-applied refresh result=%+v err=%v want failed/no-mutation so Best fallback may continue", result, err)
 	}
 }
 
-func TestEndpointEmergencyBusyFailsClosed(t *testing.T) {
-	oldCommand, oldProbe := automationEndpointUpdateCommand, automationEndpointPostProbe
-	t.Cleanup(func() {
-		automationEndpointUpdateCommand = oldCommand
-		automationEndpointPostProbe = oldProbe
-	})
-	probeCalled := false
-	automationEndpointUpdateCommand = func(_ *app, _ context.Context) ([]byte, error) {
-		return []byte("[blanc-xkeen] ERROR: another updater instance is already running"), errors.New("exit status 1")
+func TestEndpointEmergencyConflictAndRollbackUnknownFailClosed(t *testing.T) {
+	oldRefresh := automationEndpointCurrentRefresh
+	t.Cleanup(func() { automationEndpointCurrentRefresh = oldRefresh })
+	a := &app{}
+	settings := automationSettings{Mode: automationModeEndpoint, AutoApply: true}
+
+	automationEndpointCurrentRefresh = func(_ *app, _ context.Context) (int, bestServerRefreshResponse) {
+		return 409, bestServerRefreshResponse{Success: false, Mutation: "NONE", RollbackState: "NOT_APPLIED", Error: "current VPN changed"}
 	}
-	automationEndpointPostProbe = func(_ *app, _ context.Context) automationHealthProbe {
-		probeCalled = true
-		return automationHealthProbe{State: automationHealthHealthy}
+	result, err := a.runAutomationEndpointEmergency(context.Background(), settings)
+	if !errors.Is(err, errAutomationBusy) || result.State != automationHealthUncertain {
+		t.Fatalf("conflict result=%+v err=%v want uncertain/busy", result, err)
 	}
-	a := &app{cfg: config{VPNPath: "/opt/bin/vpn", OutPath: filepath.Join(t.TempDir(), "missing")}}
-	result, err := a.runAutomationEndpointEmergency(context.Background(), automationSettings{Mode: automationModeEndpoint, AutoApply: true})
-	if !errors.Is(err, errAutomationBusy) {
-		t.Fatalf("busy error=%v want errAutomationBusy", err)
+
+	automationEndpointCurrentRefresh = func(_ *app, _ context.Context) (int, bestServerRefreshResponse) {
+		return 502, bestServerRefreshResponse{Success: false, Mutation: "ROLLED_BACK", RollbackState: "FAILED/UNKNOWN", Error: "rollback unknown"}
 	}
-	if result.State != automationHealthUncertain || probeCalled {
-		t.Fatalf("busy recovery result=%+v probeCalled=%v; must fail closed before a second mutation/probe", result, probeCalled)
+	result, err = a.runAutomationEndpointEmergency(context.Background(), settings)
+	if err == nil || result.State != automationHealthCritical {
+		t.Fatalf("unknown rollback result=%+v err=%v want critical STOP", result, err)
 	}
 }

@@ -169,6 +169,41 @@ func TestAutomationCountryScopeIsFailClosed(t *testing.T) {
 	}
 }
 
+func TestScheduledAutomationBestIsFencedByHealthRecovery(t *testing.T) {
+	data, err := os.ReadFile("automation_v2.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "func (a *app) runAutomationBestCycle")
+	if start < 0 {
+		t.Fatal("runAutomationBestCycle missing")
+	}
+	body := src[start:]
+	health := strings.Index(body, "acquireAutomationHealthLock()")
+	best := strings.Index(body, "acquireAutomationBestLock()")
+	if health < 0 || best < 0 || health > best {
+		t.Fatal("scheduled AUTO Best must acquire health/recovery fence before best-cycle lock")
+	}
+}
+
+func TestAutomationBestBudgetsFollowCanonicalTargets(t *testing.T) {
+	degradedFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) + bestServerQualityCandidateTimeout + automationBestBudgetSlack
+	if got := automationBestForeignTimeout(automationPolicyDegraded); got < degradedFloor {
+		t.Fatalf("degraded foreign budget=%s below canonical floor=%s", got, degradedFloor)
+	}
+	betterFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+		time.Duration(bestServerVisibleAlternatives)*bestServerQualityCandidateTimeout +
+		automationBestBudgetSlack
+	if got := automationBestForeignTimeout(automationPolicyBetter); got < betterFloor {
+		t.Fatalf("better foreign budget=%s below canonical floor=%s", got, betterFloor)
+	}
+	cycleFloor := bestServerCurrentScanTimeout + automationBestForeignTimeout(automationPolicyBetter) + automationBestBudgetSlack
+	if got := automationBestQualityCycleTimeout(automationPolicyBetter); got < cycleFloor {
+		t.Fatalf("better quality-cycle budget=%s below current+foreign floor=%s", got, cycleFloor)
+	}
+}
+
 func TestAutomationBestTargetUsesOneForDegradedAndThreeForBetter(t *testing.T) {
 	if got := automationBestEligibleTarget(automationPolicyDegraded); got != 1 {
 		t.Fatalf("degraded target=%d want=1", got)
@@ -248,8 +283,11 @@ func TestManagedCronSelectsOneAutoVPNEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if !strings.Contains(text, "freenet-ui automation-best-run") || strings.Contains(text, "/opt/lib/freenet/auto_vpn.sh run") {
-		t.Fatalf("best mode cron must select exactly one engine:\n%s", text)
+	if !strings.Contains(text, "automation-health-watch") {
+		t.Fatalf("best mode must keep the liveness watchdog:\n%s", text)
+	}
+	if strings.Contains(text, "automation-best-run") || strings.Contains(text, "/opt/lib/freenet/auto_vpn.sh run") {
+		t.Fatalf("best mode must not schedule periodic heavy/legacy engines:\n%s", text)
 	}
 }
 

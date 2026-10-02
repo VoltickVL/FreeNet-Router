@@ -24,9 +24,20 @@ const (
 	automationCountryRegion    = "region"
 	automationCountryAllowlist = "allowlist"
 
-	automationBestCooldown = 6 * time.Hour
-	automationBestTimeout  = 250 * time.Second
+	automationBestCooldown   = 6 * time.Hour
+	automationBestBudgetSlack = 10 * time.Second
 )
+
+func automationBestForeignTimeout(policy string) time.Duration {
+	target := automationBestEligibleTarget(policy)
+	return bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+		time.Duration(target)*bestServerQualityCandidateTimeout +
+		automationBestBudgetSlack
+}
+
+func automationBestQualityCycleTimeout(policy string) time.Duration {
+	return bestServerCurrentScanTimeout + automationBestForeignTimeout(policy) + automationBestBudgetSlack
+}
 
 var errAutomationBusy = errors.New("AUTO VPN operation is already active")
 
@@ -300,12 +311,11 @@ func buildManagedAutomationCron(configPath string, settings automationSettings, 
 			lines = append(lines, geoCron+" /opt/sbin/xkeen -ug")
 		}
 	}
-	if settings.Enabled && settings.Interval != "manual" && cron != "" {
-		lines = append(lines, "*/5 * * * * "+automationRunnerPath()+" automation-health-watch >> /opt/var/log/freenet-auto-vpn-health.log 2>&1")
-		if settings.Mode == automationModeBest {
-			lines = append(lines, cron+" "+automationRunnerPath()+" automation-best-run >> /opt/var/log/freenet-auto-vpn.log 2>&1")
-		} else {
-			lines = append(lines, cron+" /opt/lib/freenet/auto_vpn.sh run >> /opt/var/log/freenet-auto-vpn.log 2>&1")
+	if settings.Enabled {
+		healthCron := automationHealthCron(configuredAutomationHealthInterval(configPath))
+		lines = append(lines, healthCron+" "+automationRunnerPath()+" automation-health-watch >> /opt/var/log/freenet-auto-vpn-health.log 2>&1")
+		if settings.Mode == automationModeEndpoint && settings.Interval != "manual" && cron != "" {
+			lines = append(lines, cron+" "+automationRunnerPath()+" settings-v3-endpoint-refresh >> /opt/var/log/freenet-auto-vpn.log 2>&1")
 		}
 	} else {
 		lines = append(lines, "# AUTO VPN scheduler and health watchdog disabled by FreeNet settings")
@@ -600,17 +610,22 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 	if !manual && !settings.Enabled {
 		return automationBestCycleResult{Result: "disabled", Reason: "AUTO VPN выключен."}, nil
 	}
+	releaseHealth, err := acquireAutomationHealthLock()
+	if err != nil {
+		return automationBestCycleResult{Result: "busy", Reason: "Проверка пропущена: другая AUTO VPN health/recovery операция уже выполняется."}, nil
+	}
+	defer releaseHealth()
+
 	release, err := acquireAutomationBestLock()
 	if err != nil {
 		return automationBestCycleResult{Result: "busy", Reason: "Проверка пропущена: другая AUTO VPN операция уже выполняется."}, nil
 	}
 	defer release()
 
-	ctx, cancel := context.WithTimeout(parent, automationBestTimeout)
-	defer cancel()
-
 	if settings.AutoEndpointUpdate && settings.AutoApply {
-		refreshStatus, refresh := automationBestCurrentRefresh(a, ctx)
+		refreshCtx, cancelRefresh := context.WithTimeout(parent, bestServerRefreshTimeout)
+		refreshStatus, refresh := automationBestCurrentRefresh(a, refreshCtx)
+		cancelRefresh()
 		if refresh.Applied {
 			reason := "AUTO VPN обновил endpoint текущего логического VPN и подтвердил доступ через обновлённое подключение."
 			writeAutomationStateV2("updated", reason, refresh.RollbackState, false)
@@ -635,6 +650,9 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 			return automationBestCycleResult{Result: result, Reason: reason, RollbackState: rollback}, errors.New("AUTO VPN current endpoint refresh did not complete safely")
 		}
 	}
+
+	ctx, cancel := context.WithTimeout(parent, automationBestQualityCycleTimeout(settings.Policy))
+	defer cancel()
 
 	currentResponse, err := a.scanCurrentVPNQuality(ctx)
 	if err != nil {

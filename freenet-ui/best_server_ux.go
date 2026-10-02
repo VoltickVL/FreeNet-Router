@@ -152,6 +152,15 @@ func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
 		if a.DownloadMbps != b.DownloadMbps {
 			return a.DownloadMbps > b.DownloadMbps
 		}
+		if a.VPNRTTMS != b.VPNRTTMS {
+			if a.VPNRTTMS == 0 {
+				return false
+			}
+			if b.VPNRTTMS == 0 {
+				return true
+			}
+			return a.VPNRTTMS < b.VPNRTTMS
+		}
 		return a.ID < b.ID
 	})
 }
@@ -188,7 +197,7 @@ func (a *app) rankMeasuredBestServerBatches(
 		attemptCtx := bestServerDeepProgressContext(ctx, start, len(candidates))
 		batch := rankBestServerQualityCandidates(
 			attemptCtx, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
-			defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication,
+			a.probeBestServerQualityApplication,
 		)
 		// If the parent job deadline fired during this deep attempt, its final
 		// classification is not trustworthy enough for a comparison card. Drop
@@ -333,7 +342,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	// "Проверить текущий VPN" is a separate explicit operation. Best Server may
 	// reuse a fresh complete current measurement, but it must not spend the
 	// alternatives job budget on an implicit heavy current Speedtest. This keeps
-	// the bounded 210 s browser contract focused on producing the Top-3 cards.
+	// the bounded canonical browser contract focused on producing the Top-3 cards.
 	currentBaseline, currentBaselineOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
 	if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
 		candidates = withoutBestServerCandidate(candidates, currentIndex)

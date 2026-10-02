@@ -14,42 +14,64 @@ import (
 )
 
 const (
-	bestServerPreflightPhaseTimeout       = 50 * time.Second
-	bestServerPreflightShortlist          = 10
-	bestServerProfilePingHTTPRuns         = 1
-	bestServerDiagnosticHTTPRuns          = 2
-	bestServerProfilePingTimeout          = 2 * time.Second
-	bestServerProfilePingPerTargetTimeout = 700 * time.Millisecond
+	bestServerPreflightShortlist  = 10
+	bestServerDiagnosticHTTPRuns  = 2
+	bestServerProfilePingTimeout  = 5 * time.Second
+	bestServerRTTSweepSlack       = 5 * time.Second
 )
 
+func bestServerRTTSweepTimeout(candidateCount int) time.Duration {
+	if candidateCount <= 0 {
+		return bestServerRTTSweepSlack
+	}
+	workers := providerProfileRTTWorkers
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > candidateCount {
+		workers = candidateCount
+	}
+	waves := (candidateCount + workers - 1) / workers
+	return time.Duration(waves)*bestServerProfilePingTimeout + bestServerRTTSweepSlack
+}
+
 // applicationAwareBestServerShortlist uses the same per-logical-profile
-// application RTT sweep as the VPN picker. The quick RTT is ranking-only
-// evidence: strict HTTP/throughput/services/stability acceptance remains in the
-// deep quality probe. Every profile gets the same bounded chance; subscription
-// position and shared provider IP:port never rank a logical VPN.
+// fixed-IP HTTPS RTT sweep as the VPN picker. Quick RTT has exactly one job:
+// rank the actual logical VPN path. Named DNS/HTTPS, throughput, services and
+// stability are strict deep-quality concerns. Every profile gets the same
+// bounded chance; subscription position and shared ingress never rank a VPN.
 func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) []bestServerInternalCandidate {
-	if len(candidates) <= 1 {
+	if len(candidates) == 0 {
 		return candidates
 	}
 
-	phaseCtx, cancelPhase := context.WithTimeout(ctx, bestServerPreflightPhaseTimeout)
+	phaseCtx, cancelPhase := context.WithTimeout(ctx, bestServerRTTSweepTimeout(len(candidates)))
 	defer cancelPhase()
 	reportBestServerProgress(ctx, "preflight", 0, len(candidates))
 	items := measureProviderProfileRTT(phaseCtx, candidates, a.probeBestServerProfilePing)
 
 	currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter)
 	selectedIndexes := selectBestServerRTTShortlistIndexes(candidates, items, currentIndex)
+	evidenceByID := make(map[string]providerProfileRTTItem, len(items))
+	for _, item := range items {
+		evidenceByID[strings.TrimSpace(item.ProfileID)] = item
+	}
 	selected := make([]bestServerInternalCandidate, 0, len(selectedIndexes))
 	for _, index := range selectedIndexes {
-		selected = append(selected, candidates[index])
+		candidate := candidates[index]
+		if item, ok := evidenceByID[strings.TrimSpace(candidate.Profile.ID)]; ok && item.Reachable {
+			candidate.VPNRTTMS = item.RTTMS
+			candidate.VPNJitterMS = item.JitterMS
+		}
+		selected = append(selected, candidate)
 	}
 	return selected
 }
 
 // selectBestServerRTTShortlistIndexes builds the bounded deep-check queue from
 // canonical VPN application RTT evidence. Confirmed reachable profiles are
-// ordered by RTT, UNKNOWN is only reserve evidence, transport-only comes after
-// UNKNOWN, and explicit application failures are last. The hard deep maximum is
+// ordered by RTT, UNKNOWN is reserve evidence, and explicit quick-path failures
+// are last. The hard deep maximum is
 // ten profiles; rankMeasuredBestServerBatches normally stops much earlier as
 // soon as the requested Eligible target is reached.
 func selectBestServerRTTShortlistIndexes(candidates []bestServerInternalCandidate, items []providerProfileRTTItem, currentIndex int) []int {
@@ -123,18 +145,47 @@ func selectBestServerRTTShortlistIndexes(candidates []bestServerInternalCandidat
 	return selected
 }
 
-// probeBestServerApplicationPreflight is retained for VPN Outbound Doctor.
-// Diagnostics keeps two application samples; canonical Best Server ranking uses
-// the separate one-sample probeBestServerProfilePing fast path above.
+// probeBestServerApplicationPreflight is retained only for VPN Outbound Doctor.
+// Diagnostics keeps two named-origin application samples. Canonical Best Server
+// ranking intentionally does not duplicate those deep acceptance checks.
 func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
-	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerDiagnosticHTTPRuns, bestServerApplicationProbePerTargetTimeout)
+	return a.withBestServerCandidateSOCKS(ctx, candidate, func(ctx context.Context, curlPath, socks string) bestServerProbeResult {
+		samples := make([]int, 0, bestServerDiagnosticHTTPRuns)
+		for run := 0; run < bestServerDiagnosticHTTPRuns; run++ {
+			if ctx.Err() != nil {
+				break
+			}
+			if ms, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks); ok {
+				samples = append(samples, ms)
+			}
+		}
+		result := summarizeBestServerSamples(samples, 1)
+		if !result.OK && probeBestServerTransportIP(ctx, curlPath, socks) {
+			result.TransportOnly = true
+		}
+		return result
+	})
 }
 
+// probeBestServerProfilePing measures exactly one signal: fixed-IP HTTPS RTT
+// through the selected logical VPN profile. DNS/named-origin acceptance is
+// intentionally deferred to strict deep quality.
 func (a *app) probeBestServerProfilePing(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
-	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerProfilePingHTTPRuns, bestServerProfilePingPerTargetTimeout)
+	return a.withBestServerCandidateSOCKS(ctx, candidate, func(ctx context.Context, curlPath, socks string) bestServerProbeResult {
+		ms, ok := probeBestServerTransportRTT(ctx, curlPath, socks)
+		if !ok {
+			return bestServerProbeResult{}
+		}
+		return bestServerProbeResult{OK: true, Samples: []int{ms}, Median: ms}
+	})
 }
 
-func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServerInternalCandidate, runs int, perTarget time.Duration) bestServerProbeResult {
+type bestServerCandidateSOCKSProbe func(context.Context, string, string) bestServerProbeResult
+
+func (a *app) withBestServerCandidateSOCKS(ctx context.Context, candidate bestServerInternalCandidate, probe bestServerCandidateSOCKSProbe) bestServerProbeResult {
+	if probe == nil || ctx.Err() != nil {
+		return bestServerProbeResult{}
+	}
 	outbound, err := buildBestServerProbeOutbound(candidate.Raw, candidate.Profile)
 	if err != nil {
 		return bestServerProbeResult{}
@@ -216,26 +267,5 @@ func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServer
 	if !waitBestServerSOCKS(ctx, port) {
 		return bestServerProbeResult{}
 	}
-
-	socks := fmt.Sprintf("127.0.0.1:%d", port)
-	if runs < 1 {
-		runs = 1
-	}
-	samples := make([]int, 0, runs)
-	for run := 0; run < runs; run++ {
-		if ctx.Err() != nil {
-			break
-		}
-		if perTarget <= 0 {
-			perTarget = bestServerApplicationProbePerTargetTimeout
-		}
-		if ms, _, ok := probeBestServerHTTPAnyWith(ctx, curlPath, socks, bestServerApplicationProbeURLs, perTarget, runBestServerHTTPProbeURL); ok {
-			samples = append(samples, ms)
-		}
-	}
-	result := summarizeBestServerSamples(samples, 1)
-	if !result.OK && probeBestServerTransportIP(ctx, curlPath, socks) {
-		result.TransportOnly = true
-	}
-	return result
+	return probe(ctx, curlPath, fmt.Sprintf("127.0.0.1:%d", port))
 }

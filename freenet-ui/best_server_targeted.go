@@ -98,32 +98,39 @@ func (a *app) probeBestServerFreshEndpointReadiness(parent context.Context, cand
 	ctx, cancel := context.WithTimeout(parent, bestServerEndpointReadinessTimeout)
 	defer cancel()
 
+	// Raw endpoint TCP is diagnostic only. The isolated VPN application probe
+	// already proves endpoint TCP + VLESS/Reality handshake + HTTPS payload and
+	// is therefore the only readiness gate allowed to decide a mutation.
 	tcpCh := make(chan bestServerProbeResult, 1)
 	appCh := make(chan bestServerProbeResult, 1)
 	go func() { tcpCh <- bestServerEndpointTCPProbe(ctx, candidate.Profile) }()
 	go func() { appCh <- bestServerEndpointApplicationProbe(a, ctx, candidate) }()
 
-	tcp := <-tcpCh
 	app := <-appCh
+	var tcp bestServerProbeResult
+	select {
+	case tcp = <-tcpCh:
+	default:
+		// Diagnostic-only TCP must never delay or veto an application-proven
+		// candidate. The goroutine is canceled on return if still running.
+	}
 	result := &bestServerQualityCandidate{
 		ID: candidate.Profile.ID, Name: candidate.Profile.Name, CountryCode: candidate.Profile.CountryCode,
 		Endpoint: profileEndpoint(candidate.Profile),
 		Tested: ctx.Err() == nil,
-		Reachable: tcp.OK,
+		Reachable: app.OK,
 		TCPRTTMS: tcp.Median, TCPJitterMS: tcp.Jitter,
 		ApplicationMS: app.Median, JitterMS: app.Jitter,
 		HTTPSamples: len(app.Samples),
 	}
-	result.Available = result.Tested && tcp.OK && app.OK
+	result.Available = result.Tested && app.OK
 	result.Eligible = result.Available && automationApplicationPathHealthy(result.ApplicationMS)
 	switch {
 	case result.Eligible:
 		result.Confidence = "high"
-		result.Reason = "fresh endpoint TCP and isolated VPN application probes passed"
+		result.Reason = "fresh endpoint isolated VPN application probe passed"
 	case ctx.Err() != nil:
 		result.Reason = "fresh endpoint readiness timed out"
-	case !tcp.OK:
-		result.Reason = "fresh endpoint TCP probe failed"
 	case !app.OK:
 		result.Reason = "fresh endpoint isolated VPN application probe failed"
 	default:
@@ -206,7 +213,6 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 		false,
 		currentEndpoint,
 		currentFilter,
-		defaultBestServerQualityTCPProbe,
 		a.probeBestServerQualityApplication,
 	)
 	if ctx.Err() != nil {

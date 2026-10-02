@@ -131,7 +131,6 @@ func TestBestServerBudgetSkipsUnfinishableProbe(t *testing.T) {
 	defer cancel()
 	candidates := []bestServerInternalCandidate{{Profile: subscriptionProfile{ID: "example", Address: "192.0.2.1", Port: 443}}}
 	result := rankBestServerQualityCandidates(ctx, candidates, 1, false, "", "",
-		func(context.Context, subscriptionProfile) bestServerProbeResult { return bestServerProbeResult{OK: true, Median: 10} },
 		func(context.Context, bestServerInternalCandidate) bestServerQualityApplicationResult { t.Error("probe without sufficient budget"); return bestServerQualityApplicationResult{} },
 	)
 	if !result.Partial || result.Available || result.Recommendation != nil { t.Fatalf("unfinished scan must be partial without a winner: %+v", result) }

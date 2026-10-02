@@ -233,6 +233,7 @@ func main() {
 
 	a := &app{cfg: cfg, sem: make(chan struct{}, 1)}
 	reconcileSettingsV3SchedulerOnStartup(a)
+	a.startAutomationHealthScheduler()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", a.handleIndex)

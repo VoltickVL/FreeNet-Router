@@ -9,7 +9,31 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestAutomationHealthIntervals(t *testing.T) {
+	cases := []struct {
+		value string
+		duration time.Duration
+		cron string
+	}{
+		{"30s", 30 * time.Second, "* * * * *"},
+		{"1m", time.Minute, "* * * * *"},
+		{"5m", 5 * time.Minute, "*/5 * * * *"},
+	}
+	for _, tc := range cases {
+		if got := automationHealthIntervalDuration(tc.value); got != tc.duration {
+			t.Fatalf("health interval %s duration=%s want=%s", tc.value, got, tc.duration)
+		}
+		if got := automationHealthCron(tc.value); got != tc.cron {
+			t.Fatalf("health interval %s cron=%q want=%q", tc.value, got, tc.cron)
+		}
+	}
+	if got := normalizeAutomationHealthInterval("broken"); got != defaultAutomationHealthInterval {
+		t.Fatalf("invalid health interval normalized to %q want=%q", got, defaultAutomationHealthInterval)
+	}
+}
 
 func TestSettingsV3HumanIntervals(t *testing.T) {
 	cases := map[string]string{
@@ -28,6 +52,27 @@ func TestSettingsV3HumanIntervals(t *testing.T) {
 	}
 }
 
+func TestSettingsV3StaggeredMaintenanceCronIsDeterministic(t *testing.T) {
+	cases := []struct {
+		interval string
+		minute   int
+		want     string
+	}{
+		{"30m", 1, "1,31 * * * *"},
+		{"30m", 2, "2,32 * * * *"},
+		{"1h", 2, "2 * * * *"},
+		{"3h", 3, "3 */3 * * *"},
+		{"12h", 4, "4 */12 * * *"},
+		{"24h", 6, "6 4 * * *"},
+	}
+	for _, tc := range cases {
+		got, ok := v3IntervalCronOffset(tc.interval, tc.minute)
+		if !ok || got != tc.want {
+			t.Fatalf("interval=%s minute=%d cron=%q ok=%v want=%q", tc.interval, tc.minute, got, ok, tc.want)
+		}
+	}
+}
+
 func TestSettingsV3ManagedSchedulerUsesHealthWatchdogNotPeriodicBest(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "freenet.conf")
 	if err := os.WriteFile(configPath, []byte("UI_PORT=1001\n"), 0600); err != nil {
@@ -36,6 +81,7 @@ func TestSettingsV3ManagedSchedulerUsesHealthWatchdogNotPeriodicBest(t *testing.
 	a := &app{cfg: config{ConfigPath: configPath}}
 	values := map[string]string{
 		"AUTO_VPN_V1": "yes",
+		"AUTO_VPN_HEALTH_INTERVAL": "1m",
 		"AUTO_SUBSCRIPTION_REFRESH_ENABLED": "yes", "AUTO_SUBSCRIPTION_REFRESH_INTERVAL": "6h",
 		"AUTO_GEODATA_ENABLED": "yes", "AUTO_GEODATA_INTERVAL": "3h",
 		"AUTO_FREENET_CHECK_ENABLED": "yes", "AUTO_FREENET_CHECK_INTERVAL": "12h",
@@ -47,11 +93,11 @@ func TestSettingsV3ManagedSchedulerUsesHealthWatchdogNotPeriodicBest(t *testing.
 	}
 	text := string(got)
 	checks := []string{
-		"*/5 * * * * ", " automation-health-watch",
-		"0 */6 * * * ", " settings-v3-subscription",
-		"0 */3 * * * ", " settings-v3-geodata",
-		"0 */12 * * * ", " settings-v3-freenet-check",
-		"17 4 * * * ", " settings-v3-backup",
+		"* * * * * ", " automation-health-watch",
+		"2 */6 * * * ", " settings-v3-subscription",
+		"3 */3 * * * ", " settings-v3-geodata",
+		"4 */12 * * * ", " settings-v3-freenet-check",
+		"6 4 * * * ", " settings-v3-backup",
 	}
 	for _, check := range checks {
 		if !strings.Contains(text, check) {
@@ -81,7 +127,7 @@ func TestSettingsV3MagicRecoveryIsEndpointFirst(t *testing.T) {
 		t.Fatal("AUTO VPN outage recovery must try the current VPN endpoint before searching a replacement")
 	}
 	if strings.Contains(segment, "settings.Interval == \"manual\"") {
-		t.Fatal("5-minute health watchdog must be independent from the removed user-facing deep interval")
+		t.Fatal("health watchdog must be independent from the removed user-facing deep interval")
 	}
 }
 
@@ -93,7 +139,7 @@ func TestSettingsV3AcceptedUserSurface(t *testing.T) {
 	text := string(data)
 	for _, want := range []string{
 		"Настройки / Система",
-		"FreeNet каждые 5 минут проверяет доступность текущего VPN",
+		"Быстрый watchdog проверяет доступность текущего VPN",
 		"Режим работы",
 		"Только текущий VPN",
 		"Полный AUTO VPN",
@@ -191,6 +237,7 @@ func TestSettingsV3EndpointOnlySchedulerAddsPeriodicRefresh(t *testing.T) {
 	values := map[string]string{
 		"AUTO_VPN_V1": "yes",
 		"AUTO_VPN_MODE": automationModeEndpoint,
+		"AUTO_VPN_HEALTH_INTERVAL": "1m",
 		"AUTO_VPN_V1_INTERVAL": "30m",
 		"AUTO_SUBSCRIPTION_REFRESH_ENABLED": "no",
 		"AUTO_GEODATA_ENABLED": "no",
@@ -202,10 +249,10 @@ func TestSettingsV3EndpointOnlySchedulerAddsPeriodicRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if !strings.Contains(text, "*/5 * * * * "+v3ShellQuote(automationUIBinary())+" automation-health-watch") {
-		t.Fatalf("endpoint-only mode lost the 5-minute health watchdog:\n%s", text)
+	if !strings.Contains(text, "* * * * * "+v3ShellQuote(automationUIBinary())+" automation-health-watch") {
+		t.Fatalf("endpoint-only mode lost the 1-minute health watchdog fallback:\n%s", text)
 	}
-	if !strings.Contains(text, "*/30 * * * * "+v3ShellQuote(automationUIBinary())+" settings-v3-endpoint-refresh") {
+	if !strings.Contains(text, "1,31 * * * * "+v3ShellQuote(automationUIBinary())+" settings-v3-endpoint-refresh") {
 		t.Fatalf("endpoint-only mode did not schedule the selected endpoint interval:\n%s", text)
 	}
 	if strings.Contains(text, "automation-best-run") {
@@ -222,6 +269,7 @@ func TestSettingsV3FullModeDoesNotScheduleEndpointRefresh(t *testing.T) {
 	values := map[string]string{
 		"AUTO_VPN_V1": "yes",
 		"AUTO_VPN_MODE": automationModeBest,
+		"AUTO_VPN_HEALTH_INTERVAL": "30s",
 		"AUTO_VPN_V1_INTERVAL": "1h",
 		"AUTO_SUBSCRIPTION_REFRESH_ENABLED": "no",
 		"AUTO_GEODATA_ENABLED": "no",
@@ -266,7 +314,7 @@ func TestSettingsV3SaveSwitchesEndpointAndFullModesTransactionally(t *testing.T)
 
 	enabled, disabled := true, false
 	req := settingsV3SaveRequest{
-		Action: "save", AutoVPNEnabled: &enabled, AutoVPNMode: automationModeEndpoint, AutoVPNEndpointInterval: "30m",
+		Action: "save", AutoVPNEnabled: &enabled, AutoVPNMode: automationModeEndpoint, AutoVPNHealthInterval: "30s", AutoVPNEndpointInterval: "30m",
 		CountryScope: automationCountryRegion, Countries: []string{"de"},
 		SubscriptionEnabled: &disabled, GeoDataEnabled: &disabled, FreeNetEnabled: &disabled, BackupEnabled: &disabled,
 	}
@@ -281,6 +329,7 @@ func TestSettingsV3SaveSwitchesEndpointAndFullModesTransactionally(t *testing.T)
 	configText := string(configData)
 	for _, want := range []string{
 		"AUTO_VPN_MODE=endpoint",
+		"AUTO_VPN_HEALTH_INTERVAL=30s",
 		"AUTO_VPN_V1_INTERVAL=30m",
 		"AUTO_ENDPOINT_UPDATE=yes",
 		"AUTO_ENDPOINT_CRON='*/30 * * * *'",
@@ -318,6 +367,28 @@ func TestSettingsV3SaveSwitchesEndpointAndFullModesTransactionally(t *testing.T)
 	}
 	if strings.Contains(string(cronData), "settings-v3-endpoint-refresh") {
 		t.Fatalf("full AUTO VPN retained endpoint-only scheduler:\n%s", cronData)
+	}
+}
+
+func TestSettingsV3EndpointSchedulerUsesCanonicalCurrentRefresh(t *testing.T) {
+	data, err := os.ReadFile("settings_v3.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	start := strings.Index(src, "var settingsV3ScheduledEndpointRefresh")
+	end := strings.Index(src, "func (a *app) runV3ScheduledEndpointRefresh")
+	if start < 0 || end <= start {
+		t.Fatal("scheduled endpoint refresh implementation missing")
+	}
+	segment := src[start:end]
+	if !strings.Contains(segment, "settingsV3ScheduledCurrentRefresh") {
+		t.Fatal("scheduled endpoint refresh must share canonical current-profile refresh")
+	}
+	for _, legacy := range []string{"ensureAutomationHelper()", "exec.CommandContext(ctx, helper", "automationEndpointUpdateBusy"} {
+		if strings.Contains(segment, legacy) {
+			t.Fatalf("scheduled endpoint refresh still contains legacy updater path %q", legacy)
+		}
 	}
 }
 
@@ -406,9 +477,11 @@ func TestSettingsV3CoreRendersTwoAutoVPNModes(t *testing.T) {
 		`name="fn3Mode" value="best"`,
 		"Только текущий VPN",
 		"Полный AUTO VPN",
+		"fn3HealthInterval",
 		"fn3EndpointInterval",
 		"fn3ReplacementSettings",
 		"auto_vpn_mode:form.mode",
+		"auto_vpn_health_interval:form.healthInterval",
 		"auto_vpn_endpoint_interval:form.endpointInterval",
 	} {
 		if !strings.Contains(text, want) {

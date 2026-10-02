@@ -14,30 +14,25 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
 const (
 	bestServerQualityTCPRuns              = 3
 	bestServerQualityTCPRequired          = 2
-	bestServerQualityTCPWorkers           = 8
 	bestServerQualityTCPTimeout           = 1200 * time.Millisecond
-	bestServerQualityShortlist            = 6
 	bestServerQualityWarmupRuns           = 1
 	bestServerQualityHTTPRuns             = 3
 	bestServerQualityHTTPRequired         = 2
 	bestServerQualityHTTPTimeout          = 5 * time.Second
 	bestServerQualityCandidateTimeout     = 50 * time.Second
 	bestServerQualityScanTimeout          = 420 * time.Second
-	bestServerQualityCacheTTL             = 3 * time.Minute
 	bestServerQualityProbeURL             = "https://www.gstatic.com/generate_204"
 	bestServerQualityNoSpeedPenalty       = 3000
 	bestServerQualityVeryLowSpeedPenalty  = 3200
 	bestServerQualityLowSpeedPenalty      = 1600
 	bestServerQualityModerateSpeedPenalty = 500
 	bestServerQualityHighJitterMS         = 80
-	bestServerQualityHighTCPJitterMS      = 60
 	bestServerQualityMaxApplicationMS     = 220
 )
 
@@ -56,6 +51,8 @@ type bestServerQualityCandidate struct {
 	Available     bool     `json:"available"`
 	TCPRTTMS      int      `json:"tcp_rtt_ms,omitempty"`
 	TCPJitterMS   int      `json:"tcp_jitter_ms,omitempty"`
+	VPNRTTMS      int      `json:"vpn_rtt_ms,omitempty"`
+	VPNJitterMS   int      `json:"vpn_jitter_ms,omitempty"`
 	ApplicationMS int      `json:"application_rtt_ms,omitempty"`
 	JitterMS      int      `json:"jitter_ms,omitempty"`
 	DownloadMbps  float64  `json:"download_mbps,omitempty"`
@@ -98,17 +95,6 @@ type bestServerQualityApplicationResult struct {
 
 type bestServerQualityApplicationProbe func(context.Context, bestServerInternalCandidate) bestServerQualityApplicationResult
 
-type bestServerQualityCacheEntry struct {
-	Key      string
-	StoredAt time.Time
-	Response bestServerQualityResponse
-}
-
-var bestServerQualityCache struct {
-	sync.Mutex
-	Entry bestServerQualityCacheEntry
-}
-
 func registerBestServerQualityAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/vpn/best", a.requireAuth(a.handleBestServerQuality))
 }
@@ -147,75 +133,8 @@ func (a *app) handleBestServerQuality(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) scanBestServerQuality(ctx context.Context, force bool) (bestServerQualityResponse, error) {
-	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
-	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	cacheKey := "quality-v9|" + a.bestServerCacheKey(currentEndpoint)
-	if !force {
-		bestServerQualityCache.Lock()
-		entry := bestServerQualityCache.Entry
-		bestServerQualityCache.Unlock()
-		if entry.Key == cacheKey && !entry.StoredAt.IsZero() && time.Since(entry.StoredAt) < bestServerQualityCacheTTL {
-			return cloneBestServerQualityResponse(entry.Response), nil
-		}
-	}
-
-	all, total, truncated, err := a.discoverBestServerCandidates(ctx)
-	if err != nil {
-		return bestServerQualityResponse{}, err
-	}
-	all = withoutBestServerCurrentLogicalAlternatives(all, currentEndpoint, currentFilter, currentExactProfileLabel(a.cfg.FilterPath))
-	response := rankBestServerQualityCandidates(ctx, all, total, truncated, currentEndpoint, currentFilter, defaultBestServerQualityTCPProbe, a.probeBestServerQualityApplication)
-	if ctx.Err() != nil {
-		return bestServerQualityResponse{}, ctx.Err()
-	}
-	currentPresent := false
-	for i := range response.Candidates {
-		if response.Candidates[i].Current {
-			currentPresent = true
-			break
-		}
-	}
-	if !currentPresent && currentEndpoint != "" && currentFilter != "" {
-		liveCurrent := a.scanActiveCurrentVPNQuality(ctx, currentEndpoint, currentFilter)
-		if len(liveCurrent.Candidates) == 1 && liveCurrent.Candidates[0].Current {
-			response.Candidates = append([]bestServerQualityCandidate{liveCurrent.Candidates[0]}, response.Candidates...)
-		}
-	}
-	response.Success = true
-	response.Mutation = "NONE"
-	response.ScannedAt = time.Now().UTC().Format(time.RFC3339)
-	response.CurrentEndpoint = currentEndpoint
-	if response.Available && response.Recommendation != nil {
-		if response.Recommendation.Current {
-			response.Message = "Текущий VPN имеет лучший подтверждённый баланс скорости, отклика и стабильности."
-		} else {
-			response.Message = "FreeNet нашёл профиль с лучшим подтверждённым балансом скорости, отклика и стабильности."
-		}
-	} else {
-		response.Message = "Недостаточно подтверждённых данных о скорости и стабильности; рекомендация не готова, текущий VPN не изменён."
-	}
-
-	if after := readBestServerCurrentEndpoint(a.cfg.OutPath); after != currentEndpoint {
-		return bestServerQualityResponse{}, errors.New("VPN endpoint changed during Best Server scan")
-	}
-	if afterFilter := readBestServerCurrentFilter(a.cfg.FilterPath); afterFilter != currentFilter {
-		return bestServerQualityResponse{}, errors.New("VPN profile identity changed during Best Server scan")
-	}
-
-	bestServerQualityCache.Lock()
-	bestServerQualityCache.Entry = bestServerQualityCacheEntry{Key: cacheKey, StoredAt: time.Now(), Response: cloneBestServerQualityResponse(response)}
-	bestServerQualityCache.Unlock()
-	return response, nil
-}
-
-func cloneBestServerQualityResponse(in bestServerQualityResponse) bestServerQualityResponse {
-	out := in
-	out.Candidates = append([]bestServerQualityCandidate(nil), in.Candidates...)
-	if in.Recommendation != nil {
-		copyValue := *in.Recommendation
-		out.Recommendation = &copyValue
-	}
-	return out
+	_ = force // retained for compatibility with the legacy query parameter.
+	return a.scanBestServerForeign(ctx)
 }
 
 func rankBestServerQualityCandidates(
@@ -225,114 +144,30 @@ func rankBestServerQualityCandidates(
 	truncated bool,
 	currentEndpoint string,
 	currentFilter string,
-	tcpProbe bestServerTCPProbe,
 	appProbe bestServerQualityApplicationProbe,
 ) bestServerQualityResponse {
-	reportBestServerProgress(ctx, "tcp", 0, len(internal))
 	currentIndex := bestServerCurrentCandidateIndex(internal, currentEndpoint, currentFilter)
 	results := make([]bestServerQualityCandidate, len(internal))
 	for i, candidate := range internal {
 		results[i] = bestServerQualityCandidate{
 			ID: candidate.Profile.ID, Name: candidate.Profile.Name, CountryCode: candidate.Profile.CountryCode,
 			Endpoint: profileEndpoint(candidate.Profile), Current: i == currentIndex,
-			Reason: "endpoint has not been verified",
+			VPNRTTMS: candidate.VPNRTTMS, VPNJitterMS: candidate.VPNJitterMS,
+			Reason: "VPN quality probe pending",
 		}
-	}
-
-	endpointIndexes := make(map[string][]int)
-	endpointOrder := make([]string, 0, len(internal))
-	for i := range internal {
-		endpoint := profileEndpoint(internal[i].Profile)
-		if _, ok := endpointIndexes[endpoint]; !ok {
-			endpointOrder = append(endpointOrder, endpoint)
-		}
-		endpointIndexes[endpoint] = append(endpointIndexes[endpoint], i)
-	}
-
-	jobs := make(chan string)
-	var wg sync.WaitGroup
-	workers := bestServerQualityTCPWorkers
-	if workers > len(endpointOrder) {
-		workers = len(endpointOrder)
-	}
-	for worker := 0; worker < workers; worker++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for endpoint := range jobs {
-				if ctx.Err() != nil {
-					continue
-				}
-				indexes := endpointIndexes[endpoint]
-				if len(indexes) == 0 {
-					continue
-				}
-				probe := tcpProbe(ctx, internal[indexes[0]].Profile)
-				for _, index := range indexes {
-					if probe.OK {
-						results[index].Reachable = true
-						results[index].TCPRTTMS = probe.Median
-						results[index].TCPJitterMS = probe.Jitter
-						results[index].Reason = "endpoint TCP verified; VPN quality probe pending"
-					} else {
-						results[index].Reason = "endpoint TCP probe failed"
-					}
-				}
-			}
-		}()
-	}
-	for _, endpoint := range endpointOrder {
-		if ctx.Err() != nil {
-			break
-		}
-		jobs <- endpoint
-	}
-	close(jobs)
-	wg.Wait()
-
-	reachable := make([]int, 0, len(results))
-	for i := range results {
-		if results[i].Reachable {
-			reachable = append(reachable, i)
-		}
-	}
-	sort.Slice(reachable, func(i, j int) bool {
-		a, b := results[reachable[i]], results[reachable[j]]
-		if a.TCPRTTMS != b.TCPRTTMS {
-			return a.TCPRTTMS < b.TCPRTTMS
-		}
-		if a.TCPJitterMS != b.TCPJitterMS {
-			return a.TCPJitterMS < b.TCPJitterMS
-		}
-		return a.ID < b.ID
-	})
-
-	shortlist := make([]int, 0, bestServerQualityShortlist+1)
-	if currentIndex >= 0 && results[currentIndex].Reachable {
-		shortlist = append(shortlist, currentIndex)
-	}
-	for _, index := range reachable {
-		if len(shortlist) >= bestServerQualityShortlist {
-			break
-		}
-		if index == currentIndex {
-			continue
-		}
-		// Logical profiles remain distinct even when a provider reuses the same
-		// public ingress IP:port for several countries.
-		shortlist = append(shortlist, index)
 	}
 
 	partial := false
-	for position, index := range shortlist {
+	for index := range internal {
 		if ctx.Err() != nil {
+			partial = true
 			break
 		}
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerQualityCandidateTimeout+2*time.Second {
 			partial = true
 			break
 		}
-		reportBestServerProgress(ctx, "quality", position, len(shortlist))
+		reportBestServerProgress(ctx, "quality", index, len(internal))
 		candidateCtx, cancel := context.WithTimeout(ctx, bestServerQualityCandidateTimeout)
 		probe := appProbe(candidateCtx, internal[index])
 		cancel()
@@ -341,6 +176,8 @@ func rankBestServerQualityCandidates(
 			results[index].Reason = "VPN application probe failed; profile is not recommended"
 			continue
 		}
+
+		results[index].Reachable = true
 		results[index].Available = true
 		results[index].DownloadIssue = probe.DownloadIssue
 		results[index].MediaIssue = probe.Media.Issue
@@ -360,9 +197,7 @@ func rankBestServerQualityCandidates(
 
 		baseScore := bestServerQualityScore(
 			probe.HTTP.Median,
-			results[index].TCPRTTMS,
 			probe.HTTP.Jitter,
-			results[index].TCPJitterMS,
 			probe.DownloadMbps,
 			probe.DownloadOK,
 		)
@@ -371,7 +206,8 @@ func rankBestServerQualityCandidates(
 			results[index].Score = 1
 		}
 		stableTransfer := probe.Media.OK && (probe.Media.Grade == "excellent" || probe.Media.Grade == "good")
-		if len(probe.HTTP.Samples) >= bestServerQualityHTTPRuns && probe.DownloadOK && stableTransfer && probe.HTTP.Median <= bestServerQualityMaxApplicationMS && probe.HTTP.Jitter <= bestServerQualityHighJitterMS && results[index].TCPJitterMS <= bestServerQualityHighTCPJitterMS {
+		if len(probe.HTTP.Samples) >= bestServerQualityHTTPRuns && probe.DownloadOK && stableTransfer &&
+			probe.HTTP.Median <= bestServerQualityMaxApplicationMS && probe.HTTP.Jitter <= bestServerQualityHighJitterMS {
 			results[index].Confidence = "high"
 		} else {
 			results[index].Confidence = "medium"
@@ -408,11 +244,14 @@ func rankBestServerQualityCandidates(
 		if results[i].Available && results[i].DownloadMbps != results[j].DownloadMbps {
 			return results[i].DownloadMbps > results[j].DownloadMbps
 		}
-		if results[i].Reachable != results[j].Reachable {
-			return results[i].Reachable
-		}
-		if results[i].TCPRTTMS != results[j].TCPRTTMS {
-			return results[i].TCPRTTMS < results[j].TCPRTTMS
+		if results[i].VPNRTTMS != results[j].VPNRTTMS {
+			if results[i].VPNRTTMS == 0 {
+				return false
+			}
+			if results[j].VPNRTTMS == 0 {
+				return true
+			}
+			return results[i].VPNRTTMS < results[j].VPNRTTMS
 		}
 		return results[i].ID < results[j].ID
 	})
@@ -456,12 +295,10 @@ func defaultBestServerQualityTCPProbe(ctx context.Context, profile subscriptionP
 	return summarizeBestServerSamples(samples, bestServerQualityTCPRequired)
 }
 
-func bestServerQualityScore(httpMS, tcpMS, httpJitterMS, tcpJitterMS int, downloadMbps float64, downloadOK bool) int {
+func bestServerQualityScore(httpMS, httpJitterMS int, downloadMbps float64, downloadOK bool) int {
 	score := 10000
 	score -= minInt(httpMS, 2500) * 2
-	score -= minInt(tcpMS, 1000) * 2
 	score -= minInt(httpJitterMS, 1000) * 3
-	score -= minInt(tcpJitterMS, 500)
 	if downloadOK {
 		score += int(math.Min(downloadMbps, 200) * 25)
 		switch {
@@ -624,5 +461,5 @@ func eligibleBestServerQuality(c bestServerQualityCandidate) bool {
 	return c.Available && c.ApplicationMS > 0 && c.ApplicationMS <= bestServerQualityMaxApplicationMS &&
 		c.DownloadMbps >= 20 && c.MediaSamples >= bestServerMediaRequiredRuns && c.MediaStalls == 0 && (c.MediaGrade == "good" || c.MediaGrade == "excellent") &&
 		c.ServiceTotal >= 3 && c.ServiceOK == c.ServiceTotal &&
-		c.JitterMS <= bestServerQualityHighJitterMS && c.TCPJitterMS <= bestServerQualityHighTCPJitterMS
+		c.JitterMS <= bestServerQualityHighJitterMS
 }

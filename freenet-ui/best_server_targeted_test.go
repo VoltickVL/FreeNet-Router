@@ -7,6 +7,7 @@ import (
     "regexp"
     "strings"
     "testing"
+    "time"
 )
 
 func TestBestServerFreshCandidateForCurrentPrefersExactLocation(t *testing.T) {
@@ -103,7 +104,7 @@ func TestBestServerFreshEndpointRotationUsesFreshEligibilityNotOldScore(t *testi
 }
 
 
-func TestFreshEndpointReadinessUsesLightOffPathProbes(t *testing.T) {
+func TestFreshEndpointReadinessUsesVPNApplicationAsOnlyMutationGate(t *testing.T) {
 	oldTCP := bestServerEndpointTCPProbe
 	oldApp := bestServerEndpointApplicationProbe
 	t.Cleanup(func() {
@@ -112,7 +113,7 @@ func TestFreshEndpointReadinessUsesLightOffPathProbes(t *testing.T) {
 	})
 
 	bestServerEndpointTCPProbe = func(_ context.Context, _ subscriptionProfile) bestServerProbeResult {
-		return bestServerProbeResult{OK: true, Samples: []int{11}, Median: 11}
+		return bestServerProbeResult{}
 	}
 	bestServerEndpointApplicationProbe = func(_ *app, _ context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
 		return bestServerProbeResult{OK: true, Samples: []int{42, 44}, Median: 43, Jitter: 2}
@@ -125,8 +126,35 @@ func TestFreshEndpointReadinessUsesLightOffPathProbes(t *testing.T) {
 	if got == nil || !got.Tested || !got.Available || !got.Eligible {
 		t.Fatalf("validated fresh endpoint must be eligible: %#v", got)
 	}
-	if got.TCPRTTMS != 11 || got.ApplicationMS != 43 || got.DownloadMbps != 0 || got.MediaSamples != 0 {
-		t.Fatalf("same-profile readiness must use TCP+application evidence only, without Speedtest/media ranking: %#v", got)
+	if got.TCPRTTMS != 0 || got.ApplicationMS != 43 || got.DownloadMbps != 0 || got.MediaSamples != 0 {
+		t.Fatalf("same-profile readiness must be gated by isolated VPN application evidence only; raw TCP is diagnostic: %#v", got)
+	}
+}
+
+func TestFreshEndpointReadinessDoesNotWaitForDiagnosticTCP(t *testing.T) {
+	oldTCP := bestServerEndpointTCPProbe
+	oldApp := bestServerEndpointApplicationProbe
+	t.Cleanup(func() {
+		bestServerEndpointTCPProbe = oldTCP
+		bestServerEndpointApplicationProbe = oldApp
+	})
+
+	bestServerEndpointTCPProbe = func(ctx context.Context, _ subscriptionProfile) bestServerProbeResult {
+		<-ctx.Done()
+		return bestServerProbeResult{}
+	}
+	bestServerEndpointApplicationProbe = func(_ *app, _ context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{90, 94}, Median: 92, Jitter: 4}
+	}
+	started := time.Now()
+	got := (&app{}).probeBestServerFreshEndpointReadiness(context.Background(), bestServerInternalCandidate{Profile: subscriptionProfile{
+		ID: "1234567890abcdef", Name: "DE Frankfurt Extra", Address: "203.0.113.23", Port: 443,
+	}})
+	if got == nil || !got.Tested || !got.Available || !got.Eligible {
+		t.Fatalf("application-proven fresh endpoint must not be vetoed by hanging diagnostic TCP: %#v", got)
+	}
+	if time.Since(started) >= bestServerEndpointReadinessTimeout/2 {
+		t.Fatalf("diagnostic TCP delayed readiness decision: elapsed=%s", time.Since(started))
 	}
 }
 

@@ -342,6 +342,7 @@
       return n > 0 ? `${n.toFixed(n >= 100 ? 0 : 1)} Мбит/с` : '—';
     }
     if (key === 'http') return candidate.application_rtt_ms ? `${candidate.application_rtt_ms} мс` : '—';
+    if (key === 'vpn') return candidate.vpn_rtt_ms ? `${candidate.vpn_rtt_ms} мс` : '—';
     if (key === 'tcp') return candidate.tcp_rtt_ms ? `${candidate.tcp_rtt_ms} мс` : '—';
     if (key === 'jitter') return Number.isFinite(Number(candidate.jitter_ms)) ? `${candidate.jitter_ms} мс` : '—';
     return '—';
@@ -377,7 +378,8 @@
     root.textContent = '';
     root.appendChild(metricPill('Скорость VPN', metric(candidate, 'speed'), 'speed', candidate?.eligible === true));
     root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline)));
-    root.appendChild(metricPill('Связь с сервером', metric(candidate, 'tcp'), 'tcp', false));
+    const hasVPNPing = Number(candidate?.vpn_rtt_ms || 0) > 0;
+    root.appendChild(metricPill(hasVPNPing ? 'VPN-пинг' : 'Связь с сервером', hasVPNPing ? metric(candidate, 'vpn') : metric(candidate, 'tcp'), 'tcp', false));
     root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter'), 'jitter', false));
   }
 
@@ -523,9 +525,9 @@
       seen.add(candidate.id);
       return true;
     });
-    const preferred = pool.filter(candidate => candidate.eligible === true);
-    const diagnostic = pool.filter(candidate => candidate.eligible !== true);
-    return preferred.concat(diagnostic).slice(0, 3);
+    // Final Best Server cards are recommendations, not a diagnostic dump.
+    // Never fill a missing Top-3 slot with a rejected/near-miss profile.
+    return pool.filter(candidate => candidate.eligible === true).slice(0, 3);
   }
 
   function sameCandidate(a, b) {
@@ -575,7 +577,7 @@
     alternatives = comparisonCandidates(data, current);
     const box = qs('#bestServerResult');
     if (!alternatives.length) {
-      clearAlternatives('Проверенных зарубежных вариантов для сравнения сейчас нет. Текущий VPN сохранён.');
+      clearAlternatives('Проверенных подходящих VPN сейчас нет. Текущий VPN сохранён.');
       setText(qs('#bestServerStatus'), data && data.message || 'Сравнение сейчас недоступно.');
       return;
     }
@@ -737,7 +739,7 @@
         if(job.state!=='running')throw new Error('Invalid quality job state');
         stage.textContent=job.stage==='quality'?`Глубоко проверяем лучшие VPN · проверено ${job.completed} · цель до 3 подходящих`:job.stage==='preflight'?`Сравниваем реальный отклик через VPN · завершено ${job.completed} из ${job.total}`:job.stage==='tcp'?'Проверяем доступность серверов…':'Получаем профили подписки…';
         if(job.stage==='preflight'&&job.total>0){progress.max=job.total;progress.value=job.completed}else progress.removeAttribute('value');
-        if(Date.now()-started>230000)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
+        if(Date.now()-started>340000)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
       }
       return response;
     } finally {clearInterval(ticker);panel.remove();if(controls)controls.inert=wasInert;if(focused?.isConnected)focused.focus();}
@@ -763,7 +765,7 @@
         setText(qs('#bestServerStatus'),`Подбор не завершён (HTTP ${response.status}). ${detail}`);return;
       }
       renderBestResult(body);if(body.partial)setText(qs('#bestServerStatus'),'Проверка завершена в пределах лимита времени. Показаны только измеренные варианты; часть кандидатов не проверена.');
-    } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено время ожидания ответа (210 с).':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
+    } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено безопасное время ожидания ответа.':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
   }
 
   async function waitForEndpoint(expected) {

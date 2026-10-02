@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -39,12 +38,8 @@ type automationHealthProbe struct {
 	Reason string
 }
 
-var automationEndpointUpdateCommand = func(a *app, ctx context.Context) ([]byte, error) {
-	return runCommand(ctx, a.cfg.VPNPath, "update")
-}
-
-var automationEndpointPostProbe = func(a *app, ctx context.Context) automationHealthProbe {
-	return a.probeAutomationCurrentVPN(ctx)
+var automationEndpointCurrentRefresh = func(a *app, ctx context.Context) (int, bestServerRefreshResponse) {
+	return a.executeBestServerCurrentRefresh(ctx)
 }
 
 func automationEndpointUpdateBusy(out []byte) bool {
@@ -323,7 +318,7 @@ func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings a
 	}
 	defer release()
 
-	ctx, cancel := context.WithTimeout(parent, automationBestTimeout)
+	ctx, cancel := context.WithTimeout(parent, automationBestForeignTimeout(automationPolicyDegraded))
 	defer cancel()
 	currentCountry := automationCurrentCountry(a)
 	if currentCountry == "" {
@@ -378,34 +373,58 @@ func (a *app) runAutomationEndpointEmergency(parent context.Context, settings au
 		return automationHealthResult{State: automationHealthCritical, Reason: "Текущий VPN недоступен, но автоматическое восстановление выключено."}, nil
 	}
 
-	before, _ := os.ReadFile(a.cfg.OutPath)
-	ctx, cancel := context.WithTimeout(parent, 150*time.Second)
-	defer cancel()
-	out, err := automationEndpointUpdateCommand(a, ctx)
-	if err != nil {
-		if automationEndpointUpdateBusy(out) {
-			return automationHealthResult{State: automationHealthUncertain, Reason: "Обновление текущего VPN уже выполняется другой операцией; следующая mutation отменена."}, errAutomationBusy
-		}
-		if automationEndpointRollbackUnknown(out) {
-			return automationHealthResult{State: automationHealthCritical, Reason: "Штатное обновление текущего VPN завершилось ошибкой; rollback failed or unknown."}, err
-		}
-		return automationHealthResult{State: automationHealthCritical, Reason: "Штатное обновление текущего VPN не завершено; текущая конфигурация не считается восстановленной."}, err
+	// Use the same transactional current-profile refresh as manual refresh and
+	// scheduled subscription reconciliation. It fetches a fresh provider
+	// revision, validates it off-path, snapshots runtime state, applies it,
+	// performs the post-apply VPN Internet acceptance and rolls back on failure.
+	// The legacy `vpn update` path must not be a second recovery engine.
+	ctx, cancel := context.WithTimeout(parent, bestServerRefreshTimeout)
+	status, refresh := automationEndpointCurrentRefresh(a, ctx)
+	cancel()
+
+	message := strings.TrimSpace(refresh.Message)
+	if message == "" {
+		message = strings.TrimSpace(refresh.Error)
+	}
+	rollback := strings.TrimSpace(refresh.RollbackState)
+	if rollback == "" {
+		rollback = "NOT_APPLIED"
 	}
 
-	after, _ := os.ReadFile(a.cfg.OutPath)
-	mutated := len(before) > 0 && len(after) > 0 && !bytes.Equal(before, after)
-	probeCtx, cancelProbe := context.WithTimeout(parent, automationHealthProbeTimeout)
-	probe := automationEndpointPostProbe(a, probeCtx)
-	cancelProbe()
-	switch probe.State {
-	case automationHealthHealthy:
-		reason := "Текущий VPN восстановлен штатным обновлением профиля и подтверждён проверкой доступа через VPN."
-		return automationHealthResult{State: automationHealthHealthy, Reason: reason, Mutated: mutated}, nil
-	case automationHealthUncertain:
-		return automationHealthResult{State: automationHealthUncertain, Reason: "После штатного обновления состояние VPN не удалось однозначно подтвердить; следующая mutation отменена.", Mutated: mutated}, nil
-	default:
-		return automationHealthResult{State: automationHealthFailed, Reason: "Штатное обновление профиля выполнено, но доступ через текущий VPN не восстановился.", Mutated: mutated}, nil
+	if status >= 200 && status < 300 && refresh.Success && refresh.Applied {
+		if message == "" {
+			message = "Текущий VPN восстановлен штатным обновлением текущего профиля и подтверждён post-apply проверкой."
+		}
+		return automationHealthResult{State: automationHealthHealthy, Reason: message, Mutated: true}, nil
 	}
+
+	if rollback == "FAILED/UNKNOWN" {
+		if message == "" {
+			message = "Штатное обновление текущего VPN завершилось с неизвестным состоянием rollback."
+		}
+		return automationHealthResult{State: automationHealthCritical, Reason: message}, errors.New("current VPN refresh rollback failed or is unknown")
+	}
+
+	// A conflict means the current identity/runtime changed underneath the
+	// decision. Fail closed: do not launch a second mutation in this cycle.
+	if status == 409 {
+		if message == "" {
+			message = "Состояние текущего VPN изменилось во время восстановления; следующая mutation отменена."
+		}
+		return automationHealthResult{State: automationHealthUncertain, Reason: message}, errAutomationBusy
+	}
+
+	if status >= 200 && status < 300 && refresh.Success {
+		if message == "" {
+			message = "Свежий вариант текущего VPN не восстановил соединение; требуется полностью проверенная замена."
+		}
+		return automationHealthResult{State: automationHealthFailed, Reason: message}, nil
+	}
+
+	if message == "" {
+		message = "Штатное обновление текущего VPN не завершено; текущая конфигурация не считается восстановленной."
+	}
+	return automationHealthResult{State: automationHealthFailed, Reason: message}, errors.New("canonical current VPN refresh failed")
 }
 
 func recordAndReturnHealth(result automationHealthResult, err error) (automationHealthResult, error) {
@@ -429,6 +448,51 @@ func appendAutomationRecoveryStage(stage, result, reason string) {
 	appendAutomationHistoryV2(stage+":"+result, reason)
 }
 
+func automationHealthDue(configPath string, now time.Time) bool {
+	interval := automationHealthIntervalDuration(configuredAutomationHealthInterval(configPath))
+	if interval <= 0 {
+		return false
+	}
+	state := v3ParseState(settingsV3StatePath())
+	last := strings.TrimSpace(state["HEALTH_SCHEDULE_LAST"])
+	if last == "" {
+		last = strings.TrimSpace(state["HEALTH_LAST"])
+	}
+	if last == "" {
+		return true
+	}
+	stamp, err := time.Parse(time.RFC3339, last)
+	if err != nil {
+		return true
+	}
+	return !now.Before(stamp.Add(interval))
+}
+
+func (a *app) runScheduledAutomationHealthWatch(parent context.Context) (bool, automationHealthResult, error) {
+	settings := readAutomationSettings(a.cfg.ConfigPath)
+	if !settings.Enabled || !automationHealthDue(a.cfg.ConfigPath, time.Now().UTC()) {
+		return false, automationHealthResult{}, nil
+	}
+	result, err := a.runAutomationHealthWatch(parent)
+	return true, result, err
+}
+
+func (a *app) startAutomationHealthScheduler() {
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if configuredAutomationHealthInterval(a.cfg.ConfigPath) != "30s" {
+				continue
+			}
+			if !automationHealthDue(a.cfg.ConfigPath, time.Now().UTC()) {
+				continue
+			}
+			_, _, _ = a.runScheduledAutomationHealthWatch(context.Background())
+		}
+	}()
+}
+
 func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealthResult, error) {
 	settings := readAutomationSettings(a.cfg.ConfigPath)
 	if !settings.Enabled {
@@ -439,6 +503,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		return recordAndReturnHealth(automationHealthResult{State: "busy", Reason: "Проверка пропущена: предыдущая AUTO VPN операция ещё выполняется."}, nil)
 	}
 	defer release()
+	_ = v3WriteState(map[string]string{"HEALTH_SCHEDULE_LAST": time.Now().UTC().Format(time.RFC3339)})
 
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
 	first := a.probeAutomationCurrentVPN(probeCtx)
@@ -523,7 +588,13 @@ func init() {
 		return
 	}
 	a := &app{cfg: automationCLIConfig(), sem: make(chan struct{}, 1)}
-	result, err := a.runAutomationHealthWatch(context.Background())
+	ran, result, err := a.runScheduledAutomationHealthWatch(context.Background())
+	if !ran {
+		fmt.Println("RESULT=not_due")
+		fmt.Println("REASON=VPN health watchdog is not due yet")
+		fmt.Println("MUTATION=NONE")
+		os.Exit(0)
+	}
 	fmt.Printf("RESULT=%s\n", sanitizeAutomationReason(result.State))
 	fmt.Printf("REASON=%s\n", sanitizeAutomationReason(result.Reason))
 	if result.Mutated {

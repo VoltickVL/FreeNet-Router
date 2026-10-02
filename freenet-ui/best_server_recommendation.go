@@ -113,6 +113,16 @@ func resetBestServerRecommendationToFirstEligible(response *bestServerQualityRes
 	}
 }
 
+func cloneBestServerQualityResponse(in bestServerQualityResponse) bestServerQualityResponse {
+	out := in
+	out.Candidates = append([]bestServerQualityCandidate(nil), in.Candidates...)
+	if in.Recommendation != nil {
+		copyValue := *in.Recommendation
+		out.Recommendation = &copyValue
+	}
+	return out
+}
+
 func applyBestServerRecommendationDeadband(response bestServerQualityResponse) bestServerQualityResponse {
 	out := cloneBestServerQualityResponse(response)
 	for i := range out.Candidates {
