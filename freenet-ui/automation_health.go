@@ -171,6 +171,19 @@ func classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal i
 	return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."}
 }
 
+func classifyAutomationApplicationFailure(transportOK bool) automationHealthProbe {
+	if transportOK {
+		return automationHealthProbe{
+			State: automationHealthUncertain,
+			Reason: "VPN-транспорт отвечает, но независимые HTTPS/DNS проверки по именам не подтверждены. AUTO VPN сохраняет текущее подключение без изменений.",
+		}
+	}
+	return automationHealthProbe{
+		State: automationHealthFailed,
+		Reason: "Текущий VPN не подтвердил доступ ни через независимые HTTPS-проверки, ни через IP-транспорт.",
+	}
+}
+
 func probeAutomationWAN(ctx context.Context) bool {
 	targets := []string{"1.1.1.1:443", "77.88.8.8:53"}
 	dialer := &net.Dialer{Timeout: 2 * time.Second}
@@ -287,16 +300,7 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
 	applicationMS, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks)
 	if !ok {
-		if probeBestServerTransportIP(ctx, curlPath, socks) {
-			return automationHealthProbe{
-				State: automationHealthUncertain,
-				Reason: "VPN-транспорт отвечает, но независимые HTTPS/DNS проверки по именам не подтверждены. AUTO VPN сохраняет текущее подключение без изменений.",
-			}
-		}
-		return automationHealthProbe{
-			State: automationHealthFailed,
-			Reason: "Текущий VPN не подтвердил доступ ни через независимые HTTPS-проверки, ни через IP-транспорт.",
-		}
+		return classifyAutomationApplicationFailure(probeBestServerTransportIP(ctx, curlPath, socks))
 	}
 	serviceOK, serviceTotal := probeBestServerServiceReachability(ctx, curlPath, socks)
 	return classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal)
