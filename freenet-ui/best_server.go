@@ -30,13 +30,16 @@ const (
 	bestServerApplicationLimit = 6 * time.Second
 	bestServerScanTimeout      = 75 * time.Second
 	bestServerCacheTTL         = 3 * time.Minute
-	bestServerProbeURL         = "https://www.gstatic.com/generate_204"
-	defaultBestServerXrayPath  = "/opt/sbin/xray"
+	bestServerProbeURL              = "https://www.gstatic.com/generate_204"
+	bestServerSOCKSStartupTimeout    = 3 * time.Second
+	defaultBestServerXrayPath       = "/opt/sbin/xray"
 )
 
 type bestServerInternalCandidate struct {
-	Profile subscriptionProfile
-	Raw     string
+	Profile     subscriptionProfile
+	Raw         string
+	VPNRTTMS    int
+	VPNJitterMS int
 }
 
 type bestServerCandidate struct {
@@ -766,7 +769,7 @@ func reserveBestServerPort() (int, error) {
 }
 
 func waitBestServerSOCKS(ctx context.Context, port int) bool {
-	deadline := time.NewTimer(3 * time.Second)
+	deadline := time.NewTimer(bestServerSOCKSStartupTimeout)
 	defer deadline.Stop()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
