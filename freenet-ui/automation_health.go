@@ -379,7 +379,7 @@ func (a *app) runAutomationEndpointEmergency(parent context.Context, settings au
 	}
 
 	before, _ := os.ReadFile(a.cfg.OutPath)
-	ctx, cancel := context.WithTimeout(parent, 150*time.Second)
+	ctx, cancel := context.WithTimeout(parent, bestServerRefreshTimeout)
 	defer cancel()
 	out, err := automationEndpointUpdateCommand(a, ctx)
 	if err != nil {
