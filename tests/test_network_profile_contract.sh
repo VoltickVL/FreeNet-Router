@@ -93,7 +93,7 @@ run_network() {
 }
 state_set() { key="$1"; value="$2"; t="$STATE.tmp.$$"; grep -v "^${key}=" "$STATE" > "$t" || true; echo "${key}=${value}" >> "$t"; mv "$t" "$STATE"; }
 hash_in() { jq -cS '[.inbounds[]? | select((((.port // "") | tostring) != "53"))]' "$TROOT/etc/xray/configs/03_inbounds.json" | sha256sum | awk '{print $1}'; }
-hash_out() { jq -cS '[.outbounds[]? | select((.tag // "") != "dns-out")]' "$TROOT/etc/xray/configs/04_outbounds.json" | sha256sum | awk '{print $1}'; }
+hash_out() { jq -cS '[.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end]' "$TROOT/etc/xray/configs/04_outbounds.json" | sha256sum | awk '{print $1}'; }
 hash_route() { jq -cS '[.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select((((.port // "") | tostring) != "53"))]' "$TROOT/etc/xray/configs/05_routing.json" | sha256sum | awk '{print $1}'; }
 
 H02="$(sha256sum "$TROOT/etc/xray/configs/02_dns.json" | awk '{print $1}')"; HIN="$(hash_in)"; HOUT="$(hash_out)"; HROUTE="$(hash_route)"
@@ -146,6 +146,7 @@ grep -Fq 'filter assign interface preset Home cloudflare-unfiltered' "$TROOT/etc
 [ "$(sha256sum "$TROOT/etc/freenet/native-dns/02_dns.native" | awk '{print $1}')" = "$H02" ] || fail 'native 02 snapshot changed'
 jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==1' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'split :53 missing'
 jq -e '([.outbounds[]? | select(.tag=="dns-out" and .protocol=="dns")] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'dns-out missing'
+jq -e '([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'Split DIRECT self-bypass mark missing'
 jq -e '([.routing.rules[]? | select(((.inboundTag // [])|index("dns-vless"))!=null and .outboundTag=="vless-reality")] | length)==1' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'dns-vless route missing'
 # First-match parity: YouTube VPN rule precedes the broader Google DIRECT rule and
 # therefore its DNS selector must also precede the Google selector and terminate fallback.
@@ -179,6 +180,7 @@ grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'ndnproxy did not regain :53'
 [ "$(sha256sum "$TROOT/etc/xray/configs/02_dns.json" | awk '{print $1}')" = "$H02" ] || fail 'native 02 not restored byte-for-byte'
 jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==0' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'native still has Xray :53'
 jq -e '([.outbounds[]? | select(.tag=="dns-out")] | length)==0' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'native still has dns-out'
+jq -e '([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'native DIRECT self-bypass mark missing'
 [ "$(hash_in)" = "$HIN" ] || fail 'native changed non-DNS inbounds'
 [ "$(hash_out)" = "$HOUT" ] || fail 'native changed VPN/non-DNS outbounds'
 [ "$(hash_route)" = "$HROUTE" ] || fail 'native changed non-DNS routing'
