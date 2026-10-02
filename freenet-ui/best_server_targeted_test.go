@@ -7,6 +7,7 @@ import (
     "regexp"
     "strings"
     "testing"
+    "time"
 )
 
 func TestBestServerFreshCandidateForCurrentPrefersExactLocation(t *testing.T) {
