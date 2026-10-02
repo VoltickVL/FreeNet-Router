@@ -30,6 +30,14 @@ const server = http.createServer((req,res)=>{
   const browser=await chromium.launch({headless:true});
   try {
     const page=await browser.newPage({viewport:{width:1440,height:1000}});
+    await page.addInitScript(() => {
+      const proto = Object.getPrototypeOf(globalThis.crypto);
+      if (proto && Object.prototype.hasOwnProperty.call(proto, 'randomUUID')) {
+        try { Object.defineProperty(proto, 'randomUUID', {value: undefined, configurable: true}); } catch (_) {}
+      } else {
+        try { Object.defineProperty(globalThis.crypto, 'randomUUID', {value: undefined, configurable: true}); } catch (_) {}
+      }
+    });
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     const calls=[];let pending=[];let mode='ok';let bestMode='winner';
     let applyMode='ok', operation=null, operationReads=0, providerPlanMode='ok';
@@ -106,6 +114,7 @@ const server = http.createServer((req,res)=>{
     const base=`http://127.0.0.1:${server.address().port}`;
     await page.goto(base);
     await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
+    assert.equal(await page.evaluate(()=>typeof globalThis.crypto.randomUUID), 'undefined', 'browser fixture must reproduce insecure-LAN randomUUID absence');
     await page.waitForTimeout(150);
     // v0.3.8 regression guard: any ordinary DOM mutation must leave the browser event loop alive.
     await page.evaluate(() => {
