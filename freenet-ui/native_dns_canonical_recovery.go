@@ -100,8 +100,17 @@ func managedSplitResolverPair(currentDNS map[string]any) (direct, vpn string, er
 			vpn = address
 		}
 	}
-	if direct == "" || vpn == "" {
-		return "", "", errors.New("current Split resolver pair неполна")
+	if vpn == "" {
+		return "", "", errors.New("current Split dns-vless resolver отсутствует")
+	}
+	if direct == "" {
+		if vpn == "https://8.8.8.8/dns-query" {
+			return "77.88.8.8", vpn, nil
+		}
+		if settingsDNSProviderFromEndpoint(vpn) != "" {
+			return settingsDNSYandexDoH, vpn, nil
+		}
+		return "", "", errors.New("current Split vpn resolver не принадлежит поддерживаемому FreeNet catalog")
 	}
 	if direct == "77.88.8.8" && vpn == "https://8.8.8.8/dns-query" {
 		return direct, vpn, nil
