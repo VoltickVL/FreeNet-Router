@@ -323,7 +323,7 @@ func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings a
 	}
 	defer release()
 
-	ctx, cancel := context.WithTimeout(parent, automationBestTimeout)
+	ctx, cancel := context.WithTimeout(parent, automationBestForeignTimeout(automationPolicyDegraded))
 	defer cancel()
 	currentCountry := automationCurrentCountry(a)
 	if currentCountry == "" {
