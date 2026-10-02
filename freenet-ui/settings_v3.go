@@ -947,8 +947,16 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 }
 
 func recordSettingsV3Health(result automationHealthResult) {
+	previous := v3ParseState(settingsV3StatePath())
 	now := time.Now().UTC().Format(time.RFC3339)
 	_ = v3WriteState(map[string]string{"HEALTH_LAST": now, "HEALTH_RESULT": result.State, "HEALTH_MESSAGE": result.Reason})
+
+	// Keep the 5-minute health timestamp current without flooding the Journal
+	// with identical rows. Recovery transitions and reason changes are still
+	// recorded immediately and remain visible much longer in the bounded log.
+	if previous["HEALTH_RESULT"] == result.State && previous["HEALTH_MESSAGE"] == result.Reason {
+		return
+	}
 	resultCode := result.State
 	if result.State == automationHealthHealthy {
 		resultCode = "success"
