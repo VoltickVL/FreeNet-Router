@@ -246,16 +246,29 @@
       if (typeof window.freenetProviderRTTScan!=='function') throw new Error('rtt');
       const data=await window.freenetProviderRTTScan();
       const next=new Map();
-      let reachable=0;
+      let reachable=0, checked=0, unknown=0, transportOnly=0;
       for (const item of data.results) {
         if (!item || typeof item.profile_id!=='string') continue;
-        const value={reachable:!!item.reachable,rtt_ms:Number(item.rtt_ms||0),jitter_ms:Number(item.jitter_ms||0)};
+        const status=String(item.status||'');
+        const attempted=item.attempted!==false && status!=='unknown';
+        const value={reachable:!!item.reachable,attempted,status,rtt_ms:Number(item.rtt_ms||0),jitter_ms:Number(item.jitter_ms||0)};
         if (value.reachable) reachable++;
+        if (attempted) checked++; else unknown++;
+        if (status==='transport_only') transportOnly++;
         next.set(item.profile_id,value);
       }
       rttByID=next; rttRanked=true; rttVersion++;
-      rttSummary=`VPN-пинг: ответили ${reachable} из ${data.results.length}. Список отсортирован от меньшей задержки к большей.`;
+      const total=data.results.length;
+      const serverChecked=Number.isFinite(Number(data.checked))?Number(data.checked):checked;
+      const serverUnknown=Number.isFinite(Number(data.unknown))?Number(data.unknown):unknown;
+      const serverReachable=Number.isFinite(Number(data.reachable))?Number(data.reachable):reachable;
+      const serverTransport=Number.isFinite(Number(data.transport_only))?Number(data.transport_only):transportOnly;
+      const suffix=serverTransport? ` · VPN-транспорт есть, DNS/HTTPS не подтверждён: ${serverTransport}` : '';
+      rttSummary=data.partial
+        ? `VPN-пинг завершён частично: ответили ${serverReachable} из ${serverChecked}, не проверено ${serverUnknown} из ${total}${suffix}.`
+        : `VPN-пинг: ответили ${serverReachable} из ${serverChecked}${suffix}. Список отсортирован от меньшей задержки к большей.`;
     } catch (_) {
+      rttByID.clear(); rttRanked=false; rttVersion++;
       rttError=L.pingFailed;
     } finally {
       rttScanning=false; listKey=''; paint();
@@ -263,14 +276,18 @@
   }
   function rttSortValue(profile) {
     const value=rttByID.get(profile.id);
-    if (!value) return Number.MAX_SAFE_INTEGER-1;
-    if (!value.reachable || !value.rtt_ms) return Number.MAX_SAFE_INTEGER;
-    return value.rtt_ms;
+    if (!value) return Number.MAX_SAFE_INTEGER-2;
+    if (value.reachable && value.rtt_ms) return value.rtt_ms;
+    if (value.status==='transport_only') return Number.MAX_SAFE_INTEGER-3;
+    if (!value.attempted || value.status==='unknown') return Number.MAX_SAFE_INTEGER-2;
+    return Number.MAX_SAFE_INTEGER;
   }
   function rttLabel(profile) {
     const value=rttByID.get(profile.id);
     if (!rttRanked && !rttScanning) return ['', ''];
     if (!value) return [rttScanning?'…':'—',''];
+    if (value.status==='transport_only') return ['VPN есть · DNS?','slow'];
+    if (!value.attempted || value.status==='unknown') return ['не проверен',''];
     if (!value.reachable || !value.rtt_ms) return ['нет ответа','dead'];
     const ms=value.rtt_ms;
     return [ms+' мс',ms<=120?'fast':ms<=200?'ok':ms<=300?'slow':'dead'];
