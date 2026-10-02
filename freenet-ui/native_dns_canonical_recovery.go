@@ -53,7 +53,7 @@ func canonicalNativeDNSFromCurrentManagedSplit() ([]byte, error) {
 
 	expected, err := expectedFreeNetManagedSplitDNSForCurrent(routing, currentDNS)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("current 02_dns не совпадает с детерминированным FreeNet-managed Split; STOP без догадки: %w", err)
 	}
 	if !reflect.DeepEqual(currentDNS, expected) {
 		return nil, errors.New("current 02_dns не совпадает с детерминированным FreeNet-managed Split; STOP без догадки")
