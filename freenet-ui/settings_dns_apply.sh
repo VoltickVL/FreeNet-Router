@@ -248,9 +248,9 @@ verify_target() {
 }
 
 snapshot() {
-    stamp="$(date +%Y%m%d-%H%M%S 2>/dev/null || printf '%s' $)"
+    stamp="$(date +%Y%m%d-%H%M%S 2>/dev/null || printf '%s' $$)"
     mkdir -p "$BACKUP_ROOT" || return 1
-    BACKUP_DIR="$BACKUP_ROOT/freenet-settings-dns-$stamp-$"
+    BACKUP_DIR="$BACKUP_ROOT/freenet-settings-dns-$stamp-$$"
     mkdir "$BACKUP_DIR" || return 1
     cp -p "$DNS_FILE" "$BACKUP_DIR/02_dns.json" || return 1
     cp -p "$OUT_FILE" "$BACKUP_DIR/04_outbounds.json" || return 1
@@ -260,10 +260,10 @@ rollback() {
     [ -n "$BACKUP_DIR" ] && [ -f "$BACKUP_DIR/02_dns.json" ] && [ -f "$BACKUP_DIR/04_outbounds.json" ] || return 1
     dns_before="$(sha256sum "$BACKUP_DIR/02_dns.json" | awk '{print $1}')"
     out_before="$(sha256sum "$BACKUP_DIR/04_outbounds.json" | awk '{print $1}')"
-    cp -p "$BACKUP_DIR/02_dns.json" "$DNS_FILE.rollback.$" || return 1
-    cp -p "$BACKUP_DIR/04_outbounds.json" "$OUT_FILE.rollback.$" || return 1
-    mv -f "$DNS_FILE.rollback.$" "$DNS_FILE" || return 1
-    mv -f "$OUT_FILE.rollback.$" "$OUT_FILE" || return 1
+    cp -p "$BACKUP_DIR/02_dns.json" "$DNS_FILE.rollback.$$" || return 1
+    cp -p "$BACKUP_DIR/04_outbounds.json" "$OUT_FILE.rollback.$$" || return 1
+    mv -f "$DNS_FILE.rollback.$$" "$DNS_FILE" || return 1
+    mv -f "$OUT_FILE.rollback.$$" "$OUT_FILE" || return 1
     restart_xkeen || return 1
     dns_after="$(sha256sum "$DNS_FILE" | awk '{print $1}')"
     out_after="$(sha256sum "$OUT_FILE" | awk '{print $1}')"
@@ -297,10 +297,10 @@ apply() {
         return 0
     fi
     snapshot || { fail_no_apply 'не удалось создать snapshot DNS/DIRECT egress'; return 1; }
-    cp -p "$TMP_DIR/02_dns.json" "$DNS_FILE.freenet.$" || { fail_no_apply 'не удалось staged-copy resolver candidate'; return 1; }
-    cp -p "$TMP_DIR/04_outbounds.json" "$OUT_FILE.freenet.$" || { rm -f "$DNS_FILE.freenet.$" 2>/dev/null || true; fail_no_apply 'не удалось staged-copy DIRECT egress candidate'; return 1; }
-    mv -f "$DNS_FILE.freenet.$" "$DNS_FILE" || { rm -f "$OUT_FILE.freenet.$" 2>/dev/null || true; fail_no_apply 'не удалось atomically install resolver candidate'; return 1; }
-    if ! mv -f "$OUT_FILE.freenet.$" "$OUT_FILE"; then
+    cp -p "$TMP_DIR/02_dns.json" "$DNS_FILE.freenet.$$" || { fail_no_apply 'не удалось staged-copy resolver candidate'; return 1; }
+    cp -p "$TMP_DIR/04_outbounds.json" "$OUT_FILE.freenet.$$" || { rm -f "$DNS_FILE.freenet.$$" 2>/dev/null || true; fail_no_apply 'не удалось staged-copy DIRECT egress candidate'; return 1; }
+    mv -f "$DNS_FILE.freenet.$$" "$DNS_FILE" || { rm -f "$OUT_FILE.freenet.$$" 2>/dev/null || true; fail_no_apply 'не удалось atomically install resolver candidate'; return 1; }
+    if ! mv -f "$OUT_FILE.freenet.$$" "$OUT_FILE"; then
         err 'PRIMARY ERROR: не удалось atomically install DIRECT egress candidate'
         rollback && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
         return 1
