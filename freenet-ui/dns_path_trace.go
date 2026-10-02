@@ -87,7 +87,7 @@ func (a *app) handleDNSPathTrace(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, dnsPathTraceResponse{Success: false, Host: host, DNSMode: dnsMode, ActiveSplit: true, Mutation: "NONE", Error: err.Error()})
 		return
 	}
-	expectedDNS, err := expectedFreeNetManagedSplitDNS(routing)
+	expectedDNS, err := expectedFreeNetManagedSplitDNSForCurrent(routing, currentDNS)
 	if err != nil || !reflect.DeepEqual(currentDNS, expectedDNS) {
 		writeJSON(w, http.StatusConflict, dnsPathTraceResponse{Success: false, Host: host, DNSMode: dnsMode, ActiveSplit: true, Mutation: "NONE", Error: "current 02_dns не является точным зеркалом текущей FreeNet routing policy; trace STOP без догадки"})
 		return

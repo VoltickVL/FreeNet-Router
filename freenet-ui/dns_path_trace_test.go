@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -26,6 +27,40 @@ func traceTestDNS() map[string]any {
 		panic(err)
 	}
 	return expected
+}
+
+func traceTestModernDNS() map[string]any {
+	expected, err := expectedFreeNetManagedSplitDNSWithResolvers(traceTestRouting(), settingsDNSYandexDoH, settingsDNSGoogleDoH)
+	if err != nil {
+		panic(err)
+	}
+	return expected
+}
+
+func TestManagedSplitMirrorAcceptsSupportedCurrentDoHProviders(t *testing.T) {
+	current := traceTestModernDNS()
+	expected, err := expectedFreeNetManagedSplitDNSForCurrent(traceTestRouting(), current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(expected, current) {
+		t.Fatalf("managed modern DNS mirror mismatch: expected=%v current=%v", expected, current)
+	}
+}
+
+func TestManagedSplitMirrorRejectsUnknownCurrentResolver(t *testing.T) {
+	current := traceTestModernDNS()
+	dns := current["dns"].(map[string]any)
+	servers := dns["servers"].([]any)
+	for _, raw := range servers {
+		server := raw.(map[string]any)
+		if legacyNativeString(server["tag"]) == "dns-direct" {
+			server["address"] = "https://resolver.invalid/dns-query"
+		}
+	}
+	if _, err := expectedFreeNetManagedSplitDNSForCurrent(traceTestRouting(), current); err == nil {
+		t.Fatal("unknown resolver must fail closed")
+	}
 }
 
 func TestNormalizeDNSPathTraceHost(t *testing.T) {
@@ -106,5 +141,21 @@ func TestParseDNSPathTraceDetectsSelectorMismatch(t *testing.T) {
 	}
 	if trace.PolicyParity || trace.DNSSelector != "dns-direct" || trace.PayloadAction != "VPN" {
 		t.Fatalf("mismatch was not detected: %+v", trace)
+	}
+}
+
+func TestParseDNSPathTraceDirectParityWithSupportedDoHProvider(t *testing.T) {
+	logs := strings.Join([]string{
+		"[Debug] app/dispatcher: taking detour [direct] for [tcp:direct.example:80]",
+		"[Debug] app/dns: domain direct.example matches following rules: [domain:direct.example(DNS idx:0)]",
+		"[Debug] app/dns: domain direct.example will use DNS in order: [DOH//dns.yandex.ru]",
+		"[Debug] app/dispatcher: taking detour [direct] for [tcp:dns.yandex.ru:443]",
+	}, "\n")
+	trace, err := parseDNSPathTrace("direct.example", logs, traceTestModernDNS(), traceTestRouting())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trace.PayloadAction != "DIRECT" || trace.DNSSelector != "dns-direct" || trace.DNSUpstream != settingsDNSYandexDoH || trace.DNSObservedOutbound != "direct" || !trace.PolicyParity {
+		t.Fatalf("unexpected modern-provider trace: %+v", trace)
 	}
 }

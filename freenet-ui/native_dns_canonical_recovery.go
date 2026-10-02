@@ -51,9 +51,9 @@ func canonicalNativeDNSFromCurrentManagedSplit() ([]byte, error) {
 		return nil, errors.New("не удалось прочитать current Split routing")
 	}
 
-	expected, err := expectedFreeNetManagedSplitDNS(routing)
+	expected, err := expectedFreeNetManagedSplitDNSForCurrent(routing, currentDNS)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("current 02_dns не совпадает с детерминированным FreeNet-managed Split; STOP без догадки: %w", err)
 	}
 	if !reflect.DeepEqual(currentDNS, expected) {
 		return nil, errors.New("current 02_dns не совпадает с детерминированным FreeNet-managed Split; STOP без догадки")
@@ -68,7 +68,72 @@ func canonicalNativeDNSFromCurrentManagedSplit() ([]byte, error) {
 	return append([]byte(nil), canonicalLegacyNativeDNS...), nil
 }
 
+func managedSplitResolverPair(currentDNS map[string]any) (direct, vpn string, err error) {
+	dnsObj, ok := currentDNS["dns"].(map[string]any)
+	if !ok {
+		return "", "", errors.New("current Split DNS object отсутствует")
+	}
+	servers, ok := dnsObj["servers"].([]any)
+	if !ok || len(servers) == 0 {
+		return "", "", errors.New("current Split DNS servers отсутствуют")
+	}
+	for _, raw := range servers {
+		server, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		tag := legacyNativeString(server["tag"])
+		address := legacyNativeString(server["address"])
+		if address == "" {
+			continue
+		}
+		switch tag {
+		case "dns-direct":
+			if direct != "" && direct != address {
+				return "", "", errors.New("current Split dns-direct содержит несколько resolver endpoints")
+			}
+			direct = address
+		case "dns-vless":
+			if vpn != "" && vpn != address {
+				return "", "", errors.New("current Split dns-vless содержит несколько resolver endpoints")
+			}
+			vpn = address
+		}
+	}
+	if vpn == "" {
+		return "", "", errors.New("current Split dns-vless resolver отсутствует")
+	}
+	if direct == "" {
+		if vpn == "https://8.8.8.8/dns-query" {
+			return "77.88.8.8", vpn, nil
+		}
+		if settingsDNSProviderFromEndpoint(vpn) != "" {
+			return settingsDNSYandexDoH, vpn, nil
+		}
+		return "", "", errors.New("current Split vpn resolver не принадлежит поддерживаемому FreeNet catalog")
+	}
+	if direct == "77.88.8.8" && vpn == "https://8.8.8.8/dns-query" {
+		return direct, vpn, nil
+	}
+	if settingsDNSProviderFromEndpoint(direct) == "" || settingsDNSProviderFromEndpoint(vpn) == "" {
+		return "", "", errors.New("current Split resolver pair не принадлежит поддерживаемому FreeNet catalog")
+	}
+	return direct, vpn, nil
+}
+
+func expectedFreeNetManagedSplitDNSForCurrent(routing, currentDNS map[string]any) (map[string]any, error) {
+	direct, vpn, err := managedSplitResolverPair(currentDNS)
+	if err != nil {
+		return nil, err
+	}
+	return expectedFreeNetManagedSplitDNSWithResolvers(routing, direct, vpn)
+}
+
 func expectedFreeNetManagedSplitDNS(routing map[string]any) (map[string]any, error) {
+	return expectedFreeNetManagedSplitDNSWithResolvers(routing, "77.88.8.8", "https://8.8.8.8/dns-query")
+}
+
+func expectedFreeNetManagedSplitDNSWithResolvers(routing map[string]any, directAddress, vpnAddress string) (map[string]any, error) {
 	routingObj, ok := routing["routing"].(map[string]any)
 	if !ok {
 		return nil, errors.New("current Split routing не содержит routing object")
@@ -85,18 +150,21 @@ func expectedFreeNetManagedSplitDNS(routing map[string]any) (map[string]any, err
 			continue
 		}
 		if legacyNativeString(rule["outboundTag"]) == "direct" {
-			servers = append(servers, map[string]any{
-				"address":      "77.88.8.8",
-				"port":         float64(53),
+			server := map[string]any{
+				"address":      directAddress,
 				"domains":      domains,
 				"skipFallback": true,
 				"finalQuery":    true,
 				"tag":           "dns-direct",
-			})
+			}
+			if directAddress == "77.88.8.8" {
+				server["port"] = float64(53)
+			}
+			servers = append(servers, server)
 			continue
 		}
 		servers = append(servers, map[string]any{
-			"address":      "https://8.8.8.8/dns-query",
+			"address":      vpnAddress,
 			"domains":      domains,
 			"skipFallback": true,
 			"finalQuery":    true,
@@ -104,7 +172,7 @@ func expectedFreeNetManagedSplitDNS(routing map[string]any) (map[string]any, err
 		})
 	}
 	servers = append(servers, map[string]any{
-		"address":    "https://8.8.8.8/dns-query",
+		"address":    vpnAddress,
 		"tag":        "dns-vless",
 		"finalQuery": true,
 	})
