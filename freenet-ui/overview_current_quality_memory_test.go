@@ -53,6 +53,30 @@ func TestOverviewCurrentQualityMemoryDoesNotHideMutation(t *testing.T) {
 }
 
 
+func TestOverviewCurrentQualityMemoryUsesHTTPCompatibleJobID(t *testing.T) {
+	if strings.Contains(overviewCurrentQualityMemoryScript, "crypto.randomUUID()") {
+		t.Fatal("overview quality seed must not depend on secure-context-only crypto.randomUUID")
+	}
+	for _, want := range []string{
+		"window.freenetQualityJobID",
+		"^[a-zA-Z0-9_-]{16,64}$",
+	} {
+		if !strings.Contains(overviewCurrentQualityMemoryScript, want) {
+			t.Fatalf("overview quality seed missing %q", want)
+		}
+	}
+	data, err := webFS.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{"window.freenetQualityJobID = qualityJobID", "cryptoAPI.getRandomValues(bytes)"} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("shared quality job ID generator missing %q", want)
+		}
+	}
+}
+
 func TestOverviewCurrentQualityMemoryBridgesCoordinatorState(t *testing.T) {
 	if !strings.Contains(overviewCurrentQualityMemoryScript, "freenet:current-quality-display") {
 		t.Fatal("persisted current-quality renderer must publish the exact measured candidate to the Overview coordinator")

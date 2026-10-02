@@ -144,7 +144,11 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
     if (seedEndpoint === status.endpoint) return;
     seedEndpoint = status.endpoint;
     seedRunning = true;
-    const id = crypto.randomUUID();
+    const id = typeof window.freenetQualityJobID === 'function' ? window.freenetQualityJobID() : '';
+    if (!/^[a-zA-Z0-9_-]{16,64}$/.test(id)) {
+      seedRunning = false;
+      return;
+    }
     const started = Date.now();
     try {
       let response = await fetch('/api/vpn/current-quality?job=start&id=' + encodeURIComponent(id), {cache:'no-store', signal:AbortSignal.timeout(10000)});
