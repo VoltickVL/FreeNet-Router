@@ -206,7 +206,6 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 		false,
 		currentEndpoint,
 		currentFilter,
-		defaultBestServerQualityTCPProbe,
 		a.probeBestServerQualityApplication,
 	)
 	if ctx.Err() != nil {
