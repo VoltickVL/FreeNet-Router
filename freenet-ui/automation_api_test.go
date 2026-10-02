@@ -169,6 +169,23 @@ func TestAutomationCountryScopeIsFailClosed(t *testing.T) {
 	}
 }
 
+func TestAutomationBestBudgetsFollowCanonicalTargets(t *testing.T) {
+	degradedFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) + bestServerQualityCandidateTimeout + automationBestBudgetSlack
+	if got := automationBestForeignTimeout(automationPolicyDegraded); got < degradedFloor {
+		t.Fatalf("degraded foreign budget=%s below canonical floor=%s", got, degradedFloor)
+	}
+	betterFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+		time.Duration(bestServerVisibleAlternatives)*bestServerQualityCandidateTimeout +
+		automationBestBudgetSlack
+	if got := automationBestForeignTimeout(automationPolicyBetter); got < betterFloor {
+		t.Fatalf("better foreign budget=%s below canonical floor=%s", got, betterFloor)
+	}
+	cycleFloor := bestServerCurrentScanTimeout + automationBestForeignTimeout(automationPolicyBetter) + automationBestBudgetSlack
+	if got := automationBestQualityCycleTimeout(automationPolicyBetter); got < cycleFloor {
+		t.Fatalf("better quality-cycle budget=%s below current+foreign floor=%s", got, cycleFloor)
+	}
+}
+
 func TestAutomationBestTargetUsesOneForDegradedAndThreeForBetter(t *testing.T) {
 	if got := automationBestEligibleTarget(automationPolicyDegraded); got != 1 {
 		t.Fatalf("degraded target=%d want=1", got)
