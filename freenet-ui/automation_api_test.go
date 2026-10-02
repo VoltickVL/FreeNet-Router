@@ -283,8 +283,11 @@ func TestManagedCronSelectsOneAutoVPNEngine(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if !strings.Contains(text, "freenet-ui automation-best-run") || strings.Contains(text, "/opt/lib/freenet/auto_vpn.sh run") {
-		t.Fatalf("best mode cron must select exactly one engine:\n%s", text)
+	if !strings.Contains(text, "automation-health-watch") {
+		t.Fatalf("best mode must keep the liveness watchdog:\n%s", text)
+	}
+	if strings.Contains(text, "automation-best-run") || strings.Contains(text, "/opt/lib/freenet/auto_vpn.sh run") {
+		t.Fatalf("best mode must not schedule periodic heavy/legacy engines:\n%s", text)
 	}
 }
 
