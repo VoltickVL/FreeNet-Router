@@ -73,15 +73,19 @@ func settingsDNSRuntimeState() (direct, vpn, state string) {
 		return "", "", "unknown"
 	}
 	var directAddress, vpnAddress string
+	var directPort int
 	var directSeen, vpnSeen bool
 	for _, server := range cfg.DNS.Servers {
 		address := strings.TrimSpace(server.Address)
 		switch server.Tag {
 		case "dns-direct":
-			if address == "" || (directAddress != "" && directAddress != address) {
+			if address == "" || (directAddress != "" && directAddress != address) || (directPort != 0 && server.Port != 0 && directPort != server.Port) {
 				return "", "", "unknown"
 			}
 			directAddress, directSeen = address, true
+			if server.Port != 0 {
+				directPort = server.Port
+			}
 		case "dns-vless":
 			if address == "" || (vpnAddress != "" && vpnAddress != address) {
 				return "", "", "unknown"
@@ -92,15 +96,34 @@ func settingsDNSRuntimeState() (direct, vpn, state string) {
 	if !directSeen || !vpnSeen {
 		return "", "", "unknown"
 	}
-	direct = settingsDNSProviderFromEndpoint(directAddress)
-	vpn = settingsDNSProviderFromEndpoint(vpnAddress)
-	if direct != "" && vpn != "" {
+
+	vpn = settingsDNSVPNProviderFromEndpoint(vpnAddress)
+	if vpn == "" {
+		return "", "", "unknown"
+	}
+
+	direct = settingsDNSDirectProviderFromEndpoint(directAddress)
+	if direct != "" {
+		if directPort != 0 && directPort != 53 {
+			return "", "", "unknown"
+		}
+		if vpnAddress == settingsDNSGoogleLegacyDoH {
+			return direct, vpn, "legacy"
+		}
 		return direct, vpn, "accepted"
 	}
-	if directAddress == "77.88.8.8" && vpnAddress == "https://8.8.8.8/dns-query" {
-		return "", "", "legacy"
+
+	// v0.4.54-v0.4.59 Settings DNS wrote hostname DoH on the DIRECT leg.
+	// The provider choice is known, but the transport is bootstrap-unsafe on router Split DNS.
+	switch directAddress {
+	case settingsDNSYandexDoH:
+		direct = settingsDNSProviderYandex
+	case settingsDNSGoogleDoH:
+		direct = settingsDNSProviderGoogle
+	default:
+		return "", "", "unknown"
 	}
-	return "", "", "unknown"
+	return direct, vpn, "repairable"
 }
 
 func settingsDNSDirectEgressState() string {
@@ -179,7 +202,7 @@ func settingsDNSControlSnapshot(configPath string) settingsDNSControlResponse {
 	activeDirect, activeVPN, runtimeState := settingsDNSRuntimeState()
 	directEgressState := settingsDNSDirectEgressState()
 	splitSupported := splitDNSSelectionError("xkeen") == nil
-	repairRequired := activeMode == "xkeen" && directEgressState == "repairable"
+	repairRequired := activeMode == "xkeen" && (runtimeState == "repairable" || directEgressState == "repairable")
 	response := settingsDNSControlResponse{
 		Success: true,
 		Mode: activeMode,
@@ -188,8 +211,8 @@ func settingsDNSControlSnapshot(configPath string) settingsDNSControlResponse {
 		VPNProvider: vpn,
 		ActiveDirect: activeDirect,
 		ActiveVPN: activeVPN,
-		DirectOptions: settingsDNSProviderOptions(),
-		VPNOptions: settingsDNSProviderOptions(),
+		DirectOptions: settingsDNSDirectProviderOptions(),
+		VPNOptions: settingsDNSVPNProviderOptions(),
 		RuntimeState: runtimeState,
 		DirectEgressState: directEgressState,
 		RepairRequired: repairRequired,
@@ -202,10 +225,12 @@ func settingsDNSControlSnapshot(configPath string) settingsDNSControlResponse {
 			response.Warning = "Активную Split DNS resolver-схему нельзя однозначно классифицировать. Изменение DNS заблокировано без догадок."
 		case directEgressState == "unknown":
 			response.Warning = "DIRECT egress нельзя однозначно классифицировать. Изменение DNS заблокировано без догадок."
+		case runtimeState == "repairable":
+			response.Warning = "DIRECT DNS использует hostname DoH и зависит от собственного DIRECT DNS bootstrap. Восстановление переведёт DIRECT resolver на IP-literal DNS провайдера с snapshot, validation и rollback."
 		case directEgressState == "repairable":
 			response.Warning = "DIRECT egress требует безопасного восстановления XKeen self-bypass. Сохранение применит mark 255 с snapshot, validation и rollback."
 		case runtimeState == "legacy":
-			response.Warning = "Используется прежняя resolver-схема. Явное сохранение безопасно переведёт её на выбранные DoH resolver-ы."
+			response.Warning = "Используется прежний VPN DNS endpoint. Текущий DIRECT resolver bootstrap-safe; явное сохранение обновит VPN DoH без изменения routing policy."
 		}
 	} else if !splitSupported {
 		response.Warning = "Раздельный DNS недоступен на этом устройстве. DNS через роутер продолжает работать штатно."
