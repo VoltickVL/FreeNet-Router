@@ -265,6 +265,8 @@ const server = http.createServer((req,res)=>{
     const jobCalls=calls.slice(jobsBefore).filter(c=>c.path.startsWith('/api/vpn/'));
     assert.equal(jobCalls.filter(c=>c.query.includes('job=start')).length,1);
     assert.equal(jobCalls.filter(c=>c.query.includes('job=status')).length,1);
+    const insecureHTTPJobID=new URLSearchParams(jobCalls.find(c=>c.query.includes('job=start')).query).get('id');
+    assert.match(insecureHTTPJobID,/^[a-zA-Z0-9_-]{16,64}$/,'HTTP-LAN fallback quality job id must satisfy backend contract');
     mode='ok';
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-current.png'),fullPage:true});
     await page.evaluate(()=>{setPage('vpn');setPage('overview');const n=document.querySelector('#bestServerCheckCurrent');n.replaceWith(n.cloneNode(true));});
