@@ -28,6 +28,30 @@ func TestSettingsV3HumanIntervals(t *testing.T) {
 	}
 }
 
+func TestSettingsV3StaggeredCronAvoidsFiveMinuteHealthBoundary(t *testing.T) {
+	cases := []struct {
+		interval string
+		minute   int
+		want     string
+	}{
+		{"30m", 1, "1,31 * * * *"},
+		{"30m", 2, "2,32 * * * *"},
+		{"1h", 2, "2 * * * *"},
+		{"3h", 3, "3 */3 * * *"},
+		{"12h", 4, "4 */12 * * *"},
+		{"24h", 6, "6 4 * * *"},
+	}
+	for _, tc := range cases {
+		got, ok := v3IntervalCronOffset(tc.interval, tc.minute)
+		if !ok || got != tc.want {
+			t.Fatalf("interval=%s minute=%d cron=%q ok=%v want=%q", tc.interval, tc.minute, got, ok, tc.want)
+		}
+		if tc.minute%5 == 0 {
+			t.Fatalf("test fixture minute=%d collides with */5 health watchdog", tc.minute)
+		}
+	}
+}
+
 func TestSettingsV3ManagedSchedulerUsesHealthWatchdogNotPeriodicBest(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "freenet.conf")
 	if err := os.WriteFile(configPath, []byte("UI_PORT=1001\n"), 0600); err != nil {
@@ -48,10 +72,10 @@ func TestSettingsV3ManagedSchedulerUsesHealthWatchdogNotPeriodicBest(t *testing.
 	text := string(got)
 	checks := []string{
 		"*/5 * * * * ", " automation-health-watch",
-		"0 */6 * * * ", " settings-v3-subscription",
-		"0 */3 * * * ", " settings-v3-geodata",
-		"0 */12 * * * ", " settings-v3-freenet-check",
-		"17 4 * * * ", " settings-v3-backup",
+		"2 */6 * * * ", " settings-v3-subscription",
+		"3 */3 * * * ", " settings-v3-geodata",
+		"4 */12 * * * ", " settings-v3-freenet-check",
+		"6 4 * * * ", " settings-v3-backup",
 	}
 	for _, check := range checks {
 		if !strings.Contains(text, check) {
@@ -205,7 +229,7 @@ func TestSettingsV3EndpointOnlySchedulerAddsPeriodicRefresh(t *testing.T) {
 	if !strings.Contains(text, "*/5 * * * * "+v3ShellQuote(automationUIBinary())+" automation-health-watch") {
 		t.Fatalf("endpoint-only mode lost the 5-minute health watchdog:\n%s", text)
 	}
-	if !strings.Contains(text, "*/30 * * * * "+v3ShellQuote(automationUIBinary())+" settings-v3-endpoint-refresh") {
+	if !strings.Contains(text, "1,31 * * * * "+v3ShellQuote(automationUIBinary())+" settings-v3-endpoint-refresh") {
 		t.Fatalf("endpoint-only mode did not schedule the selected endpoint interval:\n%s", text)
 	}
 	if strings.Contains(text, "automation-best-run") {
