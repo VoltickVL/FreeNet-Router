@@ -63,7 +63,7 @@ func TestSettingsDNSOperationFenceExcludesAutoHealthAndReleases(t *testing.T) {
 		t.Fatal("DNS operation must hold the cross-process AUTO health fence")
 	}
 	other := &app{sem: make(chan struct{}, 1)}
-	if secondRelease, secondReason := acquireSettingsDNSOperation(context.Background(), other, 10*time.Millisecond); secondRelease != nil || secondReason != "AUTO VPN health/recovery operation is active" {
+	if secondRelease, secondReason := acquireSettingsDNSOperation(context.Background(), other, 10*time.Millisecond); secondRelease != nil || secondReason != "AUTO VPN health/recovery operation did not finish before DNS deadline" {
 		if secondRelease != nil { secondRelease() }
 		t.Fatalf("parallel DNS/AUTO guard result release=%v reason=%q", secondRelease != nil, secondReason)
 	}
@@ -76,6 +76,36 @@ func TestSettingsDNSOperationFenceExcludesAutoHealthAndReleases(t *testing.T) {
 		t.Fatalf("AUTO health fence leaked after DNS guard release: %v", err)
 	}
 	autoRelease()
+}
+
+func TestSettingsDNSOperationWaitsForActiveAutoHealthFence(t *testing.T) {
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", filepath.Join(t.TempDir(), "auto-health.lock"))
+	autoRelease, err := acquireAutomationHealthLock()
+	if err != nil {
+		t.Fatalf("AUTO health fixture acquire failed: %v", err)
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		autoRelease()
+		close(released)
+	}()
+
+	a := &app{sem: make(chan struct{}, 1)}
+	started := time.Now()
+	release, reason := acquireSettingsDNSOperation(context.Background(), a, 500*time.Millisecond)
+	<-released
+	if release == nil || reason != "" {
+		if release != nil {
+			release()
+		}
+		t.Fatalf("DNS guard did not wait for transient AUTO health fence: release=%v reason=%q", release != nil, reason)
+	}
+	if time.Since(started) < 25*time.Millisecond {
+		release()
+		t.Fatal("DNS guard bypassed an active AUTO health fence")
+	}
+	release()
 }
 
 func TestSettingsDNSOperationTimeoutReleasesCrossProcessFence(t *testing.T) {

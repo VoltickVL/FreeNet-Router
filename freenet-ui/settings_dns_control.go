@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	settingsDNSApplyPathDefault   = "/opt/lib/freenet/settings_dns_apply.sh"
-	settingsDNSRestorePathDefault = "/opt/lib/freenet/settings_dns_restore.sh"
+	settingsDNSApplyPathDefault          = "/opt/lib/freenet/settings_dns_apply.sh"
+	settingsDNSRestorePathDefault        = "/opt/lib/freenet/settings_dns_restore.sh"
+	settingsDNSOperationAcquireTimeout   = 45 * time.Second
+	settingsDNSAutomationFencePoll       = 100 * time.Millisecond
 )
 
 //go:embed settings_dns_apply.sh
@@ -137,15 +139,51 @@ func (a *app) handleSettingsDNSControlGet(w http.ResponseWriter, _ *http.Request
 }
 
 func acquireSettingsDNSOperation(ctx context.Context, a *app, timeout time.Duration) (func(), string) {
-	releaseAutomationFence, fenceErr := acquireAutomationHealthLock()
-	if fenceErr != nil {
-		return nil, "AUTO VPN health/recovery operation is active"
+	if timeout <= 0 {
+		return nil, "DNS operation acquire deadline elapsed"
+	}
+	deadline := time.Now().Add(timeout)
+	var releaseAutomationFence func()
+	for {
+		release, fenceErr := acquireAutomationHealthLock()
+		if fenceErr == nil {
+			releaseAutomationFence = release
+			break
+		}
+		if !errors.Is(fenceErr, errAutomationBusy) {
+			return nil, "FreeNet AUTO VPN operation coordinator is unavailable"
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, "AUTO VPN health/recovery operation did not finish before DNS deadline"
+		}
+		delay := settingsDNSAutomationFencePoll
+		if remaining < delay {
+			delay = remaining
+		}
+		wait := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !wait.Stop() {
+				select {
+				case <-wait.C:
+				default:
+				}
+			}
+			return nil, "request canceled before DNS operation"
+		case <-wait.C:
+		}
 	}
 	if a == nil || a.sem == nil {
 		releaseAutomationFence()
 		return nil, "FreeNet operation coordinator is unavailable"
 	}
-	acquire := time.NewTimer(timeout)
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		releaseAutomationFence()
+		return nil, "DNS operation acquire deadline elapsed"
+	}
+	acquire := time.NewTimer(remaining)
 	defer acquire.Stop()
 	select {
 	case a.sem <- struct{}{}:
@@ -202,7 +240,7 @@ func (a *app) handleSettingsDNSControlPost(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	releaseOperation, guardError := acquireSettingsDNSOperation(r.Context(), a, 12*time.Second)
+	releaseOperation, guardError := acquireSettingsDNSOperation(r.Context(), a, settingsDNSOperationAcquireTimeout)
 	if releaseOperation == nil {
 		status := http.StatusLocked
 		if r.Context().Err() != nil {
