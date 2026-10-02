@@ -54,7 +54,7 @@ func (a *app) runManualAutomationCheck(op *coordinatedOperation) {
 	} else {
 		settings := readAutomationSettings(a.cfg.ConfigPath)
 		if settings.Enabled {
-			ctx, cancel := context.WithTimeout(context.Background(), automationBestTimeout+4*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), automationHealthRunTimeout+bestServerRefreshTimeout+automationBestForeignTimeout(automationPolicyDegraded)+30*time.Second)
 			result, err := a.runAutomationHealthWatch(ctx)
 			cancel()
 			if err != nil {
