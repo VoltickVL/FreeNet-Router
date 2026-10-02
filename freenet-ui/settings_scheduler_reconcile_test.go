@@ -161,7 +161,7 @@ func TestReconcileSettingsV3SchedulerUsesSafeSubscriptionDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if !strings.Contains(text, "0 */6 * * * '/opt/sbin/freenet-ui' settings-v3-subscription") {
+	if !strings.Contains(text, "2 */6 * * * '/opt/sbin/freenet-ui' settings-v3-subscription") {
 		t.Fatalf("missing safe default subscription schedule:\n%s", text)
 	}
 	if !strings.Contains(text, "11 1 * * * /opt/bin/user-job") {
