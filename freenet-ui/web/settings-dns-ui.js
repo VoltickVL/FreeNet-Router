@@ -69,7 +69,7 @@
     const chip = q('#fn3DnsState');
     if (!chip || !state.data) return;
     const mode = state.data.active_mode === 'xkeen' ? 'Раздельный' : 'Прямой';
-    const healthy = state.data.active_mode !== 'xkeen' || state.data.runtime_state === 'accepted' || state.data.runtime_state === 'legacy';
+    const healthy = state.data.active_mode !== 'xkeen' || ((state.data.runtime_state === 'accepted' || state.data.runtime_state === 'legacy') && state.data.direct_egress_state === 'accepted');
     chip.classList.toggle('ok', healthy);
     q('span', chip).textContent = mode;
     const warning = q('#fn3DnsWarning');
