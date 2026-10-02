@@ -285,19 +285,18 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	}
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
-	probeCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
-	output, err := exec.CommandContext(probeCtx, curlPath,
-		"--socks5-hostname", socks,
-		"-sS", "--connect-timeout", "3", "--max-time", "4",
-		"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", bestServerQualityProbeURL,
-	).Output()
-	cancel()
-	if err != nil {
-		return automationHealthProbe{State: automationHealthFailed, Reason: "Текущий VPN не даёт доступ к интернету."}
-	}
-	applicationMS, ok := parseBestServerHTTPResponseMS(string(output))
+	applicationMS, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks)
 	if !ok {
-		return automationHealthProbe{State: automationHealthFailed, Reason: "Текущий VPN не подтвердил доступ к интернету."}
+		if probeBestServerTransportIP(ctx, curlPath, socks) {
+			return automationHealthProbe{
+				State: automationHealthUncertain,
+				Reason: "VPN-транспорт отвечает, но независимые HTTPS/DNS проверки по именам не подтверждены. AUTO VPN сохраняет текущее подключение без изменений.",
+			}
+		}
+		return automationHealthProbe{
+			State: automationHealthFailed,
+			Reason: "Текущий VPN не подтвердил доступ ни через независимые HTTPS-проверки, ни через IP-транспорт.",
+		}
 	}
 	serviceOK, serviceTotal := probeBestServerServiceReachability(ctx, curlPath, socks)
 	return classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal)
