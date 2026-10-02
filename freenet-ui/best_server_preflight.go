@@ -145,18 +145,47 @@ func selectBestServerRTTShortlistIndexes(candidates []bestServerInternalCandidat
 	return selected
 }
 
-// probeBestServerApplicationPreflight is retained for VPN Outbound Doctor.
-// Diagnostics keeps two application samples; canonical Best Server ranking uses
-// the separate one-sample probeBestServerProfilePing fast path above.
+// probeBestServerApplicationPreflight is retained only for VPN Outbound Doctor.
+// Diagnostics keeps two named-origin application samples. Canonical Best Server
+// ranking intentionally does not duplicate those deep acceptance checks.
 func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
-	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerDiagnosticHTTPRuns, bestServerApplicationProbePerTargetTimeout)
+	return a.withBestServerCandidateSOCKS(ctx, candidate, func(ctx context.Context, curlPath, socks string) bestServerProbeResult {
+		samples := make([]int, 0, bestServerDiagnosticHTTPRuns)
+		for run := 0; run < bestServerDiagnosticHTTPRuns; run++ {
+			if ctx.Err() != nil {
+				break
+			}
+			if ms, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks); ok {
+				samples = append(samples, ms)
+			}
+		}
+		result := summarizeBestServerSamples(samples, 1)
+		if !result.OK && probeBestServerTransportIP(ctx, curlPath, socks) {
+			result.TransportOnly = true
+		}
+		return result
+	})
 }
 
+// probeBestServerProfilePing measures exactly one signal: fixed-IP HTTPS RTT
+// through the selected logical VPN profile. DNS/named-origin acceptance is
+// intentionally deferred to strict deep quality.
 func (a *app) probeBestServerProfilePing(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
-	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerProfilePingHTTPRuns, bestServerProfilePingPerTargetTimeout)
+	return a.withBestServerCandidateSOCKS(ctx, candidate, func(ctx context.Context, curlPath, socks string) bestServerProbeResult {
+		ms, ok := probeBestServerTransportRTT(ctx, curlPath, socks)
+		if !ok {
+			return bestServerProbeResult{}
+		}
+		return bestServerProbeResult{OK: true, Samples: []int{ms}, Median: ms}
+	})
 }
 
-func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServerInternalCandidate, runs int, perTarget time.Duration) bestServerProbeResult {
+type bestServerCandidateSOCKSProbe func(context.Context, string, string) bestServerProbeResult
+
+func (a *app) withBestServerCandidateSOCKS(ctx context.Context, candidate bestServerInternalCandidate, probe bestServerCandidateSOCKSProbe) bestServerProbeResult {
+	if probe == nil || ctx.Err() != nil {
+		return bestServerProbeResult{}
+	}
 	outbound, err := buildBestServerProbeOutbound(candidate.Raw, candidate.Profile)
 	if err != nil {
 		return bestServerProbeResult{}
@@ -238,26 +267,5 @@ func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServer
 	if !waitBestServerSOCKS(ctx, port) {
 		return bestServerProbeResult{}
 	}
-
-	socks := fmt.Sprintf("127.0.0.1:%d", port)
-	if runs < 1 {
-		runs = 1
-	}
-	samples := make([]int, 0, runs)
-	for run := 0; run < runs; run++ {
-		if ctx.Err() != nil {
-			break
-		}
-		if perTarget <= 0 {
-			perTarget = bestServerApplicationProbePerTargetTimeout
-		}
-		if ms, _, ok := probeBestServerHTTPAnyWith(ctx, curlPath, socks, bestServerApplicationProbeURLs, perTarget, runBestServerHTTPProbeURL); ok {
-			samples = append(samples, ms)
-		}
-	}
-	result := summarizeBestServerSamples(samples, 1)
-	if !result.OK && probeBestServerTransportIP(ctx, curlPath, socks) {
-		result.TransportOnly = true
-	}
-	return result
+	return probe(ctx, curlPath, fmt.Sprintf("127.0.0.1:%d", port))
 }
