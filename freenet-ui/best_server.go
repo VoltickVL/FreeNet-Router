@@ -44,6 +44,24 @@ type bestServerProbeResult struct {
 	Jitter        int
 }
 
+func safeBestServerError(err error) string {
+	if err == nil {
+		return ""
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "Best Server scan timed out"
+	case errors.Is(err, context.Canceled):
+		return "Best Server scan was canceled"
+	default:
+		return "Best Server recommendation is unavailable"
+	}
+}
+
+func endpointsEqual(a, b string) bool {
+	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b)) && strings.TrimSpace(a) != ""
+}
+
 func (a *app) discoverBestServerCandidates(ctx context.Context) ([]bestServerInternalCandidate, int, bool, error) {
 	rawURL, err := os.ReadFile(a.cfg.SubPath)
 	if err != nil {
