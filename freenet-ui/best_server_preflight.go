@@ -17,6 +17,7 @@ const (
 	bestServerPreflightPhaseTimeout       = 50 * time.Second
 	bestServerPreflightShortlist          = 10
 	bestServerProfilePingHTTPRuns         = 1
+	bestServerDiagnosticHTTPRuns          = 2
 	bestServerProfilePingTimeout          = 2 * time.Second
 	bestServerProfilePingPerTargetTimeout = 700 * time.Millisecond
 )
@@ -120,6 +121,13 @@ func selectBestServerRTTShortlistIndexes(candidates []bestServerInternalCandidat
 		}
 	}
 	return selected
+}
+
+// probeBestServerApplicationPreflight is retained for VPN Outbound Doctor.
+// Diagnostics keeps two application samples; canonical Best Server ranking uses
+// the separate one-sample probeBestServerProfilePing fast path above.
+func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerDiagnosticHTTPRuns, bestServerApplicationProbePerTargetTimeout)
 }
 
 func (a *app) probeBestServerProfilePing(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
