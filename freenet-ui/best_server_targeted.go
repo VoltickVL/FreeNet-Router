@@ -107,7 +107,13 @@ func (a *app) probeBestServerFreshEndpointReadiness(parent context.Context, cand
 	go func() { appCh <- bestServerEndpointApplicationProbe(a, ctx, candidate) }()
 
 	app := <-appCh
-	tcp := <-tcpCh
+	var tcp bestServerProbeResult
+	select {
+	case tcp = <-tcpCh:
+	default:
+		// Diagnostic-only TCP must never delay or veto an application-proven
+		// candidate. The goroutine is canceled on return if still running.
+	}
 	result := &bestServerQualityCandidate{
 		ID: candidate.Profile.ID, Name: candidate.Profile.Name, CountryCode: candidate.Profile.CountryCode,
 		Endpoint: profileEndpoint(candidate.Profile),
