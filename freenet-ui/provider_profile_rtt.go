@@ -124,18 +124,22 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 				}
 				probeCtx, cancel := context.WithTimeout(ctx, bestServerProfilePingTimeout)
 				value := probe(probeCtx, candidates[index])
+				probeEndedByContext := probeCtx.Err() != nil
 				cancel()
 				item := providerProfileRTTItem{
 					ProfileID: candidates[index].Profile.ID,
-					Attempted: true,
+					Attempted: !probeEndedByContext,
 					Status:    "unreachable",
 				}
-				if value.OK {
+				switch {
+				case probeEndedByContext:
+					item.Status = "unknown"
+				case value.OK:
 					item.Reachable = true
 					item.Status = "reachable"
 					item.RTTMS = value.Median
 					item.JitterMS = value.Jitter
-				} else if value.TransportOnly {
+				case value.TransportOnly:
 					item.Status = "transport_only"
 				}
 				results[index] = item
