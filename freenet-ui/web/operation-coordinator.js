@@ -525,9 +525,9 @@
       seen.add(candidate.id);
       return true;
     });
-    const preferred = pool.filter(candidate => candidate.eligible === true);
-    const diagnostic = pool.filter(candidate => candidate.eligible !== true);
-    return preferred.concat(diagnostic).slice(0, 3);
+    // Final Best Server cards are recommendations, not a diagnostic dump.
+    // Never fill a missing Top-3 slot with a rejected/near-miss profile.
+    return pool.filter(candidate => candidate.eligible === true).slice(0, 3);
   }
 
   function sameCandidate(a, b) {
@@ -577,7 +577,7 @@
     alternatives = comparisonCandidates(data, current);
     const box = qs('#bestServerResult');
     if (!alternatives.length) {
-      clearAlternatives('Проверенных зарубежных вариантов для сравнения сейчас нет. Текущий VPN сохранён.');
+      clearAlternatives('Проверенных подходящих VPN сейчас нет. Текущий VPN сохранён.');
       setText(qs('#bestServerStatus'), data && data.message || 'Сравнение сейчас недоступно.');
       return;
     }
