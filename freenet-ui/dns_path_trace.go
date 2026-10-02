@@ -277,7 +277,9 @@ func buildReadOnlyXrayTraceConfig(payloadPort, dnsPort int, currentDNS, routing 
 }
 
 func sanitizeDNSPathTraceValidationDetail(raw, tmp string) string {
-	raw = strings.ReplaceAll(raw, tmp, "<trace>")
+	if strings.TrimSpace(tmp) != "" {
+		raw = strings.ReplaceAll(raw, tmp, "<trace>")
+	}
 	raw = strings.ReplaceAll(raw, "\r", " ")
 	raw = strings.ReplaceAll(raw, "\n", " ")
 	raw = strings.Join(strings.Fields(raw), " ")
