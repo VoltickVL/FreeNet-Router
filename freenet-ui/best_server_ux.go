@@ -152,6 +152,15 @@ func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
 		if a.DownloadMbps != b.DownloadMbps {
 			return a.DownloadMbps > b.DownloadMbps
 		}
+		if a.VPNRTTMS != b.VPNRTTMS {
+			if a.VPNRTTMS == 0 {
+				return false
+			}
+			if b.VPNRTTMS == 0 {
+				return true
+			}
+			return a.VPNRTTMS < b.VPNRTTMS
+		}
 		return a.ID < b.ID
 	})
 }
