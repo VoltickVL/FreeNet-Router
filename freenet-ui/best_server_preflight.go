@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	bestServerPreflightPhaseTimeout = 48 * time.Second
-	bestServerPreflightShortlist    = 10
-	bestServerProfilePingHTTPRuns   = 1
-	bestServerProfilePingTimeout    = 1800 * time.Millisecond
+	bestServerPreflightPhaseTimeout       = 50 * time.Second
+	bestServerPreflightShortlist          = 10
+	bestServerProfilePingHTTPRuns         = 1
+	bestServerProfilePingTimeout          = 2 * time.Second
+	bestServerProfilePingPerTargetTimeout = 700 * time.Millisecond
 )
 
 // applicationAwareBestServerShortlist uses the same per-logical-profile
@@ -121,10 +122,10 @@ func selectBestServerRTTShortlistIndexes(candidates []bestServerInternalCandidat
 }
 
 func (a *app) probeBestServerProfilePing(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
-	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerProfilePingHTTPRuns)
+	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerProfilePingHTTPRuns, bestServerProfilePingPerTargetTimeout)
 }
 
-func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServerInternalCandidate, runs int) bestServerProbeResult {
+func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServerInternalCandidate, runs int, perTarget time.Duration) bestServerProbeResult {
 	outbound, err := buildBestServerProbeOutbound(candidate.Raw, candidate.Profile)
 	if err != nil {
 		return bestServerProbeResult{}
@@ -216,7 +217,10 @@ func (a *app) probeBestServerProxyHTTP(ctx context.Context, candidate bestServer
 		if ctx.Err() != nil {
 			break
 		}
-		if ms, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks); ok {
+		if perTarget <= 0 {
+			perTarget = bestServerApplicationProbePerTargetTimeout
+		}
+		if ms, _, ok := probeBestServerHTTPAnyWith(ctx, curlPath, socks, bestServerApplicationProbeURLs, perTarget, runBestServerHTTPProbeURL); ok {
 			samples = append(samples, ms)
 		}
 	}
