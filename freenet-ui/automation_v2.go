@@ -312,7 +312,8 @@ func buildManagedAutomationCron(configPath string, settings automationSettings, 
 		}
 	}
 	if settings.Enabled && settings.Interval != "manual" && cron != "" {
-		lines = append(lines, "*/5 * * * * "+automationRunnerPath()+" automation-health-watch >> /opt/var/log/freenet-auto-vpn-health.log 2>&1")
+		healthCron := automationHealthCron(configuredAutomationHealthInterval(configPath))
+		lines = append(lines, healthCron+" "+automationRunnerPath()+" automation-health-watch >> /opt/var/log/freenet-auto-vpn-health.log 2>&1")
 		if settings.Mode == automationModeBest {
 			lines = append(lines, cron+" "+automationRunnerPath()+" automation-best-run >> /opt/var/log/freenet-auto-vpn.log 2>&1")
 		} else {
