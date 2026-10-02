@@ -35,6 +35,8 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		`Откатить до`,
 		`AbortSignal.timeout(15000)`,
 		`renderTopbarVersion(current, !!latest && latest !== current, latest)`,
+		`catalog.degraded && catalog.warning`,
+		`fn-version-warning`,
 		`await startUpdate()`,
 		`/api/system/update/apply`,
 		`location.hash === '#system'`,

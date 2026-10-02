@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -23,7 +22,7 @@ const (
 
 var (
 	selfUpdateReleasesAPI = "https://api.github.com/repos/VoltickVL/FreeNet-Router/releases"
-	selfUpdateReleaseClient = &http.Client{Timeout: 12 * time.Second}
+	selfUpdateReleaseDownload = recoveryDownload
 	selfUpdateReleaseCache = struct {
 		sync.Mutex
 		at time.Time
@@ -43,6 +42,8 @@ type selfUpdateReleaseCatalogResponse struct {
 	CurrentVersion string              `json:"current_version"`
 	LatestVersion  string              `json:"latest_version,omitempty"`
 	Releases       []selfUpdateRelease `json:"releases,omitempty"`
+	Degraded       bool                `json:"degraded,omitempty"`
+	Warning        string              `json:"warning,omitempty"`
 	Error          string              `json:"error,omitempty"`
 }
 
@@ -136,25 +137,12 @@ func fetchSelfUpdateReleaseCatalog(ctx context.Context, current string, forceFre
 	all := make([]githubFreeNetRelease, 0, selfUpdateReleasePageSize)
 	for page := 1; page <= selfUpdateReleaseMaxPages; page++ {
 		url := fmt.Sprintf("%s?per_page=%d&page=%d", selfUpdateReleasesAPI, selfUpdateReleasePageSize, page)
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		body, err := selfUpdateReleaseDownload(ctx, url, selfUpdateReleaseBodyLimit)
 		if err != nil {
-			return nil, err
-		}
-		req.Header.Set("Accept", "application/vnd.github+json")
-		req.Header.Set("User-Agent", "FreeNet-Router/v"+version)
-		resp, err := selfUpdateReleaseClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-		if resp.StatusCode != http.StatusOK {
-			_ = resp.Body.Close()
-			return nil, fmt.Errorf("release catalog returned HTTP %d", resp.StatusCode)
+			return nil, fmt.Errorf("release catalog page %d unavailable: %w", page, err)
 		}
 		var pageItems []githubFreeNetRelease
-		dec := json.NewDecoder(io.LimitReader(resp.Body, selfUpdateReleaseBodyLimit))
-		err = dec.Decode(&pageItems)
-		_ = resp.Body.Close()
-		if err != nil {
+		if err := json.Unmarshal(body, &pageItems); err != nil {
 			return nil, errors.New("invalid release catalog response")
 		}
 		all = append(all, pageItems...)
@@ -174,20 +162,56 @@ func fetchSelfUpdateReleaseCatalog(ctx context.Context, current string, forceFre
 	return items, nil
 }
 
+func fallbackSelfUpdateReleaseCatalog(current, latest string) []selfUpdateRelease {
+	items := make([]selfUpdateRelease, 0, 2)
+	if validReleaseTag(latest) {
+		items = append(items, selfUpdateRelease{Version: latest, Current: latest == current, Latest: true})
+	}
+	if validReleaseTag(current) && current != latest {
+		items = append(items, selfUpdateRelease{Version: current, Current: true})
+	}
+	return items
+}
+
 func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 	current := "v" + version
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
-	defer cancel()
 	forceFresh := r.URL.Query().Get("fresh") == "1"
 	items, err := fetchSelfUpdateReleaseCatalog(ctx, current, forceFresh)
+	cancel()
+	degraded := false
+	warning := ""
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, selfUpdateReleaseCatalogResponse{
-			Success: false, CurrentVersion: current, Error: "cannot load FreeNet release catalog",
-		})
-		return
+		primary := err.Error()
+		v3AppendEvent("freenet_release_catalog", "degraded", "PRIMARY ERROR: "+primary)
+		fallbackCtx, fallbackCancel := context.WithTimeout(r.Context(), 15*time.Second)
+		latest, fallbackErr := recoveryLatestTag(fallbackCtx)
+		fallbackCancel()
+		if fallbackErr != nil {
+			v3AppendEvent("freenet_release_catalog", "failed", "Latest fallback failed: "+fallbackErr.Error())
+			writeJSON(w, http.StatusBadGateway, selfUpdateReleaseCatalogResponse{
+				Success: false, CurrentVersion: current, Error: "cannot load FreeNet release catalog",
+			})
+			return
+		}
+		items = fallbackSelfUpdateReleaseCatalog(current, latest)
+		if len(items) == 0 {
+			writeJSON(w, http.StatusBadGateway, selfUpdateReleaseCatalogResponse{
+				Success: false, CurrentVersion: current, Error: "cannot load FreeNet release catalog",
+			})
+			return
+		}
+		degraded = true
+		warning = "Полный каталог версий временно недоступен. Последний релиз получен через резервный канал FreeNet."
 	}
 	latest := ""
-	if len(items) > 0 {
+	for _, item := range items {
+		if item.Latest {
+			latest = item.Version
+			break
+		}
+	}
+	if latest == "" && len(items) > 0 {
 		latest = items[0].Version
 	}
 	writeJSON(w, http.StatusOK, selfUpdateReleaseCatalogResponse{
@@ -195,5 +219,7 @@ func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 		CurrentVersion: current,
 		LatestVersion: latest,
 		Releases: items,
+		Degraded: degraded,
+		Warning: warning,
 	})
 }
