@@ -10,32 +10,21 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 )
 
 const (
-	bestServerPreflightWorkers          = 2
-	bestServerPreflightCandidateTimeout = 7 * time.Second
-	bestServerPreflightPhaseTimeout     = 21 * time.Second
-	bestServerPreflightShortlist        = 12
-	bestServerPreflightHTTPRuns         = 2
-	bestServerProfilePingHTTPRuns       = 1
-	bestServerProfilePingTimeout        = 6 * time.Second
+	bestServerPreflightPhaseTimeout = 48 * time.Second
+	bestServerPreflightShortlist    = 10
+	bestServerProfilePingHTTPRuns   = 1
+	bestServerProfilePingTimeout    = 1800 * time.Millisecond
 )
 
-type bestServerPreflightResult struct {
-	Index int
-	Probe bestServerProbeResult
-}
-
-// applicationAwareBestServerShortlist measures the real VPN application path
-// before the expensive throughput stage. This is ranking-only evidence: two
-// bounded HTTP samples reduce sensitivity to a single transient result while
-// strict acceptance is still performed later by the deep quality probe.
-// Provider endpoint TCP latency
-// alone is not a reliable proxy for the geographic/exit path of an Extra profile.
+// applicationAwareBestServerShortlist uses the same per-logical-profile
+// application RTT sweep as the VPN picker. The quick RTT is ranking-only
+// evidence: strict HTTP/throughput/services/stability acceptance remains in the
+// deep quality probe. Every profile gets the same bounded chance; subscription
+// position and shared provider IP:port never rank a logical VPN.
 func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidates []bestServerInternalCandidate, currentEndpoint, currentFilter string) []bestServerInternalCandidate {
 	if len(candidates) <= 1 {
 		return candidates
@@ -44,69 +33,10 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 	phaseCtx, cancelPhase := context.WithTimeout(ctx, bestServerPreflightPhaseTimeout)
 	defer cancelPhase()
 	reportBestServerProgress(ctx, "preflight", 0, len(candidates))
-	jobs := make(chan int)
-	results := make(chan bestServerPreflightResult, len(candidates))
-	workers := bestServerPreflightWorkers
-	if workers > len(candidates) {
-		workers = len(candidates)
-	}
-	var wg sync.WaitGroup
-	var completed atomic.Int32
-	for worker := 0; worker < workers; worker++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for index := range jobs {
-				if phaseCtx.Err() != nil {
-					continue
-				}
-				probeCtx, cancel := context.WithTimeout(phaseCtx, bestServerPreflightCandidateTimeout)
-				probe := a.probeBestServerApplicationPreflight(probeCtx, candidates[index])
-				cancel()
-				results <- bestServerPreflightResult{Index: index, Probe: probe}
-				done := int(completed.Add(1))
-				reportBestServerProgress(ctx, "preflight", done, len(candidates))
-			}
-		}()
-	}
-	go func() {
-		defer close(jobs)
-		for index := range candidates {
-			select {
-			case jobs <- index:
-			case <-phaseCtx.Done():
-				return
-			}
-		}
-	}()
-	wg.Wait()
-	close(results)
-
-	measured := make([]bestServerPreflightResult, 0, len(candidates))
-	attempted := make(map[int]bool, len(candidates))
-	for result := range results {
-		attempted[result.Index] = true
-		if result.Probe.OK {
-			measured = append(measured, result)
-		}
-	}
-	sort.Slice(measured, func(i, j int) bool {
-		aResult, bResult := measured[i], measured[j]
-		if aResult.Probe.Median != bResult.Probe.Median {
-			return aResult.Probe.Median < bResult.Probe.Median
-		}
-		if aResult.Probe.Jitter != bResult.Probe.Jitter {
-			return aResult.Probe.Jitter < bResult.Probe.Jitter
-		}
-		return candidates[aResult.Index].Profile.ID < candidates[bResult.Index].Profile.ID
-	})
+	items := measureProviderProfileRTT(phaseCtx, candidates, a.probeBestServerProfilePing)
 
 	currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter)
-	selectedIndexes := selectBestServerPreflightIndexes(candidates, measured, attempted, currentIndex)
-	if len(selectedIndexes) == 0 {
-		return nil
-	}
-
+	selectedIndexes := selectBestServerRTTShortlistIndexes(candidates, items, currentIndex)
 	selected := make([]bestServerInternalCandidate, 0, len(selectedIndexes))
 	for _, index := range selectedIndexes {
 		selected = append(selected, candidates[index])
@@ -114,17 +44,13 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 	return selected
 }
 
-// Preflight is ranking-only. A candidate that did not finish before the bounded
-// phase deadline is UNKNOWN, not failed. Successful measurements stay first,
-// then unattempted candidates fill the deep-check reserve. Explicit preflight
-// failures are only used as a last resort. This prevents a busy/slow router
-// from collapsing a large subscription pool to one (or zero) deep candidates.
-func selectBestServerPreflightIndexes(
-	candidates []bestServerInternalCandidate,
-	measured []bestServerPreflightResult,
-	attempted map[int]bool,
-	currentIndex int,
-) []int {
+// selectBestServerRTTShortlistIndexes builds the bounded deep-check queue from
+// canonical VPN application RTT evidence. Confirmed reachable profiles are
+// ordered by RTT, UNKNOWN is only reserve evidence, transport-only comes after
+// UNKNOWN, and explicit application failures are last. The hard deep maximum is
+// ten profiles; rankMeasuredBestServerBatches normally stops much earlier as
+// soon as the requested Eligible target is reached.
+func selectBestServerRTTShortlistIndexes(candidates []bestServerInternalCandidate, items []providerProfileRTTItem, currentIndex int) []int {
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -132,6 +58,18 @@ func selectBestServerPreflightIndexes(
 	if limit > len(candidates) {
 		limit = len(candidates)
 	}
+
+	ordered := append([]providerProfileRTTItem(nil), items...)
+	sortProviderProfileRTTItems(ordered)
+	indexByID := make(map[string]int, len(candidates))
+	for index := range candidates {
+		id := strings.TrimSpace(candidates[index].Profile.ID)
+		if id != "" {
+			if _, exists := indexByID[id]; !exists {
+				indexByID[id] = index
+			}
+	}
+
 	selected := make([]int, 0, limit)
 	seen := make(map[int]bool, limit)
 	add := func(index int) {
@@ -141,30 +79,34 @@ func selectBestServerPreflightIndexes(
 		selected = append(selected, index)
 		seen[index] = true
 	}
-
-	for _, result := range measured {
-		if result.Probe.OK {
-			add(result.Index)
+	for _, item := range ordered {
+		if index, ok := indexByID[strings.TrimSpace(item.ProfileID)]; ok {
+			add(index)
 		}
 	}
 
-	// Phase timeout means "unknown". Give those profiles a strict deep-check
-	// chance before retrying endpoints that already produced a negative preflight.
+	// Malformed/legacy rows without a usable profile id are deterministic reserve
+	// only; never fall back to subscription order.
+	remaining := make([]int, 0, len(candidates))
 	for index := range candidates {
-		if attempted[index] {
-			continue
+		if !seen[index] {
+			remaining = append(remaining, index)
 		}
+	}
+	sort.SliceStable(remaining, func(i, j int) bool {
+		left := strings.TrimSpace(candidates[remaining[i]].Profile.ID)
+		right := strings.TrimSpace(candidates[remaining[j]].Profile.ID)
+		if left != right {
+			return left < right
+		}
+		return profileEndpoint(candidates[remaining[i]].Profile) < profileEndpoint(candidates[remaining[j]].Profile)
+	})
+	for _, index := range remaining {
 		add(index)
 	}
-	for index := range candidates {
-		if !attempted[index] {
-			continue
-		}
-		add(index)
-	}
 
-	// Generic caller contract: current VPN must remain representable when this
-	// helper is used outside the foreign-only path.
+	// Generic helper contract: keep current representable when a non-foreign
+	// caller uses this function.
 	if currentIndex >= 0 && currentIndex < len(candidates) && !seen[currentIndex] {
 		if len(selected) >= limit && limit > 0 {
 			replaced := selected[len(selected)-1]
@@ -176,10 +118,6 @@ func selectBestServerPreflightIndexes(
 		}
 	}
 	return selected
-}
-
-func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
-	return a.probeBestServerProxyHTTP(ctx, candidate, bestServerPreflightHTTPRuns)
 }
 
 func (a *app) probeBestServerProfilePing(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
