@@ -66,8 +66,12 @@ async function capture(label){
       return answer(route,{success:true,available:true,scanned_at:new Date().toISOString(),candidates:[{...p,endpoint:status.endpoint,current:true,tested:true,eligible:true,available:true,reachable:true,download_mbps:55,application_rtt_ms:105,tcp_rtt_ms:70,jitter_ms:5,media_samples:4,media_stalls:0,service_ok:4,service_total:4}]});
     }
     if(url.pathname==='/api/provider-profiles/rtt'){
-      const results=profiles.map((p,i)=>({profile_id:p.id,reachable:i!==7,rtt_ms:i===7?0:55+((48-i)*4),jitter_ms:i%9}));
-      return answer(route,{success:true,results,profiles:profiles.length,unique_endpoints:profiles.length,fresh:true,mutation:'NONE'});
+      const results=profiles.map((p,i)=>i===7
+        ?{profile_id:p.id,reachable:false,attempted:false,status:'unknown'}
+        :i===8
+          ?{profile_id:p.id,reachable:false,attempted:true,status:'unreachable'}
+          :{profile_id:p.id,reachable:true,attempted:true,status:'reachable',rtt_ms:55+((48-i)*4),jitter_ms:i%9});
+      return answer(route,{success:true,results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:true,mutation:'NONE'});
     }
     if(url.pathname==='/api/provider-profile/plan'){
       const id=url.searchParams.get('profile_id');
@@ -123,6 +127,9 @@ async function capture(label){
   const rttOrder=await page.locator(R+' button').evaluateAll(nodes=>nodes.slice(0,4).map(n=>({id:n.dataset.profileId,rtt:n.querySelector('.fnv2-rtt')?.textContent})));
   assert.deepEqual(rttOrder.map(x=>x.id),['fixture-48','fixture-47','fixture-46','fixture-45'],'picker must sort ascending RTT after refresh: '+JSON.stringify(rttOrder));
   assert.ok(rttOrder.every(x=>/мс/.test(x.rtt||'')),'RTT must be visible beside sorted rows: '+JSON.stringify(rttOrder));
+  assert.match(await page.locator('#fnVpnPickerV2RTTState').textContent(),/завершён частично/,'partial RTT must be explicit');
+  assert.equal(await page.locator(R+' [data-profile-id="fixture-7"] .fnv2-rtt').textContent(),'не проверен','deadline-unknown profile must not be labeled dead');
+  assert.equal(await page.locator(R+' [data-profile-id="fixture-8"] .fnv2-rtt').textContent(),'нет ответа','attempted negative profile remains explicit');
   const initial=await geometry('desktop-initial');assert.ok(initial.panel.y>=initial.toggle.bottom,'anchored below VPN');assert.ok(initial.results.height>=400,'desktop list must use available viewport height: '+JSON.stringify(initial));
   const flags=await page.evaluate(()=>{
     const a=document.querySelector('#fnVpnPickerV2Flag'),b=document.querySelector('#fnVpnPickerV2CurrentFlag'),c=document.querySelector('#bestCurrentFlag');
