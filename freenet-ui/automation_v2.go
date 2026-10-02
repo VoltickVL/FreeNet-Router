@@ -311,13 +311,11 @@ func buildManagedAutomationCron(configPath string, settings automationSettings, 
 			lines = append(lines, geoCron+" /opt/sbin/xkeen -ug")
 		}
 	}
-	if settings.Enabled && settings.Interval != "manual" && cron != "" {
+	if settings.Enabled {
 		healthCron := automationHealthCron(configuredAutomationHealthInterval(configPath))
 		lines = append(lines, healthCron+" "+automationRunnerPath()+" automation-health-watch >> /opt/var/log/freenet-auto-vpn-health.log 2>&1")
-		if settings.Mode == automationModeBest {
-			lines = append(lines, cron+" "+automationRunnerPath()+" automation-best-run >> /opt/var/log/freenet-auto-vpn.log 2>&1")
-		} else {
-			lines = append(lines, cron+" /opt/lib/freenet/auto_vpn.sh run >> /opt/var/log/freenet-auto-vpn.log 2>&1")
+		if settings.Mode == automationModeEndpoint && settings.Interval != "manual" && cron != "" {
+			lines = append(lines, cron+" "+automationRunnerPath()+" settings-v3-endpoint-refresh >> /opt/var/log/freenet-auto-vpn.log 2>&1")
 		}
 	} else {
 		lines = append(lines, "# AUTO VPN scheduler and health watchdog disabled by FreeNet settings")
