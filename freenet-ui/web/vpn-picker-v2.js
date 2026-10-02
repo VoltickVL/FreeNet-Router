@@ -265,7 +265,7 @@
       const serverTransport=Number.isFinite(Number(data.transport_only))?Number(data.transport_only):transportOnly;
       const suffix=serverTransport? ` · VPN-транспорт есть, DNS/HTTPS не подтверждён: ${serverTransport}` : '';
       rttSummary=data.partial
-        ? `VPN-пинг завершён частично: ответили ${serverReachable} из ${serverChecked}, не проверено ${serverUnknown} из ${total}${suffix}.`
+        ? `VPN-пинг: завершён частично — ответили ${serverReachable} из ${serverChecked}, не проверено ${serverUnknown} из ${total}${suffix}.`
         : `VPN-пинг: ответили ${serverReachable} из ${serverChecked}${suffix}. Список отсортирован от меньшей задержки к большей.`;
     } catch (_) {
       rttByID.clear(); rttRanked=false; rttVersion++;
