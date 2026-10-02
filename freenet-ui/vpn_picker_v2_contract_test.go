@@ -26,6 +26,10 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 	} {
 		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
 	}
+	if !strings.Contains(js, "status==='unknown') return Number.MAX_SAFE_INTEGER-3") ||
+		!strings.Contains(js, "status==='transport_only') return Number.MAX_SAFE_INTEGER-2") {
+		t.Fatal("picker fallback RTT order must be reachable -> unknown -> transport-only -> unreachable")
+	}
 	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint", "max-height:280px"} {
 		if strings.Contains(js, forbidden) { t.Fatalf("presentation must not contain %q", forbidden) }
 	}

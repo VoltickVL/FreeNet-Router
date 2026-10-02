@@ -114,8 +114,15 @@ func eligibleBestServerAlternativeCount(candidates []bestServerQualityCandidate,
 // timeout warning. Conversely, natural candidate exhaustion below three
 // Eligible alternatives is complete (not partial) when budget did not stop the
 // scan.
+func bestServerCompletionPartialForTarget(budgetLimited bool, candidates []bestServerQualityCandidate, currentEndpoint string, targetEligible int) bool {
+	if targetEligible < 1 || targetEligible > bestServerVisibleAlternatives {
+		targetEligible = bestServerVisibleAlternatives
+	}
+	return budgetLimited && eligibleBestServerAlternativeCount(candidates, currentEndpoint) < targetEligible
+}
+
 func bestServerCompletionPartial(budgetLimited bool, candidates []bestServerQualityCandidate, currentEndpoint string) bool {
-	return budgetLimited && eligibleBestServerAlternativeCount(candidates, currentEndpoint) < bestServerVisibleAlternatives
+	return bestServerCompletionPartialForTarget(budgetLimited, candidates, currentEndpoint, bestServerVisibleAlternatives)
 }
 
 func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
@@ -156,14 +163,18 @@ func (a *app) rankMeasuredBestServerBatches(
 	truncated bool,
 	currentEndpoint string,
 	currentFilter string,
+	targetEligible int,
 ) bestServerQualityResponse {
+	if targetEligible < 1 || targetEligible > bestServerVisibleAlternatives {
+		targetEligible = bestServerVisibleAlternatives
+	}
 	aggregate := bestServerQualityResponse{
 		Candidates: []bestServerQualityCandidate{}, ProfilesScanned: profilesScanned, ProfilesTotal: profilesScanned,
 		ProfilesTruncated: truncated, Mutation: "NONE",
 	}
 	budgetLimited := false
 	for start := 0; start < len(candidates); start += bestServerMeasuredBatchSize {
-		if eligibleBestServerAlternativeCount(aggregate.Candidates, currentEndpoint) >= bestServerVisibleAlternatives {
+		if eligibleBestServerAlternativeCount(aggregate.Candidates, currentEndpoint) >= targetEligible {
 			break
 		}
 		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < bestServerMinimumDeepAttemptBudget {
@@ -193,7 +204,7 @@ func (a *app) rankMeasuredBestServerBatches(
 		aggregate.Candidates = append(aggregate.Candidates, filterMeasuredBestServerResults(batch.Candidates)...)
 		reportBestServerProgress(ctx, "quality", end, len(candidates))
 	}
-	aggregate.Partial = bestServerCompletionPartial(budgetLimited, aggregate.Candidates, currentEndpoint)
+	aggregate.Partial = bestServerCompletionPartialForTarget(budgetLimited, aggregate.Candidates, currentEndpoint, targetEligible)
 	sortMeasuredBestServerResults(aggregate.Candidates)
 	for _, candidate := range aggregate.Candidates {
 		if candidate.Eligible && !candidate.Current {
@@ -322,7 +333,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	// "Проверить текущий VPN" is a separate explicit operation. Best Server may
 	// reuse a fresh complete current measurement, but it must not spend the
 	// alternatives job budget on an implicit heavy current Speedtest. This keeps
-	// the bounded 180 s browser contract focused on producing the Top-3 cards.
+	// the bounded 210 s browser contract focused on producing the Top-3 cards.
 	currentBaseline, currentBaselineOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
 	if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
 		candidates = withoutBestServerCandidate(candidates, currentIndex)
@@ -342,7 +353,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	// Rank logical profiles by the real proxy path. Shared provider ingress
 	// IP:port is not logical identity and must not influence the shortlist.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
-	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter)
+	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter, bestServerVisibleAlternatives)
 	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {
 		return bestServerQualityResponse{}, ctx.Err()
 	}

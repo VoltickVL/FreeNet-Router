@@ -169,6 +169,24 @@ func TestAutomationCountryScopeIsFailClosed(t *testing.T) {
 	}
 }
 
+func TestAutomationBestTargetUsesOneForDegradedAndThreeForBetter(t *testing.T) {
+	if got := automationBestEligibleTarget(automationPolicyDegraded); got != 1 {
+		t.Fatalf("degraded target=%d want=1", got)
+	}
+	if got := automationBestEligibleTarget(automationPolicyBetter); got != bestServerVisibleAlternatives {
+		t.Fatalf("better target=%d want=%d", got, bestServerVisibleAlternatives)
+	}
+	if automationNeedsForeignScan(automationPolicyDegraded, "healthy") {
+		t.Fatal("healthy current VPN must not trigger an expensive foreign scan in degraded-only policy")
+	}
+	if !automationNeedsForeignScan(automationPolicyDegraded, "degraded") {
+		t.Fatal("degraded current VPN must trigger replacement scan")
+	}
+	if !automationNeedsForeignScan(automationPolicyBetter, "healthy") {
+		t.Fatal("better policy must scan alternatives to compare a healthy current VPN")
+	}
+}
+
 func TestAutomationMeaningfulImprovementUsesHysteresis(t *testing.T) {
 	current := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 100, ApplicationMS: 180, JitterMS: 10}
 	better := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 130, ApplicationMS: 150, JitterMS: 8}

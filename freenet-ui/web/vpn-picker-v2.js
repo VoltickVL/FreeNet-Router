@@ -276,10 +276,10 @@
   }
   function rttSortValue(profile) {
     const value=rttByID.get(profile.id);
-    if (!value) return Number.MAX_SAFE_INTEGER-2;
+    if (!value) return Number.MAX_SAFE_INTEGER-3;
     if (value.reachable && value.rtt_ms) return value.rtt_ms;
-    if (value.status==='transport_only') return Number.MAX_SAFE_INTEGER-3;
-    if (!value.attempted || value.status==='unknown') return Number.MAX_SAFE_INTEGER-2;
+    if (!value.attempted || value.status==='unknown') return Number.MAX_SAFE_INTEGER-3;
+    if (value.status==='transport_only') return Number.MAX_SAFE_INTEGER-2;
     return Number.MAX_SAFE_INTEGER;
   }
   function rttLabel(profile) {
