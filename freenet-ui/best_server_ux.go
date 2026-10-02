@@ -333,7 +333,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	// "Проверить текущий VPN" is a separate explicit operation. Best Server may
 	// reuse a fresh complete current measurement, but it must not spend the
 	// alternatives job budget on an implicit heavy current Speedtest. This keeps
-	// the bounded 210 s browser contract focused on producing the Top-3 cards.
+	// the bounded canonical browser contract focused on producing the Top-3 cards.
 	currentBaseline, currentBaselineOK := loadBestServerCurrentQuality(currentEndpoint, currentFilter)
 	if currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter); currentIndex >= 0 {
 		candidates = withoutBestServerCandidate(candidates, currentIndex)
