@@ -76,6 +76,19 @@ func TestBestServerCompletionPartialRequiresEligibleTop3(t *testing.T) {
 	}
 }
 
+func TestBestServerCompletionPartialHonorsAdaptiveTarget(t *testing.T) {
+	current := "203.0.113.9:443"
+	input := []bestServerQualityCandidate{
+		{ID: "a", Endpoint: "203.0.113.10:443", Tested: true, Available: true, Eligible: true},
+	}
+	if bestServerCompletionPartialForTarget(true, input, current, 1) {
+		t.Fatal("degraded AUTO target=1 is complete after the first Eligible replacement")
+	}
+	if !bestServerCompletionPartialForTarget(true, input, current, 3) {
+		t.Fatal("manual/better target=3 must remain partial with only one Eligible replacement")
+	}
+}
+
 func TestBestServerCompletionPartialOnlyWhenBudgetBlocksTarget(t *testing.T) {
 	current := "203.0.113.9:443"
 	input := []bestServerQualityCandidate{
