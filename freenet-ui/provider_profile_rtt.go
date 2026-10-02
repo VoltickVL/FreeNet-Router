@@ -6,11 +6,12 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 const (
-	providerProfileRTTTimeout = 45 * time.Second
+	providerProfileRTTTimeout = 50 * time.Second
 	providerProfileRTTWorkers = 2
 )
 
@@ -42,6 +43,35 @@ type providerProfileRTTResponse struct {
 type providerRTTProbe func(context.Context, bestServerInternalCandidate) bestServerProbeResult
 
 var providerProfileRTTScanGate = make(chan struct{}, 1)
+
+func providerProfileRTTStatusRank(item providerProfileRTTItem) int {
+	switch {
+	case item.Reachable:
+		return 0
+	case item.Status == "unknown":
+		return 1
+	case item.Status == "transport_only":
+		return 2
+	default:
+		return 3
+	}
+}
+
+func sortProviderProfileRTTItems(items []providerProfileRTTItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		ri, rj := providerProfileRTTStatusRank(items[i]), providerProfileRTTStatusRank(items[j])
+		if ri != rj {
+			return ri < rj
+		}
+		if items[i].Reachable && items[i].RTTMS != items[j].RTTMS {
+			return items[i].RTTMS < items[j].RTTMS
+		}
+		if items[i].Reachable && items[i].JitterMS != items[j].JitterMS {
+			return items[i].JitterMS < items[j].JitterMS
+		}
+		return items[i].ProfileID < items[j].ProfileID
+	})
+}
 
 func beginProviderProfileRTTScan() bool {
 	select {
@@ -83,6 +113,7 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 		workers = len(candidates)
 	}
 	var wg sync.WaitGroup
+	var completed atomic.Int32
 	for worker := 0; worker < workers; worker++ {
 		wg.Add(1)
 		go func() {
@@ -108,6 +139,8 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 					item.Status = "transport_only"
 				}
 				results[index] = item
+				done := int(completed.Add(1))
+				reportBestServerProgress(ctx, "preflight", done, len(candidates))
 			}
 		}()
 	}
@@ -132,28 +165,7 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 			results[index].Status = "unknown"
 		}
 	}
-	rank := func(item providerProfileRTTItem) int {
-		switch {
-		case item.Reachable:
-			return 0
-		case item.Status == "transport_only":
-			return 1
-		case item.Status == "unknown":
-			return 2
-		default:
-			return 3
-		}
-	}
-	sort.SliceStable(results, func(i, j int) bool {
-		ri, rj := rank(results[i]), rank(results[j])
-		if ri != rj {
-			return ri < rj
-		}
-		if results[i].Reachable && results[i].RTTMS != results[j].RTTMS {
-			return results[i].RTTMS < results[j].RTTMS
-		}
-		return results[i].ProfileID < results[j].ProfileID
-	})
+	sortProviderProfileRTTItems(results)
 	return results
 }
 
