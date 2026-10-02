@@ -4,6 +4,7 @@ set -u
 ROOT="${FREENET_ROOT:-/opt}"
 CONFIG_DIR="${FREENET_XRAY_CONFIG_DIR:-${FREENET_CONFIG_DIR:-$ROOT/etc/xray/configs}}"
 DNS_FILE="$CONFIG_DIR/02_dns.json"
+OUT_FILE="$CONFIG_DIR/04_outbounds.json"
 XRAY_BIN="${FREENET_XRAY_BIN:-$ROOT/sbin/xray}"
 XRAY_ASSET_DIR="${FREENET_XRAY_ASSET_DIR:-$ROOT/etc/xray/dat}"
 RUNTIME_TIMEOUT="${FREENET_XKEEN_RUNTIME_TIMEOUT:-75}"
@@ -11,6 +12,8 @@ DNS_READY_TIMEOUT="${FREENET_SETTINGS_DNS_READY_TIMEOUT:-30}"
 DNS_READY_INTERVAL="${FREENET_SETTINGS_DNS_READY_INTERVAL:-2}"
 TEST_MODE="${FREENET_SETTINGS_DNS_TEST_MODE:-no}"
 BACKUP="${1:-}"
+DNS_BACKUP=""
+OUT_BACKUP=""
 
 err() { printf '[FreeNet Settings DNS] ERROR: %s\n' "$*" >&2; }
 
@@ -103,13 +106,48 @@ dns_runtime_ready() {
 for cmd in jq cp mv sha256sum; do
     command -v "$cmd" >/dev/null 2>&1 || { err "PRIMARY ERROR: missing command $cmd"; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
 done
-[ -n "$BACKUP" ] && [ -f "$BACKUP" ] || { err 'PRIMARY ERROR: resolver backup unavailable'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
-jq -e . "$BACKUP" >/dev/null 2>&1 || { err 'PRIMARY ERROR: resolver backup is invalid'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
-expected="$(sha256sum "$BACKUP" | awk '{print $1}')"
-cp -p "$BACKUP" "$DNS_FILE.restore.$$" || { err 'PRIMARY ERROR: cannot stage resolver restore'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+
+if [ -d "$BACKUP" ]; then
+    DNS_BACKUP="$BACKUP/02_dns.json"
+    OUT_BACKUP="$BACKUP/04_outbounds.json"
+    [ -f "$DNS_BACKUP" ] && [ -f "$OUT_BACKUP" ] || { err 'PRIMARY ERROR: DNS/DIRECT egress backup bundle incomplete'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+elif [ -f "$BACKUP" ]; then
+    # Backward-compatible DNS-only restore for pre-v0.4.56 snapshots/tests.
+    DNS_BACKUP="$BACKUP"
+else
+    err 'PRIMARY ERROR: resolver backup unavailable'
+    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
+    exit 1
+fi
+
+jq -e . "$DNS_BACKUP" >/dev/null 2>&1 || { err 'PRIMARY ERROR: resolver backup is invalid'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+if [ -n "$OUT_BACKUP" ]; then
+    jq -e . "$OUT_BACKUP" >/dev/null 2>&1 || { err 'PRIMARY ERROR: DIRECT egress backup is invalid'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+fi
+
+expected_dns="$(sha256sum "$DNS_BACKUP" | awk '{print $1}')"
+expected_out=""
+[ -z "$OUT_BACKUP" ] || expected_out="$(sha256sum "$OUT_BACKUP" | awk '{print $1}')"
+
+cp -p "$DNS_BACKUP" "$DNS_FILE.restore.$$" || { err 'PRIMARY ERROR: cannot stage resolver restore'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+if [ -n "$OUT_BACKUP" ]; then
+    cp -p "$OUT_BACKUP" "$OUT_FILE.restore.$$" || { rm -f "$DNS_FILE.restore.$$" 2>/dev/null || true; err 'PRIMARY ERROR: cannot stage DIRECT egress restore'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+fi
+
 mv -f "$DNS_FILE.restore.$$" "$DNS_FILE" || { err 'PRIMARY ERROR: cannot install resolver restore'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+if [ -n "$OUT_BACKUP" ]; then
+    mv -f "$OUT_FILE.restore.$$" "$OUT_FILE" || { err 'PRIMARY ERROR: cannot install DIRECT egress restore'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+fi
+
 restart_xkeen || { err 'PRIMARY ERROR: XKeen/Xray restart failed during resolver restore'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
-actual="$(sha256sum "$DNS_FILE" | awk '{print $1}')"
-[ "$actual" = "$expected" ] && dns_runtime_ready || { err 'PRIMARY ERROR: resolver restore acceptance failed'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+
+actual_dns="$(sha256sum "$DNS_FILE" | awk '{print $1}')"
+[ "$actual_dns" = "$expected_dns" ] || { err 'PRIMARY ERROR: resolver restore hash mismatch'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+if [ -n "$OUT_BACKUP" ]; then
+    actual_out="$(sha256sum "$OUT_FILE" | awk '{print $1}')"
+    [ "$actual_out" = "$expected_out" ] || { err 'PRIMARY ERROR: DIRECT egress restore hash mismatch'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
+fi
+
+dns_runtime_ready || { err 'PRIMARY ERROR: resolver restore acceptance failed'; err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; exit 1; }
 printf '%s\n' 'RESULT=RESTORED'
 printf '%s\n' 'ROLLBACK=SUCCESS'
