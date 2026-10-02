@@ -39,6 +39,7 @@ func TestReconcileSettingsV3SchedulerRepairsStaleAutoVPNWatchdog(t *testing.T) {
 	configPath := filepath.Join(dir, "freenet.conf")
 	configBody := strings.Join([]string{
 		"AUTO_VPN_V1=yes",
+		"AUTO_VPN_HEALTH_INTERVAL=1m",
 		"AUTO_SUBSCRIPTION_REFRESH_ENABLED=no",
 		"AUTO_GEODATA_ENABLED=no",
 		"AUTO_FREENET_CHECK_ENABLED=no",
@@ -69,7 +70,7 @@ func TestReconcileSettingsV3SchedulerRepairsStaleAutoVPNWatchdog(t *testing.T) {
 	if !strings.Contains(text, "17 2 * * * /opt/bin/custom-job") {
 		t.Fatalf("external cron entry was not preserved:\n%s", text)
 	}
-	if !strings.Contains(text, "*/5 * * * * '/opt/sbin/freenet-ui' automation-health-watch") {
+	if !strings.Contains(text, "* * * * * '/opt/sbin/freenet-ui' automation-health-watch") {
 		t.Fatalf("canonical AUTO VPN watchdog missing:\n%s", text)
 	}
 	if strings.Contains(text, "/opt/bin/vpn failover") {
