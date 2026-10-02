@@ -86,6 +86,15 @@ func TestAutomationReachableDegradationNeverTriggersRecovery(t *testing.T) {
 	}
 }
 
+func TestAutomationSingleOriginFailureCannotTriggerRecovery(t *testing.T) {
+	if got := classifyAutomationApplicationFailure(true); got.State != automationHealthUncertain {
+		t.Fatalf("working VPN transport with named-origin failure state=%q want uncertain/no-mutation", got.State)
+	}
+	if got := classifyAutomationApplicationFailure(false); got.State != automationHealthFailed {
+		t.Fatalf("multi-origin plus transport failure state=%q want failed", got.State)
+	}
+}
+
 func TestAutomationHealthRequiresConfirmedWANAndTwoVPNFailures(t *testing.T) {
 	failed := automationHealthProbe{State: automationHealthFailed, Reason: "failed"}
 	healthy := automationHealthProbe{State: automationHealthHealthy, Reason: "healthy"}
