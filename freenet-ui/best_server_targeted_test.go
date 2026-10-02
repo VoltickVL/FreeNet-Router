@@ -130,6 +130,33 @@ func TestFreshEndpointReadinessUsesVPNApplicationAsOnlyMutationGate(t *testing.T
 	}
 }
 
+func TestFreshEndpointReadinessDoesNotWaitForDiagnosticTCP(t *testing.T) {
+	oldTCP := bestServerEndpointTCPProbe
+	oldApp := bestServerEndpointApplicationProbe
+	t.Cleanup(func() {
+		bestServerEndpointTCPProbe = oldTCP
+		bestServerEndpointApplicationProbe = oldApp
+	})
+
+	bestServerEndpointTCPProbe = func(ctx context.Context, _ subscriptionProfile) bestServerProbeResult {
+		<-ctx.Done()
+		return bestServerProbeResult{}
+	}
+	bestServerEndpointApplicationProbe = func(_ *app, _ context.Context, _ bestServerInternalCandidate) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{90, 94}, Median: 92, Jitter: 4}
+	}
+	started := time.Now()
+	got := (&app{}).probeBestServerFreshEndpointReadiness(context.Background(), bestServerInternalCandidate{Profile: subscriptionProfile{
+		ID: "1234567890abcdef", Name: "DE Frankfurt Extra", Address: "203.0.113.23", Port: 443,
+	}})
+	if got == nil || !got.Tested || !got.Available || !got.Eligible {
+		t.Fatalf("application-proven fresh endpoint must not be vetoed by hanging diagnostic TCP: %#v", got)
+	}
+	if time.Since(started) >= bestServerEndpointReadinessTimeout/2 {
+		t.Fatalf("diagnostic TCP delayed readiness decision: elapsed=%s", time.Since(started))
+	}
+}
+
 func TestFreshEndpointReadinessRejectsHighApplicationLatencyWithoutSpeedtest(t *testing.T) {
 	oldTCP := bestServerEndpointTCPProbe
 	oldApp := bestServerEndpointApplicationProbe
