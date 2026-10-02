@@ -713,6 +713,7 @@
     }
     return 'q_' + Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
   }
+  window.freenetQualityJobID = qualityJobID;
 
   async function requestQuality(path, mode) {
     const id = qualityJobID(), started = Date.now();
