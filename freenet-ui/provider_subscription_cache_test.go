@@ -99,7 +99,51 @@ func TestProviderSubscriptionCacheIsBoundToExactSubscriptionSource(t *testing.T)
 	}
 }
 
-func TestEnsureProviderSubscriptionCacheUsesMatchingLKGWithoutNetwork(t *testing.T) {
+func TestEnsureProviderSubscriptionCacheRefreshesMatchingLKGFromFreshDirect(t *testing.T) {
+	setProviderCachePathsForTest(t)
+	oldDirect := directSubscriptionBodyFetch
+	oldVPN := activeVPNSubscriptionBodyFetch
+	t.Cleanup(func() {
+		directSubscriptionBodyFetch = oldDirect
+		activeVPNSubscriptionBodyFetch = oldVPN
+	})
+	const subURL = "https://subscription.example.invalid/private-token"
+	if err := saveProviderSubscriptionCache(subURL, testProviderCredentialSubscription()); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := []byte(strings.ReplaceAll(string(testProviderCredentialSubscription()), "TEST-UUID-A", "TEST-UUID-A-NEW"))
+	var directCalls, vpnCalls int32
+	directSubscriptionBodyFetch = func(context.Context, *url.URL) ([]byte, error) {
+		atomic.AddInt32(&directCalls, 1)
+		return fresh, nil
+	}
+	activeVPNSubscriptionBodyFetch = func(*app, context.Context, *url.URL) ([]byte, error) {
+		atomic.AddInt32(&vpnCalls, 1)
+		return nil, errors.New("VPN fallback must not run after a fresh direct success")
+	}
+	dir := t.TempDir()
+	subPath := filepath.Join(dir, "subscription.url")
+	if err := os.WriteFile(subPath, []byte(subURL+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{SubPath: subPath}}
+	if err := a.ensureProviderSubscriptionCache(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if atomic.LoadInt32(&directCalls) != 1 || atomic.LoadInt32(&vpnCalls) != 0 {
+		t.Fatalf("fresh-first calls direct=%d vpn=%d", directCalls, vpnCalls)
+	}
+	data, err := os.ReadFile(providerSubscriptionCachePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "TEST-UUID-A-NEW") {
+		t.Fatal("matching secure LKG was not refreshed from the reachable fresh source")
+	}
+}
+
+func TestEnsureProviderSubscriptionCacheFallsBackToMatchingLKGWhenFreshUnavailable(t *testing.T) {
 	setProviderCachePathsForTest(t)
 	oldDirect := directSubscriptionBodyFetch
 	oldVPN := activeVPNSubscriptionBodyFetch
@@ -115,11 +159,11 @@ func TestEnsureProviderSubscriptionCacheUsesMatchingLKGWithoutNetwork(t *testing
 	var calls int32
 	directSubscriptionBodyFetch = func(context.Context, *url.URL) ([]byte, error) {
 		atomic.AddInt32(&calls, 1)
-		return nil, errors.New("must not fetch")
+		return nil, errors.New("direct unavailable")
 	}
 	activeVPNSubscriptionBodyFetch = func(*app, context.Context, *url.URL) ([]byte, error) {
 		atomic.AddInt32(&calls, 1)
-		return nil, errors.New("must not fetch")
+		return nil, errors.New("VPN unavailable")
 	}
 	dir := t.TempDir()
 	subPath := filepath.Join(dir, "subscription.url")
@@ -130,8 +174,11 @@ func TestEnsureProviderSubscriptionCacheUsesMatchingLKGWithoutNetwork(t *testing
 	if err := a.ensureProviderSubscriptionCache(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if atomic.LoadInt32(&calls) != 0 {
-		t.Fatalf("matching secure LKG unexpectedly hit network: %d", calls)
+	if atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("fresh sources must be attempted before matching LKG fallback: calls=%d", calls)
+	}
+	if !providerSubscriptionCacheMatches(subURL) {
+		t.Fatal("matching secure LKG must remain available after fresh-source failure")
 	}
 }
 
