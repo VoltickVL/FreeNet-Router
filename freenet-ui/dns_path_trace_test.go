@@ -30,14 +30,14 @@ func traceTestDNS() map[string]any {
 }
 
 func traceTestModernDNS() map[string]any {
-	expected, err := expectedFreeNetManagedSplitDNSWithResolvers(traceTestRouting(), settingsDNSYandexDoH, settingsDNSGoogleDoH)
+	expected, err := expectedFreeNetManagedSplitDNSWithResolvers(traceTestRouting(), settingsDNSYandexDirect, settingsDNSGoogleDoH)
 	if err != nil {
 		panic(err)
 	}
 	return expected
 }
 
-func TestManagedSplitMirrorAcceptsSupportedCurrentDoHProviders(t *testing.T) {
+func TestManagedSplitMirrorAcceptsSupportedCurrentProviders(t *testing.T) {
 	current := traceTestModernDNS()
 	expected, err := expectedFreeNetManagedSplitDNSForCurrent(traceTestRouting(), current)
 	if err != nil {
@@ -129,9 +129,9 @@ func TestSanitizeDNSPathTraceValidationDetail(t *testing.T) {
 		t.Fatalf("unexpected sanitized detail: %q", got)
 	}
 
-	long := strings.Repeat("x", 600)
-	if got := sanitizeDNSPathTraceValidationDetail(long, ""); len(got) > 483 || !strings.HasSuffix(got, "...") {
-		t.Fatalf("validation detail was not bounded: len=%d", len(got))
+	long := "prefix-" + strings.Repeat("x", 600) + "-PRIMARY_ERROR"
+	if got := sanitizeDNSPathTraceValidationDetail(long, ""); len(got) > 483 || !strings.HasPrefix(got, "...") || !strings.HasSuffix(got, "PRIMARY_ERROR") {
+		t.Fatalf("validation detail did not preserve bounded tail: %q", got)
 	}
 }
 
@@ -150,8 +150,22 @@ func TestBuildReadOnlyXrayTraceConfigHasNoLiveCredentials(t *testing.T) {
 		if protocol != "blackhole" && protocol != "freedom" {
 			t.Fatalf("trace copied a live outbound protocol: %q", protocol)
 		}
-		if _, exists := ob["streamSettings"]; exists {
-			t.Fatal("trace must not copy live stream credentials")
+		if protocol == "blackhole" {
+			if _, exists := ob["streamSettings"]; exists {
+				t.Fatal("blackhole trace outbound must not carry stream settings")
+			}
+			continue
+		}
+		stream, ok := ob["streamSettings"].(map[string]any)
+		if !ok {
+			t.Fatal("trace resolver outbound missing streamSettings")
+		}
+		sockopt, ok := stream["sockopt"].(map[string]any)
+		if !ok || legacyNativeString(sockopt["domainStrategy"]) != "UseIPv4" {
+			t.Fatalf("trace resolver sockopt mismatch: %#v", stream)
+		}
+		if len(sockopt) != 1 {
+			t.Fatalf("trace resolver copied unexpected sockopt fields: %#v", sockopt)
 		}
 	}
 }
@@ -204,18 +218,18 @@ func TestParseDNSPathTraceDetectsSelectorMismatch(t *testing.T) {
 	}
 }
 
-func TestParseDNSPathTraceDirectParityWithSupportedDoHProvider(t *testing.T) {
+func TestParseDNSPathTraceDirectParityWithBootstrapSafeProvider(t *testing.T) {
 	logs := strings.Join([]string{
 		"[Debug] app/dispatcher: taking detour [direct] for [tcp:direct.example:80]",
 		"[Debug] app/dns: domain direct.example matches following rules: [domain:direct.example(DNS idx:0)]",
-		"[Debug] app/dns: domain direct.example will use DNS in order: [DOH//dns.yandex.ru]",
-		"[Debug] app/dispatcher: taking detour [direct] for [tcp:dns.yandex.ru:443]",
+		"[Debug] app/dns: domain direct.example will use DNS in order: [UDP:77.88.8.8:53]",
+		"[Debug] app/dispatcher: taking detour [direct] for [udp:77.88.8.8:53]",
 	}, "\n")
 	trace, err := parseDNSPathTrace("direct.example", logs, traceTestModernDNS(), traceTestRouting())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if trace.PayloadAction != "DIRECT" || trace.DNSSelector != "dns-direct" || trace.DNSUpstream != settingsDNSYandexDoH || trace.DNSObservedOutbound != "direct" || !trace.PolicyParity {
-		t.Fatalf("unexpected modern-provider trace: %+v", trace)
+	if trace.PayloadAction != "DIRECT" || trace.DNSSelector != "dns-direct" || trace.DNSUpstream != settingsDNSYandexDirect || trace.DNSObservedOutbound != "direct" || !trace.PolicyParity {
+		t.Fatalf("unexpected bootstrap-safe provider trace: %+v", trace)
 	}
 }
