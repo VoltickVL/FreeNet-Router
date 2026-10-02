@@ -377,11 +377,15 @@ func v3HealthTimes(enabled bool, healthInterval string) (string, string) {
 	}
 	state := v3ParseState(settingsV3StatePath())
 	last := state["HEALTH_LAST"]
-	interval := automationHealthIntervalDuration(normalizeAutomationHealthInterval(healthInterval))
-	if last == "" {
-		return "", time.Now().UTC().Add(interval).Format(time.RFC3339)
+	base := state["HEALTH_SCHEDULE_LAST"]
+	if base == "" {
+		base = last
 	}
-	t, err := time.Parse(time.RFC3339, last)
+	interval := automationHealthIntervalDuration(normalizeAutomationHealthInterval(healthInterval))
+	if base == "" {
+		return last, time.Now().UTC().Add(interval).Format(time.RFC3339)
+	}
+	t, err := time.Parse(time.RFC3339, base)
 	if err != nil {
 		return last, ""
 	}
