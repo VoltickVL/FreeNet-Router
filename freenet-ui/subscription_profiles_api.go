@@ -208,6 +208,80 @@ func decodeSubscriptionBase64(text string) ([]byte, error) {
 	return nil, errors.New("base64 decode failed")
 }
 
+type vlessTransportSpec struct {
+	Security   string
+	Network    string
+	ServerName string
+	Host       string
+	Path       string
+}
+
+func parseSupportedVLESSTransport(u *url.URL) (vlessTransportSpec, bool) {
+	if u == nil {
+		return vlessTransportSpec{}, false
+	}
+	q := u.Query()
+	security := strings.ToLower(strings.TrimSpace(q.Get("security")))
+	if security == "" {
+		security = "reality"
+	}
+	network := strings.ToLower(strings.TrimSpace(q.Get("type")))
+	if network == "" {
+		network = "tcp"
+	}
+	serverName := strings.TrimSpace(q.Get("sni"))
+	host := strings.TrimSpace(q.Get("host"))
+	path := strings.TrimSpace(q.Get("path"))
+	for _, value := range []string{serverName, host, path} {
+		if strings.ContainsAny(value, "\r\n\x00") {
+			return vlessTransportSpec{}, false
+		}
+	}
+
+	spec := vlessTransportSpec{
+		Security: security, Network: network, ServerName: serverName,
+		Host: host, Path: path,
+	}
+	switch security {
+	case "reality":
+		if network != "tcp" {
+			return vlessTransportSpec{}, false
+		}
+		spec.Host = ""
+		spec.Path = ""
+	case "tls":
+		if network != "tcp" && network != "ws" {
+			return vlessTransportSpec{}, false
+		}
+		if network == "ws" {
+			if spec.Path == "" {
+				spec.Path = "/"
+			}
+			if spec.Host == "" {
+				spec.Host = spec.ServerName
+			}
+		}
+	default:
+		return vlessTransportSpec{}, false
+	}
+	return spec, true
+}
+
+func vlessLogicalProfileID(name, address string, port int, spec vlessTransportSpec) string {
+	identity := strings.Join([]string{
+		name,
+		strings.ToLower(address),
+		strconv.Itoa(port),
+		spec.Security,
+		spec.Network,
+		strings.ToLower(spec.ServerName),
+		strings.ToLower(spec.Host),
+		spec.Path,
+	}, "|")
+	sum := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(sum[:8])
+}
+
 func parseSafeVLESSProfile(line string) (subscriptionProfile, bool) {
 	u, err := url.Parse(line)
 	if err != nil || !strings.EqualFold(u.Scheme, "vless") || u.Hostname() == "" {
@@ -221,6 +295,10 @@ func parseSafeVLESSProfile(line string) (subscriptionProfile, bool) {
 	if len(address) > 255 || strings.ContainsAny(address, "\r\n\x00 /?#@") {
 		return subscriptionProfile{}, false
 	}
+	spec, ok := parseSupportedVLESSTransport(u)
+	if !ok {
+		return subscriptionProfile{}, false
+	}
 
 	name := sanitizeProfileName(u.Fragment)
 	if name == "" {
@@ -229,9 +307,8 @@ func parseSafeVLESSProfile(line string) (subscriptionProfile, bool) {
 	if !isBaseExtraProfileName(name) {
 		return subscriptionProfile{}, false
 	}
-	sum := sha256.Sum256([]byte(name + "|" + strings.ToLower(address) + "|" + strconv.Itoa(port)))
 	return subscriptionProfile{
-		ID:          hex.EncodeToString(sum[:8]),
+		ID:          vlessLogicalProfileID(name, address, port, spec),
 		Name:        name,
 		CountryCode: profileCountryCode(name),
 		Address:     address,
