@@ -121,6 +121,17 @@ func TestSortMeasuredBestServerResultsKeepsEligibleAheadOfDiagnostic(t *testing.
 	}
 }
 
+func TestSortMeasuredBestServerResultsUsesVPNRTTOnlyAsTieBreak(t *testing.T) {
+	input := []bestServerQualityCandidate{
+		{ID: "slow-quick", Tested: true, Available: true, Eligible: true, Score: 1000, ApplicationMS: 170, DownloadMbps: 100, VPNRTTMS: 190},
+		{ID: "fast-quick", Tested: true, Available: true, Eligible: true, Score: 1000, ApplicationMS: 170, DownloadMbps: 100, VPNRTTMS: 150},
+	}
+	sortMeasuredBestServerResults(input)
+	if input[0].ID != "fast-quick" {
+		t.Fatalf("canonical VPN RTT must break otherwise-equal deep-quality ties: %#v", input)
+	}
+}
+
 func TestCurrentBestServerCandidateSelectsExactlyOneCurrentProfile(t *testing.T) {
 	input := []bestServerInternalCandidate{
 		{Profile: subscriptionProfile{ID: "a", Name: "PL Warsaw, Extra", CountryCode: "pl", Address: "10.0.0.1", Port: 443}},
