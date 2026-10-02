@@ -81,26 +81,31 @@ func TestBestServerBrowserTimeoutContract(t *testing.T) {
 }
 
 
-func TestBestServerPreflightUsesTwoBoundedRankingSamples(t *testing.T) {
-	if bestServerPreflightHTTPRuns != 2 {
-		t.Fatalf("preflight HTTP runs=%d want=2; ranking should resist a single transient sample", bestServerPreflightHTTPRuns)
+func TestBestServerQuickRTTSweepCoversTypicalPool(t *testing.T) {
+	if bestServerProfilePingHTTPRuns != 1 {
+		t.Fatalf("quick RTT runs=%d want=1; ranking must stay lightweight while deep quality owns strict acceptance", bestServerProfilePingHTTPRuns)
 	}
-	const socksStartupBudget = 3 * time.Second
-	const perHTTPBudget = 2 * time.Second
-	minimumCandidateBudget := socksStartupBudget + time.Duration(bestServerPreflightHTTPRuns)*perHTTPBudget
-	if bestServerPreflightCandidateTimeout < minimumCandidateBudget {
-		t.Fatalf("preflight candidate timeout=%s below two-sample floor %s", bestServerPreflightCandidateTimeout, minimumCandidateBudget)
+	if providerProfileRTTWorkers != isolatedXrayProbeLimit {
+		t.Fatalf("RTT workers=%d isolated limit=%d; canonical sweep must respect the global safety cap", providerProfileRTTWorkers, isolatedXrayProbeLimit)
+	}
+	if bestServerPreflightShortlist != 10 {
+		t.Fatalf("deep shortlist=%d want hard max 10", bestServerPreflightShortlist)
+	}
+	const typicalPool = 48
+	waves := (typicalPool + providerProfileRTTWorkers - 1) / providerProfileRTTWorkers
+	worstSweep := time.Duration(waves) * bestServerProfilePingTimeout
+	if worstSweep > bestServerPreflightPhaseTimeout {
+		t.Fatalf("48-profile quick RTT worst sweep %s exceeds preflight phase %s", worstSweep, bestServerPreflightPhaseTimeout)
 	}
 	data, err := os.ReadFile("best_server_preflight.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	src := string(data)
-	if !strings.Contains(src, "ranking-only evidence") || !strings.Contains(src, "strict acceptance") {
-		t.Fatal("preflight must remain explicitly ranking-only; acceptance belongs to deep quality")
+	if !strings.Contains(src, "same per-logical-profile") || !strings.Contains(src, "strict HTTP/throughput/services/stability acceptance") {
+		t.Fatal("preflight must explicitly remain ranking-only and share the picker RTT engine")
 	}
 }
-
 
 func TestBestServerDeepProgressIsCumulativeAcrossBatches(t *testing.T) {
 	type progress struct {
@@ -135,49 +140,58 @@ func TestBestServerBrowserShowsAdaptiveDeepProgress(t *testing.T) {
 }
 
 
-func TestBestServerPreflightTimeoutKeepsUnknownProfilesAsReserve(t *testing.T) {
-	candidates := make([]bestServerInternalCandidate, 20)
+func TestBestServerRTTShortlistPromotesLateLowLatencyProfile(t *testing.T) {
+	candidates := make([]bestServerInternalCandidate, 48)
+	items := make([]providerProfileRTTItem, 48)
 	for i := range candidates {
-		candidates[i].Profile = subscriptionProfile{ID: fmt.Sprintf("p-%02d", i)}
+		id := fmt.Sprintf("p-%02d", i)
+		candidates[i].Profile = subscriptionProfile{ID: id, Address: fmt.Sprintf("203.0.113.%d", i+1), Port: 443}
+		items[i] = providerProfileRTTItem{ProfileID: id, Reachable: true, Attempted: true, Status: "reachable", RTTMS: 260 + i}
 	}
-	attempted := map[int]bool{}
-	for i := 0; i < 8; i++ {
-		attempted[i] = true
-	}
-	measured := []bestServerPreflightResult{{
-		Index: 7,
-		Probe: bestServerProbeResult{OK: true, Median: 80},
-	}}
+	items[47].RTTMS = 150
+	items[46].RTTMS = 160
+	items[45].RTTMS = 170
+	items[44].RTTMS = 180
 
-	got := selectBestServerPreflightIndexes(candidates, measured, attempted, -1)
+	got := selectBestServerRTTShortlistIndexes(candidates, items, -1)
 	if len(got) != bestServerPreflightShortlist {
-		t.Fatalf("preflight reserve len=%d want=%d: %#v", len(got), bestServerPreflightShortlist, got)
+		t.Fatalf("shortlist len=%d want=%d", len(got), bestServerPreflightShortlist)
 	}
-	if got[0] != 7 {
-		t.Fatalf("measured success must stay first, got %#v", got)
-	}
-	for _, index := range got[1:] {
-		if index < 8 {
-			t.Fatalf("timed-out unknown profiles must be preferred over explicit preflight failures, got %#v", got)
+	want := []string{"p-47", "p-46", "p-45", "p-44"}
+	for i, id := range want {
+		if candidates[got[i]].Profile.ID != id {
+			t.Fatalf("late low-RTT profile lost at position %d: got=%s want=%s shortlist=%#v", i, candidates[got[i]].Profile.ID, id, got)
 		}
 	}
 }
 
-func TestBestServerPreflightZeroSuccessStillReturnsUnknownReserve(t *testing.T) {
-	candidates := make([]bestServerInternalCandidate, 20)
+func TestBestServerRTTShortlistUsesUnknownOnlyAsReserve(t *testing.T) {
+	candidates := make([]bestServerInternalCandidate, 14)
+	items := make([]providerProfileRTTItem, 0, len(candidates))
 	for i := range candidates {
-		candidates[i].Profile = subscriptionProfile{ID: fmt.Sprintf("p-%02d", i)}
+		id := fmt.Sprintf("p-%02d", i)
+		candidates[i].Profile = subscriptionProfile{ID: id}
+		switch {
+		case i < 8:
+			items = append(items, providerProfileRTTItem{ProfileID: id, Reachable: true, Attempted: true, Status: "reachable", RTTMS: 100 + i})
+		case i < 11:
+			items = append(items, providerProfileRTTItem{ProfileID: id, Status: "unknown"})
+		case i < 13:
+			items = append(items, providerProfileRTTItem{ProfileID: id, Attempted: true, Status: "transport_only"})
+		default:
+			items = append(items, providerProfileRTTItem{ProfileID: id, Attempted: true, Status: "unreachable"})
+		}
 	}
-	attempted := map[int]bool{}
+	got := selectBestServerRTTShortlistIndexes(candidates, items, -1)
+	if len(got) != 10 {
+		t.Fatalf("shortlist len=%d want=10: %#v", len(got), got)
+	}
 	for i := 0; i < 8; i++ {
-		attempted[i] = true
+		if candidates[got[i]].Profile.ID != fmt.Sprintf("p-%02d", i) {
+			t.Fatalf("confirmed RTT ordering changed: %#v", got)
+		}
 	}
-
-	got := selectBestServerPreflightIndexes(candidates, nil, attempted, -1)
-	if len(got) != bestServerPreflightShortlist {
-		t.Fatalf("zero-success preflight must retain a full unknown reserve: len=%d got=%#v", len(got), got)
-	}
-	if got[0] != 8 {
-		t.Fatalf("first unattempted profile should lead the reserve, got %#v", got)
+	if candidates[got[8]].Profile.ID != "p-08" || candidates[got[9]].Profile.ID != "p-09" {
+		t.Fatalf("UNKNOWN reserve must follow all confirmed RTT results and precede transport-only: %#v", got)
 	}
 }
