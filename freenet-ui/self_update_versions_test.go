@@ -1,6 +1,14 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -67,5 +75,92 @@ func TestSelfUpdateReleaseCachePolicy(t *testing.T) {
 	}
 	if selfUpdateReleaseCacheUsable(now.Add(-90*time.Second), 3, true, now) {
 		t.Fatal("explicit fresh request must bypass stale catalog after bounded minimum age")
+	}
+}
+
+
+func resetSelfUpdateReleaseCacheForTest() {
+	selfUpdateReleaseCache.Lock()
+	selfUpdateReleaseCache.at = time.Time{}
+	selfUpdateReleaseCache.items = nil
+	selfUpdateReleaseCache.Unlock()
+}
+
+func TestSelfUpdateReleaseCatalogUsesResilientDownloader(t *testing.T) {
+	oldDownload := selfUpdateReleaseDownload
+	oldAPI := selfUpdateReleasesAPI
+	defer func() {
+		selfUpdateReleaseDownload = oldDownload
+		selfUpdateReleasesAPI = oldAPI
+		resetSelfUpdateReleaseCacheForTest()
+	}()
+	resetSelfUpdateReleaseCacheForTest()
+	selfUpdateReleasesAPI = "https://catalog.test/releases"
+	calls := 0
+	selfUpdateReleaseDownload = func(_ context.Context, rawURL string, maxBytes int64) ([]byte, error) {
+		calls++
+		if maxBytes != selfUpdateReleaseBodyLimit {
+			t.Fatalf("catalog maxBytes=%d want=%d", maxBytes, selfUpdateReleaseBodyLimit)
+		}
+		if !strings.Contains(rawURL, "per_page=100&page=1") {
+			t.Fatalf("unexpected catalog URL %q", rawURL)
+		}
+		return []byte(`[{"tag_name":"v0.4.51","published_at":"2026-10-02T00:00:00Z"}]`), nil
+	}
+	items, err := fetchSelfUpdateReleaseCatalog(context.Background(), "v0.4.50", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("resilient downloader calls=%d want=1", calls)
+	}
+	if len(items) != 1 || items[0].Version != "v0.4.51" || !items[0].Latest {
+		t.Fatalf("unexpected catalog: %+v", items)
+	}
+}
+
+func TestSelfUpdateReleaseHandlerFallsBackToRecoveryLatest(t *testing.T) {
+	oldDownload := selfUpdateReleaseDownload
+	oldAPI := selfUpdateReleasesAPI
+	defer func() {
+		selfUpdateReleaseDownload = oldDownload
+		selfUpdateReleasesAPI = oldAPI
+		resetSelfUpdateReleaseCacheForTest()
+	}()
+	resetSelfUpdateReleaseCacheForTest()
+	selfUpdateReleaseDownload = func(context.Context, string, int64) ([]byte, error) {
+		return nil, errors.New("primary resolver path failed")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/latest" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"tag_name":"v9.9.9"}`)
+	}))
+	defer server.Close()
+	t.Setenv("FREENET_RECOVERY_LATEST_URL", server.URL+"/latest")
+	history := filepath.Join(t.TempDir(), "history.tsv")
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", history)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://router.test/api/system/update/releases?fresh=1", nil)
+	(&app{}).handleSelfUpdateReleases(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	for _, want := range []string{`"success":true`, `"latest_version":"v9.9.9"`, `"degraded":true`, "резервный канал FreeNet"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("fallback response missing %q: %s", want, body)
+		}
+	}
+	data, err := os.ReadFile(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "PRIMARY ERROR: release catalog page 1 unavailable: primary resolver path failed") {
+		t.Fatalf("primary catalog error not journaled: %s", data)
 	}
 }
