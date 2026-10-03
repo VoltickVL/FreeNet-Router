@@ -7,7 +7,6 @@ import (
 
 func matchingSplitPlanOutput() string {
 	return strings.Join([]string{
-		"ISP_ID=auto",
 		"DNS_MODE=xkeen",
 		"EFFECTIVE_DNS_MODE=xkeen",
 		"SUPPORTED=yes",
@@ -81,7 +80,6 @@ func TestParseNetworkPlanSplitActiveFailsClosedOnRuntimeMismatch(t *testing.T) {
 
 func TestParseNetworkPlanMissingAuthoritativeFactsIsNotActive(t *testing.T) {
 	out := strings.Join([]string{
-		"ISP_ID=auto",
 		"DNS_MODE=xkeen",
 		"EFFECTIVE_DNS_MODE=xkeen",
 		"SUPPORTED=yes",
