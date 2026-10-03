@@ -24,7 +24,9 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"height:min(760px,var(--fnv2-space,760px))", "flex:1 1 auto",
 		"fnVpnPickerV2Resize", "setPointerCapture", "dataset.userHeight",
 		"завершён частично", "не проверен",
-		"refresh.addEventListener('click',refreshRTT)", "data.cached",
+		"refresh.addEventListener('click',refreshRTT)",
+		"expectedSourceKey", "expectedCatalog", "sourceKey!==expectedSourceKey",
+		"expectedCatalog.get(id)!==measuredEndpoint", "pingCatalogChanged", "!!staleRefresh",
 	} {
 		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
 	}

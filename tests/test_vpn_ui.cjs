@@ -40,7 +40,7 @@ const server = http.createServer((req,res)=>{
       }
     });
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
-    const calls=[];let pending=[];let mode='ok';let bestMode='winner';
+    const calls=[];let pending=[];let mode='ok';let bestMode='winner';let rttMode='ok';
     let applyMode='ok', operation=null, operationReads=0, providerPlanMode='ok';
     const answer = (route,body,code=200)=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
     await page.route('**/api/**',async route=>{
@@ -66,9 +66,9 @@ const server = http.createServer((req,res)=>{
         return answer(route,{
           success:true,cached:!url.searchParams.has('refresh'),mutation:'NONE',profiles:3,checked:3,reachable:3,unknown:0,partial:false,
           results:[
-            {profile_id:second.id,rtt_ms:92,jitter_ms:3,reachable:true,attempted:true,status:'reachable'},
-            {profile_id:winner.id,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
-            {profile_id:current.id,rtt_ms:148,jitter_ms:5,reachable:true,attempted:true,status:'reachable'}
+            {profile_id:second.id,endpoint:second.endpoint,rtt_ms:92,jitter_ms:3,reachable:true,attempted:true,status:'reachable'},
+            {profile_id:winner.id,endpoint:rttMode==='mismatch'?'192.0.2.99:443':winner.endpoint,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
+            {profile_id:current.id,endpoint:current.endpoint,rtt_ms:148,jitter_ms:5,reachable:true,attempted:true,status:'reachable'}
           ]
         });
       }
@@ -194,6 +194,13 @@ const server = http.createServer((req,res)=>{
     await openPicker();
     await page.waitForTimeout(200);
     assert.equal(calls.filter(x=>x.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen+1,'reopening selector must not start another RTT sweep');
+    rttMode='mismatch';
+    await page.locator('#fnVpnPickerV2Refresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled);
+    assert.match(await page.locator('#fnVpnPickerV2RTTState').textContent(),/Список VPN изменился/,'mismatched RTT/catalog snapshot must fail closed');
+    const rejectedRTT=await page.locator('#fnVpnPickerV2Results .fnv2-option .fnv2-rtt').evaluateAll(nodes=>nodes.map(n=>n.textContent||''));
+    assert.ok(rejectedRTT.every(v=>v===''),'mismatched snapshot must not attach stale RTT values to visible rows');
+    rttMode='ok';
     await page.waitForFunction(() => {
       const pop = document.querySelector('#fnVpnPickerV2Panel')?.getBoundingClientRect();
       const search = document.querySelector('#fnVpnPickerV2Search')?.getBoundingClientRect();
