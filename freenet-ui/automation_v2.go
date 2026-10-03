@@ -473,6 +473,7 @@ func writeAutomationStatePayload(path string, values map[string]string) {
 		"ROLLBACK_READY=" + sanitizeAutomationReason(values["ROLLBACK_READY"]),
 		"LAST_SWITCH=" + sanitizeAutomationReason(values["LAST_SWITCH"]),
 		"MUTATION_BLOCKED=" + sanitizeAutomationReason(values["MUTATION_BLOCKED"]),
+		"POST_UPDATE_ACK=" + sanitizeAutomationReason(values["POST_UPDATE_ACK"]),
 	}, "\n") + "\n"
 	_ = os.MkdirAll(filepath.Dir(path), 0755)
 	tmp := path + ".v2.new"
@@ -498,6 +499,45 @@ func setAutomationMutationBlocked(blocked bool) {
 	writeAutomationStatePayload(path, values)
 }
 
+func automationPendingPostUpdateTarget(a *app) string {
+	if a == nil || strings.TrimSpace(a.cfg.UpdateState) == "" {
+		return ""
+	}
+	kv := readStateFile(a.cfg.UpdateState)
+	if !strings.EqualFold(strings.TrimSpace(kv["STATE"]), "SUCCESS") {
+		return ""
+	}
+	target := strings.TrimSpace(kv["TARGET_VERSION"])
+	if target == "" || target != "v"+version {
+		return ""
+	}
+	state := parseAutomationState(automationStatePath())
+	if strings.TrimSpace(state["POST_UPDATE_ACK"]) == target {
+		return ""
+	}
+	return target
+}
+
+func setAutomationPostUpdateAck(target string) {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return
+	}
+	path := automationStatePath()
+	values := parseAutomationState(path)
+	values["POST_UPDATE_ACK"] = target
+	if values["LAST_RUN"] == "" {
+		values["LAST_RUN"] = time.Now().UTC().Format(time.RFC3339)
+	}
+	if values["ROLLBACK_READY"] == "" {
+		values["ROLLBACK_READY"] = "no"
+	}
+	if values["MUTATION_BLOCKED"] == "" {
+		values["MUTATION_BLOCKED"] = "no"
+	}
+	writeAutomationStatePayload(path, values)
+}
+
 func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 	path := automationStatePath()
 	previous := parseAutomationState(path)
@@ -516,6 +556,7 @@ func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 		"ROLLBACK_READY": rollback,
 		"LAST_SWITCH": lastSwitch,
 		"MUTATION_BLOCKED": "no",
+		"POST_UPDATE_ACK": strings.TrimSpace(previous["POST_UPDATE_ACK"]),
 	}
 	if blocked {
 		values["MUTATION_BLOCKED"] = "yes"
