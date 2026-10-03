@@ -125,4 +125,36 @@ if grep -Eq 'TEST-ID-A|TEST-PBK-A|TEST-SID-A|private-token|vless://' "$TMP/plan.
     fail 'built-in route probe leaked provider credentials'
 fi
 
+
+PATH="$TMP/bin:$PATH" \
+FAKE_SUB_FIXTURE="$TMP/sub.fixture" \
+FAKE_XRAY_LISTENER_FILE="$TMP/probe-listener.port" \
+FREENET_SUB_FILE="$TMP/sub.url" \
+FREENET_CONFIG_DIR="$TMP/configs" \
+FREENET_ASSET_DIR="$TMP/dat" \
+FREENET_PROFILE_FILE="$TMP/etc/vpn_profile_name" \
+FREENET_FILTER_FILE="$TMP/profile.filter" \
+FREENET_AUTOMATION_HISTORY="$TMP/history.log" \
+FREENET_PROVIDER_SUBSCRIPTION_CACHE="$TMP/provider-subscription.lkg" \
+FREENET_PROVIDER_SUBSCRIPTION_SOURCE="$TMP/provider-subscription.source" \
+FREENET_XRAY_BIN="$TMP/bin/xray" \
+FREENET_XKEEN_BIN="$TMP/bin/xkeen" \
+FREENET_LOCK_DIR="$TMP/vpn-mutation.lock" \
+FREENET_CURL_BIN="$TMP/bin/curl" \
+FREENET_PROVIDER_ROUTE_PROBE_BIN="" \
+sh "$SCRIPT" apply "$PROFILE_ID" > "$TMP/apply.out" 2> "$TMP/apply.err" || {
+    cat "$TMP/apply.err" >&2 || true
+    fail 'built-in provider route probe apply failed'
+}
+
+grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/apply.out" || fail 'built-in apply success marker missing'
+grep -Fq '[FreeNet Provider] ROLLBACK=NOT_NEEDED' "$TMP/apply.out" || fail 'built-in apply rollback marker missing'
+jq -e '([.outbounds[] | select(.tag=="vless-reality")] | length) == 1' "$TMP/configs/04_outbounds.json" >/dev/null || fail 'built-in apply did not install exactly one VPN outbound'
+[ "$(cat "$TMP/etc/vpn_profile_name")" = "$PROFILE_NAME" ] || fail 'built-in apply did not persist exact profile label'
+[ "$(cat "$TMP/profile.filter")" = "$PROFILE_NAME" ] || fail 'built-in apply did not persist exact profile filter'
+[ ! -e "$TMP/probe-listener.port" ] || fail 'built-in post-apply probe left fake listener state behind'
+if grep -Eq 'TEST-ID-A|TEST-PBK-A|TEST-SID-A|private-token|vless://' "$TMP/apply.out" "$TMP/apply.err"; then
+    fail 'built-in apply leaked provider credentials'
+fi
+
 echo 'provider built-in route probe PASS'
