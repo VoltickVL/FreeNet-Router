@@ -32,6 +32,8 @@ type providerProfileRTTResponse struct {
 	Success         bool                     `json:"success"`
 	Cached          bool                     `json:"cached,omitempty"`
 	MeasuredAt      string                   `json:"measured_at,omitempty"`
+	Catalog         []subscriptionProfile    `json:"catalog,omitempty"`
+	CatalogKey      string                   `json:"catalog_key,omitempty"`
 	Results         []providerProfileRTTItem `json:"results"`
 	Profiles        int                      `json:"profiles"`
 	UniqueEndpoints int                      `json:"unique_endpoints"`
@@ -294,6 +296,38 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 	return results
 }
 
+func providerProfileRTTCatalog(candidates []bestServerInternalCandidate) []subscriptionProfile {
+	out := make([]subscriptionProfile, 0, len(candidates))
+	for _, candidate := range candidates {
+		p := candidate.Profile
+		if strings.TrimSpace(p.ID) == "" || strings.TrimSpace(p.Address) == "" || p.Port <= 0 {
+			continue
+		}
+		out = append(out, subscriptionProfile{
+			ID: p.ID, Name: p.Name, CountryCode: p.CountryCode,
+			Address: p.Address, Port: p.Port,
+		})
+	}
+	return out
+}
+
+func providerProfileRTTCatalogKey(catalog []subscriptionProfile) string {
+	if len(catalog) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(catalog))
+	for _, p := range catalog {
+		parts = append(parts, strings.Join([]string{
+			strings.TrimSpace(p.ID),
+			strings.TrimSpace(p.Name),
+			strings.ToLower(strings.TrimSpace(p.CountryCode)),
+			strings.TrimSpace(profileEndpoint(p)),
+		}, "|"))
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(sum[:8])
+}
+
 func countProviderUniqueEndpoints(candidates []bestServerInternalCandidate) int {
 	seen := map[string]struct{}{}
 	for _, candidate := range candidates {
@@ -351,6 +385,16 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	catalog := providerProfileRTTCatalog(filtered)
+	catalogKey := providerProfileRTTCatalogKey(catalog)
+	if len(catalog) != len(filtered) || catalogKey == "" {
+		writeJSON(w, http.StatusServiceUnavailable, providerProfileRTTResponse{
+			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "logical_vpn_https_ip", Mutation: "NONE",
+			Error: "VPN profile catalog snapshot is invalid",
+		})
+		return
+	}
+
 	force := r.URL.Query().Get("refresh") == "1"
 	cached := map[string]providerProfileRTTItem{}
 	missing := filtered
@@ -369,7 +413,7 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 				}
 			}
 			writeJSON(w, http.StatusOK, providerProfileRTTResponse{
-				Success: true, Cached: true, MeasuredAt: measuredAt.Format(time.RFC3339), Results: items,
+				Success: true, Cached: true, MeasuredAt: measuredAt.Format(time.RFC3339), Catalog: catalog, CatalogKey: catalogKey, Results: items,
 				Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
 				Checked: checked, Reachable: reachable, Unknown: 0, Partial: false,
 				ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
@@ -402,7 +446,7 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	writeJSON(w, http.StatusOK, providerProfileRTTResponse{
-		Success: true, Cached: false, MeasuredAt: time.Now().UTC().Format(time.RFC3339), Results: items,
+		Success: true, Cached: false, MeasuredAt: time.Now().UTC().Format(time.RFC3339), Catalog: catalog, CatalogKey: catalogKey, Results: items,
 		Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
 		Checked: checked, Reachable: reachable, Unknown: unknown, Partial: checked < len(filtered),
 		ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
