@@ -17,6 +17,7 @@ XKEEN_BIN="${FREENET_XKEEN_BIN:-/opt/sbin/xkeen}"
 CORE_RESTART_HELPER="${FREENET_XRAY_CORE_RESTART_HELPER:-}"
 LOCK_DIR="${FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
+PROVIDER_ROUTE_PROBE_BIN="${FREENET_PROVIDER_ROUTE_PROBE_BIN:-}"
 BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
 BOOTSTRAP_DNS_SECONDARY="8.8.8.8"
 TMP_DIR=""
@@ -441,6 +442,77 @@ validate_candidate() {
     XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$TEST_CONF" > "$XRAY_TEST_LOG" 2>&1
 }
 
+provider_route_probe() {
+    PROBE_OUT="$1"
+    [ -s "$PROBE_OUT" ] || return 1
+
+    if [ -n "$PROVIDER_ROUTE_PROBE_BIN" ]; then
+        [ -x "$PROVIDER_ROUTE_PROBE_BIN" ] || return 1
+        "$PROVIDER_ROUTE_PROBE_BIN" "$PROBE_OUT"
+        return $?
+    fi
+
+    for C in jq mktemp netstat awk grep ln; do
+        command -v "$C" >/dev/null 2>&1 || return 1
+    done
+    command -v "$CURL_BIN" >/dev/null 2>&1 || [ -x "$CURL_BIN" ] || return 1
+
+    PROBE_DIR="$TMP_DIR/provider-route-probe"
+    rm -rf "$PROBE_DIR" 2>/dev/null || true
+    mkdir -p "$PROBE_DIR" || return 1
+    chmod 700 "$PROBE_DIR" 2>/dev/null || true
+
+    PROBE_PORT=$((12080 + ($ % 200)))
+    PROBE_TRY=0
+    while [ "$PROBE_TRY" -lt 5 ]; do
+        if ! netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "(^|[.:])${PROBE_PORT}$"; then
+            break
+        fi
+        PROBE_PORT=$((PROBE_PORT + 1))
+        PROBE_TRY=$((PROBE_TRY + 1))
+    done
+    [ "$PROBE_TRY" -lt 5 ] || return 1
+
+    PROBE_CFG="$PROBE_DIR/00_probe.json"
+    jq -n --slurpfile live "$PROBE_OUT" --argjson port "$PROBE_PORT" '
+      {
+        log:{loglevel:"warning"},
+        inbounds:[{listen:"127.0.0.1",port:$port,protocol:"socks",settings:{udp:false},tag:"freenet-provider-probe"}],
+        outbounds:[($live[0].outbounds[] | select(.tag=="vless-reality") | .streamSettings.sockopt.mark = 255)],
+        routing:{domainStrategy:"AsIs",rules:[{type:"field",inboundTag:["freenet-provider-probe"],outboundTag:"vless-reality"}]}
+      }
+    ' > "$PROBE_CFG" 2>/dev/null || return 1
+    chmod 600 "$PROBE_CFG" 2>/dev/null || true
+
+    PROBE_XRAY="$PROBE_DIR/fn-xray-provider-probe"
+    ln -s "$XRAY_BIN" "$PROBE_XRAY" 2>/dev/null || return 1
+    FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$PROBE_XRAY" run -test -confdir "$PROBE_DIR" >/dev/null 2>&1 || return 1
+
+    FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$PROBE_XRAY" run -confdir "$PROBE_DIR" >/dev/null 2>&1 &
+    PROBE_PID=$!
+    PROBE_READY=0
+    PROBE_TRY=0
+    while [ "$PROBE_TRY" -lt 5 ]; do
+        if netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "(^|[.:])${PROBE_PORT}$"; then
+            PROBE_READY=1
+            break
+        fi
+        kill -0 "$PROBE_PID" 2>/dev/null || break
+        sleep 1
+        PROBE_TRY=$((PROBE_TRY + 1))
+    done
+    if [ "$PROBE_READY" -ne 1 ]; then
+        kill "$PROBE_PID" 2>/dev/null || true
+        wait "$PROBE_PID" 2>/dev/null || true
+        return 1
+    fi
+
+    PROBE_RESULT="$("$CURL_BIN" --socks5-hostname "127.0.0.1:$PROBE_PORT" -sS         --connect-timeout 4 --max-time 8 -o /dev/null         -w '%{http_code}' 'https://www.gstatic.com/generate_204' 2>/dev/null || true)"
+    kill "$PROBE_PID" 2>/dev/null || true
+    wait "$PROBE_PID" 2>/dev/null || true
+    case "$PROBE_RESULT" in 2??|3??|4??) return 0 ;; *) return 1 ;; esac
+}
+
 snapshot_state() {
     if [ -f "$OUT_FILE" ]; then
         cp -p "$OUT_FILE" "$OUT_BEFORE" || return 1
@@ -591,6 +663,7 @@ rollback_state() {
             pidof xray >/dev/null 2>&1 || RB=1
         fi
     fi
+    [ "$RB" -ne 0 ] || provider_route_probe "$OUT_FILE" || RB=1
     ROLLBACK_ACTIVE=0
     [ "$RB" -eq 0 ]
 }
@@ -685,6 +758,7 @@ select_profile || { err 'requested Extra profile is not present in the prepared 
 build_vless_object || { err 'cannot build selected VLESS profile'; exit 1; }
 build_candidate || { err 'cannot build candidate 04_outbounds.json'; exit 1; }
 validate_candidate || { err 'candidate Xray configuration validation failed'; exit 1; }
+provider_route_probe "$CANDIDATE_OUT" || { err 'candidate VPN application route validation failed'; exit 1; }
 
 say '========== FreeNet Provider Plan =========='
 say "PROFILE_ID=$REQUESTED_ID"
@@ -693,6 +767,7 @@ say "ENDPOINT=$SELECTED_ADDRESS:$SELECTED_PORT"
 if [ -f "$OUT_FILE" ]; then say 'CURRENT_OUTBOUND=present'; else say 'CURRENT_OUTBOUND=missing'; fi
 if pidof xray >/dev/null 2>&1; then say 'XRAY_RUNNING=yes'; else say 'XRAY_RUNNING=no'; fi
 say 'CANDIDATE_XRAY_VALID=yes'
+say 'CANDIDATE_ROUTE_OK=yes'
 say 'EXPECTED_DELTA=install or replace exactly one vless-reality outbound; preserve existing non-VLESS outbounds; persist safe preferred profile name and exact active profile filter'
 say 'EXPECTED_NO_DELTA=subscription URL and VLESS/Reality credentials are never printed; ISP/DNS/routing are not changed by this helper'
 case "$MODE" in
