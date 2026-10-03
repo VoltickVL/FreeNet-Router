@@ -34,19 +34,14 @@ func TestControlCenterRuntimeStateUXContract(t *testing.T) {
 	}
 }
 
-func TestProviderHintDoesNotInventRoutingInheritance(t *testing.T) {
+func TestNetworkHintKeepsRoutingExplicit(t *testing.T) {
 	data, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ui := string(data)
-	if strings.Contains(ui, "Подряд использует") || strings.Contains(ui, "policy Ростелекома") {
-		t.Fatal("ISP hint must not invent Podryad -> Rostelecom routing inheritance")
-	}
-	for _, want := range []string{"Routing policy задаётся только явными правилами", "не наследуется от другого провайдера"} {
-		if !strings.Contains(ui, want) {
-			t.Fatalf("explicit-only routing hint missing %q", want)
-		}
+	if !strings.Contains(ui, "Routing policy настраивается отдельно явными правилами.") {
+		t.Fatal("DNS UI must keep routing explicitly separate")
 	}
 }
 
