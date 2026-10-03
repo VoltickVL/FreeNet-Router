@@ -31,6 +31,29 @@ func TestAutomationHealthDueUsesProbeStartCadence(t *testing.T) {
 	}
 }
 
+func TestRollbackGuardRequiresHealthyReadOnlyAcceptance(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))
+	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
+	writeAutomationStateV2("failed", "rollback unknown", "FAILED/UNKNOWN", false)
+
+	blocked, handled := automationRollbackGuardResult(automationHealthProbe{State: automationHealthFailed, Reason: "VPN path still failed"})
+	if !handled || blocked.State != automationHealthUncertain {
+		t.Fatalf("failed read-only state must keep rollback guard: handled=%v result=%+v", handled, blocked)
+	}
+	if !automationMutationBlockedState() {
+		t.Fatal("failed read-only check cleared rollback guard")
+	}
+
+	cleared, handled := automationRollbackGuardResult(automationHealthProbe{State: automationHealthHealthy, Reason: "exact current VPN healthy"})
+	if !handled || cleared.State != automationHealthHealthy {
+		t.Fatalf("healthy factual state must clear rollback guard: handled=%v result=%+v", handled, cleared)
+	}
+	if automationMutationBlockedState() {
+		t.Fatal("healthy exact-current read-only acceptance did not clear rollback guard")
+	}
+}
+
 func TestBusyHealthResultDoesNotAdvanceHealthTimestamp(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "settings.state")
