@@ -448,7 +448,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 		}
 	}
 
-	applyCtx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
+	applyCtx, cancel := context.WithTimeout(ctx, a.cfg.Timeout)
 	output, cmdErr := runCommand(applyCtx, providerHelperPath(), "apply-core", target.Profile.ID)
 	cancel()
 	safeOutput := sanitizeOutput(string(output))
@@ -491,7 +491,7 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 		}
 	}
 
-	probeCtx, cancelProbe := context.WithTimeout(context.Background(), automationHealthProbeTimeout)
+	probeCtx, cancelProbe := context.WithTimeout(ctx, automationHealthProbeTimeout)
 	postProbe := a.probeAutomationCurrentVPN(probeCtx)
 	cancelProbe()
 	if postProbe.State != automationHealthHealthy {
