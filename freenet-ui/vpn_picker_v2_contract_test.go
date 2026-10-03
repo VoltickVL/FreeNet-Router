@@ -23,7 +23,8 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"0x1F1E6", "cached rows may belong to another router", "refreshStaleCatalogOnOpen", "loadNetworkPlan",
 		"height:min(760px,var(--fnv2-space,760px))", "flex:1 1 auto",
 		"fnVpnPickerV2Resize", "setPointerCapture", "dataset.userHeight",
-		"завершён частично", "не проверен",
+		"завершён частично", "не проверен", "maybeAutoRTT", "refreshRTT(false)",
+		"refresh.addEventListener('click',()=>refreshRTT(true))", "data.cached",
 	} {
 		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
 	}
@@ -75,6 +76,22 @@ func TestControlCenterBrowserServer(t *testing.T) {
 			if _, err := os.Stat(stopFile); err == nil { return }
 		case <-deadline.C:
 			t.Fatal("browser gate did not stop its fixture server")
+		}
+	}
+}
+
+func TestVPNPickerRTTBridgeSupportsCachedAutoAndForcedRefresh(t *testing.T) {
+	data, err := os.ReadFile("web/vpn-ux-fix.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"async function scanProviderProfileRTT(force = false)",
+		"'/api/provider-profiles/rtt' + (force ? '?refresh=1' : '')",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("RTT bridge missing %q", want)
 		}
 	}
 }

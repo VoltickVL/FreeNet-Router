@@ -299,8 +299,9 @@
     }
   }
 
-  async function scanProviderProfileRTT() {
-    const r = await fetch('/api/provider-profiles/rtt', {cache:'no-store'});
+  async function scanProviderProfileRTT(force = false) {
+    const url = '/api/provider-profiles/rtt' + (force ? '?refresh=1' : '');
+    const r = await fetch(url, {cache:'no-store'});
     if (r.status === 401) {
       if (typeof loadAuthStatus === 'function') await loadAuthStatus();
       throw new Error('authentication required');

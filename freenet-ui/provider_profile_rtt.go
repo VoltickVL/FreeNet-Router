@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"sort"
 	"strings"
@@ -13,6 +15,7 @@ import (
 const (
 	providerProfileRTTWorkers          = 2
 	providerProfileRTTDiscoveryTimeout = 30 * time.Second
+	providerProfileRTTCacheTTL         = 5 * time.Minute
 )
 
 type providerProfileRTTItem struct {
@@ -26,6 +29,8 @@ type providerProfileRTTItem struct {
 
 type providerProfileRTTResponse struct {
 	Success         bool                     `json:"success"`
+	Cached          bool                     `json:"cached,omitempty"`
+	MeasuredAt      string                   `json:"measured_at,omitempty"`
 	Results         []providerProfileRTTItem `json:"results"`
 	Profiles        int                      `json:"profiles"`
 	UniqueEndpoints int                      `json:"unique_endpoints"`
@@ -42,6 +47,123 @@ type providerProfileRTTResponse struct {
 type providerRTTProbe func(context.Context, bestServerInternalCandidate) bestServerProbeResult
 
 var providerProfileRTTScanGate = make(chan struct{}, 1)
+
+type providerProfileRTTCacheEntry struct {
+	StoredAt time.Time
+	Item     providerProfileRTTItem
+}
+
+var providerProfileRTTCache struct {
+	sync.Mutex
+	Entries map[string]providerProfileRTTCacheEntry
+}
+
+func providerProfileRTTCacheCandidateKey(candidate bestServerInternalCandidate) string {
+	id := strings.TrimSpace(candidate.Profile.ID)
+	endpoint := strings.TrimSpace(profileEndpoint(candidate.Profile))
+	raw := strings.TrimSpace(candidate.Raw)
+	if id == "" || endpoint == "" || raw == "" {
+		return ""
+	}
+	rawHash := sha256.Sum256([]byte(raw))
+	return id + "|" + endpoint + "|" + hex.EncodeToString(rawHash[:8])
+}
+
+func cloneProviderProfileRTTItems(items []providerProfileRTTItem) []providerProfileRTTItem {
+	return append([]providerProfileRTTItem(nil), items...)
+}
+
+func storeProviderProfileRTTCache(candidates []bestServerInternalCandidate, items []providerProfileRTTItem) {
+	if len(candidates) == 0 || len(items) == 0 {
+		return
+	}
+	byID := make(map[string]providerProfileRTTItem, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.ProfileID) == "" || !item.Attempted || item.Status == "unknown" {
+			continue
+		}
+		byID[item.ProfileID] = item
+	}
+	if len(byID) == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	providerProfileRTTCache.Lock()
+	defer providerProfileRTTCache.Unlock()
+	if providerProfileRTTCache.Entries == nil {
+		providerProfileRTTCache.Entries = map[string]providerProfileRTTCacheEntry{}
+	}
+	for _, candidate := range candidates {
+		key := providerProfileRTTCacheCandidateKey(candidate)
+		item, ok := byID[candidate.Profile.ID]
+		if key == "" || !ok {
+			continue
+		}
+		providerProfileRTTCache.Entries[key] = providerProfileRTTCacheEntry{StoredAt: now, Item: item}
+	}
+	for key, entry := range providerProfileRTTCache.Entries {
+		if entry.StoredAt.IsZero() || now.Sub(entry.StoredAt) > providerProfileRTTCacheTTL {
+			delete(providerProfileRTTCache.Entries, key)
+		}
+	}
+}
+
+func splitProviderProfileRTTCache(candidates []bestServerInternalCandidate) (map[string]providerProfileRTTItem, []bestServerInternalCandidate, time.Time) {
+	cached := make(map[string]providerProfileRTTItem, len(candidates))
+	missing := make([]bestServerInternalCandidate, 0, len(candidates))
+	now := time.Now().UTC()
+	oldest := time.Time{}
+
+	providerProfileRTTCache.Lock()
+	defer providerProfileRTTCache.Unlock()
+	for _, candidate := range candidates {
+		key := providerProfileRTTCacheCandidateKey(candidate)
+		entry, ok := providerProfileRTTCache.Entries[key]
+		if !ok || key == "" || entry.StoredAt.IsZero() || now.Sub(entry.StoredAt) > providerProfileRTTCacheTTL ||
+			!entry.Item.Attempted || entry.Item.Status == "unknown" || entry.Item.ProfileID != candidate.Profile.ID {
+			if ok && key != "" {
+				delete(providerProfileRTTCache.Entries, key)
+			}
+			missing = append(missing, candidate)
+			continue
+		}
+		cached[candidate.Profile.ID] = entry.Item
+		if oldest.IsZero() || entry.StoredAt.Before(oldest) {
+			oldest = entry.StoredAt
+		}
+	}
+	return cached, missing, oldest
+}
+
+func mergeProviderProfileRTTItems(candidates []bestServerInternalCandidate, cached map[string]providerProfileRTTItem, measured []providerProfileRTTItem) []providerProfileRTTItem {
+	byID := make(map[string]providerProfileRTTItem, len(cached)+len(measured))
+	for id, item := range cached {
+		byID[id] = item
+	}
+	for _, item := range measured {
+		if strings.TrimSpace(item.ProfileID) != "" {
+			byID[item.ProfileID] = item
+		}
+	}
+	out := make([]providerProfileRTTItem, 0, len(candidates))
+	for _, candidate := range candidates {
+		if item, ok := byID[candidate.Profile.ID]; ok {
+			out = append(out, item)
+			continue
+		}
+		out = append(out, providerProfileRTTItem{ProfileID: candidate.Profile.ID, Status: "unknown"})
+	}
+	sortProviderProfileRTTItems(out)
+	return out
+}
+
+func loadProviderProfileRTTCache(candidates []bestServerInternalCandidate) ([]providerProfileRTTItem, time.Time, bool) {
+	cached, missing, measuredAt := splitProviderProfileRTTCache(candidates)
+	if len(candidates) == 0 || len(missing) != 0 || len(cached) != len(candidates) {
+		return nil, time.Time{}, false
+	}
+	return mergeProviderProfileRTTItems(candidates, cached, nil), measuredAt, true
+}
 
 func providerProfileRTTStatusRank(item providerProfileRTTItem) int {
 	switch {
@@ -225,9 +347,45 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	sweepCtx, cancelSweep := context.WithTimeout(r.Context(), bestServerRTTSweepTimeout(len(filtered)))
-	defer cancelSweep()
-	items := measureProviderProfileRTT(sweepCtx, filtered, a.probeBestServerProfilePing)
+	force := r.URL.Query().Get("refresh") == "1"
+	cached := map[string]providerProfileRTTItem{}
+	missing := filtered
+	measuredAt := time.Time{}
+	if !force {
+		cached, missing, measuredAt = splitProviderProfileRTTCache(filtered)
+		if len(missing) == 0 && len(cached) == len(filtered) {
+			items := mergeProviderProfileRTTItems(filtered, cached, nil)
+			checked, reachable := 0, 0
+			for _, item := range items {
+				if item.Attempted {
+					checked++
+				}
+				if item.Reachable {
+					reachable++
+				}
+			}
+			writeJSON(w, http.StatusOK, providerProfileRTTResponse{
+				Success: true, Cached: true, MeasuredAt: measuredAt.Format(time.RFC3339), Results: items,
+				Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
+				Checked: checked, Reachable: reachable, Unknown: 0, Partial: false,
+				ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
+			})
+			return
+		}
+	}
+
+	toMeasure := filtered
+	if !force {
+		toMeasure = missing
+	}
+	measured := []providerProfileRTTItem{}
+	if len(toMeasure) > 0 {
+		sweepCtx, cancelSweep := context.WithTimeout(r.Context(), bestServerRTTSweepTimeout(len(toMeasure)))
+		measured = measureProviderProfileRTT(sweepCtx, toMeasure, a.probeBestServerProfilePing)
+		cancelSweep()
+		storeProviderProfileRTTCache(toMeasure, measured)
+	}
+	items := mergeProviderProfileRTTItems(filtered, cached, measured)
 	checked, reachable, unknown := 0, 0, 0
 	for _, item := range items {
 		if item.Attempted {
@@ -240,7 +398,8 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	writeJSON(w, http.StatusOK, providerProfileRTTResponse{
-		Success: true, Results: items, Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
+		Success: true, Cached: false, MeasuredAt: time.Now().UTC().Format(time.RFC3339), Results: items,
+		Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
 		Checked: checked, Reachable: reachable, Unknown: unknown, Partial: checked < len(filtered),
 		ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
 	})

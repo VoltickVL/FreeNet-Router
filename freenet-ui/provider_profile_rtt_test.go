@@ -243,3 +243,94 @@ func TestProviderProfileRTTGuardsAcquireOnceAndReleaseBoth(t *testing.T) {
 	fenceRelease()
 }
 
+
+
+func resetProviderProfileRTTCacheForTest() {
+	providerProfileRTTCache.Lock()
+	providerProfileRTTCache.Entries = map[string]providerProfileRTTCacheEntry{}
+	providerProfileRTTCache.Unlock()
+}
+
+func TestProviderProfileRTTCacheReusesCompleteCanonicalSweep(t *testing.T) {
+	resetProviderProfileRTTCacheForTest()
+	defer resetProviderProfileRTTCacheForTest()
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa", Address: "203.0.113.10", Port: 443}, Raw: "vless://credential-a@203.0.113.10:443#A"},
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb", Address: "203.0.113.20", Port: 443}, Raw: "vless://credential-b@203.0.113.20:443#B"},
+	}
+	items := []providerProfileRTTItem{
+		{ProfileID: "bbbbbbbbbbbbbbbb", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 180},
+		{ProfileID: "aaaaaaaaaaaaaaaa", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 120},
+	}
+	storeProviderProfileRTTCache(candidates, items)
+	got, measuredAt, ok := loadProviderProfileRTTCache(candidates)
+	if !ok || measuredAt.IsZero() {
+		t.Fatal("complete RTT sweep was not cached")
+	}
+	if len(got) != 2 || got[0].ProfileID != "aaaaaaaaaaaaaaaa" || got[0].RTTMS != 120 {
+		t.Fatalf("cached RTT sweep is not canonical/sorted: %#v", got)
+	}
+}
+
+func TestProviderProfileRTTCacheReusesMeasuredProfilesAndRejectsUnknownOrRotation(t *testing.T) {
+	resetProviderProfileRTTCacheForTest()
+	defer resetProviderProfileRTTCacheForTest()
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa", Address: "203.0.113.10", Port: 443}, Raw: "vless://credential-a@203.0.113.10:443#A"},
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb", Address: "203.0.113.20", Port: 443}, Raw: "vless://credential-b@203.0.113.20:443#B"},
+	}
+	partial := []providerProfileRTTItem{
+		{ProfileID: "aaaaaaaaaaaaaaaa", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 120},
+		{ProfileID: "bbbbbbbbbbbbbbbb", Attempted: false, Status: "unknown"},
+	}
+	storeProviderProfileRTTCache(candidates, partial)
+	cached, missing, _ := splitProviderProfileRTTCache(candidates)
+	if len(cached) != 1 || len(missing) != 1 || missing[0].Profile.ID != "bbbbbbbbbbbbbbbb" {
+		t.Fatalf("partial evidence must reuse only the measured profile: cached=%#v missing=%#v", cached, missing)
+	}
+	if _, _, ok := loadProviderProfileRTTCache(candidates); ok {
+		t.Fatal("partial evidence must not be reported as a complete cache hit")
+	}
+
+	complete := []providerProfileRTTItem{
+		{ProfileID: "aaaaaaaaaaaaaaaa", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 120},
+		{ProfileID: "bbbbbbbbbbbbbbbb", Reachable: false, Attempted: true, Status: "unreachable"},
+	}
+	storeProviderProfileRTTCache(candidates, complete)
+	if _, _, ok := loadProviderProfileRTTCache(candidates); !ok {
+		t.Fatal("complete per-profile evidence should satisfy the full catalog")
+	}
+
+	rotated := append([]bestServerInternalCandidate(nil), candidates...)
+	rotated[0].Profile.Address = "198.51.100.77"
+	_, rotatedMissing, _ := splitProviderProfileRTTCache(rotated)
+	if len(rotatedMissing) != 1 || rotatedMissing[0].Profile.ID != "aaaaaaaaaaaaaaaa" {
+		t.Fatalf("endpoint rotation must invalidate only the affected profile: %#v", rotatedMissing)
+	}
+
+	credentialRotated := append([]bestServerInternalCandidate(nil), candidates...)
+	credentialRotated[0].Raw = "vless://credential-a-rotated@203.0.113.10:443#A"
+	_, credentialMissing, _ := splitProviderProfileRTTCache(credentialRotated)
+	if len(credentialMissing) != 1 || credentialMissing[0].Profile.ID != "aaaaaaaaaaaaaaaa" {
+		t.Fatalf("credential rotation must invalidate only the affected profile: %#v", credentialMissing)
+	}
+}
+
+func TestProviderProfileRTTCacheBridgesBestServerSubsetIntoSelectorPool(t *testing.T) {
+	resetProviderProfileRTTCacheForTest()
+	defer resetProviderProfileRTTCacheForTest()
+	all := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "currentcurrent00", Address: "203.0.113.1", Port: 443}, Raw: "vless://current@203.0.113.1:443#Current"},
+		{Profile: subscriptionProfile{ID: "candidate0000001", Address: "203.0.113.2", Port: 443}, Raw: "vless://a@203.0.113.2:443#A"},
+		{Profile: subscriptionProfile{ID: "candidate0000002", Address: "203.0.113.3", Port: 443}, Raw: "vless://b@203.0.113.3:443#B"},
+	}
+	replacements := all[1:]
+	storeProviderProfileRTTCache(replacements, []providerProfileRTTItem{
+		{ProfileID: "candidate0000001", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 90},
+		{ProfileID: "candidate0000002", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 110},
+	})
+	cached, missing, _ := splitProviderProfileRTTCache(all)
+	if len(cached) != 2 || len(missing) != 1 || missing[0].Profile.ID != "currentcurrent00" {
+		t.Fatalf("selector must reuse Best Server RTT subset and measure only current profile: cached=%#v missing=%#v", cached, missing)
+	}
+}
