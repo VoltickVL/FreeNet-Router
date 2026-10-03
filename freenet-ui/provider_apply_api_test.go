@@ -198,13 +198,13 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 	if !resp.Success || !resp.Applied || resp.Operation != "provider" || resp.ProviderPlan == nil || resp.RollbackState != "NOT_NEEDED" {
 		t.Fatalf("unexpected provider apply response: %+v", resp)
 	}
-}
 	if automationMutationBlockedState() {
 		t.Fatal("accepted manual VPN switch did not clear inherited mutation block")
 	}
 	if got := parseAutomationState(automationState)["POST_UPDATE_ACK"]; got != "v"+version {
 		t.Fatalf("accepted manual VPN switch did not acknowledge post-update hold: %q", got)
 	}
+}
 
 func TestProviderApplyFailureSeparatesPrimaryAndRollback(t *testing.T) {
 	provider := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+providerPlanOutput(testProviderID)+"\nEOF\nexit 0\nfi\necho '[FreeNet Provider] ERROR: PRIMARY ERROR: Xray restart failed' >&2\necho '[FreeNet Provider] ERROR: ROLLBACK ERROR/STATE: rollback success' >&2\nexit 1")
