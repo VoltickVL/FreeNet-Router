@@ -185,6 +185,16 @@ func TestAutomationBestCycleStopsBeforeMutationWhenRollbackBlocked(t *testing.T)
 	}
 }
 
+func TestAutomationCLIConfigHonorsCanonicalConfigArgument(t *testing.T) {
+	custom := filepath.Join(t.TempDir(), "freenet.conf")
+	if got := automationCLIConfigPath([]string{"freenet-ui", "automation-health-watch", "--config", custom}); got != custom {
+		t.Fatalf("custom scheduler config path=%q want %q", got, custom)
+	}
+	if got := automationCLIConfigPath([]string{"freenet-ui", "automation-health-watch", "--config", "relative.conf"}); got != defaultConfigPath {
+		t.Fatalf("relative config path must fail closed to default, got %q", got)
+	}
+}
+
 func TestAutomationCountriesAreNormalizedAndRussiaExcluded(t *testing.T) {
 	got := normalizeAutomationCountries([]string{"DE", "pl, nl", "ru", "de", "bad"})
 	want := []string{"de", "nl", "pl"}
