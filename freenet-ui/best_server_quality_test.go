@@ -138,6 +138,32 @@ func TestBestServerQualityScoreRewardsMeasuredSpeed(t *testing.T) {
 	}
 }
 
+func TestBestServerQualityPublishesOnlyStrictComparableThroughput(t *testing.T) {
+	candidate := bestServerInternalCandidate{
+		Profile: subscriptionProfile{ID: "strict", Name: "Strict Extra", Address: "strict.example", Port: 443},
+	}
+	app := func(_ context.Context, _ bestServerInternalCandidate) bestServerQualityApplicationResult {
+		return bestServerQualityApplicationResult{
+			OK: true,
+			HTTP: bestServerProbeResult{OK: true, Samples: []int{145, 150, 155}, Median: 150, Jitter: 10},
+			DownloadOK: true, DownloadMbps: 82,
+			FallbackDownloadMbps: 999, ThroughputSource: bestServerThroughputCurrentFallback,
+			Media: stableTestMedia(82),
+		}
+	}
+	result := rankBestServerQualityCandidates(context.Background(), []bestServerInternalCandidate{candidate}, 1, false, "", "", app)
+	if len(result.Candidates) != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	got := result.Candidates[0]
+	if got.DownloadMbps != 82 || got.ThroughputSource != bestServerThroughputStrictAggregate {
+		t.Fatalf("Best Server candidate must publish strict comparable throughput: %#v", got)
+	}
+	if got.FallbackDownloadMbps != 0 {
+		t.Fatalf("current-only fallback throughput leaked into comparison candidate: %#v", got)
+	}
+}
+
 func TestBestServerQualityCarriesCanonicalVPNRTTWithoutTCPGate(t *testing.T) {
 	candidate := bestServerInternalCandidate{
 		Profile: subscriptionProfile{ID: "vpn-rtt", Name: "VPN RTT", Address: "shared.example", Port: 443},
