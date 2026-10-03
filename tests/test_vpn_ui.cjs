@@ -62,6 +62,16 @@ const server = http.createServer((req,res)=>{
           :{success:true,profile_id:id,candidate_xray_valid:true,mutation:'NONE',endpoint:selected.endpoint};
         return answer(route,providerPlan,providerPlan.success?200:409);
       }
+      if(url.pathname==='/api/provider-profiles/rtt'){
+        return answer(route,{
+          success:true,cached:!url.searchParams.has('refresh'),mutation:'NONE',profiles:3,checked:3,reachable:3,unknown:0,partial:false,
+          results:[
+            {profile_id:second.id,rtt_ms:92,jitter_ms:3,reachable:true,attempted:true,status:'reachable'},
+            {profile_id:winner.id,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
+            {profile_id:current.id,rtt_ms:148,jitter_ms:5,reachable:true,attempted:true,status:'reachable'}
+          ]
+        });
+      }
       if(url.pathname==='/api/network-profile/plan'){
         const hasProvider=url.searchParams.has('provider_profile_id');
         const providerPlan=!hasProvider?undefined:providerPlanMode==='error'
@@ -167,6 +177,11 @@ const server = http.createServer((req,res)=>{
     const topbarHeightClosed = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
     await openPicker();
     await page.locator('#fnVpnPickerV2Results').waitFor({state:'visible'});
+    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2RTTState')?.textContent.includes('Список отсортирован'));
+    const rttOrder=await page.locator('#fnVpnPickerV2Results .fnv2-option').evaluateAll(nodes=>nodes.map(n=>({id:n.dataset.profileId,rtt:n.querySelector('.fnv2-rtt')?.textContent||''})));
+    assert.deepEqual(rttOrder.slice(0,3).map(x=>x.id),[second.id,winner.id,current.id],'selector must auto-sort every measured profile by canonical VPN RTT');
+    assert.deepEqual(rttOrder.slice(0,3).map(x=>x.rtt),['92 мс','121 мс','148 мс'],'selector must show RTT for every measured profile');
+    assert.ok(calls.some(x=>x.path==='/api/provider-profiles/rtt'&&!x.query.includes('refresh=1')),'opening selector must auto-request cached/canonical RTT evidence');
     await page.waitForFunction(() => {
       const pop = document.querySelector('#fnVpnPickerV2Panel')?.getBoundingClientRect();
       const search = document.querySelector('#fnVpnPickerV2Search')?.getBoundingClientRect();
