@@ -14,7 +14,7 @@ OUT_FILE="${FREENET_OUT_FILE:-$CONFIG_DIR/04_outbounds.json}"
 ASSET_DIR="${FREENET_XRAY_ASSET_DIR:-$ROOT/etc/xray/dat}"
 XKEEN_BIN="${FREENET_XKEEN_BIN:-$ROOT/sbin/xkeen}"
 XRAY_BIN="${FREENET_XRAY_BIN:-$ROOT/sbin/xray}"
-VPN_BIN="${FREENET_VPN_BIN:-$ROOT/bin/vpn}"
+UI_BIN="${FREENET_UI_BIN:-$ROOT/sbin/freenet-ui}"
 NETWORK_HELPER="${FREENET_NETWORK_HELPER:-$ROOT/lib/freenet/apply_network_profile.sh}"
 CRONTAB_BIN="${FREENET_CRONTAB_BIN:-crontab}"
 TEST_MODE="${FREENET_FINALIZE_TEST_MODE:-no}"
@@ -143,46 +143,9 @@ cron_read() {
 }
 
 build_managed_cron() {
-    CURRENT="$TMP_DIR/cron.current"
-    NEW="$TMP_DIR/cron.new"
-    cron_read > "$CURRENT" || return 1
-
-    awk '
-        /^# BEGIN FREENET$/ {skip=1; next}
-        /^# END FREENET$/ {skip=0; next}
-        skip {next}
-        /[[:space:]]\/opt\/bin\/blanc_xkeen_update_outbounds\.sh([[:space:]]|$)/ {next}
-        /[[:space:]]\/opt\/bin\/vpn[[:space:]]+failover([[:space:]]|$)/ {next}
-        /[[:space:]]\/opt\/sbin\/xkeen[[:space:]]+-ug([[:space:]]|$)/ {next}
-        {print}
-    ' "$CURRENT" > "$NEW" || return 1
-
-    AUTO_ENDPOINT_UPDATE="$(config_value AUTO_ENDPOINT_UPDATE no)"
-    AUTO_ENDPOINT_CRON="$(config_value AUTO_ENDPOINT_CRON '*/15 * * * *')"
-    AUTO_VPN_FAILOVER="$(config_value AUTO_VPN_FAILOVER no)"
-    AUTO_VPN_FAILOVER_CRON="$(config_value AUTO_VPN_FAILOVER_CRON '*/5 * * * *')"
-    AUTO_XKEEN_GEODATA="$(config_value AUTO_XKEEN_GEODATA yes)"
-    AUTO_XKEEN_GEODATA_CRON="$(config_value AUTO_XKEEN_GEODATA_CRON '30 6 * * *')"
-
-    {
-        echo '# BEGIN FREENET'
-        if [ "$AUTO_XKEEN_GEODATA" = yes ]; then
-            echo "$AUTO_XKEEN_GEODATA_CRON /opt/sbin/xkeen -ug"
-        fi
-        if [ "$AUTO_ENDPOINT_UPDATE" = yes ]; then
-            echo "$AUTO_ENDPOINT_CRON /opt/bin/blanc_xkeen_update_outbounds.sh >> /opt/var/log/blanc_xkeen_update.log 2>&1"
-        else
-            echo '# endpoint refresh disabled by FreeNet settings'
-        fi
-        if [ "$AUTO_VPN_FAILOVER" = yes ]; then
-            echo "$AUTO_VPN_FAILOVER_CRON /opt/bin/vpn failover >> /opt/var/log/freenet-vpn-failover.log 2>&1"
-        else
-            echo '# vpn failover disabled by FreeNet settings'
-        fi
-        echo '# END FREENET'
-    } >> "$NEW"
-
-    "$CRONTAB_BIN" "$NEW"
+    make_tmp || return 1
+    [ -x "$UI_BIN" ] || return 1
+    "$UI_BIN" settings-v3-reconcile > "$TMP_DIR/scheduler-reconcile.out" 2> "$TMP_DIR/scheduler-reconcile.err"
 }
 
 managed_cron_ok() {
@@ -190,32 +153,39 @@ managed_cron_ok() {
     cron_read > "$CRON" || return 1
     grep -q '^# BEGIN FREENET$' "$CRON" || return 1
     grep -q '^# END FREENET$' "$CRON" || return 1
-    AUTO_ENDPOINT_UPDATE="$(config_value AUTO_ENDPOINT_UPDATE no)"
-    if [ "$AUTO_ENDPOINT_UPDATE" = yes ]; then
-        grep -q '/opt/bin/blanc_xkeen_update_outbounds.sh' "$CRON" || return 1
-    else
-        ! grep -q '^[^#].*/opt/bin/blanc_xkeen_update_outbounds.sh' "$CRON" || return 1
+
+    # Canonical Settings v3 scheduler is the only AUTO VPN owner. Legacy updater,
+    # periodic Best and failover commands must never reappear after finalize.
+    if grep -Eq '^[^#].*(/opt/bin/blanc_xkeen_update_outbounds\.sh|/opt/bin/vpn[[:space:]]+failover|/opt/lib/freenet/auto_vpn\.sh[[:space:]]+run|automation-best-run)' "$CRON"; then
+        return 1
     fi
-    AUTO_VPN_FAILOVER="$(config_value AUTO_VPN_FAILOVER no)"
-    if [ "$AUTO_VPN_FAILOVER" = yes ]; then
-        [ -x "$VPN_BIN" ] || return 1
-        grep -q '/opt/bin/vpn failover' "$CRON" || return 1
+
+    AUTO_VPN_ENABLED="$(config_value AUTO_VPN_V1 no)"
+    AUTO_VPN_MODE="$(config_value AUTO_VPN_MODE best)"
+    AUTO_VPN_INTERVAL="$(config_value AUTO_VPN_V1_INTERVAL manual)"
+    if [ "$AUTO_VPN_ENABLED" = yes ]; then
+        grep -q 'automation-health-watch' "$CRON" || return 1
+        if [ "$AUTO_VPN_MODE" = endpoint ] && [ "$AUTO_VPN_INTERVAL" != manual ]; then
+            grep -q 'settings-v3-endpoint-refresh' "$CRON" || return 1
+        else
+            ! grep -q '^[^#].*settings-v3-endpoint-refresh' "$CRON" || return 1
+        fi
     else
-        ! grep -q '^[^#].*/opt/bin/vpn[[:space:]]\+failover' "$CRON" || return 1
+        ! grep -q '^[^#].*automation-health-watch' "$CRON" || return 1
+        ! grep -q '^[^#].*settings-v3-endpoint-refresh' "$CRON" || return 1
     fi
     return 0
 }
-
 evaluate() {
     READY=yes
     REASON='ready to finalize'
     INSTALL_SCENARIO="$(config_value INSTALL_SCENARIO unknown)"
     SETUP_COMPLETE="$(config_value SETUP_COMPLETE no)"
     AUTOSTART="$(autostart_state)"
-    AUTO_ENDPOINT_UPDATE="$(config_value AUTO_ENDPOINT_UPDATE no)"
-    AUTO_ENDPOINT_CRON="$(config_value AUTO_ENDPOINT_CRON '*/15 * * * *')"
-    AUTO_VPN_FAILOVER="$(config_value AUTO_VPN_FAILOVER no)"
-    AUTO_VPN_FAILOVER_CRON="$(config_value AUTO_VPN_FAILOVER_CRON '*/5 * * * *')"
+    AUTO_VPN_ENABLED="$(config_value AUTO_VPN_V1 no)"
+    AUTO_VPN_MODE="$(config_value AUTO_VPN_MODE best)"
+    AUTO_VPN_HEALTH_INTERVAL="$(config_value AUTO_VPN_HEALTH_INTERVAL 1m)"
+    AUTO_VPN_INTERVAL="$(config_value AUTO_VPN_V1_INTERVAL manual)"
     SUBSCRIPTION_CONFIGURED=no; [ -s "$SUB_FILE" ] && SUBSCRIPTION_CONFIGURED=yes
     PREFERRED_PROFILE_SET=no; [ -s "$PROFILE_FILE" ] && PREFERRED_PROFILE_SET=yes
     ACTIVE_VPN_FILTER_SET=no; [ -s "$FILTER_FILE" ] && ACTIVE_VPN_FILTER_SET=yes
@@ -233,7 +203,6 @@ evaluate() {
     elif [ "$XRAY_VALID" != yes ]; then READY=no; REASON='live Xray configuration validation failed'
     elif [ "$NETWORK_SUPPORTED" != yes ] || [ "$NETWORK_MUTATION" != NONE ]; then READY=no; REASON='saved ISP/DNS profile is not runtime-accepted'
     elif [ "$AUTOSTART" = unknown ]; then READY=no; REASON='cannot determine XKeen autostart state'
-    elif [ "$AUTO_VPN_FAILOVER" = yes ] && [ ! -x "$VPN_BIN" ]; then READY=no; REASON='vpn helper is required for managed failover'
     fi
 }
 
@@ -256,15 +225,15 @@ print_plan() {
     say "DNS_OUT=$DNS_OUT"
     say "VLESS_PROFILE=$VLESS_PROFILE"
     say "XKEEN_AUTOSTART=$AUTOSTART"
-    say "AUTO_ENDPOINT_UPDATE=$AUTO_ENDPOINT_UPDATE"
-    say "AUTO_ENDPOINT_CRON=$AUTO_ENDPOINT_CRON"
-    say "AUTO_VPN_FAILOVER=$AUTO_VPN_FAILOVER"
-    say "AUTO_VPN_FAILOVER_CRON=$AUTO_VPN_FAILOVER_CRON"
+    say "AUTO_VPN_ENABLED=$AUTO_VPN_ENABLED"
+    say "AUTO_VPN_MODE=$AUTO_VPN_MODE"
+    say "AUTO_VPN_HEALTH_INTERVAL=$AUTO_VPN_HEALTH_INTERVAL"
+    say "AUTO_VPN_ENDPOINT_INTERVAL=$AUTO_VPN_INTERVAL"
     if [ "$READY" = yes ]; then
         DELTA='set SETUP_COMPLETE=yes; rebuild the FreeNet-managed cron block'
         [ "$AUTOSTART" = off ] && DELTA="$DELTA; enable XKeen autostart through xkeen -auto on"
-        [ "$AUTO_ENDPOINT_UPDATE" = yes ] && DELTA="$DELTA; activate configured endpoint refresh schedule" || DELTA="$DELTA; keep endpoint refresh disabled until Automation settings enable it"
-        [ "$AUTO_VPN_FAILOVER" = yes ] && DELTA="$DELTA; activate configured VPN failover schedule" || DELTA="$DELTA; keep automatic VPN failover disabled"
+        [ "$AUTO_VPN_ENABLED" = yes ] && DELTA="$DELTA; reconcile canonical AUTO VPN health scheduler" || DELTA="$DELTA; keep AUTO VPN scheduler disabled"
+        [ "$AUTO_VPN_ENABLED" = yes ] && [ "$AUTO_VPN_MODE" = endpoint ] && [ "$AUTO_VPN_INTERVAL" != manual ] && DELTA="$DELTA; activate canonical endpoint refresh schedule"
         [ "$NETWORK_EFFECTIVE_DNS_MODE" = xkeen ] && DELTA="$DELTA; require existing dns-out for XKeen/Xray DNS" || DELTA="$DELTA; keep direct DNS topology unchanged"
         say "EXPECTED_DELTA=$DELTA"
     else
@@ -343,8 +312,9 @@ apply() {
     say '[FreeNet Setup Finalize] RESULT=SUCCESS'
     say '[FreeNet Setup Finalize] SETUP_COMPLETE=yes'
     say '[FreeNet Setup Finalize] XKEEN_AUTOSTART=on'
-    say "[FreeNet Setup Finalize] AUTO_ENDPOINT_UPDATE=$(config_value AUTO_ENDPOINT_UPDATE no)"
-    say "[FreeNet Setup Finalize] AUTO_VPN_FAILOVER=$(config_value AUTO_VPN_FAILOVER no)"
+    say "[FreeNet Setup Finalize] AUTO_VPN_ENABLED=$(config_value AUTO_VPN_V1 no)"
+    say "[FreeNet Setup Finalize] AUTO_VPN_MODE=$(config_value AUTO_VPN_MODE best)"
+    say '[FreeNet Setup Finalize] SCHEDULER_OWNER=FreeNet Settings v3'
     say '[FreeNet Setup Finalize] ROLLBACK=NOT_NEEDED'
 }
 
@@ -354,6 +324,7 @@ done
 command -v "$CRONTAB_BIN" >/dev/null 2>&1 || { err 'crontab command is missing'; exit 1; }
 [ -x "$XKEEN_BIN" ] || { err 'XKeen binary is missing'; exit 1; }
 [ -x "$XRAY_BIN" ] || { err 'Xray binary is missing'; exit 1; }
+[ -x "$UI_BIN" ] || { err 'FreeNet UI binary is missing'; exit 1; }
 [ -f "$CONFIG_FILE" ] || { err 'FreeNet config is missing'; exit 1; }
 [ -f "$NETWORK_HELPER" ] || { err 'network profile helper is missing'; exit 1; }
 
