@@ -88,6 +88,30 @@ func TestRollbackGuardRequiresHealthyReadOnlyAcceptance(t *testing.T) {
 	}
 }
 
+func TestReadOnlyHealthObservationDoesNotTakeManualRecoveryFence(t *testing.T) {
+	data, err := os.ReadFile("automation_health.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	start := strings.Index(text, "func (a *app) runAutomationHealthWatch")
+	end := strings.Index(text[start:], "\nfunc init()")
+	if start < 0 || end < 0 {
+		t.Fatal("health watch implementation not found")
+	}
+	segment := text[start : start+end]
+	firstProbe := strings.Index(segment, "first := a.probeAutomationCurrentVPN(probeCtx)")
+	postGuard := strings.Index(segment, "automationPostUpdateGuardResult(a, first)")
+	lock := strings.Index(segment, "release, err := acquireAutomationHealthLock()")
+	reprobe := strings.Index(segment, "first = a.probeAutomationCurrentVPN(probeCtx)")
+	if firstProbe < 0 || postGuard < 0 || lock < 0 || reprobe < 0 {
+		t.Fatalf("manual-recovery fence contract incomplete: probe=%d guard=%d lock=%d reprobe=%d", firstProbe, postGuard, lock, reprobe)
+	}
+	if !(firstProbe < postGuard && postGuard < lock && lock < reprobe) {
+		t.Fatalf("read-only health probe/guard must finish before exclusive recovery fence: probe=%d guard=%d lock=%d reprobe=%d", firstProbe, postGuard, lock, reprobe)
+	}
+}
+
 func TestBusyHealthResultDoesNotAdvanceHealthTimestamp(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "settings.state")
