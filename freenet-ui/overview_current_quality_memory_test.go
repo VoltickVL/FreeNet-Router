@@ -101,13 +101,15 @@ func TestOverviewCurrentQualityMemoryBridgesSingleCoordinatorRenderer(t *testing
 		"currentQuality = Object.assign({}, candidate, {current:true})",
 		"renderCurrentQuality({scanned_at: detail.scanned_at || '', candidates:[currentQuality]})",
 		"window.__freenetCurrentQualityHydration",
-		"fallback_download_mbps",
-		"current_fallback",
 		"strict_aggregate",
-		"не для сравнения",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("Overview coordinator ownership contract missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"fallback_download_mbps", "current_fallback", "не для сравнения", "Быстрый замер", "быстрый контроль"} {
+		if strings.Contains(src, forbidden) {
+			t.Fatalf("Overview coordinator reintroduced non-comparable current speed %q", forbidden)
 		}
 	}
 }
