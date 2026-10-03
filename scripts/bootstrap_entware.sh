@@ -144,7 +144,7 @@ print_plan() {
             say "XRAY=$XRAY_VERSION/$XRAY_ASSET"
             say "XKEEN_UI=$XKEEN_UI_VERSION/$XKEEN_UI_ASSET"
             say 'DEPENDENCIES=targeted opkg install only; no global upgrade'
-            say 'APPLY=core stack only; ISP/DNS/VPN subscription remain setup-layer decisions'
+            say 'APPLY=core stack only; DNS/VPN subscription remain setup-layer decisions'
             ;;
         READY_EXISTING_STACK)
             say 'NEXT=preserve existing stack and use FreeNet migration/update path'
@@ -514,7 +514,7 @@ apply_core() {
     say '[FreeNet Bootstrap] CORE_APPLY=SUCCESS'
     say "[FreeNet Bootstrap] BACKUP=$BACKUP_DIR"
     say '[FreeNet Bootstrap] XKeen autostart=off (setup wizard must choose network policy first)'
-    say '[FreeNet Bootstrap] proxy_dns=off (setup wizard must choose ISP/DNS first)'
+    say '[FreeNet Bootstrap] proxy_dns=off (setup wizard must choose DNS mode first)'
     say '[FreeNet Bootstrap] XKeen UI=:1000 ready'
     say '[FreeNet Bootstrap] ROLLBACK=AVAILABLE'
 }
