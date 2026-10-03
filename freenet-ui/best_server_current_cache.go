@@ -13,7 +13,7 @@ import (
 
 const (
 	bestServerCurrentQualityCacheTTL              = 2 * time.Minute
-	bestServerCurrentQualityPersistentSchema      = 2
+	bestServerCurrentQualityPersistentSchema      = 3
 	bestServerCurrentQualityPersistentPathDefault = "/opt/var/lib/freenet/current-quality.json"
 )
 
@@ -54,16 +54,24 @@ func bestServerCurrentQualityIdentityHash(endpoint, filter string) string {
 func bestServerCurrentThroughputProvenanceValid(candidate bestServerQualityCandidate) bool {
 	strict := candidate.DownloadMbps > 0
 	fallback := candidate.FallbackDownloadMbps > 0
-	switch {
-	case strict && fallback:
+	if fallback || candidate.ThroughputSource == bestServerThroughputCurrentFallback {
 		return false
-	case strict:
-		return candidate.ThroughputSource == bestServerThroughputStrictAggregate
-	case fallback:
-		return candidate.ThroughputSource == bestServerThroughputCurrentFallback
-	default:
-		return candidate.ThroughputSource == ""
 	}
+	if strict {
+		return candidate.ThroughputSource == bestServerThroughputStrictAggregate
+	}
+	return candidate.ThroughputSource == ""
+}
+
+func sanitizeBestServerCurrentQuality(candidate bestServerQualityCandidate) bestServerQualityCandidate {
+	// Legacy current_fallback is never exposed or persisted as current VPN
+	// speed. Keep only canonical strict throughput; partial RTT/service evidence
+	// may still be retained with speed unknown.
+	candidate.FallbackDownloadMbps = 0
+	if candidate.ThroughputSource == bestServerThroughputCurrentFallback {
+		candidate.ThroughputSource = ""
+	}
+	return candidate
 }
 
 func writeBestServerCurrentQualityPersistent(endpoint, filter string, storedAt time.Time, candidate bestServerQualityCandidate) {
@@ -110,7 +118,7 @@ func loadBestServerCurrentQualityPersistent(endpoint, filter string) (bestServer
 	if err != nil || storedAt.IsZero() {
 		return bestServerQualityCandidate{}, time.Time{}, false
 	}
-	candidate := entry.Candidate
+	candidate := sanitizeBestServerCurrentQuality(entry.Candidate)
 	if !candidate.Current || !candidate.Tested || !candidate.Available || strings.TrimSpace(candidate.Endpoint) == "" {
 		return bestServerQualityCandidate{}, time.Time{}, false
 	}
@@ -120,7 +128,7 @@ func loadBestServerCurrentQualityPersistent(endpoint, filter string) (bestServer
 	if !bestServerCurrentThroughputProvenanceValid(candidate) {
 		return bestServerQualityCandidate{}, time.Time{}, false
 	}
-	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 && candidate.FallbackDownloadMbps <= 0 {
+	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 {
 		return bestServerQualityCandidate{}, time.Time{}, false
 	}
 	candidate.Current = true
@@ -129,15 +137,16 @@ func loadBestServerCurrentQualityPersistent(endpoint, filter string) (bestServer
 
 func storeBestServerCurrentQuality(endpoint, filter string, candidate bestServerQualityCandidate) {
 	// Keep real current-only measurements for observability even when the strict
-	// Best Server eligibility contract is incomplete. Decision callers remain
-	// fail-closed in loadBestServerCurrentQuality below.
+	// Best Server eligibility contract is incomplete. Current speed itself is
+	// strict-only and uses the same canonical aggregate as Best Server.
+	candidate = sanitizeBestServerCurrentQuality(candidate)
 	if !candidate.Current || !candidate.Tested || !candidate.Available || strings.TrimSpace(endpoint) == "" {
 		return
 	}
 	if !bestServerCurrentThroughputProvenanceValid(candidate) {
 		return
 	}
-	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 && candidate.FallbackDownloadMbps <= 0 {
+	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 {
 		return
 	}
 	storedAt := time.Now().UTC()
@@ -167,10 +176,10 @@ func loadBestServerCurrentQuality(endpoint, filter string) (bestServerQualityCan
 	if key == "|" || entry.Key != key || entry.StoredAt.IsZero() || time.Since(entry.StoredAt) > bestServerCurrentQualityCacheTTL {
 		return bestServerQualityCandidate{}, false
 	}
-	candidate := entry.Candidate
+	candidate := sanitizeBestServerCurrentQuality(entry.Candidate)
 	candidate.Current = true
 	if !candidate.Eligible || candidate.DownloadMbps <= 0 ||
-		candidate.ThroughputSource != bestServerThroughputStrictAggregate || candidate.FallbackDownloadMbps > 0 {
+		candidate.ThroughputSource != bestServerThroughputStrictAggregate {
 		return bestServerQualityCandidate{}, false
 	}
 	return candidate, true
