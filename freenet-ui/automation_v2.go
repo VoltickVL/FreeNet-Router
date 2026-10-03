@@ -299,32 +299,16 @@ func stripManagedAutomationCron(data []byte) []string {
 }
 
 func buildManagedAutomationCron(configPath string, settings automationSettings, existing []byte) ([]byte, error) {
-	cron, ok := automationCron(settings.Interval)
-	if !ok {
+	if _, ok := automationCron(settings.Interval); !ok {
 		return nil, errors.New("unsupported automation interval")
 	}
-	lines := stripManagedAutomationCron(existing)
-	lines = append(lines, "# BEGIN FREENET")
-	if automationConfigValue(configPath, "AUTO_XKEEN_GEODATA", "yes") == "yes" {
-		geoCron := strings.TrimSpace(automationConfigValue(configPath, "AUTO_XKEEN_GEODATA_CRON", "30 6 * * *"))
-		if geoCron != "" {
-			lines = append(lines, geoCron+" /opt/sbin/xkeen -ug")
-		}
-	}
-	if settings.Enabled {
-		healthCron := automationHealthCron(configuredAutomationHealthInterval(configPath))
-		lines = append(lines, healthCron+" "+automationRunnerPath()+" automation-health-watch >> /opt/var/log/freenet-auto-vpn-health.log 2>&1")
-		if settings.Mode == automationModeEndpoint && settings.Interval != "manual" && cron != "" {
-			lines = append(lines, cron+" "+automationRunnerPath()+" settings-v3-endpoint-refresh >> /opt/var/log/freenet-auto-vpn.log 2>&1")
-		}
-	} else {
-		lines = append(lines, "# AUTO VPN scheduler and health watchdog disabled by FreeNet settings")
-	}
-	lines = append(lines, "# legacy vpn failover superseded by AUTO VPN health watchdog")
-	lines = append(lines, "# END FREENET")
-	return []byte(strings.Join(lines, "\n") + "\n"), nil
+	values := settingsV3ManagedCronValuesFromConfig(configPath)
+	values["AUTO_VPN_V1"] = map[bool]string{true: "yes", false: "no"}[settings.Enabled]
+	values["AUTO_VPN_MODE"] = normalizeAutomationMode(settings.Mode)
+	values["AUTO_VPN_V1_INTERVAL"] = settings.Interval
+	compat := &app{cfg: config{ConfigPath: configPath}}
+	return buildManagedAutomationCronV3(compat, existing, values)
 }
-
 func (a *app) saveAutomationSettingsV2(settings automationSettings, geoDataEnabled *bool) error {
 	settings.Mode = normalizeAutomationMode(settings.Mode)
 	settings.Policy = normalizeAutomationPolicy(settings.Policy)
@@ -352,15 +336,14 @@ func (a *app) saveAutomationSettingsV2(settings automationSettings, geoDataEnabl
 		"AUTO_VPN_FAILOVER":      "no",
 	}
 	if geoDataEnabled != nil {
-		values["AUTO_XKEEN_GEODATA"] = map[bool]string{true: "yes", false: "no"}[*geoDataEnabled]
+		geo := map[bool]string{true: "yes", false: "no"}[*geoDataEnabled]
+		values["AUTO_XKEEN_GEODATA"] = geo
+		values["AUTO_GEODATA_ENABLED"] = geo
 	}
 	if err := writeAutomationConfigValues(a.cfg.ConfigPath, values); err != nil {
 		return errors.New("cannot stage AUTO VPN settings")
 	}
-	managed, err := buildManagedAutomationCron(a.cfg.ConfigPath, settings, beforeCron)
-	if err == nil {
-		err = installAutomationCrontab(managed)
-	}
+	_, err = a.reconcileSettingsV3Scheduler()
 	if err == nil {
 		return nil
 	}
@@ -466,6 +449,55 @@ func sanitizeAutomationReason(reason string) string {
 	return strings.TrimSpace(reason)
 }
 
+func automationRollbackBlocksMutation(value string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	if normalized == "" {
+		return false
+	}
+	switch normalized {
+	case "UNKNOWN", "FAILED/UNKNOWN", "FAILED_UNKNOWN":
+		return true
+	}
+	return strings.Contains(normalized, "ROLLBACK FAILED") || strings.Contains(normalized, "ROLLBACK UNKNOWN")
+}
+
+func automationMutationBlockedState() bool {
+	return strings.EqualFold(strings.TrimSpace(parseAutomationState(automationStatePath())["MUTATION_BLOCKED"]), "yes")
+}
+
+func writeAutomationStatePayload(path string, values map[string]string) {
+	payload := strings.Join([]string{
+		"LAST_RUN=" + sanitizeAutomationReason(values["LAST_RUN"]),
+		"LAST_RESULT=" + sanitizeAutomationReason(values["LAST_RESULT"]),
+		"LAST_REASON=" + sanitizeAutomationReason(values["LAST_REASON"]),
+		"ROLLBACK_READY=" + sanitizeAutomationReason(values["ROLLBACK_READY"]),
+		"LAST_SWITCH=" + sanitizeAutomationReason(values["LAST_SWITCH"]),
+		"MUTATION_BLOCKED=" + sanitizeAutomationReason(values["MUTATION_BLOCKED"]),
+	}, "\n") + "\n"
+	_ = os.MkdirAll(filepath.Dir(path), 0755)
+	tmp := path + ".v2.new"
+	if err := os.WriteFile(tmp, []byte(payload), 0600); err == nil {
+		_ = os.Rename(tmp, path)
+	}
+}
+
+func setAutomationMutationBlocked(blocked bool) {
+	path := automationStatePath()
+	values := parseAutomationState(path)
+	if values["LAST_RUN"] == "" {
+		values["LAST_RUN"] = time.Now().UTC().Format(time.RFC3339)
+	}
+	if values["ROLLBACK_READY"] == "" {
+		values["ROLLBACK_READY"] = "no"
+	}
+	if blocked {
+		values["MUTATION_BLOCKED"] = "yes"
+	} else {
+		values["MUTATION_BLOCKED"] = "no"
+	}
+	writeAutomationStatePayload(path, values)
+}
+
 func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 	path := automationStatePath()
 	previous := parseAutomationState(path)
@@ -476,18 +508,19 @@ func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 	if rollback == "" {
 		rollback = "no"
 	}
-	payload := strings.Join([]string{
-		"LAST_RUN=" + time.Now().UTC().Format(time.RFC3339),
-		"LAST_RESULT=" + sanitizeAutomationReason(result),
-		"LAST_REASON=" + sanitizeAutomationReason(reason),
-		"ROLLBACK_READY=" + sanitizeAutomationReason(rollback),
-		"LAST_SWITCH=" + sanitizeAutomationReason(lastSwitch),
-	}, "\n") + "\n"
-	_ = os.MkdirAll(filepath.Dir(path), 0755)
-	tmp := path + ".v2.new"
-	if err := os.WriteFile(tmp, []byte(payload), 0600); err == nil {
-		_ = os.Rename(tmp, path)
+	blocked := strings.EqualFold(strings.TrimSpace(previous["MUTATION_BLOCKED"]), "yes") || automationRollbackBlocksMutation(rollback)
+	values := map[string]string{
+		"LAST_RUN": time.Now().UTC().Format(time.RFC3339),
+		"LAST_RESULT": result,
+		"LAST_REASON": reason,
+		"ROLLBACK_READY": rollback,
+		"LAST_SWITCH": lastSwitch,
+		"MUTATION_BLOCKED": "no",
 	}
+	if blocked {
+		values["MUTATION_BLOCKED"] = "yes"
+	}
+	writeAutomationStatePayload(path, values)
 }
 
 func appendAutomationHistoryV2(result, reason string) {
@@ -615,6 +648,11 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 		return automationBestCycleResult{Result: "busy", Reason: "Проверка пропущена: другая AUTO VPN health/recovery операция уже выполняется."}, nil
 	}
 	defer releaseHealth()
+	if automationMutationBlockedState() {
+		reason := "AUTO VPN mutation заблокирована после неподтверждённого rollback. Сначала требуется успешная read-only проверка фактического текущего VPN."
+		appendAutomationHistoryV2("blocked", reason)
+		return automationBestCycleResult{Result: "uncertain", Reason: reason, RollbackState: "FAILED/UNKNOWN"}, nil
+	}
 
 	release, err := acquireAutomationBestLock()
 	if err != nil {
@@ -735,11 +773,27 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 	return automationBestCycleResult{Result: "switched", Reason: reason, Mutated: true, RollbackState: applied.RollbackState, ProfileID: candidate.ID}, nil
 }
 
+func automationCLIConfigPath(args []string) string {
+	configPath := defaultConfigPath
+	for i := 2; i+1 < len(args); i++ {
+		if args[i] != "--config" {
+			continue
+		}
+		candidate := strings.TrimSpace(args[i+1])
+		if candidate != "" && filepath.IsAbs(candidate) {
+			configPath = candidate
+		}
+		break
+	}
+	return configPath
+}
+
 func automationCLIConfig() config {
+	configPath := automationCLIConfigPath(os.Args)
 	return config{
 		Listen: defaultListen, VPNPath: defaultVPNPath, FilterPath: defaultFilterPath, OutPath: defaultOutPath,
 		GeoDataDir: defaultGeoDataAssetDir, XKeenPath: defaultXKeenPath, LockPath: defaultLockPath,
-		ConfigPath: defaultConfigPath, SubPath: defaultSubPath, SelfUpdatePath: defaultSelfUpdatePath,
+		ConfigPath: configPath, SubPath: defaultSubPath, SelfUpdatePath: defaultSelfUpdatePath,
 		UpdateState: defaultUpdateState, UpdateLock: defaultUpdateLock, Timeout: 95 * time.Second,
 	}
 }

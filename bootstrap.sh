@@ -401,40 +401,10 @@ has_dns_out() {
 }
 
 apply_safe_cron() {
-    C1="$TMP_DIR/cron.current"
-    C2="$TMP_DIR/cron.new"
-    crontab -l > "$C1" 2>/dev/null || : > "$C1"
-
-    awk '
-        /^# BEGIN FREENET$/ {skip=1; next}
-        /^# END FREENET$/ {skip=0; next}
-        skip {next}
-        /[[:space:]]\/opt\/bin\/blanc_xkeen_update_outbounds\.sh([[:space:]]|$)/ {next}
-        /[[:space:]]\/opt\/sbin\/xkeen[[:space:]]+-ug([[:space:]]|$)/ {next}
-        {print}
-    ' "$C1" > "$C2" || return 1
-
-    AUTO_ENDPOINT_UPDATE="$(config_value AUTO_ENDPOINT_UPDATE no)"
-    AUTO_ENDPOINT_CRON="$(config_value AUTO_ENDPOINT_CRON '*/15 * * * *')"
-    AUTO_XKEEN_GEODATA="$(config_value AUTO_XKEEN_GEODATA yes)"
-    AUTO_XKEEN_GEODATA_CRON="$(config_value AUTO_XKEEN_GEODATA_CRON '30 6 * * *')"
-    SETUP_COMPLETE="$(config_value SETUP_COMPLETE no)"
-
-    {
-        echo '# BEGIN FREENET'
-        if [ "$AUTO_XKEEN_GEODATA" = yes ]; then
-            echo "$AUTO_XKEEN_GEODATA_CRON /opt/sbin/xkeen -ug"
-        fi
-        if [ "$SETUP_COMPLETE" = yes ] && [ "$AUTO_ENDPOINT_UPDATE" = yes ] && [ -s "$SUB_FILE" ] && has_dns_out; then
-            echo "$AUTO_ENDPOINT_CRON /opt/bin/blanc_xkeen_update_outbounds.sh >> /opt/var/log/blanc_xkeen_update.log 2>&1"
-        else
-            echo '# endpoint refresh disabled until setup/subscription/dns-out acceptance'
-        fi
-        echo '# END FREENET'
-    } >> "$C2"
-
-    crontab "$C2"
+    [ -x "$FREENET_BIN" ] || return 1
+    "$FREENET_BIN" settings-v3-reconcile --config "$CONFIG_FILE" >/dev/null 2>&1 || return 1
 }
+
 
 write_ui_init() {
     cat > "$FREENET_INIT.tmp.$$" <<EOF

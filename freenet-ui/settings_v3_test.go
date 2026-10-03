@@ -399,6 +399,8 @@ func TestSettingsV3ScheduledEndpointRefreshRespectsModeAndHealthLock(t *testing.
 	configPath := filepath.Join(dir, "freenet.conf")
 	lockPath := filepath.Join(dir, "health.lock")
 	t.Setenv("FREENET_AUTO_HEALTH_LOCK", lockPath)
+	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))
+	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
 	writeConfig := func(mode string) {
 		if err := os.WriteFile(configPath, []byte(strings.Join([]string{
 			"AUTO_VPN_V1=yes",
@@ -441,6 +443,16 @@ func TestSettingsV3ScheduledEndpointRefreshRespectsModeAndHealthLock(t *testing.
 	}
 	if calls != 1 {
 		t.Fatalf("held health lock must skip endpoint refresh before mutation; calls=%d", calls)
+	}
+	if err := os.RemoveAll(lockPath); err != nil {
+		t.Fatal(err)
+	}
+	writeAutomationStateV2("failed", "rollback unknown", "FAILED/UNKNOWN", false)
+	if err := a.runV3ScheduledEndpointRefresh(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("persistent rollback guard must skip scheduled endpoint mutation; calls=%d", calls)
 	}
 }
 

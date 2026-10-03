@@ -56,6 +56,7 @@ type automationResponse struct {
 	LastResult              string             `json:"last_result,omitempty"`
 	LastReason              string             `json:"last_reason,omitempty"`
 	RollbackReady           bool               `json:"rollback_ready"`
+	MutationBlocked         bool               `json:"mutation_blocked"`
 	CurrentQualityKnown     bool               `json:"current_quality_known"`
 	CurrentQualityFresh     bool               `json:"current_quality_fresh"`
 	CurrentQualityCheckedAt string             `json:"current_quality_checked_at,omitempty"`
@@ -268,7 +269,7 @@ func parseAutomationState(path string) map[string]string {
 			continue
 		}
 		switch key {
-		case "LAST_RUN", "LAST_RESULT", "LAST_REASON", "ROLLBACK_READY", "LAST_SWITCH":
+		case "LAST_RUN", "LAST_RESULT", "LAST_REASON", "ROLLBACK_READY", "LAST_SWITCH", "MUTATION_BLOCKED":
 			values[key] = strings.TrimSpace(value)
 		}
 	}
@@ -336,6 +337,7 @@ func (a *app) automationSnapshot() automationResponse {
 		CurrentProfile: status.ProfileLabel, CurrentEndpoint: status.Endpoint, CountryCode: status.CountryCode,
 		LastRun: state["LAST_RUN"], NextRun: automationNextRun(state["LAST_RUN"], settings.Interval), LastSwitch: state["LAST_SWITCH"],
 		LastResult: state["LAST_RESULT"], LastReason: state["LAST_REASON"], RollbackReady: state["ROLLBACK_READY"] == "yes",
+		MutationBlocked: strings.EqualFold(strings.TrimSpace(state["MUTATION_BLOCKED"]), "yes"),
 		SubscriptionAuto: false,
 		GeoDataAuto: geodata, GeoDataSchedule: automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA_CRON", "30 6 * * *"),
 		FreeNetAuto: false,

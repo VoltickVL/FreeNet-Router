@@ -31,6 +31,29 @@ func TestAutomationHealthDueUsesProbeStartCadence(t *testing.T) {
 	}
 }
 
+func TestRollbackGuardRequiresHealthyReadOnlyAcceptance(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))
+	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
+	writeAutomationStateV2("failed", "rollback unknown", "FAILED/UNKNOWN", false)
+
+	blocked, handled := automationRollbackGuardResult(automationHealthProbe{State: automationHealthFailed, Reason: "VPN path still failed"})
+	if !handled || blocked.State != automationHealthUncertain {
+		t.Fatalf("failed read-only state must keep rollback guard: handled=%v result=%+v", handled, blocked)
+	}
+	if !automationMutationBlockedState() {
+		t.Fatal("failed read-only check cleared rollback guard")
+	}
+
+	cleared, handled := automationRollbackGuardResult(automationHealthProbe{State: automationHealthHealthy, Reason: "exact current VPN healthy"})
+	if !handled || cleared.State != automationHealthHealthy {
+		t.Fatalf("healthy factual state must clear rollback guard: handled=%v result=%+v", handled, cleared)
+	}
+	if automationMutationBlockedState() {
+		t.Fatal("healthy exact-current read-only acceptance did not clear rollback guard")
+	}
+}
+
 func TestBusyHealthResultDoesNotAdvanceHealthTimestamp(t *testing.T) {
 	dir := t.TempDir()
 	statePath := filepath.Join(dir, "settings.state")
@@ -203,7 +226,7 @@ func TestManagedCronKeepsHealthWatchdogAndRetiresPeriodicBest(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if !strings.Contains(text, "* * * * * "+automationRunnerPath()+" automation-health-watch") {
+	if !strings.Contains(text, "* * * * * "+v3ShellQuote(automationRunnerPath())+" automation-health-watch --config "+v3ShellQuote(path)) {
 		t.Fatalf("health watchdog is not scheduled with the configured 1-minute fallback:\n%s", text)
 	}
 	for _, forbidden := range []string{"automation-best-run", "/opt/lib/freenet/auto_vpn.sh", "/opt/bin/vpn failover"} {
@@ -253,6 +276,23 @@ func TestEmergencyBestPathBypassesOnlyOptimizationCooldown(t *testing.T) {
 	}
 	if !strings.Contains(string(normalSource), "if automationCooldownActive(parseAutomationLastSwitch(automationStatePath()), time.Now().UTC())") {
 		t.Fatal("normal Best optimization path must retain the 6-hour anti-flapping cooldown")
+	}
+}
+
+func TestHealthRecoveryStopsSameCycleWhenRollbackLatchIsSet(t *testing.T) {
+	data, err := os.ReadFile("automation_health.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	start := strings.Index(text, "endpointResult, endpointErr := a.runAutomationEndpointEmergency")
+	best := strings.Index(text[start:], "best, bestErr := a.runAutomationBestEmergencyCycle")
+	if start < 0 || best < 0 {
+		t.Fatal("health recovery endpoint/Best stages not found")
+	}
+	between := text[start : start+best]
+	if !strings.Contains(between, "if automationMutationBlockedState()") {
+		t.Fatal("health recovery must STOP before Best fallback when endpoint rollback latch is active")
 	}
 }
 

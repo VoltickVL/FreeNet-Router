@@ -147,16 +147,24 @@ load_config() {
 
 save_config() {
     mkdir -p "$CONFIG_DIR" || return 1
-    cat > "$CONFIG_FILE.tmp.$$" <<EOF
-UI_PORT=$UI_PORT
-SETUP_COMPLETE=$SETUP_COMPLETE
-AUTO_ENDPOINT_UPDATE=$AUTO_ENDPOINT_UPDATE
-AUTO_ENDPOINT_CRON='$AUTO_ENDPOINT_CRON'
-AUTO_XKEEN_GEODATA=$AUTO_XKEEN_GEODATA
-AUTO_XKEEN_GEODATA_CRON='$AUTO_XKEEN_GEODATA_CRON'
-EOF
-    chmod 600 "$CONFIG_FILE.tmp.$$" 2>/dev/null || true
-    mv -f "$CONFIG_FILE.tmp.$$" "$CONFIG_FILE"
+    [ -f "$CONFIG_FILE" ] || return 1
+    awk \
+        -v ui_port="$UI_PORT" \
+        -v geodata="$AUTO_XKEEN_GEODATA" \
+        -v geodata_cron="$AUTO_XKEEN_GEODATA_CRON" '
+        BEGIN { ui=0; geo=0; cron=0 }
+        /^UI_PORT=/ { print "UI_PORT=" ui_port; ui=1; next }
+        /^AUTO_XKEEN_GEODATA=/ { print "AUTO_XKEEN_GEODATA=" geodata; geo=1; next }
+        /^AUTO_XKEEN_GEODATA_CRON=/ { print "AUTO_XKEEN_GEODATA_CRON=\047" geodata_cron "\047"; cron=1; next }
+        { print }
+        END {
+            if (!ui) print "UI_PORT=" ui_port
+            if (!geo) print "AUTO_XKEEN_GEODATA=" geodata
+            if (!cron) print "AUTO_XKEEN_GEODATA_CRON=\047" geodata_cron "\047"
+        }
+    ' "$CONFIG_FILE" > "$CONFIG_FILE.tmp.$" || return 1
+    chmod 600 "$CONFIG_FILE.tmp.$" 2>/dev/null || true
+    mv -f "$CONFIG_FILE.tmp.$" "$CONFIG_FILE"
 }
 
 get_arch() {
@@ -453,31 +461,11 @@ remove_managed_cron() {
 
 apply_cron() {
     make_tmp
-    C1="$TMP_DIR/cron.current"
-    C2="$TMP_DIR/cron.new"
-    crontab -l > "$C1" 2>/dev/null || : > "$C1"
-
-    awk '
-        /^# BEGIN FREENET$/ {skip=1; next}
-        /^# END FREENET$/ {skip=0; next}
-        !skip {print}
-    ' "$C1" > "$C2"
-
-    {
-        echo '# BEGIN FREENET'
-        if [ "$AUTO_XKEEN_GEODATA" = "yes" ]; then
-            echo "$AUTO_XKEEN_GEODATA_CRON /opt/sbin/xkeen -ug"
-        fi
-        if [ "$SETUP_COMPLETE" = "yes" ] && [ "$AUTO_ENDPOINT_UPDATE" = "yes" ] && [ -s "$SUB_FILE" ] && has_dns_out; then
-            echo "$AUTO_ENDPOINT_CRON /opt/bin/blanc_xkeen_update_outbounds.sh >> /opt/var/log/blanc_xkeen_update.log 2>&1"
-        else
-            echo '# endpoint refresh disabled until setup/subscription/dns-out acceptance'
-        fi
-        echo '# END FREENET'
-    } >> "$C2"
-
-    crontab "$C2" || fail "не удалось применить FreeNet cron"
+    [ -x "$FREENET_BIN" ] || fail "FreeNet scheduler owner недоступен"
+    "$FREENET_BIN" settings-v3-reconcile --config "$CONFIG_FILE" > "$TMP_DIR/scheduler-reconcile.out" 2> "$TMP_DIR/scheduler-reconcile.err" ||
+        fail "не удалось безопасно синхронизировать планировщик FreeNet"
 }
+
 
 install_files() {
     UI_ASSET="freenet-ui-$ARCH"
@@ -661,12 +649,11 @@ configure_menu() {
         say ""
         say "========== Настройки FreeNet =========="
         say "1. Порт FreeNet UI: $UI_PORT"
-        say "2. Автообновление endpoint/IP: $AUTO_ENDPOINT_UPDATE"
-        say "3. Cron endpoint update: $AUTO_ENDPOINT_CRON"
-        say "4. Автообновление XKeen geodata: $AUTO_XKEEN_GEODATA"
-        say "5. Cron XKeen geodata: $AUTO_XKEEN_GEODATA_CRON"
-        say "6. Задать/изменить URL подписки"
-        say "7. Применить настройки"
+        say "2. Автообновление XKeen geodata: $AUTO_XKEEN_GEODATA"
+        say "3. Cron XKeen geodata: $AUTO_XKEEN_GEODATA_CRON"
+        say "4. Задать/изменить URL подписки"
+        say "5. Применить настройки"
+        say "AUTO VPN / health-watch / endpoint recovery управляются только в FreeNet Control Center."
         say "0. Назад"
         printf '> ' > /dev/tty
         read_tty
@@ -686,27 +673,19 @@ configure_menu() {
                 esac
                 ;;
             2)
-                if [ "$AUTO_ENDPOINT_UPDATE" = "yes" ]; then AUTO_ENDPOINT_UPDATE=no; else AUTO_ENDPOINT_UPDATE=yes; fi
-                ;;
-            3)
-                printf 'Cron (5 полей, например */15 * * * *): ' > /dev/tty
-                read_tty
-                [ -n "$REPLY" ] && AUTO_ENDPOINT_CRON="$REPLY"
-                ;;
-            4)
                 if [ "$AUTO_XKEEN_GEODATA" = "yes" ]; then AUTO_XKEEN_GEODATA=no; else AUTO_XKEEN_GEODATA=yes; fi
                 ;;
-            5)
+            3)
                 printf 'Cron (5 полей, например 30 6 * * *): ' > /dev/tty
                 read_tty
                 [ -n "$REPLY" ] && AUTO_XKEEN_GEODATA_CRON="$REPLY"
                 ;;
-            6)
+            4)
                 change_subscription_transaction
                 ;;
-            7)
+            5)
                 apply_config_transaction
-                say "Настройки применены."
+                say "Настройки применены. AUTO VPN scheduler синхронизируется FreeNet Control Center."
                 load_config
                 ;;
             0) return ;;

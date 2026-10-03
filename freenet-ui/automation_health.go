@@ -398,10 +398,12 @@ func (a *app) runAutomationEndpointEmergency(parent context.Context, settings au
 		return automationHealthResult{State: automationHealthHealthy, Reason: message, Mutated: true}, nil
 	}
 
-	if rollback == "FAILED/UNKNOWN" {
+	if rollback == "FAILED/UNKNOWN" || automationRollbackBlocksMutation(rollback) {
 		if message == "" {
 			message = "Штатное обновление текущего VPN завершилось с неизвестным состоянием rollback."
 		}
+		writeAutomationStateV2("blocked", message, rollback, false)
+		appendAutomationHistoryV2("blocked", message+"; rollback="+rollback)
 		return automationHealthResult{State: automationHealthCritical, Reason: message}, errors.New("current VPN refresh rollback failed or is unknown")
 	}
 
@@ -493,6 +495,25 @@ func (a *app) startAutomationHealthScheduler() {
 	}()
 }
 
+func automationRollbackGuardResult(first automationHealthProbe) (automationHealthResult, bool) {
+	if !automationMutationBlockedState() {
+		return automationHealthResult{}, false
+	}
+	if first.State == automationHealthHealthy {
+		setAutomationMutationBlocked(false)
+		reason := "Фактическое состояние текущего VPN подтверждено read-only проверкой; аварийный запрет AUTO mutation снят."
+		appendAutomationRecoveryStage("rollback_guard", "cleared", reason)
+		appendAutomationHistoryV2("guard_cleared", reason)
+		return automationHealthResult{State: automationHealthHealthy, Reason: reason}, true
+	}
+	reason := "AUTO VPN mutation заблокирована после неподтверждённого rollback. Read-only проверка ещё не подтвердила рабочее фактическое состояние; изменений нет."
+	if strings.TrimSpace(first.Reason) != "" {
+		reason += " " + strings.TrimSpace(first.Reason)
+	}
+	appendAutomationRecoveryStage("rollback_guard", "blocked", reason)
+	return automationHealthResult{State: automationHealthUncertain, Reason: reason}, true
+}
+
 func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealthResult, error) {
 	settings := readAutomationSettings(a.cfg.ConfigPath)
 	if !settings.Enabled {
@@ -507,6 +528,10 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
 	first := a.probeAutomationCurrentVPN(probeCtx)
+	if guarded, blocked := automationRollbackGuardResult(first); blocked {
+		cancel()
+		return recordAndReturnHealth(guarded, nil)
+	}
 	if first.State == automationHealthHealthy || first.State == automationHealthUncertain {
 		cancel()
 		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
@@ -553,13 +578,10 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		appendAutomationRecoveryStage("post_check", automationHealthUncertain, endpointResult.Reason)
 		return recordAndReturnHealth(endpointResult, endpointErr)
 	}
-	if endpointErr != nil {
-		lower := strings.ToLower(endpointResult.Reason)
-		if strings.Contains(lower, "rollback failed") || strings.Contains(lower, "rollback unknown") || strings.Contains(lower, "rollback=failed") || strings.Contains(lower, "rollback=unknown") {
-			endpointResult.State = automationHealthCritical
-			appendAutomationRecoveryStage("rollback", "failed", endpointResult.Reason)
-			return recordAndReturnHealth(endpointResult, endpointErr)
-		}
+	if automationMutationBlockedState() {
+		endpointResult.State = automationHealthCritical
+		appendAutomationRecoveryStage("rollback", "failed", "Rollback не подтверждён; persistent AUTO mutation block активирован.")
+		return recordAndReturnHealth(endpointResult, endpointErr)
 	}
 
 	if settings.Mode == automationModeEndpoint {
