@@ -694,16 +694,12 @@
     if (status && alternativesPanel && status.parentNode !== alternativesPanel) alternativesPanel.appendChild(status);
     const guard = qs('#quickNetworkGuard');
     let manual = qs('#bestServerAdvanced');
-    const topbar = qs('.topbar.overview-approved') || qs('.topbar');
-    const topSummary = qs('#overviewApprovedTop');
-    const topActions = qs('.top-actions');
     if (profilesList && !manual) {
-      manual = document.createElement('section'); manual.id = 'bestServerAdvanced';
+      manual = document.createElement('section');
+      manual.id = 'bestServerAdvanced';
+      qs('#bestServerShell')?.appendChild(manual);
     }
-    if (manual) manual.classList.add('fn-topbar-vpn-picker');
-    const pickerBody = qs('#fnVpnPickerBody');
-    if (manual && pickerBody && manual.parentNode !== pickerBody) pickerBody.appendChild(manual);
-    else if (manual && !pickerBody && topbar && manual.parentNode !== topbar) topbar.insertBefore(manual, topSummary || topActions || null);
+    if (manual) manual.classList.remove('fn-topbar-vpn-picker');
     if (manual && profilesList && profilesList.parentNode !== manual) manual.appendChild(profilesList);
     const exact = qs('#exactConnectRow'); if (manual && exact && exact.parentNode !== manual) manual.appendChild(exact);
     if (manual && guard && guard.parentNode !== manual) manual.appendChild(guard);
@@ -929,19 +925,6 @@
     if (badge && badge.textContent.trim() === 'Для сравнения') badge.textContent = 'Лучший из вариантов';
   }
 
-  function polishTopbar() {
-    q('#fnManualShortcut')?.remove();
-    const manual = q('#bestServerAdvanced');
-    const topbar = q('.topbar.overview-approved') || q('.topbar');
-    const summary = q('#overviewApprovedTop');
-    const actions = q('.top-actions');
-    if (manual) manual.classList.add('fn-topbar-vpn-picker');
-    const pickerBody = q('#fnVpnPickerBody');
-    if (manual && pickerBody && manual.parentNode !== pickerBody) pickerBody.appendChild(manual);
-    else if (manual && !pickerBody && topbar && manual.parentNode !== topbar) topbar.insertBefore(manual, summary || actions || null);
-    const exact = q('#exactConnectRow'); if (manual && exact && exact.parentNode !== manual) manual.appendChild(exact);
-  }
-
   function fitCurrentMetrics() {
     document.querySelectorAll('.vpn-current-panel .best-v4-pill b').forEach(node => {
       node.classList.toggle('fn-long-value', node.textContent.trim().length >= 9);
@@ -951,7 +934,6 @@
   function run() {
     scheduled = false;
     polishBestAlternative();
-    polishTopbar();
     fitCurrentMetrics();
   }
 
