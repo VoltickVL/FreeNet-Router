@@ -249,9 +249,9 @@
   }
   function busy() { const s=runtime(); return choosing || engine().applying || !!(s?.busy || s?.updater_busy); }
   function uncertain(e) { return /ROLLBACK_FAILED|ROLLBACK_UNKNOWN|FAILED_UNKNOWN|\bUNKNOWN\b/.test(e.note + ' ' + e.title); }
-  function canConnect(e=engine()) { return !!(selected && selected.id===e.id && e.ready && e.card?.classList.contains('is-ready') && e.button && !e.button.disabled && !sent && !busy() && !uncertain(e)); }
+  function canConnect(e=engine()) { return !!(selected && selected.id===e.id && e.ready && e.card?.classList.contains('is-ready') && e.button && !e.button.disabled && !sent && !busy() && !rttScanning && !uncertain(e)); }
   async function choose(profile) {
-    if (busy() || uncertain(engine()) || typeof selectProviderProfile !== 'function') return;
+    if (rttScanning || busy() || uncertain(engine()) || typeof selectProviderProfile !== 'function') return;
     selected=profile; choosing=true; sent=false; error=''; listKey=''; paint();
     try { await selectProviderProfile(profile); } catch (_) { error=L.failed; }
     finally { choosing=false; paint(); }
@@ -307,7 +307,7 @@
   }
 
   function renderList() {
-    const disabled=busy() || uncertain(engine());
+    const disabled=rttScanning || busy() || uncertain(engine());
     const key=JSON.stringify([sourceKey,search.value,selected?.id,disabled,rttVersion,rttScanning]);
     if (key===listKey) return;
     listKey=key;
