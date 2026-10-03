@@ -22,9 +22,9 @@ const (
 	automationHealthUncertain = "uncertain"
 	automationHealthCritical  = "critical"
 
-	automationHealthProbeTimeout = 12 * time.Second
-	automationHealthConfirmDelay = 2 * time.Second
-	automationHealthRunTimeout   = 35 * time.Second
+	automationHealthProbeTimeout      = 12 * time.Second
+	automationHealthRunTimeout        = 35 * time.Second
+	automationEndpointRecoveryTimeout = 20 * time.Second
 )
 
 type automationHealthResult struct {
@@ -386,7 +386,7 @@ func (a *app) runAutomationEndpointEmergency(parent context.Context, settings au
 	// revision, validates it off-path, snapshots runtime state, applies it,
 	// performs the post-apply VPN Internet acceptance and rolls back on failure.
 	// The legacy `vpn update` path must not be a second recovery engine.
-	ctx, cancel := context.WithTimeout(parent, bestServerRefreshTimeout)
+	ctx, cancel := context.WithTimeout(parent, automationEndpointRecoveryTimeout)
 	status, refresh := automationEndpointCurrentRefresh(a, ctx)
 	cancel()
 
@@ -615,50 +615,42 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	defer release()
 
 	// State may have changed while manual diagnostics had priority. Re-probe
-	// under the fence before any recovery decision so AUTO never mutates based
-	// on stale evidence.
+	// exactly once under the recovery fence before any mutation. The initial
+	// read-only FAIL plus this fenced FAIL are the two required confirmations;
+	// do not add a third duplicate VPN probe before recovery.
+	initialFailure := first
 	probeCtx, cancel = context.WithTimeout(parent, automationHealthRunTimeout)
-	first = a.probeAutomationCurrentVPN(probeCtx)
-	if guarded, blocked := automationPostUpdateGuardResult(a, first); blocked {
+	confirm := a.probeAutomationCurrentVPN(probeCtx)
+	if guarded, blocked := automationPostUpdateGuardResult(a, confirm); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
-	if guarded, blocked := automationRollbackGuardResult(a, first); blocked {
+	if guarded, blocked := automationRollbackGuardResult(a, confirm); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
-	if first.State == automationHealthHealthy || first.State == automationHealthUncertain {
+	if confirm.State == automationHealthHealthy || confirm.State == automationHealthUncertain {
 		cancel()
-		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
+		return recordAndReturnHealth(automationHealthResult{State: confirm.State, Reason: confirm.Reason}, nil)
 	}
-	appendAutomationRecoveryStage("detect", first.State, first.Reason)
+	appendAutomationRecoveryStage("detect", confirm.State, confirm.Reason)
 	wanHealthy := probeAutomationWAN(probeCtx)
+	cancel()
+	decision := classifyAutomationHealth(initialFailure, wanHealthy, confirm)
 	if !wanHealthy {
-		cancel()
-		decision := classifyAutomationHealth(first, false, automationHealthProbe{})
 		appendAutomationRecoveryStage("wan", decision.State, decision.Reason)
 		return recordAndReturnHealth(automationHealthResult{State: decision.State, Reason: decision.Reason}, nil)
 	}
-	appendAutomationRecoveryStage("wan", "healthy", "Обычный интернет подтверждён; AUTO VPN продолжает восстановление.")
-	select {
-	case <-time.After(automationHealthConfirmDelay):
-	case <-probeCtx.Done():
-		cancel()
-		reason := "Повторная проверка VPN не успела завершиться; изменений нет."
-		appendAutomationRecoveryStage("confirm", automationHealthUncertain, reason)
-		return recordAndReturnHealth(automationHealthResult{State: automationHealthUncertain, Reason: reason}, nil)
-	}
-	second := a.probeAutomationCurrentVPN(probeCtx)
-	cancel()
-	decision := classifyAutomationHealth(first, true, second)
+	appendAutomationRecoveryStage("wan", "healthy", "Обычный интернет подтверждён; два read-only FAIL текущего VPN подтверждены.")
 	appendAutomationRecoveryStage("confirm", decision.State, decision.Reason)
 	if decision.State != automationHealthCritical {
 		return recordAndReturnHealth(automationHealthResult{State: decision.State, Reason: decision.Reason}, nil)
 	}
 
-	// Magic AUTO VPN recovery order: first try a fresh endpoint for the exact
-	// current VPN. Only when that cannot restore service do we search a fully
-	// validated replacement inside the user's allowed geography.
+	// Canonical AUTO recovery order: first try one bounded fresh endpoint for
+	// the exact current logical VPN. If that fast-path does not restore service,
+	// reuse the same full quick-sweep -> deep Top-3 Best Server pipeline that the
+	// manual "Подобрать варианты" flow uses.
 	endpointSettings := settings
 	endpointSettings.Mode = automationModeEndpoint
 	endpointSettings.AutoApply = true
@@ -690,7 +682,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	bestSettings.Mode = automationModeBest
 	bestSettings.Policy = automationPolicyDegraded
 	bestSettings.AutoApply = true
-	appendAutomationRecoveryStage("candidate_selection", "start", "Endpoint refresh не восстановил VPN; ищем полностью проверенную замену.")
+	appendAutomationRecoveryStage("candidate_selection", "start", "Endpoint fast-path не восстановил VPN; запускаем canonical Best Server до Top-3 Eligible.")
 	best, bestErr := a.runAutomationBestEmergencyCycle(parent, bestSettings)
 	appendAutomationRecoveryStage("apply", best.Result, best.Reason)
 	if best.RollbackState != "" && best.RollbackState != "NOT_NEEDED" && best.RollbackState != "yes" {
