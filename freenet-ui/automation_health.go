@@ -578,13 +578,10 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		appendAutomationRecoveryStage("post_check", automationHealthUncertain, endpointResult.Reason)
 		return recordAndReturnHealth(endpointResult, endpointErr)
 	}
-	if endpointErr != nil {
-		lower := strings.ToLower(endpointResult.Reason)
-		if strings.Contains(lower, "rollback failed") || strings.Contains(lower, "rollback unknown") || strings.Contains(lower, "rollback=failed") || strings.Contains(lower, "rollback=unknown") {
-			endpointResult.State = automationHealthCritical
-			appendAutomationRecoveryStage("rollback", "failed", endpointResult.Reason)
-			return recordAndReturnHealth(endpointResult, endpointErr)
-		}
+	if automationMutationBlockedState() {
+		endpointResult.State = automationHealthCritical
+		appendAutomationRecoveryStage("rollback", "failed", "Rollback не подтверждён; persistent AUTO mutation block активирован.")
+		return recordAndReturnHealth(endpointResult, endpointErr)
 	}
 
 	if settings.Mode == automationModeEndpoint {
