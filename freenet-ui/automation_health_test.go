@@ -31,7 +31,7 @@ func TestAutomationHealthDueUsesProbeStartCadence(t *testing.T) {
 	}
 }
 
-func TestPostUpdateGuardBlocksMutationUntilHealthyReadOnlyAcceptance(t *testing.T) {
+func TestPostUpdateGuardAllowsConfirmedFailureRecoveryButKeepsUncertainFailClosed(t *testing.T) {
 	dir := t.TempDir()
 	updateState := filepath.Join(dir, "self-update.state")
 	automationState := filepath.Join(dir, "automation.state")
@@ -42,15 +42,20 @@ func TestPostUpdateGuardBlocksMutationUntilHealthyReadOnlyAcceptance(t *testing.
 	}
 	a := &app{cfg: config{UpdateState: updateState}}
 
-	blocked, handled := automationPostUpdateGuardResult(a, automationHealthProbe{State: automationHealthFailed, Reason: "current VPN failed"})
-	if !handled || blocked.State != automationHealthUncertain {
-		t.Fatalf("post-update unhealthy state must hold AUTO mutation: handled=%v result=%+v", handled, blocked)
-	}
-	if got := parseAutomationState(automationState)["POST_UPDATE_ACK"]; got != "" {
-		t.Fatalf("unhealthy post-update state unexpectedly acknowledged: %q", got)
+	recovery, handled := automationPostUpdateGuardResult(a, automationHealthProbe{State: automationHealthFailed, Reason: "current VPN failed"})
+	if handled || recovery.State != "" {
+		t.Fatalf("confirmed failed VPN must continue into normal double-check recovery: handled=%v result=%+v", handled, recovery)
 	}
 	if pending := automationPendingPostUpdateTarget(a); pending != "v"+version {
-		t.Fatalf("post-update hold disappeared before healthy acceptance: %q", pending)
+		t.Fatalf("post-update target must remain pending until healthy/apply acceptance: %q", pending)
+	}
+
+	blocked, handled := automationPostUpdateGuardResult(a, automationHealthProbe{State: automationHealthUncertain, Reason: "probe busy"})
+	if !handled || blocked.State != automationHealthUncertain {
+		t.Fatalf("uncertain post-update state must remain fail-closed: handled=%v result=%+v", handled, blocked)
+	}
+	if got := parseAutomationState(automationState)["POST_UPDATE_ACK"]; got != "" {
+		t.Fatalf("uncertain post-update state unexpectedly acknowledged: %q", got)
 	}
 
 	healthy, handled := automationPostUpdateGuardResult(a, automationHealthProbe{State: automationHealthHealthy, Reason: "exact current VPN healthy"})
