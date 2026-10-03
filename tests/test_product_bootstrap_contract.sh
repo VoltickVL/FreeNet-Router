@@ -20,6 +20,31 @@ grep -Fq 'bootstrap_entware.sh" apply' "$BOOT" || fail 'нет apply для чи
 grep -Fq 'READY_EXISTING_STACK' "$BOOT" || fail 'нет пути сохранения существующего stack'
 grep -Fq 'NEEDS_REVIEW' "$BOOT" || fail 'нет остановки на частичном stack'
 
+# После готового Entware пользователь не должен вручную собирать toolchain.
+# Bootstrap сам ставит только недостающие userland packages и не делает upgrade.
+grep -Fq 'ensure_bootstrap_dependencies' "$BOOT" || fail 'нет автоматического provisioning bootstrap tools'
+grep -Fq 'opkg status ca-bundle' "$BOOT" || fail 'нет проверки HTTPS CA bundle'
+for CONTRACT in \
+    'need_tool sha256sum coreutils-sha256sum' \
+    'need_tool sed sed' \
+    'need_tool awk gawk' \
+    'need_tool grep grep' \
+    'need_tool mktemp coreutils-mktemp' \
+    'need_tool ip ip-full' \
+    'need_tool nslookup bind-nslookup' \
+    'need_tool jq jq' \
+    'need_tool netstat net-tools-netstat' \
+    'need_tool cmp diffutils' \
+    'need_tool crontab cron'
+do
+    grep -Fq "$CONTRACT" "$BOOT" || fail "нет dependency mapping: $CONTRACT"
+done
+grep -Fq 'opkg install $BOOTSTRAP_PACKAGES' "$BOOT" || fail 'нет targeted opkg install для bootstrap tools'
+grep -Fq 'no FreeNet/core/network mutation started' "$BOOT" || fail 'dependency failure не отделён от product mutation'
+if grep -E 'opkg[[:space:]]+upgrade' "$BOOT" >/dev/null; then
+    fail 'bootstrap dependency provisioning не должен делать global upgrade'
+fi
+
 # Сценарий установки определяется bootstrap-ом автоматически и сохраняется только
 # внутри transactional app-фазы; пользователь не может вручную включить rebuild core.
 grep -Fq 'READY_EXISTING_STACK) INSTALL_SCENARIO=existing_stack' "$BOOT" || fail 'нет сценария действующего роутера'
@@ -38,7 +63,7 @@ fi
 printf '%s\n' "$VALIDATE_BLOCK" | grep -Fq '(.configured | type) == "boolean"' || fail 'нет проверки формы auth status'
 printf '%s\n' "$VALIDATE_BLOCK" | grep -Fq '(.authenticated | type) == "boolean"' || fail 'нет проверки authenticated в auth status'
 
-# Provider/ISP/DNS остаются решениями браузерного мастера; app-фаза сама Xray не переписывает.
+# VPN/DNS/routing остаются решениями браузерного мастера; app-фаза сама Xray не переписывает.
 grep -Fq 'XRAY_CONFIG_DELTA=NONE during app phase' "$BOOT" || fail 'нет Xray no-delta acceptance'
 grep -Fq 'snapshot_xray' "$BOOT" || fail 'нет snapshot Xray hash'
 grep -Fq 'cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.after"' "$BOOT" || fail 'нет проверки неизменности Xray'
