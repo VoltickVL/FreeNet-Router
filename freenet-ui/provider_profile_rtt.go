@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"sort"
 	"strings"
@@ -13,6 +15,7 @@ import (
 const (
 	providerProfileRTTWorkers          = 2
 	providerProfileRTTDiscoveryTimeout = 30 * time.Second
+	providerProfileRTTCacheTTL         = 5 * time.Minute
 )
 
 type providerProfileRTTItem struct {
@@ -26,6 +29,8 @@ type providerProfileRTTItem struct {
 
 type providerProfileRTTResponse struct {
 	Success         bool                     `json:"success"`
+	Cached          bool                     `json:"cached,omitempty"`
+	MeasuredAt      string                   `json:"measured_at,omitempty"`
 	Results         []providerProfileRTTItem `json:"results"`
 	Profiles        int                      `json:"profiles"`
 	UniqueEndpoints int                      `json:"unique_endpoints"`
@@ -42,6 +47,79 @@ type providerProfileRTTResponse struct {
 type providerRTTProbe func(context.Context, bestServerInternalCandidate) bestServerProbeResult
 
 var providerProfileRTTScanGate = make(chan struct{}, 1)
+
+type providerProfileRTTCacheEntry struct {
+	Key      string
+	StoredAt time.Time
+	Items    []providerProfileRTTItem
+}
+
+var providerProfileRTTCache struct {
+	sync.Mutex
+	Entry providerProfileRTTCacheEntry
+}
+
+func providerProfileRTTCacheKey(candidates []bestServerInternalCandidate) string {
+	parts := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		id := strings.TrimSpace(candidate.Profile.ID)
+		endpoint := strings.TrimSpace(profileEndpoint(candidate.Profile))
+		if id == "" || endpoint == "" {
+			continue
+		}
+		parts = append(parts, id+"|"+endpoint)
+	}
+	sort.Strings(parts)
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(sum[:16])
+}
+
+func completeProviderProfileRTTItems(candidates []bestServerInternalCandidate, items []providerProfileRTTItem) bool {
+	if len(candidates) == 0 || len(items) != len(candidates) {
+		return false
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.ProfileID) == "" || !item.Attempted || item.Status == "unknown" {
+			return false
+		}
+	}
+	return true
+}
+
+func cloneProviderProfileRTTItems(items []providerProfileRTTItem) []providerProfileRTTItem {
+	return append([]providerProfileRTTItem(nil), items...)
+}
+
+func storeProviderProfileRTTCache(candidates []bestServerInternalCandidate, items []providerProfileRTTItem) {
+	if !completeProviderProfileRTTItems(candidates, items) {
+		return
+	}
+	key := providerProfileRTTCacheKey(candidates)
+	if key == "" {
+		return
+	}
+	copyItems := cloneProviderProfileRTTItems(items)
+	sortProviderProfileRTTItems(copyItems)
+	providerProfileRTTCache.Lock()
+	providerProfileRTTCache.Entry = providerProfileRTTCacheEntry{
+		Key: key, StoredAt: time.Now().UTC(), Items: copyItems,
+	}
+	providerProfileRTTCache.Unlock()
+}
+
+func loadProviderProfileRTTCache(candidates []bestServerInternalCandidate) ([]providerProfileRTTItem, time.Time, bool) {
+	key := providerProfileRTTCacheKey(candidates)
+	if key == "" {
+		return nil, time.Time{}, false
+	}
+	providerProfileRTTCache.Lock()
+	defer providerProfileRTTCache.Unlock()
+	entry := providerProfileRTTCache.Entry
+	if entry.Key != key || entry.StoredAt.IsZero() || time.Since(entry.StoredAt) > providerProfileRTTCacheTTL || !completeProviderProfileRTTItems(candidates, entry.Items) {
+		return nil, time.Time{}, false
+	}
+	return cloneProviderProfileRTTItems(entry.Items), entry.StoredAt, true
+}
 
 func providerProfileRTTStatusRank(item providerProfileRTTItem) int {
 	switch {
@@ -225,9 +303,32 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	force := r.URL.Query().Get("refresh") == "1"
+	if !force {
+		if cached, measuredAt, ok := loadProviderProfileRTTCache(filtered); ok {
+			checked, reachable := 0, 0
+			for _, item := range cached {
+				if item.Attempted {
+					checked++
+				}
+				if item.Reachable {
+					reachable++
+				}
+			}
+			writeJSON(w, http.StatusOK, providerProfileRTTResponse{
+				Success: true, Cached: true, MeasuredAt: measuredAt.Format(time.RFC3339), Results: cached,
+				Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
+				Checked: checked, Reachable: reachable, Unknown: 0, Partial: false,
+				ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
+			})
+			return
+		}
+	}
+
 	sweepCtx, cancelSweep := context.WithTimeout(r.Context(), bestServerRTTSweepTimeout(len(filtered)))
 	defer cancelSweep()
 	items := measureProviderProfileRTT(sweepCtx, filtered, a.probeBestServerProfilePing)
+	storeProviderProfileRTTCache(filtered, items)
 	checked, reachable, unknown := 0, 0, 0
 	for _, item := range items {
 		if item.Attempted {
@@ -240,7 +341,7 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	writeJSON(w, http.StatusOK, providerProfileRTTResponse{
-		Success: true, Results: items, Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
+		Success: true, MeasuredAt: time.Now().UTC().Format(time.RFC3339), Results: items, Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
 		Checked: checked, Reachable: reachable, Unknown: unknown, Partial: checked < len(filtered),
 		ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
 	})
