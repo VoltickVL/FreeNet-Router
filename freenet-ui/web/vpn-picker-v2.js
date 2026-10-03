@@ -54,7 +54,7 @@
   }
   let sourceKey = '', rows = [], selected = null, choosing = false, error = '', sent = false;
   let host, toggle, panel, search, list, footer, statusText, detail, connect, reset, refresh, currentName, currentCopy, currentFlag, badge;
-  let paintQueued = false, listKey = '', timer = null, observedCard = null, observedButton = null, staleRefresh = null;
+  let paintQueued = false, listKey = '', timer = null, observedCard = null, observedButton = null;
   let rttByID = new Map(), rttRanked = false, rttScanning = false, rttVersion = 0, rttSummary = '', rttError = '';
   function setFlag(node, code) {
     if (!node) return;
@@ -193,7 +193,7 @@
     currentName = q('.fnv2-current-copy strong',panel); currentCopy = q('.fnv2-current-copy span',panel); currentFlag = q('#fnVpnPickerV2CurrentFlag'); badge = q('#fnVpnPickerV2State');
     toggle.addEventListener('click',() => panel.hidden ? open() : close(true));
     q('#fnVpnPickerV2Close').addEventListener('click',() => close(true));
-    refresh.addEventListener('click',refreshRTT);
+    refresh.addEventListener('click',event => { if (event.isTrusted === true) void refreshRTT(event); });
     search.addEventListener('input',() => { listKey=''; paint(); });
     list.addEventListener('keydown',event => {
       if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
@@ -250,34 +250,51 @@
   }
   function busy() { const s=runtime(); return choosing || engine().applying || !!(s?.busy || s?.updater_busy); }
   function uncertain(e) { return /ROLLBACK_FAILED|ROLLBACK_UNKNOWN|FAILED_UNKNOWN|\bUNKNOWN\b/.test(e.note + ' ' + e.title); }
-  function canConnect(e=engine()) { return !!(selected && selected.id===e.id && e.ready && e.card?.classList.contains('is-ready') && e.button && !e.button.disabled && !sent && !busy() && !rttScanning && !staleRefresh && !uncertain(e)); }
+  function canConnect(e=engine()) { return !!(selected && selected.id===e.id && e.ready && e.card?.classList.contains('is-ready') && e.button && !e.button.disabled && !sent && !busy() && !rttScanning && !uncertain(e)); }
   async function choose(profile) {
-    if (rttScanning || busy() || staleRefresh || uncertain(engine()) || typeof selectProviderProfile !== 'function') return;
+    if (rttScanning || busy() || uncertain(engine()) || typeof selectProviderProfile !== 'function') return;
     selected=profile; choosing=true; sent=false; error=''; listKey=''; paint();
     try { await selectProviderProfile(profile); } catch (_) { error=L.failed; }
     finally { choosing=false; paint(); }
   }
-  async function refreshRTT() {
-    if (rttScanning || busy()) return;
-    if (staleRefresh) {
-      try { await staleRefresh; } catch (_) {}
+  function safeRTTCatalog(data) {
+    const catalog = Array.isArray(data?.catalog) ? data.catalog : [];
+    const safe = [], seen = new Set();
+    for (const profile of catalog) {
+      if (!profile || typeof profile.id !== 'string') return null;
+      const id=String(profile.id||'').trim(), name=String(profile.name||'').trim();
+      const country_code=String(profile.country_code||'').trim().toLowerCase();
+      const address=String(profile.address||'').trim(), port=Number(profile.port||0);
+      if (!id || seen.has(id) || !address || !Number.isInteger(port) || port<=0 || port>65535 || ['ru','ua'].includes(country_code)) return null;
+      seen.add(id);
+      safe.push({id,name,country_code,address,port,endpoint:endpoint({address,port})});
+    }
+    return safe.length ? safe : null;
+  }
+  function publishRTTCatalog(catalog) {
+    const publicCatalog = catalog.map(({id,name,country_code,address,port}) => ({id,name,country_code,address,port}));
+    if (typeof renderExtraProfiles === 'function') renderExtraProfiles({extra_profiles:publicCatalog});
+    else {
+      try { extraProfiles = publicCatalog; } catch (_) { return false; }
     }
     profileSource();
-    if (rttScanning || busy() || staleRefresh || !rows.length) return;
-    const expectedSourceKey=sourceKey;
-    const expectedCatalog=new Map(rows.map(profile=>[profile.id,profile.endpoint]));
+    return rows.length === catalog.length;
+  }
+  async function refreshRTT(event) {
+    if (!event || event.isTrusted !== true || rttScanning || busy()) return;
     rttScanning=true; rttError=''; rttSummary=''; listKey=''; paint();
     try {
       if (typeof window.freenetProviderRTTScan!=='function') throw new Error('rtt');
-      const data=await window.freenetProviderRTTScan();
-      profileSource();
-      if (sourceKey!==expectedSourceKey) throw new Error('catalog-changed');
+      const data=await window.freenetProviderRTTScan(event);
+      const measuredCatalog=safeRTTCatalog(data);
+      if (!measuredCatalog || measuredCatalog.length!==Number(data.profiles||0)) throw new Error('catalog-changed');
+      const measuredByID=new Map(measuredCatalog.map(profile=>[profile.id,profile.endpoint]));
       const next=new Map(), seen=new Set();
       let reachable=0, checked=0, unknown=0;
       for (const item of data.results) {
         if (!item || typeof item.profile_id!=='string') throw new Error('catalog-changed');
         const id=String(item.profile_id||'').trim(), measuredEndpoint=String(item.endpoint||'').trim();
-        if (!id || seen.has(id) || !expectedCatalog.has(id) || expectedCatalog.get(id)!==measuredEndpoint) throw new Error('catalog-changed');
+        if (!id || seen.has(id) || !measuredByID.has(id) || measuredByID.get(id)!==measuredEndpoint) throw new Error('catalog-changed');
         seen.add(id);
         const status=String(item.status||'');
         const attempted=item.attempted!==false && status!=='unknown';
@@ -286,7 +303,7 @@
         if (attempted) checked++; else unknown++;
         next.set(id,value);
       }
-      if (seen.size!==expectedCatalog.size) throw new Error('catalog-changed');
+      if (seen.size!==measuredByID.size || !publishRTTCatalog(measuredCatalog)) throw new Error('catalog-changed');
       rttByID=next; rttRanked=true; rttVersion++;
       const total=data.results.length;
       const serverChecked=Number.isFinite(Number(data.checked))?Number(data.checked):checked;
@@ -320,7 +337,7 @@
   }
 
   function renderList() {
-    const disabled=rttScanning || busy() || !!staleRefresh || uncertain(engine());
+    const disabled=rttScanning || busy() || uncertain(engine());
     const key=JSON.stringify([sourceKey,search.value,selected?.id,disabled,rttVersion,rttScanning]);
     if (key===listKey) return;
     listKey=key;
@@ -376,7 +393,7 @@
     } else if (busy()) {title=L.busy;}
     footer.dataset.state=state; text(statusText,title); text(detail,note);
     connect.disabled=!canConnect(e); reset.disabled=!selected || busy() || uncertain(e);
-    if (refresh) { refresh.disabled=rttScanning || busy() || !!staleRefresh; refresh.dataset.busy=String(rttScanning); }
+    if (refresh) { refresh.disabled=rttScanning || busy(); refresh.dataset.busy=String(rttScanning); }
     const rttState=q('#fnVpnPickerV2RTTState');
     if (rttState) {
       const message=rttScanning?L.pinging:rttError||rttSummary;
@@ -404,24 +421,12 @@
       if (Number.isFinite(current)) panel.style.height = Math.min(available, Math.max(Math.min(420, available), current)) + 'px';
     }
   }
-  function refreshStaleCatalogOnOpen() {
-    if (staleRefresh) return staleRefresh;
-    if (selected || choosing || busy() || !profileSource().stale) return Promise.resolve();
-    let loader = null;
-    try { if (typeof loadNetworkPlan === 'function') loader = loadNetworkPlan; } catch (_) {}
-    if (!loader) return Promise.resolve();
-    staleRefresh = Promise.resolve(loader(''))
-      .catch(() => {})
-      .finally(() => { staleRefresh = null; schedulePaint(); });
-    return staleRefresh;
-  }
   function open() {
     panel.hidden=false; toggle.setAttribute('aria-expanded','true'); listKey=''; paint();
-    // Product contract: opening the selector is presentation/read-only only.
-    // Never start a full RTT sweep implicitly; only the explicit refresh button
-    // may call refreshRTT(). This prevents selector-open from competing with
-    // post-update current-VPN verification or any other VPN operation.
-    Promise.resolve(refreshStaleCatalogOnOpen()).finally(()=>{ profileSource(); schedulePaint(); });
+    // Product contract: opening the selector is presentation-only and performs
+    // zero network requests. Fresh catalog + full RTT are one explicit trusted
+    // refresh operation owned by the ↻ control.
+    profileSource(); schedulePaint();
     search.focus({preventScroll:true});
   }
   function close(restore=false) { if (!panel) return; panel.hidden=true; toggle.setAttribute('aria-expanded','false'); if (restore) toggle.focus({preventScroll:true}); }
