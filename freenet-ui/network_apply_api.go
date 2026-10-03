@@ -75,6 +75,7 @@ type networkApplyRequest struct {
 	DNSMode            string `json:"dns_mode,omitempty"`
 	NativeDNSProvider  string `json:"native_dns_provider,omitempty"`
 	ProfileID          string `json:"profile_id,omitempty"`
+	SelectionToken     string `json:"selection_token,omitempty"`
 	NativeFilterEngine string `json:"native_filter_engine,omitempty"`
 	Confirm            bool   `json:"confirm"`
 }
@@ -512,8 +513,17 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Operation: "provider", Error: "invalid provider profile id"})
 		return
 	}
+	selectionToken := strings.TrimSpace(req.SelectionToken)
+	if selectionToken != "" && !validBestServerSelectionToken(selectionToken) {
+		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "invalid VPN selection token"})
+		return
+	}
+	operationTarget := profileID
+	if selectionToken != "" {
+		operationTarget += "@" + selectionToken
+	}
 
-	op, leader, conflict := vpnOperations.begin("provider", profileID)
+	op, leader, conflict := vpnOperations.begin("provider", operationTarget)
 	if !leader {
 		if conflict != nil {
 			v3AppendEvent("VPN", "busy", "Ручной выбор VPN пропущен: другая VPN-операция уже выполняется.")
@@ -556,6 +566,7 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 
 func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, networkApplyResponse) {
 	profileID := strings.TrimSpace(req.ProfileID)
+	selectionToken := strings.TrimSpace(req.SelectionToken)
 	select {
 	case a.sem <- struct{}{}:
 		defer func() { <-a.sem }()
@@ -563,17 +574,50 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "another FreeNet operation is already running"}
 	}
 
-	providerPlan, err := a.runProviderPlan(profileID)
-	if err != nil {
-		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, Error: err.Error()}
+	var (
+		providerPlan providerPlanResponse
+		selected     bestServerInternalCandidate
+		useSnapshot  bool
+		err          error
+	)
+	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
+	if selectionToken != "" {
+		selected, err = a.loadBestServerSelectionCandidate(selectionToken, profileID, currentEndpoint, currentFilter)
+		if err != nil {
+			return http.StatusConflict, networkApplyResponse{
+				Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+				RollbackState: "NOT_APPLIED", Error: err.Error(),
+			}
+		}
+		useSnapshot = true
+		defer consumeBestServerSelectionSnapshot(selectionToken)
+		providerPlan, err = a.runProviderSelectionPlan(selected)
+	} else {
+		providerPlan, err = a.runProviderPlan(profileID)
 	}
-	if !providerPlan.CandidateValid || providerPlan.Mutation != "NONE" {
-		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, Error: "provider plan is not a validated read-only candidate"}
+	if err != nil {
+		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED", Error: err.Error()}
+	}
+	if !providerPlan.CandidateValid || !providerPlan.CandidateRouteOK || providerPlan.Mutation != "NONE" {
+		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED", Error: "provider plan is not a validated application-ready candidate"}
+	}
+	if useSnapshot && (readBestServerCurrentEndpoint(a.cfg.OutPath) != currentEndpoint || readBestServerCurrentFilter(a.cfg.FilterPath) != currentFilter) {
+		return http.StatusConflict, networkApplyResponse{
+			Success: false, Applied: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan,
+			RollbackState: "NOT_APPLIED", Error: "current VPN changed while the measured candidate was being revalidated; run Best Server again",
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	defer cancel()
-	output, cmdErr := runCommand(ctx, providerHelperPath(), "apply", profileID)
+	var output []byte
+	var cmdErr error
+	if useSnapshot {
+		output, cmdErr = a.runProviderSelectionCommand(ctx, "apply", selected)
+	} else {
+		output, cmdErr = runCommand(ctx, providerHelperPath(), "apply", profileID)
+	}
 	safeOutput := sanitizeOutput(string(output))
 	if ctx.Err() == context.DeadlineExceeded {
 		cmdErr = errors.New("provider profile apply timed out")
