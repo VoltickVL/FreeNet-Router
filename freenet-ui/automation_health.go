@@ -398,10 +398,12 @@ func (a *app) runAutomationEndpointEmergency(parent context.Context, settings au
 		return automationHealthResult{State: automationHealthHealthy, Reason: message, Mutated: true}, nil
 	}
 
-	if rollback == "FAILED/UNKNOWN" {
+	if rollback == "FAILED/UNKNOWN" || automationRollbackBlocksMutation(rollback) {
 		if message == "" {
 			message = "Штатное обновление текущего VPN завершилось с неизвестным состоянием rollback."
 		}
+		writeAutomationStateV2("blocked", message, rollback, false)
+		appendAutomationHistoryV2("blocked", message+"; rollback="+rollback)
 		return automationHealthResult{State: automationHealthCritical, Reason: message}, errors.New("current VPN refresh rollback failed or is unknown")
 	}
 
@@ -507,6 +509,22 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
 	first := a.probeAutomationCurrentVPN(probeCtx)
+	if automationMutationBlockedState() {
+		cancel()
+		if first.State == automationHealthHealthy {
+			setAutomationMutationBlocked(false)
+			reason := "Фактическое состояние текущего VPN подтверждено read-only проверкой; аварийный запрет AUTO mutation снят."
+			appendAutomationRecoveryStage("rollback_guard", "cleared", reason)
+			appendAutomationHistoryV2("guard_cleared", reason)
+			return recordAndReturnHealth(automationHealthResult{State: automationHealthHealthy, Reason: reason}, nil)
+		}
+		reason := "AUTO VPN mutation заблокирована после неподтверждённого rollback. Read-only проверка ещё не подтвердила рабочее фактическое состояние; изменений нет."
+		if strings.TrimSpace(first.Reason) != "" {
+			reason += " " + strings.TrimSpace(first.Reason)
+		}
+		appendAutomationRecoveryStage("rollback_guard", "blocked", reason)
+		return recordAndReturnHealth(automationHealthResult{State: automationHealthUncertain, Reason: reason}, nil)
+	}
 	if first.State == automationHealthHealthy || first.State == automationHealthUncertain {
 		cancel()
 		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
