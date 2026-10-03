@@ -40,6 +40,8 @@ do
     grep -Fq "$CONTRACT" "$BOOT" || fail "нет dependency mapping: $CONTRACT"
 done
 grep -Fq 'opkg install $BOOTSTRAP_PACKAGES' "$BOOT" || fail 'нет targeted opkg install для bootstrap tools'
+grep -Fq 'freenet-bootstrap-opkg-update.$$.log' "$BOOT" || fail 'opkg update log должен быть process-unique'
+grep -Fq 'freenet-bootstrap-opkg-install.$$.log' "$BOOT" || fail 'opkg install log должен быть process-unique'
 grep -Fq 'no FreeNet/core/network mutation started' "$BOOT" || fail 'dependency failure не отделён от product mutation'
 if grep -E 'opkg[[:space:]]+upgrade' "$BOOT" >/dev/null; then
     fail 'bootstrap dependency provisioning не должен делать global upgrade'
