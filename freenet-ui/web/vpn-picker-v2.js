@@ -111,6 +111,7 @@
       #fnVpnPickerV2Panel{position:fixed;z-index:2600;box-sizing:border-box;display:flex;flex-direction:column;gap:0;width:540px;max-width:calc(100vw - 24px);height:min(760px,var(--fnv2-space,760px));min-height:min(420px,var(--fnv2-space,420px));max-height:var(--fnv2-space,760px);margin:0;padding:0;color:#eef4ff;background:#0c1c2e;border:1px solid #355473;border-radius:16px;box-shadow:0 24px 70px #0009;font-family:Inter,ui-sans-serif,system-ui,sans-serif;overflow:hidden}
       #fnVpnPickerV2Panel[hidden]{display:none!important}
       #fnVpnPickerV2Panel *{box-sizing:border-box}
+      #bestServerAdvanced{display:none!important}
       #fnVpnPickerV2Panel button,#fnVpnPickerV2Panel input{font:inherit}
       #fnVpnPickerV2Panel button:focus-visible,#fnVpnPickerV2Toggle:focus-visible{outline:2px solid #80adff;outline-offset:2px}
       #fnVpnPickerV2Panel .fnv2-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px;border-bottom:1px solid #28415b;flex:none}
@@ -406,6 +407,7 @@
   }
   function close(restore=false) { if (!panel) return; panel.hidden=true; toggle.setAttribute('aria-expanded','false'); if (restore) toggle.focus({preventScroll:true}); }
   function boot() {
+    q('#bestServerAdvanced')?.classList.remove('fn-topbar-vpn-picker');
     paint(); timer=setInterval(schedulePaint,1000); // Reads shared state only; no extra requests.
     document.addEventListener('visibilitychange',schedulePaint);
     document.addEventListener('freenet:controls-busy',schedulePaint);
