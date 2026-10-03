@@ -1,7 +1,5 @@
-// Runtime hotfix for the topbar VPN selector: compact modal presentation,
-// bilingual profile search and explicit empty/error states. The patch is
-// presentation-only and delegates selection to the existing safe exact-connect
-// flow.
+// Hidden exact-engine compatibility: bilingual profile matching and explicit
+// empty/error states. Picker v2 is the only visible selector owner.
 (() => {
   const styleID = 'freenetVPNSelectorModalSearchStyles';
   const patchFlag = 'freenetVpnSelectorHotfix';
@@ -229,27 +227,6 @@
     } catch (_) {}
   }
 
-  function injectStyles() {
-    if (q(`#${styleID}`)) return;
-    const style = document.createElement('style');
-    style.id = styleID;
-    style.textContent = `
-      #fnVpnPickerTrigger{flex:0 0 auto!important;width:min(244px,28vw)!important;min-width:188px!important;max-width:244px!important;align-self:center!important}
-      #fnVpnPickerTrigger .fn-vpn-picker-main,#fnVpnPickerTrigger strong{max-width:150px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker{flex:0 1 auto!important;min-width:0!important;max-width:none!important;margin-left:0!important}
-      #fnVpnPickerBody #bestServerAdvanced.fn-topbar-vpn-picker{display:block!important;width:100%!important}
-      #fnVpnPickerBody #profilesList.profiles{display:grid!important;grid-template-columns:1fr!important;gap:10px!important;margin-top:0!important}
-      #fnVpnPickerBody #profileSearch{width:100%!important}
-      #fnVpnPickerBody #profilesMenu.profile-menu{position:relative!important;left:auto!important;right:auto!important;top:auto!important;width:100%!important;max-height:min(330px,42vh)!important;margin-top:8px!important;overflow:auto!important;z-index:1400!important}
-      #profilesMenu .profile-option{width:100%!important;text-align:left!important;display:flex!important;flex-direction:column!important;align-items:flex-start!important;gap:3px!important}
-      #profilesMenu .profile-option-main{font-weight:760!important;color:#f5f8ff!important}
-      #profilesMenu .profile-option-meta{font-size:11px!important;color:#8fa6c5!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;max-width:100%!important}
-      #profilesMenu .fn-selector-empty{padding:13px!important;border:1px solid rgba(92,162,255,.24)!important;border-radius:11px!important;background:rgba(8,24,42,.72)!important;color:#b9c9df!important;line-height:1.45!important}
-      @media(max-width:900px){#fnVpnPickerTrigger{width:50px!important;min-width:50px!important;max-width:50px!important;padding-left:9px!important;padding-right:9px!important}#fnVpnPickerTrigger .fn-vpn-picker-main,#fnVpnPickerTrigger .fn-vpn-picker-copy{display:none!important}}
-    `;
-    document.head.appendChild(style);
-  }
-
   function bindSearchAndTrigger() {
     const search = q('#profileSearch');
     if (search && search.dataset.freenetVpnSearchHotfix !== '1') {
@@ -276,23 +253,9 @@
       }, true);
     }
 
-    const topbarTrigger = q('#fnVpnPickerTrigger');
-    if (topbarTrigger && topbarTrigger.dataset.freenetVpnTopbarHotfix !== '1') {
-      topbarTrigger.dataset.freenetVpnTopbarHotfix = '1';
-      topbarTrigger.addEventListener('click', () => {
-        requestAnimationFrame(() => {
-          patchRenderer();
-          renderProfileOptionsHotfix();
-          const field = q('#profileSearch');
-          if (field) field.focus({preventScroll:true});
-          showMenu();
-        });
-      }, true);
-    }
   }
 
   function mount() {
-    injectStyles();
     patchRenderer();
     bindSearchAndTrigger();
   }

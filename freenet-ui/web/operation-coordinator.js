@@ -694,16 +694,12 @@
     if (status && alternativesPanel && status.parentNode !== alternativesPanel) alternativesPanel.appendChild(status);
     const guard = qs('#quickNetworkGuard');
     let manual = qs('#bestServerAdvanced');
-    const topbar = qs('.topbar.overview-approved') || qs('.topbar');
-    const topSummary = qs('#overviewApprovedTop');
-    const topActions = qs('.top-actions');
     if (profilesList && !manual) {
-      manual = document.createElement('section'); manual.id = 'bestServerAdvanced';
+      manual = document.createElement('section');
+      manual.id = 'bestServerAdvanced';
+      qs('#bestServerShell')?.appendChild(manual);
     }
-    if (manual) manual.classList.add('fn-topbar-vpn-picker');
-    const pickerBody = qs('#fnVpnPickerBody');
-    if (manual && pickerBody && manual.parentNode !== pickerBody) pickerBody.appendChild(manual);
-    else if (manual && !pickerBody && topbar && manual.parentNode !== topbar) topbar.insertBefore(manual, topSummary || topActions || null);
+    if (manual) manual.classList.remove('fn-topbar-vpn-picker');
     if (manual && profilesList && profilesList.parentNode !== manual) manual.appendChild(profilesList);
     const exact = qs('#exactConnectRow'); if (manual && exact && exact.parentNode !== manual) manual.appendChild(exact);
     if (manual && guard && guard.parentNode !== manual) manual.appendChild(guard);
@@ -893,13 +889,17 @@
   }
 
   function installCurrentQualityMemoryBridge() {
-    document.addEventListener('freenet:current-quality-display', event => {
-      const candidate = event && event.detail && event.detail.candidate;
+    const acceptHydration = detail => {
+      const candidate = detail && detail.candidate;
       if (!candidate || candidate.current !== true || !candidate.endpoint) return;
       const liveEndpoint = String(qs('#bestCurrentEndpoint')?.textContent || '').trim();
       if (liveEndpoint && liveEndpoint !== '—' && liveEndpoint !== candidate.endpoint) return;
       currentQuality = Object.assign({}, candidate, {current:true});
-    });
+      renderCurrentQuality({scanned_at: detail.scanned_at || '', candidates:[currentQuality]});
+      if (detail.status) renderCurrentHealth(currentQuality, detail.status);
+    };
+    document.addEventListener('freenet:current-quality-display', event => acceptHydration(event && event.detail));
+    if (window.__freenetCurrentQualityHydration) queueMicrotask(() => acceptHydration(window.__freenetCurrentQualityHydration));
   }
 
   function start() {
@@ -914,51 +914,6 @@
   const q = (selector, root = document) => root.querySelector(selector);
   let scheduled = false;
 
-  const flagSVG = code => {
-    const common = 'viewBox="0 0 30 20" width="30" height="20" preserveAspectRatio="none" aria-hidden="true" focusable="false"';
-    const maps = {
-      pl: '<rect width="30" height="10" fill="#fff"/><rect y="10" width="30" height="10" fill="#dc143c"/>',
-      ru: '<rect width="30" height="6.667" fill="#fff"/><rect y="6.667" width="30" height="6.666" fill="#0039a6"/><rect y="13.333" width="30" height="6.667" fill="#d52b1e"/>',
-      lt: '<rect width="30" height="6.667" fill="#fdb913"/><rect y="6.667" width="30" height="6.666" fill="#006a44"/><rect y="13.333" width="30" height="6.667" fill="#c1272d"/>',
-      de: '<rect width="30" height="6.667" fill="#000"/><rect y="6.667" width="30" height="6.666" fill="#dd0000"/><rect y="13.333" width="30" height="6.667" fill="#ffce00"/>',
-      nl: '<rect width="30" height="6.667" fill="#ae1c28"/><rect y="6.667" width="30" height="6.666" fill="#fff"/><rect y="13.333" width="30" height="6.667" fill="#21468b"/>',
-      at: '<rect width="30" height="6.667" fill="#ed2939"/><rect y="6.667" width="30" height="6.666" fill="#fff"/><rect y="13.333" width="30" height="6.667" fill="#ed2939"/>',
-      bg: '<rect width="30" height="6.667" fill="#fff"/><rect y="6.667" width="30" height="6.666" fill="#00966e"/><rect y="13.333" width="30" height="6.667" fill="#d62612"/>',
-      fr: '<rect width="10" height="20" fill="#0055a4"/><rect x="10" width="10" height="20" fill="#fff"/><rect x="20" width="10" height="20" fill="#ef4135"/>',
-      it: '<rect width="10" height="20" fill="#009246"/><rect x="10" width="10" height="20" fill="#fff"/><rect x="20" width="10" height="20" fill="#ce2b37"/>',
-      dk: '<rect width="30" height="20" fill="#c8102e"/><rect x="9" width="4" height="20" fill="#fff"/><rect y="8" width="30" height="4" fill="#fff"/>',
-      fi: '<rect width="30" height="20" fill="#fff"/><rect x="9" width="4" height="20" fill="#003580"/><rect y="8" width="30" height="4" fill="#003580"/>',
-      se: '<rect width="30" height="20" fill="#006aa7"/><rect x="9" width="4" height="20" fill="#fecc00"/><rect y="8" width="30" height="4" fill="#fecc00"/>',
-      no: '<rect width="30" height="20" fill="#ba0c2f"/><rect x="8" width="6" height="20" fill="#fff"/><rect y="7" width="30" height="6" fill="#fff"/><rect x="10" width="2" height="20" fill="#00205b"/><rect y="9" width="30" height="2" fill="#00205b"/>',
-      hr: '<rect width="30" height="6.667" fill="#ff0000"/><rect y="6.667" width="30" height="6.666" fill="#fff"/><rect y="13.333" width="30" height="6.667" fill="#171796"/><path d="M12 6h6v7c0 2-1.3 3.2-3 4-1.7-.8-3-2-3-4z" fill="#fff" stroke="#174e9c" stroke-width=".6"/><rect x="12.4" y="6.4" width="1.3" height="1.3" fill="#e31d2b"/><rect x="15" y="6.4" width="1.3" height="1.3" fill="#e31d2b"/><rect x="13.7" y="7.7" width="1.3" height="1.3" fill="#e31d2b"/><rect x="16.3" y="7.7" width="1.3" height="1.3" fill="#e31d2b"/><rect x="12.4" y="9" width="1.3" height="1.3" fill="#e31d2b"/><rect x="15" y="9" width="1.3" height="1.3" fill="#e31d2b"/>',
-      sk: '<rect width="30" height="6.667" fill="#fff"/><rect y="6.667" width="30" height="6.666" fill="#0b4ea2"/><rect y="13.333" width="30" height="6.667" fill="#ee1c25"/><path d="M8 5h7v7.2c0 2.1-1.4 3.4-3.5 4.5C9.4 15.6 8 14.3 8 12.2z" fill="#ee1c25" stroke="#fff" stroke-width=".65"/><path d="M11.5 7v5m-2-3h4m-3.4 2h2.8" stroke="#fff" stroke-width=".7" stroke-linecap="round"/><path d="M9.2 13.2c1.4-.9 3.2-.9 4.6 0" stroke="#0b4ea2" stroke-width="1" fill="none"/>',
-      si: '<rect width="30" height="6.667" fill="#fff"/><rect y="6.667" width="30" height="6.666" fill="#0056a4"/><rect y="13.333" width="30" height="6.667" fill="#ed1c24"/><path d="M8.5 4.8h5.4v5.6c0 1.8-1.1 3-2.7 3.8-1.6-.8-2.7-2-2.7-3.8z" fill="#0056a4" stroke="#fff" stroke-width=".5"/>',
-      rs: '<rect width="30" height="6.667" fill="#c6363c"/><rect y="6.667" width="30" height="6.666" fill="#0c4076"/><rect y="13.333" width="30" height="6.667" fill="#fff"/><path d="M8.5 5h5.5v7c0 1.7-1.1 2.8-2.7 3.6-1.7-.8-2.8-1.9-2.8-3.6z" fill="#c6363c" stroke="#fff" stroke-width=".5"/>',
-      ua: '<rect width="30" height="10" fill="#0057b7"/><rect y="10" width="30" height="10" fill="#ffd700"/>',
-      jp: '<rect width="30" height="20" fill="#fff"/><circle cx="15" cy="10" r="5" fill="#bc002d"/>',
-      ch: '<rect width="30" height="20" fill="#d52b1e"/><rect x="13" y="5" width="4" height="10" fill="#fff"/><rect x="10" y="8" width="10" height="4" fill="#fff"/>'
-    };
-    const body = maps[code];
-    return body ? `<svg ${common}>${body}</svg>` : '';
-  };
-
-  function cleanFlag(node) {
-    if (!node || !node.classList || !node.classList.contains('flag-icon')) return;
-    const token = Array.from(node.classList).find(name => /^flag-[a-z]{2}$/.test(name));
-    if (!token) return;
-    const code = token.slice(5);
-    const svg = flagSVG(code);
-    if (!svg) return;
-    if (node.dataset.fnFlagCode === code && node.classList.contains('fn-clean-flag') && node.querySelector('svg')) return;
-    node.dataset.fnFlagCode = code;
-    node.classList.add('fn-clean-flag');
-    node.innerHTML = svg;
-  }
-
-  function polishFlags() {
-    document.querySelectorAll('.flag-icon').forEach(cleanFlag);
-  }
-
   function polishBestAlternative() {
     const rows = Array.from(document.querySelectorAll('#bestServerResult .vpn-option'));
     rows.forEach(row => row.classList.remove('fn-best-alternative'));
@@ -970,19 +925,6 @@
     if (badge && badge.textContent.trim() === 'Для сравнения') badge.textContent = 'Лучший из вариантов';
   }
 
-  function polishTopbar() {
-    q('#fnManualShortcut')?.remove();
-    const manual = q('#bestServerAdvanced');
-    const topbar = q('.topbar.overview-approved') || q('.topbar');
-    const summary = q('#overviewApprovedTop');
-    const actions = q('.top-actions');
-    if (manual) manual.classList.add('fn-topbar-vpn-picker');
-    const pickerBody = q('#fnVpnPickerBody');
-    if (manual && pickerBody && manual.parentNode !== pickerBody) pickerBody.appendChild(manual);
-    else if (manual && !pickerBody && topbar && manual.parentNode !== topbar) topbar.insertBefore(manual, summary || actions || null);
-    const exact = q('#exactConnectRow'); if (manual && exact && exact.parentNode !== manual) manual.appendChild(exact);
-  }
-
   function fitCurrentMetrics() {
     document.querySelectorAll('.vpn-current-panel .best-v4-pill b').forEach(node => {
       node.classList.toggle('fn-long-value', node.textContent.trim().length >= 9);
@@ -991,9 +933,7 @@
 
   function run() {
     scheduled = false;
-    polishFlags();
     polishBestAlternative();
-    polishTopbar();
     fitCurrentMetrics();
   }
 
@@ -1013,14 +953,13 @@
       .vpn-current-panel .best-v4-pill b{font-size:18px!important;letter-spacing:-.035em;max-width:100%;white-space:nowrap}.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:16.5px!important;letter-spacing:-.05em}
       .vpn-option.fn-best-alternative{border-color:#22d99a!important;background:linear-gradient(155deg,rgba(11,78,65,.62),rgba(9,31,43,.97))!important;box-shadow:inset 0 0 0 1px rgba(34,217,154,.22),0 0 0 1px rgba(34,217,154,.08),0 0 26px rgba(34,217,154,.07)!important}
       .vpn-option.fn-best-alternative .vpn-state-badge{border-color:#22d99a!important;color:#63edb8!important;background:rgba(13,90,65,.46)!important}.vpn-option.fn-best-alternative .vpn-state-badge:before{content:'★';font-size:12px;color:#63edb8}
-      .flag-icon.fn-clean-flag{position:relative!important;display:inline-block!important;box-sizing:border-box!important;padding:0!important;background:none!important;background-image:none!important;overflow:hidden!important;border:1px solid rgba(145,173,207,.32)!important;border-radius:4px!important;line-height:0!important;isolation:isolate}.flag-icon.fn-clean-flag:before,.flag-icon.fn-clean-flag:after{content:none!important;display:none!important;background:none!important}.flag-icon.fn-clean-flag>svg{position:absolute;inset:0;width:100%;height:100%;display:block}
       .top-actions{gap:10px!important}.topbar.overview-approved{overflow:visible!important;gap:14px!important}.topbar.overview-approved .top-status{display:none!important}.overview-approved-top{margin-left:0!important;gap:18px!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker{position:relative;display:block!important;flex:1 1 560px;max-width:620px;min-width:390px;margin:0 0 0 auto!important;padding:0!important;border:0!important;background:transparent!important;min-height:0!important;z-index:60}#bestServerAdvanced.fn-topbar-vpn-picker:before,#bestServerAdvanced.fn-topbar-vpn-picker>h3{display:none!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{display:grid!important;grid-template-columns:minmax(170px,.82fr) minmax(220px,1.18fr);gap:8px;align-items:center;width:100%;margin:0!important;min-height:0!important}#bestServerAdvanced.fn-topbar-vpn-picker #profilesList .field{position:relative;padding:0;border:0;background:none;min-height:0!important}#bestServerAdvanced.fn-topbar-vpn-picker #profilesList .field label{display:none!important}#bestServerAdvanced.fn-topbar-vpn-picker #profilesList .profile-combobox{margin:0!important;min-height:0!important;position:relative}#bestServerAdvanced.fn-topbar-vpn-picker #profileSearch,#bestServerAdvanced.fn-topbar-vpn-picker #profilesTrigger{min-height:36px!important;height:36px!important;background:#0b1929;border:1px solid #315276;border-radius:9px;font-size:11px;color:#dce8f7}#bestServerAdvanced.fn-topbar-vpn-picker #profileSearch{padding-left:38px}#bestServerAdvanced.fn-topbar-vpn-picker .manual-search-icon{left:11px;width:16px;height:16px}#bestServerAdvanced.fn-topbar-vpn-picker #profilesMenu{z-index:120}#bestServerAdvanced.fn-topbar-vpn-picker #profilesError{grid-column:1/-1;margin:0;position:absolute;top:42px;left:0;right:0;z-index:122}#bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard{position:absolute;top:43px;left:0;right:222px;z-index:121;margin:0;padding:8px 10px;border:1px solid #315276;border-radius:10px;background:#0c1a2b;box-shadow:0 12px 30px rgba(0,0,0,.38);font-size:10px}#bestServerAdvanced.fn-topbar-vpn-picker:has(#exactConnectRow[hidden]) #selectedProfileCard{display:none!important}#bestServerAdvanced.fn-topbar-vpn-picker #exactConnectRow{position:absolute;top:43px;right:0;z-index:122;width:214px;display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:0;padding:7px;border:1px solid #315276;border-radius:10px;background:#0c1a2b;box-shadow:0 12px 30px rgba(0,0,0,.38)}#bestServerAdvanced.fn-topbar-vpn-picker #exactConnectRow[hidden]{display:none!important}#bestServerAdvanced.fn-topbar-vpn-picker #exactConnectRow .btn{min-height:34px;padding:5px 7px;font-size:9px}#bestServerAdvanced.fn-topbar-vpn-picker #quickNetworkGuard{display:none!important}
-      @media(max-width:1180px){.vpn-current-panel .best-v4-pill b{font-size:16.5px!important}.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:15px!important}#bestServerAdvanced.fn-topbar-vpn-picker{min-width:320px;max-width:520px}.overview-approved-top{gap:12px!important}.overview-approved-fact span{font-size:9px!important}.overview-approved-fact strong{font-size:11px!important}}
-      @media(max-width:900px){.overview-approved-top{display:none!important}#bestServerAdvanced.fn-topbar-vpn-picker{max-width:none;min-width:300px}}
-      @media(max-width:820px){.vpn-current-panel .best-v4-pill b,.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:15px!important;letter-spacing:-.035em}.topbar.overview-approved{height:auto!important;min-height:64px;flex-wrap:wrap;padding-bottom:8px!important}#bestServerAdvanced.fn-topbar-vpn-picker{order:20;flex:1 0 100%;max-width:none;min-width:0;margin:0!important}#bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{grid-template-columns:1fr 1.15fr}}
-      @media(max-width:560px){#bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{grid-template-columns:1fr}#bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard,#bestServerAdvanced.fn-topbar-vpn-picker #exactConnectRow{position:static;width:auto;grid-column:1/-1;margin-top:6px}#bestServerAdvanced.fn-topbar-vpn-picker #profilesError{position:static;grid-column:1/-1}}
+      
+      
+      @media(max-width:1180px){.vpn-current-panel .best-v4-pill b{font-size:16.5px!important}.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:15px!important}.overview-approved-top{gap:12px!important}.overview-approved-fact span{font-size:9px!important}.overview-approved-fact strong{font-size:11px!important}}
+      @media(max-width:900px){.overview-approved-top{display:none!important}}
+      @media(max-width:820px){.vpn-current-panel .best-v4-pill b,.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:15px!important;letter-spacing:-.035em}.topbar.overview-approved{height:auto!important;min-height:64px;flex-wrap:wrap;padding-bottom:8px!important}}
+      @media(max-width:560px){}
       @media(min-width:821px) and (max-height:820px){.vpn-current-panel .best-v4-pill b,.vpn-current-panel .best-v4-pill b.fn-long-value{font-size:13px!important;letter-spacing:-.03em}}
     `;
     document.head.appendChild(style);
@@ -1228,16 +1167,16 @@
     style.textContent = `
       .page[data-page-view="overview"] .page-head{align-items:flex-start!important;margin-bottom:15px!important}.page[data-page-view="overview"] .page-head p{display:block!important;margin:5px 0 0!important;color:#8fa8c7!important;font-size:12px!important}.page[data-page-view="overview"] .page-head h1{font-size:31px!important}
       .topbar.overview-approved{height:72px!important;padding:0 24px!important;gap:16px!important;background:#071321f5!important;border-bottom-color:#29445f!important}.topbar.overview-approved .top-left{flex:0 0 96px}.topbar.overview-approved .top-title{font-size:14px!important}.topbar.overview-approved .top-actions{flex:0 0 auto!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker{flex:1 1 610px!important;max-width:720px!important;min-width:410px!important;margin-left:auto!important}#bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{grid-template-columns:minmax(230px,.9fr) minmax(300px,1.2fr)!important;gap:10px!important}#bestServerAdvanced.fn-topbar-vpn-picker #profileSearch,#bestServerAdvanced.fn-topbar-vpn-picker #profilesTrigger{height:42px!important;min-height:42px!important;border-radius:11px!important;background:#0a1b2d!important;border-color:#315678!important;font-size:12px!important}#bestServerAdvanced.fn-topbar-vpn-picker #profileSearch{padding-left:40px!important}
+      
       .overview-approved-top.fn-render-facts{gap:9px!important;display:flex!important}.fn-render-fact{position:relative!important;display:grid!important;grid-template-columns:28px auto!important;grid-template-rows:auto auto!important;column-gap:8px!important;min-width:130px!important;min-height:45px!important;padding:7px 11px!important;border:1px solid #294b70!important;border-radius:11px!important;background:linear-gradient(180deg,#0d2135,#0a1929)!important}.fn-render-fact .fn-top-fact-icon{grid-row:1/3;align-self:center;width:22px;height:22px;color:#5ca2ff}.fn-top-fact-icon svg{width:100%;height:100%;display:block}.fn-render-fact>span:not(.fn-top-fact-icon){font-size:9px!important;line-height:1.05;color:#829ab9!important}.fn-render-fact>strong{font-size:11px!important;line-height:1.15!important;align-self:start}.fn-render-xkeen{height:42px!important;display:inline-flex!important;align-items:center!important;padding:0 13px!important;border-radius:11px!important;border-color:#294b70!important;background:#0d1d30!important;color:#a9bdd5!important}
       #quickActionsSection{padding:22px 22px 20px!important;border-radius:18px!important;background:linear-gradient(150deg,#10253d,#0b1a2c)!important}.best-v4-shell{grid-template-columns:minmax(330px,355px) minmax(0,1fr)!important;gap:0 28px!important}.vpn-current-panel{padding:7px 27px 0 0!important}.best-v4-current{align-items:flex-start!important}.fn-current-connected{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;min-height:27px;padding:4px 9px;border:1px solid rgba(39,218,151,.35);border-radius:999px;background:rgba(15,99,71,.3);color:#7cecc0;font-size:9px;font-weight:800;white-space:nowrap}.fn-current-connected.offline{border-color:#a35b61;background:#48232c;color:#ff9da5}
       .vpn-current-panel>.action-row.fn-current-actions{grid-template-columns:1fr!important}.vpn-current-panel>.action-row.fn-current-actions #rotateBtn{display:none!important}.fn-endpoint-refresh{width:100%!important;justify-content:flex-start!important;text-align:left!important;padding:8px 14px!important}.fn-endpoint-icon{width:21px;height:21px;color:#86b6ff;flex:0 0 21px}.fn-endpoint-icon svg{display:block;width:100%;height:100%}.fn-endpoint-copy{display:grid;gap:2px;min-width:0}.fn-endpoint-copy strong{font-size:12px;color:#f2f7ff}.fn-endpoint-copy small{font-size:9px;font-weight:560;color:#86a0bf}
       .vpn-option.fn-incomplete{border-color:#c88a22!important;background:linear-gradient(155deg,rgba(79,55,20,.72),rgba(25,28,38,.98))!important;box-shadow:inset 0 0 0 1px rgba(218,153,43,.09)!important}.vpn-option.fn-incomplete .vpn-state-badge{border-color:#d39a32!important;color:#ffd27d!important;background:rgba(111,72,15,.38)!important}.vpn-option.fn-incomplete .vpn-detail-chip.bad{border-color:rgba(210,150,46,.55)!important;color:#efc778!important;background:rgba(91,62,19,.3)!important}.vpn-option.fn-incomplete .vpn-rejected-note{color:#c9b58e!important}
       .vpn-best .vpn-option-apply,.vpn-option.fn-best-alternative .vpn-option-apply{background:linear-gradient(180deg,#2ee4a5,#18bd83)!important;border-color:#62efbf!important;color:#052c20!important;font-weight:850!important}.vpn-option:not(.vpn-best):not(.fn-best-alternative) .vpn-option-apply{background:linear-gradient(180deg,#347eff,#2367e7)!important;border-color:#69a0ff!important}
-      @media(max-width:1250px){.topbar.overview-approved{gap:10px!important}#bestServerAdvanced.fn-topbar-vpn-picker{min-width:330px!important;max-width:560px!important}.fn-render-fact{min-width:112px!important}.best-v4-shell{grid-template-columns:minmax(300px,320px) minmax(0,1fr)!important;gap:0 20px!important}}
-      @media(max-width:1000px){.overview-approved-top.fn-render-facts{display:none!important}#bestServerAdvanced.fn-topbar-vpn-picker{max-width:none!important}.topbar.overview-approved .top-left{flex-basis:78px}}
-      @media(max-width:820px){.topbar.overview-approved{height:auto!important;min-height:64px!important;flex-wrap:wrap!important}.best-v4-shell{grid-template-columns:1fr!important}.vpn-current-panel{padding-right:0!important}#bestServerAdvanced.fn-topbar-vpn-picker{order:20!important;flex:1 0 100%!important;width:100%!important;max-width:none!important;min-width:0!important;margin:0!important}}
-      @media(max-width:560px){#bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{grid-template-columns:1fr!important;width:100%!important}}
+      @media(max-width:1250px){.topbar.overview-approved{gap:10px!important}.fn-render-fact{min-width:112px!important}.best-v4-shell{grid-template-columns:minmax(300px,320px) minmax(0,1fr)!important;gap:0 20px!important}}
+      @media(max-width:1000px){.overview-approved-top.fn-render-facts{display:none!important}.topbar.overview-approved .top-left{flex-basis:78px}}
+      @media(max-width:820px){.topbar.overview-approved{height:auto!important;min-height:64px!important;flex-wrap:wrap!important}.best-v4-shell{grid-template-columns:1fr!important}.vpn-current-panel{padding-right:0!important}}
+      @media(max-width:560px){}
     `;
     document.head.appendChild(style);
     const observer = new MutationObserver(schedule);
@@ -1303,7 +1242,7 @@
         .fn-render-fact>span:not(.fn-top-fact-icon){font-size:10px!important}
         .fn-render-fact>strong{font-size:12px!important;line-height:1.2!important}
         .fn-render-xkeen{height:44px!important;font-size:12px!important}
-        #bestServerAdvanced.fn-topbar-vpn-picker #profileSearch,#bestServerAdvanced.fn-topbar-vpn-picker #profilesTrigger{height:44px!important;min-height:44px!important;font-size:13px!important}
+        
       }
     `;
     document.head.appendChild(style);
@@ -1375,7 +1314,7 @@
       .fn-endpoint-copy{justify-items:center!important;text-align:center!important;gap:3px!important}.fn-endpoint-copy strong{font-size:14px!important;line-height:1.15!important}.fn-endpoint-copy small{font-size:11px!important;line-height:1.2!important}.fn-endpoint-icon{width:22px!important;height:22px!important;color:#8ab9ff!important}
       .current-health{justify-content:center!important;align-items:center!important;text-align:center!important;font-size:14px!important;line-height:1.45!important;padding:13px 14px!important;white-space:pre-line!important}.current-health:before{flex:0 0 25px!important;width:25px!important;height:25px!important}.current-help{font-size:13px!important;line-height:1.55!important;color:#a7bbd2!important;margin-top:12px!important}
       #fnRefreshResult{margin:10px 0 0;padding:10px 12px;border:1px solid #326da4;border-radius:11px;background:linear-gradient(90deg,#0d3155,#0a2746);color:#c9def6;font-size:12.5px;line-height:1.45;text-align:center}#fnRefreshResult:empty{display:none}.fn-refresh-result-ok{border-color:rgba(52,226,160,.55)!important;color:#bdf9df!important;background:linear-gradient(90deg,rgba(15,112,80,.28),rgba(13,70,60,.16))!important}.fn-refresh-result-bad{border-color:rgba(255,112,112,.5)!important;color:#ffd0d0!important;background:linear-gradient(90deg,rgba(105,30,42,.32),rgba(67,24,34,.18))!important}.fn-current-refresh-visible #bestServerStatus{display:none!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #profileSearch{height:46px!important;min-height:46px!important;padding:0 16px 0 44px!important;border-radius:12px!important;font-size:13px!important;background:linear-gradient(180deg,#0d2136,#0a1b2d)!important;border-color:#3a6088!important;box-shadow:inset 0 1px rgba(255,255,255,.025)!important}#bestServerAdvanced.fn-topbar-vpn-picker #profileSearch:focus{border-color:#5e9cff!important;box-shadow:0 0 0 3px rgba(74,139,255,.14)!important;outline:none!important}#bestServerAdvanced.fn-topbar-vpn-picker .manual-search-icon{left:14px!important;width:18px!important;height:18px!important;color:#79a8e8!important}
+      
       @media(max-width:820px){.nav-btn{min-height:44px!important}.current-help{font-size:12px!important}#fnRefreshResult{font-size:12px!important}}
     `;
     document.head.appendChild(style);
@@ -1459,19 +1398,19 @@
       .best-v4-endpoint{margin:0 0 15px!important;padding:0 12px 11px!important;border:1px solid #315777!important;border-top:0!important;border-radius:0 0 14px 14px!important;background:#0c2035!important;color:#9bb2ce!important;font-size:11.5px!important}
       .current-help{margin-top:10px!important;color:#8fa6c1!important;font-size:11.5px!important;line-height:1.45!important}
 
-      #bestServerAdvanced.fn-topbar-vpn-picker{align-self:center!important;min-width:0!important;max-width:680px!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{gap:8px!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #profileSearch,#bestServerAdvanced.fn-topbar-vpn-picker #profilesTrigger{height:40px!important;min-height:40px!important;border-radius:10px!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard.fn-selector-state{min-height:0!important;margin-top:0!important;padding:8px 10px 8px 13px!important;border-radius:10px!important;box-shadow:none!important;background:#0a1b2d!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .fn-selector-state-head{gap:8px!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .fn-selector-state-head strong{font-size:11px!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .fn-selector-state-badge{min-height:20px!important;padding:2px 7px!important;font-size:8.5px!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .selected-endpoint{margin-top:3px!important;font-size:9.5px!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #selectedProfileCard .selected-note{margin-top:2px!important;font-size:9.5px!important;line-height:1.3!important;display:-webkit-box!important;-webkit-line-clamp:2!important;-webkit-box-orient:vertical!important;overflow:hidden!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #exactConnectRow{gap:7px!important;margin-top:0!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #exactConnectRow .btn{min-height:36px!important;padding:7px 12px!important;border-radius:9px!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #exactConnectBtn{background:linear-gradient(180deg,#347eff,#2367e7)!important;border-color:#69a0ff!important}
-      #bestServerAdvanced.fn-topbar-vpn-picker #exactCancelBtn{background:#10243b!important;border-color:#345b84!important;color:#dbe8f8!important}
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
 
       @media(min-width:821px) and (max-width:1500px){
         .vpn-option .best-v4-metrics{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:7px!important}
@@ -1481,232 +1420,19 @@
       }
       @media(max-width:1180px){
         .best-v4-name{font-size:19px!important}
-        #bestServerAdvanced.fn-topbar-vpn-picker{max-width:600px!important}
+        
       }
       @media(max-width:820px){
         #quickActionsSection{overflow:visible!important}
         .best-v4-current{border-radius:12px 12px 0 0!important}
         .best-v4-endpoint{border-radius:0 0 12px 12px!important}
-        #bestServerAdvanced.fn-topbar-vpn-picker{max-width:none!important;width:100%!important}
-        #bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{grid-template-columns:1fr!important}
+        
+        
       }
     `;
     document.head.appendChild(style);
     syncCurrentFlagFallback();
     document.addEventListener('freenet:status-updated', syncCurrentFlagFallback);
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
-  else install();
-})();
-
-
-// Issue #562: stable exact-VPN selector popover.
-// The topbar keeps one fixed-height control. Search, profile list, read-only
-// checking state and explicit connect actions live in an anchored overlay.
-(() => {
-  if (window.__freenetVPNPickerV2) return;
-  const q = (selector, root = document) => root.querySelector(selector);
-  function pickerIcon() {
-    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.3 2.5 3.5 5.5 3.5 9S14.3 18.5 12 21M12 3C9.7 5.5 8.5 8.5 8.5 12S9.7 18.5 12 21"/></svg>';
-  }
-
-  function selectedName() {
-    try {
-      const value = String(selectedProviderName || '').trim();
-      if (value) return value.replace(/^[A-Za-z]{2}\s+/, '');
-    } catch (_) {}
-    return '';
-  }
-
-  function activeCountry(status) {
-    const s = status || {};
-    const name = String(s.country || '').trim();
-    const code = String(s.country_code || '').trim().toLowerCase() || (typeof profileCode === 'function' ? profileCode({name: s.profile_label || ''}) : '');
-    return {name: name || (code ? code.toUpperCase() : 'VPN'), code};
-  }
-
-  function syncToggle(status) {
-    const toggle = q('#fnVpnPickerToggle');
-    if (!toggle) return;
-    toggle.dataset.state = selectedName() ? 'selected' : '';
-    let live = status || null;
-    if (!live) {
-      try { live = typeof lastStatus !== 'undefined' ? lastStatus : null; } catch (_) {}
-    }
-    const current = activeCountry(live);
-    const flag = q('#fnVpnPickerCountryFlag');
-    const name = q('#fnVpnPickerCountryName');
-    if (flag) {
-      flag.className = 'flag-icon fn-vpn-chip-flag' + (current.code ? ' flag-' + current.code : ' flag-unknown');
-      flag.hidden = !current.code;
-    }
-    if (name) name.textContent = current.name;
-    toggle.setAttribute('aria-label', current.name && current.name !== 'VPN' ? 'VPN · ' + current.name : 'Открыть выбор VPN');
-  }
-
-  function setOpen(open, focusSearch = false) {
-    const popover = q('#fnVpnPickerPopover');
-    const toggle = q('#fnVpnPickerToggle');
-    if (!popover || !toggle) return;
-    popover.hidden = !open;
-    toggle.setAttribute('aria-expanded', String(open));
-    toggle.classList.toggle('open', open);
-    document.documentElement.classList.toggle('fn-vpn-picker-open', open);
-    if (!open) {
-      if (typeof closeProfileMenu === 'function') closeProfileMenu();
-      return;
-    }
-    requestAnimationFrame(() => {
-      try { if (typeof renderProfileOptions === 'function') renderProfileOptions(); } catch (_) {}
-      try { if (typeof openProfileMenu === 'function') openProfileMenu(); } catch (_) {}
-      let hasProfiles = false;
-      try { hasProfiles = Array.isArray(extraProfiles) && extraProfiles.length > 0; } catch (_) {}
-      if (!hasProfiles && typeof loadNetworkPlan === 'function') {
-        Promise.resolve(loadNetworkPlan()).finally(() => {
-          try { if (typeof renderProfileOptions === 'function') renderProfileOptions(); } catch (_) {}
-          try { if (typeof openProfileMenu === 'function') openProfileMenu(); } catch (_) {}
-        });
-      }
-      if (focusSearch) q('#profileSearch')?.focus({preventScroll:true});
-    });
-  }
-
-  function mount() {
-    const manual = q('#bestServerAdvanced');
-    const topbar = q('.topbar.overview-approved') || q('.topbar');
-    if (!manual || !topbar) return false;
-
-    let host = q('#fnVpnPickerHost');
-    if (!host) {
-      host = document.createElement('div');
-      host.id = 'fnVpnPickerHost';
-      host.className = 'fn-vpn-picker-host';
-      host.innerHTML = `
-        <button id="fnVpnPickerToggle" class="fn-vpn-picker-toggle" type="button" aria-haspopup="dialog" aria-expanded="false" aria-label="Открыть выбор VPN">
-          <span class="fn-vpn-picker-icon">${pickerIcon()}</span>
-          <span class="fn-vpn-chip-copy">
-            <small>VPN</small>
-            <strong><span id="fnVpnPickerCountryFlag" class="flag-icon fn-vpn-chip-flag flag-unknown" hidden aria-hidden="true"></span><span id="fnVpnPickerCountryName">VPN</span></strong>
-          </span>
-        </button>
-        <section id="fnVpnPickerPopover" class="fn-vpn-picker-popover" role="dialog" aria-label="Выбор VPN-сервера" hidden>
-          <header class="fn-vpn-picker-head">
-            <div><strong>Выбор VPN-сервера</strong><span>Точный Extra-профиль с проверкой перед подключением</span></div>
-            <button id="fnVpnPickerClose" class="fn-vpn-picker-close" type="button" aria-label="Закрыть выбор VPN">×</button>
-          </header>
-          <div id="fnVpnPickerBody" class="fn-vpn-picker-body"></div>
-        </section>`;
-
-      const summary = q('#overviewApprovedTop');
-      const actions = q('.top-actions');
-      topbar.insertBefore(host, summary || actions || null);
-
-      q('#fnVpnPickerToggle')?.addEventListener('click', event => {
-        event.stopPropagation();
-        const popover = q('#fnVpnPickerPopover');
-        setOpen(!!popover?.hidden, true);
-      });
-      q('#fnVpnPickerClose')?.addEventListener('click', () => {
-        setOpen(false);
-        q('#fnVpnPickerToggle')?.focus();
-      });
-    }
-
-    const body = q('#fnVpnPickerBody');
-    if (body && manual.parentNode !== body) body.appendChild(manual);
-    manual.classList.add('fn-topbar-vpn-picker', 'fn-vpn-picker-content');
-
-    const popover = q('#fnVpnPickerPopover');
-    if (popover && popover.parentNode !== document.body) document.body.appendChild(popover);
-
-    syncToggle();
-    return true;
-  }
-
-  function install() {
-    if (q('#FreeNetIssue562SelectorPopover')) return;
-    const style = document.createElement('style');
-    style.id = 'FreeNetIssue562SelectorPopover';
-    style.textContent = `
-      .topbar.overview-approved{overflow:visible!important}
-      #fnVpnPickerHost{position:relative;flex:0 0 auto;min-width:0;max-width:none;margin-left:0;align-self:center;z-index:auto}
-      #fnVpnPickerToggle{appearance:none;width:138px;height:50px;min-height:50px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:9px;padding:6px 11px;border:1px solid #315678;border-radius:11px;background:linear-gradient(180deg,#0d2136,#0a1b2d);color:#eef5ff;cursor:pointer;text-align:left;box-shadow:inset 0 1px rgba(255,255,255,.025)}
-      #fnVpnPickerToggle:hover,#fnVpnPickerToggle.open{border-color:#5e9cff;background:linear-gradient(180deg,#12305a,#0d2442)}
-      #fnVpnPickerToggle:focus-visible{outline:0;border-color:#69a0ff;box-shadow:0 0 0 3px rgba(74,139,255,.16)}
-      .fn-vpn-picker-icon{display:grid;place-items:center;width:23px;height:23px;color:#70a8f5}.fn-vpn-picker-icon svg{width:23px;height:23px}
-      .fn-vpn-chip-copy{display:grid;gap:2px;min-width:0}.fn-vpn-chip-copy small{font-size:9.5px;line-height:1;color:#8da4c2;font-weight:760}.fn-vpn-chip-copy strong{display:flex;align-items:center;gap:6px;min-width:0;font-size:12.5px;line-height:1.1;color:#f5f8ff;font-weight:800}.fn-vpn-chip-copy strong>span:last-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fn-vpn-chip-flag{flex:0 0 20px;width:20px;height:14px;border-radius:2px}
-      #fnVpnPickerPopover{position:fixed;top:50%;left:50%;right:auto;transform:translate(-50%,-50%);width:min(660px,calc(100vw - 34px));max-height:min(82vh,700px);overflow:hidden;overscroll-behavior:contain;padding:0;border:1px solid #31597e;border-radius:16px;background:linear-gradient(180deg,rgba(10,28,47,.995),rgba(7,21,36,.995));box-shadow:0 28px 80px rgba(0,0,0,.58);z-index:1400}
-      #fnVpnPickerPopover[hidden]{display:none!important}
-      .fn-vpn-picker-head{position:sticky;top:0;z-index:3;display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:14px 15px 12px;border-bottom:1px solid #244563;background:rgba(10,28,47,.98);backdrop-filter:blur(12px)}
-      .fn-vpn-picker-head>div{display:grid;gap:3px;min-width:0}.fn-vpn-picker-head strong{font-size:14px;color:#f4f8ff}.fn-vpn-picker-head span{font-size:10px;line-height:1.35;color:#8fa8c5}
-      .fn-vpn-picker-close{appearance:none;display:grid;place-items:center;flex:0 0 30px;width:30px;height:30px;border:1px solid #355a7e;border-radius:9px;background:#10243b;color:#aac0d9;font-size:20px;line-height:1;cursor:pointer}.fn-vpn-picker-close:hover{border-color:#6195ce;color:#fff;background:#173253}
-      .fn-vpn-picker-body{padding:13px 14px 14px}
-      #fnVpnPickerPopover #bestServerAdvanced.fn-topbar-vpn-picker{display:block!important;width:100%!important;max-width:none!important;min-width:0!important;margin:0!important;padding:0!important;background:transparent!important;border:0!important;align-self:auto!important}
-      #fnVpnPickerPopover #bestServerAdvanced::before,#fnVpnPickerPopover #bestServerAdvanced>h3{display:none!important}
-      #fnVpnPickerPopover #profilesList.profiles{display:none!important;width:100%!important;margin:0!important;grid-template-columns:1fr!important;gap:10px!important}
-      #fnVpnPickerPopover #profilesList.profiles.show{display:grid!important}
-      #fnVpnPickerPopover #profilesList .field{width:100%!important}
-      #fnVpnPickerPopover #profileSearch,#fnVpnPickerPopover #profilesTrigger{width:100%!important;height:44px!important;min-height:44px!important;border-radius:11px!important;font-size:12px!important}
-      #fnVpnPickerPopover #profileSearch{padding:0 14px 0 42px!important}
-      #fnVpnPickerPopover .profile-combobox{margin:0!important}
-      #fnVpnPickerPopover #profilesMenu{position:static!important;left:auto!important;right:auto!important;top:auto!important;width:100%!important;max-height:270px!important;margin:8px 0 0!important;overflow-y:auto!important;border-radius:11px!important;box-shadow:none!important;background:#071726!important}
-      #fnVpnPickerPopover #profilesMenu .profile-option{min-height:48px!important}
-      #fnVpnPickerPopover #selectedProfileCard.fn-selector-state{margin:0!important;min-height:74px!important;padding:11px 12px 11px 16px!important;border-radius:11px!important;background:linear-gradient(180deg,#0b2138,#091b2e)!important;box-shadow:none!important}
-      #fnVpnPickerPopover #selectedProfileCard.fn-selector-state.is-ready{background:linear-gradient(180deg,rgba(13,65,53,.98),rgba(8,42,38,.98))!important}
-      #fnVpnPickerPopover #selectedProfileCard.fn-selector-state.is-error{background:linear-gradient(180deg,rgba(65,29,38,.98),rgba(40,20,30,.98))!important}
-      #fnVpnPickerPopover #selectedProfileCard .fn-selector-state-head strong{font-size:12.5px!important}
-      #fnVpnPickerPopover #selectedProfileCard .selected-endpoint{font-size:10.5px!important}
-      #fnVpnPickerPopover #selectedProfileCard .selected-note{font-size:10.5px!important;line-height:1.4!important;-webkit-line-clamp:unset!important;display:block!important;overflow:visible!important}
-      #fnVpnPickerPopover #exactConnectRow{display:grid;grid-template-columns:minmax(0,1fr) 150px!important;gap:9px!important;margin:10px 0 0!important}
-      #fnVpnPickerPopover #exactConnectRow[hidden]{display:none!important}
-      #fnVpnPickerPopover #exactConnectRow .btn{min-height:42px!important;border-radius:10px!important;font-size:12px!important}
-      #fnVpnPickerPopover #exactConnectBtn{background:linear-gradient(180deg,#347eff,#2367e7)!important;border-color:#69a0ff!important}
-      #fnVpnPickerPopover #exactCancelBtn{min-width:0!important;background:#10243b!important;border-color:#345b84!important}
-      #fnVpnPickerPopover #quickNetworkGuard{display:none!important}
-      #fnVpnPickerPopover #profilesError{margin-top:0!important}
-
-      @media(max-width:820px){
-        #fnVpnPickerHost{position:relative;order:0;flex:0 0 auto;width:auto;min-width:0;max-width:none;margin:0}
-        #fnVpnPickerToggle{width:118px;height:46px;min-height:46px;padding:5px 9px}
-        #fnVpnPickerPopover{left:50%;right:auto;top:50%;width:min(660px,calc(100vw - 20px));max-height:calc(100vh - 28px);border-radius:15px}
-        .fn-vpn-picker-head{padding:13px}
-        .fn-vpn-picker-body{padding:12px}
-      }
-      @media(max-width:520px){
-        #fnVpnPickerPopover #exactConnectRow{grid-template-columns:1fr!important}
-        #fnVpnPickerPopover #profilesMenu{max-height:230px!important}
-      }
-    `;
-    document.head.appendChild(style);
-
-    window.FreeNetVPNPicker = {
-      open: () => setOpen(true, true),
-      close: () => setOpen(false),
-      isOpen: () => !q('#fnVpnPickerPopover')?.hidden,
-      mount
-    };
-
-    mount();
-    requestAnimationFrame(mount);
-
-    document.addEventListener('click', event => {
-      const interactive = event.target?.closest?.('.profile-option,#exactCancelBtn,#exactConnectBtn,#profilesTrigger');
-      if (interactive) requestAnimationFrame(syncToggle);
-      const host = q('#fnVpnPickerHost');
-      const popover = q('#fnVpnPickerPopover');
-      if (!host) return;
-      const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
-      if (path.includes(host) || host.contains(event.target) || path.includes(popover) || popover?.contains(event.target)) return;
-      setOpen(false);
-    });
-
-    document.addEventListener('keydown', event => {
-      if (event.key !== 'Escape' || !window.FreeNetVPNPicker?.isOpen()) return;
-      event.preventDefault();
-      setOpen(false);
-      q('#fnVpnPickerToggle')?.focus();
-    });
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
@@ -1783,129 +1509,4 @@
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
   else install();
-})();
-
-
-// Issue #609: real-router final VPN selector polish.
-// One compact topbar cluster in the exact order Xray -> VPN -> DNS -> FreeNet,
-// plus full-width selector geometry without horizontal overflow.
-(() => {
-  'use strict';
-  if (window.__freenetIssue609VpnPolish) return;
-  window.__freenetIssue609VpnPolish = true;
-  const q = (selector, root = document) => root.querySelector(selector);
-
-  function installStyles() {
-    if (q('#freenetIssue609VpnPolishStyles')) return;
-    const style = document.createElement('style');
-    style.id = 'freenetIssue609VpnPolishStyles';
-    style.textContent = `
-      .topbar.overview-approved{justify-content:flex-end!important;gap:9px!important}
-      .overview-approved-top.fn-shell-summary{margin-left:auto!important;display:flex!important;align-items:center!important;gap:9px!important;flex:0 0 auto!important}
-      #fnVpnPickerHost{margin:0!important;flex:0 0 auto!important;width:auto!important;min-width:0!important;max-width:none!important}
-      #fnVpnPickerToggle{width:138px!important;min-width:138px!important;max-width:138px!important}
-      #fnVpnPickerToggle .fn-vpn-picker-icon{display:grid!important}
-      #fnVpnPickerToggle .fn-vpn-chip-copy{display:grid!important}
-
-      #fnVpnPickerPopover{width:min(760px,calc(100vw - 36px))!important;max-height:min(86vh,780px)!important;overflow:hidden!important}
-      #fnVpnPickerPopover .fn-vpn-picker-body{padding:18px 20px 20px!important;max-height:calc(86vh - 78px)!important;overflow:hidden!important}
-      #fnVpnPickerPopover #bestServerAdvanced.fn-topbar-vpn-picker{width:100%!important;max-width:none!important;min-width:0!important;overflow:hidden!important}
-      #fnVpnPickerPopover #profilesList.profiles,
-      #fnVpnPickerPopover #profilesList.profiles.show{display:grid!important;grid-template-columns:minmax(0,1fr)!important;gap:10px!important;width:100%!important;max-width:none!important;min-width:0!important;overflow:visible!important}
-      #fnVpnPickerPopover #profilesList>*{grid-column:1!important;width:100%!important;max-width:none!important;min-width:0!important;box-sizing:border-box!important}
-      #fnVpnPickerPopover #profilesList .field{width:100%!important;max-width:none!important}
-      #fnVpnPickerPopover #profileSearch{display:block!important;width:100%!important;max-width:none!important;min-width:0!important;box-sizing:border-box!important}
-      #fnVpnPickerPopover .profile-combobox{width:100%!important;max-width:none!important;min-width:0!important;margin:0!important}
-      #fnVpnPickerPopover #profilesMenu{position:static!important;display:block!important;width:100%!important;max-width:none!important;min-width:0!important;max-height:300px!important;margin:0!important;overflow-x:hidden!important;overflow-y:auto!important;box-sizing:border-box!important}
-      #fnVpnPickerPopover #profilesMenu[hidden]{display:none!important}
-      #fnVpnPickerPopover #profilesMenu .profile-option{width:100%!important;max-width:100%!important;min-width:0!important;box-sizing:border-box!important;overflow:hidden!important}
-      #fnVpnPickerPopover #profilesMenu .profile-option>span:not(.flag-icon){min-width:0!important;overflow:hidden!important}
-      #fnVpnPickerPopover #profilesMenu .profile-option-main,#fnVpnPickerPopover #profilesMenu .profile-option-endpoint{max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-      #fnVpnPickerPopover #selectedProfileCard,
-      #fnVpnPickerPopover #selectedProfileCard.fn-selector-state{width:100%!important;max-width:none!important;min-width:0!important;box-sizing:border-box!important;margin:0!important}
-      #fnVpnPickerPopover #exactConnectRow{display:grid!important;width:100%!important;max-width:none!important;grid-template-columns:minmax(0,1fr) 170px!important;gap:10px!important;margin:10px 0 0!important}
-      #fnVpnPickerPopover #exactConnectRow .btn{width:100%!important;min-width:0!important;min-height:46px!important}
-
-      @media(max-width:820px){
-        html body .topbar.overview-approved #overviewApprovedTop{display:flex!important;flex:1 0 100%!important;width:100%!important;min-width:0!important;flex-wrap:wrap!important;justify-content:flex-end!important;gap:6px!important}
-        #fnVpnPickerToggle{width:118px!important;min-width:118px!important;max-width:118px!important}
-        #fnVpnPickerPopover{width:min(760px,calc(100vw - 18px))!important;max-height:calc(100vh - 24px)!important}
-        #fnVpnPickerPopover .fn-vpn-picker-body{max-height:calc(100vh - 102px)!important}
-        #fnVpnPickerPopover #exactConnectRow{grid-template-columns:1fr!important}
-      }
-      @media(max-width:760px){
-        html body .topbar.overview-approved{height:70px!important;min-height:70px!important;flex-wrap:nowrap!important;padding:0 14px!important}
-        html body .topbar.overview-approved #overviewApprovedTop{display:flex!important;flex:0 0 auto!important;width:auto!important;min-width:0!important;max-width:calc(100% - 58px)!important;margin-left:auto!important;flex-wrap:nowrap!important;justify-content:flex-end!important;gap:0!important}
-        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar,
-        html body .topbar.overview-approved #overviewApprovedTop>.overview-approved-fact,
-        html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate{display:none!important}
-      }
-    `;
-    document.head.appendChild(style);
-  }
-
-  function dnsFact(summary) {
-    if (!summary) return null;
-    return Array.from(summary.querySelectorAll('.overview-approved-fact')).find(node => /DNS/i.test(node.textContent || '')) || null;
-  }
-
-  function orderTopbar() {
-    const summary = q('.overview-approved-top.fn-shell-summary') || q('#overviewApprovedTop');
-    const vpn = q('#fnVpnPickerHost');
-    const xray = q('.fn-xray-topbar');
-    const dns = dnsFact(summary);
-    const freenet = q('#topFreenetUpdate');
-    if (!summary || !vpn || !xray || !dns || !freenet) return false;
-    [xray, vpn, dns, freenet].forEach(node => summary.appendChild(node));
-    summary.dataset.vpnOrder = 'xray-vpn-dns-freenet';
-    return true;
-  }
-
-  function syncChip(status) {
-    const name = q('#fnVpnPickerCountryName');
-    const flag = q('#fnVpnPickerCountryFlag');
-    if (!name || !flag || !status) return;
-    const country = String(status.country || '').trim();
-    let code = String(status.country_code || '').trim().toLowerCase();
-    if (!code) {
-      try {
-        if (typeof profileCode === 'function') code = profileCode({name: status.profile_label || ''});
-      } catch (_) {}
-    }
-    name.textContent = country || (code ? code.toUpperCase() : 'VPN');
-    flag.className = 'flag-icon fn-vpn-chip-flag' + (code ? ' flag-' + code : ' flag-unknown');
-    flag.hidden = !code;
-  }
-
-  function patchStatusHook() {
-    if (typeof updateStatusViews !== 'function' || updateStatusViews.__freenetIssue609Hook) return;
-    const previous = updateStatusViews;
-    const wrapped = function(status) {
-      const result = previous.apply(this, arguments);
-      queueMicrotask(() => { syncChip(status); orderTopbar(); });
-      return result;
-    };
-    wrapped.__freenetIssue609Hook = true;
-    updateStatusViews = wrapped;
-  }
-
-  let orderAttempts = 0;
-  function reconcileOrder() {
-    if (orderTopbar()) return;
-    orderAttempts += 1;
-    if (orderAttempts < 40) setTimeout(reconcileOrder, 100);
-  }
-
-  function mount() {
-    installStyles();
-    patchStatusHook();
-    reconcileOrder();
-    try { if (typeof lastStatus !== 'undefined' && lastStatus) syncChip(lastStatus); } catch (_) {}
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, {once:true});
-  else mount();
-  requestAnimationFrame(mount);
-  document.addEventListener('freenet:controls-busy', mount);
-  document.addEventListener('freenet:settings-v3-updated', mount);
 })();

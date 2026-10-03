@@ -601,12 +601,29 @@
     pt:'<rect width="24" height="40" fill="#046a38"/><rect x="24" width="36" height="40" fill="#da291c"/><circle cx="24" cy="20" r="5" fill="#ffcd00"/><circle cx="24" cy="20" r="3" fill="#fff" stroke="#003399"/>',
     cn:'<rect width="60" height="40" fill="#de2910"/><path d="m10 6 1.6 4.8h5l-4 3 1.5 4.8-4.1-3-4.1 3 1.5-4.8-4-3h5Z" fill="#ffde00"/>'
   };
+  const urls = new Map(Object.entries(atlas).map(([code, body]) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40" preserveAspectRatio="none">${body}</svg>`;
+    return [code, `url("data:image/svg+xml,${encodeURIComponent(svg)}")`];
+  }));
+  window.FreeNetFlags = Object.freeze({
+    has(code) { return urls.has(String(code || '').toLowerCase()); },
+    apply(node, code) {
+      if (!node) return '';
+      const key = String(code || '').toLowerCase();
+      const safe = urls.has(key) ? key : '';
+      node.dataset.country = safe;
+      node.dataset.flagSource = safe ? 'canonical' : 'unknown';
+      node.classList.remove(...Array.from(node.classList).filter(name => /^flag-[a-z]{2}$/.test(name)));
+      node.classList.add('flag-icon', safe ? 'flag-' + safe : 'flag-unknown');
+      node.style.removeProperty('background-image');
+      return safe;
+    }
+  });
   const style = document.createElement('style');
   style.id = 'freenetCanonicalAllFlags';
-  style.textContent = Object.entries(atlas).map(([code,body]) => {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40" preserveAspectRatio="none">${body}</svg>`;
-    const uri = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-    return `html body #controlCenter .flag-icon.flag-${code},html body #controlCenter .flag-hero.flag-${code}{background-color:transparent!important;background-image:${uri}!important;background-repeat:no-repeat!important;background-position:center!important;background-size:100% 100%!important;box-sizing:border-box!important;overflow:hidden!important}html body #controlCenter .flag-icon.flag-${code}::before,html body #controlCenter .flag-icon.flag-${code}::after,html body #controlCenter .flag-hero.flag-${code}::before,html body #controlCenter .flag-hero.flag-${code}::after{content:none!important;display:none!important}`;
+  style.textContent = Object.entries(atlas).map(([code]) => {
+    const uri = urls.get(code);
+    return `.flag-icon.flag-${code},.flag-hero.flag-${code}{background-color:transparent!important;background-image:${uri}!important;background-repeat:no-repeat!important;background-position:center!important;background-size:100% 100%!important;box-sizing:border-box!important;overflow:hidden!important}.flag-icon.flag-${code}::before,.flag-icon.flag-${code}::after,.flag-hero.flag-${code}::before,.flag-hero.flag-${code}::after{content:none!important;display:none!important}`;
   }).join('\n');
   document.head.appendChild(style);
 })();

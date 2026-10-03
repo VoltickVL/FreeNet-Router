@@ -53,11 +53,6 @@
       .topbar.overview-approved{height:82px!important;min-height:82px!important;padding-left:28px!important;padding-right:28px!important}
       .topbar.overview-approved .top-actions{display:none!important}
       .overview-approved-top.fn-shell-summary{margin-left:auto!important;display:flex!important;align-items:center!important;gap:12px!important}
-      #fnVpnPickerToggle{height:60px!important;min-height:60px!important;width:210px!important;min-width:210px!important;max-width:210px!important;padding:9px 14px!important;border-radius:13px!important;grid-template-columns:30px minmax(0,1fr) 8px 15px!important;gap:10px!important}
-      #fnVpnPickerToggle .fn-vpn-picker-icon{width:30px!important;height:30px!important;display:grid!important;place-items:center!important}
-      #fnVpnPickerToggle .fn-vpn-picker-icon svg{width:26px!important;height:26px!important}
-      #fnVpnPickerToggle .fn-vpn-picker-copy>span{font-size:11px!important;line-height:1.05!important}
-      #fnVpnPickerToggle .fn-vpn-picker-copy>strong{font-size:14.5px!important;line-height:1.12!important}
       .overview-approved-fact.fn-shell-fact,#topFreenetUpdate{height:60px!important;min-height:60px!important;box-sizing:border-box!important;border:1px solid #315276!important;border-radius:11px!important;background:linear-gradient(180deg,#0d1d30,#0a1727)!important;color:#f5f8ff!important;box-shadow:inset 0 1px rgba(255,255,255,.018)!important;transition:border-color .14s ease,background .14s ease,box-shadow .14s ease!important}
       .overview-approved-fact.fn-shell-fact{display:flex!important;align-items:center!important;gap:11px!important;padding:9px 14px!important;min-width:166px;max-width:190px}
       .overview-approved-fact.fn-shell-fact.fn-shell-dns{min-width:166px!important;max-width:180px!important}
@@ -107,9 +102,9 @@
       .fn-sub-last{margin-top:11px}.fn-sub-last span{display:block;color:#8fa6c5;font-size:10.5px;font-weight:650;margin-bottom:3px}.fn-sub-last strong{display:block;color:#e7eef9;font-size:12px;font-weight:740}
       .fn-sub-key{display:grid;grid-template-columns:minmax(0,1fr) 315px;margin-top:18px;overflow:hidden}.fn-sub-key-main{padding:20px 22px}.fn-sub-key-actions{padding:20px;border-left:1px solid var(--sub-line);display:flex;flex-direction:column;gap:10px;justify-content:center}.fn-sub-heading{display:flex;align-items:center;gap:11px;margin-bottom:15px}.fn-sub-heading h2{font-size:17px;margin:0;letter-spacing:-.02em}.fn-sub-input-wrap{display:flex;align-items:center;gap:10px;padding:0 14px;border:1px solid #315478;background:#091a2d;border-radius:11px;min-height:52px}.fn-sub-input-icon{color:#6ca8ff;display:grid;place-items:center}.fn-sub-input-icon svg{width:21px;height:21px}.fn-sub-input-wrap #subscriptionInput{flex:1;min-width:0;border:0!important;background:transparent!important;padding:13px 0!important;color:#f5f8ff!important;outline:none!important;box-shadow:none!important}.fn-sub-input-wrap #subscriptionInput::placeholder{color:#6f88aa}.fn-sub-key-note{display:flex;align-items:flex-start;gap:7px;margin-top:9px;color:#91a7c5;font-size:11px;line-height:1.45}.fn-sub-key-note svg{width:15px;height:15px;flex:0 0 auto;margin-top:1px;color:#6ca8ff}.fn-sub-key-actions .btn{width:100%;min-height:48px;justify-content:center;text-align:center}.fn-sub-key-actions #saveSubscriptionBtn{background:linear-gradient(180deg,#3f83ff,#2d69df);border-color:#5b98ff;color:#fff}.fn-sub-key-actions button svg,.fn-sub-next button svg{width:19px;height:19px}.subscription-approved #subscriptionNotice{grid-column:1/-1;margin:0 20px 18px}
       .fn-sub-lower{display:grid;grid-template-columns:1.5fr .95fr;gap:18px;margin-top:18px}.fn-sub-history,.fn-sub-info{padding:20px 22px;min-height:245px}.fn-sub-table{width:100%;border-collapse:collapse;font-size:11.5px;overflow:hidden;border-radius:10px;background:#07192b}.fn-sub-table th{padding:10px 12px;text-align:left;color:#9fb5d1;background:#0c2540;font-weight:680}.fn-sub-table td{padding:10px 12px;border-top:1px solid #173552;color:#cbd8e9}.fn-sub-table td:last-child{color:#53e3a3}.fn-sub-empty{padding:28px 12px!important;text-align:center;color:#7890af!important}.fn-sub-history-toggle{margin-top:12px;min-height:38px!important;padding:8px 12px!important;display:inline-flex!important;width:auto!important}.fn-sub-info-grid{display:grid;grid-template-columns:1fr auto;gap:17px 18px;margin-top:22px;align-items:center}.fn-sub-info-grid dt{color:#91a8c6;font-size:12px}.fn-sub-info-grid dd{margin:0;color:#f5f8ff;font-size:13px;font-weight:760}.fn-sub-info-grid dd.ok{color:#51e3a2}.fn-sub-status-dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#4be4a2;margin-right:7px;box-shadow:0 0 12px rgba(75,228,162,.3)}
-      @media(max-width:1180px){#fnVpnPickerToggle{width:172px!important;min-width:172px!important;max-width:172px!important;padding-left:10px!important;padding-right:10px!important}.topbar.overview-approved{height:74px!important;min-height:74px!important;padding-left:18px!important;padding-right:18px!important}.overview-approved-fact.fn-shell-fact{min-width:132px;padding-left:10px!important;padding-right:10px!important}.overview-approved-top.fn-shell-summary{gap:7px!important}#topFreenetUpdate{min-width:124px!important;padding-left:10px!important;padding-right:10px!important}.fn-sub-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.fn-sub-key{grid-template-columns:minmax(0,1fr) 280px}}
+      @media(max-width:1180px){.topbar.overview-approved{height:74px!important;min-height:74px!important;padding-left:18px!important;padding-right:18px!important}.overview-approved-fact.fn-shell-fact{min-width:132px;padding-left:10px!important;padding-right:10px!important}.overview-approved-top.fn-shell-summary{gap:7px!important}#topFreenetUpdate{min-width:124px!important;padding-left:10px!important;padding-right:10px!important}.fn-sub-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.fn-sub-key{grid-template-columns:minmax(0,1fr) 280px}}
       @media(max-width:820px){.fn-sub-key{grid-template-columns:1fr}.fn-sub-key-actions{border-left:0;border-top:1px solid var(--sub-line)}.fn-sub-lower{grid-template-columns:1fr}}
-      @media(max-width:760px){.overview-approved-top.fn-shell-summary{display:none!important}.sidebar>.brand{padding-bottom:17px!important}.nav-btn{font-size:14px!important}}
+      @media(max-width:760px){.overview-approved-top.fn-shell-summary>.fn-xray-topbar,.overview-approved-top.fn-shell-summary>.overview-approved-fact,.overview-approved-top.fn-shell-summary>#topFreenetUpdate{display:none!important}.sidebar>.brand{padding-bottom:17px!important}.nav-btn{font-size:14px!important}}
       @media(max-width:600px){.fn-update-popover{right:12px!important;left:12px!important;width:auto!important}.fn-update-arrow{display:none}.fn-sub-stats{grid-template-columns:1fr}.fn-sub-stat{min-height:132px}.fn-sub-history{overflow-x:auto}.fn-sub-table{min-width:560px}}
 
       /* FreeNet UI design tokens: shared baseline for current and future Control Center tabs. */
@@ -759,61 +754,16 @@
   requestAnimationFrame(installFinalShellPolish);
 })();
 
-// Selector hygiene: deterministic CSS flags for the actual Extra catalog and a uniform topbar.
+// Selector metadata only. Flag pixels are owned exclusively by window.FreeNetFlags.
 (() => {
-  const q = (selector, root = document) => root.querySelector(selector);
   const canonicalExtraFlagCodes = ['sk','za','si','rs','is','lu','kz','pe','my','au','ng'];
   try { canonicalExtraFlagCodes.forEach(code => countryFlagCodes.add(code)); } catch (_) {}
-
-  if (!q('#freenetSelectorHygieneStyles')) {
+  if (!document.getElementById('freenetSelectorHygieneStyles')) {
     const style = document.createElement('style');
     style.id = 'freenetSelectorHygieneStyles';
-    style.textContent = `
-      .top-title{display:none!important}
-      #profilesMenu .flag-icon,.flag-hero{overflow:hidden!important;background-repeat:no-repeat!important;background-size:100% 100%!important;background-position:center!important}
-      #profilesMenu .flag-co,.flag-co{background:linear-gradient(to bottom,#fcd116 0 50%,#003893 50% 75%,#ce1126 75% 100%)!important}
-      #profilesMenu .flag-ae,.flag-ae{background:linear-gradient(to right,#ff0000 0 25%,transparent 25% 100%),linear-gradient(to bottom,#00732f 0 33.333%,#fff 33.333% 66.666%,#000 66.666% 100%)!important}
-      #profilesMenu .flag-kr,.flag-kr{background:radial-gradient(circle at 50% 46%,#cd2e3a 0 19%,transparent 20%),radial-gradient(circle at 50% 56%,#0047a0 0 19%,transparent 20%),#fff!important}
-      #profilesMenu .flag-kz,.flag-kz{background:linear-gradient(#00afca,#00afca)!important}
-      #profilesMenu .flag-pe,.flag-pe{background:linear-gradient(to right,#d91023 0 33.333%,#fff 33.333% 66.666%,#d91023 66.666% 100%)!important}
-      #profilesMenu .flag-my,.flag-my{background:repeating-linear-gradient(to bottom,#cc0001 0 7.14%,#fff 7.14% 14.28%)!important}
-      #profilesMenu .flag-au,.flag-au{background:radial-gradient(circle at 76% 70%,#fff 0 5%,transparent 6%),radial-gradient(circle at 68% 30%,#fff 0 4%,transparent 5%),#012169!important}
-      #profilesMenu .flag-ng,.flag-ng{background:linear-gradient(to right,#008753 0 33.333%,#fff 33.333% 66.666%,#008753 66.666% 100%)!important}
-      #profilesMenu .flag-sk,.flag-sk{background:linear-gradient(to bottom,#fff 0 33.333%,#0b4ea2 33.333% 66.666%,#ee1c25 66.666% 100%)!important}
-      #profilesMenu .flag-za,.flag-za{background:linear-gradient(150deg,#000 0 20%,#ffb612 20% 26%,#007a4d 26% 54%,#fff 54% 60%,#de3831 60% 78%,#002395 78% 100%)!important}
-      #profilesMenu .flag-si,.flag-si{background:linear-gradient(to bottom,#fff 0 33.333%,#005da4 33.333% 66.666%,#ed1c24 66.666% 100%)!important}
-      #profilesMenu .flag-rs,.flag-rs{background:linear-gradient(to bottom,#c6363c 0 33.333%,#0c4076 33.333% 66.666%,#fff 66.666% 100%)!important}
-      #profilesMenu .flag-is,.flag-is{background:linear-gradient(to right,transparent 0 28%,#fff 28% 43%,transparent 43%),linear-gradient(to bottom,transparent 0 36%,#fff 36% 64%,transparent 64%),linear-gradient(to right,transparent 0 33%,#d72828 33% 39%,transparent 39%),linear-gradient(to bottom,transparent 0 43%,#d72828 43% 57%,transparent 57%),#02529c!important}
-      #profilesMenu .flag-lu,.flag-lu{background:linear-gradient(to bottom,#ed2939 0 33.333%,#fff 33.333% 66.666%,#00a1de 66.666% 100%)!important}
-    `;
+    style.textContent = '.top-title{display:none!important}';
     document.head.appendChild(style);
   }
 })();
 
-// Canonical local SVG atlas for emblem-heavy flags that cannot be represented
-// faithfully with plain CSS stripes. No remote assets, fonts or runtime fetch.
-(() => {
-  if (document.getElementById('freenetCanonicalFlagAtlas')) return;
-  const atlas = {
-    kr: '<rect width="60" height="40" fill="#fff"/><path d="M30 13a7 7 0 1 1 0 14 3.5 3.5 0 1 0 0-7 3.5 3.5 0 1 1 0-7Z" fill="#cd2e3a"/><path d="M30 27a7 7 0 1 1 0-14 3.5 3.5 0 1 0 0 7 3.5 3.5 0 1 1 0 7Z" fill="#0047a0"/><g stroke="#111" stroke-width="1.8"><path d="m12 10 8-5m-6 8 8-5m26 19-8 5m6-8-8 5M13 29l8 5m-6-8 8 5m24-21-8-5m6 8-8-5"/></g>',
-    hk: '<rect width="60" height="40" fill="#de2910"/><g fill="#fff" transform="translate(30 20)"><ellipse rx="2.4" ry="8" transform="rotate(0) translate(0 -7)"/><ellipse rx="2.4" ry="8" transform="rotate(72) translate(0 -7)"/><ellipse rx="2.4" ry="8" transform="rotate(144) translate(0 -7)"/><ellipse rx="2.4" ry="8" transform="rotate(216) translate(0 -7)"/><ellipse rx="2.4" ry="8" transform="rotate(288) translate(0 -7)"/></g>',
-    my: '<rect width="60" height="40" fill="#fff"/><g fill="#cc0001"><rect width="60" height="3" y="0"/><rect width="60" height="3" y="6"/><rect width="60" height="3" y="12"/><rect width="60" height="3" y="18"/><rect width="60" height="3" y="24"/><rect width="60" height="3" y="30"/><rect width="60" height="4" y="36"/></g><rect width="30" height="22" fill="#010066"/><circle cx="12" cy="11" r="7" fill="#ffcc00"/><circle cx="15" cy="9.5" r="6" fill="#010066"/><path d="m22 5 1.4 3 3.2.3-2.4 2.2.7 3.1-2.9-1.6-2.8 1.6.6-3.1-2.3-2.2 3.2-.3Z" fill="#ffcc00"/>',
-    au: '<rect width="60" height="40" fill="#012169"/><g transform="scale(.5)"><path d="M0 0 60 40M60 0 0 40" stroke="#fff" stroke-width="10"/><path d="M0 0 60 40M60 0 0 40" stroke="#c8102e" stroke-width="5"/><path d="M30 0v40M0 20h60" stroke="#fff" stroke-width="14"/><path d="M30 0v40M0 20h60" stroke="#c8102e" stroke-width="8"/></g><g fill="#fff"><path d="m15 29 1.2 2.5 2.8.3-2 1.9.5 2.8-2.5-1.4-2.5 1.4.5-2.8-2-1.9 2.8-.3Z"/><circle cx="44" cy="9" r="1.6"/><circle cx="50" cy="17" r="1.5"/><circle cx="42" cy="24" r="1.5"/><circle cx="51" cy="30" r="1.5"/><circle cx="47" cy="35" r="1"/></g>',
-    gb: '<rect width="60" height="40" fill="#012169"/><path d="M0 0 60 40M60 0 0 40" stroke="#fff" stroke-width="10"/><path d="M0 0 60 40M60 0 0 40" stroke="#c8102e" stroke-width="5"/><path d="M30 0v40M0 20h60" stroke="#fff" stroke-width="14"/><path d="M30 0v40M0 20h60" stroke="#c8102e" stroke-width="8"/>',
-    kz: '<rect width="60" height="40" fill="#00afca"/><circle cx="32" cy="16" r="5" fill="#f6cf33"/><g stroke="#f6cf33" stroke-width="1"><path d="M32 7v4M32 21v4M23 16h4M37 16h4M26 10l3 3M35 19l3 3M38 10l-3 3M29 19l-3 3"/></g><path d="M21 25c7 5 15 5 22 0-3 1-5 0-7-2-2 2-6 2-8 0-2 2-4 3-7 2Z" fill="#f6cf33"/><path d="M8 4v32M11 5v30" stroke="#f6cf33" stroke-width="1.5"/>',
-    ar: '<rect width="60" height="40" fill="#75aadb"/><rect y="13.33" width="60" height="13.34" fill="#fff"/><circle cx="30" cy="20" r="3.7" fill="#f6b40e"/><g stroke="#f6b40e" stroke-width="1"><path d="M30 14v3M30 23v3M24 20h3M33 20h3M26 16l2 2M32 22l2 2M34 16l-2 2M28 22l-2 2"/></g>',
-    br: '<rect width="60" height="40" fill="#009b3a"/><path d="m30 5 22 15-22 15L8 20Z" fill="#ffdf00"/><circle cx="30" cy="20" r="8" fill="#002776"/><path d="M23 18c5-2 10-1 15 2" fill="none" stroke="#fff" stroke-width="1.3"/><g fill="#fff"><circle cx="27" cy="18" r=".8"/><circle cx="32" cy="23" r=".8"/><circle cx="35" cy="17" r=".8"/></g>',
-    ca: '<rect width="60" height="40" fill="#fff"/><rect width="14" height="40" fill="#d80621"/><rect x="46" width="14" height="40" fill="#d80621"/><path d="m30 8 2 6 5-2-2 5 4 2-5 3 2 6-6-3-6 3 2-6-5-3 4-2-2-5 5 2Z" fill="#d80621"/>',
-    sg: '<rect width="60" height="20" fill="#ef3340"/><rect y="20" width="60" height="20" fill="#fff"/><circle cx="16" cy="11" r="7" fill="#fff"/><circle cx="19" cy="10" r="6" fill="#ef3340"/><g fill="#fff"><circle cx="23" cy="5" r="1"/><circle cx="26" cy="8" r="1"/><circle cx="25" cy="12" r="1"/><circle cx="21" cy="14" r="1"/><circle cx="20" cy="9" r="1"/></g>',
-    il: '<rect width="60" height="40" fill="#fff"/><rect y="5" width="60" height="4" fill="#0038b8"/><rect y="31" width="60" height="4" fill="#0038b8"/><path d="m30 12 7 12H23Zm0 16-7-12h14Z" fill="none" stroke="#0038b8" stroke-width="1.8"/>',
-    mx: '<rect width="20" height="40" fill="#006847"/><rect x="20" width="20" height="40" fill="#fff"/><rect x="40" width="20" height="40" fill="#ce1126"/><circle cx="30" cy="20" r="3" fill="#8b6b34"/><path d="M25 25c3 2 7 2 10 0" fill="none" stroke="#006847" stroke-width="1.4"/>'
-  };
-  const style = document.createElement('style');
-  style.id = 'freenetCanonicalFlagAtlas';
-  style.textContent = Object.entries(atlas).map(([code, body]) => {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40">${body}</svg>`;
-    const uri = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-    return `.flag-icon.flag-${code},.flag-icon.fn-clean-flag.flag-${code}{background:${`url("${uri}") center/100% 100% no-repeat`}!important}.flag-icon.flag-${code}::before,.flag-icon.flag-${code}::after{content:none!important}.flag-icon.fn-clean-flag.flag-${code}>svg{display:none!important}`;
-  }).join('\n');
-  document.head.appendChild(style);
-})();
+

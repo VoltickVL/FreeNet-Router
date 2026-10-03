@@ -55,28 +55,16 @@
   let host, toggle, panel, search, list, footer, statusText, detail, connect, reset, refresh, currentName, currentCopy, currentFlag, badge;
   let paintQueued = false, listKey = '', timer = null, observedCard = null, observedButton = null, staleRefresh = null;
   let rttByID = new Map(), rttRanked = false, rttScanning = false, rttVersion = 0, rttSummary = '', rttError = '';
-  const atlas = new Map();
-  function readAtlas() {
-    // Reuse the EXACT integrated freenetCanonicalAllFlags SVG data, including
-    // emblems. The original stylesheet is scoped to #controlCenter; the body
-    // panel receives the same URL inline, rather than falling back to OS glyphs.
-    if (atlas.size) return;
-    const sheet = q('#freenetCanonicalAllFlags')?.sheet;
-    if (!sheet) return;
-    for (const rule of Array.from(sheet.cssRules || [])) {
-      const code = rule.selectorText?.match(/\.flag-([a-z]{2})(?:\b)/)?.[1];
-      const image = rule.style?.backgroundImage;
-      if (code && image?.includes('data:image/svg+xml')) atlas.set(code, image);
-    }
-  }
   function setFlag(node, code) {
-    readAtlas();
-    const key = atlas.has(code) ? code : '';
-    if (node.dataset.country === key) return;
-    node.dataset.country = key;
-    node.className = 'flag-icon fnv2-flag' + (key ? ' flag-' + key : ' flag-unknown');
-    node.dataset.flagSource = key ? 'canonical' : 'unknown';
-    node.style.setProperty('background-image', atlas.get(key) || 'none', 'important');
+    if (!node) return;
+    const api = window.FreeNetFlags;
+    const key = api && typeof api.apply === 'function' ? api.apply(node, code) : '';
+    node.classList.add('fnv2-flag');
+    if (!key) {
+      node.dataset.country = '';
+      node.dataset.flagSource = 'unknown';
+      node.classList.add('flag-icon', 'flag-unknown');
+    }
   }
   function profileSource() {
     let profiles = [], stale = false;
@@ -120,9 +108,10 @@
       .fnv2-flag::before,.fnv2-flag::after{display:none!important;content:none!important}
       html body #controlCenter #fnVpnPickerV2Toggle .fnv2-flag svg,html body #fnVpnPickerV2Panel .fnv2-flag svg{display:none!important}
       #fnVpnPickerV2Toggle .fnv2-flag{width:20px;height:14px}
-      #fnVpnPickerV2Panel{position:fixed;z-index:2600;box-sizing:border-box;display:flex;flex-direction:column;gap:0;width:540px;max-width:calc(100vw - 24px);height:min(760px,var(--fnv2-space,760px));max-height:var(--fnv2-space,760px);margin:0;padding:0;color:#eef4ff;background:#0c1c2e;border:1px solid #355473;border-radius:16px;box-shadow:0 24px 70px #0009;font-family:Inter,ui-sans-serif,system-ui,sans-serif;overflow:hidden}
+      #fnVpnPickerV2Panel{position:fixed;z-index:2600;box-sizing:border-box;display:flex;flex-direction:column;gap:0;width:540px;max-width:calc(100vw - 24px);height:min(760px,var(--fnv2-space,760px));min-height:min(420px,var(--fnv2-space,420px));max-height:var(--fnv2-space,760px);margin:0;padding:0;color:#eef4ff;background:#0c1c2e;border:1px solid #355473;border-radius:16px;box-shadow:0 24px 70px #0009;font-family:Inter,ui-sans-serif,system-ui,sans-serif;overflow:hidden}
       #fnVpnPickerV2Panel[hidden]{display:none!important}
       #fnVpnPickerV2Panel *{box-sizing:border-box}
+      #bestServerAdvanced{display:none!important}
       #fnVpnPickerV2Panel button,#fnVpnPickerV2Panel input{font:inherit}
       #fnVpnPickerV2Panel button:focus-visible,#fnVpnPickerV2Toggle:focus-visible{outline:2px solid #80adff;outline-offset:2px}
       #fnVpnPickerV2Panel .fnv2-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 16px;border-bottom:1px solid #28415b;flex:none}
@@ -172,8 +161,11 @@
       #fnVpnPickerV2Footer button{height:41px;appearance:none;border:1px solid #3b638c;border-radius:9px;color:#edf5ff;background:#12283f;cursor:pointer;font-size:12px;font-weight:750}
       #fnVpnPickerV2Connect{background:linear-gradient(180deg,#347eff,#2465dc)!important;border-color:#6d9ee9!important}
       #fnVpnPickerV2Footer button:disabled{opacity:.45;cursor:not-allowed}
-      @media(max-width:760px){#fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;height:auto;max-height:calc(100dvh - 24px)}#fnVpnPickerV2Toggle{width:174px}#fnVpnPickerV2Results{max-height:32dvh;flex:1 1 32dvh}#fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}}
-      @media(max-height:580px){#fnVpnPickerV2Panel .fnv2-current{padding-top:6px;padding-bottom:6px}#fnVpnPickerV2Panel .fnv2-current-copy span{display:none}#fnVpnPickerV2Results{min-height:55px}#fnVpnPickerV2Footer{padding-top:6px;gap:5px;margin-top:5px}}
+      #fnVpnPickerV2Resize{position:absolute;right:5px;bottom:5px;width:17px;height:17px;cursor:ns-resize;touch-action:none;opacity:.5;z-index:4}
+      #fnVpnPickerV2Resize::before,#fnVpnPickerV2Resize::after{content:'';position:absolute;right:1px;bottom:2px;width:11px;height:1px;background:#7694b5;transform:rotate(-45deg);transform-origin:right center}
+      #fnVpnPickerV2Resize::after{width:7px;bottom:6px}
+      @media(max-width:760px){html body .topbar.overview-approved{height:70px!important;min-height:70px!important;flex-wrap:nowrap!important;padding:0 14px!important;overflow:hidden!important}html body .topbar.overview-approved #overviewApprovedTop{display:flex!important;flex:0 1 auto!important;width:auto!important;min-width:0!important;max-width:calc(100% - 58px)!important;margin-left:auto!important;flex-wrap:nowrap!important;justify-content:flex-end!important;gap:0!important;overflow:hidden!important}html body .topbar.overview-approved #overviewApprovedTop>:not(#fnVpnPickerV2Host){display:none!important}#fnVpnPickerV2Host{min-width:0!important;max-width:100%!important}#fnVpnPickerV2Toggle{width:min(174px,100%)!important;max-width:100%!important}#fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;height:auto!important;min-height:0!important;max-height:calc(100dvh - 24px)}#fnVpnPickerV2Resize{display:none!important}#fnVpnPickerV2Results{max-height:32dvh;flex:1 1 32dvh}#fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}}
+      @media(max-height:580px){#fnVpnPickerV2Panel{top:12px!important;bottom:12px!important;height:calc(100dvh - 24px)!important;min-height:0!important;max-height:calc(100dvh - 24px)!important}#fnVpnPickerV2Resize{display:none!important}#fnVpnPickerV2Panel .fnv2-head{padding:8px 12px}#fnVpnPickerV2Panel h2{font-size:15px}#fnVpnPickerV2Panel .fnv2-subtitle{display:none}#fnVpnPickerV2Panel .fnv2-current{padding:5px 12px}#fnVpnPickerV2Panel .fnv2-current-copy span{display:none}#fnVpnPickerV2Panel .fnv2-search-wrap{padding:0 12px 5px}#fnVpnPickerV2Search{height:36px}#fnVpnPickerV2RTTState{margin:0 12px 4px}#fnVpnPickerV2Results{min-height:48px}#fnVpnPickerV2Footer{padding:5px 12px 6px;gap:4px;margin-top:4px}#fnVpnPickerV2Footer .fnv2-validation{min-height:38px;padding:5px 8px;gap:2px}#fnVpnPickerV2Footer button{height:36px}}
     `;
     document.head.appendChild(style);
   }
@@ -187,7 +179,7 @@
     summary.appendChild(host); toggle = q('button',host);
     panel = document.createElement('section'); panel.id = 'fnVpnPickerV2Panel'; panel.hidden = true;
     panel.setAttribute('role','dialog'); panel.setAttribute('aria-labelledby','fnVpnPickerV2Title');
-    panel.innerHTML = '<header class="fnv2-head"><div><h2 id="fnVpnPickerV2Title"></h2><p class="fnv2-subtitle"></p></div><div class="fnv2-head-actions"><button id="fnVpnPickerV2Refresh" type="button" aria-label="Измерить задержку всех серверов" title="Измерить задержку всех серверов"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 9A7 7 0 0 1 18 6l2 5M4 13l2 5a7 7 0 0 0 11.9-3"/></svg></button><button id="fnVpnPickerV2Close" type="button">&times;</button></div></header><div class="fnv2-current"><span id="fnVpnPickerV2CurrentFlag" class="fnv2-flag" aria-hidden="true"></span><div class="fnv2-current-copy"><small></small><strong></strong><span></span></div><span id="fnVpnPickerV2State"></span></div><div class="fnv2-search-wrap"><input id="fnVpnPickerV2Search" type="search" autocomplete="off" spellcheck="false"></div><p id="fnVpnPickerV2RTTState" hidden></p><div id="fnVpnPickerV2Results" role="listbox"></div><p id="fnVpnPickerV2Stale" hidden></p><footer id="fnVpnPickerV2Footer"><div class="fnv2-validation" role="status" aria-live="polite"><strong id="fnVpnPickerV2Status"></strong><span id="fnVpnPickerV2Detail"></span></div><div class="fnv2-actions"><button id="fnVpnPickerV2Connect" type="button" disabled></button><button id="fnVpnPickerV2Reset" type="button" disabled></button></div></footer>';
+    panel.innerHTML = '<header class="fnv2-head"><div><h2 id="fnVpnPickerV2Title"></h2><p class="fnv2-subtitle"></p></div><div class="fnv2-head-actions"><button id="fnVpnPickerV2Refresh" type="button" aria-label="Измерить задержку всех серверов" title="Измерить задержку всех серверов"><svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6v5h-5"/><path d="M4 18v-5h5"/><path d="M6.1 9A7 7 0 0 1 18 6l2 5M4 13l2 5a7 7 0 0 0 11.9-3"/></svg></button><button id="fnVpnPickerV2Close" type="button">&times;</button></div></header><div class="fnv2-current"><span id="fnVpnPickerV2CurrentFlag" class="fnv2-flag" aria-hidden="true"></span><div class="fnv2-current-copy"><small></small><strong></strong><span></span></div><span id="fnVpnPickerV2State"></span></div><div class="fnv2-search-wrap"><input id="fnVpnPickerV2Search" type="search" autocomplete="off" spellcheck="false"></div><p id="fnVpnPickerV2RTTState" hidden></p><div id="fnVpnPickerV2Results" role="listbox"></div><p id="fnVpnPickerV2Stale" hidden></p><footer id="fnVpnPickerV2Footer"><div class="fnv2-validation" role="status" aria-live="polite"><strong id="fnVpnPickerV2Status"></strong><span id="fnVpnPickerV2Detail"></span></div><div class="fnv2-actions"><button id="fnVpnPickerV2Connect" type="button" disabled></button><button id="fnVpnPickerV2Reset" type="button" disabled></button></div></footer><div id="fnVpnPickerV2Resize" role="separator" aria-orientation="horizontal" aria-label="Изменить высоту списка VPN"></div>';
     document.body.appendChild(panel);
     text(q('h2',panel),L.choose); text(q('.fnv2-subtitle',panel),L.hint);
     text(q('.fnv2-current-copy small',panel),L.current);
@@ -221,6 +213,31 @@
       if (choosing || engine().applying) return;
       q('#exactCancelBtn')?.click(); selected=null; sent=false; error=''; listKey=''; paint();
     });
+    const resizeHandle = q('#fnVpnPickerV2Resize');
+    if (resizeHandle) {
+      let startY = 0, startHeight = 0;
+      resizeHandle.addEventListener('pointerdown', event => {
+        if ((window.visualViewport?.width || window.innerWidth) <= 760) return;
+        startY = event.clientY;
+        startHeight = panel.getBoundingClientRect().height;
+        resizeHandle.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+      });
+      resizeHandle.addEventListener('pointermove', event => {
+        if (!resizeHandle.hasPointerCapture?.(event.pointerId)) return;
+        const vh = window.visualViewport?.height || window.innerHeight;
+        const top = panel.getBoundingClientRect().top;
+        const maxHeight = Math.max(240, vh - top - 12);
+        const minHeight = Math.min(420, maxHeight);
+        const next = Math.max(minHeight, Math.min(maxHeight, startHeight + event.clientY - startY));
+        panel.style.height = Math.round(next) + 'px';
+        panel.dataset.userHeight = 'true';
+        event.preventDefault();
+      });
+      resizeHandle.addEventListener('pointerup', event => {
+        if (resizeHandle.hasPointerCapture?.(event.pointerId)) resizeHandle.releasePointerCapture?.(event.pointerId);
+      });
+    }
   }
   function orderTopbar() {
     const summary = q('#overviewApprovedTop'), xray = q('.fn-xray-topbar'), freenet = q('#topFreenetUpdate');
@@ -366,7 +383,12 @@
     const below=vh-r.bottom-22;
     const top=below>=380 ? r.bottom+10 : 12;
     panel.style.top=top+'px'; panel.style.bottom='auto';
-    panel.style.setProperty('--fnv2-space',Math.max(240,vh-top-12)+'px');
+    const available = Math.max(240,vh-top-12);
+    panel.style.setProperty('--fnv2-space',available+'px');
+    if (panel.dataset.userHeight === 'true') {
+      const current = Number.parseFloat(panel.style.height || '');
+      if (Number.isFinite(current)) panel.style.height = Math.min(available, Math.max(Math.min(420, available), current)) + 'px';
+    }
   }
   function refreshStaleCatalogOnOpen() {
     if (staleRefresh || selected || choosing || busy()) return;
@@ -385,6 +407,7 @@
   }
   function close(restore=false) { if (!panel) return; panel.hidden=true; toggle.setAttribute('aria-expanded','false'); if (restore) toggle.focus({preventScroll:true}); }
   function boot() {
+    q('#bestServerAdvanced')?.classList.remove('fn-topbar-vpn-picker');
     paint(); timer=setInterval(schedulePaint,1000); // Reads shared state only; no extra requests.
     document.addEventListener('visibilitychange',schedulePaint);
     document.addEventListener('freenet:controls-busy',schedulePaint);

@@ -16,12 +16,13 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 	js := string(data)
 	for _, required := range []string{
 		"__freenetVPNPickerV2Mounted", "fnVpnPickerV2Panel", "getBoundingClientRect()",
-		"#freenetCanonicalAllFlags", "sheet.cssRules", "data:image/svg+xml", "dataset.flagSource",
+		"window.FreeNetFlags", "api.apply(node, code)", "dataset.flagSource",
 		"xray-vpn-dns-freenet",
 		"selectProviderProfile(profile)", "e.button.click()", "e.button.disabled",
 		"observer.disconnect()", "requestAnimationFrame", "text(connect,L.connect)",
 		"0x1F1E6", "cached rows may belong to another router", "refreshStaleCatalogOnOpen", "loadNetworkPlan",
 		"height:min(760px,var(--fnv2-space,760px))", "flex:1 1 auto",
+		"fnVpnPickerV2Resize", "setPointerCapture", "dataset.userHeight",
 		"завершён частично", "не проверен",
 	} {
 		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
@@ -32,7 +33,7 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 	if strings.Contains(js, "VPN есть · DNS?") || strings.Contains(js, "transport_only") {
 		t.Fatal("quick VPN RTT UI must not expose obsolete named-DNS preflight states")
 	}
-	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint", "max-height:280px"} {
+	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint", "max-height:280px", "sheet.cssRules"} {
 		if strings.Contains(js, forbidden) { t.Fatalf("presentation must not contain %q", forbidden) }
 	}
 	mainData, err := os.ReadFile("main.go")
@@ -42,7 +43,10 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 	}
 	operation, err := webFS.ReadFile("web/operation-coordinator.js")
 	if err != nil { t.Fatal(err) }
-	if !strings.Contains(string(operation), "if (window.__freenetVPNPickerV2) return;") { t.Fatal("legacy picker owner must be gated") }
+	operationSrc := string(operation)
+	for _, forbidden := range []string{"fnVpnPickerPopover", "fnVpnPickerHost", "fnVpnPickerToggle", "FreeNetVPNPicker", "Issue #562", "Issue #609"} {
+		if strings.Contains(operationSrc, forbidden) { t.Fatalf("legacy picker visual owner survived: %q", forbidden) }
+	}
 }
 
 // Opt-in, loopback-only production delivery fixture. It uses the REAL handler

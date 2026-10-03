@@ -101,7 +101,6 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 	for _, want := range []string{
 		"fnUpdateNotesTitle", "fnUpdateNotes", "Что нового в", "release_notes",
 		".topbar.overview-approved{height:82px",
-		"#fnVpnPickerToggle{height:60px",
 		"fn-shell-dns",
 		"Раздельный",
 	} {
@@ -119,6 +118,16 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 			t.Fatalf("accepted updater stale-UI recovery marker missing %q", want)
 		}
 	}
+	picker, err := os.ReadFile("web/vpn-picker-v2.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"fnVpnPickerV2Toggle", "xray-vpn-dns-freenet"} {
+		if !strings.Contains(string(picker), want) {
+			t.Fatalf("canonical topbar VPN picker marker missing %q", want)
+		}
+	}
+
 	for _, unwanted := range []string{"Обновление безопасно", "Backup, SHA-256, staging и post-check выполняются автоматически", "fn-update-safety"} {
 		if strings.Contains(ux, unwanted) {
 			t.Fatalf("redundant updater safety copy must stay removed: %q", unwanted)

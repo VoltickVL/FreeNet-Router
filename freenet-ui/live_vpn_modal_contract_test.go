@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -62,43 +63,44 @@ func TestUnifiedModalAndReconnectUX(t *testing.T) {
 }
 
 
-func TestVPNTopbarSimpleButtonBodyModalContract(t *testing.T) {
-	data, err := webFS.ReadFile("web/operation-coordinator.js")
+func TestVPNPickerV2OwnsTopbarAndBodyPanel(t *testing.T) {
+	data, err := webFS.ReadFile("web/vpn-picker-v2.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ux := string(data)
 	for _, required := range []string{
-		`id="fnVpnPickerCountryName"`,
-		`popover.parentNode !== document.body`,
-		`document.body.appendChild(popover)`,
-		`path.includes(popover)`,
-		`Promise.resolve(loadNetworkPlan())`,
-		`#fnVpnPickerToggle{appearance:none;width:138px`,
+		`fnVpnPickerV2Country`,
+		`document.body.appendChild(panel)`,
+		`xray-vpn-dns-freenet`,
+		`[xray,host,dns,freenet]`,
+		`refreshStaleCatalogOnOpen`,
+		`selectProviderProfile(profile)`,
+		`fnVpnPickerV2Resize`,
 	} {
 		if !strings.Contains(ux, required) {
-			t.Fatalf("VPN simple-button/body-modal contract missing %q", required)
+			t.Fatalf("VPN picker v2 topbar/body contract missing %q", required)
 		}
 	}
 }
 
-
-func TestVPNFinalPolishContract(t *testing.T) {
-	data, err := webFS.ReadFile("web/operation-coordinator.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ux := string(data)
-	for _, required := range []string{
-		`freenetIssue609VpnPolishStyles`,
-		`xray-vpn-dns-freenet`,
-		`[xray, vpn, dns, freenet]`,
-		`#fnVpnPickerPopover #profilesMenu{position:static!important;display:block!important;width:100%`,
-		`overflow-x:hidden!important`,
-		`fnVpnPickerCountryName`,
-	} {
-		if !strings.Contains(ux, required) {
-			t.Fatalf("VPN final polish contract missing %q", required)
+func TestVPNLegacyVisualOwnersAreRetired(t *testing.T) {
+	for _, path := range []string{"web/operation-coordinator.js", "web/topbar-settings-profile-cache.js", "web/accepted-ux.js"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ux := string(data)
+		for _, forbidden := range []string{
+			"fnVpnPickerPopover",
+			"fnVpnPickerHost",
+			"fnVpnPickerToggle",
+			"freenetIssue609VpnPolishStyles",
+			"freenetIssue601Styles",
+		} {
+			if strings.Contains(ux, forbidden) {
+				t.Fatalf("%s still contains legacy picker visual owner %q", path, forbidden)
+			}
 		}
 	}
 }

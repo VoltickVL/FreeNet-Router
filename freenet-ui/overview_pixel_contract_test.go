@@ -21,31 +21,42 @@ func TestApprovedOverviewPixelContract(t *testing.T) {
 		".vpn-state-badge{display:inline-flex;align-items:center;gap:7px;min-height:34px",
 		".vpn-detail-chip{display:inline-flex;align-items:center;gap:6px;min-height:28px",
 		".best-v4-status.summary{display:flex;align-items:flex-start;gap:10px}",
-		"#bestServerAdvanced.fn-topbar-vpn-picker",
-		"#bestServerAdvanced.fn-topbar-vpn-picker #profilesList.profiles{display:grid!important",
-		"#bestServerAdvanced.fn-topbar-vpn-picker #profileSearch,#bestServerAdvanced.fn-topbar-vpn-picker #profilesTrigger{min-height:36px!important",
-		"topbar.insertBefore(manual, topSummary || topActions || null)",
 		".topbar.overview-approved .top-status{display:none!important}",
 		"makeIcon(key, 'metric-icon')",
 		"makeIcon(state.icon, 'status-icon')",
-		".flag-no:after{content:'';position:absolute;inset:0",
 	}
 	for _, needle := range mustContain {
 		if !strings.Contains(s, needle) {
 			t.Fatalf("approved Overview design contract missing %q", needle)
 		}
 	}
-
-	mustNotContain := []string{
-		"#bestServerAdvanced{grid-column:1/-1",
-		"quick.parentNode.insertBefore(manual, quick.nextSibling)",
-		".vpn-option .best-v4-pill:before{display:none}",
+	for _, needle := range []string{
+		"topbar.insertBefore(manual",
+		"classList.add('fn-topbar-vpn-picker')",
+		"fn-clean-flag",
+		"const flagSVG = code =>",
 		"fn-manual-shortcut",
 		"fn-health-pill",
-	}
-	for _, needle := range mustNotContain {
+	} {
 		if strings.Contains(s, needle) {
-			t.Fatalf("obsolete compact Overview rule returned: %q", needle)
+			t.Fatalf("retired Overview visual owner returned: %q", needle)
 		}
+	}
+
+	picker, err := os.ReadFile("web/vpn-picker-v2.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"fnVpnPickerV2Panel", "fnVpnPickerV2Resize", "#bestServerAdvanced{display:none!important}"} {
+		if !strings.Contains(string(picker), want) {
+			t.Fatalf("canonical picker visual contract missing %q", want)
+		}
+	}
+	flags, err := os.ReadFile("web/vpn-ux-fix.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(flags), "window.FreeNetFlags") {
+		t.Fatal("canonical flag visual owner missing")
 	}
 }

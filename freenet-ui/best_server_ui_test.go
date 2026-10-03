@@ -116,27 +116,27 @@ func TestBestServerUXRoutesAreRegistered(t *testing.T) {
 	}
 }
 
-func TestBestServerUIKeepsExactProfileFallback(t *testing.T) {
+func TestBestServerUIKeepsExactProfileEngineBehindPickerV2(t *testing.T) {
 	index, err := os.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	js, err := os.ReadFile("web/operation-coordinator.js")
+	picker, err := os.ReadFile("web/vpn-picker-v2.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	markup := string(index)
-	script := string(js)
+	v2 := string(picker)
 	if !strings.Contains(markup, `id="profileSearch"`) || !strings.Contains(markup, `id="profilesTrigger"`) {
-		t.Fatal("manual exact profile selector disappeared")
+		t.Fatal("safe exact-profile catalog engine disappeared")
 	}
-	for _, want := range []string{"fn-topbar-vpn-picker", "topbar.insertBefore(manual, topSummary || topActions || null)"} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("manual exact selector must remain as topbar fallback: missing %q", want)
+	for _, want := range []string{"selectProviderProfile(profile)", "e.button.click()", "#bestServerAdvanced{display:none!important}", "fnVpnPickerV2Panel"} {
+		if !strings.Contains(v2, want) {
+			t.Fatalf("picker v2 must delegate to the exact engine: missing %q", want)
 		}
 	}
-	if !strings.Contains(markup, "extraProfiles.length?'Выбрать VPN':'Профили не загружены'") {
-		t.Fatal("topbar exact selector must use user-facing label 'Выбрать VPN'")
+	if strings.Contains(v2, "/api/network-profile/apply") {
+		t.Fatal("picker v2 must not implement a second mutation path")
 	}
 }
 

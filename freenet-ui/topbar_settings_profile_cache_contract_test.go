@@ -8,18 +8,12 @@ import (
 func TestTopbarSettingsProfileCacheContract(t *testing.T) {
 	ux := string(vpnSelectorReconcileAsset)
 	for _, required := range []string{
-		"freenetTopbarSettingsProfileCacheStyles",
 		"freenet-extra-profiles-last-good-v1",
 		"renderExtraProfiles",
 		"profiles_stale",
 		"Используется последний успешный список Extra-профилей",
 		"currentProfilesWithCache",
-		"#fnVpnPickerToggle",
-		"keepDialogInBody",
 		".fn-xray-topbar",
-		"height:50px!important",
-		"fn-vpn-picker-open",
-		"fnVpnPickerBackdrop",
 		"sidebar>.brand",
 		"freenet:settings-v3-updated",
 		"fn-sub-next",
@@ -37,9 +31,13 @@ func TestTopbarSettingsProfileCacheContract(t *testing.T) {
 		"method: 'POST'",
 		"method:\"POST\"",
 		"setTimeout(",
+		"fnVpnPickerPopover",
+		"fnVpnPickerHost",
+		"fnVpnPickerToggle",
+		"freenetIssue601Styles",
 	} {
 		if strings.Contains(ux, forbidden) {
-			t.Fatalf("topbar/settings cache patch must stay presentation-only: found %q", forbidden)
+			t.Fatalf("topbar/settings cache patch must stay data/presentation-only without legacy picker: found %q", forbidden)
 		}
 	}
 }

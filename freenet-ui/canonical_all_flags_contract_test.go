@@ -14,9 +14,11 @@ func TestCanonicalRuntimeFlagAtlasCoversActualExtraCatalog(t *testing.T) {
 	js := string(data)
 	for _, want := range []string{
 		"freenetCanonicalAllFlags",
-		"#controlCenter .flag-icon.flag-${code}",
+		"window.FreeNetFlags",
+		"apply(node, code)",
 		"preserveAspectRatio=\"none\"",
 		"background-image:${uri}!important",
+		"dataset.flagSource",
 		"::before",
 		"::after",
 	} {
@@ -40,9 +42,7 @@ func TestCanonicalRuntimeFlagAtlasCoversActualExtraCatalog(t *testing.T) {
 		t.Fatal("canonical runtime flag block not found")
 	}
 	atlas := js[atlasStart:]
-	// xmlns="http://www.w3.org/2000/svg" is a namespace identifier, not a
-	// network dependency. Reject only actual runtime/remote loading surfaces.
-	for _, forbidden := range []string{"fetch(", "url(http://", "url(https://", "MutationObserver"} {
+	for _, forbidden := range []string{"fetch(", "url(http://", "url(https://", "sheet.cssRules"} {
 		if strings.Contains(atlas, forbidden) {
 			t.Fatalf("canonical runtime flag renderer must stay local/static: found %q", forbidden)
 		}
