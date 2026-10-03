@@ -362,7 +362,7 @@
     const node = document.createElement('div');
     node.className = 'best-v4-pill' + (key === 'speed' && trustedSpeed ? ' speed' : '');
     node.dataset.metric = key;
-    node.appendChild(makeIcon(key, 'metric-icon'));
+    node.appendChild(makeIcon(key === 'fallback_speed' ? 'speed' : key, 'metric-icon'));
     const copy = document.createElement('div'); copy.className = 'metric-copy';
     const name = document.createElement('span'); name.className = 'metric-label'; name.textContent = label;
     const valueLine = document.createElement('div'); valueLine.className = 'metric-value-line';
