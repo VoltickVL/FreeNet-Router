@@ -269,7 +269,7 @@ func parseAutomationState(path string) map[string]string {
 			continue
 		}
 		switch key {
-		case "LAST_RUN", "LAST_RESULT", "LAST_REASON", "ROLLBACK_READY", "LAST_SWITCH", "MUTATION_BLOCKED":
+		case "LAST_RUN", "LAST_RESULT", "LAST_REASON", "ROLLBACK_READY", "LAST_SWITCH", "MUTATION_BLOCKED", "POST_UPDATE_ACK":
 			values[key] = strings.TrimSpace(value)
 		}
 	}
