@@ -24,6 +24,7 @@ type providerPlanResponse struct {
 	CurrentOutbound string `json:"current_outbound,omitempty"`
 	XrayRunning     bool   `json:"xray_running"`
 	CandidateValid  bool   `json:"candidate_xray_valid"`
+	CandidateRouteOK bool  `json:"candidate_route_ok"`
 	ExpectedDelta   string `json:"expected_delta,omitempty"`
 	ExpectedNoDelta string `json:"expected_no_delta,omitempty"`
 	Mutation        string `json:"mutation,omitempty"`
@@ -750,6 +751,10 @@ func providerPlanFailureReason(output []byte) string {
 			return "Не удалось подготовить конфигурацию выбранного VPN-сервера."
 		case strings.Contains(lower, "candidate xray configuration validation failed"):
 			return "Конфигурация выбранного VPN-сервера не прошла проверку Xray."
+		case strings.Contains(lower, "candidate vpn application route validation failed"):
+			return "Свежий VPN-сервер найден, но реальный интернет через него не подтвердился. Активный VPN не изменён."
+		case strings.Contains(lower, "live vpn application route validation failed"):
+			return "После переключения интернет через новый VPN не подтвердился; FreeNet выполнил rollback."
 		case strings.Contains(lower, "selected profile is missing required fields"):
 			return "В выбранном VPN-сервере не хватает обязательных параметров подключения."
 		default:
@@ -893,7 +898,7 @@ func parseProviderPlan(output string) (providerPlanResponse, error) {
 			continue
 		}
 		switch key {
-		case "PROFILE_ID", "PROFILE_NAME", "ENDPOINT", "CURRENT_OUTBOUND", "XRAY_RUNNING", "CANDIDATE_XRAY_VALID", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
+		case "PROFILE_ID", "PROFILE_NAME", "ENDPOINT", "CURRENT_OUTBOUND", "XRAY_RUNNING", "CANDIDATE_XRAY_VALID", "CANDIDATE_ROUTE_OK", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
 			values[key] = strings.TrimSpace(value)
 		}
 	}
@@ -906,7 +911,8 @@ func parseProviderPlan(output string) (providerPlanResponse, error) {
 	return providerPlanResponse{
 		Success: true, ProfileID: values["PROFILE_ID"], ProfileName: values["PROFILE_NAME"], Endpoint: values["ENDPOINT"],
 		CurrentOutbound: values["CURRENT_OUTBOUND"], XrayRunning: values["XRAY_RUNNING"] == "yes",
-		CandidateValid: values["CANDIDATE_XRAY_VALID"] == "yes", ExpectedDelta: values["EXPECTED_DELTA"],
+		CandidateValid: values["CANDIDATE_XRAY_VALID"] == "yes" && values["CANDIDATE_ROUTE_OK"] == "yes",
+		CandidateRouteOK: values["CANDIDATE_ROUTE_OK"] == "yes", ExpectedDelta: values["EXPECTED_DELTA"],
 		ExpectedNoDelta: values["EXPECTED_NO_DELTA"], Mutation: values["MUTATION"],
 	}, nil
 }
