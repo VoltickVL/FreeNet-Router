@@ -460,7 +460,7 @@ const server = http.createServer((req,res)=>{
       const postsBefore=calls.filter(c=>c.method==='POST').length;
       await openPicker();
       await page.locator('#fnVpnPickerV2Results').waitFor({state:'visible'});
-      await page.locator('[data-profile-id="fixture-lt"]').click();
+      await page.locator('#fnVpnPickerV2Results [data-profile-id="fixture-lt"]').click();
       assert.equal(await page.locator('#fnVpnPickerV2Panel').isVisible(),true,'exact candidate checking must remain inside the open popover');
       await page.waitForFunction(()=>!document.querySelector('#exactConnectBtn').disabled);
       assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore,'manual selection only validates');
