@@ -243,3 +243,59 @@ func TestProviderProfileRTTGuardsAcquireOnceAndReleaseBoth(t *testing.T) {
 	fenceRelease()
 }
 
+
+
+func resetProviderProfileRTTCacheForTest() {
+	providerProfileRTTCache.Lock()
+	providerProfileRTTCache.Entry = providerProfileRTTCacheEntry{}
+	providerProfileRTTCache.Unlock()
+}
+
+func TestProviderProfileRTTCacheReusesCompleteCanonicalSweep(t *testing.T) {
+	resetProviderProfileRTTCacheForTest()
+	defer resetProviderProfileRTTCacheForTest()
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa", Address: "203.0.113.10", Port: 443}},
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb", Address: "203.0.113.20", Port: 443}},
+	}
+	items := []providerProfileRTTItem{
+		{ProfileID: "bbbbbbbbbbbbbbbb", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 180},
+		{ProfileID: "aaaaaaaaaaaaaaaa", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 120},
+	}
+	storeProviderProfileRTTCache(candidates, items)
+	got, measuredAt, ok := loadProviderProfileRTTCache(candidates)
+	if !ok || measuredAt.IsZero() {
+		t.Fatal("complete RTT sweep was not cached")
+	}
+	if len(got) != 2 || got[0].ProfileID != "aaaaaaaaaaaaaaaa" || got[0].RTTMS != 120 {
+		t.Fatalf("cached RTT sweep is not canonical/sorted: %#v", got)
+	}
+}
+
+func TestProviderProfileRTTCacheRejectsPartialOrRotatedCatalog(t *testing.T) {
+	resetProviderProfileRTTCacheForTest()
+	defer resetProviderProfileRTTCacheForTest()
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa", Address: "203.0.113.10", Port: 443}},
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb", Address: "203.0.113.20", Port: 443}},
+	}
+	partial := []providerProfileRTTItem{
+		{ProfileID: "aaaaaaaaaaaaaaaa", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 120},
+		{ProfileID: "bbbbbbbbbbbbbbbb", Attempted: false, Status: "unknown"},
+	}
+	storeProviderProfileRTTCache(candidates, partial)
+	if _, _, ok := loadProviderProfileRTTCache(candidates); ok {
+		t.Fatal("partial RTT sweep must never become canonical selector cache")
+	}
+
+	complete := []providerProfileRTTItem{
+		{ProfileID: "aaaaaaaaaaaaaaaa", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 120},
+		{ProfileID: "bbbbbbbbbbbbbbbb", Reachable: false, Attempted: true, Status: "unreachable"},
+	}
+	storeProviderProfileRTTCache(candidates, complete)
+	rotated := append([]bestServerInternalCandidate(nil), candidates...)
+	rotated[0].Profile.Address = "198.51.100.77"
+	if _, _, ok := loadProviderProfileRTTCache(rotated); ok {
+		t.Fatal("RTT cache must invalidate when subscription endpoint snapshot rotates")
+	}
+}
