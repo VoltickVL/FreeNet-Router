@@ -241,6 +241,13 @@ func TestCurrentEndpointRefreshDoesNotUseFullBestServerQualityGate(t *testing.T)
 	if !strings.Contains(applyBody, `providerHelperPath(), "apply-core"`) {
 		t.Fatal("same-profile endpoint apply must use core-only provider cutover")
 	}
+	if !strings.Contains(applyBody, "context.WithTimeout(ctx, a.cfg.Timeout)") ||
+		!strings.Contains(applyBody, "context.WithTimeout(ctx, automationHealthProbeTimeout)") {
+		t.Fatal("endpoint apply and post-check must inherit the caller deadline")
+	}
+	if strings.Contains(applyBody, "context.WithTimeout(context.Background()") {
+		t.Fatal("endpoint fast-path must not escape its parent deadline with Background context")
+	}
 }
 
 
