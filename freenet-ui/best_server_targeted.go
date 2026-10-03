@@ -158,7 +158,6 @@ func registerBestServerTargetedAPI(mux *http.ServeMux, a *app) {
 }
 
 func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Request) {
-	invalidateBestServerSelectionSnapshot()
 	releaseOperation, operationOK := tryAcquireFreeNetOperation(a)
 	if !operationOK {
 		writeJSON(w, http.StatusConflict, bestServerQualityResponse{
