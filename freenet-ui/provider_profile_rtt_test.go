@@ -255,8 +255,8 @@ func TestProviderProfileRTTCacheReusesCompleteCanonicalSweep(t *testing.T) {
 	resetProviderProfileRTTCacheForTest()
 	defer resetProviderProfileRTTCacheForTest()
 	candidates := []bestServerInternalCandidate{
-		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa", Address: "203.0.113.10", Port: 443}},
-		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb", Address: "203.0.113.20", Port: 443}},
+		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa", Address: "203.0.113.10", Port: 443}, Raw: "vless://credential-a@203.0.113.10:443#A"},
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb", Address: "203.0.113.20", Port: 443}, Raw: "vless://credential-b@203.0.113.20:443#B"},
 	}
 	items := []providerProfileRTTItem{
 		{ProfileID: "bbbbbbbbbbbbbbbb", Reachable: true, Attempted: true, Status: "reachable", RTTMS: 180},
@@ -297,5 +297,10 @@ func TestProviderProfileRTTCacheRejectsPartialOrRotatedCatalog(t *testing.T) {
 	rotated[0].Profile.Address = "198.51.100.77"
 	if _, _, ok := loadProviderProfileRTTCache(rotated); ok {
 		t.Fatal("RTT cache must invalidate when subscription endpoint snapshot rotates")
+	}
+	credentialRotated := append([]bestServerInternalCandidate(nil), candidates...)
+	credentialRotated[0].Raw = "vless://credential-a-rotated@203.0.113.10:443#A"
+	if _, _, ok := loadProviderProfileRTTCache(credentialRotated); ok {
+		t.Fatal("RTT cache must invalidate when credentials rotate under the same logical ID/endpoint")
 	}
 }
