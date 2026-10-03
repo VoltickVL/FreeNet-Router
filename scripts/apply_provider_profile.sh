@@ -400,7 +400,7 @@ build_vless_object() {
           tag:"vless-reality",
           protocol:"vless",
           settings:{vnext:[{address:$address,port:$port,users:[user]}]},
-          streamSettings:
+          streamSettings: (
             if $security == "reality" then
               {network:$network,security:"reality",realitySettings:{fingerprint:$fingerprint,serverName:$serverName,publicKey:$publicKey,shortId:$shortId,spiderX:$spiderX}}
             elif $security == "tls" and $network == "ws" then
@@ -410,6 +410,7 @@ build_vless_object() {
             else
               error("unsupported VLESS transport")
             end
+          )
         }' > "$VLESS_OBJECT"
 }
 build_candidate() {
