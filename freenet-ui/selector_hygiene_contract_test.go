@@ -16,17 +16,24 @@ func TestSelectorHygieneContract(t *testing.T) {
 		"canonicalExtraFlagCodes",
 		"'kz','pe','my','au','ng'",
 		".top-title{display:none!important}",
-		".flag-co{background:linear-gradient(to bottom,#fcd116 0 50%",
-		".flag-ae{background:linear-gradient(to right,#ff0000 0 25%",
-		".flag-kr{background:radial-gradient",
-		".flag-kz",
-		".flag-pe",
-		".flag-my",
-		".flag-au",
-		".flag-ng",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("selector hygiene contract missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"freenetCanonicalFlagAtlas", ".flag-co{", ".flag-ae{", ".flag-kr{"} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("selector hygiene must not own flag pixels: %q", forbidden)
+		}
+	}
+	flags, err := webFS.ReadFile("web/vpn-ux-fix.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical := string(flags)
+	for _, want := range []string{"window.FreeNetFlags", "co:", "ae:", "kr:", "kz:", "pe:", "my:", "au:", "ng:"} {
+		if !strings.Contains(canonical, want) {
+			t.Fatalf("canonical flag owner missing %q", want)
 		}
 	}
 }
