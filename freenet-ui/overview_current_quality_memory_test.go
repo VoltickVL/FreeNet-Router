@@ -24,6 +24,10 @@ func TestOverviewCurrentQualityMemoryDeliveredBeforeBootRelease(t *testing.T) {
 		`seedMissingMeasurement`,
 		`/api/vpn/current-quality?job=start&id=`,
 		`renderMetrics(candidate)`,
+		`fallback_download_mbps`,
+		`current_fallback`,
+		`strict_aggregate`,
+		`не для сравнения`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("overview quality memory contract missing %q", want)
