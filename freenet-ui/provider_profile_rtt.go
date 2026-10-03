@@ -20,6 +20,7 @@ const (
 
 type providerProfileRTTItem struct {
 	ProfileID string `json:"profile_id"`
+	Endpoint  string `json:"endpoint"`
 	RTTMS     int    `json:"rtt_ms,omitempty"`
 	JitterMS  int    `json:"jitter_ms,omitempty"`
 	Reachable bool   `json:"reachable"`
@@ -148,10 +149,11 @@ func mergeProviderProfileRTTItems(candidates []bestServerInternalCandidate, cach
 	out := make([]providerProfileRTTItem, 0, len(candidates))
 	for _, candidate := range candidates {
 		if item, ok := byID[candidate.Profile.ID]; ok {
+			item.Endpoint = profileEndpoint(candidate.Profile)
 			out = append(out, item)
 			continue
 		}
-		out = append(out, providerProfileRTTItem{ProfileID: candidate.Profile.ID, Status: "unknown"})
+		out = append(out, providerProfileRTTItem{ProfileID: candidate.Profile.ID, Endpoint: profileEndpoint(candidate.Profile), Status: "unknown"})
 	}
 	sortProviderProfileRTTItems(out)
 	return out
@@ -247,6 +249,7 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 				cancel()
 				item := providerProfileRTTItem{
 					ProfileID: candidates[index].Profile.ID,
+					Endpoint:  profileEndpoint(candidates[index].Profile),
 					Attempted: !probeEndedByContext,
 					Status:    "unreachable",
 				}
@@ -283,6 +286,7 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 	for index := range results {
 		if results[index].ProfileID == "" {
 			results[index].ProfileID = candidates[index].Profile.ID
+			results[index].Endpoint = profileEndpoint(candidates[index].Profile)
 			results[index].Status = "unknown"
 		}
 	}
