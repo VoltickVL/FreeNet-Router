@@ -436,7 +436,7 @@ const server = http.createServer((req,res)=>{
     const providerErrorPosts=calls.filter(c=>c.method==='POST').length;
     await openPicker();
     await page.locator('#fnVpnPickerV2Results').waitFor({state:'visible'});
-    await page.locator('[data-profile-id="fixture-lt"]').click();
+    await page.locator('#fnVpnPickerV2Results [data-profile-id="fixture-lt"]').click();
     assert.equal(await page.locator('#fnVpnPickerV2Panel').isVisible(),true,'profile selection rerender must not be mistaken for an outside click');
     await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-error'));
     assert.equal(await page.locator('#exactConnectBtn').isDisabled(),true,'failed provider plan cannot connect');
