@@ -15,7 +15,8 @@
     failed:'Проверка не пройдена', empty:'Список серверов недоступен. Проверьте подписку.',
     noMatch:'Ничего не найдено. Измените запрос.', stale:'Показан последний успешный список.',
     busy:'Другая операция VPN ещё выполняется.', blocked:'Результат нужно подтвердить. Повтор заблокирован.',
-    ping:'Измерить задержку через каждый VPN', pinging:'Проверяем задержку через каждый VPN…', pingFailed:'Не удалось измерить RTT серверов.'
+    ping:'Измерить задержку через каждый VPN', pinging:'Проверяем задержку через каждый VPN…', pingFailed:'Не удалось измерить RTT серверов.',
+    pingCatalogChanged:'Список VPN изменился во время проверки. Нажмите ↻ ещё раз.'
   };
   const countries = (() => { try { return new Intl.DisplayNames(['ru'], {type:'region'}); } catch (_) { return null; } })();
   const english = (() => { try { return new Intl.DisplayNames(['en'], {type:'region'}); } catch (_) { return null; } })();
@@ -249,42 +250,54 @@
   }
   function busy() { const s=runtime(); return choosing || engine().applying || !!(s?.busy || s?.updater_busy); }
   function uncertain(e) { return /ROLLBACK_FAILED|ROLLBACK_UNKNOWN|FAILED_UNKNOWN|\bUNKNOWN\b/.test(e.note + ' ' + e.title); }
-  function canConnect(e=engine()) { return !!(selected && selected.id===e.id && e.ready && e.card?.classList.contains('is-ready') && e.button && !e.button.disabled && !sent && !busy() && !rttScanning && !uncertain(e)); }
+  function canConnect(e=engine()) { return !!(selected && selected.id===e.id && e.ready && e.card?.classList.contains('is-ready') && e.button && !e.button.disabled && !sent && !busy() && !rttScanning && !staleRefresh && !uncertain(e)); }
   async function choose(profile) {
-    if (rttScanning || busy() || uncertain(engine()) || typeof selectProviderProfile !== 'function') return;
+    if (rttScanning || busy() || staleRefresh || uncertain(engine()) || typeof selectProviderProfile !== 'function') return;
     selected=profile; choosing=true; sent=false; error=''; listKey=''; paint();
     try { await selectProviderProfile(profile); } catch (_) { error=L.failed; }
     finally { choosing=false; paint(); }
   }
   async function refreshRTT() {
     if (rttScanning || busy()) return;
+    if (staleRefresh) {
+      try { await staleRefresh; } catch (_) {}
+    }
+    profileSource();
+    if (rttScanning || busy() || staleRefresh || !rows.length) return;
+    const expectedSourceKey=sourceKey;
+    const expectedCatalog=new Map(rows.map(profile=>[profile.id,profile.endpoint]));
     rttScanning=true; rttError=''; rttSummary=''; listKey=''; paint();
     try {
       if (typeof window.freenetProviderRTTScan!=='function') throw new Error('rtt');
       const data=await window.freenetProviderRTTScan();
-      const next=new Map();
+      profileSource();
+      if (sourceKey!==expectedSourceKey) throw new Error('catalog-changed');
+      const next=new Map(), seen=new Set();
       let reachable=0, checked=0, unknown=0;
       for (const item of data.results) {
-        if (!item || typeof item.profile_id!=='string') continue;
+        if (!item || typeof item.profile_id!=='string') throw new Error('catalog-changed');
+        const id=String(item.profile_id||'').trim(), measuredEndpoint=String(item.endpoint||'').trim();
+        if (!id || seen.has(id) || !expectedCatalog.has(id) || expectedCatalog.get(id)!==measuredEndpoint) throw new Error('catalog-changed');
+        seen.add(id);
         const status=String(item.status||'');
         const attempted=item.attempted!==false && status!=='unknown';
         const value={reachable:!!item.reachable,attempted,status,rtt_ms:Number(item.rtt_ms||0),jitter_ms:Number(item.jitter_ms||0)};
         if (value.reachable) reachable++;
         if (attempted) checked++; else unknown++;
-        next.set(item.profile_id,value);
+        next.set(id,value);
       }
+      if (seen.size!==expectedCatalog.size) throw new Error('catalog-changed');
       rttByID=next; rttRanked=true; rttVersion++;
       const total=data.results.length;
       const serverChecked=Number.isFinite(Number(data.checked))?Number(data.checked):checked;
       const serverUnknown=Number.isFinite(Number(data.unknown))?Number(data.unknown):unknown;
       const serverReachable=Number.isFinite(Number(data.reachable))?Number(data.reachable):reachable;
-      const sourceNote=data.cached?' Использован свежий результат последнего полного измерения.':'';
       rttSummary=data.partial
         ? `VPN-пинг: завершён частично — ответили ${serverReachable} из ${serverChecked}, не проверено ${serverUnknown} из ${total}.`
-        : `VPN-пинг: проверено ${serverChecked} из ${total}, ответили ${serverReachable}. Список отсортирован от меньшей задержки к большей.${sourceNote}`;
-    } catch (_) {
+        : `VPN-пинг: проверено ${serverChecked} из ${total}, ответили ${serverReachable}. Список отсортирован от меньшей задержки к большей.`;
+    } catch (error) {
       rttByID.clear(); rttRanked=false; rttVersion++;
-      rttError=L.pingFailed;
+      rttError=error&&error.message==='catalog-changed'?L.pingCatalogChanged:L.pingFailed;
     } finally {
       rttScanning=false; listKey=''; paint();
     }
@@ -307,7 +320,7 @@
   }
 
   function renderList() {
-    const disabled=rttScanning || busy() || uncertain(engine());
+    const disabled=rttScanning || busy() || !!staleRefresh || uncertain(engine());
     const key=JSON.stringify([sourceKey,search.value,selected?.id,disabled,rttVersion,rttScanning]);
     if (key===listKey) return;
     listKey=key;
@@ -363,7 +376,7 @@
     } else if (busy()) {title=L.busy;}
     footer.dataset.state=state; text(statusText,title); text(detail,note);
     connect.disabled=!canConnect(e); reset.disabled=!selected || busy() || uncertain(e);
-    if (refresh) { refresh.disabled=rttScanning || busy(); refresh.dataset.busy=String(rttScanning); }
+    if (refresh) { refresh.disabled=rttScanning || busy() || !!staleRefresh; refresh.dataset.busy=String(rttScanning); }
     const rttState=q('#fnVpnPickerV2RTTState');
     if (rttState) {
       const message=rttScanning?L.pinging:rttError||rttSummary;
