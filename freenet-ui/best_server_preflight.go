@@ -49,6 +49,7 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 	defer cancelPhase()
 	reportBestServerProgress(ctx, "preflight", 0, len(candidates))
 	items := measureProviderProfileRTT(phaseCtx, candidates, a.probeBestServerProfilePing)
+	storeProviderProfileRTTCache(candidates, items)
 
 	currentIndex := bestServerCurrentCandidateIndex(candidates, currentEndpoint, currentFilter)
 	selectedIndexes := selectBestServerRTTShortlistIndexes(candidates, items, currentIndex)
