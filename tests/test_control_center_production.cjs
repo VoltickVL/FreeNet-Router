@@ -17,7 +17,7 @@ const profiles=Array.from({length:49},(_,i)=>{const[code,city,country]=locations
 const ukraine={id:'fixture-ua',name:'UA Kyiv, Ukraine, Extra',country_code:'ua',address:'192.0.2.250',port:443};
 const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
-let status={version:fixtureVersion,country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
+let status={version:fixtureVersion,country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
 let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict',rttMode='ok';
 const calls=[],unhandled=[],errors=[];
 const P='#fnVpnPickerV2Panel',T='#fnVpnPickerV2Toggle',S='#fnVpnPickerV2Search',R='#fnVpnPickerV2Results',F='#fnVpnPickerV2Footer',C='#fnVpnPickerV2Connect',RTT='#fnVpnPickerV2Refresh',RESIZE='#fnVpnPickerV2Resize';

@@ -71,6 +71,7 @@ jobs:
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
           sh -n tests/test_network_profile_contract.sh
+          sh -n tests/test_retired_network_product.sh
           sh -n tests/test_network_partial_native_recovery.sh
           sh -n tests/test_provider_profile_apply.sh
           sh -n tests/test_provider_route_probe_builtin.sh
@@ -91,8 +92,11 @@ jobs:
       - name: Product bootstrap contract test
         run: sh tests/test_product_bootstrap_contract.sh
 
-      - name: ISP network profile contract test
+      - name: DNS topology contract test
         run: sh tests/test_network_profile_contract.sh
+
+      - name: Retired network product source gate
+        run: sh tests/test_retired_network_product.sh
 
       - name: Partial native control-plane recovery test
         run: sh tests/test_network_partial_native_recovery.sh

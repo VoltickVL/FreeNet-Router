@@ -66,7 +66,7 @@ const countryCatalog = {
 
 const status = {
   version:'0.3.43',country:'Польша',city:'Варшава',country_code:'pl',profile_label:'PL Варшава, Польша, Extra',endpoint:'192.0.2.42:443',
-  xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',recommended_dns_mode:'xkeen',
+  xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',
   setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false,last_action:{success:true}
 };
 

@@ -10,7 +10,6 @@ TROOT="$TMP/opt"; STATE="$TMP/runtime.state"
 mkdir -p "$TROOT/etc/freenet" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$TROOT/etc/init.d" "$TROOT/sbin" "$TROOT/backups"
 
 cat > "$TROOT/etc/freenet/freenet.conf" <<'EOF'
-ISP_ID=vladlink
 DNS_MODE=firmware
 EOF
 cat > "$TROOT/etc/init.d/S05xkeen" <<'EOF'

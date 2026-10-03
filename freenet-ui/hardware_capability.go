@@ -86,16 +86,7 @@ func applySplitDNSMemoryGate(capability hardwareCapabilitiesResponse) {
 		splitDNSMemoryGateReason = ""
 		return
 	}
-
 	splitDNSMemoryGateReason = capability.Reason
-	for _, id := range []string{"vladlink", "alliancetelecom"} {
-		profile, ok := ispProfiles[id]
-		if !ok || profile.RecommendedDNSMode != "xkeen" {
-			continue
-		}
-		profile.RecommendedDNSMode = "firmware"
-		ispProfiles[id] = profile
-	}
 }
 
 func splitDNSSelectionError(dnsMode string) error {

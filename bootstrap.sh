@@ -3,7 +3,7 @@
 # Точка входа продуктовой установки FreeNet Router.
 # Предпосылка: пользователь уже подготовил USB + Entware/OPKG.
 # Дальше этот скрипт устанавливает или сохраняет core stack, ставит FreeNet
-# Control Center, нормализует управляемый cron и передаёт выбор VPN/ISP/DNS
+# Control Center, нормализует управляемый cron и передаёт выбор VPN/DNS
 # браузерному мастеру без скрытых сетевых изменений.
 
 REPO="VoltickVL/FreeNet-Router"
@@ -543,4 +543,4 @@ say "DNS_OUT_PRESENT=$DNS_STATE"
 say 'XKEEN_CORE_REBUILD=NO for existing stack'
 say "BACKUP_APP=$BACKUP_DIR"
 say 'XRAY_CONFIG_DELTA=NONE during app phase'
-say 'NEXT=Open the panel and finish Provider / ISP / DNS setup in browser.'
+say 'NEXT=Open the panel and finish Provider / DNS setup in browser.'

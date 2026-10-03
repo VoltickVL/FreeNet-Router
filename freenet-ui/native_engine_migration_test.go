@@ -305,7 +305,6 @@ esac`)
 
 func legacyMigrationNetworkHelper(marker string) string {
 	return `CONF="$FREENET_CONFIG_FILE"
-ISP="$(sed -n 's/^ISP_ID=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
 DNS="$(sed -n 's/^DNS_MODE=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
 if [ "$1" = plan ]; then
   if [ -f "` + marker + `" ]; then
@@ -315,7 +314,6 @@ if [ "$1" = plan ]; then
   fi
   cat <<EOF
 ========== FreeNet Network Plan ==========
-ISP_ID=$ISP
 DNS_MODE=$DNS
 EFFECTIVE_DNS_MODE=firmware
 SUPPORTED=yes
@@ -350,9 +348,9 @@ func TestNetworkApplyAutoPreparesCanonicalLegacyNativeState(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "helper-applied")
 	t.Setenv("FREENET_NATIVE_DNS_STATE_DIR", stateDir)
 	t.Setenv("FREENET_NETWORK_HELPER", writeFakeNetworkHelper(t, legacyMigrationNetworkHelper(marker)))
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=xkeen\nSETUP_COMPLETE=yes\n")
+	a := testNetworkApp(t, "DNS_MODE=xkeen\nSETUP_COMPLETE=yes\n")
 
-	payload := `{"operation":"network","isp":"rostelecom","dns_mode":"firmware","confirm":true}`
+	payload := `{"operation":"network","dns_mode":"firmware","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
@@ -388,9 +386,9 @@ func TestNetworkApplyAutoPreparesCanonicalLegacyNativeState(t *testing.T) {
 	if !resp.Success || resp.Plan.NativeFilterEngineConfirmRequired {
 		t.Fatalf("obsolete confirmation gate leaked into normal Apply: %+v", resp)
 	}
-	isp, dns := readNetworkProfileConfig(a.cfg.ConfigPath)
-	if isp != "rostelecom" || dns != "firmware" {
-		t.Fatalf("accepted native profile not committed: %s/%s", isp, dns)
+	dns := readDNSModeConfig(a.cfg.ConfigPath)
+	if dns != "firmware" {
+		t.Fatalf("accepted native DNS mode not committed: %s", dns)
 	}
 }
 
@@ -400,9 +398,9 @@ func TestNetworkApplyIgnoresObsoleteManualEngineField(t *testing.T) {
 	t.Setenv("FREENET_NATIVE_DNS_STATE_DIR", stateDir)
 	writeNativeDNSSnapshotForTest(t, stateDir, []byte("// native\n{}\n"))
 	t.Setenv("FREENET_NETWORK_HELPER", writeFakeNetworkHelper(t, legacyMigrationNetworkHelper(marker)))
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=xkeen\nSETUP_COMPLETE=yes\n")
+	a := testNetworkApp(t, "DNS_MODE=xkeen\nSETUP_COMPLETE=yes\n")
 
-	payload := `{"operation":"network","isp":"rostelecom","dns_mode":"firmware","native_filter_engine":"skydns","confirm":true}`
+	payload := `{"operation":"network","dns_mode":"firmware","native_filter_engine":"skydns","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
@@ -419,8 +417,8 @@ func TestNetworkApplyIgnoresObsoleteManualEngineField(t *testing.T) {
 	if err != nil || string(data) != "public\n" {
 		t.Fatalf("obsolete manual field overrode canonical baseline: %q err=%v", data, err)
 	}
-	isp, dns := readNetworkProfileConfig(a.cfg.ConfigPath)
-	if isp != "rostelecom" || dns != "firmware" {
-		t.Fatalf("accepted native profile not committed: %s/%s", isp, dns)
+	dns := readDNSModeConfig(a.cfg.ConfigPath)
+	if dns != "firmware" {
+		t.Fatalf("accepted native DNS mode not committed: %s", dns)
 	}
 }

@@ -42,7 +42,6 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT INT TERM
 TROOT="$TMP/opt"; STATE="$TMP/runtime.state"
 mkdir -p "$TROOT/etc/freenet" "$TROOT/etc/xray/configs" "$TROOT/etc/xray/dat" "$TROOT/etc/init.d" "$TROOT/sbin" "$TROOT/backups"
 cat > "$TROOT/etc/freenet/freenet.conf" <<'EOF'
-ISP_ID=rostelecom
 DNS_MODE=firmware
 EOF
 cat > "$TROOT/etc/init.d/S05xkeen" <<'EOF'
@@ -256,4 +255,4 @@ grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'partial preflight mutated NDM
 grep -q '^NDM_FILTER_ENGINE=public$' "$STATE" || fail 'partial preflight changed filter engine'
 grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'partial preflight changed intercept'
 
-echo 'network profile contract PASS'
+echo 'DNS topology contract PASS'

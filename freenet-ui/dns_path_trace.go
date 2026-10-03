@@ -62,7 +62,7 @@ func (a *app) handleDNSPathTrace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, dnsMode := readNetworkProfileConfig(a.cfg.ConfigPath)
+	dnsMode := readDNSModeConfig(a.cfg.ConfigPath)
 	if dnsMode != "xkeen" {
 		writeJSON(w, http.StatusConflict, dnsPathTraceResponse{Success: false, Host: host, DNSMode: dnsMode, Mutation: "NONE", Error: "DNS path trace доступен только при активном XKeen/Xray DNS"})
 		return

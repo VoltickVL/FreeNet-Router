@@ -296,7 +296,7 @@
       const summary = document.createElement('div');
       summary.id = 'overviewApprovedTop';
       summary.className = 'overview-approved-top';
-      summary.innerHTML = '<div class="overview-approved-fact"><span>Провайдер</span><strong id="topISPValue">—</strong></div><div class="overview-approved-fact"><span>DNS</span><strong id="topDNSValue">—</strong></div>';
+      summary.innerHTML = '<div class="overview-approved-fact"><span>DNS</span><strong id="topDNSValue">—</strong></div>';
       topbar.insertBefore(summary, actions);
     }
     syncOverviewTopbar();
@@ -305,7 +305,6 @@
 
   function renderOverviewTopbarFromStatus(status) {
     if (!status) return;
-    setText(qs('#topISPValue'), status.isp_label || status.isp || 'Не определён');
     setText(qs('#topDNSValue'), dnsLabel(status));
     const state = healthState(status);
     const dot = qs('#topDot');

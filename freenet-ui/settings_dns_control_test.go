@@ -70,12 +70,12 @@ func TestSettingsDNSDirectEgressStateClassifiesAcceptedRepairableAndUnknown(t *t
 
 func TestWriteSettingsDNSProviderKeysPreservesOtherConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
-	before := "ISP_ID=rostelecom\nDNS_MODE=xkeen\nKEEP_ME=preserved\nSPLIT_DIRECT_DNS_PROVIDER=google-doh\n"
+	before := "LEGACY_UNUSED_KEY=preserved\nDNS_MODE=xkeen\nKEEP_ME=preserved\nSPLIT_DIRECT_DNS_PROVIDER=google-doh\n"
 	if err := os.WriteFile(path, []byte(before), 0600); err != nil { t.Fatal(err) }
 	if err := writeSettingsDNSProviderKeys(path, "yandex-doh", "google-doh"); err != nil { t.Fatal(err) }
 	data, err := os.ReadFile(path); if err != nil { t.Fatal(err) }
 	text := string(data)
-	for _, want := range []string{"ISP_ID=rostelecom", "DNS_MODE=xkeen", "KEEP_ME=preserved", "SPLIT_DIRECT_DNS_PROVIDER=yandex-doh", "SPLIT_VPN_DNS_PROVIDER=google-doh"} {
+	for _, want := range []string{"LEGACY_UNUSED_KEY=preserved", "DNS_MODE=xkeen", "KEEP_ME=preserved", "SPLIT_DIRECT_DNS_PROVIDER=yandex-doh", "SPLIT_VPN_DNS_PROVIDER=google-doh"} {
 		if !strings.Contains(text, want) { t.Fatalf("config missing %q: %s", want, text) }
 	}
 }

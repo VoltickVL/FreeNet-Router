@@ -18,7 +18,7 @@ func canonicalNativePlanFixture() string {
 func writeNativeProviderTestConfig(t *testing.T, provider string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "freenet.conf")
-	content := "ISP_ID=rostelecom\nDNS_MODE=firmware\nNATIVE_DNS_PROVIDER=" + provider + "\n"
+	content := "DNS_MODE=firmware\nNATIVE_DNS_PROVIDER=" + provider + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,6 @@ func TestApprovedOverviewReadabilityContract(t *testing.T) {
 	for _, needle := range []string{
 		"FreeNetApprovedOverview",
 		"Текущий VPN",
-		"Провайдер",
 		"DNS",
 		"Проверить текущий VPN",
 		"Подобрать серверы",
@@ -40,5 +39,8 @@ func TestApprovedOverviewDoesNotShowTautologicalAvailability(t *testing.T) {
 	}
 	if strings.Contains(string(b), "FreeNet доступен") {
 		t.Fatal("topbar must report factual VPN/DNS health, not tautological FreeNet availability")
+	}
+	if !strings.Contains(string(b), `summary.innerHTML = '<div class="overview-approved-fact"><span>DNS</span><strong id="topDNSValue">—</strong></div>'`) {
+		t.Fatal("approved Overview must keep the topbar DNS-only")
 	}
 }

@@ -192,7 +192,7 @@
         return;
       }
       exactPlan = pp;
-      selectedCardText(`Готов к подключению: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Проверка пройдена. Можно подключаться. ISP и DNS при этом не изменяются.', 'ready');
+      selectedCardText(`Готов к подключению: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Проверка пройдена. Можно подключаться. DNS при этом не изменяется.', 'ready');
       if (controls && controls.connect) {
         controls.connect.disabled = false;
         controls.connect.textContent = 'Подключиться';
@@ -383,7 +383,7 @@
       if (typeof setSummary === 'function') setSummary('quickActionState', s.country ? (s.country + ' · ' + (s.endpoint || '—')) : 'VPN не определён', healthy ? 'ok' : 'bad');
       if (quickGuard) {
         const dnsLabel = xrayDNS ? 'Раздельный' : 'Прямой';
-        quickGuard.textContent = 'VPN-действия не меняют ISP и DNS. Текущий DNS-режим: ' + dnsLabel + '.';
+        quickGuard.textContent = 'VPN-действия не меняют DNS. Текущий DNS-режим: ' + dnsLabel + '.';
       }
     };
   }
@@ -533,7 +533,7 @@
   const legacyApplyNetworkProfile = applyNetworkProfile;
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-  async function reconcileNetworkTargetAfterConflict(isp, dnsMode) {
+  async function reconcileNetworkTargetAfterConflict(dnsMode) {
     showBox('networkNotice', 'FreeNet уже выполняет операцию. Повторный Apply не запускаем; подтверждаем фактическое состояние…');
     let status = null;
     for (let i = 0; i < 80; i++) {
@@ -544,7 +544,7 @@
     if (!status || status.busy || status.updater_busy) { showBox('networkNotice', 'FreeNet всё ещё выполняет операцию или фактический статус недоступен. Повторный Apply автоматически не запускался.', 'bad'); return; }
     try { await loadNetworkPlan(); } catch (_) { showBox('networkNotice', 'Операция завершилась, но свежий read-only план недоступен. Повторный Apply автоматически не запускался.', 'bad'); return; }
     const plan = lastNetworkPlan;
-    const targetActive = !!(plan && plan.supported && plan.active && plan.isp === isp && plan.dns_mode === dnsMode);
+    const targetActive = !!(plan && plan.supported && plan.active && plan.dns_mode === dnsMode);
     if (targetActive) { showBox('networkNotice', 'Целевое сетевое состояние подтверждено по фактическому read-only плану. Повторный Apply не требовался.', 'ok'); return; }
     if (plan && plan.supported && !plan.active) { showBox('networkNotice', 'Предыдущая операция завершилась, но выбранная цель не применена. План пересчитан по фактическому состоянию. Повторный Apply автоматически не запускался.', 'bad'); return; }
     showBox('networkNotice', 'Фактическое сетевое состояние не подтверждено. Повторный Apply автоматически не запускался.', 'bad');
@@ -552,19 +552,19 @@
 
   async function reconciledNetworkApply() {
     if (networkDirty || !networkPlanReady || networkApplying) return;
-    const isp = el('ispSelect').value; const dnsMode = el('dnsModeSelect').value; const delta = (lastNetworkPlan && lastNetworkPlan.expected_delta) || 'сетевой профиль';
+    const dnsMode = el('dnsModeSelect').value; const delta = (lastNetworkPlan && lastNetworkPlan.expected_delta) || 'сетевой профиль';
     if (!window.confirm('Применить подтверждённый сетевой профиль?\n\n' + delta + '\n\nПри ошибке FreeNet использует транзакционный откат.')) return;
     networkApplying = true; buttonsBusy(true); showBox('networkNotice', 'Применяем сетевой профиль…');
     try {
-      const r = await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'network',isp,dns_mode:dnsMode,confirm:true})});
+      const r = await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'network',dns_mode:dnsMode,confirm:true})});
       if (r.status === 401) { await loadAuthStatus(); return; }
       const j = await r.json();
       if (!r.ok || !j.success) {
-        if (r.status === 409 && String(j.error || '') === 'another FreeNet operation is already running') { await reconcileNetworkTargetAfterConflict(isp,dnsMode); return; }
+        if (r.status === 409 && String(j.error || '') === 'another FreeNet operation is already running') { await reconcileNetworkTargetAfterConflict(dnsMode); return; }
         const parts=[j.error||'Сетевой профиль не применён'];if(j.primary_error)parts.push('ОСНОВНАЯ ОШИБКА: '+j.primary_error);if(j.rollback_state)parts.push('ОТКАТ: '+j.rollback_state);showBox('networkNotice',parts.join('\n'),'bad');return;
       }
       showBox('networkNotice',(j.message||'Сетевой профиль применён')+' Откат: '+(j.rollback_state||'NOT_NEEDED'),'ok');await loadStatus();await loadNetworkPlan(selectedProviderID);
-    } catch (_) { await reconcileNetworkTargetAfterConflict(isp,dnsMode); }
+    } catch (_) { await reconcileNetworkTargetAfterConflict(dnsMode); }
     finally { networkApplying=false;buttonsBusy(!!(lastStatus&&(lastStatus.busy||lastStatus.updater_busy))); }
   }
   applyButton.removeEventListener('click',legacyApplyNetworkProfile);applyNetworkProfile=reconciledNetworkApply;applyButton.addEventListener('click',applyNetworkProfile);
@@ -574,7 +574,7 @@
   const qs=(s,root=document)=>root.querySelector(s);
   const fallbackProviders=[{id:'router-current',label:'Текущие DNS роутера',addresses:[]},{id:'yandex-basic',label:'Яндекс Basic',addresses:['77.88.8.8','77.88.8.1']}];
   let providerTouched=false;
-  function hideLegacyNetworkChoices(){for(const id of ['ispSelect','dnsModeSelect']){const select=qs('#'+id);if(!select)continue;for(const value of ['auto','custom']){const option=select.querySelector(`option[value="${value}"]`);if(!option)continue;option.hidden=true;option.disabled=true;}}const direct=qs('#dnsModeSelect option[value="firmware"]');if(direct)direct.textContent='Прямой';const split=qs('#dnsModeSelect option[value="xkeen"]');if(split)split.textContent='Раздельный';}
+  function hideLegacyNetworkChoices(){for(const id of ['dnsModeSelect']){const select=qs('#'+id);if(!select)continue;for(const value of ['auto','custom']){const option=select.querySelector(`option[value="${value}"]`);if(!option)continue;option.hidden=true;option.disabled=true;}}const direct=qs('#dnsModeSelect option[value="firmware"]');if(direct)direct.textContent='Прямой';const split=qs('#dnsModeSelect option[value="xkeen"]');if(split)split.textContent='Раздельный';}
   function mountNativeDNSProviderField(){const dnsMode=qs('#dnsModeSelect');const hint=qs('#networkHint');if(!dnsMode||!hint||!hint.parentNode)return null;let field=qs('#nativeDNSProviderField');if(!field){field=document.createElement('div');field.id='nativeDNSProviderField';field.className='field';field.style.marginTop='10px';field.innerHTML='<label for="nativeDNSProviderSelect">DNS для режима «Прямой»</label><select id="nativeDNSProviderSelect"></select><div class="hint">«Текущие DNS роутера» сохраняет точный проверенный Native resolver этого роутера. «Яндекс Basic» использует 77.88.8.8 / 77.88.8.1. Named DNS profiles, DoT/DoH и назначения клиентов не переписываются.</div>';hint.parentNode.insertBefore(field,hint.nextSibling);qs('#nativeDNSProviderSelect').addEventListener('change',()=>{providerTouched=true;if(typeof resetSetupFinalizePlan==='function')resetSetupFinalizePlan();const mode=qs('#dnsModeSelect');if(mode)mode.dispatchEvent(new Event('change',{bubbles:true}));});}field.hidden=dnsMode.value!=='firmware';return{field,select:qs('#nativeDNSProviderSelect')};}
   function providerLabel(option){const addresses=Array.isArray(option.addresses)?option.addresses.filter(Boolean):[];return addresses.length?`${option.label} (${addresses.join(' / ')})`:option.label;}
   function syncProviderOptions(){const ui=mountNativeDNSProviderField();if(!ui)return;const plan=typeof lastNetworkPlan!=='undefined'?lastNetworkPlan:null;const options=plan&&Array.isArray(plan.native_dns_provider_options)&&plan.native_dns_provider_options.length?plan.native_dns_provider_options:fallbackProviders;const ids=options.map(option=>String(option.id||'')).filter(Boolean);const currentIDs=Array.from(ui.select.options).map(option=>option.value);const existingValue=ui.select.value;if(ids.join(',')!==currentIDs.join(',')){ui.select.textContent='';options.forEach(item=>{if(!item||!item.id)return;const option=document.createElement('option');option.value=String(item.id);option.textContent=providerLabel(item);ui.select.appendChild(option);});if(ids.includes(existingValue))ui.select.value=existingValue;}if(!providerTouched&&plan&&plan.native_dns_provider&&ids.includes(plan.native_dns_provider))ui.select.value=plan.native_dns_provider;if(!ui.select.value&&ids.includes('yandex-basic'))ui.select.value='yandex-basic';ui.field.hidden=String((qs('#dnsModeSelect')||{}).value||'')!=='firmware';}

@@ -17,7 +17,7 @@ XKeen + Xray + XKeen UI + FreeNet
         ↓
 Browser Setup / Control Center
         ↓
-VPN + ISP/DNS + routing + acceptance
+VPN + DNS + routing + acceptance
 ```
 
 Поддерживаются два основных варианта:
@@ -33,21 +33,14 @@ VPN + ISP/DNS + routing + acceptance
 - хранит VPN subscription только на роутере;
 - применяет VPN-профиль с Xray validation и rollback;
 - разделяет Refresh, Rotate и Failover;
-- отдельно управляет интернет-провайдером и DNS mode;
+- отдельно управляет DNS mode и явными routing rules;
 - поддерживает штатный DNS роутера и явный Split DNS через XKeen/Xray;
 - управляет собственным cron-блоком без удаления чужих заданий;
 - проверяет финальную готовность и автозапуск.
 
-## Профили интернет-провайдеров
+## DNS и routing
 
-Базовая routing policy определяется провайдером, а не названием физической площадки:
-
-- **Владлинк** — YouTube → `DIRECT`;
-- **АльянсТелеком** — YouTube → `DIRECT`;
-- **Ростелеком** — YouTube → `VPN`;
-- **Подряд** — отдельный профиль, правила требуют собственного подтверждения.
-
-Отдельные сервисные исключения добавляются только после подтверждённого требования и acceptance.
+DNS mode настраивается независимо. Routing DIRECT/VPN/BLOCK задаётся только явными правилами и не создаётся автоматически из внешней сетевой принадлежности.
 
 ## Безопасность
 
@@ -84,7 +77,6 @@ Bootstrap сам определяет поддерживаемый сценар�
 
 - [`docs/INSTALL-EXISTING-STACK-RU.md`](docs/INSTALL-EXISTING-STACK-RU.md) — установка поверх существующего XKeen/Xray;
 - [`docs/INSTALL-FROM-SCRATCH-RU.md`](docs/INSTALL-FROM-SCRATCH-RU.md) — установка с чистого Entware;
-- [`docs/ISP-PRESETS-RU.md`](docs/ISP-PRESETS-RU.md) — ISP/DNS/routing policy;
 - [`docs/ARCHITECTURE-RU.md`](docs/ARCHITECTURE-RU.md) — архитектура и границы ответственности;
 - [`docs/RECOVERY-RU.md`](docs/RECOVERY-RU.md) — восстановление и rollback;
 - [`docs/UPSTREAM-PINS-RU.md`](docs/UPSTREAM-PINS-RU.md) — upstream-артефакты и SHA-256;

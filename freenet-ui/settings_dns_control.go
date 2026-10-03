@@ -196,7 +196,7 @@ func settingsDNSDirectEgressState() string {
 }
 
 func settingsDNSControlSnapshot(configPath string) settingsDNSControlResponse {
-	_, activeMode := readNetworkProfileConfig(configPath)
+	activeMode := readDNSModeConfig(configPath)
 	direct := settingsDNSDesiredProvider(configPath, "SPLIT_DIRECT_DNS_PROVIDER", settingsDNSDirectProviderYandex)
 	vpn := settingsDNSDesiredProvider(configPath, "SPLIT_VPN_DNS_PROVIDER", settingsDNSVPNProviderGoogle)
 	activeDirect, activeVPN, runtimeState := settingsDNSRuntimeState()
@@ -460,8 +460,8 @@ func writeSettingsDNSProviderKeys(path, direct, vpn string) error {
 	return os.WriteFile(path, []byte(strings.TrimRight(strings.Join(lines, "\n"), "\n")+"\n"), 0600)
 }
 
-func (a *app) prepareSettingsDNSConfig(isp, mode, nativeProvider, direct, vpn string) (string, error) {
-	draft, err := a.createNetworkDraftConfig(isp, mode, nativeProvider)
+func (a *app) prepareSettingsDNSConfig(mode, nativeProvider, direct, vpn string) (string, error) {
+	draft, err := a.createNetworkDraftConfig(mode, nativeProvider)
 	if err != nil {
 		return "", err
 	}
@@ -537,9 +537,9 @@ func restoreSettingsDNSResolver(backup string) string {
 	return "SUCCESS"
 }
 
-func settingsDNSRollbackNetwork(a *app, isp, mode, nativeProvider string) string {
+func settingsDNSRollbackNetwork(a *app, mode, nativeProvider string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
-	output, err := a.runNetworkApplyFor(ctx, isp, mode, nativeProvider)
+	output, err := a.runNetworkApplyFor(ctx, mode, nativeProvider)
 	cancel()
 	if err != nil {
 		_, rollback := classifyApplyFailure(sanitizeOutput(string(output)))
@@ -548,7 +548,7 @@ func settingsDNSRollbackNetwork(a *app, isp, mode, nativeProvider string) string
 		}
 		return rollback
 	}
-	post, err := a.runNetworkPlanFor(isp, mode, nativeProvider)
+	post, err := a.runNetworkPlanFor(mode, nativeProvider)
 	if err != nil || !post.Active {
 		return "FAILED/UNKNOWN"
 	}
@@ -556,7 +556,7 @@ func settingsDNSRollbackNetwork(a *app, isp, mode, nativeProvider string) string
 }
 
 func (a *app) executeSettingsDNSControl(req settingsDNSControlRequest) (int, settingsDNSControlResponse) {
-	activeISP, activeMode := readNetworkProfileConfig(a.cfg.ConfigPath)
+	activeMode := readDNSModeConfig(a.cfg.ConfigPath)
 	activeNativeProvider := readNativeDNSProvider(a.cfg.ConfigPath)
 	_, _, currentResolverState := settingsDNSRuntimeState()
 	if activeMode == "xkeen" && currentResolverState == "unknown" {
@@ -576,13 +576,13 @@ func (a *app) executeSettingsDNSControl(req settingsDNSControlRequest) (int, set
 		return http.StatusConflict, result
 	}
 
-	stagedConfig, err := a.prepareSettingsDNSConfig(activeISP, req.Mode, activeNativeProvider, req.DirectProvider, req.VPNProvider)
+	stagedConfig, err := a.prepareSettingsDNSConfig(req.Mode, activeNativeProvider, req.DirectProvider, req.VPNProvider)
 	if err != nil {
 		return http.StatusInternalServerError, settingsDNSControlResponse{Success: false, RollbackState: "NOT_APPLIED", Error: "не удалось подготовить целевую DNS-конфигурацию"}
 	}
 	defer os.Remove(stagedConfig)
 
-	plan, planErr := a.runNetworkPlanFor(activeISP, req.Mode, activeNativeProvider)
+	plan, planErr := a.runNetworkPlanFor(req.Mode, activeNativeProvider)
 	if planErr != nil || !plan.Supported || plan.Mutation != "NONE" {
 		primary := "network DNS plan не прошёл read-only validation"
 		if planErr != nil { primary = planErr.Error() } else if plan.Reason != "" { primary = plan.Reason }
@@ -616,7 +616,7 @@ func (a *app) executeSettingsDNSControl(req settingsDNSControlRequest) (int, set
 		resolverBackup, err = settingsDNSResolverSnapshot()
 		if err != nil {
 			rollback := "NOT_APPLIED"
-			if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeISP, activeMode, activeNativeProvider) }
+			if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeMode, activeNativeProvider) }
 			return http.StatusBadGateway, settingsDNSControlResponse{Success: false, PrimaryError: "cannot snapshot active resolver config", RollbackState: rollback, Error: "resolver mutation не началась"}
 		}
 		defer os.RemoveAll(resolverBackup)
@@ -627,7 +627,7 @@ func (a *app) executeSettingsDNSControl(req settingsDNSControlRequest) (int, set
 		cancelPlan()
 		if helperPlanErr != nil || planTimedOut || !strings.Contains(string(planOutput), "MUTATION=NONE") {
 			rollback := "NOT_APPLIED"
-			if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeISP, activeMode, activeNativeProvider) }
+			if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeMode, activeNativeProvider) }
 			primary := "resolver plan failed"
 			if helperPlanErr != nil { primary = helperPlanErr.Error() }
 			return http.StatusBadGateway, settingsDNSControlResponse{Success: false, PrimaryError: primary, RollbackState: rollback, Error: "resolver candidate validation failed"}
@@ -645,29 +645,29 @@ func (a *app) executeSettingsDNSControl(req settingsDNSControlRequest) (int, set
 				return http.StatusBadGateway, settingsDNSControlResponse{Success: false, PrimaryError: primary, RollbackState: "FAILED/UNKNOWN", Error: "resolver rollback не подтверждён; дальнейшая mutation остановлена"}
 			}
 			rollback := helperRollback
-			if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeISP, activeMode, activeNativeProvider) }
+			if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeMode, activeNativeProvider) }
 			return http.StatusBadGateway, settingsDNSControlResponse{Success: false, PrimaryError: primary, RollbackState: rollback, Error: "resolver apply failed"}
 		}
 	}
 
-	post, postErr := a.runNetworkPlanFor(activeISP, req.Mode, activeNativeProvider)
+	post, postErr := a.runNetworkPlanFor(req.Mode, activeNativeProvider)
 	if postErr != nil || !post.Active {
 		rollback := "NOT_NEEDED"
-		if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeISP, activeMode, activeNativeProvider) } else if req.Mode == "xkeen" { rollback = restoreSettingsDNSResolver(resolverBackup) }
+		if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeMode, activeNativeProvider) } else if req.Mode == "xkeen" { rollback = restoreSettingsDNSResolver(resolverBackup) }
 		return http.StatusBadGateway, settingsDNSControlResponse{Success: false, PrimaryError: "post-apply DNS topology acceptance failed", RollbackState: rollback, Error: "DNS runtime не подтверждён"}
 	}
 	if req.Mode == "xkeen" {
 		postDirect, postVPN, postState := settingsDNSRuntimeState()
 		if postState != "accepted" || postDirect != req.DirectProvider || postVPN != req.VPNProvider {
 			rollback := "NOT_NEEDED"
-			if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeISP, activeMode, activeNativeProvider) } else { rollback = restoreSettingsDNSResolver(resolverBackup) }
+			if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeMode, activeNativeProvider) } else { rollback = restoreSettingsDNSResolver(resolverBackup) }
 			return http.StatusBadGateway, settingsDNSControlResponse{Success: false, PrimaryError: "resolver post-check mismatch", RollbackState: rollback, Error: "Активные resolver-ы не совпали с выбранными"}
 		}
 	}
 
 	if err := os.Rename(stagedConfig, a.cfg.ConfigPath); err != nil {
 		rollback := "NOT_NEEDED"
-		if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeISP, activeMode, activeNativeProvider) } else if req.Mode == "xkeen" { rollback = restoreSettingsDNSResolver(resolverBackup) }
+		if topologyChanged { rollback = settingsDNSRollbackNetwork(a, activeMode, activeNativeProvider) } else if req.Mode == "xkeen" { rollback = restoreSettingsDNSResolver(resolverBackup) }
 		return http.StatusBadGateway, settingsDNSControlResponse{Success: false, PrimaryError: "cannot commit accepted DNS product state", RollbackState: rollback, Error: "runtime изменён, но целевая конфигурация не сохранена"}
 	}
 

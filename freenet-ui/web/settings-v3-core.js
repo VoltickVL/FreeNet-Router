@@ -80,17 +80,6 @@
     return button;
   }
 
-  function hideProviderTopbar() {
-    qa('.topbar *').forEach(el => {
-      const text = (el.textContent || '').trim();
-      if ((text === 'Провайдер' || text.includes('Провайдер')) && el.children.length < 8) {
-        let node = el;
-        for (let i = 0; i < 3 && node.parentElement && !node.matches('.topbar-item,.top-stat,.top-chip'); i++) node = node.parentElement;
-        (node.matches('.topbar-item,.top-stat,.top-chip') ? node : el).style.display = 'none';
-      }
-    });
-  }
-
   function rewireNavigation() {
     const nav = q('.sidebar .nav');
     if (!nav) return;
@@ -238,7 +227,7 @@
         </div>
         <section class="fn3-card fn3-extra"><div class="fn3-extra-title"><h2>Системное обслуживание</h2><div class="fn3-sub">Обновления, служебные данные и резервные копии.</div></div><div class="fn3-extra-grid">${extraCard('subscription','subscription','Обновление подписки','Автоматическое обновление данных подписки — списка доступных VPN.','Проверять','Проверить сейчас')}${extraCard('geodata','globe','GeoData / GeoIP','Данные геолокации, используемые для маршрутизации и фильтров.','Обновлять','Обновить сейчас')}${extraCard('freenet','box','Обновление FreeNet','Автоматическая проверка новых версий FreeNet. Установка — только после подтверждения.','Проверять','Проверить сейчас')}${backupCard()}</div><div class="fn3-extra-save-row"><button id="fn3MaintenanceSave" class="btn fn3-extra-save" type="button" disabled>${svg('save')}<span>Сохранено</span></button></div></section>
       </div>
-      <div class="fn3-compat"><select id="fnISP"><option value="custom">Свой</option></select><select id="fnDNS"><option value="firmware">Прямой</option><option value="xkeen">Раздельный</option></select><input id="fnAutoEnabled" type="checkbox"><select id="fnAutoInterval"><option value="manual">Вручную</option></select><input id="fnAutoApply" type="checkbox"><input type="radio" name="fnAutoMode" value="best"><input type="radio" name="fnAutoPolicy" value="degraded"><input type="radio" name="fnCountryScope" value="region"><input id="fnGeoDataEnabled" type="checkbox"><span id="fnGeoDataSchedule"></span><span id="fnAutoEnabledLabel"></span><span id="fnCurrentProfile"></span><span id="fnCurrentProfileSmall"></span><span id="fnCurrentEndpoint"></span><span id="fnCurrentFlag"></span><span id="fnWatchState"></span><span id="fnLastRun"></span><span id="fnLatency"></span><span id="fnSpeed"></span><span id="fnJitter"></span><span id="fnHealthBanner"></span><tbody id="fnJournalBody"></tbody><button id="fnSaveSettings"></button><button id="fnCheckNow"></button></div>
+      <div class="fn3-compat"><select id="fnDNS"><option value="firmware">Прямой</option><option value="xkeen">Раздельный</option></select><input id="fnAutoEnabled" type="checkbox"><select id="fnAutoInterval"><option value="manual">Вручную</option></select><input id="fnAutoApply" type="checkbox"><input type="radio" name="fnAutoMode" value="best"><input type="radio" name="fnAutoPolicy" value="degraded"><input type="radio" name="fnCountryScope" value="region"><input id="fnGeoDataEnabled" type="checkbox"><span id="fnGeoDataSchedule"></span><span id="fnAutoEnabledLabel"></span><span id="fnCurrentProfile"></span><span id="fnCurrentProfileSmall"></span><span id="fnCurrentEndpoint"></span><span id="fnCurrentFlag"></span><span id="fnWatchState"></span><span id="fnLastRun"></span><span id="fnLatency"></span><span id="fnSpeed"></span><span id="fnJitter"></span><span id="fnHealthBanner"></span><tbody id="fnJournalBody"></tbody><button id="fnSaveSettings"></button><button id="fnCheckNow"></button></div>
       <div id="fn3CountryPop" class="fn3-country-pop" hidden></div>`;
   }
 
@@ -609,7 +598,7 @@
   function mountSettings() {
     const page = ensureSettingsPage();
     if (!page) return false;
-    injectStyles(); hideProviderTopbar(); rewireNavigation();
+    injectStyles(); rewireNavigation();
     if (page.dataset.settingsV3 === '1') return true;
     page.dataset.settingsV3 = '1';
     page.classList.add('fn3-page');
@@ -656,7 +645,6 @@
   };
 
   function boot() {
-    hideProviderTopbar();
     rewireNavigation();
     mountSettings();
     if (location.hash.slice(1) === 'settings' && typeof window.setPage === 'function') window.setPage('settings');

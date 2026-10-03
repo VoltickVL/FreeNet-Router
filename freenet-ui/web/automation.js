@@ -98,15 +98,6 @@
     if (networkCard) networkCard.classList.add('fn-routing-source-hidden');
   }
 
-  function removeProviderFact() {
-    const value = q('#topISPValue');
-    value?.closest?.('.overview-approved-fact,.fn-shell-fact,.topbar-item,.top-stat,.top-chip')?.remove();
-    qa('.topbar .overview-approved-fact,.topbar .fn-shell-fact,.topbar-item,.top-stat,.top-chip').forEach(node => {
-      const text = (node.textContent || '').trim();
-      if (/Провайдер|Владлинк|АльянсТелеком|Ростелеком|Подряд/.test(text)) node.remove();
-    });
-  }
-
   function requestedPage() {
     const hash = location.hash.replace(/^#/, '');
     const path = location.pathname.replace(/\/+$/, '').split('/').pop();
@@ -141,7 +132,7 @@
   function settle(attempt = 0) {
     ensureStyles();
     const shell = canonicalShell();
-    canonicalRouting(); removeProviderFact(); activateDirectRoute();
+    canonicalRouting(); activateDirectRoute();
     if (!shell && attempt < 40) setTimeout(() => settle(attempt + 1), 60);
   }
 

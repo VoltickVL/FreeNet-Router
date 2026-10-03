@@ -37,11 +37,11 @@ func TestRotatePostcondition(t *testing.T) {
 }
 
 func TestCountrySwitchAllowsDirectDNSWithoutDNSOut(t *testing.T) {
-	before := statusResponse{CountryCode: "pl", Endpoint: "10.0.0.1:443", DNSOut: false, ISP: "custom", DNSMode: "firmware"}
-	if err := validateActionPostcondition("de", before, statusResponse{CountryCode: "de", Endpoint: "10.0.0.2:443", DNSOut: false, ISP: "custom", DNSMode: "firmware"}); err != nil {
+	before := statusResponse{CountryCode: "pl", Endpoint: "10.0.0.1:443", DNSOut: false, DNSMode: "firmware"}
+	if err := validateActionPostcondition("de", before, statusResponse{CountryCode: "de", Endpoint: "10.0.0.2:443", DNSOut: false, DNSMode: "firmware"}); err != nil {
 		t.Fatalf("country switch with direct DNS rejected: %v", err)
 	}
-	if err := validateActionPostcondition("de", before, statusResponse{CountryCode: "de", Endpoint: "10.0.0.2:443", DNSOut: true, ISP: "custom", DNSMode: "xkeen"}); err != nil {
+	if err := validateActionPostcondition("de", before, statusResponse{CountryCode: "de", Endpoint: "10.0.0.2:443", DNSOut: true, DNSMode: "xkeen"}); err != nil {
 		t.Fatalf("country switch with split DNS rejected: %v", err)
 	}
 }
@@ -62,7 +62,7 @@ func TestCountrySwitchDoesNotUseNetworkProfileMutationSurface(t *testing.T) {
 		t.Fatal("quick VPN action must delegate to the VPN lifecycle helper")
 	}
 	if strings.Contains(body, "writeNetworkProfileConfig") || strings.Contains(body, "applyNetworkProfile") {
-		t.Fatal("quick VPN action must not mutate saved ISP/DNS profile")
+		t.Fatal("quick VPN action must not mutate saved DNS profile")
 	}
 }
 
@@ -104,7 +104,7 @@ func TestRotateUIContract(t *testing.T) {
 	for _, want := range []string{
 		"Обновить профиль",
 		"Сменить сервер",
-		"VPN-действия не меняют ISP и DNS",
+		"VPN-действия не меняют DNS",
 		"Текущий DNS-режим:",
 	} {
 		if !strings.Contains(fix, want) {

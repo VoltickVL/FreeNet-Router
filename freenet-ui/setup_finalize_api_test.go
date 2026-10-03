@@ -29,7 +29,6 @@ func setupFinalizeFakeHelpers(t *testing.T) (string, string, string) {
 	writeExecutableTestFile(t, network, `#!/bin/sh
 [ "${1:-}" = plan ] || exit 2
 cat <<'EOF'
-ISP_ID=rostelecom
 DNS_MODE=firmware
 EFFECTIVE_DNS_MODE=firmware
 SUPPORTED=yes
@@ -156,7 +155,7 @@ MUTATION=NONE
 func TestSetupFinalizePlanIsAttachedToReadOnlyNetworkPlan(t *testing.T) {
 	_, _, _ = setupFinalizeFakeHelpers(t)
 	configPath := filepath.Join(t.TempDir(), "freenet.conf")
-	if err := os.WriteFile(configPath, []byte("ISP_ID=rostelecom\nDNS_MODE=firmware\n"), 0600); err != nil {
+	if err := os.WriteFile(configPath, []byte("DNS_MODE=firmware\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	a := &app{cfg: config{ConfigPath: configPath, Timeout: 5 * time.Second}, sem: make(chan struct{}, 1)}

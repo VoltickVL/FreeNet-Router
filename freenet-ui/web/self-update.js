@@ -349,7 +349,7 @@
         kicker: 'VPN · точный Extra-профиль',
         title: selectedProviderName,
         body: 'Кандидат проверен без изменений runtime. После подтверждения FreeNet применит профиль транзакционно, перезапустит VPN при необходимости и перечитает фактическое состояние без перехода на отдельную страницу.',
-        meta: `Endpoint: ${pp.endpoint || formatProfileEndpoint(p)}\nИзменится: ${pp.expected_delta || 'точный VPN-профиль'}\nНе изменится: ISP, DNS и routing policy`,
+        meta: `Endpoint: ${pp.endpoint || formatProfileEndpoint(p)}\nИзменится: ${pp.expected_delta || 'точный VPN-профиль'}\nНе изменится: DNS и routing policy`,
         confirmText: 'Применить профиль',
         cancelText: 'Отмена',
         onConfirm: () => applyExactProfileFromOverview(p, pp)
@@ -765,15 +765,14 @@
 
   function mountNetworkDraftFlow() {
     const page = qs('[data-page-view="network"]');
-    const isp = qs('#ispSelect');
     const dns = qs('#dnsModeSelect');
     const oldSave = qs('#saveNetworkBtn');
     const oldPlan = qs('#planNetworkBtn');
     const oldApply = qs('#applyNetworkBtn');
-    if (!page || !isp || !dns || !oldPlan || !oldApply) return;
+    if (!page || !dns || !oldPlan || !oldApply) return;
 
     const intro = qs('.page-head p', page);
-    if (intro) intro.textContent = 'Выберите интернет-провайдера и DNS. Сначала FreeNet проверит изменения без записи настроек, затем применит их одной транзакцией.';
+    if (intro) intro.textContent = 'Выберите режим DNS. Сначала FreeNet проверит изменения без записи настроек, затем применит их одной транзакцией.';
     if (oldSave) oldSave.hidden = true;
     const firmwareOption = dns.querySelector('option[value="firmware"]');
     if (firmwareOption) firmwareOption.textContent = 'Прямой';
@@ -788,7 +787,6 @@
 
     const draftParams = (profileID = '') => {
       const q = new URLSearchParams();
-      q.set('isp', isp.value);
       q.set('dns_mode', dns.value);
       if (profileID) q.set('provider_profile_id', profileID);
       return q.toString();
@@ -868,9 +866,9 @@
       if (networkDirty || !networkPlanReady || networkApplying) return;
       const delta = (lastNetworkPlan && lastNetworkPlan.expected_delta) || 'выбранный сетевой профиль';
       openModal({
-        kicker: 'Сеть · ISP / DNS',
+        kicker: 'Сеть · DNS',
         title: 'Применить проверенные настройки?',
-        body: 'FreeNet сначала сделает резервную копию. Активный ISP/DNS будет сохранён только после успешной проверки результата.',
+        body: 'FreeNet сначала сделает резервную копию. Активный DNS-профиль будет сохранён только после успешной проверки результата.',
         meta: `Изменится: ${delta}`,
         confirmText: 'Применить',
         onConfirm: async () => {
@@ -882,7 +880,7 @@
             const r = await fetch('/api/network-profile/apply', {
               method: 'POST',
               headers: {'Content-Type':'application/json'},
-              body: JSON.stringify({operation: 'network', isp: isp.value, dns_mode: dns.value, confirm: true})
+              body: JSON.stringify({operation: 'network', dns_mode: dns.value, confirm: true})
             });
             if (r.status === 401) {
               closeModal();
@@ -904,7 +902,6 @@
             showBox('networkNotice', j.message || 'Сетевые настройки применены и проверены.', 'ok');
             const s = await loadStatus();
             if (s) {
-              isp.value = s.isp || j.isp || isp.value;
               dns.value = s.dns_mode || j.dns_mode || dns.value;
             }
             await loadNetworkPlan(selectedProviderID);
@@ -935,7 +932,6 @@
     planButton.addEventListener('click', () => loadNetworkPlan(selectedProviderID));
     applyNetworkProfile = applyDraft;
     applyButton.addEventListener('click', applyDraft);
-    isp.addEventListener('change', markDraft);
     dns.addEventListener('change', markDraft);
     renderNetworkControls(false);
   }

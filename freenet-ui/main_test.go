@@ -76,59 +76,42 @@ func TestVPNPostconditionAllowsDirectDNSWithoutDNSOut(t *testing.T) {
 	}
 }
 
-func TestNetworkProfileConfigRoundTripPreservesOtherSettings(t *testing.T) {
+func TestDNSModeConfigRoundTripPreservesUnknownSettings(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "freenet.conf")
-	before := "UI_PORT=1001\nAUTO_ENDPOINT_UPDATE=yes\nISP_ID=auto\nDNS_MODE=auto\n"
+	before := "UI_PORT=1001\nAUTO_ENDPOINT_UPDATE=yes\nLEGACY_UNUSED_KEY=preserved\nDNS_MODE=auto\n"
 	if err := os.WriteFile(p, []byte(before), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeNetworkProfileConfig(p, "rostelecom", "firmware"); err != nil {
+	if err := writeDNSModeConfig(p, "firmware"); err != nil {
 		t.Fatal(err)
 	}
-	isp, dnsMode := readNetworkProfileConfig(p)
-	if isp != "rostelecom" || dnsMode != "firmware" {
-		t.Fatalf("got isp=%q dns=%q", isp, dnsMode)
+	if dnsMode := readDNSModeConfig(p); dnsMode != "firmware" {
+		t.Fatalf("dns=%q", dnsMode)
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(b)
-	for _, keep := range []string{"UI_PORT=1001", "AUTO_ENDPOINT_UPDATE=yes"} {
+	for _, keep := range []string{"UI_PORT=1001", "AUTO_ENDPOINT_UPDATE=yes", "LEGACY_UNUSED_KEY=preserved", "DNS_MODE=firmware"} {
 		if !strings.Contains(text, keep) {
-			t.Fatalf("config lost unrelated setting %q: %s", keep, text)
+			t.Fatalf("config lost setting %q: %s", keep, text)
 		}
+	}
+	if strings.Count(text, "LEGACY_UNUSED_KEY=") != 1 {
+		t.Fatalf("unknown config keys must be preserved verbatim, not rewritten: %s", text)
 	}
 }
 
-func TestNetworkProfileDefaultsAndIndependentISPRecords(t *testing.T) {
-	isp, dnsMode := readNetworkProfileConfig(filepath.Join(t.TempDir(), "missing.conf"))
-	if isp != "auto" || dnsMode != "auto" {
-		t.Fatalf("defaults isp=%q dns=%q", isp, dnsMode)
+func TestDNSModeDefaultsWithoutLegacyNetworkProductModel(t *testing.T) {
+	if dnsMode := readDNSModeConfig(filepath.Join(t.TempDir(), "missing.conf")); dnsMode != "auto" {
+		t.Fatalf("default dns=%q", dnsMode)
 	}
-
-	// Безопасная продуктовая рекомендация одинакова для любого ISP:
-	// штатный DNS Keenetic. Split DNS остаётся только явным выбором пользователя.
-	for _, id := range []string{"auto", "vladlink", "alliancetelecom", "rostelecom", "podryad", "custom"} {
-		meta, ok := ispProfiles[id]
-		if !ok {
-			t.Fatalf("missing ISP record %q", id)
-		}
-		if meta.RecommendedDNSMode != "firmware" {
-			t.Fatalf("ISP %q mode=%q want firmware", id, meta.RecommendedDNSMode)
-		}
-	}
-	if ispProfiles["vladlink"].Label == ispProfiles["alliancetelecom"].Label {
-		t.Fatal("Vladlink and AllianceTelecom must remain separate records")
-	}
-	if ispProfiles["rostelecom"].Label == ispProfiles["podryad"].Label {
-		t.Fatal("Rostelecom and Podryad must remain separate records")
-	}
-	if dnsModes["auto"] != "Авто (штатный DNS)" {
+	if dnsModes["auto"] != "Авто" {
 		t.Fatalf("auto DNS label=%q", dnsModes["auto"])
 	}
-	if dnsModes["xkeen"] != "Split DNS через VPN (XKeen/Xray)" {
+	if dnsModes["xkeen"] != "XKeen/Xray DNS" {
 		t.Fatalf("xkeen DNS label=%q", dnsModes["xkeen"])
 	}
 }
@@ -218,7 +201,7 @@ func TestRunCommandDoesNotHangOnInheritedOutputPipe(t *testing.T) {
 }
 
 func TestStatusJSONDoesNotExposeSecrets(t *testing.T) {
-	s := statusResponse{Version: "0.2.1", CountryCode: "de", Country: "Германия", City: "Frankfurt", Endpoint: "1.2.3.4:443", ISP: "vladlink", DNSMode: "xkeen", SubscriptionConfigured: true}
+	s := statusResponse{Version: "0.2.1", CountryCode: "de", Country: "Германия", City: "Frankfurt", Endpoint: "1.2.3.4:443", DNSMode: "xkeen", SubscriptionConfigured: true}
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)

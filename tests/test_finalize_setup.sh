@@ -44,7 +44,6 @@ cat > "$CONF" <<'EOF'
 UI_PORT=1001
 INSTALL_SCENARIO=existing_stack
 SETUP_COMPLETE=no
-ISP_ID=rostelecom
 DNS_MODE=xkeen
 AUTO_VPN_V1=no
 AUTO_VPN_MODE=best
