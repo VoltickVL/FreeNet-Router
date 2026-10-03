@@ -534,7 +534,23 @@ func automationPostUpdateGuardResult(a *app, first automationHealthProbe) (autom
 	return automationHealthResult{State: automationHealthUncertain, Reason: reason}, true
 }
 
-func automationRollbackGuardResult(first automationHealthProbe) (automationHealthResult, bool) {
+func automationRollbackStateKnownFailed(a *app, first automationHealthProbe) bool {
+	if a == nil || first.State != automationHealthFailed {
+		return false
+	}
+	_, activeEndpoint, ok := readBestServerActiveOutbound(a.cfg.OutPath)
+	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+	if !ok || currentEndpoint == "" || !endpointsEqual(activeEndpoint, currentEndpoint) {
+		return false
+	}
+	// The provider transaction owns outbound + exact active filter as one
+	// rollback unit. Do not retire an unknown rollback latch unless both pieces
+	// are factually readable and identify the same current logical VPN state.
+	return strings.TrimSpace(readBestServerCurrentFilter(a.cfg.FilterPath)) != "" &&
+		strings.TrimSpace(currentExactProfileLabel(a.cfg.FilterPath)) != ""
+}
+
+func automationRollbackGuardResult(a *app, first automationHealthProbe) (automationHealthResult, bool) {
 	if !automationMutationBlockedState() {
 		return automationHealthResult{}, false
 	}
@@ -545,7 +561,19 @@ func automationRollbackGuardResult(first automationHealthProbe) (automationHealt
 		appendAutomationHistoryV2("guard_cleared", reason)
 		return automationHealthResult{State: automationHealthHealthy, Reason: reason}, true
 	}
-	reason := "AUTO VPN mutation заблокирована после неподтверждённого rollback. Read-only проверка ещё не подтвердила рабочее фактическое состояние; изменений нет."
+	if automationRollbackStateKnownFailed(a, first) {
+		// UNKNOWN rollback means STOP only until the factual state is known.
+		// A deterministic failed probe over a readable outbound + exact filter
+		// establishes that state without mutation. Clear only the stale latch;
+		// normal health logic must still confirm WAN + a second failed VPN probe
+		// before any recovery is allowed.
+		setAutomationMutationBlocked(false)
+		reason := "После неподтверждённого rollback фактическое состояние установлено read-only как known failed; stale mutation block снят, дальнейшее recovery требует обычного двойного подтверждения."
+		appendAutomationRecoveryStage("rollback_guard", "reconciled_failed", reason)
+		appendAutomationHistoryV2("guard_reconciled_failed", reason)
+		return automationHealthResult{}, false
+	}
+	reason := "AUTO VPN mutation заблокирована после неподтверждённого rollback. Read-only проверка не установила однозначное фактическое состояние; изменений нет."
 	if strings.TrimSpace(first.Reason) != "" {
 		reason += " " + strings.TrimSpace(first.Reason)
 	}
@@ -570,7 +598,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
-	if guarded, blocked := automationRollbackGuardResult(first); blocked {
+	if guarded, blocked := automationRollbackGuardResult(a, first); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
@@ -595,7 +623,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
-	if guarded, blocked := automationRollbackGuardResult(first); blocked {
+	if guarded, blocked := automationRollbackGuardResult(a, first); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
