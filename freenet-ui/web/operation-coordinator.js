@@ -336,9 +336,8 @@
 
   function metric(candidate, key) {
     if (!candidate) return '—';
-    if (key === 'speed' || key === 'fallback_speed') {
-      const raw = key === 'fallback_speed' ? candidate.fallback_download_mbps : candidate.download_mbps;
-      const n = Number(raw || 0);
+    if (key === 'speed') {
+      const n = Number(candidate.download_mbps || 0);
       return n > 0 ? `${n.toFixed(n >= 100 ? 0 : 1)} Мбит/с` : '—';
     }
     if (key === 'http') return candidate.application_rtt_ms ? `${candidate.application_rtt_ms} мс` : '—';
@@ -377,20 +376,7 @@
     if (!root) return;
     root.textContent = '';
     const strictSpeed = Number(candidate?.download_mbps || 0) > 0 && candidate?.throughput_source === 'strict_aggregate';
-    const fallbackSpeed = Number(candidate?.fallback_download_mbps || 0) > 0 && candidate?.throughput_source === 'current_fallback';
-    if (fallbackSpeed && !strictSpeed) {
-      const fallbackPill = metricPill('Быстрый замер', metric(candidate, 'fallback_speed'), 'fallback_speed', false);
-      const valueLine = fallbackPill.querySelector('.metric-value-line');
-      if (valueLine) {
-        const note = document.createElement('span');
-        note.className = 'metric-delta';
-        note.textContent = 'не для сравнения';
-        valueLine.appendChild(note);
-      }
-      root.appendChild(fallbackPill);
-    } else {
-      root.appendChild(metricPill('Скорость VPN', metric(candidate, 'speed'), 'speed', strictSpeed && candidate?.eligible === true));
-    }
+    root.appendChild(metricPill('Скорость VPN', metric(candidate, 'speed'), 'speed', strictSpeed && candidate?.eligible === true));
     root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline)));
     const hasVPNPing = Number(candidate?.vpn_rtt_ms || 0) > 0;
     root.appendChild(metricPill(hasVPNPing ? 'VPN-пинг' : 'Связь с сервером', hasVPNPing ? metric(candidate, 'vpn') : metric(candidate, 'tcp'), 'tcp', false));
@@ -454,9 +440,6 @@
     } else if (latencyOnlyWarning(candidate)) {
       box.className = 'current-health warning';
       box.textContent = 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nАвтоматическое переключение на такой профиль запрещено.';
-    } else if (Number(candidate?.fallback_download_mbps || 0) > 0 && candidate?.throughput_source === 'current_fallback') {
-      box.className = 'current-health neutral';
-      box.textContent = 'VPN доступен. Строгий сравнимый замер скорости не получен.\nБыстрый контроль канала не участвует в выборе Best Server/AUTO VPN.';
     } else {
       box.className = 'current-health neutral';
       box.textContent = 'VPN доступен, но часть критериев качества не пройдена.';
@@ -482,19 +465,14 @@
     const time = Number.isNaN(stamp.getTime()) ? '' : stamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
     if (shown) {
       const strictMeasured = Number(shown.download_mbps) > 0 && shown.throughput_source === 'strict_aggregate';
-      const fallbackMeasured = Number(shown.fallback_download_mbps) > 0 && shown.throughput_source === 'current_fallback';
-      const speedSuffix = strictMeasured
-        ? ' · ' + metric(shown, 'speed')
-        : fallbackMeasured
-          ? ' · быстрый контроль ' + metric(shown, 'fallback_speed')
-          : '';
+      const speedSuffix = strictMeasured ? ' · ' + metric(shown, 'speed') : '';
       setText(qs('#bestCurrentQuality'), `Последняя проверка: ${time || 'сейчас'}${speedSuffix}`);
       setText(qs('#bestServerStatus'), candidate ? 'Проверка текущего VPN завершена.' : 'Проверка текущего VPN завершена. Показан последний подтверждённый замер.');
     } else {
       setText(qs('#bestCurrentQuality'), 'Недостаточно данных для оценки');
       setText(qs('#bestServerStatus'), 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
     }
-    if (shown?.download_issue && Number(shown.download_mbps || 0) <= 0 && Number(shown.fallback_download_mbps || 0) <= 0) {
+    if (shown?.download_issue && Number(shown.download_mbps || 0) <= 0) {
       setText(qs('#bestCurrentQuality'), 'Замер скорости: ' + shown.download_issue);
     }
   }
