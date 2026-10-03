@@ -18,7 +18,16 @@ EOF
 cat > "$TMP/bin/curl" <<'EOF'
 #!/bin/sh
 case " $* " in
-  *" --socks5-hostname "*) printf '204'; exit 0 ;;
+  *" --socks5-hostname "*)
+    TARGET=""
+    for ARG in "$@"; do TARGET="$ARG"; done
+    case "${FAKE_ROUTE_MODE:-pass}:$TARGET" in
+      one-fail:*gstatic.com*) exit 7 ;;
+      two-fail:*gstatic.com*|two-fail:*cp.cloudflare.com*) exit 7 ;;
+    esac
+    printf '204'
+    exit 0
+    ;;
 esac
 cat "$FAKE_SUB_FIXTURE"
 EOF
@@ -98,6 +107,7 @@ PROFILE_ID="$(printf '%s|%s|%s|%s|%s|%s' "$PROFILE_NAME" 'reality' 'tcp' 'exampl
 PATH="$TMP/bin:$PATH" \
 FAKE_SUB_FIXTURE="$TMP/sub.fixture" \
 FAKE_XRAY_LISTENER_FILE="$TMP/probe-listener.port" \
+FAKE_ROUTE_MODE="one-fail" \
 FREENET_SUB_FILE="$TMP/sub.url" \
 FREENET_CONFIG_DIR="$TMP/configs" \
 FREENET_ASSET_DIR="$TMP/dat" \
@@ -126,9 +136,34 @@ if grep -Eq 'TEST-ID-A|TEST-PBK-A|TEST-SID-A|private-token|vless://' "$TMP/plan.
 fi
 
 
+OUT_HASH_BEFORE="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+if PATH="$TMP/bin:$PATH" \
+FAKE_SUB_FIXTURE="$TMP/sub.fixture" \
+FAKE_XRAY_LISTENER_FILE="$TMP/probe-listener.port" \
+FAKE_ROUTE_MODE="two-fail" \
+FREENET_SUB_FILE="$TMP/sub.url" \
+FREENET_CONFIG_DIR="$TMP/configs" \
+FREENET_ASSET_DIR="$TMP/dat" \
+FREENET_PROFILE_FILE="$TMP/etc/vpn_profile_name" \
+FREENET_FILTER_FILE="$TMP/profile.filter" \
+FREENET_AUTOMATION_HISTORY="$TMP/history.log" \
+FREENET_PROVIDER_SUBSCRIPTION_CACHE="$TMP/provider-subscription.lkg" \
+FREENET_PROVIDER_SUBSCRIPTION_SOURCE="$TMP/provider-subscription.source" \
+FREENET_XRAY_BIN="$TMP/bin/xray" \
+FREENET_XKEEN_BIN="$TMP/bin/xkeen" \
+FREENET_LOCK_DIR="$TMP/vpn-mutation.lock" \
+FREENET_CURL_BIN="$TMP/bin/curl" \
+FREENET_PROVIDER_ROUTE_PROBE_BIN="" \
+sh "$SCRIPT" plan "$PROFILE_ID" > "$TMP/two-fail.out" 2> "$TMP/two-fail.err"; then
+    fail 'two-origin application failure unexpectedly passed readiness'
+fi
+[ "$OUT_HASH_BEFORE" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'failed quorum plan mutated live outbound'
+grep -Fq 'candidate VPN application route validation failed' "$TMP/two-fail.err" || fail 'failed quorum reason missing'
+
 PATH="$TMP/bin:$PATH" \
 FAKE_SUB_FIXTURE="$TMP/sub.fixture" \
 FAKE_XRAY_LISTENER_FILE="$TMP/probe-listener.port" \
+FAKE_ROUTE_MODE="one-fail" \
 FREENET_SUB_FILE="$TMP/sub.url" \
 FREENET_CONFIG_DIR="$TMP/configs" \
 FREENET_ASSET_DIR="$TMP/dat" \
