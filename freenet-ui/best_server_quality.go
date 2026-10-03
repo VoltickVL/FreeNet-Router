@@ -187,10 +187,6 @@ func rankBestServerQualityCandidates(
 		results[index].Available = true
 		results[index].DownloadIssue = probe.DownloadIssue
 		results[index].MediaIssue = probe.Media.Issue
-		results[index].ThroughputSource = probe.ThroughputSource
-		if probe.FallbackDownloadMbps > 0 {
-			results[index].FallbackDownloadMbps = roundBestServerMbps(probe.FallbackDownloadMbps)
-		}
 		results[index].ApplicationMS = probe.HTTP.Median
 		results[index].JitterMS = probe.HTTP.Jitter
 		results[index].HTTPSamples = len(probe.HTTP.Samples)
@@ -202,6 +198,7 @@ func rankBestServerQualityCandidates(
 		results[index].ServiceTotal = probe.Media.ServiceTotal
 		if probe.DownloadOK {
 			results[index].DownloadMbps = roundBestServerMbps(probe.DownloadMbps)
+			results[index].ThroughputSource = bestServerThroughputStrictAggregate
 		}
 		results[index].Eligible = eligibleBestServerQuality(results[index])
 
