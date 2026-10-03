@@ -227,8 +227,8 @@ func TestOverviewTopbarSyncDoesNotUseArrayIndexAsQueryRoot(t *testing.T) {
 	if strings.Contains(js, ".map(qs)") {
 		t.Fatal("Array.map(qs) passes numeric array index as qs root and breaks topbar synchronization")
 	}
-	if strings.Contains(js, "#topISPValue") || strings.Contains(js, ">Провайдер<") {
-		t.Fatal("retired ISP product status must not return to Overview/topbar")
+	if !strings.Contains(js, `summary.innerHTML = '<div class="overview-approved-fact"><span>DNS</span><strong id="topDNSValue">—</strong></div>'`) {
+		t.Fatal("approved Overview topbar must contain the DNS fact only")
 	}
 	for _, want := range []string{"syncOverviewTopbar", "#topDNSValue"} {
 		if !strings.Contains(js, want) {
