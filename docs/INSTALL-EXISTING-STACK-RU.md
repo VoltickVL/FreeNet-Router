@@ -1,80 +1,62 @@
 # Установка FreeNet поверх существующего XKeen/Xray
 
-Эта инструкция предназначена для роутера, где уже работают Entware, XKeen и Xray. Она не привязана к конкретному месту установки или названию площадки.
+Главная пошаговая инструкция находится в корневом [README.md](../README.md). Здесь зафиксирован existing-stack contract.
 
-## Нормальный пользовательский сценарий
+## Предпосылка
 
-1. Войти в Entware shell:
+На роутере уже есть:
+
+- Entware/OPKG;
+- полный рабочий XKeen/Xray stack;
+- Xray configs, которые проходят validation.
+
+Ручной preflight через SSH не требуется: bootstrap должен сам определить состояние.
+
+## Одна команда
 
 ```sh
-exec /opt/bin/sh
+/opt/bin/opkg update && /opt/bin/opkg install ca-bundle curl && /opt/bin/curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh -o /tmp/freenet-bootstrap.sh && /opt/bin/sh /tmp/freenet-bootstrap.sh
 ```
 
-2. Запустить установщик текущего опубликованного релиза:
-
-```sh
-curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh | /opt/bin/sh
-```
-
-3. Bootstrap сам классифицирует окружение.
-
-Ожидаемый режим для уже работающего стека:
+Ожидаемая классификация полного существующего стека:
 
 ```text
 MODE=READY_EXISTING_STACK
 ```
 
-В этом режиме FreeNet сохраняет существующие XKeen/Xray и не должен переписывать рабочие VLESS credentials или перестраивать core «с нуля».
+В этом режиме FreeNet не переустанавливает working XKeen/Xray core. Недостающие userland tools для самого FreeNet могут быть доставлены targeted `opkg install`.
 
-Если bootstrap получает частичное или противоречивое состояние, он обязан остановиться до опасной mutation. Ручное «доустанавливать недостающее» вместо разбора причины не нужно.
+## Что должно сохраниться
+
+FreeNet не должен без необходимости менять:
+
+- VLESS UUID / Reality credentials;
+- subscription secret;
+- рабочие Xray configs;
+- выбранный VPN;
+- unrelated cron;
+- existing core binaries.
+
+App-фаза делает snapshot Xray configs и проверяет, что установка самого Control Center их не переписала.
+
+## Partial state
+
+Если состояние неполное или противоречивое:
+
+```text
+MODE=NEEDS_REVIEW
+```
+
+Установка останавливается до mutation. Не надо вручную «доустанавливать Xray» только для обхода STOP.
 
 ## После bootstrap
 
-Открыть выведенный установщиком адрес FreeNet Control Center, по умолчанию:
+Открыть:
 
 ```text
 http://<LAN-IP>:1001/
 ```
 
-Дальше настройка выполняется через браузер:
+Дальше subscription/VPN/DNS/routing/Automation управляются через Browser Setup/Control Center.
 
-1. сохранить subscription;
-2. выбрать Extra VPN-профиль;
-3. применить выбранный профиль;
-4. выбрать DNS mode;
-5. проверить сетевой план;
-6. завершить настройку после успешного read-only плана.
-
-## DNS и routing
-
-DNS mode выбирается отдельно от VPN. Routing DIRECT/VPN/BLOCK задаётся только явными правилами Management.
-
-## Что установщик обязан сохранять
-
-При существующем рабочем стеке FreeNet не должен без необходимости менять:
-
-- VLESS UUID и Reality credentials;
-- subscription secret;
-- существующие non-DNS routing rules;
-- XKeen/Xray core;
-- чужие cron-задачи.
-
-Перед собственными изменениями FreeNet делает backup, проверяет candidate и при ошибке после mutation выполняет rollback.
-
-## Диагностика
-
-Отдельный `doctor.sh` остаётся read-only диагностическим инструментом. Для нормальной пользовательской установки обязательный ручной preflight не требуется: безопасную классификацию должен выполнять сам bootstrap.
-
-Если bootstrap остановился с ошибкой или сообщил неизвестное состояние, не запускать его повторно вслепую. Сначала установить фактическую причину и состояние rollback.
-
-## Финальный acceptance
-
-После завершения Browser Setup должны быть подтверждены:
-
-- Xray работает и конфигурация валидна;
-- выбранный VPN-профиль применён;
-- DNS-профиль принят;
-- XKeen autostart включён;
-- FreeNet-managed cron сформирован без потери чужих заданий;
-- FreeNet UI доступен в LAN;
-- после отдельной контролируемой перезагрузки автозапуск и routing сохраняются.
+При любой операции rollback result является отдельным фактом. `FAILED/UNKNOWN` = STOP.

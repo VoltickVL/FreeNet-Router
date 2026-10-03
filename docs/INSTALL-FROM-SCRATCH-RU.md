@@ -1,119 +1,81 @@
 # Установка FreeNet Router с чистого Entware
 
-Эта инструкция описывает универсальный путь для нового Keenetic/Netcraze после подготовки USB и Entware. Она не привязана к конкретному адресу или площадке.
+Главная пошаговая инструкция теперь находится в корневом [README.md](../README.md). Этот файл фиксирует технический clean-install contract.
 
-## 1. Подготовить Entware
+## До FreeNet
 
-До FreeNet должны быть готовы:
+На роутере должны быть готовы только:
 
-- USB-накопитель с поддерживаемой файловой системой;
-- компонент OPKG/Entware в прошивке роутера;
-- рабочий `/opt`;
-- рабочий `opkg`.
+- USB-раздел EXT4;
+- компонент Open Package support / OPKG;
+- установленный Entware;
+- рабочие `/opt` и `/opt/bin/opkg`.
 
-Архитектуру и Entware-пакет нужно выбирать по официальной документации конкретной модели, а не по памяти.
+Отдельная ОС на USB не ставится.
 
-## 2. Войти в Entware shell
+Официальные инструкции:
+
+- Keenetic: https://support.keenetic.com/titan/kn-1811/en/20980-installing-the-entware-repository-on-a-usb-drive.html
+- Netcraze: https://support.netcraze.ru/giga/nc-1012/ru/20980-installing-the-entware-repository-on-a-usb-drive.html
+- EXT4: https://support.keenetic.com/hero/kn-1011/en/21024-using-the-ext4-file-system-on-usb-drives.html
+
+Архив Entware выбирается по официальной инструкции конкретной модели, а не по памяти.
+
+## Одна команда после Entware
 
 ```sh
-exec /opt/bin/sh
+/opt/bin/opkg update && /opt/bin/opkg install ca-bundle curl && /opt/bin/curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh -o /tmp/freenet-bootstrap.sh && /opt/bin/sh /tmp/freenet-bootstrap.sh
 ```
 
-## 3. Запустить bootstrap
+Bootstrap сам доставляет недостающие userland tools через targeted `opkg install`. Global `opkg upgrade` запрещён.
 
-Для обычной установки используется текущий опубликованный релиз:
+## Clean-install contract
 
-```sh
-curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh | /opt/bin/sh
-```
-
-Bootstrap сам проверяет окружение и выбирает поддерживаемый сценарий.
-
-Основные режимы:
-
-- `ENTWARE_ONLY` — чистый Entware; FreeNet может установить pinned XKeen/Xray/XKeen UI;
-- `READY_EXISTING_STACK` — рабочий XKeen/Xray уже есть; core сохраняется;
-- `NEEDS_REVIEW` — частичное или противоречивое состояние; установка останавливается;
-- `NO_ENTWARE` / `UNSUPPORTED_ARCH` — установка не начинается.
-
-Не нужно вручную ставить XKeen/Xray «в помощь» bootstrap и обходить `NEEDS_REVIEW`.
-
-## 4. Что делает bootstrap
-
-В поддерживаемом сценарии он:
-
-1. проверяет архитектуру и необходимые инструменты;
-2. скачивает release assets;
-3. сверяет SHA-256;
-4. при чистом Entware ставит только необходимые зависимости и pinned core;
-5. при существующем рабочем стеке сохраняет его;
-6. устанавливает FreeNet UI/manager/helpers;
-7. проверяет Xray и FreeNet UI;
-8. выводит адрес Control Center.
-
-При ошибке после mutation должен выполняться rollback. Основная ошибка и состояние отката сообщаются раздельно.
-
-## 5. Browser Setup
-
-После успешного bootstrap открыть:
+Ожидаемый режим:
 
 ```text
-http://<LAN-IP>:1001/
+MODE=ENTWARE_ONLY
 ```
 
-Дальше настройка выполняется через браузер:
+FreeNet:
 
-1. сохранить VPN subscription;
-2. загрузить список Extra-профилей;
-3. выбрать и применить VPN-профиль;
-4. выбрать DNS mode;
-5. проверить сетевой план;
-6. завершить настройку только после успешного плана готовности.
+1. определяет архитектуру;
+2. проверяет release SHA-256;
+3. ставит только недостающие Entware dependencies;
+4. скачивает pinned XKeen/Xray/XKeen UI и проверяет upstream SHA-256;
+5. делает backup;
+6. устанавливает core;
+7. регистрирует XKeen с autostart/proxy-DNS off до Browser Setup;
+8. валидирует Xray;
+9. устанавливает FreeNet и transactional helpers;
+10. проверяет LAN-only Control Center;
+11. выводит адрес `http://<LAN-IP>:1001/`.
 
-## 6. DNS и routing
+Если обнаружен partial/contradictory stack, normal install не пытается его «доделать»:
 
-DNS mode выбирается отдельно. Routing DIRECT/VPN/BLOCK задаётся только явными правилами.
-
-## 7. Финальная проверка
-
-Перед завершением настройки FreeNet должен подтвердить:
-
-- subscription настроена;
-- выбранный Extra-профиль сохранён;
-- `vless-reality` присутствует;
-- `dns-out` присутствует, когда он требуется выбранной DNS-схемой;
-- Xray запущен;
-- Xray config validation проходит;
-- DNS plan принят;
-- состояние XKeen autostart определено.
-
-После успешного finalize:
-
-- `SETUP_COMPLETE=yes`;
-- XKeen autostart включён;
-- FreeNet-managed cron собран без удаления чужих заданий;
-- FreeNet UI и Xray проходят runtime acceptance.
-
-## 8. Перезагрузка
-
-Reboot acceptance — отдельный финальный gate. После контролируемой перезагрузки нужно убедиться, что автоматически поднялись Entware, XKeen/Xray и FreeNet UI, сохранились выбранный VPN-профиль, DNS/routing policy и управляемый cron.
-
-Если после перезагрузки что-то не совпало, не выполнять повторные mutation вслепую: сначала собрать read-only факты.
-
-## 9. Диагностика
-
-`doctor.sh` — отдельный read-only инструмент для разбора нестандартного состояния:
-
-```sh
-curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/doctor.sh | /opt/bin/sh
+```text
+MODE=NEEDS_REVIEW
 ```
 
-Для нормальной установки пользователь не обязан запускать doctor вручную до bootstrap: безопасную классификацию окружения должен выполнять сам установщик.
+Это STOP до read-only разбора состояния.
 
-## Что запрещено считать нормальным сценарием
+## Browser Setup
 
-- копировать Xray JSON между разными роутерами;
-- переносить subscription URL, UUID или Reality credentials через GitHub/чат;
-- вручную редактировать `04_outbounds.json` вместо штатного plan/apply;
-- повторно запускать install после FAIL, не установив основную ошибку и состояние rollback;
-- автоматически придумывать routing policy без подтверждённого правила.
+Дальше через Control Center:
+
+1. локальная авторизация;
+2. VPN subscription;
+3. свежий список профилей;
+4. выбор/проверка VPN;
+5. DNS;
+6. routing DIRECT/VPN/BLOCK;
+7. Automation;
+8. final readiness acceptance.
+
+Subscription URL, VLESS UUID и Reality credentials не публикуются и не копируются между роутерами через GitHub/чат.
+
+## Reboot acceptance
+
+После первоначального setup полезна контролируемая перезагрузка. Должны автоматически вернуться Entware, XKeen/Xray и FreeNet, сохранив принятые VPN/DNS/routing настройки.
+
+При FAIL не запускать mutation повторно вслепую. `ROLLBACK FAILED/UNKNOWN` = STOP.
