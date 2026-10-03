@@ -51,6 +51,27 @@ exit 0
 EOF
 chmod 755 "$TMP/bin/xkeen"
 
+cat > "$TMP/bin/provider-route-probe" <<EOF
+#!/bin/sh
+MODE="$(cat "$TMP/route-probe.mode" 2>/dev/null || echo pass)"
+case "$MODE" in
+  fail-all) exit 1 ;;
+  fail-live-once)
+    if [ "$1" = "$TMP/configs/04_outbounds.json" ]; then
+      COUNT=0
+      [ -f "$TMP/route-probe-live.count" ] && COUNT="$(cat "$TMP/route-probe-live.count")"
+      COUNT=$((COUNT+1))
+      printf '%s\n' "$COUNT" > "$TMP/route-probe-live.count"
+      [ "$COUNT" -eq 1 ] && exit 1
+    fi
+    ;;
+esac
+[ -s "$1" ] || exit 1
+exit 0
+EOF
+chmod 755 "$TMP/bin/provider-route-probe"
+printf '%s\n' pass > "$TMP/route-probe.mode"
+
 cat > "$TMP/bin/pidof" <<'EOF'
 #!/bin/sh
 exit 1
@@ -90,6 +111,7 @@ run_helper() {
     FREENET_XRAY_CORE_RESTART_HELPER="${CORE_HELPER:-}" \
     FREENET_LOCK_DIR="$TMP/vpn-mutation.lock" \
     FREENET_CURL_BIN="$TMP/bin/curl" \
+    FREENET_PROVIDER_ROUTE_PROBE_BIN="$TMP/bin/provider-route-probe" \
     sh "$SCRIPT" "$@"
 }
 
@@ -108,7 +130,8 @@ OUT_HASH_AFTER="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')
 grep -Fq "PROFILE_ID=$PROFILE_ID" "$TMP/plan.out" || fail 'plan id missing'
 grep -Fq "PROFILE_NAME=$PROFILE_NAME" "$TMP/plan.out" || fail 'plan name missing'
 grep -Fq 'ENDPOINT=203.0.113.10:443' "$TMP/plan.out" || fail 'safe endpoint missing'
-grep -Fq 'CANDIDATE_XRAY_VALID=yes' "$TMP/plan.out" || fail 'candidate validation missing'
+grep -Fq 'CANDIDATE_XRAY_VALID=yes' "$TMP/plan.out" || fail 'candidate Xray validation missing'
+grep -Fq 'CANDIDATE_ROUTE_OK=yes' "$TMP/plan.out" || fail 'candidate application route validation missing'
 grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must report MUTATION=NONE'
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/plan.out" "$TMP/plan.err"; then
     fail 'plan leaked provider/subscription credentials'
@@ -187,6 +210,19 @@ cat "$TMP/sub.fixture"
 EOF
 chmod 755 "$TMP/bin/curl"
 
+# A fresh logical candidate that cannot prove an application route must fail
+# before any live mutation.
+printf '%s\n' fail-all > "$TMP/route-probe.mode"
+PREFLIGHT_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+PREFLIGHT_FILTER="$(cat "$TMP/profile.filter")"
+if run_helper apply "$PROFILE_ID" > "$TMP/preflight-route.out" 2> "$TMP/preflight-route.err"; then
+    fail 'provider apply mutated despite failed candidate application route'
+fi
+[ "$PREFLIGHT_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'failed candidate route changed live outbound'
+[ "$PREFLIGHT_FILTER" = "$(cat "$TMP/profile.filter")" ] || fail 'failed candidate route changed active filter'
+grep -Fq 'candidate VPN application route validation failed' "$TMP/preflight-route.err" || fail 'candidate route failure reason missing'
+printf '%s\n' pass > "$TMP/route-probe.mode"
+
 # Provider mutation must share the updater lock and fail closed before touching live state.
 mkdir -p "$TMP/vpn-mutation.lock"
 printf '%s\n' "$$" > "$TMP/vpn-mutation.lock/pid"
@@ -217,6 +253,23 @@ grep -Fq '203.0.113.10:443' "$HISTORY_FILE" || fail 'provider switch journal end
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/apply.out" "$TMP/apply.err" "$HISTORY_FILE"; then
     fail 'apply leaked provider/subscription credentials'
 fi
+
+# If the new live VPN route fails after mutation, the same transaction must
+# restore outbound/profile/filter and prove the restored route before reporting rollback success.
+POST_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+POST_PROFILE="$(cat "$TMP/etc/vpn_profile_name")"
+POST_FILTER="$(cat "$TMP/profile.filter")"
+rm -f "$TMP/route-probe-live.count"
+printf '%s\n' fail-live-once > "$TMP/route-probe.mode"
+if run_helper apply "$PROFILE_ID" > "$TMP/post-route.out" 2> "$TMP/post-route.err"; then
+    fail 'post-apply route failure unexpectedly succeeded'
+fi
+[ "$POST_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'post-apply route rollback did not restore outbound'
+[ "$POST_PROFILE" = "$(cat "$TMP/etc/vpn_profile_name")" ] || fail 'post-apply route rollback did not restore preferred profile'
+[ "$POST_FILTER" = "$(cat "$TMP/profile.filter")" ] || fail 'post-apply route rollback did not restore active filter'
+grep -Fq 'PRIMARY ERROR: live VPN application route validation failed after provider apply' "$TMP/post-route.err" || fail 'post-apply route primary error missing'
+grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/post-route.err" || fail 'post-apply route rollback was not verified'
+printf '%s\n' pass > "$TMP/route-probe.mode"
 
 # Endpoint-only apply must preserve XKeen/netfilter ownership: it uses the
 # core-only restart hook and must never call xkeen -restart.
