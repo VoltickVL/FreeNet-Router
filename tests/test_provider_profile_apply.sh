@@ -92,8 +92,8 @@ cat > "$TMP/configs/05_routing.json" <<'EOF'
 EOF
 
 PROFILE_NAME='Frankfurt, Germany, Extra'
-PROFILE_ID="$(printf '%s|%s|%s' "$PROFILE_NAME" 'reality' 'tcp' | sha256sum | awk '{print substr($1,1,16)}')"
-WS_PROFILE_ID="$(printf '%s|%s|%s' "$PROFILE_NAME" 'tls' 'ws' | sha256sum | awk '{print substr($1,1,16)}')"
+PROFILE_ID="$(printf '%s|%s|%s|%s|%s|%s' "$PROFILE_NAME" 'reality' 'tcp' 'example.test' '' '' | sha256sum | awk '{print substr($1,1,16)}')"
+WS_PROFILE_ID="$(printf '%s|%s|%s|%s|%s|%s' "$PROFILE_NAME" 'tls' 'ws' 'tls.example.test' 'cdn.example.test' '/ws' | sha256sum | awk '{print substr($1,1,16)}')"
 HISTORY_FILE="$TMP/history.log"
 
 run_helper() {
@@ -159,7 +159,7 @@ if grep -Eq 'TEST-ID-WS|private-token|vless://' "$TMP/ws-apply.out" "$TMP/ws-app
 fi
 
 # Unsupported transports must not be addressable by provider profile ID.
-GRPC_PROFILE_ID="$(printf '%s|%s|%s' 'Paris, France, Extra' 'tls' 'grpc' | sha256sum | awk '{print substr($1,1,16)}')"
+GRPC_PROFILE_ID="$(printf '%s|%s|%s|%s|%s|%s' 'Paris, France, Extra' 'tls' 'grpc' 'grpc.example.test' '' '' | sha256sum | awk '{print substr($1,1,16)}')"
 if run_helper plan "$GRPC_PROFILE_ID" > "$TMP/grpc.out" 2> "$TMP/grpc.err"; then
     fail 'unsupported gRPC transport unexpectedly became selectable'
 fi
