@@ -226,7 +226,7 @@ func TestManagedCronKeepsHealthWatchdogAndRetiresPeriodicBest(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(got)
-	if !strings.Contains(text, "* * * * * "+automationRunnerPath()+" automation-health-watch") {
+	if !strings.Contains(text, "* * * * * "+v3ShellQuote(automationRunnerPath())+" automation-health-watch --config "+v3ShellQuote(path)) {
 		t.Fatalf("health watchdog is not scheduled with the configured 1-minute fallback:\n%s", text)
 	}
 	for _, forbidden := range []string{"automation-best-run", "/opt/lib/freenet/auto_vpn.sh", "/opt/bin/vpn failover"} {
