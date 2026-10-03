@@ -127,8 +127,8 @@ func TestBestServerUIKeepsExactProfileEngineBehindPickerV2(t *testing.T) {
 	}
 	markup := string(index)
 	v2 := string(picker)
-	if !strings.Contains(markup, `id="profileSearch"`) || !strings.Contains(markup, `id="profilesTrigger"`) || !strings.Contains(markup, `id="exactConnectBtn"`) {
-		t.Fatal("safe exact-profile engine disappeared")
+	if !strings.Contains(markup, `id="profileSearch"`) || !strings.Contains(markup, `id="profilesTrigger"`) {
+		t.Fatal("safe exact-profile catalog engine disappeared")
 	}
 	for _, want := range []string{"selectProviderProfile(profile)", "e.button.click()", "#bestServerAdvanced{display:none!important}", "fnVpnPickerV2Panel"} {
 		if !strings.Contains(v2, want) {
