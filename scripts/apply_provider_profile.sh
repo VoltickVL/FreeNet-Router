@@ -804,6 +804,7 @@ mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" || fail_apply 'cannot commit exact ac
 restart_if_needed || fail_apply 'Xray/XKeen runtime acceptance failed after provider apply'
 XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
     || fail_apply 'live Xray configuration validation failed after provider apply'
+provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
 
 append_provider_history 'success' "VPN server applied: $SELECTED_NAME · $SELECTED_ADDRESS:$SELECTED_PORT"
 say '[FreeNet Provider] RESULT=SUCCESS'
