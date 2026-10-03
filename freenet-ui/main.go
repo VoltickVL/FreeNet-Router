@@ -26,7 +26,8 @@ import (
 const version = "0.2.1"
 
 const (
-	defaultListen         = "192.168.50.1:1001"
+	controlCenterWriteTimeout = 220 * time.Second
+	defaultListen              = "192.168.50.1:1001"
 	defaultVPNPath        = "/opt/bin/vpn"
 	defaultFilterPath     = "/opt/etc/xray/blanc_profile_filter.regex"
 	defaultOutPath        = "/opt/etc/xray/configs/04_outbounds.json"
@@ -274,7 +275,7 @@ func main() {
 		Handler:           securityHeaders(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      110 * time.Second,
+		WriteTimeout:      controlCenterWriteTimeout,
 		IdleTimeout:       30 * time.Second,
 	}
 
