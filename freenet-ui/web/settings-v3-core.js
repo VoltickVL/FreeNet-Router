@@ -80,17 +80,6 @@
     return button;
   }
 
-  function hideProviderTopbar() {
-    qa('.topbar *').forEach(el => {
-      const text = (el.textContent || '').trim();
-      if ((text === 'Провайдер' || text.includes('Провайдер')) && el.children.length < 8) {
-        let node = el;
-        for (let i = 0; i < 3 && node.parentElement && !node.matches('.topbar-item,.top-stat,.top-chip'); i++) node = node.parentElement;
-        (node.matches('.topbar-item,.top-stat,.top-chip') ? node : el).style.display = 'none';
-      }
-    });
-  }
-
   function rewireNavigation() {
     const nav = q('.sidebar .nav');
     if (!nav) return;
@@ -609,7 +598,7 @@
   function mountSettings() {
     const page = ensureSettingsPage();
     if (!page) return false;
-    injectStyles(); hideProviderTopbar(); rewireNavigation();
+    injectStyles(); rewireNavigation();
     if (page.dataset.settingsV3 === '1') return true;
     page.dataset.settingsV3 = '1';
     page.classList.add('fn3-page');
@@ -656,7 +645,6 @@
   };
 
   function boot() {
-    hideProviderTopbar();
     rewireNavigation();
     mountSettings();
     if (location.hash.slice(1) === 'settings' && typeof window.setPage === 'function') window.setPage('settings');
