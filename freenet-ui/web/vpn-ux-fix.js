@@ -599,14 +599,25 @@
     sk:'<rect width="60" height="40" fill="#fff"/><rect y="13.333" width="60" height="13.334" fill="#0b4ea2"/><rect y="26.667" width="60" height="13.333" fill="#ee1c25"/><path d="M18 9h10v15c0 5-5 7-5 7s-5-2-5-7Z" fill="#fff" stroke="#ee1c25"/><path d="M23 13v12M19 17h8M20 21h6" stroke="#0b4ea2" stroke-width="1.4"/>',
     hr:'<rect width="60" height="13.333" fill="#ff0000"/><rect y="13.333" width="60" height="13.334" fill="#fff"/><rect y="26.667" width="60" height="13.333" fill="#171796"/><path d="M25 12h10v14H25Z" fill="#fff" stroke="#d00"/><path d="M25 12h5v7h-5m10-7h-5v7h5m-10 7h5v-7h-5m10 7h-5v-7h5" fill="#d00"/>',
     pt:'<rect width="24" height="40" fill="#046a38"/><rect x="24" width="36" height="40" fill="#da291c"/><circle cx="24" cy="20" r="5" fill="#ffcd00"/><circle cx="24" cy="20" r="3" fill="#fff" stroke="#003399"/>',
-    cn:'<rect width="60" height="40" fill="#de2910"/><path d="m10 6 1.6 4.8h5l-4 3 1.5 4.8-4.1-3-4.1 3 1.5-4.8-4-3h5Z" fill="#ffde00"/>'
+    cn:'<rect width="60" height="40" fill="#de2910"/><path d="m10 6 1.6 4.8h5l-4 3 1.5 4.8-4.1-3-4.1 3 1.5-4.8-4-3h5Z" fill="#ffde00"/>',
+    in:'<rect width="60" height="13.333" fill="#ff9933"/><rect y="13.333" width="60" height="13.334" fill="#fff"/><rect y="26.667" width="60" height="13.333" fill="#138808"/><circle cx="30" cy="20" r="4.2" fill="none" stroke="#000080" stroke-width="1.1"/><circle cx="30" cy="20" r="1" fill="#000080"/>',
+    th:'<rect width="60" height="40" fill="#a51931"/><rect y="6.154" width="60" height="27.692" fill="#fff"/><rect y="12.308" width="60" height="15.384" fill="#2d2a4a"/>',
+    vn:'<rect width="60" height="40" fill="#da251d"/><path d="m30 9 3.1 7.1 7.7.7-5.8 5.1 1.7 7.5-6.7-3.9-6.7 3.9 1.7-7.5-5.8-5.1 7.7-.7Z" fill="#ff0"/>',
+    id:'<rect width="60" height="20" fill="#ce1126"/><rect y="20" width="60" height="20" fill="#fff"/>',
+    ee:'<rect width="60" height="13.333" fill="#4891d9"/><rect y="13.333" width="60" height="13.334" fill="#000"/><rect y="26.667" width="60" height="13.333" fill="#fff"/>',
+    lv:'<rect width="60" height="40" fill="#9e3039"/><rect y="16" width="60" height="8" fill="#fff"/>'
   };
+  const backgrounds = Object.freeze(Object.fromEntries(Object.entries(atlas).map(([code,body]) => {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40" preserveAspectRatio="none">${body}</svg>`;
+    return [code, `url("data:image/svg+xml,${encodeURIComponent(svg)}")`];
+  })));
+  window.FreeNetFlagBackground = code => backgrounds[String(code || '').trim().toLowerCase()] || '';
+  window.FreeNetFlagCodes = Object.freeze(Object.keys(backgrounds));
   const style = document.createElement('style');
   style.id = 'freenetCanonicalAllFlags';
-  style.textContent = Object.entries(atlas).map(([code,body]) => {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 40" preserveAspectRatio="none">${body}</svg>`;
-    const uri = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-    return `html body #controlCenter .flag-icon.flag-${code},html body #controlCenter .flag-hero.flag-${code}{background-color:transparent!important;background-image:${uri}!important;background-repeat:no-repeat!important;background-position:center!important;background-size:100% 100%!important;box-sizing:border-box!important;overflow:hidden!important}html body #controlCenter .flag-icon.flag-${code}::before,html body #controlCenter .flag-icon.flag-${code}::after,html body #controlCenter .flag-hero.flag-${code}::before,html body #controlCenter .flag-hero.flag-${code}::after{content:none!important;display:none!important}`;
-  }).join('\n');
+  style.dataset.owner = 'canonical-local-svg';
+  style.textContent = Object.entries(backgrounds).map(([code,uri]) =>
+    `html body .flag-icon.flag-${code},html body .flag-hero.flag-${code}{background-color:transparent!important;background-image:${uri}!important;background-repeat:no-repeat!important;background-position:center!important;background-size:100% 100%!important;box-sizing:border-box!important;overflow:hidden!important}html body .flag-icon.flag-${code}::before,html body .flag-icon.flag-${code}::after,html body .flag-hero.flag-${code}::before,html body .flag-hero.flag-${code}::after{content:none!important;display:none!important}`
+  ).join('\n');
   document.head.appendChild(style);
 })();
