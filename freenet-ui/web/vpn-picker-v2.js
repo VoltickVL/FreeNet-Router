@@ -192,7 +192,7 @@
     currentName = q('.fnv2-current-copy strong',panel); currentCopy = q('.fnv2-current-copy span',panel); currentFlag = q('#fnVpnPickerV2CurrentFlag'); badge = q('#fnVpnPickerV2State');
     toggle.addEventListener('click',() => panel.hidden ? open() : close(true));
     q('#fnVpnPickerV2Close').addEventListener('click',() => close(true));
-    refresh.addEventListener('click',()=>refreshRTT(true));
+    refresh.addEventListener('click',refreshRTT);
     search.addEventListener('input',() => { listKey=''; paint(); });
     list.addEventListener('keydown',event => {
       if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
@@ -256,12 +256,12 @@
     try { await selectProviderProfile(profile); } catch (_) { error=L.failed; }
     finally { choosing=false; paint(); }
   }
-  async function refreshRTT(force=false) {
+  async function refreshRTT() {
     if (rttScanning || busy()) return;
     rttScanning=true; rttError=''; rttSummary=''; listKey=''; paint();
     try {
       if (typeof window.freenetProviderRTTScan!=='function') throw new Error('rtt');
-      const data=await window.freenetProviderRTTScan(force);
+      const data=await window.freenetProviderRTTScan();
       const next=new Map();
       let reachable=0, checked=0, unknown=0;
       for (const item of data.results) {
@@ -406,7 +406,7 @@
     panel.hidden=false; toggle.setAttribute('aria-expanded','true'); listKey=''; paint();
     // Product contract: opening the selector is presentation/read-only only.
     // Never start a full RTT sweep implicitly; only the explicit refresh button
-    // may call refreshRTT(true). This prevents selector-open from competing with
+    // may call refreshRTT(). This prevents selector-open from competing with
     // post-update current-VPN verification or any other VPN operation.
     Promise.resolve(refreshStaleCatalogOnOpen()).finally(()=>{ profileSource(); schedulePaint(); });
     search.focus({preventScroll:true});
