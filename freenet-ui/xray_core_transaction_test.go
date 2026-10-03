@@ -198,7 +198,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			}
 
 			configPath := filepath.Join(root, "freenet.conf")
-			if err := os.WriteFile(configPath, []byte("ISP_ID=auto\nDNS_MODE=auto\n"), 0600); err != nil {
+			if err := os.WriteFile(configPath, []byte("DNS_MODE=auto\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			historyPath := filepath.Join(root, "history.log")
