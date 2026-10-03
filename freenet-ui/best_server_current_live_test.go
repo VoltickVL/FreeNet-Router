@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -80,5 +81,52 @@ func TestFilterMeasuredBestServerResultsKeepsDeepTestedNearMiss(t *testing.T) {
 	got := filterMeasuredBestServerResults(in)
 	if len(got) != 3 || got[0].ID != "good" || got[1].ID != "dash" || got[2].ID != "current" {
 		t.Fatalf("unexpected visible results: %#v", got)
+	}
+}
+
+
+func TestCurrentVPNUsesSameCanonicalPingAndApplicationRTTAsBestServer(t *testing.T) {
+	currentData, err := os.ReadFile("best_server_current_live.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := string(currentData)
+	for _, want := range []string{
+		"vpnResult := probeBestServerCanonicalVPNPing(ctx, curlPath, socks)",
+		"httpResult := probeBestServerCanonicalApplicationRTT(ctx, curlPath, socks)",
+		"candidate.VPNRTTMS = probe.VPN.Median",
+	} {
+		if !strings.Contains(current, want) {
+			t.Fatalf("current VPN canonical measurement contract missing %q", want)
+		}
+	}
+
+	preflightData, err := os.ReadFile("best_server_preflight.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(preflightData), "withBestServerCandidateSOCKS(ctx, candidate, probeBestServerCanonicalVPNPing)") {
+		t.Fatal("Best Server Stage-0 must use the same canonical VPN-ping owner as Current VPN")
+	}
+
+	qualityData, err := os.ReadFile("best_server_quality.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	quality := string(qualityData)
+	if !strings.Contains(quality, "httpResult := probeBestServerCanonicalApplicationRTT(ctx, curlPath, socks)") {
+		t.Fatal("Best Server deep quality must use the same canonical application RTT helper as Current VPN")
+	}
+
+	uiData, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(uiData)
+	if !strings.Contains(ui, "metricPill('VPN-пинг', metric(candidate, 'vpn')") {
+		t.Fatal("Overview must render canonical VPN-ping")
+	}
+	if strings.Contains(ui, "hasVPNPing ? 'VPN-пинг' : 'Связь с сервером'") {
+		t.Fatal("Overview must never substitute raw TCP RTT for canonical VPN-ping")
 	}
 }
