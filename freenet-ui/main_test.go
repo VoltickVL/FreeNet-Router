@@ -76,7 +76,7 @@ func TestVPNPostconditionAllowsDirectDNSWithoutDNSOut(t *testing.T) {
 	}
 }
 
-func TestDNSModeConfigRoundTripPreservesLegacyISPAndOtherSettings(t *testing.T) {
+func TestDNSModeConfigRoundTripPreservesUnknownSettings(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "freenet.conf")
 	before := "UI_PORT=1001\nAUTO_ENDPOINT_UPDATE=yes\nLEGACY_UNUSED_KEY=preserved\nDNS_MODE=auto\n"
@@ -104,7 +104,7 @@ func TestDNSModeConfigRoundTripPreservesLegacyISPAndOtherSettings(t *testing.T) 
 	}
 }
 
-func TestDNSModeDefaultsWithoutISPProductModel(t *testing.T) {
+func TestDNSModeDefaultsWithoutLegacyNetworkProductModel(t *testing.T) {
 	if dnsMode := readDNSModeConfig(filepath.Join(t.TempDir(), "missing.conf")); dnsMode != "auto" {
 		t.Fatalf("default dns=%q", dnsMode)
 	}
