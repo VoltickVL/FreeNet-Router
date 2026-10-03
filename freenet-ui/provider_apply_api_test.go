@@ -21,6 +21,7 @@ func providerPlanOutput(id string) string {
 		"CURRENT_OUTBOUND=present",
 		"XRAY_RUNNING=yes",
 		"CANDIDATE_XRAY_VALID=yes",
+		"CANDIDATE_ROUTE_OK=yes",
 		"EXPECTED_DELTA=replace exactly one vless-reality outbound",
 		"EXPECTED_NO_DELTA=ISP/DNS/routing unchanged",
 		"MUTATION=NONE",
@@ -34,7 +35,7 @@ func TestParseProviderPlanAllowlistsSafeFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plan.Success || !plan.CandidateValid || plan.ProfileID != testProviderID || plan.Endpoint != "203.0.113.10:443" {
+	if !plan.Success || !plan.CandidateValid || !plan.CandidateRouteOK || plan.ProfileID != testProviderID || plan.Endpoint != "203.0.113.10:443" {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
 	b, err := json.Marshal(plan)
@@ -67,6 +68,10 @@ func TestProviderPlanFailureReasonDistinguishesSubscriptionAvailabilityFromXrayV
 	xrayReason := providerPlanFailureReason([]byte("[FreeNet Provider] ERROR: candidate Xray configuration validation failed\n"))
 	if xrayReason != "Конфигурация выбранного VPN-сервера не прошла проверку Xray." {
 		t.Fatalf("Xray validation reason=%q", xrayReason)
+	}
+	routeReason := providerPlanFailureReason([]byte("[FreeNet Provider] ERROR: candidate VPN application route validation failed\n"))
+	if routeReason != "Свежий VPN-сервер найден, но реальный интернет через него не подтвердился. Активный VPN не изменён." {
+		t.Fatalf("route validation reason=%q", routeReason)
 	}
 }
 
