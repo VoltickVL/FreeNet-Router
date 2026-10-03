@@ -22,7 +22,7 @@ func providerPlanOutput(id string) string {
 		"XRAY_RUNNING=yes",
 		"CANDIDATE_XRAY_VALID=yes",
 		"EXPECTED_DELTA=replace exactly one vless-reality outbound",
-		"EXPECTED_NO_DELTA=ISP/DNS/routing unchanged",
+		"EXPECTED_NO_DELTA=DNS/routing unchanged",
 		"MUTATION=NONE",
 		"========== END ==========",
 	}, "\n")
@@ -73,7 +73,7 @@ func TestProviderPlanFailureReasonDistinguishesSubscriptionAvailabilityFromXrayV
 func TestRunProviderPlanPreservesSafeHelperFailure(t *testing.T) {
 	provider := writeFakeNetworkHelper(t, "echo '[FreeNet Provider] ERROR: candidate Xray configuration validation failed' >&2\nexit 1")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 
 	_, err := a.runProviderPlan(testProviderID)
 	if err == nil {
@@ -90,7 +90,7 @@ func TestRunProviderPlanPreservesSafeHelperFailure(t *testing.T) {
 func TestRunProviderPlanNeverLeaksSecretBearingHelperFailure(t *testing.T) {
 	provider := writeFakeNetworkHelper(t, "echo '[FreeNet Provider] ERROR: bad vless://secret-user@example.invalid:443?pbk=secret' >&2\nexit 1")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 
 	_, err := a.runProviderPlan(testProviderID)
 	if err == nil {
@@ -110,7 +110,7 @@ func TestRunProviderPlanNeverLeaksSecretBearingHelperFailure(t *testing.T) {
 func TestRunProviderPlanMalformedSuccessUsesHumanError(t *testing.T) {
 	provider := writeFakeNetworkHelper(t, "echo 'PROFILE_ID="+testProviderID+"'\nexit 0")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 
 	_, err := a.runProviderPlan(testProviderID)
 	if err == nil || err.Error() != "FreeNet получил неполный ответ проверки VPN-сервера." {
@@ -123,7 +123,7 @@ func TestNetworkPlanCanAttachProviderPlanWithoutChangingNetworkPlan(t *testing.T
 	network := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
 	t.Setenv("FREENET_NETWORK_HELPER", network)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 
 	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?provider_profile_id="+testProviderID, nil)
 	w := httptest.NewRecorder()
@@ -146,7 +146,7 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 	network := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
 	t.Setenv("FREENET_NETWORK_HELPER", network)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 
 	noConfirm := `{"operation":"provider","profile_id":"` + testProviderID + `","confirm":false}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(noConfirm))
@@ -187,7 +187,7 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 func TestProviderApplyFailureSeparatesPrimaryAndRollback(t *testing.T) {
 	provider := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+providerPlanOutput(testProviderID)+"\nEOF\nexit 0\nfi\necho '[FreeNet Provider] ERROR: PRIMARY ERROR: Xray restart failed' >&2\necho '[FreeNet Provider] ERROR: ROLLBACK ERROR/STATE: rollback success' >&2\nexit 1")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 
 	payload := `{"operation":"provider","profile_id":"` + testProviderID + `","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
@@ -215,7 +215,7 @@ func TestProviderPlanEndpointIsIndependentFromNetworkPlan(t *testing.T) {
 	network := writeFakeNetworkHelper(t, "echo called > \""+marker+"\"\nexit 1")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
 	t.Setenv("FREENET_NETWORK_HELPER", network)
-	a := testNetworkApp(t, "ISP_ID=custom\nDNS_MODE=custom\n")
+	a := testNetworkApp(t, "DNS_MODE=custom\n")
 
 	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/provider-profile/plan?profile_id="+testProviderID, nil)
 	w := httptest.NewRecorder()
@@ -236,7 +236,7 @@ func TestProviderPlanEndpointIsIndependentFromNetworkPlan(t *testing.T) {
 }
 
 func TestProviderPlanEndpointRejectsInvalidProfileID(t *testing.T) {
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/provider-profile/plan?profile_id=BAD", nil)
 	w := httptest.NewRecorder()
 	a.handleProviderProfilePlan(w, r)
@@ -255,7 +255,7 @@ func TestProviderPlanEndpointRejectsInvalidProfileID(t *testing.T) {
 func TestProviderPlanEndpointSurfacesSafeProviderFailure(t *testing.T) {
 	provider := writeFakeNetworkHelper(t, "echo '[FreeNet Provider] ERROR: candidate Xray configuration validation failed' >&2\nexit 1")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 
 	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/provider-profile/plan?profile_id="+testProviderID, nil)
 	w := httptest.NewRecorder()
