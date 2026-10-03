@@ -241,15 +241,13 @@ func TestScheduledAutomationBestIsFencedByHealthRecovery(t *testing.T) {
 }
 
 func TestAutomationBestBudgetsFollowCanonicalTargets(t *testing.T) {
-	degradedFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) + bestServerQualityCandidateTimeout + automationBestBudgetSlack
-	if got := automationBestForeignTimeout(automationPolicyDegraded); got < degradedFloor {
-		t.Fatalf("degraded foreign budget=%s below canonical floor=%s", got, degradedFloor)
-	}
-	betterFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+	canonicalFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
 		time.Duration(bestServerVisibleAlternatives)*bestServerQualityCandidateTimeout +
 		automationBestBudgetSlack
-	if got := automationBestForeignTimeout(automationPolicyBetter); got < betterFloor {
-		t.Fatalf("better foreign budget=%s below canonical floor=%s", got, betterFloor)
+	for _, policy := range []string{automationPolicyDegraded, automationPolicyBetter} {
+		if got := automationBestForeignTimeout(policy); got < canonicalFloor {
+			t.Fatalf("%s foreign budget=%s below canonical Top-3 floor=%s", policy, got, canonicalFloor)
+		}
 	}
 	cycleFloor := bestServerCurrentScanTimeout + automationBestForeignTimeout(automationPolicyBetter) + automationBestBudgetSlack
 	if got := automationBestQualityCycleTimeout(automationPolicyBetter); got < cycleFloor {
@@ -257,12 +255,11 @@ func TestAutomationBestBudgetsFollowCanonicalTargets(t *testing.T) {
 	}
 }
 
-func TestAutomationBestTargetUsesOneForDegradedAndThreeForBetter(t *testing.T) {
-	if got := automationBestEligibleTarget(automationPolicyDegraded); got != 1 {
-		t.Fatalf("degraded target=%d want=1", got)
-	}
-	if got := automationBestEligibleTarget(automationPolicyBetter); got != bestServerVisibleAlternatives {
-		t.Fatalf("better target=%d want=%d", got, bestServerVisibleAlternatives)
+func TestAutomationBestTargetMatchesManualTopThreeForEveryPolicy(t *testing.T) {
+	for _, policy := range []string{automationPolicyDegraded, automationPolicyBetter} {
+		if got := automationBestEligibleTarget(policy); got != bestServerVisibleAlternatives {
+			t.Fatalf("%s target=%d want manual Top-%d", policy, got, bestServerVisibleAlternatives)
+		}
 	}
 	if automationNeedsForeignScan(automationPolicyDegraded, "healthy") {
 		t.Fatal("healthy current VPN must not trigger an expensive foreign scan in degraded-only policy")

@@ -126,12 +126,18 @@ func TestReadOnlyHealthObservationDoesNotTakeManualRecoveryFence(t *testing.T) {
 	firstProbe := strings.Index(segment, "first := a.probeAutomationCurrentVPN(probeCtx)")
 	postGuard := strings.Index(segment, "automationPostUpdateGuardResult(a, first)")
 	lock := strings.Index(segment, "release, err := acquireAutomationHealthLock()")
-	reprobe := strings.Index(segment, "first = a.probeAutomationCurrentVPN(probeCtx)")
-	if firstProbe < 0 || postGuard < 0 || lock < 0 || reprobe < 0 {
-		t.Fatalf("manual-recovery fence contract incomplete: probe=%d guard=%d lock=%d reprobe=%d", firstProbe, postGuard, lock, reprobe)
+	confirmProbe := strings.Index(segment, "confirm := a.probeAutomationCurrentVPN(probeCtx)")
+	if firstProbe < 0 || postGuard < 0 || lock < 0 || confirmProbe < 0 {
+		t.Fatalf("manual-recovery fence contract incomplete: probe=%d guard=%d lock=%d confirm=%d", firstProbe, postGuard, lock, confirmProbe)
 	}
-	if !(firstProbe < postGuard && postGuard < lock && lock < reprobe) {
-		t.Fatalf("read-only health probe/guard must finish before exclusive recovery fence: probe=%d guard=%d lock=%d reprobe=%d", firstProbe, postGuard, lock, reprobe)
+	if !(firstProbe < postGuard && postGuard < lock && lock < confirmProbe) {
+		t.Fatalf("read-only health probe/guard must finish before exclusive recovery fence: probe=%d guard=%d lock=%d confirm=%d", firstProbe, postGuard, lock, confirmProbe)
+	}
+	if got := strings.Count(segment, "a.probeAutomationCurrentVPN(probeCtx)"); got != 2 {
+		t.Fatalf("AUTO recovery must use exactly initial+fenced confirmation before recovery, got %d VPN probes", got)
+	}
+	if strings.Contains(segment, "automationHealthConfirmDelay") || strings.Contains(segment, "time.After(") {
+		t.Fatal("AUTO recovery must not add a third delayed duplicate VPN confirmation")
 	}
 }
 
@@ -414,6 +420,12 @@ func TestEndpointEmergencyUsesCanonicalCurrentProfileRefresh(t *testing.T) {
 	segment := text[start:end]
 	if !strings.Contains(segment, "automationEndpointCurrentRefresh") {
 		t.Fatal("endpoint emergency must use canonical executeBestServerCurrentRefresh path")
+	}
+	if !strings.Contains(segment, "context.WithTimeout(parent, automationEndpointRecoveryTimeout)") {
+		t.Fatal("endpoint emergency must be one bounded fast-path")
+	}
+	if automationEndpointRecoveryTimeout != 20*time.Second {
+		t.Fatalf("endpoint recovery timeout=%s want=20s fast-path", automationEndpointRecoveryTimeout)
 	}
 	for _, legacy := range []string{"automationEndpointUpdateCommand", "automationEndpointPostProbe", "runCommand(ctx, a.cfg.VPNPath", "ensureAutomationHelper()", "helper, \"run\""} {
 		if strings.Contains(segment, legacy) {
