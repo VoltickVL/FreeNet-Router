@@ -15,6 +15,8 @@ printf '%s\n' 'Germany|Frankfurt' > "$TMP/profile.filter"
 cat > "$TMP/sub.fixture" <<'EOF'
 vless://TEST-ID-A@203.0.113.10:443?flow=xtls-rprx-vision&security=reality&type=tcp&fp=firefox&sni=example.test&pbk=TEST-PBK-A&sid=TEST-SID-A&spx=%2F#Frankfurt%2C%20Germany%2C%20Extra
 vless://TEST-ID-B@198.51.100.20:443?flow=xtls-rprx-vision&security=reality&type=tcp&fp=firefox&sni=example.test&pbk=TEST-PBK-B&sid=TEST-SID-B&spx=%2F#Warsaw%2C%20Poland%2C%20Extra
+vless://TEST-ID-WS@203.0.113.10:443?security=tls&type=ws&fp=firefox&sni=tls.example.test&host=cdn.example.test&path=%2Fws#Frankfurt%2C%20Germany%2C%20Extra
+vless://TEST-ID-GRPC@203.0.113.10:443?security=tls&type=grpc&sni=grpc.example.test#Paris%2C%20France%2C%20Extra
 vless://TEST-ID-C@192.0.2.30:443?security=reality&sni=example.test&pbk=X&sid=Y#Expired%20Extra
 EOF
 
@@ -69,7 +71,8 @@ cat > "$TMP/configs/05_routing.json" <<'EOF'
 EOF
 
 PROFILE_NAME='Frankfurt, Germany, Extra'
-PROFILE_ID="$(printf '%s|%s|%s' "$PROFILE_NAME" '203.0.113.10' '443' | sha256sum | awk '{print substr($1,1,16)}')"
+PROFILE_ID="$(printf '%s|%s|%s|%s|%s|%s|%s|%s' "$PROFILE_NAME" '203.0.113.10' '443' 'reality' 'tcp' 'example.test' '' '' | sha256sum | awk '{print substr($1,1,16)}')"
+WS_PROFILE_ID="$(printf '%s|%s|%s|%s|%s|%s|%s|%s' "$PROFILE_NAME" '203.0.113.10' '443' 'tls' 'ws' 'tls.example.test' 'cdn.example.test' '/ws' | sha256sum | awk '{print substr($1,1,16)}')"
 HISTORY_FILE="$TMP/history.log"
 
 run_helper() {
@@ -107,6 +110,31 @@ grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must report MUTATION=NONE
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/plan.out" "$TMP/plan.err"; then
     fail 'plan leaked provider/subscription credentials'
 fi
+
+# The same endpoint/name with a different supported transport must have a
+# distinct logical ID and render the exact TLS/WS stream settings.
+[ "$PROFILE_ID" != "$WS_PROFILE_ID" ] || fail 'transport variants collapsed to one profile id'
+run_helper apply "$WS_PROFILE_ID" > "$TMP/ws-apply.out" 2> "$TMP/ws-apply.err"
+grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/ws-apply.out" || fail 'TLS/WS provider apply failed'
+jq -e '
+  ([.outbounds[] | select(.tag=="vless-reality")] | length)==1 and
+  (.outbounds[] | select(.tag=="vless-reality") | .streamSettings.network)=="ws" and
+  (.outbounds[] | select(.tag=="vless-reality") | .streamSettings.security)=="tls" and
+  (.outbounds[] | select(.tag=="vless-reality") | .streamSettings.tlsSettings.serverName)=="tls.example.test" and
+  (.outbounds[] | select(.tag=="vless-reality") | .streamSettings.wsSettings.path)=="/ws" and
+  (.outbounds[] | select(.tag=="vless-reality") | .streamSettings.wsSettings.headers.Host)=="cdn.example.test" and
+  ((.outbounds[] | select(.tag=="vless-reality") | .streamSettings | has("realitySettings")) | not)
+' "$TMP/configs/04_outbounds.json" >/dev/null || fail 'TLS/WS provider render parity failed'
+if grep -Eq 'TEST-ID-WS|private-token|vless://' "$TMP/ws-apply.out" "$TMP/ws-apply.err"; then
+    fail 'TLS/WS apply leaked provider/subscription credentials'
+fi
+
+# Unsupported transports must not be addressable by provider profile ID.
+GRPC_PROFILE_ID="$(printf '%s|%s|%s|%s|%s|%s|%s|%s' 'Paris, France, Extra' '203.0.113.10' '443' 'tls' 'grpc' 'grpc.example.test' '' '' | sha256sum | awk '{print substr($1,1,16)}')"
+if run_helper plan "$GRPC_PROFILE_ID" > "$TMP/grpc.out" 2> "$TMP/grpc.err"; then
+    fail 'unsupported gRPC transport unexpectedly became selectable'
+fi
+
 [ -s "$TMP/provider-subscription.lkg" ] || fail 'fresh plan did not persist secure provider LKG'
 [ -s "$TMP/provider-subscription.source" ] || fail 'fresh plan did not persist provider source fingerprint'
 [ "$(stat -c '%a' "$TMP/provider-subscription.lkg" 2>/dev/null || stat -f '%Lp' "$TMP/provider-subscription.lkg" 2>/dev/null)" = "600" ] || fail 'secure provider LKG mode is not 0600'
