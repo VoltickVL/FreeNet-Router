@@ -94,6 +94,27 @@ func saveProviderSubscriptionCache(rawURL string, body []byte) error {
 	return atomicWrite(sourcePath, []byte(providerSubscriptionSourceFingerprint(rawURL)+"\n"), 0600)
 }
 
+func providerCachedBestServerCandidate(profileID string) (bestServerInternalCandidate, error) {
+	profileID = strings.TrimSpace(profileID)
+	if !validProfileID(profileID) {
+		return bestServerInternalCandidate{}, errors.New("invalid provider profile id")
+	}
+	data, err := os.ReadFile(providerSubscriptionCachePath())
+	if err != nil || len(data) == 0 || len(data) > maxSubscriptionBytes {
+		return bestServerInternalCandidate{}, errors.New("secure provider cache is unavailable")
+	}
+	candidates, _, _, err := parseBestServerCandidates(data)
+	if err != nil {
+		return bestServerInternalCandidate{}, errors.New("secure provider cache is invalid")
+	}
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.Profile.ID) == profileID {
+			return candidate, nil
+		}
+	}
+	return bestServerInternalCandidate{}, errors.New("selected logical VPN is absent from prepared subscription")
+}
+
 func providerSubscriptionCacheMatches(rawURL string) bool {
 	rawURL = strings.TrimSpace(rawURL)
 	if validateSubscriptionURL(rawURL) != nil {
