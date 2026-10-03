@@ -68,14 +68,14 @@ grep -Fq 'SETUP_COMPLETE=no' "$CONF" || fail 'fresh config должен начи
 grep -Fq 'AUTO_ENDPOINT_UPDATE=no' "$CONF" || fail 'legacy endpoint mirror должен начинаться выключенным'
 
 # AUTO VPN scheduler имеет ровно одного owner: FreeNet Settings v3. Bootstrap и
-# compatibility installer очищают managed block, но не имеют права заново
-# планировать legacy updater/failover.
+# compatibility installer обязаны вызывать canonical reconcile самого freenet-ui,
+# а не собирать managed cron самостоятельно.
 BOOT_CRON="$(sed -n '/^apply_safe_cron() {/,/^}/p' "$BOOT")"
 INSTALL_CRON="$(sed -n '/^apply_cron() {/,/^}/p' "$INSTALL")"
-printf '%s\n' "$BOOT_CRON" | grep -Fq 'AUTO VPN scheduler is owned by FreeNet Settings v3 after UI startup' || fail 'bootstrap не передаёт scheduler ownership Settings v3'
-printf '%s\n' "$INSTALL_CRON" | grep -Fq 'AUTO VPN scheduler is owned by FreeNet Settings v3 after UI startup' || fail 'installer не передаёт scheduler ownership Settings v3'
-if printf '%s\n%s\n' "$BOOT_CRON" "$INSTALL_CRON" | grep -Eq 'echo .*blanc_xkeen_update_outbounds|echo .*vpn failover'; then
-    fail 'bootstrap/install снова создаёт parallel legacy AUTO scheduler'
+printf '%s\n' "$BOOT_CRON" | grep -Fq '"$FREENET_BIN" settings-v3-reconcile --config "$CONFIG_FILE"' || fail 'bootstrap не делегирует scheduler canonical Settings v3 owner'
+printf '%s\n' "$INSTALL_CRON" | grep -Fq '"$FREENET_BIN" settings-v3-reconcile --config "$CONFIG_FILE"' || fail 'installer не делегирует scheduler canonical Settings v3 owner'
+if printf '%s\n%s\n' "$BOOT_CRON" "$INSTALL_CRON" | grep -Eq '(blanc_xkeen_update_outbounds|/opt/bin/vpn[[:space:]]+failover|automation-best-run|/opt/lib/freenet/auto_vpn.sh)'; then
+    fail 'bootstrap/install содержит parallel legacy AUTO scheduler'
 fi
 
 # Compatibility config defaults сохраняются fail-safe для старых management paths.
