@@ -600,9 +600,17 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		}
 	}
 	postNetwork, _ := a.runNetworkPlan()
+	// The provider helper reports success only after the fresh candidate and the
+	// live post-apply VPN route both pass application-level probes. That is
+	// sufficient factual acceptance to retire a stale rollback latch inherited
+	// from an older release and to acknowledge the current post-update hold.
+	setAutomationMutationBlocked(false)
+	if target := automationPendingPostUpdateTarget(a); target != "" {
+		setAutomationPostUpdateAck(target)
+	}
 	return http.StatusOK, networkApplyResponse{
 		Success: true, Applied: true, Operation: "provider", ProfileID: profileID,
-		Message: "VPN-профиль применён и Xray-конфигурация проверена.", RollbackState: "NOT_NEEDED",
+		Message: "VPN-профиль применён, интернет через него проверен.", RollbackState: "NOT_NEEDED",
 		Plan: postNetwork, ProviderPlan: &postProvider,
 	}
 }
