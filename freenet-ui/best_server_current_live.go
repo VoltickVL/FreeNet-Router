@@ -164,22 +164,13 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 	}
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
-	for i := 0; i < bestServerQualityWarmupRuns; i++ {
-		_, _, _ = probeBestServerHTTPAny(ctx, curlPath, socks)
-	}
-
-	samples := make([]int, 0, bestServerQualityHTTPRuns)
-	for i := 0; i < bestServerQualityHTTPRuns; i++ {
-		if ms, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks); ok {
-			samples = append(samples, ms)
-		}
-	}
-	httpResult := summarizeBestServerSamples(samples, bestServerQualityHTTPRequired)
+	vpnResult := probeBestServerCanonicalVPNPing(ctx, curlPath, socks)
+	httpResult := probeBestServerCanonicalApplicationRTT(ctx, curlPath, socks)
 	if !httpResult.OK {
 		return bestServerQualityApplicationResult{}
 	}
 
-	result := bestServerQualityApplicationResult{OK: true, HTTP: httpResult}
+	result := bestServerQualityApplicationResult{OK: true, VPN: vpnResult, HTTP: httpResult}
 	// Current VPN speed uses the exact same canonical media/Speedtest aggregate
 	// as Best Server candidates. There is no display-only throughput fallback:
 	// if the strict comparable measurement is unavailable, speed stays unknown.
@@ -253,6 +244,10 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 	}
 	candidate.Reachable = true
 	candidate.Available = true
+	if probe.VPN.OK {
+		candidate.VPNRTTMS = probe.VPN.Median
+		candidate.VPNJitterMS = probe.VPN.Jitter
+	}
 	candidate.ApplicationMS = probe.HTTP.Median
 	candidate.JitterMS = probe.HTTP.Jitter
 	candidate.HTTPSamples = len(probe.HTTP.Samples)

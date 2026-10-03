@@ -377,8 +377,7 @@
     const strictSpeed = Number(candidate?.download_mbps || 0) > 0 && candidate?.throughput_source === 'strict_aggregate';
     root.appendChild(metricPill('Скорость VPN', metric(candidate, 'speed'), 'speed', strictSpeed && candidate?.eligible === true));
     root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline)));
-    const hasVPNPing = Number(candidate?.vpn_rtt_ms || 0) > 0;
-    root.appendChild(metricPill(hasVPNPing ? 'VPN-пинг' : 'Связь с сервером', hasVPNPing ? metric(candidate, 'vpn') : metric(candidate, 'tcp'), 'tcp', false));
+    root.appendChild(metricPill('VPN-пинг', metric(candidate, 'vpn'), 'tcp', false));
     root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter'), 'jitter', false));
   }
 

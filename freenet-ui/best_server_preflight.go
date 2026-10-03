@@ -172,13 +172,7 @@ func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate
 // through the selected logical VPN profile. DNS/named-origin acceptance is
 // intentionally deferred to strict deep quality.
 func (a *app) probeBestServerProfilePing(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
-	return a.withBestServerCandidateSOCKS(ctx, candidate, func(ctx context.Context, curlPath, socks string) bestServerProbeResult {
-		ms, ok := probeBestServerTransportRTT(ctx, curlPath, socks)
-		if !ok {
-			return bestServerProbeResult{}
-		}
-		return bestServerProbeResult{OK: true, Samples: []int{ms}, Median: ms}
-	})
+	return a.withBestServerCandidateSOCKS(ctx, candidate, probeBestServerCanonicalVPNPing)
 }
 
 type bestServerCandidateSOCKSProbe func(context.Context, string, string) bestServerProbeResult

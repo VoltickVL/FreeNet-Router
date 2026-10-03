@@ -115,6 +115,17 @@ func probeBestServerTransportRTT(ctx context.Context, curlPath, socks string) (i
 	)
 }
 
+// probeBestServerCanonicalVPNPing is the single user-facing VPN-ping owner.
+// Selector RTT, Best Server Stage-0 and Current VPN must all consume this
+// exact fixed-IP HTTPS signal so their displayed milliseconds are comparable.
+func probeBestServerCanonicalVPNPing(ctx context.Context, curlPath, socks string) bestServerProbeResult {
+	ms, ok := probeBestServerTransportRTT(ctx, curlPath, socks)
+	if !ok {
+		return bestServerProbeResult{}
+	}
+	return bestServerProbeResult{OK: true, Samples: []int{ms}, Median: ms}
+}
+
 // probeBestServerTransportIP remains diagnostic-only for VPN Outbound Doctor.
 // It reuses the same fixed-IP HTTPS path but does not participate in deep
 // eligibility or final ranking.
