@@ -111,7 +111,7 @@ const server = http.createServer((req,res)=>{
           if(applyMode==='aborted')return route.abort();
           return route.fulfill({status:applyMode==='empty'?200:504,contentType:'text/html',body:applyMode==='empty'?'':'<h1>Gateway Timeout</h1>'});
         }
-        return answer(route,{success:true,applied:true});
+        return answer(route,{success:true,applied:true,provider_plan:{profile_id:expectedApply.id,endpoint:expectedApply.endpoint,candidate_xray_valid:true,candidate_route_ok:true,mutation:'APPLIED'}});
       }
       return answer(route,{success:true,available:false,configured:true,active:false});
     });
