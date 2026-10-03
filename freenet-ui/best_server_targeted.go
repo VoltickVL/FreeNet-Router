@@ -158,6 +158,7 @@ func registerBestServerTargetedAPI(mux *http.ServeMux, a *app) {
 }
 
 func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Request) {
+	invalidateBestServerSelectionSnapshot()
 	releaseOperation, operationOK := tryAcquireFreeNetOperation(a)
 	if !operationOK {
 		writeJSON(w, http.StatusConflict, bestServerQualityResponse{
@@ -255,6 +256,13 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusConflict, bestServerQualityResponse{
 			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
 			Error: "VPN profile identity changed during targeted retry; result discarded",
+		})
+		return
+	}
+	if err := a.attachBestServerSelectionSnapshot(&response, []bestServerInternalCandidate{target}, currentEndpoint, currentFilter); err != nil {
+		writeJSON(w, http.StatusInternalServerError, bestServerQualityResponse{
+			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
+			Error: "validated VPN selection snapshot could not be persisted",
 		})
 		return
 	}
