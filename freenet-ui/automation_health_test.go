@@ -70,21 +70,39 @@ func TestPostUpdateGuardAllowsConfirmedFailureRecoveryButKeepsUncertainFailClose
 	}
 }
 
-func TestRollbackGuardRequiresHealthyReadOnlyAcceptance(t *testing.T) {
+func TestRollbackGuardClearsOnlyAfterFactualStateIsEstablished(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))
 	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
 	writeAutomationStateV2("failed", "rollback unknown", "FAILED/UNKNOWN", false)
 
-	blocked, handled := automationRollbackGuardResult(automationHealthProbe{State: automationHealthFailed, Reason: "VPN path still failed"})
+	blocked, handled := automationRollbackGuardResult(nil, automationHealthProbe{State: automationHealthFailed, Reason: "VPN path still failed"})
 	if !handled || blocked.State != automationHealthUncertain {
-		t.Fatalf("failed read-only state must keep rollback guard: handled=%v result=%+v", handled, blocked)
+		t.Fatalf("failed probe without readable runtime identity must keep rollback guard: handled=%v result=%+v", handled, blocked)
 	}
 	if !automationMutationBlockedState() {
-		t.Fatal("failed read-only check cleared rollback guard")
+		t.Fatal("ambiguous failed read-only check cleared rollback guard")
 	}
 
-	cleared, handled := automationRollbackGuardResult(automationHealthProbe{State: automationHealthHealthy, Reason: "exact current VPN healthy"})
+	outPath := filepath.Join(dir, "04_outbounds.json")
+	filterPath := filepath.Join(dir, "profile.filter")
+	if err := os.WriteFile(outPath, []byte(`{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"192.0.2.99","port":443}]}}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filterPath, []byte("IT Milan, Italy, Extra\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{OutPath: outPath, FilterPath: filterPath}}
+	reconciled, handled := automationRollbackGuardResult(a, automationHealthProbe{State: automationHealthFailed, Reason: "exact current VPN failed"})
+	if handled || reconciled.State != "" {
+		t.Fatalf("known failed state must continue into normal double-check recovery: handled=%v result=%+v", handled, reconciled)
+	}
+	if automationMutationBlockedState() {
+		t.Fatal("factual known-failed current state did not clear stale rollback guard")
+	}
+
+	writeAutomationStateV2("failed", "rollback unknown again", "FAILED/UNKNOWN", false)
+	cleared, handled := automationRollbackGuardResult(a, automationHealthProbe{State: automationHealthHealthy, Reason: "exact current VPN healthy"})
 	if !handled || cleared.State != automationHealthHealthy {
 		t.Fatalf("healthy factual state must clear rollback guard: handled=%v result=%+v", handled, cleared)
 	}
