@@ -330,7 +330,6 @@ func (a *app) handleBestServerForeign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityResponse, error) {
-	invalidateBestServerSelectionSnapshot()
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
 	all, _, truncated, err := a.discoverBestServerCandidates(ctx)
