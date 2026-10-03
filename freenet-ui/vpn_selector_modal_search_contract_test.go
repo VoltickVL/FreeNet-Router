@@ -6,40 +6,49 @@ import (
 )
 
 func TestVPNSelectorModalSearchContract(t *testing.T) {
-	ux := string(vpnSelectorReconcileAsset)
+	compat := string(vpnSelectorReconcileAsset)
 	for _, required := range []string{
-		"freenetVpnSelectorHotfix",
 		"renderProfileOptionsHotfix",
 		"германия",
 		"герман",
 		"Extra-профили не загружены",
 		"По запросу",
-		"#fnVpnPickerTrigger",
-		"#fnVpnPickerBody #profilesMenu",
-		".fn-topbar-vpn-picker",
 		"selectProviderProfile(profile)",
-		"freenetIssue601Styles",
-		"keepDialogInBody",
-		"popover.parentNode !== document.body",
-		".topbar.overview-approved{justify-content:flex-end!important}",
-		"#fnVpnPickerToggle{width:96px!important",
-		"overview-approved-top.fn-shell-summary{margin-left:0!important",
-		"grid-template-columns:1fr!important",
-		"#fnVpnPickerPopover #profilesTrigger{display:none!important",
-		"requestAnimationFrame(openProfileResults)",
-		"VPN",
 	} {
-		if !strings.Contains(ux, required) {
-			t.Fatalf("VPN selector modal/search contract missing %q", required)
+		if !strings.Contains(compat, required) {
+			t.Fatalf("hidden exact-engine search compatibility missing %q", required)
 		}
 	}
 	for _, forbidden := range []string{
 		"/api/network-profile/apply",
 		"method: 'POST'",
-		"setTimeout(",
+		"fnVpnPickerPopover",
+		"fnVpnPickerHost",
+		"fnVpnPickerToggle",
+		"fnVpnPickerTrigger",
+		"freenetIssue601Styles",
+		"fn-topbar-vpn-picker{",
 	} {
-		if strings.Contains(ux, forbidden) {
-			t.Fatalf("VPN selector modal/search patch must stay presentation-only: found %q", forbidden)
+		if strings.Contains(compat, forbidden) {
+			t.Fatalf("compatibility layer must not own visible picker surface: found %q", forbidden)
+		}
+	}
+
+	v2Data, err := webFS.ReadFile("web/vpn-picker-v2.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2 := string(v2Data)
+	for _, required := range []string{
+		"fnVpnPickerV2Panel",
+		"fnVpnPickerV2Search",
+		"fnVpnPickerV2Results",
+		"selectProviderProfile(profile)",
+		"refreshStaleCatalogOnOpen",
+		"xray-vpn-dns-freenet",
+	} {
+		if !strings.Contains(v2, required) {
+			t.Fatalf("visible picker v2 search/modal contract missing %q", required)
 		}
 	}
 }
