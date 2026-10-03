@@ -17,7 +17,7 @@ const ukraine={id:'fixture-ua',name:'UA Kyiv, Ukraine, Extra',country_code:'ua',
 const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
 let status={version:'0.3.92',country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
-let planMode='ok',planDelay=0,applyMode='ok';
+let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict';
 const calls=[],unhandled=[],errors=[];
 const P='#fnVpnPickerV2Panel',T='#fnVpnPickerV2Toggle',S='#fnVpnPickerV2Search',R='#fnVpnPickerV2Results',F='#fnVpnPickerV2Footer',C='#fnVpnPickerV2Connect',RTT='#fnVpnPickerV2Refresh';
 const countApply=()=>calls.filter(c=>c.path==='/api/network-profile/apply').length;
@@ -63,7 +63,10 @@ async function capture(label){
     if(url.pathname==='/api/subscription')return answer(route,{success:true,configured:true});
     if(url.pathname==='/api/vpn/current-quality'&&url.searchParams.get('job')==='cache'){
       const p=profiles.find(p=>ep(p)===status.endpoint)||current;
-      return answer(route,{success:true,available:true,scanned_at:new Date().toISOString(),candidates:[{...p,endpoint:status.endpoint,current:true,tested:true,eligible:true,available:true,reachable:true,download_mbps:55,throughput_source:'strict_aggregate',application_rtt_ms:105,tcp_rtt_ms:70,jitter_ms:5,media_samples:4,media_stalls:0,service_ok:4,service_total:4}]});
+      const candidate=currentCacheMode==='fallback'
+        ?{...p,endpoint:status.endpoint,current:true,tested:true,eligible:false,available:true,reachable:true,download_mbps:0,fallback_download_mbps:37.4,throughput_source:'current_fallback',application_rtt_ms:105,tcp_rtt_ms:70,jitter_ms:5,media_samples:0,media_stalls:0,service_ok:4,service_total:4}
+        :{...p,endpoint:status.endpoint,current:true,tested:true,eligible:true,available:true,reachable:true,download_mbps:55,throughput_source:'strict_aggregate',application_rtt_ms:105,tcp_rtt_ms:70,jitter_ms:5,media_samples:4,media_stalls:0,service_ok:4,service_total:4};
+      return answer(route,{success:true,available:candidate.eligible,scanned_at:new Date().toISOString(),candidates:[candidate]});
     }
     if(url.pathname==='/api/provider-profiles/rtt'){
       const results=profiles.map((p,i)=>i===7
@@ -115,6 +118,18 @@ async function capture(label){
   await until(()=>document.querySelector('#fnVpnPickerV2Flag')?.dataset.country==='be','profile identity fallback');
   await until(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-be'),'Overview current flag');
   assert.equal(await page.locator('#fnVpnPickerV2Country').textContent(),'Бельгия');
+  await until(()=>/Скорость VPN/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'strict current speed UI');
+  assert.match(await page.locator('#bestCurrentMetrics').textContent(),/55\.0 Мбит\/с/);
+  currentCacheMode='fallback';
+  await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','fallback canonical boot');
+  await until(()=>/Быстрый замер/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'fallback current speed UI');
+  assert.match(await page.locator('#bestCurrentMetrics').textContent(),/37\.4 Мбит\/с/);
+  assert.match(await page.locator('#bestCurrentMetrics').textContent(),/не для сравнения/);
+  assert.doesNotMatch(await page.locator('#bestCurrentMetrics').textContent(),/Скорость VPN/,'production UI must not label fallback as comparable speed');
+  currentCacheMode='strict';
+  await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','strict canonical reboot');
+  await page.locator(T).waitFor({state:'visible'});
+  await until(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Бельгия','current country after provenance reload');
   const order=await page.locator('#overviewApprovedTop').evaluate(n=>Array.from(n.children).map(x=>x.matches('.fn-xray-topbar')?'xray':x.id==='fnVpnPickerV2Host'?'vpn':x.id==='topFreenetUpdate'?'freenet':/DNS/i.test(x.textContent||'')?'dns':'other').filter(x=>x!=='other'));
   assert.deepEqual(order,['xray','vpn','dns','freenet']);
   await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'49 profiles');
