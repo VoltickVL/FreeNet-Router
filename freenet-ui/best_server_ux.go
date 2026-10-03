@@ -330,6 +330,7 @@ func (a *app) handleBestServerForeign(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityResponse, error) {
+	invalidateBestServerSelectionSnapshot()
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
 	all, _, truncated, err := a.discoverBestServerCandidates(ctx)
@@ -393,6 +394,9 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	}
 	if afterFilter := readBestServerCurrentFilter(a.cfg.FilterPath); afterFilter != currentFilter {
 		return bestServerQualityResponse{}, errors.New("VPN profile identity changed during Best Server scan")
+	}
+	if err := a.attachBestServerSelectionSnapshot(&response, candidates, currentEndpoint, currentFilter); err != nil {
+		return bestServerQualityResponse{}, err
 	}
 	return response, nil
 }
