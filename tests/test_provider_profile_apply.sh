@@ -96,7 +96,10 @@ run_helper() {
 # plan must be read-only and secret-safe.
 OUT_HASH_BEFORE="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
 FILTER_BEFORE="$(cat "$TMP/profile.filter")"
-run_helper plan "$PROFILE_ID" > "$TMP/plan.out" 2> "$TMP/plan.err"
+if ! run_helper plan "$PROFILE_ID" > "$TMP/plan.out" 2> "$TMP/plan.err"; then
+    cat "$TMP/plan.err" >&2 || true
+    fail 'initial Reality/TCP provider plan failed'
+fi
 OUT_HASH_AFTER="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
 [ "$OUT_HASH_BEFORE" = "$OUT_HASH_AFTER" ] || fail 'plan mutated 04_outbounds.json'
 [ "$FILTER_BEFORE" = "$(cat "$TMP/profile.filter")" ] || fail 'plan mutated active profile filter'
@@ -114,7 +117,10 @@ fi
 # The same endpoint/name with a different supported transport must have a
 # distinct logical ID and render the exact TLS/WS stream settings.
 [ "$PROFILE_ID" != "$WS_PROFILE_ID" ] || fail 'transport variants collapsed to one profile id'
-run_helper apply "$WS_PROFILE_ID" > "$TMP/ws-apply.out" 2> "$TMP/ws-apply.err"
+if ! run_helper apply "$WS_PROFILE_ID" > "$TMP/ws-apply.out" 2> "$TMP/ws-apply.err"; then
+    cat "$TMP/ws-apply.err" >&2 || true
+    fail 'TLS/WS provider apply failed'
+fi
 grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/ws-apply.out" || fail 'TLS/WS provider apply failed'
 jq -e '
   ([.outbounds[] | select(.tag=="vless-reality")] | length)==1 and
@@ -147,7 +153,10 @@ echo called >> "$TMP/curl-after-cache.calls"
 exit 1
 EOF
 chmod 755 "$TMP/bin/curl"
-run_helper plan "$PROFILE_ID" > "$TMP/cache-plan.out" 2> "$TMP/cache-plan.err"
+if ! run_helper plan "$PROFILE_ID" > "$TMP/cache-plan.out" 2> "$TMP/cache-plan.err"; then
+    cat "$TMP/cache-plan.err" >&2 || true
+    fail 'secure-LKG provider plan failed'
+fi
 grep -Fq 'CANDIDATE_XRAY_VALID=yes' "$TMP/cache-plan.out" || fail 'secure-LKG plan did not validate candidate'
 [ ! -s "$TMP/curl-after-cache.calls" ] || fail 'matching secure LKG still performed provider fetch'
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/cache-plan.out" "$TMP/cache-plan.err"; then
