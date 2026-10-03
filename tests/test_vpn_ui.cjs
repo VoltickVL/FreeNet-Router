@@ -103,7 +103,7 @@ const server = http.createServer((req,res)=>{
         assert.deepEqual(JSON.parse(req.postData()),{operation:'provider',profile_id:expectedApply.id,confirm:true});
         status={...status,country:'Германия',city:'Франкфурт',country_code:'de',endpoint:expectedApply.endpoint};
         if(applyMode!=='ok'){
-          status={...status,country:'',country_code:'',city:'',profile_label:'LT Lithuania, Extra Whitelist'};
+          status={...status,country:'Германия',country_code:'de',city:'Франкфурт',profile_label:expectedApply.name,endpoint:expectedApply.endpoint};
           operation={id:'fixture-op',kind:'provider',target:expectedApply.id,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
           if(applyMode==='failed')operation={...operation,state:'failed',result:'FAIL',error:'Проверка соединения не пройдена'};
           if(applyMode==='other')operation={...operation,target:'another-profile'};
@@ -422,7 +422,7 @@ const server = http.createServer((req,res)=>{
       else if(scenario==='other')await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent.includes('пока не подтверждён'));
       else {
         await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent==='VPN переключён. Соединение проверено.');
-        assert.match(await page.locator('#bestCurrentName').textContent(),/Lithuania/);
+        assert.match(await page.locator('#bestCurrentName').textContent(),/Германия|Germany/);
         assert.equal(await page.locator('#bestServerCheckCurrent').isDisabled(),false);
       }
       assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1,scenario+': no second POST');
