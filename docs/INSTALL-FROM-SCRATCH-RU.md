@@ -72,7 +72,7 @@ http://<LAN-IP>:1001/
 
 ## 6. DNS и routing
 
-DNS mode выбирается отдельно. Routing DIRECT/VPN/BLOCK задаётся только явными правилами и не определяется интернет-провайдером.
+DNS mode выбирается отдельно. Routing DIRECT/VPN/BLOCK задаётся только явными правилами.
 
 ## 7. Финальная проверка
 
@@ -116,4 +116,4 @@ curl -fLsS https://raw.githubusercontent.com/VoltickVL/FreeNet-Router/main/docto
 - переносить subscription URL, UUID или Reality credentials через GitHub/чат;
 - вручную редактировать `04_outbounds.json` вместо штатного plan/apply;
 - повторно запускать install после FAIL, не установив основную ошибку и состояние rollback;
-- автоматически наследовать routing policy одного интернет-провайдера другому.
+- автоматически придумывать routing policy без подтверждённого правила.
