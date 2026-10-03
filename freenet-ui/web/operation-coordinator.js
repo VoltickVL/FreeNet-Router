@@ -789,19 +789,36 @@
     } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено безопасное время ожидания ответа.':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
   }
 
-  async function waitForEndpoint(expected) {
-    for(let i=0;i<35;i++){try{const response=await fetch('/api/status',{cache:'no-store'});if(response.ok){const status=await response.json();if(status&&!status.busy&&!status.updater_busy&&status.xray_online&&status.endpoint===expected)return status;}}catch(_){}await wait(850);}return null;
+  async function waitForAppliedProvider(candidate, expectedEndpoint='') {
+    const expectedName=String(candidate&&candidate.name||'').trim();
+    for(let i=0;i<35;i++){
+      try{
+        const response=await fetch('/api/status',{cache:'no-store'});
+        if(response.ok){
+          const status=await response.json();
+          if(status&&!status.busy&&!status.updater_busy&&status.xray_online){
+            const statusName=String(status.profile_label||status.profile||'').trim();
+            const endpointOK=!!expectedEndpoint&&status.endpoint===expectedEndpoint;
+            const nameOK=!expectedEndpoint&&!!expectedName&&(statusName===expectedName||profileDisplayName({name:statusName},statusName)===profileDisplayName(candidate,expectedName));
+            if(endpointOK||nameOK||(!expectedEndpoint&&!expectedName))return status;
+          }
+        }
+      }catch(_){}
+      await wait(850);
+    }
+    return null;
   }
 
   async function applyCandidate(candidate) {
     if(applyBusy||scanBusy||externalBusy||!candidate||candidate.current||!candidate.id||!candidate.eligible||isRussianProfile(candidate))return;
     recommendation=candidate;applyBusy=true;setBusy(false);
     const apply=Array.from(document.querySelectorAll('.vpn-option-apply')).find(button=>button.dataset.candidateId===candidate.id);if(apply){apply.disabled=true;apply.textContent='Переключаем…';}
-    setText(qs('#bestServerStatus'),'Переключаем VPN и проверяем соединение…');const expectedEndpoint=candidate.endpoint;
+    setText(qs('#bestServerStatus'),'Переключаем VPN и проверяем соединение…');
     try{
       const response=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'provider',profile_id:candidate.id,confirm:true})});const body=await response.json().catch(()=>null);
       if(!response.ok||!body||!body.success){const detail=body&&(body.primary_error||body.error);setText(qs('#bestServerStatus'),detail||'Результат переключения не подтверждён. Не повторяйте операцию.');if(!body||body.result_unknown)recommendation=null;return;}
-      const status=await waitForEndpoint(expectedEndpoint);if(!status){setText(qs('#bestServerStatus'),'Переключение ещё не подтверждено. Проверьте состояние системы перед повторной попыткой.');return;}
+      const appliedEndpoint=String(body?.provider_plan?.endpoint||'').trim();
+      const status=await waitForAppliedProvider(candidate,appliedEndpoint);if(!status){setText(qs('#bestServerStatus'),'Переключение ещё не подтверждено. Проверьте состояние системы перед повторной попыткой.');return;}
       recommendation=null;currentQuality=null;renderOverviewTopbarFromStatus(status);renderMetrics(qs('#bestCurrentMetrics'),null);renderCurrentHealth(null);setText(qs('#bestCurrentQuality'),'Качество ещё не проверено');setText(qs('#bestServerStatus'),'VPN переключён. Соединение проверено.');
     }catch(_){recommendation=null;setText(qs('#bestServerStatus'),'Связь прервалась во время переключения. Результат не подтверждён — проверьте состояние системы перед повторной попыткой.');}finally{clearAlternatives('Результаты подбора израсходованы. Для нового переключения подберите серверы снова.');applyBusy=false;setBusy(false);}
   }

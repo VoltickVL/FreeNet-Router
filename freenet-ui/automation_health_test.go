@@ -31,6 +31,40 @@ func TestAutomationHealthDueUsesProbeStartCadence(t *testing.T) {
 	}
 }
 
+func TestPostUpdateGuardBlocksMutationUntilHealthyReadOnlyAcceptance(t *testing.T) {
+	dir := t.TempDir()
+	updateState := filepath.Join(dir, "self-update.state")
+	automationState := filepath.Join(dir, "automation.state")
+	t.Setenv("FREENET_AUTOMATION_STATE", automationState)
+	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
+	if err := os.WriteFile(updateState, []byte("STATE=SUCCESS\nTARGET_VERSION=v"+version+"\nUPDATED_AT=2026-10-03T08:00:00Z\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{UpdateState: updateState}}
+
+	blocked, handled := automationPostUpdateGuardResult(a, automationHealthProbe{State: automationHealthFailed, Reason: "current VPN failed"})
+	if !handled || blocked.State != automationHealthUncertain {
+		t.Fatalf("post-update unhealthy state must hold AUTO mutation: handled=%v result=%+v", handled, blocked)
+	}
+	if got := parseAutomationState(automationState)["POST_UPDATE_ACK"]; got != "" {
+		t.Fatalf("unhealthy post-update state unexpectedly acknowledged: %q", got)
+	}
+	if pending := automationPendingPostUpdateTarget(a); pending != "v"+version {
+		t.Fatalf("post-update hold disappeared before healthy acceptance: %q", pending)
+	}
+
+	healthy, handled := automationPostUpdateGuardResult(a, automationHealthProbe{State: automationHealthHealthy, Reason: "exact current VPN healthy"})
+	if !handled || healthy.State != automationHealthHealthy {
+		t.Fatalf("healthy post-update state must be accepted read-only: handled=%v result=%+v", handled, healthy)
+	}
+	if got := parseAutomationState(automationState)["POST_UPDATE_ACK"]; got != "v"+version {
+		t.Fatalf("healthy acceptance did not persist post-update acknowledgement: %q", got)
+	}
+	if pending := automationPendingPostUpdateTarget(a); pending != "" {
+		t.Fatalf("post-update hold survived healthy acceptance: %q", pending)
+	}
+}
+
 func TestRollbackGuardRequiresHealthyReadOnlyAcceptance(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))

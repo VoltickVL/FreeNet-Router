@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const providerProfileRTTWorkers = 2
+const (
+	providerProfileRTTWorkers          = 2
+	providerProfileRTTDiscoveryTimeout = 30 * time.Second
+)
 
 type providerProfileRTTItem struct {
 	ProfileID string `json:"profile_id"`
@@ -207,7 +210,7 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 	}
 	defer releaseGuards()
 
-	discoveryCtx, cancelDiscovery := context.WithTimeout(r.Context(), 30*time.Second)
+	discoveryCtx, cancelDiscovery := context.WithTimeout(r.Context(), providerProfileRTTDiscoveryTimeout)
 	all, _, _, err := a.discoverBestServerCandidates(discoveryCtx)
 	cancelDiscovery()
 	filtered := filterForeignBestServerCandidates(all)

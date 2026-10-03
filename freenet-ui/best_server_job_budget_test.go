@@ -9,6 +9,14 @@ import (
 	"time"
 )
 
+func TestProviderRTTFullPoolFitsHTTPWriteBudget(t *testing.T) {
+	const responseSlack = 10 * time.Second
+	required := providerProfileRTTDiscoveryTimeout + bestServerRTTSweepTimeout(bestServerMaxCandidates) + responseSlack
+	if controlCenterWriteTimeout < required {
+		t.Fatalf("provider RTT full-pool budget=%s exceeds HTTP write timeout=%s", required, controlCenterWriteTimeout)
+	}
+}
+
 func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
 	const browserBudget = 340 * time.Second
 	const minimumSlack = 10 * time.Second

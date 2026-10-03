@@ -11,9 +11,13 @@ import (
 	"time"
 )
 
-const subscriptionProfilesCachePathDefault = "/opt/var/lib/freenet/subscription-profiles.json"
+const (
+	subscriptionProfilesCachePathDefault = "/opt/var/lib/freenet/subscription-profiles.json"
+	subscriptionProfilesCacheSchema      = 2
+)
 
 type subscriptionProfilesCache struct {
+	Schema    int                   `json:"schema"`
 	UpdatedAt string                `json:"updated_at"`
 	Profiles  []subscriptionProfile `json:"profiles"`
 }
@@ -108,6 +112,9 @@ func loadSubscriptionProfilesCache() (subscriptionRefreshResult, error) {
 	if err := json.Unmarshal(data, &cache); err != nil {
 		return subscriptionRefreshResult{}, errors.New("subscription profile cache is invalid")
 	}
+	if cache.Schema != subscriptionProfilesCacheSchema {
+		return subscriptionRefreshResult{}, errors.New("subscription profile cache schema is stale")
+	}
 	if _, err := time.Parse(time.RFC3339, cache.UpdatedAt); err != nil || len(cache.Profiles) == 0 || len(cache.Profiles) > 100 {
 		return subscriptionRefreshResult{}, errors.New("subscription profile cache is invalid")
 	}
@@ -128,7 +135,7 @@ func saveSubscriptionProfilesCache(profiles []subscriptionProfile, updatedAt str
 			return errors.New("subscription profile cache contains invalid profile")
 		}
 	}
-	cache := subscriptionProfilesCache{UpdatedAt: updatedAt, Profiles: cloneSubscriptionProfiles(profiles)}
+	cache := subscriptionProfilesCache{Schema: subscriptionProfilesCacheSchema, UpdatedAt: updatedAt, Profiles: cloneSubscriptionProfiles(profiles)}
 	data, err := json.Marshal(cache)
 	if err != nil {
 		return err

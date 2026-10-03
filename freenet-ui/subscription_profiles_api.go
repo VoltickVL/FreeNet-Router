@@ -268,10 +268,15 @@ func parseSupportedVLESSTransport(u *url.URL) (vlessTransportSpec, bool) {
 }
 
 func vlessLogicalProfileID(name, address string, port int, spec vlessTransportSpec) string {
+	// A profile ID identifies the logical selectable VPN rather than one
+	// endpoint/credential snapshot. Endpoint address/port and VLESS/Reality
+	// credentials may rotate between scan and apply, so they must not be part
+	// of the identity. Stable transport identity stays in the key to avoid
+	// collapsing independently selectable variants that share one label.
+	_ = address
+	_ = port
 	identity := strings.Join([]string{
 		name,
-		strings.ToLower(address),
-		strconv.Itoa(port),
 		spec.Security,
 		spec.Network,
 		strings.ToLower(spec.ServerName),

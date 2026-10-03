@@ -21,6 +21,7 @@ func providerPlanOutput(id string) string {
 		"CURRENT_OUTBOUND=present",
 		"XRAY_RUNNING=yes",
 		"CANDIDATE_XRAY_VALID=yes",
+		"CANDIDATE_ROUTE_OK=yes",
 		"EXPECTED_DELTA=replace exactly one vless-reality outbound",
 		"EXPECTED_NO_DELTA=ISP/DNS/routing unchanged",
 		"MUTATION=NONE",
@@ -34,7 +35,7 @@ func TestParseProviderPlanAllowlistsSafeFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plan.Success || !plan.CandidateValid || plan.ProfileID != testProviderID || plan.Endpoint != "203.0.113.10:443" {
+	if !plan.Success || !plan.CandidateValid || !plan.CandidateRouteOK || plan.ProfileID != testProviderID || plan.Endpoint != "203.0.113.10:443" {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
 	b, err := json.Marshal(plan)
@@ -67,6 +68,10 @@ func TestProviderPlanFailureReasonDistinguishesSubscriptionAvailabilityFromXrayV
 	xrayReason := providerPlanFailureReason([]byte("[FreeNet Provider] ERROR: candidate Xray configuration validation failed\n"))
 	if xrayReason != "Конфигурация выбранного VPN-сервера не прошла проверку Xray." {
 		t.Fatalf("Xray validation reason=%q", xrayReason)
+	}
+	routeReason := providerPlanFailureReason([]byte("[FreeNet Provider] ERROR: candidate VPN application route validation failed\n"))
+	if routeReason != "Свежий VPN-сервер найден, но реальный интернет через него не подтвердился. Активный VPN не изменён." {
+		t.Fatalf("route validation reason=%q", routeReason)
 	}
 }
 
@@ -141,12 +146,24 @@ func TestNetworkPlanCanAttachProviderPlanWithoutChangingNetworkPlan(t *testing.T
 }
 
 func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
-	marker := filepath.Join(t.TempDir(), "provider-applied")
-	provider := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+providerPlanOutput(testProviderID)+"\nEOF\nexit 0\nfi\n[ \"$1\" = apply ] || exit 9\n[ \"$2\" = \""+testProviderID+"\" ] || exit 8\necho applied > \""+marker+"\"\necho '[FreeNet Provider] RESULT=SUCCESS'\nexit 0")
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "provider-applied")
+	automationState := filepath.Join(dir, "automation.state")
+	updateState := filepath.Join(dir, "self-update.state")
+	t.Setenv("FREENET_AUTOMATION_STATE", automationState)
+	if err := os.WriteFile(automationState, []byte("LAST_RUN=2026-10-03T08:00:00Z\nROLLBACK_READY=no\nMUTATION_BLOCKED=yes\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(updateState, []byte("STATE=SUCCESS\nTARGET_VERSION=v"+version+"\nUPDATED_AT=2026-10-03T08:00:00Z\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	appliedPlanOutput := strings.Replace(providerPlanOutput(testProviderID), "ENDPOINT=203.0.113.10:443", "ENDPOINT=198.51.100.77:8443", 1)
+	provider := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+providerPlanOutput(testProviderID)+"\nEOF\nexit 0\nfi\n[ \"$1\" = apply ] || exit 9\n[ \"$2\" = \""+testProviderID+"\" ] || exit 8\necho applied > \""+marker+"\"\ncat <<'EOF'\n"+appliedPlanOutput+"\nEOF\necho '[FreeNet Provider] RESULT=SUCCESS'\nexit 0")
 	network := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
 	t.Setenv("FREENET_NETWORK_HELPER", network)
 	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a.cfg.UpdateState = updateState
 
 	noConfirm := `{"operation":"provider","profile_id":"` + testProviderID + `","confirm":false}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(noConfirm))
@@ -181,6 +198,15 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 	}
 	if !resp.Success || !resp.Applied || resp.Operation != "provider" || resp.ProviderPlan == nil || resp.RollbackState != "NOT_NEEDED" {
 		t.Fatalf("unexpected provider apply response: %+v", resp)
+	}
+	if resp.ProviderPlan.Endpoint != "198.51.100.77:8443" {
+		t.Fatalf("response lost exact endpoint reported by apply transaction: %+v", resp.ProviderPlan)
+	}
+	if automationMutationBlockedState() {
+		t.Fatal("accepted manual VPN switch did not clear inherited mutation block")
+	}
+	if got := parseAutomationState(automationState)["POST_UPDATE_ACK"]; got != "v"+version {
+		t.Fatalf("accepted manual VPN switch did not acknowledge post-update hold: %q", got)
 	}
 }
 
