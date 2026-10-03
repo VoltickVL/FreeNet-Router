@@ -893,13 +893,17 @@
   }
 
   function installCurrentQualityMemoryBridge() {
-    document.addEventListener('freenet:current-quality-display', event => {
-      const candidate = event && event.detail && event.detail.candidate;
+    const acceptHydration = detail => {
+      const candidate = detail && detail.candidate;
       if (!candidate || candidate.current !== true || !candidate.endpoint) return;
       const liveEndpoint = String(qs('#bestCurrentEndpoint')?.textContent || '').trim();
       if (liveEndpoint && liveEndpoint !== '—' && liveEndpoint !== candidate.endpoint) return;
       currentQuality = Object.assign({}, candidate, {current:true});
-    });
+      renderCurrentQuality({scanned_at: detail.scanned_at || '', candidates:[currentQuality]});
+      if (detail.status) renderCurrentHealth(currentQuality, detail.status);
+    };
+    document.addEventListener('freenet:current-quality-display', event => acceptHydration(event && event.detail));
+    if (window.__freenetCurrentQualityHydration) queueMicrotask(() => acceptHydration(window.__freenetCurrentQualityHydration));
   }
 
   function start() {
