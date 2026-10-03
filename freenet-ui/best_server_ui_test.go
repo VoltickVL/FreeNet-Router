@@ -155,7 +155,6 @@ func TestOverviewKeepsSystemSummaryAndSingleVPNCard(t *testing.T) {
 		"overviewApprovedTop",
 		"overview-approved-fact",
 		"Текущий VPN",
-		"Провайдер",
 		"DNS",
 		"overview-hero-source",
 		"overview-compact-grid",
@@ -183,7 +182,10 @@ func TestOverviewTopbarSyncDoesNotUseArrayIndexAsQueryRoot(t *testing.T) {
 	if strings.Contains(js, ".map(qs)") {
 		t.Fatal("Array.map(qs) passes numeric array index as qs root and breaks topbar synchronization")
 	}
-	for _, want := range []string{"syncOverviewTopbar", "#topISPValue", "#topDNSValue"} {
+	if strings.Contains(js, "#topISPValue") || strings.Contains(js, ">Провайдер<") {
+		t.Fatal("retired ISP product status must not return to Overview/topbar")
+	}
+	for _, want := range []string{"syncOverviewTopbar", "#topDNSValue"} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("topbar direct synchronization missing %q", want)
 		}
