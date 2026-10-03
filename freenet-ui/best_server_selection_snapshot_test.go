@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestMeasuredSelectionApplyUsesExactSnapshotWithoutFreshRediscovery(t *testing.T) {
@@ -127,5 +129,73 @@ func TestMeasuredSelectionSnapshotRejectsChangedCurrentVPNAndWrongToken(t *testi
 	}
 	if _, err := a.loadBestServerSelectionCandidate(strings.Repeat("a", 32), profile.ID, "198.51.100.1:443", "^old$"); err == nil {
 		t.Fatal("wrong selection token was accepted")
+	}
+}
+
+
+func TestMeasuredSelectionSnapshotExpiresAndIsSourceBound(t *testing.T) {
+	dir := t.TempDir()
+	selectionDir := filepath.Join(dir, "selections")
+	t.Setenv("FREENET_BEST_SELECTION_DIR", selectionDir)
+	subPath := filepath.Join(dir, "subscription.url")
+	if err := os.WriteFile(subPath, []byte("https://provider.example.invalid/subscription-token\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	raw := strings.Split(strings.TrimSpace(testSubscriptionPlain), "\n")[0]
+	profile, ok := parseSafeVLESSProfile(raw)
+	if !ok {
+		t.Fatal("fixture profile rejected")
+	}
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
+	a.cfg.SubPath = subPath
+	measured := []bestServerQualityCandidate{{ID: profile.ID, Tested: true, Available: true, Eligible: true}}
+	token, err := a.storeBestServerSelectionSnapshot("198.51.100.1:443", "^old$", []bestServerInternalCandidate{{Profile: profile, Raw: raw}}, measured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := bestServerSelectionSnapshotPath(token)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("selection snapshot mode=%#o want 0600", info.Mode().Perm())
+	}
+	dirInfo, err := os.Stat(selectionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirInfo.Mode().Perm()&0077 != 0 {
+		t.Fatalf("selection snapshot directory is group/world accessible: %#o", dirInfo.Mode().Perm())
+	}
+
+	if err := os.WriteFile(subPath, []byte("https://provider.example.invalid/rotated-subscription-token\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.loadBestServerSelectionCandidate(token, profile.ID, "198.51.100.1:443", "^old$"); err == nil || !strings.Contains(err.Error(), "subscription changed") {
+		t.Fatalf("source-changed snapshot was not rejected safely: %v", err)
+	}
+
+	if err := os.WriteFile(subPath, []byte("https://provider.example.invalid/subscription-token\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshot bestServerSelectionSnapshot
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	snapshot.CreatedAt = time.Now().UTC().Add(-bestServerSelectionSnapshotTTL - time.Minute).Format(time.RFC3339)
+	encoded, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.loadBestServerSelectionCandidate(token, profile.ID, "198.51.100.1:443", "^old$"); err == nil || !strings.Contains(err.Error(), "expired") {
+		t.Fatalf("expired snapshot was not rejected safely: %v", err)
 	}
 }
