@@ -88,6 +88,10 @@ const server = http.createServer((req,res)=>{
           const fallbackCurrent={...current,eligible:false,download_mbps:0,fallback_download_mbps:37.4,throughput_source:'current_fallback',media_samples:0,media_stalls:0,media_grade:'unknown'};
           return answer(route,{success:true,available:false,candidates:[fallbackCurrent],profiles_scanned:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
         }
+        if(mode==='dead' && url.pathname==='/api/vpn/current-quality') {
+          const deadCurrent={...current,tested:true,eligible:false,available:false,reachable:false,download_mbps:0,application_rtt_ms:0,tcp_rtt_ms:0,jitter_ms:0,reason:'Активный VPN-путь не подтвердил доступ к интернету'};
+          return answer(route,{success:true,available:false,candidates:[deadCurrent],profiles_scanned:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
+        }
         if(mode==='rejected')return answer(route,{success:true,available:false,candidates:[current,
           {...winner,tested:true,eligible:false,download_mbps:4.2,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Скорость ниже 20 Мбит/с']},
           {...third,tested:true,eligible:false,available:true,reachable:true,download_mbps:146,application_rtt_ms:226,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Отклик сайтов выше 220 мс']}],profiles_scanned:3});
@@ -272,6 +276,11 @@ const server = http.createServer((req,res)=>{
     assert.doesNotMatch(await page.locator('#bestServerReason').textContent(),/Скорость [+-]/,'fallback current throughput must not be used for candidate speed comparison');
 
     bestMode='winner';
+    mode='dead';
+    await currentCheck();
+    assert.match(await page.locator('#bestCurrentHealth').textContent(),/VPN-путь не подтвердил доступ к интернету/);
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentConnection')?.textContent.includes('VPN не работает'));
+    assert.equal(await page.locator('#bestCurrentConnection').textContent(),'● VPN не работает');
     mode='ok';
     await currentCheck();
     assert.match(await page.locator('#bestCurrentMetrics').textContent(),/Скорость VPN/);
