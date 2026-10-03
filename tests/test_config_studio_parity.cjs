@@ -57,8 +57,8 @@ function studioBody() {
 const status = {
   version:'0.3.70',country:'Германия',city:'Франкфурт-на-Майне',country_code:'de',
   profile_label:'Франкфурт-на-Майне, Германия, Extra',endpoint:'192.0.2.67:443',
-  xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'custom',isp_label:'Свой',
-  recommended_dns_mode:'xkeen',setup_complete:true,subscription_configured:true,busy:false,updater_busy:false,last_action:{success:true}
+  xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',
+  setup_complete:true,subscription_configured:true,busy:false,updater_busy:false,last_action:{success:true}
 };
 const scripts = ['vpn-ux-fix.js','automation.js','routing-v2-canonical.js','config-studio-parity.js','routing-apply-ui.js'];
 
