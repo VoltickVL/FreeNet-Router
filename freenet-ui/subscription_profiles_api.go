@@ -268,19 +268,20 @@ func parseSupportedVLESSTransport(u *url.URL) (vlessTransportSpec, bool) {
 }
 
 func vlessLogicalProfileID(name, address string, port int, spec vlessTransportSpec) string {
-	// A profile ID identifies the logical selectable VPN, not one credential/
-	// endpoint snapshot. BlancVPN may rotate address, port, UUID, SNI/host/path
-	// between two subscription reads. Keeping those volatile fields in the ID
-	// makes a server selected by the UI impossible to resolve during the fresh
-	// plan/apply fetch. Transport family remains part of the identity so an
-	// explicitly published Reality/TCP and TLS/WS variant with the same label
-	// stays independently selectable.
+	// A profile ID identifies the logical selectable VPN rather than one
+	// endpoint/credential snapshot. Endpoint address/port and VLESS/Reality
+	// credentials may rotate between scan and apply, so they must not be part
+	// of the identity. Stable transport identity stays in the key to avoid
+	// collapsing independently selectable variants that share one label.
 	_ = address
 	_ = port
 	identity := strings.Join([]string{
 		name,
 		spec.Security,
 		spec.Network,
+		strings.ToLower(spec.ServerName),
+		strings.ToLower(spec.Host),
+		spec.Path,
 	}, "|")
 	sum := sha256.Sum256([]byte(identity))
 	return hex.EncodeToString(sum[:8])
