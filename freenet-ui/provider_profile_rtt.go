@@ -67,7 +67,8 @@ func providerProfileRTTCacheKey(candidates []bestServerInternalCandidate) string
 		if id == "" || endpoint == "" {
 			continue
 		}
-		parts = append(parts, id+"|"+endpoint)
+		rawHash := sha256.Sum256([]byte(strings.TrimSpace(candidate.Raw)))
+		parts = append(parts, id+"|"+endpoint+"|"+hex.EncodeToString(rawHash[:8]))
 	}
 	sort.Strings(parts)
 	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
