@@ -155,7 +155,7 @@ func TestVLESSTransportIdentitySupportsTLSWSAndSeparatesVariants(t *testing.T) {
 		t.Fatalf("fixture must differ only by transport identity: reality=%+v ws=%+v", rp, wp)
 	}
 
-	rotatedReality := "vless://UUID-ROTATED@198.51.100.77:8443?security=reality&type=tcp&sni=rotated-edge.example&pbk=KEY-ROTATED&sid=SID-ROTATED#DE%20Frankfurt%2C%20Germany%2C%20Extra"
+	rotatedReality := "vless://UUID-ROTATED@198.51.100.77:8443?security=reality&type=tcp&sni=edge.example&pbk=KEY-ROTATED&sid=SID-ROTATED#DE%20Frankfurt%2C%20Germany%2C%20Extra"
 	rotated, ok := parseSafeVLESSProfile(rotatedReality)
 	if !ok || rotated.ID != rp.ID {
 		t.Fatalf("endpoint/credential rotation must preserve logical profile identity: before=%s after=%s ok=%v", rp.ID, rotated.ID, ok)
