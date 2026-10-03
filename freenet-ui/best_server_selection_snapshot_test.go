@@ -26,12 +26,22 @@ func TestMeasuredSelectionApplyUsesExactSnapshotWithoutFreshRediscovery(t *testi
 	}
 	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 	a.cfg.SubPath = subPath
+	a.cfg.OutPath = filepath.Join(dir, "04_outbounds.json")
+	a.cfg.FilterPath = filepath.Join(dir, "profile.filter")
+	const currentEndpoint = "192.0.2.99:443"
+	const currentFilter = "^PL Warsaw, Poland, Extra$"
+	if err := os.WriteFile(a.cfg.OutPath, []byte(`{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"192.0.2.99","port":443}]}}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.cfg.FilterPath, []byte(currentFilter+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	measured := []bestServerQualityCandidate{{
 		ID: profile.ID, Name: profile.Name, Endpoint: profileEndpoint(profile),
 		Tested: true, Available: true, Eligible: true,
 	}}
-	token, err := a.storeBestServerSelectionSnapshot("", "", []bestServerInternalCandidate{{Profile: profile, Raw: raw}}, measured)
+	token, err := a.storeBestServerSelectionSnapshot(currentEndpoint, currentFilter, []bestServerInternalCandidate{{Profile: profile, Raw: raw}}, measured)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +94,7 @@ exit 0`)
 	if _, err := os.Stat(marker); err != nil {
 		t.Fatalf("provider apply did not use staged measured snapshot: %v", err)
 	}
-	if _, err := a.loadBestServerSelectionCandidate(token, profile.ID, "", ""); err == nil {
+	if _, err := a.loadBestServerSelectionCandidate(token, profile.ID, currentEndpoint, currentFilter); err == nil {
 		t.Fatal("successful apply did not consume one-time selection snapshot")
 	}
 }
