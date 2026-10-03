@@ -414,22 +414,15 @@ apply_safe_cron() {
         {print}
     ' "$C1" > "$C2" || return 1
 
-    AUTO_ENDPOINT_UPDATE="$(config_value AUTO_ENDPOINT_UPDATE no)"
-    AUTO_ENDPOINT_CRON="$(config_value AUTO_ENDPOINT_CRON '*/15 * * * *')"
     AUTO_XKEEN_GEODATA="$(config_value AUTO_XKEEN_GEODATA yes)"
     AUTO_XKEEN_GEODATA_CRON="$(config_value AUTO_XKEEN_GEODATA_CRON '30 6 * * *')"
-    SETUP_COMPLETE="$(config_value SETUP_COMPLETE no)"
 
     {
         echo '# BEGIN FREENET'
         if [ "$AUTO_XKEEN_GEODATA" = yes ]; then
             echo "$AUTO_XKEEN_GEODATA_CRON /opt/sbin/xkeen -ug"
         fi
-        if [ "$SETUP_COMPLETE" = yes ] && [ "$AUTO_ENDPOINT_UPDATE" = yes ] && [ -s "$SUB_FILE" ] && has_dns_out; then
-            echo "$AUTO_ENDPOINT_CRON /opt/bin/blanc_xkeen_update_outbounds.sh >> /opt/var/log/blanc_xkeen_update.log 2>&1"
-        else
-            echo '# endpoint refresh disabled until setup/subscription/dns-out acceptance'
-        fi
+        echo '# AUTO VPN scheduler is owned by FreeNet Settings v3 after UI startup'
         echo '# END FREENET'
     } >> "$C2"
 
