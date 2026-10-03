@@ -495,6 +495,26 @@ func (a *app) startAutomationHealthScheduler() {
 	}()
 }
 
+func automationPostUpdateGuardResult(a *app, first automationHealthProbe) (automationHealthResult, bool) {
+	target := automationPendingPostUpdateTarget(a)
+	if target == "" {
+		return automationHealthResult{}, false
+	}
+	if first.State == automationHealthHealthy {
+		setAutomationPostUpdateAck(target)
+		reason := "После обновления текущий VPN подтверждён read-only проверкой; AUTO mutation снова разрешена со следующего цикла."
+		appendAutomationRecoveryStage("post_update_guard", "cleared", reason)
+		appendAutomationHistoryV2("post_update_guard_cleared", reason)
+		return automationHealthResult{State: automationHealthHealthy, Reason: reason}, true
+	}
+	reason := "После обновления AUTO VPN mutation удерживается до подтверждения текущего VPN. Изменений нет; ручной выбор VPN остаётся доступен."
+	if strings.TrimSpace(first.Reason) != "" {
+		reason += " " + strings.TrimSpace(first.Reason)
+	}
+	appendAutomationRecoveryStage("post_update_guard", "blocked", reason)
+	return automationHealthResult{State: automationHealthUncertain, Reason: reason}, true
+}
+
 func automationRollbackGuardResult(first automationHealthProbe) (automationHealthResult, bool) {
 	if !automationMutationBlockedState() {
 		return automationHealthResult{}, false
@@ -528,6 +548,10 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
 	first := a.probeAutomationCurrentVPN(probeCtx)
+	if guarded, blocked := automationPostUpdateGuardResult(a, first); blocked {
+		cancel()
+		return recordAndReturnHealth(guarded, nil)
+	}
 	if guarded, blocked := automationRollbackGuardResult(first); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
