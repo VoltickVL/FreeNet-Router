@@ -18,44 +18,52 @@ func TestOverviewCurrentQualityMemoryDeliveredBeforeBootRelease(t *testing.T) {
 		`id="freenetOverviewCurrentQualityMemory"`,
 		`/api/status`,
 		`/api/vpn/current-quality?job=cache`,
-		`Последний замер: `,
-		`VPN сейчас не подключен.`,
-		`latencyOnlyWarning`,
 		`seedMissingMeasurement`,
 		`/api/vpn/current-quality?job=start&id=`,
-		`renderMetrics(candidate)`,
-		`fallback_download_mbps`,
-		`current_fallback`,
-		`strict_aggregate`,
-		`не для сравнения`,
+		`window.__freenetCurrentQualityHydration`,
+		`freenet:current-quality-display`,
+		`liveEndpoint !== String(candidate.endpoint).trim()`,
 	} {
 		if !strings.Contains(html, want) {
-			t.Fatalf("overview quality memory contract missing %q", want)
+			t.Fatalf("overview quality hydration contract missing %q", want)
 		}
 	}
 	memoryAt := strings.Index(html, `id="freenetOverviewCurrentQualityMemory"`)
 	releaseAt := strings.Index(html, `id="freenetCanonicalBootRelease"`)
 	if memoryAt < 0 || releaseAt < 0 || releaseAt < memoryAt {
-		t.Fatalf("quality memory must be delivered before canonical boot release: memory=%d release=%d", memoryAt, releaseAt)
+		t.Fatalf("quality hydration must be delivered before canonical boot release: memory=%d release=%d", memoryAt, releaseAt)
 	}
 }
 
-func TestOverviewCurrentQualityMemoryDoesNotHideMutation(t *testing.T) {
+func TestOverviewCurrentQualityMemoryIsHydrateOnly(t *testing.T) {
 	for _, forbidden := range []string{
 		`/api/action`,
 		`/api/network-profile/apply`,
 		`/api/vpn/current-refresh`,
 		`/api/vpn/best-foreign`,
+		`renderMetrics`,
+		`bestCurrentMetrics`,
+		`bestCurrentQuality`,
+		`bestCurrentHealth`,
+		`latencyOnlyWarning`,
+		`Быстрый замер`,
+		`Скорость VPN`,
 	} {
 		if strings.Contains(overviewCurrentQualityMemoryScript, forbidden) {
-			t.Fatalf("overview first-paint memory must not contain mutation/broad-scan endpoint %q", forbidden)
+			t.Fatalf("overview first-paint hydration must not own UI/mutation surface %q", forbidden)
 		}
 	}
-	if !strings.Contains(overviewCurrentQualityMemoryScript, `if (!renderQuality(data, status)) void seedMissingMeasurement();`) {
-		t.Fatal("silent current-VPN seed must run only when exact cached display data is missing")
+	for _, want := range []string{
+		`if (publish(data, status)) return;`,
+		`void seedMissingMeasurement(status);`,
+		`candidate.endpoint`,
+		`status.endpoint`,
+	} {
+		if !strings.Contains(overviewCurrentQualityMemoryScript, want) {
+			t.Fatalf("hydrate-only memory missing %q", want)
+		}
 	}
 }
-
 
 func TestOverviewCurrentQualityMemoryUsesHTTPCompatibleJobID(t *testing.T) {
 	if strings.Contains(overviewCurrentQualityMemoryScript, "crypto.randomUUID()") {
@@ -81,10 +89,7 @@ func TestOverviewCurrentQualityMemoryUsesHTTPCompatibleJobID(t *testing.T) {
 	}
 }
 
-func TestOverviewCurrentQualityMemoryBridgesCoordinatorState(t *testing.T) {
-	if !strings.Contains(overviewCurrentQualityMemoryScript, "freenet:current-quality-display") {
-		t.Fatal("persisted current-quality renderer must publish the exact measured candidate to the Overview coordinator")
-	}
+func TestOverviewCurrentQualityMemoryBridgesSingleCoordinatorRenderer(t *testing.T) {
 	data, err := webFS.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
@@ -94,10 +99,15 @@ func TestOverviewCurrentQualityMemoryBridgesCoordinatorState(t *testing.T) {
 		"installCurrentQualityMemoryBridge",
 		"freenet:current-quality-display",
 		"currentQuality = Object.assign({}, candidate, {current:true})",
-		"currentMetrics.children.length === 0",
+		"renderCurrentQuality({scanned_at: detail.scanned_at || '', candidates:[currentQuality]})",
+		"window.__freenetCurrentQualityHydration",
+		"fallback_download_mbps",
+		"current_fallback",
+		"strict_aggregate",
+		"не для сравнения",
 	} {
 		if !strings.Contains(src, want) {
-			t.Fatalf("Overview current-quality bridge contract missing %q", want)
+			t.Fatalf("Overview coordinator ownership contract missing %q", want)
 		}
 	}
 }
