@@ -17,13 +17,13 @@ func TestNativeDNSProviderDefaultsToYandexForLegacyConfig(t *testing.T) {
 	}
 }
 
-func TestWriteNetworkProfileConfigWithNativeProviderPreservesUnknownKeys(t *testing.T) {
+func TestWriteNetworkProfileConfigWithNativeProviderPreservesLegacyISPAndUnknownKeys(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
 	before := "# keep\nISP_ID=vladlink\nDNS_MODE=xkeen\nSOME_RUNTIME_FLAG=preserved\n"
 	if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeNetworkProfileConfigWithNativeProvider(path, "rostelecom", "firmware", nativeDNSProviderRouterCurrent); err != nil {
+	if err := writeNetworkProfileConfigWithNativeProvider(path, "firmware", nativeDNSProviderRouterCurrent); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(path)
@@ -32,7 +32,7 @@ func TestWriteNetworkProfileConfigWithNativeProviderPreservesUnknownKeys(t *test
 	}
 	got := string(b)
 	for _, want := range []string{
-		"ISP_ID=rostelecom",
+		"ISP_ID=vladlink",
 		"DNS_MODE=firmware",
 		"NATIVE_DNS_PROVIDER=router-current",
 		"SOME_RUNTIME_FLAG=preserved",
