@@ -45,13 +45,13 @@ func TestCanonicalFlagAtlasHasSingleVisualOwner(t *testing.T) {
 		}
 	}
 
-	for _, path := range []string{"web/operation-coordinator.js", "web/topbar-settings-profile-cache.js"} {
+	for _, path := range []string{"web/operation-coordinator.js", "web/topbar-settings-profile-cache.js", "web/accepted-ux.js"} {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		src := string(data)
-		for _, forbidden := range []string{"freenetCanonicalFlagAtlas", "fn-clean-flag", "const flagSVG = code =>"} {
+		for _, forbidden := range []string{"freenetCanonicalFlagAtlas", "fn-clean-flag", "const flagSVG = code =>", ".flag-dk{", ".flag-no{", ".flag-fi{", ".flag-ch{", "canonicalExtraFlagCodes"} {
 			if strings.Contains(src, forbidden) {
 				t.Fatalf("%s still owns flag pixels through %q", path, forbidden)
 			}

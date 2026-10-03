@@ -34,6 +34,22 @@ func TestControlCenterRuntimeStateUXContract(t *testing.T) {
 	}
 }
 
+func TestProviderHintDoesNotInventRoutingInheritance(t *testing.T) {
+	data, err := webFS.ReadFile("web/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+	if strings.Contains(ui, "Подряд использует") || strings.Contains(ui, "policy Ростелекома") {
+		t.Fatal("ISP hint must not invent Podryad -> Rostelecom routing inheritance")
+	}
+	for _, want := range []string{"Routing policy задаётся только явными правилами", "не наследуется от другого провайдера"} {
+		if !strings.Contains(ui, want) {
+			t.Fatalf("explicit-only routing hint missing %q", want)
+		}
+	}
+}
+
 func TestExtraProfileCountryMarkerHasPortableFallback(t *testing.T) {
 	data, err := webFS.ReadFile("web/index.html")
 	if err != nil {
@@ -43,7 +59,9 @@ func TestExtraProfileCountryMarkerHasPortableFallback(t *testing.T) {
 	for _, required := range []string{
 		"makeCountryMarker(p.country_code)",
 		"country-code-badge",
-		"countryFlagCodes.has(safe)",
+		"window.FreeNetFlags",
+		"flags.has(safe)",
+		"flags.apply(n,safe)",
 		"safe.toUpperCase()",
 	} {
 		if !strings.Contains(ui, required) {

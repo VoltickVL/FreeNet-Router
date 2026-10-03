@@ -13,15 +13,13 @@ func TestSelectorHygieneContract(t *testing.T) {
 	}
 	js := string(ux)
 	for _, want := range []string{
-		"canonicalExtraFlagCodes",
-		"'kz','pe','my','au','ng'",
 		".top-title{display:none!important}",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("selector hygiene contract missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{"freenetCanonicalFlagAtlas", ".flag-co{", ".flag-ae{", ".flag-kr{"} {
+	for _, forbidden := range []string{"freenetCanonicalFlagAtlas", "canonicalExtraFlagCodes", ".flag-co{", ".flag-ae{", ".flag-kr{"} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("selector hygiene must not own flag pixels: %q", forbidden)
 		}
