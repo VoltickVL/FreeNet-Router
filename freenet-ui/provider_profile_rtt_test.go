@@ -38,11 +38,11 @@ func TestMeasureProviderProfileRTTMeasuresSharedEndpointPerLogicalProfile(t *tes
 	if len(got) != 3 {
 		t.Fatalf("results=%d want=3", len(got))
 	}
-	if got[0].ProfileID != "aaaaaaaaaaaaaaaa" || got[0].RTTMS != 82 {
-		t.Fatalf("fastest logical profile not first: %#v", got)
+	if got[0].ProfileID != "aaaaaaaaaaaaaaaa" || got[0].RTTMS != 82 || got[0].Endpoint != "203.0.113.10:443" {
+		t.Fatalf("fastest logical profile identity/endpoint snapshot is wrong: %#v", got)
 	}
-	if got[2].ProfileID != "bbbbbbbbbbbbbbbb" || got[2].RTTMS != 238 {
-		t.Fatalf("shared-ingress US profile must keep its own slower proxy RTT: %#v", got)
+	if got[2].ProfileID != "bbbbbbbbbbbbbbbb" || got[2].RTTMS != 238 || got[2].Endpoint != "203.0.113.10:443" {
+		t.Fatalf("shared-ingress US profile must keep its own slower proxy RTT and exact endpoint snapshot: %#v", got)
 	}
 }
 
@@ -136,10 +136,10 @@ func TestMeasureProviderProfileRTTBoundsConcurrentProbes(t *testing.T) {
 
 func TestMeasureProviderProfileRTTDeadlineMarksUnstartedUnknown(t *testing.T) {
 	candidates := []bestServerInternalCandidate{
-		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa"}},
-		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb"}},
-		{Profile: subscriptionProfile{ID: "cccccccccccccccc"}},
-		{Profile: subscriptionProfile{ID: "dddddddddddddddd"}},
+		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa", Address: "203.0.113.1", Port: 443}},
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb", Address: "203.0.113.2", Port: 443}},
+		{Profile: subscriptionProfile{ID: "cccccccccccccccc", Address: "203.0.113.3", Port: 443}},
+		{Profile: subscriptionProfile{ID: "dddddddddddddddd", Address: "203.0.113.4", Port: 443}},
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
@@ -155,6 +155,9 @@ func TestMeasureProviderProfileRTTDeadlineMarksUnstartedUnknown(t *testing.T) {
 		}
 		if !item.Attempted && item.Status == "unknown" {
 			unknown++
+		}
+		if item.Endpoint == "" {
+			t.Fatalf("UNKNOWN RTT result lost exact profile endpoint snapshot: %#v", item)
 		}
 	}
 	if attempted != 0 {
@@ -269,6 +272,9 @@ func TestProviderProfileRTTCacheReusesCompleteCanonicalSweep(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].ProfileID != "aaaaaaaaaaaaaaaa" || got[0].RTTMS != 120 {
 		t.Fatalf("cached RTT sweep is not canonical/sorted: %#v", got)
+	}
+	if got[0].Endpoint != "203.0.113.10:443" || got[1].Endpoint != "203.0.113.20:443" {
+		t.Fatalf("cached RTT sweep must be rebound to the exact current catalog endpoints: %#v", got)
 	}
 }
 
