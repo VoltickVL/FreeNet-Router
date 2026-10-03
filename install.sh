@@ -461,27 +461,11 @@ remove_managed_cron() {
 
 apply_cron() {
     make_tmp
-    C1="$TMP_DIR/cron.current"
-    C2="$TMP_DIR/cron.new"
-    crontab -l > "$C1" 2>/dev/null || : > "$C1"
-
-    awk '
-        /^# BEGIN FREENET$/ {skip=1; next}
-        /^# END FREENET$/ {skip=0; next}
-        !skip {print}
-    ' "$C1" > "$C2"
-
-    {
-        echo '# BEGIN FREENET'
-        if [ "$AUTO_XKEEN_GEODATA" = "yes" ]; then
-            echo "$AUTO_XKEEN_GEODATA_CRON /opt/sbin/xkeen -ug"
-        fi
-        echo '# AUTO VPN scheduler is owned by FreeNet Settings v3 after UI startup'
-        echo '# END FREENET'
-    } >> "$C2"
-
-    crontab "$C2" || fail "не удалось применить FreeNet cron"
+    [ -x "$FREENET_BIN" ] || fail "FreeNet scheduler owner недоступен"
+    "$FREENET_BIN" settings-v3-reconcile --config "$CONFIG_FILE" > "$TMP_DIR/scheduler-reconcile.out" 2> "$TMP_DIR/scheduler-reconcile.err" ||
+        fail "не удалось безопасно синхронизировать планировщик FreeNet"
 }
+
 
 install_files() {
     UI_ASSET="freenet-ui-$ARCH"
