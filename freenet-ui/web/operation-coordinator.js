@@ -712,23 +712,8 @@
     const measureNote = qs('.vpn-measure-note'); if (measureNote) measureNote.remove();
     const status = qs('#bestServerStatus'), alternativesPanel = qs('.vpn-alternatives-panel');
     if (status && alternativesPanel && status.parentNode !== alternativesPanel) alternativesPanel.appendChild(status);
-    const guard = qs('#quickNetworkGuard');
-    let manual = qs('#bestServerAdvanced');
-    const topbar = qs('.topbar.overview-approved') || qs('.topbar');
-    const topSummary = qs('#overviewApprovedTop');
-    const topActions = qs('.top-actions');
-    if (profilesList && !manual) {
-      manual = document.createElement('section'); manual.id = 'bestServerAdvanced';
-    }
-    if (manual) manual.classList.add('fn-topbar-vpn-picker');
-    const pickerBody = qs('#fnVpnPickerBody');
-    if (manual && pickerBody && manual.parentNode !== pickerBody) pickerBody.appendChild(manual);
-    else if (manual && !pickerBody && topbar && manual.parentNode !== topbar) topbar.insertBefore(manual, topSummary || topActions || null);
-    if (manual && profilesList && profilesList.parentNode !== manual) manual.appendChild(profilesList);
-    const exact = qs('#exactConnectRow'); if (manual && exact && exact.parentNode !== manual) manual.appendChild(exact);
-    if (manual && guard && guard.parentNode !== manual) manual.appendChild(guard);
-    const searchField = profilesList && profilesList.querySelector('.field');
-    if (searchField && !searchField.querySelector('.manual-search-icon')) searchField.prepend(makeIcon('search', 'manual-search-icon'));
+    const manual = qs('#bestServerAdvanced');
+    if (manual) manual.classList.remove('fn-topbar-vpn-picker', 'fn-vpn-picker-content');
     const currentMetrics = qs('#bestCurrentMetrics');
     if (currentQuality || !currentMetrics || currentMetrics.children.length === 0) {
       renderMetrics(currentMetrics, currentQuality);
