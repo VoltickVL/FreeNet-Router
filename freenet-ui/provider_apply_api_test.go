@@ -157,7 +157,8 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 	if err := os.WriteFile(updateState, []byte("STATE=SUCCESS\nTARGET_VERSION=v"+version+"\nUPDATED_AT=2026-10-03T08:00:00Z\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	provider := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+providerPlanOutput(testProviderID)+"\nEOF\nexit 0\nfi\n[ \"$1\" = apply ] || exit 9\n[ \"$2\" = \""+testProviderID+"\" ] || exit 8\necho applied > \""+marker+"\"\necho '[FreeNet Provider] RESULT=SUCCESS'\nexit 0")
+	appliedPlanOutput := strings.Replace(providerPlanOutput(testProviderID), "ENDPOINT=203.0.113.10:443", "ENDPOINT=198.51.100.77:8443", 1)
+	provider := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+providerPlanOutput(testProviderID)+"\nEOF\nexit 0\nfi\n[ \"$1\" = apply ] || exit 9\n[ \"$2\" = \""+testProviderID+"\" ] || exit 8\necho applied > \""+marker+"\"\ncat <<'EOF'\n"+appliedPlanOutput+"\nEOF\necho '[FreeNet Provider] RESULT=SUCCESS'\nexit 0")
 	network := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
 	t.Setenv("FREENET_NETWORK_HELPER", network)
@@ -197,6 +198,9 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 	}
 	if !resp.Success || !resp.Applied || resp.Operation != "provider" || resp.ProviderPlan == nil || resp.RollbackState != "NOT_NEEDED" {
 		t.Fatalf("unexpected provider apply response: %+v", resp)
+	}
+	if resp.ProviderPlan.Endpoint != "198.51.100.77:8443" {
+		t.Fatalf("response lost exact endpoint reported by apply transaction: %+v", resp.ProviderPlan)
 	}
 	if automationMutationBlockedState() {
 		t.Fatal("accepted manual VPN switch did not clear inherited mutation block")
