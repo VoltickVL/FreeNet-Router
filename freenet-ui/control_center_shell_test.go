@@ -106,18 +106,23 @@ func TestSystemAndAccessHaveHonestFutureCapabilitySlots(t *testing.T) {
 	}
 }
 
-func TestPodryadProductDecisionIsVisibleWithoutClaimingRuntimeAcceptance(t *testing.T) {
+func TestISPProductHintDoesNotInventCrossProviderRoutingInheritance(t *testing.T) {
 	data, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ui := string(data)
-	for _, want := range []string{
+	for _, forbidden := range []string{
 		"Подряд использует подтверждённую Management базовую policy Ростелекома",
-		"отдельный runtime acceptance",
+		"Подряд использует",
 	} {
+		if strings.Contains(ui, forbidden) {
+			t.Fatalf("ISP UI must not invent cross-provider routing inheritance through %q", forbidden)
+		}
+	}
+	for _, want := range []string{"Routing policy задаётся только явными правилами", "не наследуется от другого провайдера"} {
 		if !strings.Contains(ui, want) {
-			t.Fatalf("Podryad product decision hint missing %q", want)
+			t.Fatalf("explicit-only ISP routing hint missing %q", want)
 		}
 	}
 }
