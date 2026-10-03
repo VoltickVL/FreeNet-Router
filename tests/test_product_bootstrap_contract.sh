@@ -65,22 +65,23 @@ grep -Fq 'restore_one "$FINALIZE_LIB" finalize-lib' "$BOOT" || fail 'нет roll
 
 # Свежая установка остаётся безопасной, пока браузерный мастер не завершён.
 grep -Fq 'SETUP_COMPLETE=no' "$CONF" || fail 'fresh config должен начинаться setup-incomplete'
-grep -Fq 'AUTO_ENDPOINT_UPDATE=no' "$CONF" || fail 'endpoint cron должен начинаться выключенным'
-grep -Fq 'endpoint refresh disabled until setup/subscription/dns-out acceptance' "$BOOT" || fail 'нет gate для endpoint cron'
-grep -Fq '[ "$SETUP_COMPLETE" = yes ]' "$BOOT" || fail 'нет setup-complete gate для cron'
-grep -Fq '[ -s "$SUB_FILE" ]' "$BOOT" || fail 'нет subscription gate для cron'
-grep -Fq 'has_dns_out' "$BOOT" || fail 'нет dns-out gate для cron'
+grep -Fq 'AUTO_ENDPOINT_UPDATE=no' "$CONF" || fail 'legacy endpoint mirror должен начинаться выключенным'
 
-# CLI/install compatibility surface обязан использовать те же safety gates,
-# что и canonical bootstrap. Он не должен автоматически включать endpoint updater
-# до завершённого Browser Setup.
+# AUTO VPN scheduler имеет ровно одного owner: FreeNet Settings v3. Bootstrap и
+# compatibility installer очищают managed block, но не имеют права заново
+# планировать legacy updater/failover.
+BOOT_CRON="$(sed -n '/^apply_safe_cron() {/,/^}/p' "$BOOT")"
+INSTALL_CRON="$(sed -n '/^apply_cron() {/,/^}/p' "$INSTALL")"
+printf '%s\n' "$BOOT_CRON" | grep -Fq 'AUTO VPN scheduler is owned by FreeNet Settings v3 after UI startup' || fail 'bootstrap не передаёт scheduler ownership Settings v3'
+printf '%s\n' "$INSTALL_CRON" | grep -Fq 'AUTO VPN scheduler is owned by FreeNet Settings v3 after UI startup' || fail 'installer не передаёт scheduler ownership Settings v3'
+if printf '%s\n%s\n' "$BOOT_CRON" "$INSTALL_CRON" | grep -Eq 'echo .*blanc_xkeen_update_outbounds|echo .*vpn failover'; then
+    fail 'bootstrap/install снова создаёт parallel legacy AUTO scheduler'
+fi
+
+# Compatibility config defaults сохраняются fail-safe для старых management paths.
 grep -Fq 'SETUP_COMPLETE=no' "$INSTALL" || fail 'installer fresh/default setup state должен быть incomplete'
 grep -Fq 'AUTO_ENDPOINT_UPDATE=no' "$INSTALL" || fail 'installer fresh/default endpoint update должен быть выключен'
 grep -Fq 'SETUP_COMPLETE=$SETUP_COMPLETE' "$INSTALL" || fail 'installer не сохраняет setup-complete state'
-grep -Fq '[ "$SETUP_COMPLETE" = "yes" ]' "$INSTALL" || fail 'installer cron не требует setup-complete'
-grep -Fq '[ -s "$SUB_FILE" ]' "$INSTALL" || fail 'installer cron не требует subscription'
-grep -Fq 'has_dns_out' "$INSTALL" || fail 'installer cron не требует dns-out'
-grep -Fq 'endpoint refresh disabled until setup/subscription/dns-out acceptance' "$INSTALL" || fail 'installer не фиксирует fail-safe disabled cron'
 
 # Существующая subscription никогда не печатается и не заменяется bootstrap-ом.
 if grep -Eq 'cat[[:space:]]+.*blanc_subscription|Введите URL подписки|read.*SUB' "$BOOT"; then
