@@ -94,9 +94,9 @@ const server = http.createServer((req,res)=>{
         if(mode==='gateway')return route.fulfill({status:504,contentType:'text/html',body:'<h1>Gateway Timeout</h1>'});
         if(mode==='incomplete')return answer(route,{success:true});
         if(mode==='empty')return answer(route,{success:true,available:false,candidates:[],profiles_scanned:0});
-        if(mode==='fallback' && url.pathname==='/api/vpn/current-quality') {
-          const fallbackCurrent={...current,eligible:false,download_mbps:0,fallback_download_mbps:37.4,throughput_source:'current_fallback',media_samples:0,media_stalls:0,media_grade:'unknown'};
-          return answer(route,{success:true,available:false,candidates:[fallbackCurrent],profiles_scanned:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
+        if(mode==='speed-missing' && url.pathname==='/api/vpn/current-quality') {
+          const speedMissing={...current,eligible:false,download_mbps:0,throughput_source:'',download_issue:'Speedtest throughput unavailable',media_samples:0,media_stalls:0,media_grade:'unknown'};
+          return answer(route,{success:true,available:false,candidates:[speedMissing],profiles_scanned:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
         }
         if(mode==='dead' && url.pathname==='/api/vpn/current-quality') {
           const deadCurrent={...current,tested:true,eligible:false,available:false,reachable:false,download_mbps:0,application_rtt_ms:0,tcp_rtt_ms:0,jitter_ms:0,reason:'Активный VPN-путь не подтвердил доступ к интернету'};
@@ -280,18 +280,18 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('#bestServerStatus').textContent(),/завершена/);
     assert.equal(await page.locator('#bestServerResult').isVisible(),false);
 
-    mode='fallback';
+    mode='speed-missing';
     await currentCheck();
-    assert.match(await page.locator('#bestCurrentMetrics').textContent(),/Быстрый замер/,'fallback throughput must be visibly distinguished from strict speed');
-    assert.match(await page.locator('#bestCurrentMetrics').textContent(),/37\.4 Мбит\/с/);
-    assert.match(await page.locator('#bestCurrentMetrics').textContent(),/не для сравнения/);
-    assert.doesNotMatch(await page.locator('#bestCurrentMetrics').textContent(),/Скорость VPN/,'fallback throughput must not masquerade as canonical speed');
-    assert.match(await page.locator('#bestCurrentQuality').textContent(),/быстрый контроль 37\.4 Мбит\/с/i);
+    const missingSpeedMetrics=await page.locator('#bestCurrentMetrics').textContent();
+    assert.match(missingSpeedMetrics,/Скорость VPN/,'current VPN keeps the canonical speed metric owner');
+    assert.doesNotMatch(missingSpeedMetrics,/Мбит\/с/,'no alternative throughput value may replace a failed canonical measurement');
+    assert.doesNotMatch(missingSpeedMetrics,/Быстрый|не для сравнения/i,'non-comparable speed UX must not return');
+    assert.match(await page.locator('#bestCurrentQuality').textContent(),/Замер скорости:/,'failed canonical speed must remain explicit');
 
     bestMode='no-current';
     await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
-    assert.doesNotMatch(await page.locator('#bestServerReason').textContent(),/Скорость [+-]/,'fallback current throughput must not be used for candidate speed comparison');
+    assert.doesNotMatch(await page.locator('#bestServerReason').textContent(),/Скорость [+-]/,'missing canonical current speed must not be used for candidate speed comparison');
 
     bestMode='winner';
     mode='dead';

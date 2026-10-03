@@ -63,7 +63,7 @@ func TestCurrentQualityPersistentCacheIsDisplayOnlyAndIdentityBound(t *testing.T
 	}
 }
 
-func TestCurrentQualityPersistentCachePreservesFallbackProvenanceAndRejectsLegacyAmbiguity(t *testing.T) {
+func TestCurrentQualityPersistentCacheRejectsLegacyFallbackAndOldSchema(t *testing.T) {
 	resetBestServerCurrentQualityMemory()
 	defer resetBestServerCurrentQualityMemory()
 
@@ -72,32 +72,32 @@ func TestCurrentQualityPersistentCachePreservesFallbackProvenanceAndRejectsLegac
 	t.Setenv("FREENET_CURRENT_QUALITY_CACHE", path)
 	endpoint := "198.51.100.25:443"
 	filter := "^fallback-profile$"
-	fallback := bestServerQualityCandidate{
-		Tested: true, Eligible: false, ID: "current-live", Name: "Fallback Extra",
+	legacyFallback := bestServerQualityCandidate{
+		Tested: true, Eligible: false, ID: "current-live", Name: "Legacy Fallback Extra",
 		Endpoint: endpoint, Current: true, Reachable: true, Available: true,
 		ApplicationMS: 78, JitterMS: 6, FallbackDownloadMbps: 37.4,
 		ThroughputSource: bestServerThroughputCurrentFallback,
 		Reason: "Проверен фактический активный VPN-путь",
 	}
-	storeBestServerCurrentQuality(endpoint, filter, fallback)
+	storeBestServerCurrentQuality(endpoint, filter, legacyFallback)
 	resetBestServerCurrentQualityMemory()
 	shown, _, ok := loadBestServerCurrentQualityForDisplay(endpoint, filter)
-	if !ok || shown.DownloadMbps != 0 || shown.FallbackDownloadMbps != 37.4 ||
-		shown.ThroughputSource != bestServerThroughputCurrentFallback {
-		t.Fatalf("fallback provenance was not restored exactly: ok=%v candidate=%+v", ok, shown)
+	if !ok {
+		t.Fatal("partial current metrics should remain displayable after fallback stripping")
 	}
-	if _, ok := loadBestServerCurrentQuality(endpoint, filter); ok {
-		t.Fatal("persisted fallback throughput must never become decision evidence")
+	if shown.DownloadMbps != 0 || shown.FallbackDownloadMbps != 0 || shown.ThroughputSource != "" {
+		t.Fatalf("legacy fallback speed survived persistence sanitization: %+v", shown)
 	}
 
-	legacy := bestServerCurrentQualityPersistentEntry{
-		Schema: 1, IdentityHash: bestServerCurrentQualityIdentityHash(endpoint, filter),
+	oldSchema := bestServerCurrentQualityPersistentEntry{
+		Schema: 2, IdentityHash: bestServerCurrentQualityIdentityHash(endpoint, filter),
 		StoredAt: "2026-10-03T00:00:00Z",
 		Candidate: bestServerQualityCandidate{
-			Tested: true, Endpoint: endpoint, Current: true, Available: true, DownloadMbps: 55,
+			Tested: true, Endpoint: endpoint, Current: true, Available: true,
+			FallbackDownloadMbps: 37.4, ThroughputSource: bestServerThroughputCurrentFallback,
 		},
 	}
-	data, err := json.Marshal(legacy)
+	data, err := json.Marshal(oldSchema)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestCurrentQualityPersistentCachePreservesFallbackProvenanceAndRejectsLegac
 		t.Fatal(err)
 	}
 	if _, _, ok := loadBestServerCurrentQualityForDisplay(endpoint, filter); ok {
-		t.Fatal("schema v1 ambiguous download_mbps must be invalidated after provenance migration")
+		t.Fatal("schema v2 fallback display cache must be invalidated by strict-speed migration")
 	}
 }
 

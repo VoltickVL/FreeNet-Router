@@ -1,57 +1,58 @@
 package main
 
 import (
-	"context"
 	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestCurrentVPNFallbackDownloadProducesDisplayableSpeed(t *testing.T) {
-	dir := t.TempDir()
-	curl := filepath.Join(dir, "curl")
-	if err := os.WriteFile(curl, []byte("#!/bin/sh\nprintf '200\\t2000000\\t0.100\\t0.900'\n"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	mbps, issue := probeBestServerCurrentFallbackDownload(context.Background(), curl, "127.0.0.1:1080")
-	if issue != "" {
-		t.Fatalf("unexpected fallback issue: %s", issue)
-	}
-	if mbps < 19.9 || mbps > 20.1 {
-		t.Fatalf("expected about 20 Mbps, got %.2f", mbps)
-	}
-}
-
-func TestCurrentQualityCacheSeparatesDisplayFromDecisionEvidence(t *testing.T) {
+func TestCurrentQualityCacheStripsLegacyFallbackSpeed(t *testing.T) {
 	resetBestServerCurrentQualityCacheForTest()
 	defer resetBestServerCurrentQualityCacheForTest()
 
-	partial := bestServerQualityCandidate{
+	legacyFallback := bestServerQualityCandidate{
 		Current: true, Tested: true, Available: true,
 		ApplicationMS: 120, JitterMS: 8,
-		FallbackDownloadMbps: 42.5, ThroughputSource: bestServerThroughputCurrentFallback,
+		FallbackDownloadMbps: 42.5,
+		ThroughputSource: bestServerThroughputCurrentFallback,
 		Eligible: false,
 	}
-	storeBestServerCurrentQuality("203.0.113.10:443", "profile-a", partial)
+	storeBestServerCurrentQuality("203.0.113.10:443", "profile-a", legacyFallback)
 
 	display, _, ok := loadBestServerCurrentQualityForDisplay("203.0.113.10:443", "profile-a")
-	if !ok || display.DownloadMbps != 0 || display.FallbackDownloadMbps != partial.FallbackDownloadMbps ||
-		display.ThroughputSource != bestServerThroughputCurrentFallback {
-		t.Fatalf("fallback current measurement must remain visible with provenance: %#v ok=%v", display, ok)
+	if !ok {
+		t.Fatal("partial current measurement should remain displayable")
+	}
+	if display.DownloadMbps != 0 || display.FallbackDownloadMbps != 0 || display.ThroughputSource != "" {
+		t.Fatalf("legacy fallback speed leaked into current display evidence: %#v", display)
 	}
 	if _, ok := loadBestServerCurrentQuality("203.0.113.10:443", "profile-a"); ok {
-		t.Fatal("fallback display measurement must never become Best Server/AUTO decision evidence")
+		t.Fatal("partial measurement without canonical strict speed must not become decision evidence")
 	}
+}
 
-	complete := partial
-	complete.FallbackDownloadMbps = 0
-	complete.DownloadMbps = 42.5
-	complete.ThroughputSource = bestServerThroughputStrictAggregate
-	complete.Eligible = true
+func TestCurrentStrictSpeedRemainsCanonicalDecisionEvidence(t *testing.T) {
+	resetBestServerCurrentQualityCacheForTest()
+	defer resetBestServerCurrentQualityCacheForTest()
+
+	complete := bestServerQualityCandidate{
+		Current: true, Tested: true, Available: true, Eligible: true,
+		ApplicationMS: 120, JitterMS: 8,
+		DownloadMbps: 42.5,
+		ThroughputSource: bestServerThroughputStrictAggregate,
+		MediaSamples: bestServerMediaRequiredRuns,
+		MediaGrade: "good",
+		ServiceOK: 4, ServiceTotal: 4,
+	}
 	storeBestServerCurrentQuality("203.0.113.10:443", "profile-a", complete)
-	if got, ok := loadBestServerCurrentQuality("203.0.113.10:443", "profile-a"); !ok || !got.Eligible ||
-		got.DownloadMbps != 42.5 || got.ThroughputSource != bestServerThroughputStrictAggregate || got.FallbackDownloadMbps != 0 {
-		t.Fatalf("fresh eligible strict measurement must remain reusable for decisions: %#v ok=%v", got, ok)
+
+	display, _, ok := loadBestServerCurrentQualityForDisplay("203.0.113.10:443", "profile-a")
+	if !ok || display.DownloadMbps != 42.5 || display.ThroughputSource != bestServerThroughputStrictAggregate || display.FallbackDownloadMbps != 0 {
+		t.Fatalf("strict current speed was not preserved exactly: %#v ok=%v", display, ok)
+	}
+	got, ok := loadBestServerCurrentQuality("203.0.113.10:443", "profile-a")
+	if !ok || !got.Eligible || got.DownloadMbps != 42.5 || got.ThroughputSource != bestServerThroughputStrictAggregate {
+		t.Fatalf("canonical strict measurement must remain reusable for decisions: %#v ok=%v", got, ok)
 	}
 }
 
@@ -65,10 +66,33 @@ func TestCurrentFallbackSpeedDoesNotRelaxEligibility(t *testing.T) {
 		ServiceOK: 4,
 		ServiceTotal: 4,
 	}
-	if candidate.DownloadMbps != 0 {
-		t.Fatalf("fallback throughput must never populate canonical download_mbps: %#v", candidate)
-	}
 	if eligibleBestServerQuality(candidate) {
-		t.Fatal("fallback throughput alone must not make a current VPN eligible for Best Server/AUTO decisions")
+		t.Fatal("legacy fallback throughput must never make a current VPN eligible")
+	}
+}
+
+
+func TestCurrentAndBestServerShareCanonicalSpeedAlgorithm(t *testing.T) {
+	currentBytes, err := os.ReadFile("best_server_current_live.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bestBytes, err := os.ReadFile("best_server_quality.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := string(currentBytes)
+	best := string(bestBytes)
+	const canonical = "probeBestServerMediaQuality(ctx, curlPath, socks)"
+	if !strings.Contains(current, canonical) || !strings.Contains(best, canonical) {
+		t.Fatalf("Current VPN and Best Server must share canonical media/speed probe")
+	}
+	for _, forbidden := range []string{
+		"probeBestServerCurrentFallbackDownload",
+		"bestServerCurrentFallbackDownloadURL",
+	} {
+		if strings.Contains(current, forbidden) {
+			t.Fatalf("current VPN reintroduced alternate speed algorithm %q", forbidden)
+		}
 	}
 }
