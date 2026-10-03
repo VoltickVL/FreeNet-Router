@@ -10,7 +10,7 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui/web');
 const artifacts = process.env.FREENET_UI_ARTIFACTS || path.join(root, 'test-artifacts');
-const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, tested:true, eligible:true, available:true, reachable:true, download_mbps:42.5, application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:4,media_stalls:0,service_ok:4,service_total:4};
+const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, tested:true, eligible:true, available:true, reachable:true, download_mbps:42.5, throughput_source:'strict_aggregate', application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:4,media_stalls:0,service_ok:4,service_total:4};
 const winner = {...current,id:'fixture-de',name:'Германия · Франкфурт',country_code:'de',endpoint:'192.0.2.20:443',current:false,download_mbps:68.2,application_rtt_ms:110};
 const second = {...winner,id:'fixture-lt',name:'Литва · Вильнюс',country_code:'lt',endpoint:'192.0.2.40:443',download_mbps:59.1};
 const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:31.4,application_rtt_ms:180};
@@ -83,6 +83,10 @@ const server = http.createServer((req,res)=>{
         if(mode==='gateway')return route.fulfill({status:504,contentType:'text/html',body:'<h1>Gateway Timeout</h1>'});
         if(mode==='incomplete')return answer(route,{success:true});
         if(mode==='empty')return answer(route,{success:true,available:false,candidates:[],profiles_scanned:0});
+        if(mode==='fallback' && url.pathname==='/api/vpn/current-quality') {
+          const fallbackCurrent={...current,eligible:false,download_mbps:0,fallback_download_mbps:37.4,throughput_source:'current_fallback',media_samples:0,media_stalls:0,media_grade:'unknown'};
+          return answer(route,{success:true,available:false,candidates:[fallbackCurrent],profiles_scanned:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
+        }
         if(mode==='rejected')return answer(route,{success:true,available:false,candidates:[current,
           {...winner,tested:true,eligible:false,download_mbps:4.2,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Скорость ниже 20 Мбит/с']},
           {...third,tested:true,eligible:false,available:true,reachable:true,download_mbps:146,application_rtt_ms:226,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Отклик сайтов выше 220 мс']}],profiles_scanned:3});
@@ -245,6 +249,25 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('#bestCurrentQuality').textContent(),/42.5/);
     assert.match(await page.locator('#bestServerStatus').textContent(),/завершена/);
     assert.equal(await page.locator('#bestServerResult').isVisible(),false);
+
+    mode='fallback';
+    await currentCheck();
+    assert.match(await page.locator('#bestCurrentMetrics').textContent(),/Быстрый замер/,'fallback throughput must be visibly distinguished from strict speed');
+    assert.match(await page.locator('#bestCurrentMetrics').textContent(),/37\.4 Мбит\/с/);
+    assert.match(await page.locator('#bestCurrentMetrics').textContent(),/не для сравнения/);
+    assert.doesNotMatch(await page.locator('#bestCurrentMetrics').textContent(),/Скорость VPN/,'fallback throughput must not masquerade as canonical speed');
+    assert.match(await page.locator('#bestCurrentQuality').textContent(),/быстрый замер 37\.4 Мбит\/с/i);
+
+    bestMode='no-current';
+    await page.locator('#bestServerRefresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
+    assert.doesNotMatch(await page.locator('#bestServerReason').textContent(),/Скорость [+-]/,'fallback current throughput must not be used for candidate speed comparison');
+
+    bestMode='winner';
+    mode='ok';
+    await currentCheck();
+    assert.match(await page.locator('#bestCurrentMetrics').textContent(),/Скорость VPN/);
+    assert.doesNotMatch(await page.locator('#bestCurrentMetrics').textContent(),/не для сравнения/);
     status={...status,xray_online:false};
     await page.evaluate(()=>loadStatus());
     await page.waitForFunction(()=>document.querySelector('#bestCurrentHealth')?.classList.contains('offline'));

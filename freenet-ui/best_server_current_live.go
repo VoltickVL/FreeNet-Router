@@ -184,11 +184,12 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 	if result.Media.OK && result.Media.MedianMbps > 0 {
 		result.DownloadOK = true
 		result.DownloadMbps = result.Media.MedianMbps
+		result.ThroughputSource = bestServerThroughputStrictAggregate
 	} else {
 		result.DownloadIssue = result.Media.Issue
 		if fallbackMbps, fallbackIssue := probeBestServerCurrentFallbackDownload(ctx, curlPath, socks); fallbackMbps > 0 {
-			result.DownloadOK = true
-			result.DownloadMbps = fallbackMbps
+			result.FallbackDownloadMbps = fallbackMbps
+			result.ThroughputSource = bestServerThroughputCurrentFallback
 			result.DownloadIssue = ""
 		} else if result.DownloadIssue == "" {
 			result.DownloadIssue = fallbackIssue
@@ -207,6 +208,8 @@ func markBestServerCurrentProbeFailure(candidate *bestServerQualityCandidate) {
 	candidate.Available = false
 	candidate.Eligible = false
 	candidate.DownloadMbps = 0
+	candidate.FallbackDownloadMbps = 0
+	candidate.ThroughputSource = ""
 	candidate.DownloadIssue = "Активный VPN-путь не подтвердил доступ к интернету"
 	candidate.MediaIssue = candidate.DownloadIssue
 	candidate.Reason = "Активный VPN-путь не подтвердил доступ к интернету"
@@ -265,8 +268,12 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 	candidate.ServiceTotal = probe.Media.ServiceTotal
 	candidate.DownloadIssue = probe.DownloadIssue
 	candidate.MediaIssue = probe.Media.Issue
+	candidate.ThroughputSource = probe.ThroughputSource
 	if probe.DownloadOK {
 		candidate.DownloadMbps = roundBestServerMbps(probe.DownloadMbps)
+	}
+	if probe.FallbackDownloadMbps > 0 {
+		candidate.FallbackDownloadMbps = roundBestServerMbps(probe.FallbackDownloadMbps)
 	}
 	candidate.Eligible = eligibleBestServerQuality(candidate)
 	candidate.Reason = "Проверен фактический активный VPN-путь"

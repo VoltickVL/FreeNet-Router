@@ -26,6 +26,7 @@ func TestCurrentQualityCacheRejectsIncompleteEvidence(t *testing.T) {
 
 	candidate.Eligible = true
 	candidate.DownloadMbps = 80
+	candidate.ThroughputSource = bestServerThroughputStrictAggregate
 	candidate.MediaSamples = bestServerMediaRequiredRuns
 	candidate.MediaGrade = "good"
 	storeBestServerCurrentQuality("192.0.2.1:443", "PL.*Warsaw", candidate)
@@ -56,7 +57,7 @@ func TestRecommendationFailsClosedWithoutConfirmedCurrentBaseline(t *testing.T) 
 func TestCurrentQualityCacheExpiryStillApplies(t *testing.T) {
 	resetBestServerCurrentQualityCacheForTest()
 	defer resetBestServerCurrentQualityCacheForTest()
-	candidate := bestServerQualityCandidate{Current: true, Tested: true, Available: true, Eligible: true, DownloadMbps: 75}
+	candidate := bestServerQualityCandidate{Current: true, Tested: true, Available: true, Eligible: true, DownloadMbps: 75, ThroughputSource: bestServerThroughputStrictAggregate}
 	bestServerCurrentQualityCache.Lock()
 	bestServerCurrentQualityCache.Entry = bestServerCurrentQualityCacheEntry{
 		Key: bestServerCurrentQualityKey("192.0.2.2:443", "DE"),

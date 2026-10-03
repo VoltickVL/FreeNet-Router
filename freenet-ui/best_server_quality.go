@@ -34,6 +34,8 @@ const (
 	bestServerQualityModerateSpeedPenalty = 500
 	bestServerQualityHighJitterMS         = 80
 	bestServerQualityMaxApplicationMS     = 220
+	bestServerThroughputStrictAggregate   = "strict_aggregate"
+	bestServerThroughputCurrentFallback   = "current_fallback"
 )
 
 type bestServerQualityCandidate struct {
@@ -55,8 +57,10 @@ type bestServerQualityCandidate struct {
 	VPNJitterMS   int      `json:"vpn_jitter_ms,omitempty"`
 	ApplicationMS int      `json:"application_rtt_ms,omitempty"`
 	JitterMS      int      `json:"jitter_ms,omitempty"`
-	DownloadMbps  float64  `json:"download_mbps,omitempty"`
-	HTTPSamples   int      `json:"http_samples,omitempty"`
+	DownloadMbps         float64 `json:"download_mbps,omitempty"`
+	FallbackDownloadMbps float64 `json:"fallback_download_mbps,omitempty"`
+	ThroughputSource     string  `json:"throughput_source,omitempty"`
+	HTTPSamples          int     `json:"http_samples,omitempty"`
 	MediaGrade    string   `json:"media_grade,omitempty"`
 	MediaStalls   int      `json:"media_stalls,omitempty"`
 	MediaSamples  int      `json:"media_samples,omitempty"`
@@ -85,12 +89,14 @@ type bestServerQualityResponse struct {
 }
 
 type bestServerQualityApplicationResult struct {
-	DownloadIssue string
-	OK            bool
-	HTTP          bestServerProbeResult
-	DownloadOK    bool
-	DownloadMbps  float64
-	Media         bestServerMediaQualityResult
+	DownloadIssue        string
+	OK                   bool
+	HTTP                 bestServerProbeResult
+	DownloadOK           bool
+	DownloadMbps         float64
+	FallbackDownloadMbps float64
+	ThroughputSource     string
+	Media                bestServerMediaQualityResult
 }
 
 type bestServerQualityApplicationProbe func(context.Context, bestServerInternalCandidate) bestServerQualityApplicationResult
@@ -192,6 +198,7 @@ func rankBestServerQualityCandidates(
 		results[index].ServiceTotal = probe.Media.ServiceTotal
 		if probe.DownloadOK {
 			results[index].DownloadMbps = roundBestServerMbps(probe.DownloadMbps)
+			results[index].ThroughputSource = bestServerThroughputStrictAggregate
 		}
 		results[index].Eligible = eligibleBestServerQuality(results[index])
 
@@ -448,6 +455,7 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 	if result.Media.OK && result.Media.MedianMbps > 0 {
 		result.DownloadOK = true
 		result.DownloadMbps = result.Media.MedianMbps
+		result.ThroughputSource = bestServerThroughputStrictAggregate
 	} else {
 		result.DownloadIssue = result.Media.Issue
 		if result.DownloadIssue == "" {

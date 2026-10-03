@@ -30,6 +30,7 @@ func TestCurrentQualityPersistentCacheIsDisplayOnlyAndIdentityBound(t *testing.T
 		Tested: true, Eligible: true, ID: "current-live", Name: "Belgium, Brussels, Extra", CountryCode: "be",
 		Endpoint: endpoint, Current: true, Reachable: true, Available: true,
 		TCPRTTMS: 42, TCPJitterMS: 3, ApplicationMS: 66, JitterMS: 5, DownloadMbps: 84.7,
+		ThroughputSource: bestServerThroughputStrictAggregate,
 		MediaGrade: "good", MediaSamples: bestServerMediaRequiredRuns, ServiceOK: 4, ServiceTotal: 4,
 		Reason: "Проверен фактический активный VPN-путь",
 	}
@@ -59,6 +60,52 @@ func TestCurrentQualityPersistentCacheIsDisplayOnlyAndIdentityBound(t *testing.T
 	}
 	if _, _, ok := loadBestServerCurrentQualityForDisplay("203.0.113.9:443", filter); ok {
 		t.Fatal("display cache crossed endpoint identity")
+	}
+}
+
+func TestCurrentQualityPersistentCachePreservesFallbackProvenanceAndRejectsLegacyAmbiguity(t *testing.T) {
+	resetBestServerCurrentQualityMemory()
+	defer resetBestServerCurrentQualityMemory()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "current-quality.json")
+	t.Setenv("FREENET_CURRENT_QUALITY_CACHE", path)
+	endpoint := "198.51.100.25:443"
+	filter := "^fallback-profile$"
+	fallback := bestServerQualityCandidate{
+		Tested: true, Eligible: false, ID: "current-live", Name: "Fallback Extra",
+		Endpoint: endpoint, Current: true, Reachable: true, Available: true,
+		ApplicationMS: 78, JitterMS: 6, FallbackDownloadMbps: 37.4,
+		ThroughputSource: bestServerThroughputCurrentFallback,
+		Reason: "Проверен фактический активный VPN-путь",
+	}
+	storeBestServerCurrentQuality(endpoint, filter, fallback)
+	resetBestServerCurrentQualityMemory()
+	shown, _, ok := loadBestServerCurrentQualityForDisplay(endpoint, filter)
+	if !ok || shown.DownloadMbps != 0 || shown.FallbackDownloadMbps != 37.4 ||
+		shown.ThroughputSource != bestServerThroughputCurrentFallback {
+		t.Fatalf("fallback provenance was not restored exactly: ok=%v candidate=%+v", ok, shown)
+	}
+	if _, ok := loadBestServerCurrentQuality(endpoint, filter); ok {
+		t.Fatal("persisted fallback throughput must never become decision evidence")
+	}
+
+	legacy := bestServerCurrentQualityPersistentEntry{
+		Schema: 1, IdentityHash: bestServerCurrentQualityIdentityHash(endpoint, filter),
+		StoredAt: "2026-10-03T00:00:00Z",
+		Candidate: bestServerQualityCandidate{
+			Tested: true, Endpoint: endpoint, Current: true, Available: true, DownloadMbps: 55,
+		},
+	}
+	data, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := loadBestServerCurrentQualityForDisplay(endpoint, filter); ok {
+		t.Fatal("schema v1 ambiguous download_mbps must be invalidated after provenance migration")
 	}
 }
 
@@ -96,6 +143,7 @@ func TestCurrentQualityCacheJobDoesNotStartProbe(t *testing.T) {
 		Tested: true, Eligible: true, ID: "current-live", Name: "Belgium, Brussels, Extra", CountryCode: "be",
 		Endpoint: endpoint, Current: true, Reachable: true, Available: true,
 		TCPRTTMS: 40, ApplicationMS: 60, JitterMS: 4, DownloadMbps: 90,
+		ThroughputSource: bestServerThroughputStrictAggregate,
 		MediaGrade: "good", MediaSamples: bestServerMediaRequiredRuns, ServiceOK: 4, ServiceTotal: 4,
 	})
 	resetBestServerCurrentQualityMemory() // cache response must be able to use disk only

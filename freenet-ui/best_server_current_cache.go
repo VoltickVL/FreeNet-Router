@@ -13,7 +13,7 @@ import (
 
 const (
 	bestServerCurrentQualityCacheTTL              = 2 * time.Minute
-	bestServerCurrentQualityPersistentSchema      = 1
+	bestServerCurrentQualityPersistentSchema      = 2
 	bestServerCurrentQualityPersistentPathDefault = "/opt/var/lib/freenet/current-quality.json"
 )
 
@@ -49,6 +49,21 @@ func bestServerCurrentQualityKey(endpoint, filter string) string {
 func bestServerCurrentQualityIdentityHash(endpoint, filter string) string {
 	sum := sha256.Sum256([]byte(bestServerCurrentQualityKey(endpoint, filter)))
 	return hex.EncodeToString(sum[:])
+}
+
+func bestServerCurrentThroughputProvenanceValid(candidate bestServerQualityCandidate) bool {
+	strict := candidate.DownloadMbps > 0
+	fallback := candidate.FallbackDownloadMbps > 0
+	switch {
+	case strict && fallback:
+		return false
+	case strict:
+		return candidate.ThroughputSource == bestServerThroughputStrictAggregate
+	case fallback:
+		return candidate.ThroughputSource == bestServerThroughputCurrentFallback
+	default:
+		return candidate.ThroughputSource == ""
+	}
 }
 
 func writeBestServerCurrentQualityPersistent(endpoint, filter string, storedAt time.Time, candidate bestServerQualityCandidate) {
@@ -102,7 +117,10 @@ func loadBestServerCurrentQualityPersistent(endpoint, filter string) (bestServer
 	if strings.TrimSpace(candidate.Endpoint) != strings.TrimSpace(endpoint) {
 		return bestServerQualityCandidate{}, time.Time{}, false
 	}
-	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 {
+	if !bestServerCurrentThroughputProvenanceValid(candidate) {
+		return bestServerQualityCandidate{}, time.Time{}, false
+	}
+	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 && candidate.FallbackDownloadMbps <= 0 {
 		return bestServerQualityCandidate{}, time.Time{}, false
 	}
 	candidate.Current = true
@@ -116,7 +134,10 @@ func storeBestServerCurrentQuality(endpoint, filter string, candidate bestServer
 	if !candidate.Current || !candidate.Tested || !candidate.Available || strings.TrimSpace(endpoint) == "" {
 		return
 	}
-	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 {
+	if !bestServerCurrentThroughputProvenanceValid(candidate) {
+		return
+	}
+	if candidate.ApplicationMS <= 0 && candidate.TCPRTTMS <= 0 && candidate.DownloadMbps <= 0 && candidate.FallbackDownloadMbps <= 0 {
 		return
 	}
 	storedAt := time.Now().UTC()
@@ -148,7 +169,8 @@ func loadBestServerCurrentQuality(endpoint, filter string) (bestServerQualityCan
 	}
 	candidate := entry.Candidate
 	candidate.Current = true
-	if !candidate.Eligible || candidate.DownloadMbps <= 0 {
+	if !candidate.Eligible || candidate.DownloadMbps <= 0 ||
+		candidate.ThroughputSource != bestServerThroughputStrictAggregate || candidate.FallbackDownloadMbps > 0 {
 		return bestServerQualityCandidate{}, false
 	}
 	return candidate, true
