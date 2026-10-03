@@ -466,6 +466,55 @@ func sanitizeAutomationReason(reason string) string {
 	return strings.TrimSpace(reason)
 }
 
+func automationRollbackBlocksMutation(value string) bool {
+	normalized := strings.ToUpper(strings.TrimSpace(value))
+	if normalized == "" {
+		return false
+	}
+	switch normalized {
+	case "UNKNOWN", "FAILED/UNKNOWN", "FAILED_UNKNOWN":
+		return true
+	}
+	return strings.Contains(normalized, "ROLLBACK FAILED") || strings.Contains(normalized, "ROLLBACK UNKNOWN")
+}
+
+func automationMutationBlockedState() bool {
+	return strings.EqualFold(strings.TrimSpace(parseAutomationState(automationStatePath())["MUTATION_BLOCKED"]), "yes")
+}
+
+func writeAutomationStatePayload(path string, values map[string]string) {
+	payload := strings.Join([]string{
+		"LAST_RUN=" + sanitizeAutomationReason(values["LAST_RUN"]),
+		"LAST_RESULT=" + sanitizeAutomationReason(values["LAST_RESULT"]),
+		"LAST_REASON=" + sanitizeAutomationReason(values["LAST_REASON"]),
+		"ROLLBACK_READY=" + sanitizeAutomationReason(values["ROLLBACK_READY"]),
+		"LAST_SWITCH=" + sanitizeAutomationReason(values["LAST_SWITCH"]),
+		"MUTATION_BLOCKED=" + sanitizeAutomationReason(values["MUTATION_BLOCKED"]),
+	}, "\n") + "\n"
+	_ = os.MkdirAll(filepath.Dir(path), 0755)
+	tmp := path + ".v2.new"
+	if err := os.WriteFile(tmp, []byte(payload), 0600); err == nil {
+		_ = os.Rename(tmp, path)
+	}
+}
+
+func setAutomationMutationBlocked(blocked bool) {
+	path := automationStatePath()
+	values := parseAutomationState(path)
+	if values["LAST_RUN"] == "" {
+		values["LAST_RUN"] = time.Now().UTC().Format(time.RFC3339)
+	}
+	if values["ROLLBACK_READY"] == "" {
+		values["ROLLBACK_READY"] = "no"
+	}
+	if blocked {
+		values["MUTATION_BLOCKED"] = "yes"
+	} else {
+		values["MUTATION_BLOCKED"] = "no"
+	}
+	writeAutomationStatePayload(path, values)
+}
+
 func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 	path := automationStatePath()
 	previous := parseAutomationState(path)
@@ -476,18 +525,19 @@ func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 	if rollback == "" {
 		rollback = "no"
 	}
-	payload := strings.Join([]string{
-		"LAST_RUN=" + time.Now().UTC().Format(time.RFC3339),
-		"LAST_RESULT=" + sanitizeAutomationReason(result),
-		"LAST_REASON=" + sanitizeAutomationReason(reason),
-		"ROLLBACK_READY=" + sanitizeAutomationReason(rollback),
-		"LAST_SWITCH=" + sanitizeAutomationReason(lastSwitch),
-	}, "\n") + "\n"
-	_ = os.MkdirAll(filepath.Dir(path), 0755)
-	tmp := path + ".v2.new"
-	if err := os.WriteFile(tmp, []byte(payload), 0600); err == nil {
-		_ = os.Rename(tmp, path)
+	blocked := strings.EqualFold(strings.TrimSpace(previous["MUTATION_BLOCKED"]), "yes") || automationRollbackBlocksMutation(rollback)
+	values := map[string]string{
+		"LAST_RUN": time.Now().UTC().Format(time.RFC3339),
+		"LAST_RESULT": result,
+		"LAST_REASON": reason,
+		"ROLLBACK_READY": rollback,
+		"LAST_SWITCH": lastSwitch,
+		"MUTATION_BLOCKED": "no",
 	}
+	if blocked {
+		values["MUTATION_BLOCKED"] = "yes"
+	}
+	writeAutomationStatePayload(path, values)
 }
 
 func appendAutomationHistoryV2(result, reason string) {
