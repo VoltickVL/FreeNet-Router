@@ -665,6 +665,11 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 		return automationBestCycleResult{Result: "busy", Reason: "Проверка пропущена: другая AUTO VPN health/recovery операция уже выполняется."}, nil
 	}
 	defer releaseHealth()
+	if automationMutationBlockedState() {
+		reason := "AUTO VPN mutation заблокирована после неподтверждённого rollback. Сначала требуется успешная read-only проверка фактического текущего VPN."
+		appendAutomationHistoryV2("blocked", reason)
+		return automationBestCycleResult{Result: "uncertain", Reason: reason, RollbackState: "FAILED/UNKNOWN"}, nil
+	}
 
 	release, err := acquireAutomationBestLock()
 	if err != nil {
