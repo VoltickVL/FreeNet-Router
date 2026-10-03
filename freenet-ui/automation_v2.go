@@ -793,6 +793,12 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 		appendAutomationHistoryV2("cooldown", reason)
 		return automationBestCycleResult{Result: "cooldown", Reason: reason, ProfileID: candidate.ID}, nil
 	}
+	if !validBestServerSelectionToken(candidates.SelectionToken) {
+		reason := "Найден подтверждённый VPN, но точный измеренный snapshot не сохранён; AUTO VPN не выполняет mutation."
+		writeAutomationStateV2("failed", reason, "no", false)
+		appendAutomationHistoryV2("failed", reason)
+		return automationBestCycleResult{Result: "failed", Reason: reason, ProfileID: candidate.ID}, errors.New("AUTO VPN measured selection snapshot unavailable")
+	}
 	if !settings.AutoApply {
 		reason := "Найден подтверждённый лучший VPN; автоматическое применение выключено."
 		writeAutomationStateV2("candidate", reason, "no", false)
@@ -800,7 +806,9 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 		return automationBestCycleResult{Result: "candidate", Reason: reason, ProfileID: candidate.ID}, nil
 	}
 
-	status, applied := a.executeProviderProfileApply(networkApplyRequest{Operation: "provider", ProfileID: candidate.ID, Confirm: true})
+	status, applied := a.executeProviderProfileApply(networkApplyRequest{
+		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
+	})
 	if status < 200 || status >= 300 || !applied.Success {
 		reason := "Подтверждённый VPN не применён: " + strings.TrimSpace(applied.Error)
 		rollback := applied.RollbackState
