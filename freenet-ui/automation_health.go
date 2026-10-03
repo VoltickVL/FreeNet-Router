@@ -495,6 +495,25 @@ func (a *app) startAutomationHealthScheduler() {
 	}()
 }
 
+func automationRollbackGuardResult(first automationHealthProbe) (automationHealthResult, bool) {
+	if !automationMutationBlockedState() {
+		return automationHealthResult{}, false
+	}
+	if first.State == automationHealthHealthy {
+		setAutomationMutationBlocked(false)
+		reason := "Фактическое состояние текущего VPN подтверждено read-only проверкой; аварийный запрет AUTO mutation снят."
+		appendAutomationRecoveryStage("rollback_guard", "cleared", reason)
+		appendAutomationHistoryV2("guard_cleared", reason)
+		return automationHealthResult{State: automationHealthHealthy, Reason: reason}, true
+	}
+	reason := "AUTO VPN mutation заблокирована после неподтверждённого rollback. Read-only проверка ещё не подтвердила рабочее фактическое состояние; изменений нет."
+	if strings.TrimSpace(first.Reason) != "" {
+		reason += " " + strings.TrimSpace(first.Reason)
+	}
+	appendAutomationRecoveryStage("rollback_guard", "blocked", reason)
+	return automationHealthResult{State: automationHealthUncertain, Reason: reason}, true
+}
+
 func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealthResult, error) {
 	settings := readAutomationSettings(a.cfg.ConfigPath)
 	if !settings.Enabled {
@@ -509,21 +528,9 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
 	first := a.probeAutomationCurrentVPN(probeCtx)
-	if automationMutationBlockedState() {
+	if guarded, blocked := automationRollbackGuardResult(first); blocked {
 		cancel()
-		if first.State == automationHealthHealthy {
-			setAutomationMutationBlocked(false)
-			reason := "Фактическое состояние текущего VPN подтверждено read-only проверкой; аварийный запрет AUTO mutation снят."
-			appendAutomationRecoveryStage("rollback_guard", "cleared", reason)
-			appendAutomationHistoryV2("guard_cleared", reason)
-			return recordAndReturnHealth(automationHealthResult{State: automationHealthHealthy, Reason: reason}, nil)
-		}
-		reason := "AUTO VPN mutation заблокирована после неподтверждённого rollback. Read-only проверка ещё не подтвердила рабочее фактическое состояние; изменений нет."
-		if strings.TrimSpace(first.Reason) != "" {
-			reason += " " + strings.TrimSpace(first.Reason)
-		}
-		appendAutomationRecoveryStage("rollback_guard", "blocked", reason)
-		return recordAndReturnHealth(automationHealthResult{State: automationHealthUncertain, Reason: reason}, nil)
+		return recordAndReturnHealth(guarded, nil)
 	}
 	if first.State == automationHealthHealthy || first.State == automationHealthUncertain {
 		cancel()
