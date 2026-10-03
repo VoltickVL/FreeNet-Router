@@ -68,10 +68,18 @@
     }
   }
   function profileSource() {
-    let profiles = [], stale = false;
-    try { profiles = Array.isArray(extraProfiles) ? extraProfiles : []; stale = !!networkPlanError || !!lastNetworkPlan?.profiles_error || !!lastNetworkPlan?.profiles_stale; } catch (_) {}
-    if (!profiles.length) {
-      try { const cache = JSON.parse(localStorage.getItem('freenet-extra-profiles-last-good-v1') || '{}'); profiles = Array.isArray(cache.profiles) ? cache.profiles : []; stale = profiles.length > 0; } catch (_) {}
+    let profiles = [], stale = false, owned = null;
+    try {
+      if (typeof window.freenetProfileCatalogState === 'function') owned = window.freenetProfileCatalogState();
+    } catch (_) {}
+    if (owned && Array.isArray(owned.profiles)) {
+      profiles = owned.profiles;
+      stale = !!owned.stale;
+    } else {
+      try { profiles = Array.isArray(extraProfiles) ? extraProfiles : []; stale = !!networkPlanError || !!lastNetworkPlan?.profiles_error || !!lastNetworkPlan?.profiles_stale; } catch (_) {}
+      if (!profiles.length) {
+        try { const cache = JSON.parse(localStorage.getItem('freenet-extra-profiles-last-good-v1') || '{}'); profiles = Array.isArray(cache.profiles) ? cache.profiles : []; stale = profiles.length > 0; } catch (_) {}
+      }
     }
     const safe = profiles.filter(p => p && typeof p.id === 'string' && p.id && !['ru','ua'].includes(codeOf(p))).slice(0,100).map(p => ({id:p.id,name:String(p.name || p.label || ''),country_code:codeOf(p),endpoint:endpoint(p),address:String(p.address || ''),port:Number(p.port || 0)}));
     const key = JSON.stringify([safe, stale]);
@@ -273,12 +281,23 @@
   }
   function publishRTTCatalog(catalog) {
     const publicCatalog = catalog.map(({id,name,country_code,address,port}) => ({id,name,country_code,address,port}));
-    if (typeof renderExtraProfiles === 'function') renderExtraProfiles({extra_profiles:publicCatalog});
-    else {
-      try { extraProfiles = publicCatalog; } catch (_) { return false; }
+    let published = false;
+    try {
+      if (typeof window.freenetPublishMeasuredProfileCatalog === 'function') {
+        published = window.freenetPublishMeasuredProfileCatalog(publicCatalog) === true;
+      } else if (typeof renderExtraProfiles === 'function') {
+        renderExtraProfiles({extra_profiles:publicCatalog});
+        published = true;
+      } else {
+        extraProfiles = publicCatalog;
+        published = true;
+      }
+    } catch (_) {
+      return false;
     }
-    profileSource();
-    return rows.length === catalog.length;
+    if (!published) return false;
+    const state = profileSource();
+    return rows.length === catalog.length && !state.stale;
   }
   async function refreshRTT(event) {
     if (!event || event.isTrusted !== true || rttScanning || busy()) return;
