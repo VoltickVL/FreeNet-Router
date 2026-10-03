@@ -63,7 +63,7 @@ async function capture(label){
     if(url.pathname==='/api/subscription')return answer(route,{success:true,configured:true});
     if(url.pathname==='/api/vpn/current-quality'&&url.searchParams.get('job')==='cache'){
       const p=profiles.find(p=>ep(p)===status.endpoint)||current;
-      return answer(route,{success:true,available:true,scanned_at:new Date().toISOString(),candidates:[{...p,endpoint:status.endpoint,current:true,tested:true,eligible:true,available:true,reachable:true,download_mbps:55,application_rtt_ms:105,tcp_rtt_ms:70,jitter_ms:5,media_samples:4,media_stalls:0,service_ok:4,service_total:4}]});
+      return answer(route,{success:true,available:true,scanned_at:new Date().toISOString(),candidates:[{...p,endpoint:status.endpoint,current:true,tested:true,eligible:true,available:true,reachable:true,download_mbps:55,throughput_source:'strict_aggregate',application_rtt_ms:105,tcp_rtt_ms:70,jitter_ms:5,media_samples:4,media_stalls:0,service_ok:4,service_total:4}]});
     }
     if(url.pathname==='/api/provider-profiles/rtt'){
       const results=profiles.map((p,i)=>i===7
