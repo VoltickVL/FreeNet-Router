@@ -18,7 +18,7 @@ import (
 const (
 	bestServerSelectionSnapshotSchema = 1
 	bestServerSelectionSnapshotTTL    = 20 * time.Minute
-	defaultBestServerSelectionPath    = "/opt/var/lib/freenet/best-server-selection.json"
+	defaultBestServerSelectionDir     = "/opt/var/lib/freenet/best-server-selections"
 )
 
 type bestServerSelectionEntry struct {
@@ -36,11 +36,18 @@ type bestServerSelectionSnapshot struct {
 	Candidates        []bestServerSelectionEntry `json:"candidates"`
 }
 
-func bestServerSelectionSnapshotPath() string {
-	if path := strings.TrimSpace(os.Getenv("FREENET_BEST_SELECTION_SNAPSHOT")); path != "" {
+func bestServerSelectionSnapshotDir() string {
+	if path := strings.TrimSpace(os.Getenv("FREENET_BEST_SELECTION_DIR")); path != "" {
 		return path
 	}
-	return defaultBestServerSelectionPath
+	return defaultBestServerSelectionDir
+}
+
+func bestServerSelectionSnapshotPath(token string) string {
+	if !validBestServerSelectionToken(token) {
+		return ""
+	}
+	return filepath.Join(bestServerSelectionSnapshotDir(), token+".json")
 }
 
 func validBestServerSelectionToken(token string) bool {
@@ -80,8 +87,35 @@ func (a *app) bestServerSelectionSourceFingerprint() (string, error) {
 	return providerSubscriptionSourceFingerprint(secretURL), nil
 }
 
-func invalidateBestServerSelectionSnapshot() {
-	_ = os.Remove(bestServerSelectionSnapshotPath())
+func cleanupBestServerSelectionSnapshots(now time.Time) {
+	dir := bestServerSelectionSnapshotDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		token := strings.TrimSuffix(entry.Name(), ".json")
+		if !validBestServerSelectionToken(token) {
+			continue
+		}
+		path := bestServerSelectionSnapshotPath(token)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var snapshot bestServerSelectionSnapshot
+		if json.Unmarshal(data, &snapshot) != nil {
+			_ = os.Remove(path)
+			continue
+		}
+		createdAt, err := time.Parse(time.RFC3339, strings.TrimSpace(snapshot.CreatedAt))
+		if err != nil || now.Sub(createdAt) > bestServerSelectionSnapshotTTL {
+			_ = os.Remove(path)
+		}
+	}
 }
 
 func (a *app) storeBestServerSelectionSnapshot(currentEndpoint, currentFilter string, internal []bestServerInternalCandidate, measured []bestServerQualityCandidate) (string, error) {
@@ -94,7 +128,6 @@ func (a *app) storeBestServerSelectionSnapshot(currentEndpoint, currentFilter st
 		eligible[id] = struct{}{}
 	}
 	if len(eligible) == 0 {
-		invalidateBestServerSelectionSnapshot()
 		return "", nil
 	}
 
@@ -142,8 +175,12 @@ func (a *app) storeBestServerSelectionSnapshot(currentEndpoint, currentFilter st
 	if err != nil {
 		return "", errors.New("cannot encode VPN selection snapshot")
 	}
-	path := bestServerSelectionSnapshotPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	cleanupBestServerSelectionSnapshots(time.Now().UTC())
+	path := bestServerSelectionSnapshotPath(token)
+	if path == "" {
+		return "", errors.New("cannot build VPN selection snapshot path")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return "", errors.New("cannot prepare VPN selection snapshot directory")
 	}
 	if err := atomicWrite(path, encoded, 0600); err != nil {
@@ -170,7 +207,11 @@ func (a *app) loadBestServerSelectionCandidate(token, profileID, currentEndpoint
 	if !validBestServerSelectionToken(token) || !validProfileID(profileID) {
 		return bestServerInternalCandidate{}, errors.New("invalid VPN selection snapshot")
 	}
-	data, err := os.ReadFile(bestServerSelectionSnapshotPath())
+	path := bestServerSelectionSnapshotPath(token)
+	if path == "" {
+		return bestServerInternalCandidate{}, errors.New("invalid VPN selection snapshot")
+	}
+	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 || len(data) > maxSubscriptionBytes {
 		return bestServerInternalCandidate{}, errors.New("VPN selection snapshot is unavailable; run Best Server again")
 	}
@@ -207,14 +248,11 @@ func (a *app) loadBestServerSelectionCandidate(token, profileID, currentEndpoint
 }
 
 func consumeBestServerSelectionSnapshot(token string) {
-	data, err := os.ReadFile(bestServerSelectionSnapshotPath())
-	if err != nil {
+	path := bestServerSelectionSnapshotPath(strings.TrimSpace(token))
+	if path == "" {
 		return
 	}
-	var snapshot bestServerSelectionSnapshot
-	if json.Unmarshal(data, &snapshot) == nil && snapshot.Token == strings.TrimSpace(token) {
-		_ = os.Remove(bestServerSelectionSnapshotPath())
-	}
+	_ = os.Remove(path)
 }
 
 func (a *app) materializeBestServerSelectionProviderCache(candidate bestServerInternalCandidate) (string, string, func(), error) {
