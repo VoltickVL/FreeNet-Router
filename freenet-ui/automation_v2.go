@@ -774,10 +774,21 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 }
 
 func automationCLIConfig() config {
+	configPath := defaultConfigPath
+	for i := 2; i+1 < len(os.Args); i++ {
+		if os.Args[i] != "--config" {
+			continue
+		}
+		candidate := strings.TrimSpace(os.Args[i+1])
+		if candidate != "" && filepath.IsAbs(candidate) {
+			configPath = candidate
+		}
+		break
+	}
 	return config{
 		Listen: defaultListen, VPNPath: defaultVPNPath, FilterPath: defaultFilterPath, OutPath: defaultOutPath,
 		GeoDataDir: defaultGeoDataAssetDir, XKeenPath: defaultXKeenPath, LockPath: defaultLockPath,
-		ConfigPath: defaultConfigPath, SubPath: defaultSubPath, SelfUpdatePath: defaultSelfUpdatePath,
+		ConfigPath: configPath, SubPath: defaultSubPath, SelfUpdatePath: defaultSelfUpdatePath,
 		UpdateState: defaultUpdateState, UpdateLock: defaultUpdateLock, Timeout: 95 * time.Second,
 	}
 }
