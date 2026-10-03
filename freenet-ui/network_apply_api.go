@@ -212,7 +212,7 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 	plan.ActiveDNSMode = activeDNS
 	decorateNativeDNSProviderPlan(&plan, provider, activeProvider)
 	plan.Active = plan.Active && networkTargetProductStateMatches(dnsMode, provider, activeDNS, activeProvider)
-	// The VPN catalog is independent from the ISP/DNS plan. Attach the last
+	// The VPN catalog is independent from the DNS plan. Attach the last
 	// successful safe catalog before returning a network-plan error so a broken
 	// or unsupported network draft cannot erase the subscription state.
 	a.attachSubscriptionCatalogForPlan(&plan)
