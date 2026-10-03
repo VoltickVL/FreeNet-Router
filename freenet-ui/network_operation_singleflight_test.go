@@ -19,11 +19,11 @@ func TestNetworkApplySingleflightJoinsSameTarget(t *testing.T) {
 		t.Fatal("same target must join the existing flight")
 	}
 
-	want := networkApplyResponse{Success: true, Applied: true, Operation: "network", ISP: "vladlink", DNSMode: "xkeen"}
+	want := networkApplyResponse{Success: true, Applied: true, Operation: "network", DNSMode: "xkeen"}
 	finishNetworkApplyFlight(leader, http.StatusOK, want)
 	r := httptest.NewRequest(http.MethodPost, "/api/network-profile/apply", nil)
 	status, got, ok := waitNetworkApplyFlight(r, follower)
-	if !ok || status != http.StatusOK || !got.Success || got.ISP != want.ISP || got.DNSMode != want.DNSMode {
+	if !ok || status != http.StatusOK || !got.Success || got.DNSMode != want.DNSMode {
 		t.Fatalf("follower did not receive leader result: status=%d result=%+v ok=%v", status, got, ok)
 	}
 }
