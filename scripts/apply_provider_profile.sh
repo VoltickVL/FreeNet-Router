@@ -467,7 +467,7 @@ provider_route_probe() {
     mkdir -p "$PROBE_DIR" || return 1
     chmod 700 "$PROBE_DIR" 2>/dev/null || true
 
-    PROBE_PORT=$((12080 + ($ % 200)))
+    PROBE_PORT=$((12080 + ($$ % 200)))
     PROBE_TRY=0
     while [ "$PROBE_TRY" -lt 5 ]; do
         if ! netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "(^|[.:])${PROBE_PORT}$"; then
@@ -512,10 +512,27 @@ provider_route_probe() {
         return 1
     fi
 
-    PROBE_RESULT="$("$CURL_BIN" --socks5-hostname "127.0.0.1:$PROBE_PORT" -sS         --connect-timeout 4 --max-time 8 -o /dev/null         -w '%{http_code}' 'https://www.gstatic.com/generate_204' 2>/dev/null || true)"
+    PROBE_OK=0
+    PROBE_TOTAL=0
+    for PROBE_URL in \
+        'https://www.gstatic.com/generate_204' \
+        'https://cp.cloudflare.com/generate_204' \
+        'https://1.1.1.1/cdn-cgi/trace'
+    do
+        PROBE_RESULT="$("$CURL_BIN" --socks5-hostname "127.0.0.1:$PROBE_PORT" -sS \
+            --connect-timeout 4 --max-time 8 -o /dev/null \
+            -w '%{http_code}' "$PROBE_URL" 2>/dev/null || true)"
+        PROBE_TOTAL=$((PROBE_TOTAL + 1))
+        case "$PROBE_RESULT" in
+            2??|3??|4??) PROBE_OK=$((PROBE_OK + 1)) ;;
+        esac
+        [ "$PROBE_OK" -ge 2 ] && break
+        PROBE_REMAIN=$((3 - PROBE_TOTAL))
+        [ $((PROBE_OK + PROBE_REMAIN)) -ge 2 ] || break
+    done
     kill "$PROBE_PID" 2>/dev/null || true
     wait "$PROBE_PID" 2>/dev/null || true
-    case "$PROBE_RESULT" in 2??|3??|4??) return 0 ;; *) return 1 ;; esac
+    [ "$PROBE_OK" -ge 2 ]
 }
 
 snapshot_state() {

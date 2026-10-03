@@ -377,6 +377,29 @@ func TestHealthRecoveryStopsSameCycleWhenRollbackLatchIsSet(t *testing.T) {
 	}
 }
 
+func TestEmergencyBestApplyCannotBypassMeasuredSelectionSnapshot(t *testing.T) {
+	data, err := os.ReadFile("automation_health.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	start := strings.Index(text, "func (a *app) runAutomationBestEmergencyCycle")
+	end := strings.Index(text, "func (a *app) runAutomationEndpointEmergency")
+	if start < 0 || end <= start {
+		t.Fatal("emergency Best cycle contract is missing")
+	}
+	segment := text[start:end]
+	tokenCheck := strings.Index(segment, "validBestServerSelectionToken(candidates.SelectionToken)")
+	applyCall := strings.Index(segment, "a.executeProviderProfileApply")
+	tokenPass := strings.Index(segment, "SelectionToken: candidates.SelectionToken")
+	if tokenCheck < 0 || applyCall < 0 || tokenPass < 0 {
+		t.Fatalf("AUTO measured-snapshot contract incomplete: check=%d apply=%d pass=%d", tokenCheck, applyCall, tokenPass)
+	}
+	if !(tokenCheck < applyCall && tokenPass > applyCall) {
+		t.Fatalf("AUTO provider mutation is not gated by measured selection token: check=%d apply=%d pass=%d", tokenCheck, applyCall, tokenPass)
+	}
+}
+
 func TestEndpointEmergencyUsesCanonicalCurrentProfileRefresh(t *testing.T) {
 	data, err := os.ReadFile("automation_health.go")
 	if err != nil {
