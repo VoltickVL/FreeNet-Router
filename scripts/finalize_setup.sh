@@ -145,7 +145,7 @@ cron_read() {
 build_managed_cron() {
     make_tmp || return 1
     [ -x "$UI_BIN" ] || return 1
-    "$UI_BIN" settings-v3-reconcile > "$TMP_DIR/scheduler-reconcile.out" 2> "$TMP_DIR/scheduler-reconcile.err"
+    "$UI_BIN" settings-v3-reconcile --config "$CONFIG_FILE" > "$TMP_DIR/scheduler-reconcile.out" 2> "$TMP_DIR/scheduler-reconcile.err"
 }
 
 managed_cron_ok() {
