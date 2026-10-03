@@ -237,8 +237,15 @@ profile_id() {
     NAME="$1"
     ADDRESS="$2"
     PORT="$3"
+    SECURITY_ID="$4"
+    TYPE_ID="$5"
+    SNI_ID="$6"
+    HOST_ID="$7"
+    PATH_ID="$8"
     LOWER_ADDRESS="$(printf '%s' "$ADDRESS" | tr '[:upper:]' '[:lower:]')"
-    printf '%s|%s|%s' "$NAME" "$LOWER_ADDRESS" "$PORT" | sha256sum | awk '{print substr($1,1,16)}'
+    LOWER_SNI="$(printf '%s' "$SNI_ID" | tr '[:upper:]' '[:lower:]')"
+    LOWER_HOST="$(printf '%s' "$HOST_ID" | tr '[:upper:]' '[:lower:]')"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s' "$NAME" "$LOWER_ADDRESS" "$PORT" "$SECURITY_ID" "$TYPE_ID" "$LOWER_SNI" "$LOWER_HOST" "$PATH_ID" | sha256sum | awk '{print substr($1,1,16)}'
 }
 
 parse_line_identity() {
@@ -247,6 +254,8 @@ parse_line_identity() {
     case "$BODY" in *@*) ;; *) return 1 ;; esac
     REST="${BODY#*@}"
     HOSTPORT="$(printf '%s\n' "$REST" | sed 's/[?].*$//')"
+    QUERY_AND_NAME="$(printf '%s\n' "$REST" | sed 's/^[^?]*[?]//')"
+    QUERY="${QUERY_AND_NAME%%#*}"
 
     case "$HOSTPORT" in
         \[*\]:*)
@@ -266,7 +275,32 @@ parse_line_identity() {
     case "$LINE" in *#*) NAME_ENC="${LINE##*#}" ;; *) NAME_ENC='Extra profile' ;; esac
     NAME="$(sanitize_name "$(url_decode "$NAME_ENC")")"
     [ -n "$NAME" ] || NAME='Extra profile'
-    ID="$(profile_id "$NAME" "$ADDRESS" "$PORT")"
+
+    ID_SECURITY="$(printf '%s' "$(get_param security)" | tr '[:upper:]' '[:lower:]')"
+    ID_TYPE="$(printf '%s' "$(get_param type)" | tr '[:upper:]' '[:lower:]')"
+    [ -n "$ID_SECURITY" ] || ID_SECURITY='reality'
+    [ -n "$ID_TYPE" ] || ID_TYPE='tcp'
+    ID_SNI="$(url_decode "$(get_param sni)")"
+    ID_HOST="$(url_decode "$(get_param host)")"
+    ID_PATH="$(url_decode "$(get_param path)")"
+    case "$ID_SECURITY:$ID_TYPE" in
+        reality:tcp)
+            ID_HOST=''
+            ID_PATH=''
+            ;;
+        tls:tcp)
+            ID_HOST=''
+            ID_PATH=''
+            ;;
+        tls:ws)
+            [ -n "$ID_PATH" ] || ID_PATH='/'
+            [ -n "$ID_HOST" ] || ID_HOST="$ID_SNI"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    ID="$(profile_id "$NAME" "$ADDRESS" "$PORT" "$ID_SECURITY" "$ID_TYPE" "$ID_SNI" "$ID_HOST" "$ID_PATH")"
     return 0
 }
 
@@ -299,27 +333,49 @@ build_vless_object() {
     QUERY="${QUERY_AND_NAME%%#*}"
 
     FLOW="$(get_param flow)"
-    SECURITY="$(get_param security)"
-    TYPE="$(get_param type)"
+    SECURITY="$(printf '%s' "$(get_param security)" | tr '[:upper:]' '[:lower:]')"
+    TYPE="$(printf '%s' "$(get_param type)" | tr '[:upper:]' '[:lower:]')"
     FP="$(get_param fp)"
     SNI="$(url_decode "$(get_param sni)")"
     PBK="$(get_param pbk)"
     SID="$(get_param sid)"
     SPX="$(url_decode "$(get_param spx)")"
+    WS_HOST="$(url_decode "$(get_param host)")"
+    WS_PATH="$(url_decode "$(get_param path)")"
 
-    [ -n "$FLOW" ] || FLOW='xtls-rprx-vision'
     [ -n "$SECURITY" ] || SECURITY='reality'
     [ -n "$TYPE" ] || TYPE='tcp'
     [ -n "$FP" ] || FP='firefox'
     [ -n "$SPX" ] || SPX='/'
+    if [ "$SECURITY" = reality ] && [ -z "$FLOW" ]; then
+        FLOW='xtls-rprx-vision'
+    fi
+
+    case "$SECURITY:$TYPE" in
+        reality:tcp)
+            ;;
+        tls:tcp)
+            ;;
+        tls:ws)
+            [ -z "$FLOW" ] || { err 'VLESS WS profile must not use XTLS flow'; return 1; }
+            [ -n "$WS_PATH" ] || WS_PATH='/'
+            [ -n "$WS_HOST" ] || WS_HOST="$SNI"
+            ;;
+        *)
+            err "unsupported VLESS transport: $SECURITY/$TYPE"
+            return 1
+            ;;
+    esac
 
     MISSING=''
     [ -n "$UUID" ] || MISSING="$MISSING UUID"
     [ -n "$SELECTED_ADDRESS" ] || MISSING="$MISSING ADDRESS"
     [ -n "$SELECTED_PORT" ] || MISSING="$MISSING PORT"
     [ -n "$SNI" ] || MISSING="$MISSING SNI"
-    [ -n "$PBK" ] || MISSING="$MISSING PBK"
-    [ -n "$SID" ] || MISSING="$MISSING SID"
+    if [ "$SECURITY" = reality ]; then
+        [ -n "$PBK" ] || MISSING="$MISSING PBK"
+        [ -n "$SID" ] || MISSING="$MISSING SID"
+    fi
     [ -z "$MISSING" ] || { err "selected profile is missing required fields:$MISSING"; return 1; }
 
     jq -n \
@@ -334,14 +390,29 @@ build_vless_object() {
         --arg publicKey "$PBK" \
         --arg shortId "$SID" \
         --arg spiderX "$SPX" \
-        '{
+        --arg wsHost "$WS_HOST" \
+        --arg wsPath "$WS_PATH" \
+        '
+        def user:
+          {id:$uuid,encryption:"none",level:0}
+          + (if $flow == "" then {} else {flow:$flow} end);
+        {
           tag:"vless-reality",
           protocol:"vless",
-          settings:{vnext:[{address:$address,port:$port,users:[{id:$uuid,flow:$flow,encryption:"none",level:0}]}]},
-          streamSettings:{network:$network,security:$security,realitySettings:{fingerprint:$fingerprint,serverName:$serverName,publicKey:$publicKey,shortId:$shortId,spiderX:$spiderX}}
+          settings:{vnext:[{address:$address,port:$port,users:[user]}]},
+          streamSettings: (
+            if $security == "reality" then
+              {network:$network,security:"reality",realitySettings:{fingerprint:$fingerprint,serverName:$serverName,publicKey:$publicKey,shortId:$shortId,spiderX:$spiderX}}
+            elif $security == "tls" and $network == "ws" then
+              {network:"ws",security:"tls",tlsSettings:{fingerprint:$fingerprint,serverName:$serverName},wsSettings:{path:$wsPath,headers:{Host:$wsHost}}}
+            elif $security == "tls" and $network == "tcp" then
+              {network:"tcp",security:"tls",tlsSettings:{fingerprint:$fingerprint,serverName:$serverName}}
+            else
+              error("unsupported VLESS transport")
+            end
+          )
         }' > "$VLESS_OBJECT"
 }
-
 build_candidate() {
     if [ -f "$OUT_FILE" ] && jq -e '(.outbounds | type) == "array"' "$OUT_FILE" >/dev/null 2>&1; then
         jq --slurpfile replacement "$VLESS_OBJECT" '

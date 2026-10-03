@@ -398,51 +398,70 @@ func buildBestServerProbeOutbound(raw string, profile subscriptionProfile) (map[
 	if err != nil || !strings.EqualFold(u.Scheme, "vless") || u.User == nil {
 		return nil, errors.New("invalid VLESS profile")
 	}
-	uuid := u.User.Username()
+	spec, ok := parseSupportedVLESSTransport(u)
+	if !ok {
+		return nil, errors.New("unsupported VLESS transport")
+	}
+	uuid := strings.TrimSpace(u.User.Username())
 	query := u.Query()
-	security := strings.TrimSpace(query.Get("security"))
-	if security == "" {
-		security = "reality"
-	}
-	if !strings.EqualFold(security, "reality") {
-		return nil, errors.New("unsupported VLESS security")
-	}
-	flow := strings.TrimSpace(query.Get("flow"))
-	if flow == "" {
-		flow = "xtls-rprx-vision"
-	}
-	network := strings.TrimSpace(query.Get("type"))
-	if network == "" {
-		network = "tcp"
-	}
 	fingerprint := strings.TrimSpace(query.Get("fp"))
 	if fingerprint == "" {
 		fingerprint = "firefox"
 	}
-	serverName := strings.TrimSpace(query.Get("sni"))
-	publicKey := strings.TrimSpace(query.Get("pbk"))
-	shortID := strings.TrimSpace(query.Get("sid"))
-	spiderX := strings.TrimSpace(query.Get("spx"))
-	if spiderX == "" {
-		spiderX = "/"
+	flow := strings.TrimSpace(query.Get("flow"))
+	if spec.Security == "reality" && flow == "" {
+		flow = "xtls-rprx-vision"
 	}
-	if uuid == "" || profile.Address == "" || profile.Port <= 0 || serverName == "" || publicKey == "" || shortID == "" {
-		return nil, errors.New("incomplete VLESS Reality profile")
+	if spec.Network == "ws" && flow != "" {
+		return nil, errors.New("VLESS WS profile must not use XTLS flow")
 	}
+	if uuid == "" || profile.Address == "" || profile.Port <= 0 || spec.ServerName == "" {
+		return nil, errors.New("incomplete VLESS profile")
+	}
+
+	user := map[string]any{"id": uuid, "encryption": "none", "level": 0}
+	if flow != "" {
+		user["flow"] = flow
+	}
+	stream := map[string]any{"network": spec.Network, "security": spec.Security}
+	switch spec.Security {
+	case "reality":
+		publicKey := strings.TrimSpace(query.Get("pbk"))
+		shortID := strings.TrimSpace(query.Get("sid"))
+		spiderX := strings.TrimSpace(query.Get("spx"))
+		if spiderX == "" {
+			spiderX = "/"
+		}
+		if publicKey == "" || shortID == "" {
+			return nil, errors.New("incomplete VLESS Reality profile")
+		}
+		stream["realitySettings"] = map[string]any{
+			"fingerprint": fingerprint, "serverName": spec.ServerName, "publicKey": publicKey,
+			"shortId": shortID, "spiderX": spiderX,
+		}
+	case "tls":
+		stream["tlsSettings"] = map[string]any{
+			"fingerprint": fingerprint,
+			"serverName": spec.ServerName,
+		}
+		if spec.Network == "ws" {
+			stream["wsSettings"] = map[string]any{
+				"path": spec.Path,
+				"headers": map[string]any{"Host": spec.Host},
+			}
+		}
+	default:
+		return nil, errors.New("unsupported VLESS transport")
+	}
+
 	return map[string]any{
 		"tag": "vless-reality",
 		"protocol": "vless",
 		"settings": map[string]any{"vnext": []any{map[string]any{
 			"address": profile.Address, "port": profile.Port,
-			"users": []any{map[string]any{"id": uuid, "flow": flow, "encryption": "none", "level": 0}},
+			"users": []any{user},
 		}}},
-		"streamSettings": map[string]any{
-			"network": network, "security": "reality",
-			"realitySettings": map[string]any{
-				"fingerprint": fingerprint, "serverName": serverName, "publicKey": publicKey,
-				"shortId": shortID, "spiderX": spiderX,
-			},
-		},
+		"streamSettings": stream,
 	}, nil
 }
 
