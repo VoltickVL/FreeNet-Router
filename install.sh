@@ -12,10 +12,12 @@ CONFIG_DIR="/opt/etc/freenet"
 CONFIG_FILE="$CONFIG_DIR/freenet.conf"
 SUB_FILE="/opt/etc/xray/blanc_subscription.url"
 FILTER_FILE="/opt/etc/xray/blanc_profile_filter.regex"
+OUT_FILE="/opt/etc/xray/configs/04_outbounds.json"
 LOG_FILE="/opt/var/log/blanc_xkeen_update.log"
 
 UI_PORT=1001
-AUTO_ENDPOINT_UPDATE=yes
+SETUP_COMPLETE=no
+AUTO_ENDPOINT_UPDATE=no
 AUTO_ENDPOINT_CRON="*/15 * * * *"
 AUTO_XKEEN_GEODATA=yes
 AUTO_XKEEN_GEODATA_CRON="30 6 * * *"
@@ -132,7 +134,8 @@ confirm() {
 
 load_config() {
     UI_PORT=1001
-    AUTO_ENDPOINT_UPDATE=yes
+    SETUP_COMPLETE=no
+    AUTO_ENDPOINT_UPDATE=no
     AUTO_ENDPOINT_CRON="*/15 * * * *"
     AUTO_XKEEN_GEODATA=yes
     AUTO_XKEEN_GEODATA_CRON="30 6 * * *"
@@ -146,6 +149,7 @@ save_config() {
     mkdir -p "$CONFIG_DIR" || return 1
     cat > "$CONFIG_FILE.tmp.$$" <<EOF
 UI_PORT=$UI_PORT
+SETUP_COMPLETE=$SETUP_COMPLETE
 AUTO_ENDPOINT_UPDATE=$AUTO_ENDPOINT_UPDATE
 AUTO_ENDPOINT_CRON='$AUTO_ENDPOINT_CRON'
 AUTO_XKEEN_GEODATA=$AUTO_XKEEN_GEODATA
@@ -429,6 +433,12 @@ EOF
     mv -f "$FREENET_INIT.tmp.$$" "$FREENET_INIT"
 }
 
+has_dns_out() {
+    [ -f "$OUT_FILE" ] || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+    jq -e '([.outbounds[]? | select(.tag == "dns-out")] | length) == 1' "$OUT_FILE" >/dev/null 2>&1
+}
+
 remove_managed_cron() {
     C1="$TMP_DIR/cron.current"
     C2="$TMP_DIR/cron.clean"
@@ -458,8 +468,10 @@ apply_cron() {
         if [ "$AUTO_XKEEN_GEODATA" = "yes" ]; then
             echo "$AUTO_XKEEN_GEODATA_CRON /opt/sbin/xkeen -ug"
         fi
-        if [ "$AUTO_ENDPOINT_UPDATE" = "yes" ]; then
+        if [ "$SETUP_COMPLETE" = "yes" ] && [ "$AUTO_ENDPOINT_UPDATE" = "yes" ] && [ -s "$SUB_FILE" ] && has_dns_out; then
             echo "$AUTO_ENDPOINT_CRON /opt/bin/blanc_xkeen_update_outbounds.sh >> /opt/var/log/blanc_xkeen_update.log 2>&1"
+        else
+            echo '# endpoint refresh disabled until setup/subscription/dns-out acceptance'
         fi
         echo '# END FREENET'
     } >> "$C2"
@@ -571,7 +583,6 @@ install_or_update() {
     MUTATED=1
     normalize_legacy_cron
     install_files
-    apply_cron
 
     if [ ! -s "$SUB_FILE" ]; then
         info "URL подписки ещё не задан."
@@ -580,6 +591,7 @@ install_or_update() {
         ok "существующая URL подписки сохранена"
     fi
 
+    apply_cron
     start_ui
     validate_runtime
     validate_xray_unchanged
@@ -606,7 +618,12 @@ show_status() {
     if pidof xray >/dev/null 2>&1; then say "Xray: работает"; else say "Xray: НЕ работает"; fi
     if [ -x "$VPN_BIN" ]; then "$VPN_BIN" current; else say "vpn helper: не установлен"; fi
     say ""
-    say "Автообновление endpoint: $AUTO_ENDPOINT_UPDATE ($AUTO_ENDPOINT_CRON)"
+    say "Setup complete: $SETUP_COMPLETE"
+    if [ "$SETUP_COMPLETE" = "yes" ] && [ "$AUTO_ENDPOINT_UPDATE" = "yes" ] && [ -s "$SUB_FILE" ] && has_dns_out; then
+        say "Автообновление endpoint: активно ($AUTO_ENDPOINT_CRON)"
+    else
+        say "Автообновление endpoint: неактивно; требуется setup complete + subscription + dns-out"
+    fi
     say "XKeen geodata cron: $AUTO_XKEEN_GEODATA ($AUTO_XKEEN_GEODATA_CRON)"
     say ""
     say "Управляемый cron-блок:"
