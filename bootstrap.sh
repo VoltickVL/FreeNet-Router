@@ -190,8 +190,10 @@ ensure_bootstrap_dependencies() {
     # The release entrypoint needs only Entware/OPKG as a hard prerequisite.
     # Everything below is userland tooling and can be provisioned safely and
     # idempotently without guessing router kernel packages or upgrading Entware.
-    if ! command -v curl >/dev/null 2>&1; then
+    if ! opkg status ca-bundle >/dev/null 2>&1; then
         append_package ca-bundle
+    fi
+    if ! command -v curl >/dev/null 2>&1; then
         append_package curl
     fi
     need_tool sha256sum coreutils-sha256sum
