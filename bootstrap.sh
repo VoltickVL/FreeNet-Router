@@ -210,8 +210,8 @@ ensure_bootstrap_dependencies() {
 
     if [ -n "$BOOTSTRAP_PACKAGES" ]; then
         info "Installing missing Entware tools:$BOOTSTRAP_PACKAGES"
-        OPKG_UPDATE_LOG="/tmp/freenet-bootstrap-opkg-update.$.log"
-        OPKG_INSTALL_LOG="/tmp/freenet-bootstrap-opkg-install.$.log"
+        OPKG_UPDATE_LOG="/tmp/freenet-bootstrap-opkg-update.$$.log"
+        OPKG_INSTALL_LOG="/tmp/freenet-bootstrap-opkg-install.$$.log"
 
         if ! opkg update >"$OPKG_UPDATE_LOG" 2>&1; then
             tail -n 30 "$OPKG_UPDATE_LOG" 2>/dev/null || true
