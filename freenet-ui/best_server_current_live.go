@@ -180,6 +180,9 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 	}
 
 	result := bestServerQualityApplicationResult{OK: true, HTTP: httpResult}
+	// Current VPN speed uses the exact same canonical media/Speedtest aggregate
+	// as Best Server candidates. There is no display-only throughput fallback:
+	// if the strict comparable measurement is unavailable, speed stays unknown.
 	result.Media = probeBestServerMediaQuality(ctx, curlPath, socks)
 	if result.Media.OK && result.Media.MedianMbps > 0 {
 		result.DownloadOK = true
@@ -187,13 +190,6 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 		result.ThroughputSource = bestServerThroughputStrictAggregate
 	} else {
 		result.DownloadIssue = result.Media.Issue
-		if fallbackMbps, fallbackIssue := probeBestServerCurrentFallbackDownload(ctx, curlPath, socks); fallbackMbps > 0 {
-			result.FallbackDownloadMbps = fallbackMbps
-			result.ThroughputSource = bestServerThroughputCurrentFallback
-			result.DownloadIssue = ""
-		} else if result.DownloadIssue == "" {
-			result.DownloadIssue = fallbackIssue
-		}
 		if result.DownloadIssue == "" {
 			result.DownloadIssue = "Speedtest throughput unavailable"
 		}
