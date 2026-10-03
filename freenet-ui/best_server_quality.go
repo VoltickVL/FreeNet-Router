@@ -92,6 +92,7 @@ type bestServerQualityResponse struct {
 type bestServerQualityApplicationResult struct {
 	DownloadIssue        string
 	OK                   bool
+	VPN                  bestServerProbeResult
 	HTTP                 bestServerProbeResult
 	DownloadOK           bool
 	DownloadMbps         float64
@@ -337,6 +338,20 @@ func roundBestServerMbps(value float64) float64 {
 	return math.Round(value*10) / 10
 }
 
+func probeBestServerCanonicalApplicationRTT(ctx context.Context, curlPath, socks string) bestServerProbeResult {
+	for i := 0; i < bestServerQualityWarmupRuns; i++ {
+		_, _, _ = probeBestServerHTTPAny(ctx, curlPath, socks)
+	}
+
+	samples := make([]int, 0, bestServerQualityHTTPRuns)
+	for i := 0; i < bestServerQualityHTTPRuns; i++ {
+		if ms, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks); ok {
+			samples = append(samples, ms)
+		}
+	}
+	return summarizeBestServerSamples(samples, bestServerQualityHTTPRequired)
+}
+
 func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
 	outbound, err := buildBestServerProbeOutbound(candidate.Raw, candidate.Profile)
 	if err != nil {
@@ -436,17 +451,7 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 	}
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
-	for i := 0; i < bestServerQualityWarmupRuns; i++ {
-		_, _, _ = probeBestServerHTTPAny(ctx, curlPath, socks)
-	}
-
-	samples := make([]int, 0, bestServerQualityHTTPRuns)
-	for i := 0; i < bestServerQualityHTTPRuns; i++ {
-		if ms, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks); ok {
-			samples = append(samples, ms)
-		}
-	}
-	httpResult := summarizeBestServerSamples(samples, bestServerQualityHTTPRequired)
+	httpResult := probeBestServerCanonicalApplicationRTT(ctx, curlPath, socks)
 	if !httpResult.OK {
 		return bestServerQualityApplicationResult{}
 	}
