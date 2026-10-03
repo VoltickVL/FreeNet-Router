@@ -19,8 +19,8 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 		"Сбросить выбор",
 		"Обновить профиль",
 		"Сменить сервер",
-		"ISP и DNS при этом не изменяются",
-		"VPN-действия не меняют ISP и DNS",
+		"DNS при этом не изменяется",
+		"VPN-действия не меняют DNS",
 		"operation: 'provider'",
 		"waitExactState",
 		"showExactMode(true)",
@@ -51,7 +51,7 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 		t.Fatal("routine exact VPN connect must not require an extra confirmation dialog")
 	}
 	if strings.Contains(exactConnect, "loadNetworkPlan(selectedProviderID)") || strings.Contains(exactConnect, "provider_profile_id=") {
-		t.Fatal("exact VPN pre-connect must not depend on ISP/DNS network-plan flow")
+		t.Fatal("exact VPN pre-connect must not depend on DNS topology flow")
 	}
 }
 
