@@ -121,11 +121,12 @@ async function capture(label){
   await until(()=>/Скорость VPN/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'strict current speed UI');
   assert.match(await page.locator('#bestCurrentMetrics').textContent(),/55\.0 Мбит\/с/);
   currentCacheMode='fallback';
-  await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','fallback canonical boot');
-  await until(()=>/Быстрый замер/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'fallback current speed UI');
-  assert.match(await page.locator('#bestCurrentMetrics').textContent(),/37\.4 Мбит\/с/);
-  assert.match(await page.locator('#bestCurrentMetrics').textContent(),/не для сравнения/);
-  assert.doesNotMatch(await page.locator('#bestCurrentMetrics').textContent(),/Скорость VPN/,'production UI must not label fallback as comparable speed');
+  await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','legacy fallback canonical boot');
+  await until(()=>/Скорость VPN/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'strict-only current speed UI');
+  const legacyFallbackMetrics=await page.locator('#bestCurrentMetrics').textContent();
+  assert.doesNotMatch(legacyFallbackMetrics,/37\.4 Мбит\/с/,'legacy fallback throughput must never be displayed');
+  assert.doesNotMatch(legacyFallbackMetrics,/Быстрый|не для сравнения/i,'legacy fallback UX must be retired');
+  assert.match(legacyFallbackMetrics,/Скорость VPN[\s\S]*—/,'missing canonical speed must remain unknown');
   currentCacheMode='strict';
   await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','strict canonical reboot');
   await page.locator(T).waitFor({state:'visible'});
