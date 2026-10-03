@@ -740,7 +740,12 @@ var settingsV3ScheduledEndpointRefresh = func(a *app, ctx context.Context) error
 		}
 		return nil
 	}
-	if rollback == "FAILED/UNKNOWN" {
+	if rollback == "FAILED/UNKNOWN" || automationRollbackBlocksMutation(rollback) {
+		if message == "" {
+			message = "Плановое обновление endpoint завершилось с неподтверждённым rollback."
+		}
+		writeAutomationStateV2("blocked", message, rollback, false)
+		appendAutomationHistoryV2("blocked", message+"; rollback="+rollback)
 		return errors.New("scheduled endpoint refresh rollback failed or is unknown")
 	}
 	if status == 409 {
@@ -763,6 +768,10 @@ func (a *app) runV3ScheduledEndpointRefresh(ctx context.Context) error {
 		return nil
 	}
 	defer release()
+	if automationMutationBlockedState() {
+		appendAutomationHistoryV2("blocked", "Плановое обновление endpoint пропущено: активен аварийный запрет AUTO mutation после неподтверждённого rollback.")
+		return nil
+	}
 	err := settingsV3ScheduledEndpointRefresh(a, ctx)
 	if errors.Is(err, errAutomationBusy) {
 		appendAutomationHistoryV2("busy", "Плановое обновление endpoint пропущено: другой безопасный updater уже выполняется.")
@@ -788,6 +797,10 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 		return nil
 	}
 	defer release()
+	if automationMutationBlockedState() {
+		appendAutomationHistoryV2("blocked", "Свежий endpoint обнаружен, но reconcile пропущен: активен аварийный запрет AUTO mutation после неподтверждённого rollback.")
+		return nil
+	}
 
 	status, refresh := settingsV3ScheduledCurrentRefresh(a, ctx)
 	message := strings.TrimSpace(refresh.Message)
