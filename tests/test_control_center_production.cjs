@@ -17,7 +17,7 @@ const ukraine={id:'fixture-ua',name:'UA Kyiv, Ukraine, Extra',country_code:'ua',
 const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
 let status={version:'0.3.92',country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
-let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict';
+let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict',rttMode='ok';
 const calls=[],unhandled=[],errors=[];
 const P='#fnVpnPickerV2Panel',T='#fnVpnPickerV2Toggle',S='#fnVpnPickerV2Search',R='#fnVpnPickerV2Results',F='#fnVpnPickerV2Footer',C='#fnVpnPickerV2Connect',RTT='#fnVpnPickerV2Refresh',RESIZE='#fnVpnPickerV2Resize';
 const countApply=()=>calls.filter(c=>c.path==='/api/network-profile/apply').length;
@@ -70,10 +70,10 @@ async function capture(label){
     }
     if(url.pathname==='/api/provider-profiles/rtt'){
       const results=profiles.map((p,i)=>i===7
-        ?{profile_id:p.id,reachable:false,attempted:false,status:'unknown'}
+        ?{profile_id:p.id,endpoint:ep(p),reachable:false,attempted:false,status:'unknown'}
         :i===8
-          ?{profile_id:p.id,reachable:false,attempted:true,status:'unreachable'}
-          :{profile_id:p.id,reachable:true,attempted:true,status:'reachable',rtt_ms:55+((48-i)*4),jitter_ms:i%9});
+          ?{profile_id:p.id,endpoint:ep(p),reachable:false,attempted:true,status:'unreachable'}
+          :{profile_id:p.id,endpoint:rttMode==='mismatch'&&i===1?'192.0.2.254:443':ep(p),reachable:true,attempted:true,status:'reachable',rtt_ms:55+((48-i)*4),jitter_ms:i%9});
       return answer(route,{success:true,results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:true,mutation:'NONE'});
     }
     if(url.pathname==='/api/provider-profile/plan'){
@@ -159,6 +159,14 @@ async function capture(label){
   await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});
   await delay(250);
   assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen+1,'reopening picker must not start another RTT sweep');
+  rttMode='mismatch';
+  await page.locator(RTT).click();
+  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'mismatched RTT refresh complete');
+  assert.match(await page.locator('#fnVpnPickerV2RTTState').textContent(),/Список VPN изменился/,'catalog mismatch must be explicit');
+  const rejectedRTT=await page.locator(R+' .fnv2-rtt').evaluateAll(nodes=>nodes.map(n=>n.textContent||''));
+  assert.ok(rejectedRTT.every(v=>v===''),'catalog mismatch must not attach RTT from another snapshot');
+  assert.doesNotMatch(await page.locator('#fnVpnPickerV2RTTState').textContent(),/проверено .* ответили/i,'mismatched snapshot must not publish misleading aggregate summary');
+  rttMode='ok';
   const initial=await geometry('desktop-initial');assert.ok(initial.panel.y>=initial.toggle.bottom,'anchored below VPN');assert.ok(initial.results.height>=400,'desktop list must use available viewport height: '+JSON.stringify(initial));
   assert.equal(await page.locator(RESIZE).isVisible(),true,'desktop picker must expose one vertical resize affordance');
   const resizeBox=await page.locator(RESIZE).boundingBox();assert.ok(resizeBox,'desktop resize handle missing');
