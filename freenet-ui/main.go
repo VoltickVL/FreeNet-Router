@@ -79,10 +79,7 @@ type statusResponse struct {
 	XrayOnline             bool         `json:"xray_online"`
 	XKeenUI                bool         `json:"xkeen_ui_online"`
 	DNSOut                 bool         `json:"dns_out_present"`
-	ISP                    string       `json:"isp"`
-	ISPLabel               string       `json:"isp_label"`
 	DNSMode                string       `json:"dns_mode"`
-	RecommendedDNSMode     string       `json:"recommended_dns_mode"`
 	InstallScenario        string       `json:"install_scenario"`
 	SetupComplete          bool         `json:"setup_complete"`
 	SubscriptionConfigured bool         `json:"subscription_configured"`
@@ -106,21 +103,16 @@ type actionResult struct {
 }
 
 type networkProfileRequest struct {
-	ISP     string `json:"isp"`
 	DNSMode string `json:"dns_mode"`
 }
 
 type networkProfileResponse struct {
-	Success             bool   `json:"success"`
-	ISP                 string `json:"isp"`
-	ISPLabel            string `json:"isp_label"`
-	DNSMode             string `json:"dns_mode"`
-	DNSModeLabel        string `json:"dns_mode_label"`
-	RecommendedDNSMode  string `json:"recommended_dns_mode"`
-	RecommendedDNSLabel string `json:"recommended_dns_label"`
-	Applied             bool   `json:"applied"`
-	Message             string `json:"message,omitempty"`
-	Error               string `json:"error,omitempty"`
+	Success      bool   `json:"success"`
+	DNSMode      string `json:"dns_mode"`
+	DNSModeLabel string `json:"dns_mode_label"`
+	Applied      bool   `json:"applied"`
+	Message      string `json:"message,omitempty"`
+	Error        string `json:"error,omitempty"`
 }
 
 type subscriptionRequest struct {
@@ -194,18 +186,6 @@ var profiles = map[string]struct {
 	"pl": {Country: "Польша", City: "Warsaw", Label: "Poland · Warsaw"},
 	"fi": {Country: "Финляндия", City: "Helsinki", Label: "Finland · Helsinki"},
 	"nl": {Country: "Нидерланды", City: "Amsterdam", Label: "Netherlands · Amsterdam"},
-}
-
-var ispProfiles = map[string]struct {
-	Label              string
-	RecommendedDNSMode string
-}{
-	"auto":            {Label: "Авто", RecommendedDNSMode: "auto"},
-	"vladlink":        {Label: "Владлинк", RecommendedDNSMode: "xkeen"},
-	"alliancetelecom": {Label: "АльянсТелеком", RecommendedDNSMode: "xkeen"},
-	"rostelecom":      {Label: "Ростелеком", RecommendedDNSMode: "firmware"},
-	"podryad":         {Label: "Подряд", RecommendedDNSMode: "firmware"},
-	"custom":          {Label: "Свой", RecommendedDNSMode: "custom"},
 }
 
 var dnsModes = map[string]string{
@@ -1003,9 +983,8 @@ func (a *app) status() statusResponse {
 		p.Label = label
 	}
 	endpoint, dnsOut := readOutbound(a.cfg.OutPath)
-	isp, dnsMode := readNetworkProfileConfig(a.cfg.ConfigPath)
+	dnsMode := readDNSModeConfig(a.cfg.ConfigPath)
 	installScenario, setupComplete := readSetupState(a.cfg.ConfigPath)
-	ispMeta := ispProfiles[isp]
 
 	a.mu.RLock()
 	last := a.last
@@ -1024,10 +1003,7 @@ func (a *app) status() statusResponse {
 		XrayOnline:             a.liveXrayRunning(),
 		XKeenUI:                processRunning("xkeen-ui"),
 		DNSOut:                 dnsOut,
-		ISP:                    isp,
-		ISPLabel:               ispMeta.Label,
 		DNSMode:                dnsMode,
-		RecommendedDNSMode:     ispMeta.RecommendedDNSMode,
 		InstallScenario:        installScenario,
 		SetupComplete:          setupComplete,
 		SubscriptionConfigured: subscriptionConfigured(a.cfg.SubPath),
@@ -1038,27 +1014,21 @@ func (a *app) status() statusResponse {
 }
 
 func (a *app) networkProfileView(success bool, message string) networkProfileResponse {
-	isp, dnsMode := readNetworkProfileConfig(a.cfg.ConfigPath)
-	meta := ispProfiles[isp]
+	dnsMode := readDNSModeConfig(a.cfg.ConfigPath)
 	return networkProfileResponse{
-		Success:             success,
-		ISP:                 isp,
-		ISPLabel:            meta.Label,
-		DNSMode:             dnsMode,
-		DNSModeLabel:        dnsModes[dnsMode],
-		RecommendedDNSMode:  meta.RecommendedDNSMode,
-		RecommendedDNSLabel: dnsModes[meta.RecommendedDNSMode],
-		Applied:             false,
-		Message:             message,
+		Success:      success,
+		DNSMode:      dnsMode,
+		DNSModeLabel: dnsModes[dnsMode],
+		Applied:      false,
+		Message:      message,
 	}
 }
 
-func readNetworkProfileConfig(path string) (string, string) {
-	isp := "auto"
+func readDNSModeConfig(path string) string {
 	dnsMode := "auto"
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return isp, dnsMode
+		return dnsMode
 	}
 	for _, line := range strings.Split(string(b), "\n") {
 		line = strings.TrimSpace(line)
@@ -1066,29 +1036,16 @@ func readNetworkProfileConfig(path string) (string, string) {
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")
-		if !ok {
+		if !ok || strings.TrimSpace(key) != "DNS_MODE" {
 			continue
 		}
-		value = strings.TrimSpace(value)
-		if len(value) >= 2 {
-			if (value[0] == '\'' && value[len(value)-1] == '\'') || (value[0] == '"' && value[len(value)-1] == '"') {
-				value = value[1 : len(value)-1]
-			}
-		}
-		switch strings.TrimSpace(key) {
-		case "ISP_ID":
-			isp = value
-		case "DNS_MODE":
-			dnsMode = value
-		}
-	}
-	if _, ok := ispProfiles[isp]; !ok {
-		isp = "auto"
+		value = strings.Trim(strings.TrimSpace(value), "'\"")
+		dnsMode = value
 	}
 	if _, ok := dnsModes[dnsMode]; !ok {
 		dnsMode = "auto"
 	}
-	return isp, dnsMode
+	return dnsMode
 }
 
 func readSetupState(path string) (string, bool) {
@@ -1120,10 +1077,7 @@ func readSetupState(path string) (string, bool) {
 	return installScenario, setupComplete
 }
 
-func writeNetworkProfileConfig(path, isp, dnsMode string) error {
-	if _, ok := ispProfiles[isp]; !ok {
-		return errors.New("unsupported ISP")
-	}
+func writeDNSModeConfig(path, dnsMode string) error {
 	if _, ok := dnsModes[dnsMode]; !ok {
 		return errors.New("unsupported DNS mode")
 	}
@@ -1138,21 +1092,13 @@ func writeNetworkProfileConfig(path, isp, dnsMode string) error {
 		return err
 	}
 
-	seenISP := false
 	seenDNS := false
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "ISP_ID=") {
-			lines[i] = "ISP_ID=" + isp
-			seenISP = true
-		}
 		if strings.HasPrefix(trimmed, "DNS_MODE=") {
 			lines[i] = "DNS_MODE=" + dnsMode
 			seenDNS = true
 		}
-	}
-	if !seenISP {
-		lines = append(lines, "ISP_ID="+isp)
 	}
 	if !seenDNS {
 		lines = append(lines, "DNS_MODE="+dnsMode)
