@@ -18,16 +18,13 @@ func TestOverviewCurrentQualityMemoryDeliveredBeforeBootRelease(t *testing.T) {
 		`id="freenetOverviewCurrentQualityMemory"`,
 		`/api/status`,
 		`/api/vpn/current-quality?job=cache`,
-		`Последний замер: `,
-		`VPN сейчас не подключен.`,
-		`latencyOnlyWarning`,
 		`seedMissingMeasurement`,
 		`/api/vpn/current-quality?job=start&id=`,
-		`renderMetrics(candidate)`,
-		`fallback_download_mbps`,
-		`current_fallback`,
-		`strict_aggregate`,
-		`не для сравнения`,
+		`publishQuality`,
+		`freenet:current-quality-display`,
+		`candidate: Object.assign({}, candidate, {current:true})`,
+		`status: compactStatus(status)`,
+		`detail: {invalidate:true}`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("overview quality memory contract missing %q", want)
@@ -51,8 +48,21 @@ func TestOverviewCurrentQualityMemoryDoesNotHideMutation(t *testing.T) {
 			t.Fatalf("overview first-paint memory must not contain mutation/broad-scan endpoint %q", forbidden)
 		}
 	}
-	if !strings.Contains(overviewCurrentQualityMemoryScript, `if (!renderQuality(data, status)) void seedMissingMeasurement();`) {
-		t.Fatal("silent current-VPN seed must run only when exact cached display data is missing")
+	if !strings.Contains(overviewCurrentQualityMemoryScript, `if (!publishQuality(data, status)) void seedMissingMeasurement();`) {
+		t.Fatal("silent current-VPN seed must run only when exact cached hydration data is missing")
+	}
+	for _, forbidden := range []string{
+		"bestCurrentMetrics",
+		"bestCurrentHealth",
+		"metricPill",
+		"renderMetrics",
+		"renderHealth",
+		"Последний замер:",
+		"Быстрый замер",
+	} {
+		if strings.Contains(overviewCurrentQualityMemoryScript, forbidden) {
+			t.Fatalf("current-quality memory must hydrate only; renderer leak %q", forbidden)
+		}
 	}
 }
 
@@ -94,7 +104,9 @@ func TestOverviewCurrentQualityMemoryBridgesCoordinatorState(t *testing.T) {
 		"installCurrentQualityMemoryBridge",
 		"freenet:current-quality-display",
 		"currentQuality = Object.assign({}, candidate, {current:true})",
-		"currentMetrics.children.length === 0",
+		"renderCurrentQuality(",
+		"{persisted:true, status:detail.status || null}",
+		"detail.invalidate === true",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("Overview current-quality bridge contract missing %q", want)
