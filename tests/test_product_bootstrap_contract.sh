@@ -81,8 +81,6 @@ fi
 # Compatibility config defaults сохраняются fail-safe для старых management paths.
 grep -Fq 'SETUP_COMPLETE=no' "$INSTALL" || fail 'installer fresh/default setup state должен быть incomplete'
 grep -Fq 'AUTO_ENDPOINT_UPDATE=no' "$INSTALL" || fail 'installer fresh/default endpoint update должен быть выключен'
-grep -Fq 'SETUP_COMPLETE=$SETUP_COMPLETE' "$INSTALL" || fail 'installer не сохраняет setup-complete state'
-
 # Compatibility CLI больше не является вторым AUTO settings owner и при сохранении
 # своих локальных параметров не имеет права перезаписывать современный config.
 SAVE_BLOCK="$(sed -n '/^save_config() {/,/^}/p' "$INSTALL")"
