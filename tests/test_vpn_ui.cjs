@@ -182,6 +182,9 @@ const server = http.createServer((req,res)=>{
     assert.deepEqual(rttOrder.slice(0,3).map(x=>x.id),[second.id,winner.id,current.id],'selector must auto-sort every measured profile by canonical VPN RTT');
     assert.deepEqual(rttOrder.slice(0,3).map(x=>x.rtt),['92 мс','121 мс','148 мс'],'selector must show RTT for every measured profile');
     assert.ok(calls.some(x=>x.path==='/api/provider-profiles/rtt'&&!x.query.includes('refresh=1')),'opening selector must auto-request cached/canonical RTT evidence');
+    await page.locator('#fnVpnPickerV2Refresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled);
+    assert.ok(calls.some(x=>x.path==='/api/provider-profiles/rtt'&&x.query.includes('refresh=1')),'manual refresh must force a fresh full-pool RTT sweep');
     await page.waitForFunction(() => {
       const pop = document.querySelector('#fnVpnPickerV2Panel')?.getBoundingClientRect();
       const search = document.querySelector('#fnVpnPickerV2Search')?.getBoundingClientRect();
