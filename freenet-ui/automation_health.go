@@ -539,15 +539,39 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	if !settings.Enabled {
 		return recordAndReturnHealth(automationHealthResult{State: "disabled", Reason: "AUTO VPN выключен."}, nil)
 	}
-	release, err := acquireAutomationHealthLock()
-	if err != nil {
-		return recordAndReturnHealth(automationHealthResult{State: "busy", Reason: "Проверка пропущена: предыдущая AUTO VPN операция ещё выполняется."}, nil)
-	}
-	defer release()
 	_ = v3WriteState(map[string]string{"HEALTH_SCHEDULE_LAST": time.Now().UTC().Format(time.RFC3339)})
 
+	// Read-only observation must never monopolize the AUTO health fence. Manual
+	// Current VPN / Best Server diagnostics are the recovery path when a router
+	// is already degraded, especially immediately after an update. Only take the
+	// exclusive fence when AUTO is actually about to enter recovery/mutation.
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
 	first := a.probeAutomationCurrentVPN(probeCtx)
+	if guarded, blocked := automationPostUpdateGuardResult(a, first); blocked {
+		cancel()
+		return recordAndReturnHealth(guarded, nil)
+	}
+	if guarded, blocked := automationRollbackGuardResult(first); blocked {
+		cancel()
+		return recordAndReturnHealth(guarded, nil)
+	}
+	if first.State == automationHealthHealthy || first.State == automationHealthUncertain {
+		cancel()
+		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
+	}
+	cancel()
+
+	release, err := acquireAutomationHealthLock()
+	if err != nil {
+		return recordAndReturnHealth(automationHealthResult{State: "busy", Reason: "Проверка пропущена: ручная диагностика или другая AUTO VPN recovery операция уже выполняется."}, nil)
+	}
+	defer release()
+
+	// State may have changed while manual diagnostics had priority. Re-probe
+	// under the fence before any recovery decision so AUTO never mutates based
+	// on stale evidence.
+	probeCtx, cancel = context.WithTimeout(parent, automationHealthRunTimeout)
+	first = a.probeAutomationCurrentVPN(probeCtx)
 	if guarded, blocked := automationPostUpdateGuardResult(a, first); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
