@@ -99,7 +99,7 @@ jobs:
       - name: Product bootstrap contract test
         run: sh tests/test_product_bootstrap_contract.sh
 
-      - name: ISP network profile contract test
+      - name: DNS topology contract test
         run: sh tests/test_network_profile_contract.sh
 
       - name: Xray JSONC network compatibility test
