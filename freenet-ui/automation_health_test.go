@@ -279,6 +279,23 @@ func TestEmergencyBestPathBypassesOnlyOptimizationCooldown(t *testing.T) {
 	}
 }
 
+func TestHealthRecoveryStopsSameCycleWhenRollbackLatchIsSet(t *testing.T) {
+	data, err := os.ReadFile("automation_health.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	start := strings.Index(text, "endpointResult, endpointErr := a.runAutomationEndpointEmergency")
+	best := strings.Index(text[start:], "best, bestErr := a.runAutomationBestEmergencyCycle")
+	if start < 0 || best < 0 {
+		t.Fatal("health recovery endpoint/Best stages not found")
+	}
+	between := text[start : start+best]
+	if !strings.Contains(between, "if automationMutationBlockedState()") {
+		t.Fatal("health recovery must STOP before Best fallback when endpoint rollback latch is active")
+	}
+}
+
 func TestEndpointEmergencyUsesCanonicalCurrentProfileRefresh(t *testing.T) {
 	data, err := os.ReadFile("automation_health.go")
 	if err != nil {
