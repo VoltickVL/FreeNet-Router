@@ -8,152 +8,47 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
   let seedEndpoint = '';
   let seedRunning = false;
 
-  const iconPath = {
-    speed: '<path d="M12 3v12m0 0 5-5m-5 5-5-5"/><path d="M5 21h14"/>',
-    http: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-    tcp: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="16" r="2"/><circle cx="19" cy="16" r="2"/><path d="M10.8 6.7 6.2 14M13.2 6.7l4.6 7.3M7 16h10"/>',
-    jitter: '<path d="M3 13h3l2-6 3 11 3-13 2 8h5"/>'
-  };
-
   function overviewActive() {
     const page = q('.page[data-page-view="overview"]');
     return !!(page && page.classList.contains('active')) || location.hash === '' || location.hash === '#overview';
-  }
-
-  function metricValue(candidate, key) {
-    if (!candidate) return '—';
-    if (key === 'speed' || key === 'fallback_speed') {
-      const raw = key === 'fallback_speed' ? candidate.fallback_download_mbps : candidate.download_mbps;
-      const speed = Number(raw || 0);
-      return speed > 0 ? speed.toFixed(speed >= 100 ? 0 : 1) + ' Мбит/с' : '—';
-    }
-    if (key === 'http') return Number(candidate.application_rtt_ms || 0) > 0 ? candidate.application_rtt_ms + ' мс' : '—';
-    if (key === 'tcp') return Number(candidate.tcp_rtt_ms || 0) > 0 ? candidate.tcp_rtt_ms + ' мс' : '—';
-    if (key === 'jitter') return Number.isFinite(Number(candidate.jitter_ms)) ? candidate.jitter_ms + ' мс' : '—';
-    return '—';
-  }
-
-  function metricPill(label, candidate, key, noteText = '') {
-    const node = document.createElement('div');
-    const strictTrusted = key === 'speed' && candidate && candidate.eligible && candidate.throughput_source === 'strict_aggregate';
-    node.className = 'best-v4-pill' + (strictTrusted ? ' speed' : '');
-    node.dataset.metric = key;
-    const icon = document.createElement('span');
-    icon.className = 'fn-icon metric-icon';
-    icon.setAttribute('aria-hidden', 'true');
-    const iconKey = key === 'fallback_speed' ? 'speed' : key;
-    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + iconPath[iconKey] + '</svg>';
-    const copy = document.createElement('div');
-    copy.className = 'metric-copy';
-    const name = document.createElement('span');
-    name.className = 'metric-label';
-    name.textContent = label;
-    const line = document.createElement('div');
-    line.className = 'metric-value-line';
-    const number = document.createElement('b');
-    number.textContent = metricValue(candidate, key);
-    line.appendChild(number);
-    if (noteText) {
-      const note = document.createElement('span');
-      note.className = 'metric-delta';
-      note.textContent = noteText;
-      line.appendChild(note);
-    }
-    copy.append(name, line);
-    node.append(icon, copy);
-    return node;
-  }
-
-  function renderMetrics(candidate) {
-    const root = q('#bestCurrentMetrics');
-    if (!root) return;
-    root.textContent = '';
-    const strictSpeed = Number(candidate && candidate.download_mbps || 0) > 0 && candidate && candidate.throughput_source === 'strict_aggregate';
-    const fallbackSpeed = Number(candidate && candidate.fallback_download_mbps || 0) > 0 && candidate && candidate.throughput_source === 'current_fallback';
-    const speedPill = fallbackSpeed && !strictSpeed
-      ? metricPill('Быстрый замер', candidate, 'fallback_speed', 'не для сравнения')
-      : metricPill('Скорость VPN', candidate, 'speed');
-    root.append(
-      speedPill,
-      metricPill('Отклик сайтов', candidate, 'http'),
-      metricPill('Связь с сервером', candidate, 'tcp'),
-      metricPill('Стабильность', candidate, 'jitter')
-    );
-  }
-
-  function ageText(scannedAt) {
-    const at = Date.parse(scannedAt || '');
-    if (!Number.isFinite(at)) return 'время неизвестно';
-    const age = Math.max(0, Date.now() - at);
-    if (age < 60 * 1000) return 'только что';
-    if (age < 60 * 60 * 1000) return Math.max(1, Math.round(age / 60000)) + ' мин назад';
-    if (age < 24 * 60 * 60 * 1000) return Math.max(1, Math.round(age / 3600000)) + ' ч назад';
-    return new Date(at).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
   }
 
   function currentCandidate(data) {
     return Array.isArray(data && data.candidates) ? data.candidates.find(item => item && item.current) || null : null;
   }
 
-  function latencyOnlyWarning(candidate) {
-    const reasons = Array.isArray(candidate && candidate.rejections) ? candidate.rejections.map(value => String(value || '').trim()).filter(Boolean) : [];
-    return !!(candidate && candidate.tested && candidate.available && candidate.eligible !== true &&
-      reasons.length === 1 && /^Отклик сайтов выше \d+ мс$/i.test(reasons[0]));
+  function compactStatus(status) {
+    if (!status) return null;
+    return {
+      xray_online: status.xray_online,
+      endpoint: String(status.endpoint || '')
+    };
   }
 
-  function renderQuality(data, status = null) {
+  function publishQuality(data, status = null) {
     const candidate = currentCandidate(data);
     if (!candidate || !candidate.endpoint) return false;
     const liveEndpoint = String((q('#bestCurrentEndpoint') || {}).textContent || '').trim();
     if (liveEndpoint && liveEndpoint !== '—' && liveEndpoint !== candidate.endpoint) return false;
-    renderMetrics(candidate);
     hydratedEndpoint = candidate.endpoint;
-    const quality = q('#bestCurrentQuality');
-    if (quality) {
-      const strictSpeed = Number(candidate.download_mbps || 0) > 0 && candidate.throughput_source === 'strict_aggregate';
-      const fallbackSpeed = Number(candidate.fallback_download_mbps || 0) > 0 && candidate.throughput_source === 'current_fallback';
-      const suffix = strictSpeed
-        ? ' · ' + metricValue(candidate, 'speed')
-        : fallbackSpeed
-          ? ' · быстрый замер ' + metricValue(candidate, 'fallback_speed')
-          : '';
-      quality.textContent = 'Последний замер: ' + ageText(data.scanned_at) + suffix;
-    }
-    const health = q('#bestCurrentHealth');
-    if (health) {
-      if (status && status.xray_online === false) {
-        health.className = 'current-health offline';
-        health.textContent = 'VPN сейчас не подключен.\nПоказанные метрики — последний подтверждённый замер.';
-      } else if (candidate.eligible) {
-        health.className = 'current-health';
-        health.textContent = 'Текущий VPN работает стабильно.\nПоказан последний подтверждённый замер.';
-      } else if (latencyOnlyWarning(candidate)) {
-        health.className = 'current-health warning';
-        health.textContent = 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nПоказан последний подтверждённый замер.';
-      } else {
-        health.className = 'current-health neutral';
-        health.textContent = 'Показан последний подтверждённый замер.\nЧасть критериев качества не пройдена.';
-      }
-    }
     document.dispatchEvent(new CustomEvent('freenet:current-quality-display', {
-      detail: {candidate: Object.assign({}, candidate, {current:true}), scanned_at: data.scanned_at || ''}
+      detail: {
+        candidate: Object.assign({}, candidate, {current:true}),
+        scanned_at: data.scanned_at || '',
+        status: compactStatus(status)
+      }
     }));
     return true;
   }
 
-  function clearWrongIdentity() {
+  function invalidateWrongIdentity() {
     if (!hydratedEndpoint) return;
     const liveEndpoint = String((q('#bestCurrentEndpoint') || {}).textContent || '').trim();
     if (!liveEndpoint || liveEndpoint === '—' || liveEndpoint === hydratedEndpoint) return;
     hydratedEndpoint = '';
-    renderMetrics(null);
-    const quality = q('#bestCurrentQuality');
-    if (quality) quality.textContent = 'Качество ещё не проверено';
-    const health = q('#bestCurrentHealth');
-    if (health) {
-      health.className = 'current-health neutral';
-      health.textContent = 'Для этого VPN подтверждённого замера ещё нет.';
-    }
+    document.dispatchEvent(new CustomEvent('freenet:current-quality-display', {
+      detail: {invalidate:true}
+    }));
   }
 
   async function seedMissingMeasurement() {
@@ -179,7 +74,7 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
       while (response.status === 202 && Date.now() - started < 80000) {
         const job = await response.json();
         if (job.state === 'completed' && job.result) {
-          renderQuality(job.result, status);
+          publishQuality(job.result, status);
           return;
         }
         if (job.state === 'failed') return;
@@ -204,7 +99,7 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
       const response = await fetch('/api/vpn/current-quality?job=cache', {cache:'no-store', signal:AbortSignal.timeout(7000)});
       if (!response.ok) return;
       const data = await response.json();
-      if (!renderQuality(data, status)) void seedMissingMeasurement();
+      if (!publishQuality(data, status)) void seedMissingMeasurement();
     } catch (_) {
       // Do not turn a first-paint cache read into repeated background traffic.
     }
@@ -212,7 +107,7 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
 
   function install() {
     const endpoint = q('#bestCurrentEndpoint');
-    if (endpoint) new MutationObserver(clearWrongIdentity).observe(endpoint, {childList:true, characterData:true,subtree:true});
+    if (endpoint) new MutationObserver(invalidateWrongIdentity).observe(endpoint, {childList:true, characterData:true,subtree:true});
     const overview = q('.page[data-page-view="overview"]');
     if (overview) new MutationObserver(() => {
       if (overview.classList.contains('active')) setTimeout(hydrate, 80);
