@@ -355,7 +355,7 @@ func (a *app) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	selectorReconcileScript := `<script id="freenetVPNSelectorReconcile">` + string(vpnSelectorReconcileAsset) + `</script>`
-	scripts := fmt.Sprintf("<script src=\"/self-update.js?v=v%s\"></script><script src=\"/vpn-ux-fix.js?v=v%s\"></script>%s<script>window.__freenetVPNPickerV2=true;</script><script src=\"/operation-coordinator.js?v=v%s\"></script><script src=\"/accepted-ux.js?v=v%s\"></script><script src=\"/vpn-picker-v2.js?v=v%s\"></script></body>", version, version, selectorReconcileScript, version, version, version)
+	scripts := fmt.Sprintf("<script>window.__freenetBootVersion=%q;</script><script src=\"/self-update.js?v=v%s\"></script><script src=\"/vpn-ux-fix.js?v=v%s\"></script>%s<script>window.__freenetVPNPickerV2=true;</script><script src=\"/operation-coordinator.js?v=v%s\"></script><script src=\"/accepted-ux.js?v=v%s\"></script><script src=\"/vpn-picker-v2.js?v=v%s\"></script></body>", version, version, version, selectorReconcileScript, version, version, version)
 	html := strings.Replace(string(data), "</body>", scripts, 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, html)
