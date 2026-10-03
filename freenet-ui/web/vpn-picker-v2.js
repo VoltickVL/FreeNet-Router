@@ -212,6 +212,31 @@
       if (choosing || engine().applying) return;
       q('#exactCancelBtn')?.click(); selected=null; sent=false; error=''; listKey=''; paint();
     });
+    const resizeHandle = q('#fnVpnPickerV2Resize');
+    if (resizeHandle) {
+      let startY = 0, startHeight = 0;
+      resizeHandle.addEventListener('pointerdown', event => {
+        if ((window.visualViewport?.width || window.innerWidth) <= 760) return;
+        startY = event.clientY;
+        startHeight = panel.getBoundingClientRect().height;
+        resizeHandle.setPointerCapture?.(event.pointerId);
+        event.preventDefault();
+      });
+      resizeHandle.addEventListener('pointermove', event => {
+        if (!resizeHandle.hasPointerCapture?.(event.pointerId)) return;
+        const vh = window.visualViewport?.height || window.innerHeight;
+        const top = panel.getBoundingClientRect().top;
+        const maxHeight = Math.max(240, vh - top - 12);
+        const minHeight = Math.min(420, maxHeight);
+        const next = Math.max(minHeight, Math.min(maxHeight, startHeight + event.clientY - startY));
+        panel.style.height = Math.round(next) + 'px';
+        panel.dataset.userHeight = 'true';
+        event.preventDefault();
+      });
+      resizeHandle.addEventListener('pointerup', event => {
+        if (resizeHandle.hasPointerCapture?.(event.pointerId)) resizeHandle.releasePointerCapture?.(event.pointerId);
+      });
+    }
   }
   function orderTopbar() {
     const summary = q('#overviewApprovedTop'), xray = q('.fn-xray-topbar'), freenet = q('#topFreenetUpdate');
@@ -357,7 +382,12 @@
     const below=vh-r.bottom-22;
     const top=below>=380 ? r.bottom+10 : 12;
     panel.style.top=top+'px'; panel.style.bottom='auto';
-    panel.style.setProperty('--fnv2-space',Math.max(240,vh-top-12)+'px');
+    const available = Math.max(240,vh-top-12);
+    panel.style.setProperty('--fnv2-space',available+'px');
+    if (panel.dataset.userHeight === 'true') {
+      const current = Number.parseFloat(panel.style.height || '');
+      if (Number.isFinite(current)) panel.style.height = Math.min(available, Math.max(Math.min(420, available), current)) + 'px';
+    }
   }
   function refreshStaleCatalogOnOpen() {
     if (staleRefresh || selected || choosing || busy()) return;
