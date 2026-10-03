@@ -445,7 +445,10 @@
       box.textContent = 'Проверка качества ещё не выполнялась.';
       return;
     }
-    if (candidate.eligible) {
+    if (candidate.tested && candidate.available === false) {
+      box.className = 'current-health offline';
+      box.textContent = 'VPN-путь не подтвердил доступ к интернету.\nFreeNet должен считать это неисправным VPN, а не подключённым состоянием.';
+    } else if (candidate.eligible) {
       box.className = 'current-health';
       box.textContent = 'Текущий VPN работает стабильно.\nСкорость и отклик в норме.';
     } else if (latencyOnlyWarning(candidate)) {
@@ -1120,8 +1123,10 @@
     }
     let online = true;
     try { if (typeof lastStatus !== 'undefined' && lastStatus) online = !!lastStatus.xray_online; } catch (_) {}
+    const applicationFailed = !!q('#bestCurrentHealth')?.classList.contains('offline');
+    online = online && !applicationFailed;
     badge.classList.toggle('offline', !online);
-    badge.textContent = online ? '● Подключен' : '● Нет соединения';
+    badge.textContent = online ? '● Подключен' : applicationFailed ? '● VPN не работает' : '● Нет соединения';
   }
 
   function incompleteCard(row) {
