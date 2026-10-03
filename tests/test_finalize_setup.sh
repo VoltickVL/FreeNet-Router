@@ -102,6 +102,10 @@ chmod 755 "$TROOT/sbin/xray"
 cat > "$TROOT/sbin/freenet-ui" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = settings-v3-reconcile ] || exit 2
+[ "${2:-}" = --config ] || exit 3
+[ -n "${3:-}" ] || exit 3
+[ "${3:-}" = "$FREENET_CONFIG_FILE" ] || exit 4
+CONFIG_PATH="$3"
 CURRENT="$(mktemp)"
 NEW="$(mktemp)"
 trap 'rm -f "$CURRENT" "$NEW"' EXIT INT TERM
@@ -121,7 +125,7 @@ awk '
 ' "$CURRENT" > "$NEW" || exit 1
 value() {
     key="$1"; def="$2"
-    got="$(sed -n "s/^${key}=//p" "$FREENET_CONFIG_FILE" | tail -n 1 | tr -d "'\"\r")"
+    got="$(sed -n "s/^${key}=//p" "$CONFIG_PATH" | tail -n 1 | tr -d "'\"\r")"
     [ -n "$got" ] && printf '%s\n' "$got" || printf '%s\n' "$def"
 }
 AUTO="$(value AUTO_VPN_V1 no)"
