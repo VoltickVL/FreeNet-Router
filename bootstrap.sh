@@ -1,5 +1,8 @@
 #!/bin/sh
 
+PATH="/opt/sbin:/opt/bin:/opt/usr/sbin:/opt/usr/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH
+
 # Точка входа продуктовой установки FreeNet Router.
 # Предпосылка: пользователь уже подготовил USB + Entware/OPKG.
 # Дальше этот скрипт устанавливает или сохраняет core stack, ставит FreeNet
@@ -165,17 +168,80 @@ download_asset() {
     printf 'OK\n'
 }
 
+append_package() {
+    PKG="$1"
+    case " $BOOTSTRAP_PACKAGES " in
+        *" $PKG "*) ;;
+        *) BOOTSTRAP_PACKAGES="$BOOTSTRAP_PACKAGES $PKG" ;;
+    esac
+}
+
+need_tool() {
+    TOOL="$1"
+    PKG="$2"
+    if ! command -v "$TOOL" >/dev/null 2>&1; then
+        append_package "$PKG"
+    fi
+}
+
+ensure_bootstrap_dependencies() {
+    BOOTSTRAP_PACKAGES=""
+
+    # The release entrypoint needs only Entware/OPKG as a hard prerequisite.
+    # Everything below is userland tooling and can be provisioned safely and
+    # idempotently without guessing router kernel packages or upgrading Entware.
+    if ! command -v curl >/dev/null 2>&1; then
+        append_package ca-bundle
+        append_package curl
+    fi
+    need_tool sha256sum coreutils-sha256sum
+    need_tool sed sed
+    need_tool awk gawk
+    need_tool grep grep
+    need_tool mktemp coreutils-mktemp
+    need_tool ip ip-full
+    need_tool nslookup bind-nslookup
+    need_tool jq jq
+    need_tool netstat net-tools-netstat
+    need_tool cmp diffutils
+    need_tool crontab cron
+
+    if [ -n "$BOOTSTRAP_PACKAGES" ]; then
+        info "Installing missing Entware tools:$BOOTSTRAP_PACKAGES"
+        OPKG_UPDATE_LOG="/tmp/freenet-bootstrap-opkg-update.$.log"
+        OPKG_INSTALL_LOG="/tmp/freenet-bootstrap-opkg-install.$.log"
+
+        if ! opkg update >"$OPKG_UPDATE_LOG" 2>&1; then
+            tail -n 30 "$OPKG_UPDATE_LOG" 2>/dev/null || true
+            rm -f "$OPKG_UPDATE_LOG" "$OPKG_INSTALL_LOG" 2>/dev/null || true
+            err 'opkg update failed; no FreeNet/core/network mutation started'
+            exit 1
+        fi
+        rm -f "$OPKG_UPDATE_LOG" 2>/dev/null || true
+
+        if ! opkg install $BOOTSTRAP_PACKAGES >"$OPKG_INSTALL_LOG" 2>&1; then
+            tail -n 40 "$OPKG_INSTALL_LOG" 2>/dev/null || true
+            rm -f "$OPKG_INSTALL_LOG" 2>/dev/null || true
+            err 'targeted Entware dependency install failed; no FreeNet/core/network mutation started'
+            exit 1
+        fi
+        rm -f "$OPKG_INSTALL_LOG" 2>/dev/null || true
+        ok 'targeted Entware dependencies'
+    fi
+
+    for T in curl sha256sum sed awk grep mktemp ip nslookup jq netstat cmp crontab; do
+        command -v "$T" >/dev/null 2>&1 || {
+            err "required tool is still missing after targeted Entware provisioning: $T"
+            exit 1
+        }
+    done
+}
+
 ensure_prerequisites() {
     [ -d "$ROOT" ] || { err 'Entware /opt not found'; exit 1; }
     command -v opkg >/dev/null 2>&1 || { err 'Entware opkg not found'; exit 1; }
 
-    for T in curl sha256sum sed awk grep mktemp ip nslookup; do
-        command -v "$T" >/dev/null 2>&1 || {
-            err "required Entware tool missing before bootstrap: $T"
-            exit 1
-        }
-    done
-
+    ensure_bootstrap_dependencies
     get_arch || { err 'unsupported Entware architecture'; exit 1; }
     get_lan_ip || { err 'cannot determine br0 LAN IPv4'; exit 1; }
     make_tmp || { err 'cannot create temporary directory'; exit 1; }
