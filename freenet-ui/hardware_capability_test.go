@@ -115,7 +115,7 @@ func TestLowMemoryPlanRejectsSplitBeforeHelper(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "helper-ran")
 	helper := writeFakeNetworkHelper(t, "echo ran > \""+marker+"\"\nexit 9")
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=vladlink\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
 
 	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?dns_mode=xkeen", nil)
 	w := httptest.NewRecorder()
@@ -141,7 +141,7 @@ func TestLowMemoryApplyRejectsSplitBeforeMutation(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "helper-ran")
 	helper := writeFakeNetworkHelper(t, "echo ran > \""+marker+"\"\nexit 9")
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=vladlink\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
 
 	payload := `{"operation":"network","dns_mode":"xkeen","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
@@ -170,7 +170,7 @@ func TestLowMemoryDirectPlanStillRunsNormally(t *testing.T) {
 	t.Setenv("FREENET_MEMINFO_PATH", memInfo)
 	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("exit 0"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=vladlink\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
 
 	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?dns_mode=firmware", nil)
 	w := httptest.NewRecorder()
@@ -183,7 +183,7 @@ func TestLowMemoryDirectPlanStillRunsNormally(t *testing.T) {
 func TestLowMemoryInternalDraftCanRepresentExistingSplitForRollback(t *testing.T) {
 	memInfo := writeMemInfoFixture(t, "MemTotal:         500000 kB\n")
 	t.Setenv("FREENET_MEMINFO_PATH", memInfo)
-	a := testNetworkApp(t, "ISP_ID=vladlink\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 	draft, err := a.createNetworkDraftConfig("xkeen", nativeDNSProviderYandexBasic)
 	if err != nil {
 		t.Fatalf("internal rollback draft must remain representable: %v", err)
