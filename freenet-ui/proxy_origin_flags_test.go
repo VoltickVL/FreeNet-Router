@@ -48,19 +48,31 @@ func TestSameOriginRejectsForwardedProtoMismatchAndCrossSite(t *testing.T) {
 }
 
 func TestPortableCountryFlagsDoNotDependOnEmoji(t *testing.T) {
-	b, err := webFS.ReadFile("web/index.html")
+	indexBytes, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	html := string(b)
-	for _, want := range []string{"flag-icon flag-de", "flag-icon flag-pl", "flag-icon flag-fi", "flag-icon flag-nl", "renderHeroFlag", ".flag-fi::before", ".flag-fi::after"} {
-		if !strings.Contains(html, want) {
-			t.Fatalf("portable flag contract missing %q", want)
+	flagsBytes, err := webFS.ReadFile("web/vpn-ux-fix.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	index := string(indexBytes)
+	flags := string(flagsBytes)
+	for _, want := range []string{"renderHeroFlag", "makeCountryMarker", "country-code-badge"} {
+		if !strings.Contains(index, want) {
+			t.Fatalf("portable marker contract missing %q", want)
 		}
 	}
-	for _, forbidden := range []string{"🇩🇪", "🇵🇱", "🇫🇮", "🇳🇱", "const flags="} {
-		if strings.Contains(html, forbidden) {
-			t.Fatalf("UI still depends on emoji flag material %q", forbidden)
+	for _, want := range []string{"window.FreeNetFlags", "de:", "pl:", "fi:", "nl:", "data:image/svg+xml"} {
+		if !strings.Contains(flags, want) {
+			t.Fatalf("canonical portable flag contract missing %q", want)
+		}
+	}
+	for _, text := range []string{index, flags} {
+		for _, forbidden := range []string{"🇩🇪", "🇵🇱", "🇫🇮", "🇳🇱", "const flags="} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("UI still depends on emoji flag material %q", forbidden)
+			}
 		}
 	}
 }
