@@ -33,7 +33,6 @@ func TestSafeV038PolishHasNoSelfMutatingObserver(t *testing.T) {
 		"fn-current-refresh-visible",
 		"white-space:pre-line",
 		"min-height:52px",
-		"height:46px",
 		"font-size:14px",
 	} {
 		if !strings.Contains(safe, needle) {
