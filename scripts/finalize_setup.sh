@@ -201,7 +201,7 @@ evaluate() {
     elif [ "$NETWORK_EFFECTIVE_DNS_MODE" != firmware ] && [ "$NETWORK_EFFECTIVE_DNS_MODE" != xkeen ]; then READY=no; REASON='cannot determine accepted DNS mode'
     elif [ "$XRAY_RUNNING" != yes ]; then READY=no; REASON='Xray is not running'
     elif [ "$XRAY_VALID" != yes ]; then READY=no; REASON='live Xray configuration validation failed'
-    elif [ "$NETWORK_SUPPORTED" != yes ] || [ "$NETWORK_MUTATION" != NONE ]; then READY=no; REASON='saved ISP/DNS profile is not runtime-accepted'
+    elif [ "$NETWORK_SUPPORTED" != yes ] || [ "$NETWORK_MUTATION" != NONE ]; then READY=no; REASON='saved DNS profile is not runtime-accepted'
     elif [ "$AUTOSTART" = unknown ]; then READY=no; REASON='cannot determine XKeen autostart state'
     fi
 }
@@ -239,7 +239,7 @@ print_plan() {
     else
         say 'EXPECTED_DELTA=NONE until all provider/network/runtime acceptance gates pass'
     fi
-    say 'EXPECTED_NO_DELTA=current XKeen/Xray/XKeen UI core is not reinstalled; active VPN filter/profile metadata and VLESS credentials are not rewritten; no subscription secret rewrite; no ISP/DNS/routing mutation; no raw shell command surface'
+    say 'EXPECTED_NO_DELTA=current XKeen/Xray/XKeen UI core is not reinstalled; active VPN filter/profile metadata and VLESS credentials are not rewritten; no subscription secret rewrite; no DNS/routing mutation; no raw shell command surface'
     say 'MUTATION=NONE'
     say '========== END =========='
     [ "$READY" = yes ]
