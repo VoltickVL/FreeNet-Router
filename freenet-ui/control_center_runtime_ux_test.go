@@ -43,7 +43,9 @@ func TestExtraProfileCountryMarkerHasPortableFallback(t *testing.T) {
 	for _, required := range []string{
 		"makeCountryMarker(p.country_code)",
 		"country-code-badge",
-		"countryFlagCodes.has(safe)",
+		"window.FreeNetFlags",
+		"flags.has(safe)",
+		"flags.apply(n,safe)",
 		"safe.toUpperCase()",
 	} {
 		if !strings.Contains(ui, required) {
