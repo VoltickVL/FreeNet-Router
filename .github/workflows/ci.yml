@@ -76,6 +76,7 @@ jobs:
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
           sh -n tests/test_network_profile_contract.sh
+          sh -n tests/test_retired_network_product.sh
           sh -n tests/test_network_jsonc_compat.sh
           sh -n tests/test_network_partial_native_recovery.sh
           sh -n tests/test_provider_profile_apply.sh
@@ -102,6 +103,9 @@ jobs:
 
       - name: DNS topology contract test
         run: sh tests/test_network_profile_contract.sh
+
+      - name: Retired network product source gate
+        run: sh tests/test_retired_network_product.sh
 
       - name: Xray JSONC network compatibility test
         run: sh tests/test_network_jsonc_compat.sh
