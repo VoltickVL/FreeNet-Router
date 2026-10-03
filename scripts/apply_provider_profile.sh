@@ -467,7 +467,7 @@ provider_route_probe() {
     mkdir -p "$PROBE_DIR" || return 1
     chmod 700 "$PROBE_DIR" 2>/dev/null || true
 
-    PROBE_PORT=$((12080 + ($ % 200)))
+    PROBE_PORT=$((12080 + ($$ % 200)))
     PROBE_TRY=0
     while [ "$PROBE_TRY" -lt 5 ]; do
         if ! netstat -lnt 2>/dev/null | awk '{print $4}' | grep -Eq "(^|[.:])${PROBE_PORT}$"; then
