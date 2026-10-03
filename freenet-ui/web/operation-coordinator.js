@@ -434,7 +434,7 @@
     return null;
   }
 
-  function renderCurrentHealth(candidate, status = null) {
+  function renderCurrentHealth(candidate, status = null, persisted = false) {
     const box = qs('#bestCurrentHealth');
     if (!box) return;
     if (liveVPNOnline(status) === false) {
@@ -449,17 +449,33 @@
     }
     if (candidate.eligible) {
       box.className = 'current-health';
-      box.textContent = 'Текущий VPN работает стабильно.\nСкорость и отклик в норме.';
+      box.textContent = persisted
+        ? 'Текущий VPN работает стабильно.\nПоказан последний подтверждённый замер.'
+        : 'Текущий VPN работает стабильно.\nСкорость и отклик в норме.';
     } else if (latencyOnlyWarning(candidate)) {
       box.className = 'current-health warning';
-      box.textContent = 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nАвтоматическое переключение на такой профиль запрещено.';
+      box.textContent = persisted
+        ? 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nПоказан последний подтверждённый замер.'
+        : 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nАвтоматическое переключение на такой профиль запрещено.';
     } else {
       box.className = 'current-health neutral';
-      box.textContent = 'VPN доступен, но часть критериев качества не пройдена.';
+      box.textContent = persisted
+        ? 'Показан последний подтверждённый замер.\nЧасть критериев качества не пройдена.'
+        : 'VPN доступен, но часть критериев качества не пройдена.';
     }
   }
 
-  function renderCurrentQuality(data) {
+  function currentQualityAgeText(scannedAt) {
+    const at = Date.parse(scannedAt || '');
+    if (!Number.isFinite(at)) return 'время неизвестно';
+    const age = Math.max(0, Date.now() - at);
+    if (age < 60 * 1000) return 'только что';
+    if (age < 60 * 60 * 1000) return Math.max(1, Math.round(age / 60000)) + ' мин назад';
+    if (age < 24 * 60 * 60 * 1000) return Math.max(1, Math.round(age / 3600000)) + ' ч назад';
+    return new Date(at).toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  }
+
+  function renderCurrentQuality(data, options = {}) {
     const candidate = currentCandidate(data);
     if (candidate) currentQuality = candidate;
     const shown = candidate || currentQuality;
@@ -473,7 +489,7 @@
       }
     }
     renderMetrics(qs('#bestCurrentMetrics'), shown);
-    renderCurrentHealth(shown);
+    renderCurrentHealth(shown, options.status || null, options.persisted === true);
     const stamp = new Date(data && data.scanned_at || Date.now());
     const time = Number.isNaN(stamp.getTime()) ? '' : stamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
     if (shown) {
@@ -484,11 +500,16 @@
         : fallbackMeasured
           ? ' · быстрый замер ' + metric(shown, 'fallback_speed')
           : '';
-      setText(qs('#bestCurrentQuality'), `Последняя проверка: ${time || 'сейчас'}${speedSuffix}`);
-      setText(qs('#bestServerStatus'), candidate ? 'Проверка текущего VPN завершена.' : 'Проверка текущего VPN завершена. Показан последний подтверждённый замер.');
+      const qualityPrefix = options.persisted === true
+        ? 'Последний замер: ' + currentQualityAgeText(data && data.scanned_at)
+        : 'Последняя проверка: ' + (time || 'сейчас');
+      setText(qs('#bestCurrentQuality'), qualityPrefix + speedSuffix);
+      if (options.persisted !== true) {
+        setText(qs('#bestServerStatus'), candidate ? 'Проверка текущего VPN завершена.' : 'Проверка текущего VPN завершена. Показан последний подтверждённый замер.');
+      }
     } else {
       setText(qs('#bestCurrentQuality'), 'Недостаточно данных для оценки');
-      setText(qs('#bestServerStatus'), 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
+      if (options.persisted !== true) setText(qs('#bestServerStatus'), 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
     }
     if (shown?.download_issue && Number(shown.download_mbps || 0) <= 0 && Number(shown.fallback_download_mbps || 0) <= 0) {
       setText(qs('#bestCurrentQuality'), 'Замер скорости: ' + shown.download_issue);
@@ -894,11 +915,23 @@
 
   function installCurrentQualityMemoryBridge() {
     document.addEventListener('freenet:current-quality-display', event => {
-      const candidate = event && event.detail && event.detail.candidate;
+      const detail = event && event.detail || {};
+      if (detail.invalidate === true) {
+        currentQuality = null;
+        renderMetrics(qs('#bestCurrentMetrics'), null);
+        renderCurrentHealth(null);
+        setText(qs('#bestCurrentQuality'), 'Качество ещё не проверено');
+        return;
+      }
+      const candidate = detail.candidate;
       if (!candidate || candidate.current !== true || !candidate.endpoint) return;
       const liveEndpoint = String(qs('#bestCurrentEndpoint')?.textContent || '').trim();
       if (liveEndpoint && liveEndpoint !== '—' && liveEndpoint !== candidate.endpoint) return;
       currentQuality = Object.assign({}, candidate, {current:true});
+      renderCurrentQuality(
+        {scanned_at: detail.scanned_at || '', candidates: [currentQuality]},
+        {persisted:true, status:detail.status || null}
+      );
     });
   }
 
