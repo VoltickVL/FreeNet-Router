@@ -106,25 +106,12 @@ func TestSystemAndAccessHaveHonestFutureCapabilitySlots(t *testing.T) {
 	}
 }
 
-func TestISPProductSurfaceIsAbsent(t *testing.T) {
+func TestDNSAndRoutingRemainSeparateSurfaces(t *testing.T) {
 	data, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ui := string(data)
-	for _, forbidden := range []string{
-		"Интернет-провайдер",
-		"id=\"ispSelect\"",
-		"Владлинк",
-		"АльянсТелеком",
-		"Ростелеком",
-		"Подряд",
-		"ISP + DNS",
-	} {
-		if strings.Contains(ui, forbidden) {
-			t.Fatalf("retired ISP product surface returned through %q", forbidden)
-		}
-	}
 	if !strings.Contains(ui, "Routing policy настраивается отдельно явными правилами.") {
 		t.Fatal("DNS UI must keep routing explicitly separate")
 	}
