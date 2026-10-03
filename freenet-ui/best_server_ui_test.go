@@ -42,6 +42,27 @@ func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 	}
 }
 
+func TestVPNPickerRTTStartsOnlyFromExplicitRefresh(t *testing.T) {
+	data, err := os.ReadFile("web/vpn-picker-v2.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	if !strings.Contains(js, "refresh.addEventListener('click',()=>refreshRTT(true))") {
+		t.Fatal("VPN selector must keep one explicit full RTT trigger on the refresh button")
+	}
+	for _, forbidden := range []string{
+		"maybeAutoRTT",
+		"rttAutoAttempted",
+		"refreshRTT(false)",
+		"queueMicrotask(maybeAutoRTT)",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("VPN selector must never auto-start RTT on open/repaint: found %q", forbidden)
+		}
+	}
+}
+
 func TestBestServerApplyConfirmsFreshBackendEndpoint(t *testing.T) {
 	data, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {

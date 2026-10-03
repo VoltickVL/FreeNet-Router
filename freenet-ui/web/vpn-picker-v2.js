@@ -54,7 +54,7 @@
   let sourceKey = '', rows = [], selected = null, choosing = false, error = '', sent = false;
   let host, toggle, panel, search, list, footer, statusText, detail, connect, reset, refresh, currentName, currentCopy, currentFlag, badge;
   let paintQueued = false, listKey = '', timer = null, observedCard = null, observedButton = null, staleRefresh = null;
-  let rttByID = new Map(), rttRanked = false, rttScanning = false, rttVersion = 0, rttSummary = '', rttError = '', rttAutoAttempted = false;
+  let rttByID = new Map(), rttRanked = false, rttScanning = false, rttVersion = 0, rttSummary = '', rttError = '';
   function setFlag(node, code) {
     if (!node) return;
     const api = window.FreeNetFlags;
@@ -74,7 +74,7 @@
     }
     const safe = profiles.filter(p => p && typeof p.id === 'string' && p.id && !['ru','ua'].includes(codeOf(p))).slice(0,100).map(p => ({id:p.id,name:String(p.name || p.label || ''),country_code:codeOf(p),endpoint:endpoint(p),address:String(p.address || ''),port:Number(p.port || 0)}));
     const key = JSON.stringify([safe, stale]);
-    if (key !== sourceKey) { sourceKey = key; rows = safe; listKey = ''; rttByID.clear(); rttRanked = false; rttSummary=''; rttError=''; rttAutoAttempted=false; rttVersion++; }
+    if (key !== sourceKey) { sourceKey = key; rows = safe; listKey = ''; rttByID.clear(); rttRanked = false; rttSummary=''; rttError=''; rttVersion++; }
     return {stale};
   }
   function currentIdentity(s) {
@@ -370,7 +370,7 @@
       text(rttState,message); rttState.hidden=!message; rttState.dataset.error=String(!!rttError);
     }
     text(q('#fnVpnPickerV2Stale'),L.stale); q('#fnVpnPickerV2Stale').hidden=!stale;
-    if (!panel.hidden) { renderList(); positionPanel(); queueMicrotask(maybeAutoRTT); }
+    if (!panel.hidden) { renderList(); positionPanel(); }
   }
   function schedulePaint() { if (paintQueued) return; paintQueued=true; requestAnimationFrame(()=>{paintQueued=false;paint();}); }
   function positionPanel() {
@@ -402,16 +402,13 @@
       .finally(() => { staleRefresh = null; schedulePaint(); });
     return staleRefresh;
   }
-  function maybeAutoRTT() {
-    if (!panel || panel.hidden || rttRanked || rttScanning || rttAutoAttempted || busy()) return;
-    if (!rows.length) profileSource();
-    if (!rows.length) return;
-    rttAutoAttempted=true;
-    void refreshRTT(false);
-  }
   function open() {
     panel.hidden=false; toggle.setAttribute('aria-expanded','true'); listKey=''; paint();
-    Promise.resolve(refreshStaleCatalogOnOpen()).finally(()=>{ profileSource(); maybeAutoRTT(); });
+    // Product contract: opening the selector is presentation/read-only only.
+    // Never start a full RTT sweep implicitly; only the explicit refresh button
+    // may call refreshRTT(true). This prevents selector-open from competing with
+    // post-update current-VPN verification or any other VPN operation.
+    Promise.resolve(refreshStaleCatalogOnOpen()).finally(()=>{ profileSource(); schedulePaint(); });
     search.focus({preventScroll:true});
   }
   function close(restore=false) { if (!panel) return; panel.hidden=true; toggle.setAttribute('aria-expanded','false'); if (restore) toggle.focus({preventScroll:true}); }
