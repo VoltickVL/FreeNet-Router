@@ -590,14 +590,15 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		}
 	}
 
-	postProvider, postErr := a.runProviderPlan(profileID)
-	if postErr != nil {
-		return http.StatusBadGateway, networkApplyResponse{
-			Success: false, Applied: true, Operation: "provider", ProfileID: profileID,
-			ProviderPlan: &providerPlan, PrimaryError: "post-apply provider plan unavailable: " + postErr.Error(),
-			RollbackState: "NOT_REQUESTED_HELPER_REPORTED_SUCCESS",
-			Error: "provider apply completed but UI acceptance could not be read",
-		}
+	appliedPlan := providerPlan
+	if parsed, parseErr := parseProviderPlan(string(output)); parseErr == nil {
+		appliedPlan = parsed
+	}
+	// Never refresh the subscription again just to tell the browser what was
+	// applied: the provider may rotate endpoint immediately after the
+	// transaction. The live outbound is the authoritative post-apply endpoint.
+	if liveEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath); liveEndpoint != "" {
+		appliedPlan.Endpoint = liveEndpoint
 	}
 	postNetwork, _ := a.runNetworkPlan()
 	// The provider helper reports success only after the fresh candidate and the
@@ -611,7 +612,7 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 	return http.StatusOK, networkApplyResponse{
 		Success: true, Applied: true, Operation: "provider", ProfileID: profileID,
 		Message: "VPN-профиль применён, интернет через него проверен.", RollbackState: "NOT_NEEDED",
-		Plan: postNetwork, ProviderPlan: &postProvider,
+		Plan: postNetwork, ProviderPlan: &appliedPlan,
 	}
 }
 
