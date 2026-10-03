@@ -93,7 +93,12 @@ func (jobs *bestServerJobs) wrap(a *app, mode string, legacy http.HandlerFunc, s
 		job := &bestServerJob{ID: id, Mode: mode, State: "running", Stage: "discovery", StartedAt: time.Now().UTC()}
 		jobs.job = job
 		go func() {
-			defer releaseAutomationFence()
+			fenceReleased := false
+			defer func() {
+				if !fenceReleased {
+					releaseAutomationFence()
+				}
+			}()
 			timeout := bestServerAsyncJobTimeout
 			if mode == "current" {
 				timeout = bestServerCurrentScanTimeout
@@ -107,6 +112,11 @@ func (jobs *bestServerJobs) wrap(a *app, mode string, legacy http.HandlerFunc, s
 			})
 			result, err := scan(ctx)
 			<-a.sem
+			// Terminal job state is observable by pollers. Release every
+			// operation fence before publishing terminal so callers never see
+			// "completed" while AUTO recovery is still excluded.
+			releaseAutomationFence()
+			fenceReleased = true
 			jobs.mu.Lock()
 			defer jobs.mu.Unlock()
 			job.State = "completed"

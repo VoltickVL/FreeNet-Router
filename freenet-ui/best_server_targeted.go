@@ -258,6 +258,13 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 		})
 		return
 	}
+	if err := a.attachBestServerSelectionSnapshot(&response, []bestServerInternalCandidate{target}, currentEndpoint, currentFilter); err != nil {
+		writeJSON(w, http.StatusInternalServerError, bestServerQualityResponse{
+			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
+			Error: "validated VPN selection snapshot could not be persisted",
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, response)
 }
 

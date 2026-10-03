@@ -73,6 +73,7 @@ type bestServerQualityCandidate struct {
 }
 
 type bestServerQualityResponse struct {
+	SelectionToken    string                       `json:"selection_token,omitempty"`
 	Partial           bool                         `json:"partial,omitempty"`
 	Success           bool                         `json:"success"`
 	Available         bool                         `json:"available"`
