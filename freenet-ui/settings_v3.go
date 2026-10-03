@@ -421,7 +421,41 @@ func v3MergeEvents(limit int, groups ...[]automationEvent) []automationEvent {
 	return events
 }
 
-func canonicalJournalEvents(limit int) []automationEvent {
+func selfUpdateJournalEvents(path string) []automationEvent {
+	kv := readStateFile(path)
+	state := strings.ToUpper(strings.TrimSpace(kv["STATE"]))
+	at := strings.TrimSpace(kv["UPDATED_AT"])
+	if _, err := time.Parse(time.RFC3339, at); err != nil {
+		return nil
+	}
+	if state != "SUCCESS" && state != "FAILED" && state != "ROLLBACK_FAILED" {
+		return nil
+	}
+
+	from := strings.TrimSpace(kv["FROM_VERSION"])
+	target := strings.TrimSpace(kv["TARGET_VERSION"])
+	transition := strings.Trim(strings.Join([]string{from, target}, " → "), " →")
+	message := strings.TrimSpace(kv["MESSAGE"])
+	result := "success"
+	prefix := "Обновление FreeNet завершено"
+	switch state {
+	case "FAILED":
+		result = "failed"
+		prefix = "Обновление FreeNet отменено"
+	case "ROLLBACK_FAILED":
+		result = "failed"
+		prefix = "Обновление FreeNet остановлено: rollback не подтверждён"
+	}
+	if transition != "" {
+		prefix += ": " + transition
+	}
+	if message != "" {
+		prefix += ". " + message
+	}
+	return []automationEvent{{At: at, Kind: "freenet_update", Result: result, Message: prefix}}
+}
+
+func canonicalJournalEvents(limit int, updateStatePath ...string) []automationEvent {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -438,7 +472,11 @@ func canonicalJournalEvents(limit int) []automationEvent {
 		filteredAutomation = append(filteredAutomation, event)
 	}
 	settingsEvents := readAutomationEvents(settingsV3HistoryPath(), limit)
-	return v3MergeEvents(limit, filteredAutomation, settingsEvents)
+	groups := [][]automationEvent{filteredAutomation, settingsEvents}
+	if len(updateStatePath) > 0 && strings.TrimSpace(updateStatePath[0]) != "" {
+		groups = append(groups, selfUpdateJournalEvents(updateStatePath[0]))
+	}
+	return v3MergeEvents(limit, groups...)
 }
 
 func (a *app) settingsV3Snapshot() settingsV3Response {
@@ -449,7 +487,7 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 	}
 	healthInterval := configuredAutomationHealthInterval(a.cfg.ConfigPath)
 	lastHealth, nextHealth := v3HealthTimes(auto.Settings.Enabled, healthInterval)
-	events := canonicalJournalEvents(50)
+	events := canonicalJournalEvents(50, a.cfg.UpdateState)
 	subscription := v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_SUBSCRIPTION_REFRESH", "subscription", true)
 	if subscription.Enabled {
 		subscription.NextRun = subscriptionNextCronRun(subscription.Interval, time.Now())

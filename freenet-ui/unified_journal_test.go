@@ -22,6 +22,7 @@ func TestUnifiedJournalUIHasCanonicalFiltersAndCategories(t *testing.T) {
 		"function journalCategory(event)",
 		"if (kind === 'vpn') return 'vpn'",
 		"if (kind === 'auto vpn' || kind === 'auto_vpn') return 'auto'",
+		"if (kind === 'freenet_update' || kind === 'freenet_update_recovery') return ['Обновление FreeNet', 'system']",
 		"window.openFreeNetJournal = filter =>",
 		"source.slice(0, target === '#fn3Journal' ? 4 : 50)",
 		"Единая серверная история",
@@ -67,5 +68,16 @@ func TestSubscriptionSecretActionsWriteOnlySafeJournalMessages(t *testing.T) {
 		if !strings.Contains(source, want) {
 			t.Fatalf("subscription Journal contract missing %q", want)
 		}
+	}
+}
+
+
+func TestSelfUpdateStartWritesExplicitSystemJournalEvent(t *testing.T) {
+	data, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `v3AppendEvent("freenet_update", "started", "Запущено обновление FreeNet до "+target+".")`) {
+		t.Fatal("self-update apply must write an explicit timestamped Journal start event")
 	}
 }

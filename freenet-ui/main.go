@@ -623,6 +623,7 @@ func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 	}
 	target := req.TargetTag
 	a.updateMu.Unlock()
+	v3AppendEvent("freenet_update", "started", "Запущено обновление FreeNet до "+target+".")
 
 	go func() {
 		_ = cmd.Wait()

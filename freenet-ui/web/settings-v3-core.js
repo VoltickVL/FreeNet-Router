@@ -419,6 +419,7 @@
     if (category === 'subscription') return ['Подписка', 'system'];
     if (kind === 'geodata') return ['GeoData / GeoIP', 'system'];
     if (kind === 'freenet') return ['FreeNet', 'system'];
+    if (kind === 'freenet_update' || kind === 'freenet_update_recovery') return ['Обновление FreeNet', 'system'];
     if (kind === 'backup') return ['Резервная копия', 'system'];
     return [kind || 'Система', 'system'];
   }
