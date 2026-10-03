@@ -70,34 +70,23 @@ func TestHardwareCapabilityUnknownMemoryFailsClosed(t *testing.T) {
 	}
 }
 
-func TestApplySplitDNSMemoryGateKeepsActiveModeVisibleAndChangesRecommendation(t *testing.T) {
+func TestApplySplitDNSMemoryGateDoesNotMutateDNSProductCatalog(t *testing.T) {
 	originalDNS, hadDNS := dnsModes["xkeen"]
-	originalVladlink := ispProfiles["vladlink"]
-	originalAlliance := ispProfiles["alliancetelecom"]
 	defer func() {
 		if hadDNS {
 			dnsModes["xkeen"] = originalDNS
 		} else {
 			delete(dnsModes, "xkeen")
 		}
-		ispProfiles["vladlink"] = originalVladlink
-		ispProfiles["alliancetelecom"] = originalAlliance
 	}()
 
 	dnsModes["xkeen"] = "XKeen/Xray DNS"
-	v := ispProfiles["vladlink"]
-	v.RecommendedDNSMode = "xkeen"
-	ispProfiles["vladlink"] = v
-	a := ispProfiles["alliancetelecom"]
-	a.RecommendedDNSMode = "xkeen"
-	ispProfiles["alliancetelecom"] = a
-
 	applySplitDNSMemoryGate(hardwareCapabilitiesResponse{SplitDNSSupported: false, Reason: "low memory"})
-	if _, ok := dnsModes["xkeen"]; !ok {
-		t.Fatal("existing active xkeen state must remain representable for controlled return to native")
+	if got := dnsModes["xkeen"]; got != "XKeen/Xray DNS" {
+		t.Fatalf("memory gate must not rewrite DNS product catalog: %q", got)
 	}
-	if ispProfiles["vladlink"].RecommendedDNSMode != "firmware" || ispProfiles["alliancetelecom"].RecommendedDNSMode != "firmware" {
-		t.Fatal("low-memory ISP recommendations must fall back to direct/native DNS")
+	if splitDNSMemoryGateReason != "low memory" {
+		t.Fatalf("memory gate reason=%q", splitDNSMemoryGateReason)
 	}
 }
 
@@ -128,7 +117,7 @@ func TestLowMemoryPlanRejectsSplitBeforeHelper(t *testing.T) {
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
 	a := testNetworkApp(t, "ISP_ID=vladlink\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
 
-	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?isp=vladlink&dns_mode=xkeen", nil)
+	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?dns_mode=xkeen", nil)
 	w := httptest.NewRecorder()
 	a.handleNetworkProfilePlan(w, r)
 	if w.Code != http.StatusConflict {
@@ -154,7 +143,7 @@ func TestLowMemoryApplyRejectsSplitBeforeMutation(t *testing.T) {
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
 	a := testNetworkApp(t, "ISP_ID=vladlink\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
 
-	payload := `{"operation":"network","isp":"vladlink","dns_mode":"xkeen","confirm":true}`
+	payload := `{"operation":"network","dns_mode":"xkeen","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
@@ -183,7 +172,7 @@ func TestLowMemoryDirectPlanStillRunsNormally(t *testing.T) {
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
 	a := testNetworkApp(t, "ISP_ID=vladlink\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
 
-	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?isp=vladlink&dns_mode=firmware", nil)
+	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?dns_mode=firmware", nil)
 	w := httptest.NewRecorder()
 	a.handleNetworkProfilePlan(w, r)
 	if w.Code != http.StatusOK {
@@ -195,12 +184,12 @@ func TestLowMemoryInternalDraftCanRepresentExistingSplitForRollback(t *testing.T
 	memInfo := writeMemInfoFixture(t, "MemTotal:         500000 kB\n")
 	t.Setenv("FREENET_MEMINFO_PATH", memInfo)
 	a := testNetworkApp(t, "ISP_ID=vladlink\nDNS_MODE=firmware\n")
-	draft, err := a.createNetworkDraftConfig("vladlink", "xkeen", nativeDNSProviderYandexBasic)
+	draft, err := a.createNetworkDraftConfig("xkeen", nativeDNSProviderYandexBasic)
 	if err != nil {
 		t.Fatalf("internal rollback draft must remain representable: %v", err)
 	}
 	defer os.Remove(draft)
-	_, dnsMode := readNetworkProfileConfig(draft)
+	dnsMode := readDNSModeConfig(draft)
 	if dnsMode != "xkeen" {
 		t.Fatalf("draft lost existing Split mode: %s", dnsMode)
 	}
