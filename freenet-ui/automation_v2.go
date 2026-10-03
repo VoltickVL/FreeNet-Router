@@ -71,10 +71,10 @@ func normalizeAutomationPolicy(value string) string {
 	}
 }
 
-func automationBestEligibleTarget(policy string) int {
-	if normalizeAutomationPolicy(policy) == automationPolicyDegraded {
-		return 1
-	}
+// AUTO replacement uses the same fully measured Top-3 target as the manual
+// Best Server flow. Policy still decides *when* alternatives are scanned, but
+// it must not switch on a weaker one-candidate measurement contract.
+func automationBestEligibleTarget(_ string) int {
 	return bestServerVisibleAlternatives
 }
 
