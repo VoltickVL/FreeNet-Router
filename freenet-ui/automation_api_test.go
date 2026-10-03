@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -129,16 +130,58 @@ func TestLegacySettingsV2RendererIsRetired(t *testing.T) {
 
 func TestAutomationStateParserOnlyAcceptsSafeKeys(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state")
-	content := "LAST_RUN=2026-09-12T00:00:00Z\nLAST_RESULT=same\nLAST_REASON=current endpoint actual\nROLLBACK_READY=no\nLAST_SWITCH=2026-09-11T20:00:00Z\nSUBSCRIPTION_URL=https://secret.example\nUUID=secret\n"
+	content := "LAST_RUN=2026-09-12T00:00:00Z\nLAST_RESULT=same\nLAST_REASON=current endpoint actual\nROLLBACK_READY=no\nLAST_SWITCH=2026-09-11T20:00:00Z\nMUTATION_BLOCKED=yes\nSUBSCRIPTION_URL=https://secret.example\nUUID=secret\n"
 	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
 	state := parseAutomationState(path)
-	if len(state) != 5 || state["LAST_SWITCH"] == "" {
+	if len(state) != 6 || state["LAST_SWITCH"] == "" || state["MUTATION_BLOCKED"] != "yes" {
 		t.Fatalf("safe state keys=%v", state)
 	}
 	if _, ok := state["SUBSCRIPTION_URL"]; ok {
 		t.Fatal("secret-bearing keys must not enter automation API state")
+	}
+}
+
+func TestAutomationRollbackUnknownPersistsMutationBlock(t *testing.T) {
+	statePath := filepath.Join(t.TempDir(), "automation.state")
+	t.Setenv("FREENET_AUTOMATION_STATE", statePath)
+
+	writeAutomationStateV2("failed", "apply failed", "FAILED/UNKNOWN", false)
+	if !automationMutationBlockedState() {
+		t.Fatal("FAILED/UNKNOWN rollback must persist AUTO mutation block")
+	}
+	writeAutomationStateV2("same", "later harmless state", "NOT_NEEDED", false)
+	if !automationMutationBlockedState() {
+		t.Fatal("normal state write must not clear persistent rollback block")
+	}
+	setAutomationMutationBlocked(false)
+	if automationMutationBlockedState() {
+		t.Fatal("explicit factual-state acceptance must clear rollback block")
+	}
+}
+
+func TestAutomationBestCycleStopsBeforeMutationWhenRollbackBlocked(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "freenet.conf")
+	statePath := filepath.Join(dir, "automation.state")
+	t.Setenv("FREENET_AUTOMATION_STATE", statePath)
+	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", filepath.Join(dir, "health.lock"))
+	if err := os.WriteFile(configPath, []byte("AUTO_VPN_V1=yes\nAUTO_VPN_MODE=best\nAUTO_VPN_AUTO_APPLY=yes\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	writeAutomationStateV2("failed", "rollback unknown", "FAILED/UNKNOWN", false)
+	a := &app{cfg: config{ConfigPath: configPath}, sem: make(chan struct{}, 1)}
+	result, err := a.runAutomationBestCycle(context.Background(), false)
+	if err != nil {
+		t.Fatalf("blocked Best cycle returned unexpected error: %v", err)
+	}
+	if result.Result != "uncertain" || !strings.Contains(result.Reason, "заблокирована") {
+		t.Fatalf("blocked Best cycle result=%+v", result)
+	}
+	if !automationMutationBlockedState() {
+		t.Fatal("blocked Best cycle unexpectedly cleared rollback guard")
 	}
 }
 
