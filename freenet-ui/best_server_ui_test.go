@@ -48,13 +48,14 @@ func TestVPNPickerRTTStartsOnlyFromExplicitRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	js := string(data)
-	if !strings.Contains(js, "refresh.addEventListener('click',()=>refreshRTT(true))") {
+	if !strings.Contains(js, "refresh.addEventListener('click',refreshRTT)") {
 		t.Fatal("VPN selector must keep one explicit full RTT trigger on the refresh button")
 	}
 	for _, forbidden := range []string{
 		"maybeAutoRTT",
 		"rttAutoAttempted",
 		"refreshRTT(false)",
+		"refreshRTT(true)",
 		"queueMicrotask(maybeAutoRTT)",
 	} {
 		if strings.Contains(js, forbidden) {
