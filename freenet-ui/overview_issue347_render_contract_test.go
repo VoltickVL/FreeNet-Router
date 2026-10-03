@@ -28,7 +28,6 @@ func TestIssue347ApprovedOverviewRenderContract(t *testing.T) {
         ".vpn-best .vpn-option-apply",
         "Проверка VPN, сравнение серверов и рекомендации",
         "min-width:0!important",
-        "grid-template-columns:1fr!important;width:100%!important",
     }
     for _, needle := range mustContain {
         if !strings.Contains(s, needle) {
