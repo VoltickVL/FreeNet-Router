@@ -24,6 +24,27 @@ func TestBestServerCandidateJSONOmitsProviderSpecificTransferIssues(t *testing.T
 	}
 }
 
+func TestBestServerCandidateJSONExposesThroughputProvenanceWithoutInternalIssues(t *testing.T) {
+	payload, err := json.Marshal(bestServerQualityCandidate{
+		ID: "current", Name: "Current Extra", Endpoint: "example.test:443", Current: true, Tested: true, Available: true,
+		FallbackDownloadMbps: 37.4, ThroughputSource: bestServerThroughputCurrentFallback,
+		DownloadIssue: "provider internal detail",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(payload)
+	if !strings.Contains(text, `"fallback_download_mbps":37.4`) || !strings.Contains(text, `"throughput_source":"current_fallback"`) {
+		t.Fatalf("public throughput provenance missing: %s", text)
+	}
+	if strings.Contains(text, `"download_mbps"`) {
+		t.Fatalf("fallback throughput must not masquerade as canonical download_mbps: %s", text)
+	}
+	if strings.Contains(text, "provider internal detail") || strings.Contains(text, "download_issue") {
+		t.Fatalf("internal transfer issue leaked with provenance: %s", text)
+	}
+}
+
 func TestBestServerCandidateJSONNormalizesEmojiFlagForCrossPlatformUI(t *testing.T) {
 	payload, err := json.Marshal(bestServerQualityCandidate{
 		ID: "dk", Name: "🇩🇰 Копенгаген, Дания, Extra", Endpoint: "example.test:443", Tested: true,
