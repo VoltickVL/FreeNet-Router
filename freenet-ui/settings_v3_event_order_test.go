@@ -141,3 +141,52 @@ func TestSettingsV3HealthJournalCoalescesIdenticalFiveMinuteStates(t *testing.T)
 		t.Fatalf("state transitions must remain visible, got %d: %#v", len(events), events)
 	}
 }
+
+
+func TestCanonicalJournalIncludesTerminalSelfUpdateTimestamp(t *testing.T) {
+	dir := t.TempDir()
+	autoPath := filepath.Join(dir, "automation.history")
+	settingsPath := filepath.Join(dir, "settings.history")
+	updatePath := filepath.Join(dir, "self-update.state")
+	t.Setenv("FREENET_AUTOMATION_HISTORY", autoPath)
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", settingsPath)
+
+	if err := os.WriteFile(settingsPath, []byte("2026-10-04T10:00:00Z\tVPN\tsuccess\tVPN переключён\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	updateState := strings.Join([]string{
+		"STATE=SUCCESS",
+		"FROM_VERSION=v0.4.73",
+		"TARGET_VERSION=v0.4.74",
+		"MESSAGE=Выбранная версия FreeNet установлена и проверена",
+		"UPDATED_AT=2026-10-04T10:01:05Z",
+	}, "\n") + "\n"
+	if err := os.WriteFile(updatePath, []byte(updateState), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := canonicalJournalEvents(50, updatePath)
+	if len(got) != 2 {
+		t.Fatalf("canonical journal events=%d want 2: %#v", len(got), got)
+	}
+	if got[0].Kind != "freenet_update" || got[0].At != "2026-10-04T10:01:05Z" {
+		t.Fatalf("update event not ordered by exact updater timestamp: %#v", got[0])
+	}
+	if !strings.Contains(got[0].Message, "v0.4.73 → v0.4.74") {
+		t.Fatalf("update transition missing from journal message: %q", got[0].Message)
+	}
+	if got[1].Kind != "VPN" || got[1].At != "2026-10-04T10:00:00Z" {
+		t.Fatalf("VPN event order mismatch: %#v", got[1])
+	}
+}
+
+func TestSelfUpdateJournalIgnoresNonTerminalProgress(t *testing.T) {
+	dir := t.TempDir()
+	updatePath := filepath.Join(dir, "self-update.state")
+	if err := os.WriteFile(updatePath, []byte("STATE=UPDATING\nUPDATED_AT=2026-10-04T10:01:05Z\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := selfUpdateJournalEvents(updatePath); len(got) != 0 {
+		t.Fatalf("non-terminal updater progress must not duplicate journal rows: %#v", got)
+	}
+}
