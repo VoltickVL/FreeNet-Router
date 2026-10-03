@@ -73,6 +73,7 @@ jobs:
           sh -n tests/test_network_profile_contract.sh
           sh -n tests/test_network_partial_native_recovery.sh
           sh -n tests/test_provider_profile_apply.sh
+          sh -n tests/test_provider_route_probe_builtin.sh
           sh -n tests/test_finalize_setup.sh
           sh -n tests/test_self_update.sh
           sh -n tests/test_legacy_update_bridge.sh
@@ -98,6 +99,9 @@ jobs:
 
       - name: Provider profile transactional test
         run: sh tests/test_provider_profile_apply.sh
+
+      - name: Provider built-in route probe runtime test
+        run: sh tests/test_provider_route_probe_builtin.sh
 
       - name: Browser setup completion contract test
         run: sh tests/test_finalize_setup.sh
