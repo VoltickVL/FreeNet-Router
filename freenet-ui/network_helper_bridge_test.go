@@ -8,7 +8,6 @@ import (
 
 func bridgePlanFixture(effective, override, engine, owner, routing string) string {
 	return strings.Join([]string{
-		"ISP_ID=vladlink",
 		"DNS_MODE=" + effective,
 		"EFFECTIVE_DNS_MODE=" + effective,
 		"SUPPORTED=yes",
@@ -67,7 +66,7 @@ func TestBridgeRecognizesOnlyRouterLocalNameServerLines(t *testing.T) {
 	config := strings.Join([]string{
 		"ip name-server 77.88.8.8",
 		"ip name-server 192.168.50.1:53",
-		"ip name-server 192.168.50.1 \"\" on Vladlink",
+		"ip name-server 192.168.50.1 \"\" on Uplink",
 		"ip name-server 192.168.5.1",
 	}, "\n")
 	got := networkBridgeLocalPointerLines(config, "192.168.50.1")
@@ -100,7 +99,7 @@ func TestBridgeNativeResolverPreservedProfilesDoNotImplySelection(t *testing.T) 
 func TestBridgeNativeResolverInterfaceHintsDoNotImplySelection(t *testing.T) {
 	config := strings.Join([]string{
 		"ip name-server 192.168.50.1:53",
-		"interface Vladlink",
+		"interface Uplink",
 		"    ip dhcp client dns-routes",
 		"    name-servers 77.88.8.8",
 		"!",
@@ -148,7 +147,7 @@ func TestBridgeRuntimeClassification(t *testing.T) {
 func TestBridgeFirmwareDraftReplacesOnlyDNSMode(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/freenet.conf"
-	original := "UI_PORT=1001\nISP_ID=vladlink\nDNS_MODE=xkeen\nAUTO_XKEEN_GEODATA=yes\n"
+	original := "UI_PORT=1001\nLEGACY_UNUSED_KEY=preserved\nDNS_MODE=xkeen\nAUTO_XKEEN_GEODATA=yes\n"
 	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +164,7 @@ func TestBridgeFirmwareDraftReplacesOnlyDNSMode(t *testing.T) {
 	if !strings.Contains(text, "DNS_MODE=firmware") || strings.Contains(text, "DNS_MODE=xkeen") {
 		t.Fatalf("draft=%q", text)
 	}
-	for _, preserved := range []string{"ISP_ID=vladlink", "AUTO_XKEEN_GEODATA=yes"} {
+	for _, preserved := range []string{"LEGACY_UNUSED_KEY=preserved", "AUTO_XKEEN_GEODATA=yes"} {
 		if !strings.Contains(text, preserved) {
 			t.Fatalf("draft lost %q: %q", preserved, text)
 		}
