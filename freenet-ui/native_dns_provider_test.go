@@ -9,7 +9,7 @@ import (
 
 func TestNativeDNSProviderDefaultsToYandexForLegacyConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
-	if err := os.WriteFile(path, []byte("ISP_ID=rostelecom\nDNS_MODE=firmware\n"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte("LEGACY_UNUSED_KEY=preserved\nDNS_MODE=firmware\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := readNativeDNSProvider(path); got != nativeDNSProviderYandexBasic {
@@ -17,9 +17,9 @@ func TestNativeDNSProviderDefaultsToYandexForLegacyConfig(t *testing.T) {
 	}
 }
 
-func TestWriteNetworkProfileConfigWithNativeProviderPreservesLegacyISPAndUnknownKeys(t *testing.T) {
+func TestWriteNetworkProfileConfigWithNativeProviderPreservesUnknownKeys(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "freenet.conf")
-	before := "# keep\nISP_ID=vladlink\nDNS_MODE=xkeen\nSOME_RUNTIME_FLAG=preserved\n"
+	before := "# keep\nLEGACY_UNUSED_KEY=preserved\nDNS_MODE=xkeen\nSOME_RUNTIME_FLAG=preserved\n"
 	if err := os.WriteFile(path, []byte(before), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestWriteNetworkProfileConfigWithNativeProviderPreservesLegacyISPAndUnknown
 	}
 	got := string(b)
 	for _, want := range []string{
-		"ISP_ID=vladlink",
+		"LEGACY_UNUSED_KEY=preserved",
 		"DNS_MODE=firmware",
 		"NATIVE_DNS_PROVIDER=router-current",
 		"SOME_RUNTIME_FLAG=preserved",
