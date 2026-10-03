@@ -22,8 +22,9 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
 
   function metricValue(candidate, key) {
     if (!candidate) return '—';
-    if (key === 'speed') {
-      const speed = Number(candidate.download_mbps || 0);
+    if (key === 'speed' || key === 'fallback_speed') {
+      const raw = key === 'fallback_speed' ? candidate.fallback_download_mbps : candidate.download_mbps;
+      const speed = Number(raw || 0);
       return speed > 0 ? speed.toFixed(speed >= 100 ? 0 : 1) + ' Мбит/с' : '—';
     }
     if (key === 'http') return Number(candidate.application_rtt_ms || 0) > 0 ? candidate.application_rtt_ms + ' мс' : '—';
@@ -32,14 +33,16 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
     return '—';
   }
 
-  function metricPill(label, candidate, key) {
+  function metricPill(label, candidate, key, noteText = '') {
     const node = document.createElement('div');
-    node.className = 'best-v4-pill' + (key === 'speed' && candidate && candidate.eligible ? ' speed' : '');
+    const strictTrusted = key === 'speed' && candidate && candidate.eligible && candidate.throughput_source === 'strict_aggregate';
+    node.className = 'best-v4-pill' + (strictTrusted ? ' speed' : '');
     node.dataset.metric = key;
     const icon = document.createElement('span');
     icon.className = 'fn-icon metric-icon';
     icon.setAttribute('aria-hidden', 'true');
-    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + iconPath[key] + '</svg>';
+    const iconKey = key === 'fallback_speed' ? 'speed' : key;
+    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + iconPath[iconKey] + '</svg>';
     const copy = document.createElement('div');
     copy.className = 'metric-copy';
     const name = document.createElement('span');
@@ -50,6 +53,12 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
     const number = document.createElement('b');
     number.textContent = metricValue(candidate, key);
     line.appendChild(number);
+    if (noteText) {
+      const note = document.createElement('span');
+      note.className = 'metric-delta';
+      note.textContent = noteText;
+      line.appendChild(note);
+    }
     copy.append(name, line);
     node.append(icon, copy);
     return node;
@@ -59,8 +68,13 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
     const root = q('#bestCurrentMetrics');
     if (!root) return;
     root.textContent = '';
+    const strictSpeed = Number(candidate && candidate.download_mbps || 0) > 0 && candidate && candidate.throughput_source === 'strict_aggregate';
+    const fallbackSpeed = Number(candidate && candidate.fallback_download_mbps || 0) > 0 && candidate && candidate.throughput_source === 'current_fallback';
+    const speedPill = fallbackSpeed && !strictSpeed
+      ? metricPill('Быстрый замер', candidate, 'fallback_speed', 'не для сравнения')
+      : metricPill('Скорость VPN', candidate, 'speed');
     root.append(
-      metricPill('Скорость VPN', candidate, 'speed'),
+      speedPill,
       metricPill('Отклик сайтов', candidate, 'http'),
       metricPill('Связь с сервером', candidate, 'tcp'),
       metricPill('Стабильность', candidate, 'jitter')
@@ -95,7 +109,16 @@ const overviewCurrentQualityMemoryScript = `<script id="freenetOverviewCurrentQu
     renderMetrics(candidate);
     hydratedEndpoint = candidate.endpoint;
     const quality = q('#bestCurrentQuality');
-    if (quality) quality.textContent = 'Последний замер: ' + ageText(data.scanned_at);
+    if (quality) {
+      const strictSpeed = Number(candidate.download_mbps || 0) > 0 && candidate.throughput_source === 'strict_aggregate';
+      const fallbackSpeed = Number(candidate.fallback_download_mbps || 0) > 0 && candidate.throughput_source === 'current_fallback';
+      const suffix = strictSpeed
+        ? ' · ' + metricValue(candidate, 'speed')
+        : fallbackSpeed
+          ? ' · быстрый замер ' + metricValue(candidate, 'fallback_speed')
+          : '';
+      quality.textContent = 'Последний замер: ' + ageText(data.scanned_at) + suffix;
+    }
     const health = q('#bestCurrentHealth');
     if (health) {
       if (status && status.xray_online === false) {
