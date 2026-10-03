@@ -614,6 +614,7 @@ func acquireAutomationBestLock() (func(), error) {
 }
 
 func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings automationSettings, currentCountry string) (bestServerQualityResponse, error) {
+	invalidateBestServerSelectionSnapshot()
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
 	all, _, truncated, err := a.discoverBestServerCandidates(ctx)
@@ -659,6 +660,9 @@ func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings a
 	}
 	if afterFilter := readBestServerCurrentFilter(a.cfg.FilterPath); afterFilter != currentFilter {
 		return bestServerQualityResponse{}, errors.New("VPN profile identity changed during AUTO VPN scan")
+	}
+	if err := a.attachBestServerSelectionSnapshot(&response, filtered, currentEndpoint, currentFilter); err != nil {
+		return bestServerQualityResponse{}, err
 	}
 	return response, nil
 }
