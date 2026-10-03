@@ -337,11 +337,31 @@
     }
   }
 
+  let mixedBuildReloadScheduled = false;
+  function normalizeBuildVersion(value) {
+    return String(value || '').trim().replace(/^v/i, '');
+  }
+  function enforceSingleFrontendBuild(s) {
+    const boot = normalizeBuildVersion(window.__freenetBootVersion);
+    const live = normalizeBuildVersion(s && s.version);
+    if (!boot || !live || boot === live) return false;
+    document.documentElement.dataset.freenetMixedBuild = '1';
+    const topStatus = qs('#topStatus');
+    if (topStatus) topStatus.textContent = 'Обновляем интерфейс…';
+    if (typeof buttonsBusy === 'function') buttonsBusy(true);
+    if (!mixedBuildReloadScheduled) {
+      mixedBuildReloadScheduled = true;
+      setTimeout(() => location.reload(), 120);
+    }
+    return true;
+  }
+
   function patchStatusRendering() {
     if (typeof updateStatusViews !== 'function') return;
     const originalUpdateStatusViews = updateStatusViews;
     updateStatusViews = function(s) {
       ensureLegacyVPNStatusNodes();
+      if (enforceSingleFrontendBuild(s)) return;
       originalUpdateStatusViews(s);
       if (!s) return;
 
