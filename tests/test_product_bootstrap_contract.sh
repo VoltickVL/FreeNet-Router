@@ -86,7 +86,7 @@ grep -Fq 'AUTO_ENDPOINT_UPDATE=no' "$INSTALL" || fail 'installer fresh/default e
 SAVE_BLOCK="$(sed -n '/^save_config() {/,/^}/p' "$INSTALL")"
 MENU_BLOCK="$(sed -n '/^configure_menu() {/,/^}/p' "$INSTALL")"
 printf '%s\n' "$SAVE_BLOCK" | grep -Fq '{ print }' || fail 'CLI save_config не сохраняет неизвестные/современные ключи'
-printf '%s\n' "$SAVE_BLOCK" | grep -Fq '"$CONFIG_FILE.tmp.$"' || fail 'CLI save_config должен использовать process-unique atomic temp path'
+printf '%s\n' "$SAVE_BLOCK" | grep -Fq '"$CONFIG_FILE.tmp.$$"' || fail 'CLI save_config должен использовать process-unique atomic temp path'
 if printf '%s\n' "$SAVE_BLOCK" | grep -Fq '"$CONFIG_FILE.tmp.$"'; then
     fail 'CLI save_config содержит static/literal temp path'
 fi
