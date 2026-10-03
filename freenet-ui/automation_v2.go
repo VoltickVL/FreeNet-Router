@@ -306,7 +306,8 @@ func buildManagedAutomationCron(configPath string, settings automationSettings, 
 	values["AUTO_VPN_V1"] = map[bool]string{true: "yes", false: "no"}[settings.Enabled]
 	values["AUTO_VPN_MODE"] = normalizeAutomationMode(settings.Mode)
 	values["AUTO_VPN_V1_INTERVAL"] = settings.Interval
-	return buildManagedAutomationCronV3(values, existing)
+	compat := &app{cfg: config{ConfigPath: configPath}}
+	return buildManagedAutomationCronV3(compat, existing, values)
 }
 func (a *app) saveAutomationSettingsV2(settings automationSettings, geoDataEnabled *bool) error {
 	settings.Mode = normalizeAutomationMode(settings.Mode)
