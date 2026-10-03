@@ -299,32 +299,15 @@ func stripManagedAutomationCron(data []byte) []string {
 }
 
 func buildManagedAutomationCron(configPath string, settings automationSettings, existing []byte) ([]byte, error) {
-	cron, ok := automationCron(settings.Interval)
-	if !ok {
+	if _, ok := automationCron(settings.Interval); !ok {
 		return nil, errors.New("unsupported automation interval")
 	}
-	lines := stripManagedAutomationCron(existing)
-	lines = append(lines, "# BEGIN FREENET")
-	if automationConfigValue(configPath, "AUTO_XKEEN_GEODATA", "yes") == "yes" {
-		geoCron := strings.TrimSpace(automationConfigValue(configPath, "AUTO_XKEEN_GEODATA_CRON", "30 6 * * *"))
-		if geoCron != "" {
-			lines = append(lines, geoCron+" /opt/sbin/xkeen -ug")
-		}
-	}
-	if settings.Enabled {
-		healthCron := automationHealthCron(configuredAutomationHealthInterval(configPath))
-		lines = append(lines, healthCron+" "+automationRunnerPath()+" automation-health-watch >> /opt/var/log/freenet-auto-vpn-health.log 2>&1")
-		if settings.Mode == automationModeEndpoint && settings.Interval != "manual" && cron != "" {
-			lines = append(lines, cron+" "+automationRunnerPath()+" settings-v3-endpoint-refresh >> /opt/var/log/freenet-auto-vpn.log 2>&1")
-		}
-	} else {
-		lines = append(lines, "# AUTO VPN scheduler and health watchdog disabled by FreeNet settings")
-	}
-	lines = append(lines, "# legacy vpn failover superseded by AUTO VPN health watchdog")
-	lines = append(lines, "# END FREENET")
-	return []byte(strings.Join(lines, "\n") + "\n"), nil
+	values := settingsV3ManagedCronValuesFromConfig(configPath)
+	values["AUTO_VPN_V1"] = map[bool]string{true: "yes", false: "no"}[settings.Enabled]
+	values["AUTO_VPN_MODE"] = normalizeAutomationMode(settings.Mode)
+	values["AUTO_VPN_V1_INTERVAL"] = settings.Interval
+	return buildManagedAutomationCronV3(values, existing)
 }
-
 func (a *app) saveAutomationSettingsV2(settings automationSettings, geoDataEnabled *bool) error {
 	settings.Mode = normalizeAutomationMode(settings.Mode)
 	settings.Policy = normalizeAutomationPolicy(settings.Policy)
@@ -352,15 +335,14 @@ func (a *app) saveAutomationSettingsV2(settings automationSettings, geoDataEnabl
 		"AUTO_VPN_FAILOVER":      "no",
 	}
 	if geoDataEnabled != nil {
-		values["AUTO_XKEEN_GEODATA"] = map[bool]string{true: "yes", false: "no"}[*geoDataEnabled]
+		geo := map[bool]string{true: "yes", false: "no"}[*geoDataEnabled]
+		values["AUTO_XKEEN_GEODATA"] = geo
+		values["AUTO_GEODATA_ENABLED"] = geo
 	}
 	if err := writeAutomationConfigValues(a.cfg.ConfigPath, values); err != nil {
 		return errors.New("cannot stage AUTO VPN settings")
 	}
-	managed, err := buildManagedAutomationCron(a.cfg.ConfigPath, settings, beforeCron)
-	if err == nil {
-		err = installAutomationCrontab(managed)
-	}
+	_, err = a.reconcileSettingsV3Scheduler()
 	if err == nil {
 		return nil
 	}
