@@ -510,12 +510,23 @@ func automationPostUpdateGuardResult(a *app, first automationHealthProbe) (autom
 	}
 	if first.State == automationHealthHealthy {
 		setAutomationPostUpdateAck(target)
-		reason := "После обновления текущий VPN подтверждён read-only проверкой; AUTO mutation снова разрешена со следующего цикла."
+		reason := "После обновления текущий VPN подтверждён read-only проверкой; AUTO recovery снова разрешён."
 		appendAutomationRecoveryStage("post_update_guard", "cleared", reason)
 		appendAutomationHistoryV2("post_update_guard_cleared", reason)
 		return automationHealthResult{State: automationHealthHealthy, Reason: reason}, true
 	}
-	reason := "После обновления AUTO VPN mutation удерживается до подтверждения текущего VPN. Изменений нет; ручной выбор VPN остаётся доступен."
+	if first.State == automationHealthFailed {
+		// A confirmed failed VPN must not create an impossible post-update
+		// deadlock. The normal health state machine still requires healthy WAN
+		// and a second failed VPN probe before any recovery/mutation.
+		reason := "После обновления текущий VPN явно не подтверждает доступ. Post-update hold не блокирует штатный двойной health-check и безопасное recovery."
+		if strings.TrimSpace(first.Reason) != "" {
+			reason += " " + strings.TrimSpace(first.Reason)
+		}
+		appendAutomationRecoveryStage("post_update_guard", "recovery_allowed", reason)
+		return automationHealthResult{}, false
+	}
+	reason := "После обновления состояние текущего VPN неоднозначно; AUTO mutation удерживается до определённого результата. Ручная диагностика остаётся доступна."
 	if strings.TrimSpace(first.Reason) != "" {
 		reason += " " + strings.TrimSpace(first.Reason)
 	}
