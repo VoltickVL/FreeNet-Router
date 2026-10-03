@@ -12,7 +12,8 @@
         return {kind: 'quick', target: body.action, startedAt: Date.now()};
       }
       if (url === '/api/network-profile/apply' && body && body.operation === 'provider' && typeof body.profile_id === 'string' && body.profile_id) {
-        return {kind: 'provider', target: body.profile_id, startedAt: Date.now()};
+        const token = typeof body.selection_token === 'string' ? body.selection_token.trim() : '';
+        return {kind: 'provider', target: token ? body.profile_id + '@' + token : body.profile_id, profileID: body.profile_id, startedAt: Date.now()};
       }
       if (url === '/api/vpn/current-refresh' && body && body.confirm === true) {
         return {kind: 'refresh', target: 'current', startedAt: Date.now()};
@@ -61,7 +62,7 @@
       return jsonResponse(502, {
         success: false,
         operation: meta.kind === 'provider' ? 'provider' : undefined,
-        profile_id: meta.kind === 'provider' ? meta.target : undefined,
+        profile_id: meta.kind === 'provider' ? (meta.profileID || meta.target) : undefined,
         action: meta.kind === 'quick' ? meta.target : undefined,
         operation_id: op.id,
         error: op.error || 'VPN-операция завершилась ошибкой'
@@ -115,6 +116,7 @@
   const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   let recommendation = null;
   let alternatives = [];
+  let selectionToken = '';
   let currentQuality = null;
   let scanBusy = false;
   let applyBusy = false;
@@ -535,6 +537,7 @@
   function clearAlternatives(message) {
     alternatives = [];
     recommendation = null;
+    selectionToken = '';
     const box = qs('#bestServerResult');
     if (box) { box.textContent = ''; box.classList.remove('show'); }
     const empty = qs('#bestServerEmpty');
@@ -596,6 +599,7 @@
 
   function renderBestResult(data) {
     clearAlternatives();
+    selectionToken = String(data && data.selection_token || '').trim();
     const current = currentCandidate(data);
     if (current) renderCurrentQuality({scanned_at: data.scanned_at, candidates: [current]});
     const baseline = current || currentQuality;
@@ -811,11 +815,16 @@
 
   async function applyCandidate(candidate) {
     if(applyBusy||scanBusy||externalBusy||!candidate||candidate.current||!candidate.id||!candidate.eligible||isRussianProfile(candidate))return;
+    if(!/^[a-f0-9]{32}$/.test(selectionToken)){
+      setText(qs('#bestServerStatus'),'Результат подбора больше нельзя безопасно применить. Подберите серверы заново.');
+      clearAlternatives('Результаты подбора устарели. Для переключения подберите серверы снова.');
+      return;
+    }
     recommendation=candidate;applyBusy=true;setBusy(false);
     const apply=Array.from(document.querySelectorAll('.vpn-option-apply')).find(button=>button.dataset.candidateId===candidate.id);if(apply){apply.disabled=true;apply.textContent='Переключаем…';}
     setText(qs('#bestServerStatus'),'Переключаем VPN и проверяем соединение…');
     try{
-      const response=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'provider',profile_id:candidate.id,confirm:true})});const body=await response.json().catch(()=>null);
+      const response=await fetch('/api/network-profile/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({operation:'provider',profile_id:candidate.id,selection_token:selectionToken,confirm:true})});const body=await response.json().catch(()=>null);
       if(!response.ok||!body||!body.success){const detail=body&&(body.primary_error||body.error);setText(qs('#bestServerStatus'),detail||'Результат переключения не подтверждён. Не повторяйте операцию.');if(!body||body.result_unknown)recommendation=null;return;}
       const appliedEndpoint=String(body?.provider_plan?.endpoint||'').trim();
       const status=await waitForAppliedProvider(candidate,appliedEndpoint);if(!status){setText(qs('#bestServerStatus'),'Переключение ещё не подтверждено. Проверьте состояние системы перед повторной попыткой.');return;}
