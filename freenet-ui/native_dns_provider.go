@@ -69,7 +69,7 @@ func nativeDNSProviderOptions() []nativeDNSProviderOption {
 }
 
 // Commit DNS mode and the Native DNS provider in one atomic config write.
-// Unknown configuration keys, including legacy ISP_ID, are preserved verbatim.
+// Unknown configuration keys are preserved verbatim.
 func writeNetworkProfileConfigWithNativeProvider(path, dnsMode, provider string) error {
 	if _, ok := dnsModes[dnsMode]; !ok {
 		return errors.New("unsupported DNS mode")
