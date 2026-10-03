@@ -341,6 +341,12 @@ func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings a
 		appendAutomationHistoryV2("same", reason)
 		return automationBestCycleResult{Result: "same", Reason: reason}, nil
 	}
+	if !validBestServerSelectionToken(candidates.SelectionToken) {
+		reason := "Проверенная замена найдена, но её точный измеренный snapshot не сохранён; AUTO VPN не выполняет mutation."
+		writeAutomationStateV2("failed", reason, "no", false)
+		appendAutomationHistoryV2("failed", reason)
+		return automationBestCycleResult{Result: "failed", Reason: reason, ProfileID: candidate.ID}, errors.New("AUTO VPN measured selection snapshot unavailable")
+	}
 	if !settings.AutoApply {
 		reason := "Найдена проверенная замена, но автоматическое применение выключено."
 		writeAutomationStateV2("candidate", reason, "no", false)
@@ -348,7 +354,9 @@ func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings a
 		return automationBestCycleResult{Result: "candidate", Reason: reason, ProfileID: candidate.ID}, nil
 	}
 
-	status, applied := a.executeProviderProfileApply(networkApplyRequest{Operation: "provider", ProfileID: candidate.ID, Confirm: true})
+	status, applied := a.executeProviderProfileApply(networkApplyRequest{
+		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
+	})
 	if status < 200 || status >= 300 || !applied.Success {
 		reason := "Проверенная замена VPN не применена: " + strings.TrimSpace(applied.Error)
 		rollback := applied.RollbackState
