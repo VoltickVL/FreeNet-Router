@@ -110,8 +110,18 @@ func TestBestServerQuickRTTSweepCoversWholePool(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(data)
-	if !strings.Contains(src, "probeBestServerTransportRTT") || !strings.Contains(src, "DNS/named-origin acceptance") {
-		t.Fatal("quick ranking must use fixed-IP VPN HTTPS RTT and defer named-origin acceptance to deep quality")
+	if !strings.Contains(src, "probeBestServerCanonicalVPNPing") || !strings.Contains(src, "DNS/named-origin acceptance") {
+		t.Fatal("quick ranking must use the canonical VPN-ping owner and defer named-origin acceptance to deep quality")
+	}
+	ownerData, err := os.ReadFile("best_server_probe_targets.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := string(ownerData)
+	if !strings.Contains(owner, "func probeBestServerCanonicalVPNPing") ||
+		!strings.Contains(owner, "probeBestServerTransportRTT(ctx, curlPath, socks)") ||
+		!strings.Contains(owner, "bestServerTransportProbeURL") {
+		t.Fatal("canonical VPN-ping owner must remain fixed-IP HTTPS through the VPN path")
 	}
 }
 
