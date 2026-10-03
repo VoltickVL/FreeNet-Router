@@ -756,8 +756,6 @@
 
 // Selector metadata only. Flag pixels are owned exclusively by window.FreeNetFlags.
 (() => {
-  const canonicalExtraFlagCodes = ['sk','za','si','rs','is','lu','kz','pe','my','au','ng'];
-  try { canonicalExtraFlagCodes.forEach(code => countryFlagCodes.add(code)); } catch (_) {}
   if (!document.getElementById('freenetSelectorHygieneStyles')) {
     const style = document.createElement('style');
     style.id = 'freenetSelectorHygieneStyles';
