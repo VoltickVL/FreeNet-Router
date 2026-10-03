@@ -14,6 +14,7 @@ const current = {id:'fixture-pl', name:'Польша · Варшава', country
 const winner = {...current,id:'fixture-de',name:'Германия · Франкфурт',country_code:'de',endpoint:'192.0.2.20:443',current:false,download_mbps:68.2,application_rtt_ms:110};
 const second = {...winner,id:'fixture-lt',name:'Литва · Вильнюс',country_code:'lt',endpoint:'192.0.2.40:443',download_mbps:59.1};
 const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:31.4,application_rtt_ms:180};
+const bestSelectionToken = '0123456789abcdef0123456789abcdef';
 let expectedApply = winner;
 let status = {version:'0.2.88',country:'Польша',city:'Варшава',country_code:'pl',endpoint:current.endpoint,xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true};
 const server = http.createServer((req,res)=>{
@@ -97,16 +98,21 @@ const server = http.createServer((req,res)=>{
           : bestMode==='no-current'
             ? [winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}]
             : [current,winner,second,third,{...third,id:'duplicate'}, {...winner,id:'unmeasured',endpoint:'192.0.2.60:443',media_samples:0}];
-        return answer(route,{success:true,available:true,candidates:best?bestCandidates:[current],recommendation:best?recommendation:null,profiles_scanned:best?6:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
+        return answer(route,{success:true,available:true,candidates:best?bestCandidates:[current],recommendation:best?recommendation:null,selection_token:best?bestSelectionToken:undefined,profiles_scanned:best?6:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
       }
       if(url.pathname==='/api/network-profile/apply'){
-        assert.deepEqual(JSON.parse(req.postData()),{operation:'provider',profile_id:expectedApply.id,confirm:true});
+        const payload=JSON.parse(req.postData());
+        assert.equal(payload.operation,'provider');
+        assert.equal(payload.profile_id,expectedApply.id);
+        assert.equal(payload.confirm,true);
+        if(Object.prototype.hasOwnProperty.call(payload,'selection_token'))assert.equal(payload.selection_token,bestSelectionToken);
         status={...status,country:'Германия',city:'Франкфурт',country_code:'de',endpoint:expectedApply.endpoint};
         if(applyMode!=='ok'){
           status=expectedApply.id===second.id
             ? {...status,country:'',country_code:'',city:'',profile_label:expectedApply.name,endpoint:expectedApply.endpoint}
             : {...status,country:'Германия',country_code:'de',city:'Франкфурт',profile_label:expectedApply.name,endpoint:expectedApply.endpoint};
-          operation={id:'fixture-op',kind:'provider',target:expectedApply.id,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
+          const operationTarget=payload.selection_token?expectedApply.id+'@'+payload.selection_token:expectedApply.id;
+          operation={id:'fixture-op',kind:'provider',target:operationTarget,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
           if(applyMode==='failed')operation={...operation,state:'failed',result:'FAIL',error:'Проверка соединения не пройдена'};
           if(applyMode==='other')operation={...operation,target:'another-profile'};
           if(applyMode==='manual-ok')return answer(route,{success:true,applied:true});
