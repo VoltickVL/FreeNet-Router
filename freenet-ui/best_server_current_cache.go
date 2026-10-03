@@ -75,6 +75,7 @@ func sanitizeBestServerCurrentQuality(candidate bestServerQualityCandidate) best
 }
 
 func writeBestServerCurrentQualityPersistent(endpoint, filter string, storedAt time.Time, candidate bestServerQualityCandidate) {
+	candidate = sanitizeBestServerCurrentQuality(candidate)
 	path := bestServerCurrentQualityPersistentPath()
 	if strings.TrimSpace(path) == "" {
 		return
@@ -195,7 +196,7 @@ func loadBestServerCurrentQualityForDisplay(endpoint, filter string) (bestServer
 	entry := bestServerCurrentQualityCache.Entry
 	bestServerCurrentQualityCache.Unlock()
 	if key != "|" && entry.Key == key && !entry.StoredAt.IsZero() {
-		candidate := entry.Candidate
+		candidate := sanitizeBestServerCurrentQuality(entry.Candidate)
 		candidate.Current = true
 		return candidate, entry.StoredAt, true
 	}
