@@ -45,18 +45,26 @@ func TestExtraProfileCountryMarkerHasPortableFallback(t *testing.T) {
 		"country-code-badge",
 		"countryFlagCodes.has(safe)",
 		"safe.toUpperCase()",
-		"flag-ae",
-		"flag-fr",
-		"flag-cz",
-		"flag-ie",
 	} {
 		if !strings.Contains(ui, required) {
 			t.Fatalf("country marker contract missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"🇩🇪", "🇵🇱", "🇫🇮", "🇳🇱"} {
-		if strings.Contains(ui, forbidden) {
-			t.Fatalf("UI reintroduced platform emoji dependency %q", forbidden)
+	flags, err := webFS.ReadFile("web/vpn-ux-fix.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flagSource := string(flags)
+	for _, required := range []string{"window.FreeNetFlags", "ae:", "fr:", "cz:", "ie:"} {
+		if !strings.Contains(flagSource, required) {
+			t.Fatalf("canonical portable flag source missing %q", required)
+		}
+	}
+	for _, text := range []string{ui, flagSource} {
+		for _, forbidden := range []string{"🇩🇪", "🇵🇱", "🇫🇮", "🇳🇱"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("UI reintroduced platform emoji dependency %q", forbidden)
+			}
 		}
 	}
 }
