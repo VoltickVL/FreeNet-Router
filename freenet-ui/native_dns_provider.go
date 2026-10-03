@@ -68,12 +68,9 @@ func nativeDNSProviderOptions() []nativeDNSProviderOption {
 	return out
 }
 
-// Commit ISP, DNS mode and the Native DNS provider in one atomic config write.
-// Unknown configuration keys are preserved verbatim.
-func writeNetworkProfileConfigWithNativeProvider(path, isp, dnsMode, provider string) error {
-	if _, ok := ispProfiles[isp]; !ok {
-		return errors.New("unsupported ISP")
-	}
+// Commit DNS mode and the Native DNS provider in one atomic config write.
+// Unknown configuration keys, including legacy ISP_ID, are preserved verbatim.
+func writeNetworkProfileConfigWithNativeProvider(path, dnsMode, provider string) error {
 	if _, ok := dnsModes[dnsMode]; !ok {
 		return errors.New("unsupported DNS mode")
 	}
@@ -92,15 +89,11 @@ func writeNetworkProfileConfigWithNativeProvider(path, isp, dnsMode, provider st
 		return err
 	}
 
-	seenISP := false
 	seenDNS := false
 	seenProvider := false
 	for i, raw := range lines {
 		line := strings.TrimSpace(raw)
 		switch {
-		case strings.HasPrefix(line, "ISP_ID="):
-			lines[i] = "ISP_ID=" + isp
-			seenISP = true
 		case strings.HasPrefix(line, "DNS_MODE="):
 			lines[i] = "DNS_MODE=" + dnsMode
 			seenDNS = true
@@ -108,9 +101,6 @@ func writeNetworkProfileConfigWithNativeProvider(path, isp, dnsMode, provider st
 			lines[i] = "NATIVE_DNS_PROVIDER=" + provider
 			seenProvider = true
 		}
-	}
-	if !seenISP {
-		lines = append(lines, "ISP_ID="+isp)
 	}
 	if !seenDNS {
 		lines = append(lines, "DNS_MODE="+dnsMode)
