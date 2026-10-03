@@ -238,7 +238,12 @@ profile_id() {
     NAME="$1"
     SECURITY_ID="$2"
     TYPE_ID="$3"
-    printf '%s|%s|%s' "$NAME" "$SECURITY_ID" "$TYPE_ID" | sha256sum | awk '{print substr($1,1,16)}'
+    SNI_ID="$4"
+    HOST_ID="$5"
+    PATH_ID="$6"
+    LOWER_SNI="$(printf '%s' "$SNI_ID" | tr '[:upper:]' '[:lower:]')"
+    LOWER_HOST="$(printf '%s' "$HOST_ID" | tr '[:upper:]' '[:lower:]')"
+    printf '%s|%s|%s|%s|%s|%s' "$NAME" "$SECURITY_ID" "$TYPE_ID" "$LOWER_SNI" "$LOWER_HOST" "$PATH_ID" | sha256sum | awk '{print substr($1,1,16)}'
 }
 
 parse_line_identity() {
@@ -293,7 +298,7 @@ parse_line_identity() {
             return 1
             ;;
     esac
-    ID="$(profile_id "$NAME" "$ID_SECURITY" "$ID_TYPE")"
+    ID="$(profile_id "$NAME" "$ID_SECURITY" "$ID_TYPE" "$ID_SNI" "$ID_HOST" "$ID_PATH")"
     return 0
 }
 
