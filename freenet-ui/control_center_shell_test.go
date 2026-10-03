@@ -106,24 +106,27 @@ func TestSystemAndAccessHaveHonestFutureCapabilitySlots(t *testing.T) {
 	}
 }
 
-func TestISPProductHintDoesNotInventCrossProviderRoutingInheritance(t *testing.T) {
+func TestISPProductSurfaceIsAbsent(t *testing.T) {
 	data, err := webFS.ReadFile("web/index.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ui := string(data)
 	for _, forbidden := range []string{
-		"Подряд использует подтверждённую Management базовую policy Ростелекома",
-		"Подряд использует",
+		"Интернет-провайдер",
+		"id=\"ispSelect\"",
+		"Владлинк",
+		"АльянсТелеком",
+		"Ростелеком",
+		"Подряд",
+		"ISP + DNS",
 	} {
 		if strings.Contains(ui, forbidden) {
-			t.Fatalf("ISP UI must not invent cross-provider routing inheritance through %q", forbidden)
+			t.Fatalf("retired ISP product surface returned through %q", forbidden)
 		}
 	}
-	for _, want := range []string{"Routing policy задаётся только явными правилами", "не наследуется от другого провайдера"} {
-		if !strings.Contains(ui, want) {
-			t.Fatalf("explicit-only ISP routing hint missing %q", want)
-		}
+	if !strings.Contains(ui, "Routing policy настраивается отдельно явными правилами.") {
+		t.Fatal("DNS UI must keep routing explicitly separate")
 	}
 }
 
