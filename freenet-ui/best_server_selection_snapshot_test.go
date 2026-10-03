@@ -74,6 +74,9 @@ MUTATION=NONE
 ========== END ==========
 EOF
 if [ "$1" = apply ]; then
+  cat > "$FREENET_TEST_OUT_PATH" <<'EOF'
+{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"203.0.113.10","port":443}]}}]}
+EOF
   echo applied > "`+marker+`"
   echo '[FreeNet Provider] RESULT=SUCCESS'
 fi
@@ -81,6 +84,7 @@ exit 0`)
 	network := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
 	t.Setenv("FREENET_NETWORK_HELPER", network)
+	t.Setenv("FREENET_TEST_OUT_PATH", a.cfg.OutPath)
 
 	status, result := a.executeProviderProfileApply(networkApplyRequest{
 		Operation: "provider", ProfileID: profile.ID, SelectionToken: token, Confirm: true,
