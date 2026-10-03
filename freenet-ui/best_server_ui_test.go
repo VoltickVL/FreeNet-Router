@@ -42,6 +42,25 @@ func TestBestServerUIUsesExplicitIndependentScans(t *testing.T) {
 	}
 }
 
+func TestBestServerApplyConfirmsFreshBackendEndpoint(t *testing.T) {
+	data, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"body?.provider_plan?.endpoint",
+		"waitForAppliedProvider(candidate,appliedEndpoint)",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("manual VPN apply fresh-endpoint contract missing %q", want)
+		}
+	}
+	if strings.Contains(js, "const expectedEndpoint=candidate.endpoint") || strings.Contains(js, "waitForEndpoint(expectedEndpoint)") {
+		t.Fatal("manual VPN apply still confirms against stale scan endpoint")
+	}
+}
+
 func TestBestServerTop3ShowsEligibleOnly(t *testing.T) {
 	data, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
