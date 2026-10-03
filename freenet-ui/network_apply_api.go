@@ -35,9 +35,7 @@ type networkPlanResponse struct {
 	Success                           bool                       `json:"success"`
 	Supported                         bool                       `json:"supported"`
 	Active                            bool                       `json:"active"`
-	ISP                               string                     `json:"isp"`
 	DNSMode                           string                     `json:"dns_mode"`
-	ActiveISP                         string                     `json:"active_isp,omitempty"`
 	ActiveDNSMode                     string                     `json:"active_dns_mode,omitempty"`
 	NativeDNSProvider                 string                     `json:"native_dns_provider,omitempty"`
 	ActiveNativeDNSProvider           string                     `json:"active_native_dns_provider,omitempty"`
@@ -71,7 +69,6 @@ type networkPlanResponse struct {
 
 type networkApplyRequest struct {
 	Operation          string `json:"operation,omitempty"`
-	ISP                string `json:"isp,omitempty"`
 	DNSMode            string `json:"dns_mode,omitempty"`
 	NativeDNSProvider  string `json:"native_dns_provider,omitempty"`
 	ProfileID          string `json:"profile_id,omitempty"`
@@ -85,7 +82,6 @@ type networkApplyResponse struct {
 	Applied           bool                       `json:"applied"`
 	Operation         string                     `json:"operation,omitempty"`
 	OperationID       string                     `json:"operation_id,omitempty"`
-	ISP               string                     `json:"isp,omitempty"`
 	DNSMode           string                     `json:"dns_mode,omitempty"`
 	NativeDNSProvider string                     `json:"native_dns_provider,omitempty"`
 	ProfileID         string                     `json:"profile_id,omitempty"`
@@ -124,28 +120,21 @@ func validProfileID(id string) bool {
 	return true
 }
 
-func validNetworkSelection(isp, dnsMode string) bool {
-	if _, ok := ispProfiles[isp]; !ok {
-		return false
-	}
+func validNetworkSelection(dnsMode string) bool {
 	_, ok := dnsModes[dnsMode]
 	return ok
 }
 
-func (a *app) requestedNetworkSelection(r *http.Request) (string, string, string, string, error) {
-	activeISP, activeDNS := readNetworkProfileConfig(a.cfg.ConfigPath)
-	isp := strings.TrimSpace(r.URL.Query().Get("isp"))
+func (a *app) requestedNetworkSelection(r *http.Request) (string, string, error) {
+	activeDNS := readDNSModeConfig(a.cfg.ConfigPath)
 	dnsMode := strings.TrimSpace(r.URL.Query().Get("dns_mode"))
-	if isp == "" {
-		isp = activeISP
-	}
 	if dnsMode == "" {
 		dnsMode = activeDNS
 	}
-	if !validNetworkSelection(isp, dnsMode) {
-		return "", "", activeISP, activeDNS, errors.New("unsupported ISP or DNS mode")
+	if !validNetworkSelection(dnsMode) {
+		return "", activeDNS, errors.New("unsupported DNS mode")
 	}
-	return isp, dnsMode, activeISP, activeDNS, nil
+	return dnsMode, activeDNS, nil
 }
 
 func (a *app) requestedNativeDNSProvider(r *http.Request) (string, string, error) {
@@ -169,8 +158,8 @@ func decorateNativeDNSProviderPlan(plan *networkPlanResponse, provider, activePr
 	plan.NativeDNSProviderOptions = nativeDNSProviderOptions()
 }
 
-func networkTargetProductStateMatches(isp, dnsMode, provider, activeISP, activeDNS, activeProvider string) bool {
-	if isp != activeISP || dnsMode != activeDNS {
+func networkTargetProductStateMatches(dnsMode, provider, activeDNS, activeProvider string) bool {
+	if dnsMode != activeDNS {
 		return false
 	}
 	if dnsMode == "firmware" {
@@ -200,7 +189,7 @@ func (a *app) attachSubscriptionCatalogForPlan(plan *networkPlanResponse) {
 }
 
 func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
-	isp, dnsMode, activeISP, activeDNS, selectionErr := a.requestedNetworkSelection(r)
+	dnsMode, activeDNS, selectionErr := a.requestedNetworkSelection(r)
 	if selectionErr != nil {
 		writeJSON(w, http.StatusBadRequest, networkPlanResponse{Success: false, Error: selectionErr.Error()})
 		return
@@ -212,8 +201,8 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	if capabilityErr := splitDNSSelectionError(dnsMode); capabilityErr != nil {
 		plan := networkPlanResponse{
-			Success: false, Supported: false, ISP: isp, DNSMode: dnsMode,
-			ActiveISP: activeISP, ActiveDNSMode: activeDNS,
+			Success: false, Supported: false, DNSMode: dnsMode,
+			ActiveDNSMode: activeDNS,
 			Reason: capabilityErr.Error(), Mutation: "NONE", Error: capabilityErr.Error(),
 		}
 		decorateNativeDNSProviderPlan(&plan, provider, activeProvider)
@@ -221,12 +210,11 @@ func (a *app) handleNetworkProfilePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plan, err := a.runNetworkPlanFor(isp, dnsMode, provider)
-	plan.ActiveISP = activeISP
+	plan, err := a.runNetworkPlanFor(dnsMode, provider)
 	plan.ActiveDNSMode = activeDNS
 	decorateNativeDNSProviderPlan(&plan, provider, activeProvider)
-	plan.Active = plan.Active && networkTargetProductStateMatches(isp, dnsMode, provider, activeISP, activeDNS, activeProvider)
-	// The VPN catalog is independent from the ISP/DNS plan. Attach the last
+	plan.Active = plan.Active && networkTargetProductStateMatches(dnsMode, provider, activeDNS, activeProvider)
+	// The VPN catalog is independent from the DNS plan. Attach the last
 	// successful safe catalog before returning a network-plan error so a broken
 	// or unsupported network draft cannot erase the subscription state.
 	a.attachSubscriptionCatalogForPlan(&plan)
@@ -334,8 +322,8 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Error: "unsupported apply operation"})
 		return
 	}
-	if !validNetworkSelection(req.ISP, req.DNSMode) {
-		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Error: "unsupported ISP or DNS mode"})
+	if !validNetworkSelection(req.DNSMode) {
+		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Error: "unsupported DNS mode"})
 		return
 	}
 	if strings.TrimSpace(req.NativeDNSProvider) == "" {
@@ -347,7 +335,7 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 	}
 	if capabilityErr := splitDNSSelectionError(req.DNSMode); capabilityErr != nil {
 		writeJSON(w, http.StatusConflict, networkApplyResponse{
-			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Success: false, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 			NativeDNSProvider: req.NativeDNSProvider,
 			PrimaryError: capabilityErr.Error(), RollbackState: "NOT_APPLIED",
 			Error: "XKeen/Xray DNS недоступен на этом устройстве",
@@ -355,7 +343,7 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	target := req.ISP + "\x00" + req.DNSMode + "\x00" + req.NativeDNSProvider
+	target := req.DNSMode + "\x00" + req.NativeDNSProvider
 	flight, leader := beginNetworkApplyFlight(target)
 	if !leader {
 		if status, result, ok := waitNetworkApplyFlight(r, flight); ok {
@@ -377,59 +365,58 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 		defer func() { <-a.sem }()
 	case <-requestCtx.Done():
 		return http.StatusRequestTimeout, networkApplyResponse{
-			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Success: false, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 			NativeDNSProvider: req.NativeDNSProvider,
 			RollbackState: "NOT_APPLIED", Error: "запрос отменён до начала сетевой операции",
 		}
 	case <-acquireTimer.C:
-		if post, err := a.runNetworkPlanFor(req.ISP, req.DNSMode, req.NativeDNSProvider); err == nil && post.Active {
+		if post, err := a.runNetworkPlanFor(req.DNSMode, req.NativeDNSProvider); err == nil && post.Active {
 			return http.StatusOK, networkApplyResponse{
-				Success: true, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+				Success: true, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 				NativeDNSProvider: req.NativeDNSProvider,
 				Message: "Целевое сетевое состояние уже активно.", RollbackState: "NOT_NEEDED", Plan: post,
 			}
 		}
 		return http.StatusLocked, networkApplyResponse{
-			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Success: false, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 			NativeDNSProvider: req.NativeDNSProvider,
 			RollbackState: "NOT_APPLIED",
 			Error: "FreeNet выполняет другую подтверждённую операцию; параллельная mutation заблокирована",
 		}
 	}
 
-	activeISP, activeDNS := readNetworkProfileConfig(a.cfg.ConfigPath)
+	activeDNS := readDNSModeConfig(a.cfg.ConfigPath)
 	activeProvider := readNativeDNSProvider(a.cfg.ConfigPath)
-	plan, err := a.runNetworkPlanFor(req.ISP, req.DNSMode, req.NativeDNSProvider)
-	plan.ActiveISP = activeISP
+	plan, err := a.runNetworkPlanFor(req.DNSMode, req.NativeDNSProvider)
 	plan.ActiveDNSMode = activeDNS
 	decorateNativeDNSProviderPlan(&plan, req.NativeDNSProvider, activeProvider)
-	plan.Active = plan.Active && networkTargetProductStateMatches(req.ISP, req.DNSMode, req.NativeDNSProvider, activeISP, activeDNS, activeProvider)
+	plan.Active = plan.Active && networkTargetProductStateMatches(req.DNSMode, req.NativeDNSProvider, activeDNS, activeProvider)
 	if err != nil {
 		return http.StatusServiceUnavailable, networkApplyResponse{
-			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Success: false, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 			NativeDNSProvider: req.NativeDNSProvider,
 			Plan: plan, RollbackState: "NOT_APPLIED", Error: err.Error(),
 		}
 	}
 	if !plan.Supported {
 		return http.StatusConflict, networkApplyResponse{
-			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Success: false, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 			NativeDNSProvider: req.NativeDNSProvider,
 			Plan: plan, RollbackState: "NOT_APPLIED", Error: plan.Reason,
 		}
 	}
 	if plan.Mutation != "NONE" {
 		return http.StatusConflict, networkApplyResponse{
-			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Success: false, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 			NativeDNSProvider: req.NativeDNSProvider,
 			Plan: plan, RollbackState: "NOT_APPLIED", Error: "network plan is not read-only; refusing apply",
 		}
 	}
 	if plan.Active {
-		if !networkTargetProductStateMatches(req.ISP, req.DNSMode, req.NativeDNSProvider, activeISP, activeDNS, activeProvider) {
-			if err := writeNetworkProfileConfigWithNativeProvider(a.cfg.ConfigPath, req.ISP, req.DNSMode, req.NativeDNSProvider); err != nil {
+		if !networkTargetProductStateMatches(req.DNSMode, req.NativeDNSProvider, activeDNS, activeProvider) {
+			if err := writeNetworkProfileConfigWithNativeProvider(a.cfg.ConfigPath, req.DNSMode, req.NativeDNSProvider); err != nil {
 				return http.StatusInternalServerError, networkApplyResponse{
-					Success: false, Applied: false, Operation: "network", ISP: activeISP, DNSMode: activeDNS,
+					Success: false, Applied: false, Operation: "network", DNSMode: activeDNS,
 					NativeDNSProvider: activeProvider,
 					Plan: plan, PrimaryError: "cannot persist already-active network target", RollbackState: "NOT_APPLIED",
 					Error: "runtime target active but product state commit failed",
@@ -437,7 +424,7 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 			}
 		}
 		return http.StatusOK, networkApplyResponse{
-			Success: true, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Success: true, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 			NativeDNSProvider: req.NativeDNSProvider,
 			Plan: plan, Message: "Выбранный сетевой профиль уже активен.", RollbackState: "NOT_NEEDED",
 		}
@@ -446,7 +433,7 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 	if req.DNSMode == "firmware" {
 		if err := prepareCanonicalNativeApplyState(); err != nil {
 			return http.StatusServiceUnavailable, networkApplyResponse{
-				Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+				Success: false, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 				NativeDNSProvider: req.NativeDNSProvider,
 				Plan: plan, PrimaryError: err.Error(), RollbackState: "NOT_APPLIED",
 				Error: "не удалось подготовить Native DNS state",
@@ -455,7 +442,7 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
-	output, cmdErr := a.runNetworkApplyFor(ctx, req.ISP, req.DNSMode, req.NativeDNSProvider)
+	output, cmdErr := a.runNetworkApplyFor(ctx, req.DNSMode, req.NativeDNSProvider)
 	timedOut := ctx.Err() == context.DeadlineExceeded
 	cancel()
 	safeOutput := sanitizeOutput(string(output))
@@ -468,16 +455,16 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 			primary = cmdErr.Error()
 		}
 		return http.StatusBadGateway, networkApplyResponse{
-			Success: false, Applied: false, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+			Success: false, Applied: false, Operation: "network", DNSMode: req.DNSMode,
 			NativeDNSProvider: req.NativeDNSProvider,
 			Plan: plan, PrimaryError: primary, RollbackState: rollback, Error: "network profile apply failed",
 		}
 	}
 
-	if err := writeNetworkProfileConfigWithNativeProvider(a.cfg.ConfigPath, req.ISP, req.DNSMode, req.NativeDNSProvider); err != nil {
-		rollback := a.rollbackNetworkSelection(activeISP, activeDNS, activeProvider)
+	if err := writeNetworkProfileConfigWithNativeProvider(a.cfg.ConfigPath, req.DNSMode, req.NativeDNSProvider); err != nil {
+		rollback := a.rollbackNetworkSelection(activeDNS, activeProvider)
 		return http.StatusBadGateway, networkApplyResponse{
-			Success: false, Applied: false, Operation: "network", ISP: activeISP, DNSMode: activeDNS,
+			Success: false, Applied: false, Operation: "network", DNSMode: activeDNS,
 			NativeDNSProvider: activeProvider,
 			Plan: plan, PrimaryError: "cannot commit accepted network profile", RollbackState: rollback,
 			Error: "runtime changed but active profile commit failed",
@@ -490,9 +477,9 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 		if postErr != nil {
 			primary = "post-apply plan unavailable: " + postErr.Error()
 		}
-		rollback := a.rollbackNetworkSelection(activeISP, activeDNS, activeProvider)
+		rollback := a.rollbackNetworkSelection(activeDNS, activeProvider)
 		return http.StatusBadGateway, networkApplyResponse{
-			Success: false, Applied: false, Operation: "network", ISP: activeISP, DNSMode: activeDNS,
+			Success: false, Applied: false, Operation: "network", DNSMode: activeDNS,
 			NativeDNSProvider: activeProvider,
 			Plan: plan, PrimaryError: primary, RollbackState: rollback,
 			Error: "network profile acceptance failed after commit",
@@ -500,7 +487,7 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 	}
 
 	return http.StatusOK, networkApplyResponse{
-		Success: true, Applied: true, Operation: "network", ISP: req.ISP, DNSMode: req.DNSMode,
+		Success: true, Applied: true, Operation: "network", DNSMode: req.DNSMode,
 		NativeDNSProvider: req.NativeDNSProvider,
 		Message: "Сетевой профиль приведён к целевому состоянию, проверен и сохранён.",
 		RollbackState: "NOT_NEEDED", Plan: post,
@@ -660,9 +647,9 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 	}
 }
 
-func (a *app) createNetworkDraftConfig(isp, dnsMode, nativeProvider string) (string, error) {
-	if !validNetworkSelection(isp, dnsMode) {
-		return "", errors.New("unsupported ISP or DNS mode")
+func (a *app) createNetworkDraftConfig(dnsMode, nativeProvider string) (string, error) {
+	if !validNetworkSelection(dnsMode) {
+		return "", errors.New("unsupported DNS mode")
 	}
 	if !validNativeDNSProvider(nativeProvider) {
 		return "", errors.New("unsupported Native DNS provider")
@@ -692,7 +679,7 @@ func (a *app) createNetworkDraftConfig(isp, dnsMode, nativeProvider string) (str
 	if err := f.Close(); err != nil {
 		return "", err
 	}
-	if err := writeNetworkProfileConfigWithNativeProvider(name, isp, dnsMode, nativeProvider); err != nil {
+	if err := writeNetworkProfileConfigWithNativeProvider(name, dnsMode, nativeProvider); err != nil {
 		return "", err
 	}
 	remove = false
@@ -713,8 +700,8 @@ func runNetworkHelperWithConfig(ctx context.Context, configPath string, args ...
 	return output, err
 }
 
-func (a *app) runNetworkPlanFor(isp, dnsMode, nativeProvider string) (networkPlanResponse, error) {
-	draft, err := a.createNetworkDraftConfig(isp, dnsMode, nativeProvider)
+func (a *app) runNetworkPlanFor(dnsMode, nativeProvider string) (networkPlanResponse, error) {
+	draft, err := a.createNetworkDraftConfig(dnsMode, nativeProvider)
 	if err != nil {
 		return networkPlanResponse{}, err
 	}
@@ -730,8 +717,8 @@ func (a *app) runNetworkPlanFor(isp, dnsMode, nativeProvider string) (networkPla
 	if parseErr != nil {
 		return plan, parseErr
 	}
-	if plan.ISP != isp || plan.DNSMode != dnsMode {
-		return plan, errors.New("network helper did not plan the exact requested draft")
+	if plan.DNSMode != dnsMode {
+		return plan, errors.New("network helper did not plan the exact requested DNS draft")
 	}
 	if cmdErr != nil {
 		return plan, errors.New("network plan helper failed")
@@ -741,8 +728,8 @@ func (a *app) runNetworkPlanFor(isp, dnsMode, nativeProvider string) (networkPla
 	return plan, nil
 }
 
-func (a *app) runNetworkApplyFor(ctx context.Context, isp, dnsMode, nativeProvider string) ([]byte, error) {
-	draft, err := a.createNetworkDraftConfig(isp, dnsMode, nativeProvider)
+func (a *app) runNetworkApplyFor(ctx context.Context, dnsMode, nativeProvider string) ([]byte, error) {
+	draft, err := a.createNetworkDraftConfig(dnsMode, nativeProvider)
 	if err != nil {
 		return nil, err
 	}
@@ -750,15 +737,15 @@ func (a *app) runNetworkApplyFor(ctx context.Context, isp, dnsMode, nativeProvid
 	return runNetworkHelperWithConfig(ctx, draft, "apply")
 }
 
-func (a *app) rollbackNetworkSelection(isp, dnsMode, nativeProvider string) string {
+func (a *app) rollbackNetworkSelection(dnsMode, nativeProvider string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
-	output, err := a.runNetworkApplyFor(ctx, isp, dnsMode, nativeProvider)
+	output, err := a.runNetworkApplyFor(ctx, dnsMode, nativeProvider)
 	cancel()
 	if err != nil {
 		_ = output
 		return "FAILED/UNKNOWN"
 	}
-	if err := writeNetworkProfileConfigWithNativeProvider(a.cfg.ConfigPath, isp, dnsMode, nativeProvider); err != nil {
+	if err := writeNetworkProfileConfigWithNativeProvider(a.cfg.ConfigPath, dnsMode, nativeProvider); err != nil {
 		return "FAILED/UNKNOWN"
 	}
 	post, err := a.runNetworkPlan()
@@ -769,10 +756,9 @@ func (a *app) rollbackNetworkSelection(isp, dnsMode, nativeProvider string) stri
 }
 
 func (a *app) runNetworkPlan() (networkPlanResponse, error) {
-	isp, dnsMode := readNetworkProfileConfig(a.cfg.ConfigPath)
+	dnsMode := readDNSModeConfig(a.cfg.ConfigPath)
 	nativeProvider := readNativeDNSProvider(a.cfg.ConfigPath)
-	plan, err := a.runNetworkPlanFor(isp, dnsMode, nativeProvider)
-	plan.ActiveISP = isp
+	plan, err := a.runNetworkPlanFor(dnsMode, nativeProvider)
 	plan.ActiveDNSMode = dnsMode
 	decorateNativeDNSProviderPlan(&plan, nativeProvider, nativeProvider)
 	return plan, err
@@ -910,18 +896,18 @@ func parseNetworkPlan(output string) (networkPlanResponse, error) {
 			continue
 		}
 		switch key {
-		case "ISP_ID", "DNS_MODE", "EFFECTIVE_DNS_MODE", "SUPPORTED", "REASON", "PROXY_DNS", "NDM_DNS_OVERRIDE", "NDM_FILTER_ENGINE", "NDM_DNS_INTERCEPT", "NDM_DNS_ASSIGNMENTS", "PORT53_OWNER", "XRAY_DNS_INBOUND_COUNT", "XRAY_RUNNING", "XRAY_GID", "DNS_ROUTING_MODE", "DNS_OUT", "VLESS_PROFILE", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
+		case "DNS_MODE", "EFFECTIVE_DNS_MODE", "SUPPORTED", "REASON", "PROXY_DNS", "NDM_DNS_OVERRIDE", "NDM_FILTER_ENGINE", "NDM_DNS_INTERCEPT", "NDM_DNS_ASSIGNMENTS", "PORT53_OWNER", "XRAY_DNS_INBOUND_COUNT", "XRAY_RUNNING", "XRAY_GID", "DNS_ROUTING_MODE", "DNS_OUT", "VLESS_PROFILE", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
 			values[key] = strings.TrimSpace(value)
 		}
 	}
-	if values["ISP_ID"] == "" || values["DNS_MODE"] == "" || values["SUPPORTED"] == "" || values["MUTATION"] == "" {
+	if values["DNS_MODE"] == "" || values["SUPPORTED"] == "" || values["MUTATION"] == "" {
 		return networkPlanResponse{}, errors.New("incomplete network plan")
 	}
 	if values["MUTATION"] != "NONE" {
 		return networkPlanResponse{}, errors.New("network plan unexpectedly reports mutation")
 	}
 	plan := networkPlanResponse{
-		Success: true, Supported: values["SUPPORTED"] == "yes", ISP: values["ISP_ID"], DNSMode: values["DNS_MODE"],
+		Success: true, Supported: values["SUPPORTED"] == "yes", DNSMode: values["DNS_MODE"],
 		EffectiveDNSMode: values["EFFECTIVE_DNS_MODE"], Reason: values["REASON"], ProxyDNS: values["PROXY_DNS"],
 		NDMDNSOverride: values["NDM_DNS_OVERRIDE"], NDMFilterEngine: values["NDM_FILTER_ENGINE"],
 		NDMDNSIntercept: values["NDM_DNS_INTERCEPT"], NDMDNSAssignments: values["NDM_DNS_ASSIGNMENTS"],
