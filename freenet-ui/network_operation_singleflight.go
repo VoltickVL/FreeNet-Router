@@ -10,7 +10,7 @@ import (
 	"sync"
 )
 
-// Duplicate browser submissions for the same ISP/DNS target must collapse into
+// Duplicate browser submissions for the same DNS target must collapse into
 // one authoritative mutation. Followers wait for the leader and receive the
 // exact same terminal result; they never start a second mutation.
 type networkApplyFlight struct {

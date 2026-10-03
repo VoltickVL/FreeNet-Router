@@ -681,7 +681,7 @@ run_plan() {
     else
         say 'EXPECTED_DELTA=NONE; selected FreeNet version is already installed'
     fi
-    say 'EXPECTED_NO_DELTA=subscription secret; Xray credentials/config; ISP/DNS/routing state; XKeen/Xray/XKeen UI core; cron'
+    say 'EXPECTED_NO_DELTA=subscription secret; Xray credentials/config; DNS/routing state; legacy config keys; XKeen/Xray/XKeen UI core; cron'
     say 'MUTATION=NONE'
 }
 

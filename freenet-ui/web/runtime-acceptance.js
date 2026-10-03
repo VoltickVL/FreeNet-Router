@@ -92,7 +92,7 @@
     const legacyState = q('#dnsState');
     if (legacyState) legacyState.textContent = text;
     const quickGuard = q('#quickNetworkGuard');
-    if (quickGuard) quickGuard.textContent = `VPN-действия не меняют ISP и DNS. Текущий DNS-режим: ${text}.`;
+    if (quickGuard) quickGuard.textContent = `VPN-действия не меняют DNS. Текущий DNS-режим: ${text}.`;
   }
 
   function syncCountryButton() {

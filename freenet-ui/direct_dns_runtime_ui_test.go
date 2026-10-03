@@ -18,7 +18,7 @@ func TestDirectDNSRuntimeStatusDoesNotRequireDNSOut(t *testing.T) {
 		`const dnsHealthy = xrayDNS ? !!s.dns_out_present : true;`,
 		`dnsState.textContent = xrayDNS ? (s.dns_out_present ? 'Раздельный' : 'Раздельный · требует внимания') : 'Прямой';`,
 		`topStatus.textContent = 'FreeNet доступен';`,
-		`VPN-действия не меняют ISP и DNS.`,
+		`VPN-действия не меняют DNS.`,
 	} {
 		if !strings.Contains(ux, required) {
 			t.Fatalf("direct-DNS runtime UI contract missing %q", required)

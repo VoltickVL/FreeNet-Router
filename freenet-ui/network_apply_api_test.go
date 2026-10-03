@@ -33,7 +33,6 @@ func testNetworkApp(t *testing.T, configText string) *app {
 func supportedPlanOutput() string {
 	return strings.Join([]string{
 		"========== FreeNet Network Plan ==========",
-		"ISP_ID=rostelecom",
 		"DNS_MODE=firmware",
 		"EFFECTIVE_DNS_MODE=firmware",
 		"SUPPORTED=yes",
@@ -59,7 +58,6 @@ func supportedPlanOutput() string {
 
 func dynamicPlanHelper(applyTail string) string {
 	return `CONF="$FREENET_CONFIG_FILE"
-ISP="$(sed -n 's/^ISP_ID=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
 DNS="$(sed -n 's/^DNS_MODE=//p' "$CONF" | tail -n 1 | tr -d "'\"")"
 case "$DNS" in
   auto|firmware)
@@ -72,7 +70,6 @@ esac
 if [ "$1" = plan ]; then
 cat <<EOF
 ========== FreeNet Network Plan ==========
-ISP_ID=$ISP
 DNS_MODE=$DNS
 EFFECTIVE_DNS_MODE=$EFFECTIVE
 SUPPORTED=yes
@@ -105,7 +102,7 @@ func TestParseNetworkPlanAllowlistsFieldsAndDropsSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plan.Success || !plan.Supported || plan.ISP != "rostelecom" || plan.Port53Owner != "ndnproxy" || plan.XrayGID != "11111" {
+	if !plan.Success || !plan.Supported || plan.Port53Owner != "ndnproxy" || plan.XrayGID != "11111" {
 		t.Fatalf("unexpected plan: %+v", plan)
 	}
 	b, err := json.Marshal(plan)
@@ -130,13 +127,13 @@ func TestParseNetworkPlanRejectsUnexpectedMutation(t *testing.T) {
 func TestNetworkPlanUsesDraftWithoutPersistingIt(t *testing.T) {
 	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("exit 0"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
 	before, err := os.ReadFile(a.cfg.ConfigPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?isp=vladlink&dns_mode=xkeen", nil)
+	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan?dns_mode=xkeen", nil)
 	w := httptest.NewRecorder()
 	a.handleNetworkProfilePlan(w, r)
 	if w.Code != http.StatusOK {
@@ -146,7 +143,7 @@ func TestNetworkPlanUsesDraftWithoutPersistingIt(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
-	if plan.ISP != "vladlink" || plan.DNSMode != "xkeen" || plan.ActiveISP != "rostelecom" || plan.ActiveDNSMode != "firmware" || plan.Active {
+	if plan.DNSMode != "xkeen" || plan.ActiveDNSMode != "firmware" || plan.Active {
 		t.Fatalf("draft/active state mixed: %+v", plan)
 	}
 	after, err := os.ReadFile(a.cfg.ConfigPath)
@@ -160,11 +157,11 @@ func TestNetworkPlanUsesDraftWithoutPersistingIt(t *testing.T) {
 
 func TestNetworkApplyRequiresConfirmationButNotPreSave(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "applied")
-	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("echo \"$ISP/$DNS\" > \""+marker+"\"\necho '[FreeNet Network] RESULT=SUCCESS'\nexit 0"))
+	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("echo \"$DNS\" > \""+marker+"\"\necho '[FreeNet Network] RESULT=SUCCESS'\nexit 0"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 
-	noConfirm := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(`{"isp":"vladlink","dns_mode":"xkeen","confirm":false}`))
+	noConfirm := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(`{"dns_mode":"xkeen","confirm":false}`))
 	noConfirm.Host = "192.168.50.1:1001"
 	noConfirm.Header.Set("Origin", "http://192.168.50.1:1001")
 	noConfirm.Header.Set("Content-Type", "application/json")
@@ -177,7 +174,7 @@ func TestNetworkApplyRequiresConfirmationButNotPreSave(t *testing.T) {
 		t.Fatal("apply helper ran without confirmation")
 	}
 
-	payload := `{"isp":"vladlink","dns_mode":"xkeen","confirm":true}`
+	payload := `{"dns_mode":"xkeen","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
@@ -187,25 +184,25 @@ func TestNetworkApplyRequiresConfirmationButNotPreSave(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
-	if got, err := os.ReadFile(marker); err != nil || strings.TrimSpace(string(got)) != "vladlink/xkeen" {
+	if got, err := os.ReadFile(marker); err != nil || strings.TrimSpace(string(got)) != "xkeen" {
 		t.Fatalf("helper did not receive exact draft: %q err=%v", got, err)
 	}
-	isp, dns := readNetworkProfileConfig(a.cfg.ConfigPath)
-	if isp != "vladlink" || dns != "xkeen" {
-		t.Fatalf("accepted draft not committed: %s/%s", isp, dns)
+	dns := readDNSModeConfig(a.cfg.ConfigPath)
+	if dns != "xkeen" {
+		t.Fatalf("accepted DNS draft not committed: %s", dns)
 	}
 }
 
 func TestNetworkApplyFailureKeepsPreviousActiveConfig(t *testing.T) {
 	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("echo '[FreeNet Network] ERROR: PRIMARY ERROR: post-apply Split DNS acceptance failed' >&2\necho '[FreeNet Network] ERROR: ROLLBACK ERROR/STATE: rollback success' >&2\nexit 1"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\nSETUP_COMPLETE=yes\n")
 	before, err := os.ReadFile(a.cfg.ConfigPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	payload := `{"isp":"vladlink","dns_mode":"xkeen","confirm":true}`
+	payload := `{"dns_mode":"xkeen","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
@@ -248,13 +245,13 @@ func TestClassifyApplyFailurePreservesNetworkPreflightDetail(t *testing.T) {
 func TestNetworkApplyPreflightFailureReturnsExactSanitizedReason(t *testing.T) {
 	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("echo '[FreeNet Network] ERROR: не удалось определить Keenetic filter engine' >&2\necho '[FreeNet Network] ERROR: PRIMARY ERROR: native DNS preflight failed before mutation' >&2\necho '[FreeNet Network] ERROR: ROLLBACK ERROR/STATE: no live apply' >&2\nexit 1"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=xkeen\nSETUP_COMPLETE=yes\n")
+	a := testNetworkApp(t, "DNS_MODE=xkeen\nSETUP_COMPLETE=yes\n")
 	before, err := os.ReadFile(a.cfg.ConfigPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	payload := `{"isp":"vladlink","dns_mode":"firmware","confirm":true}`
+	payload := `{"dns_mode":"firmware","confirm":true}`
 	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile/apply", strings.NewReader(payload))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
@@ -284,7 +281,7 @@ func TestNetworkApplyPreflightFailureReturnsExactSanitizedReason(t *testing.T) {
 func TestNetworkPlanHandlerUsesExactAllowlistedHelper(t *testing.T) {
 	helper := writeFakeNetworkHelper(t, dynamicPlanHelper("exit 9"))
 	t.Setenv("FREENET_NETWORK_HELPER", helper)
-	a := testNetworkApp(t, "ISP_ID=rostelecom\nDNS_MODE=firmware\n")
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
 
 	r := httptest.NewRequest(http.MethodGet, "http://192.168.50.1:1001/api/network-profile/plan", nil)
 	w := httptest.NewRecorder()

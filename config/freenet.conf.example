@@ -4,7 +4,6 @@
 
 UI_PORT=1001
 SETUP_COMPLETE=no
-ISP_ID=auto
 # Пользовательские режимы: `DNS через роутер` = firmware;
 # `Раздельный DNS` = xkeen. Технические названия core в UI не показываются.
 DNS_MODE=firmware

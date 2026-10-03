@@ -28,7 +28,7 @@ func TestSelfUpdateScriptIsEmbeddedAndServed(t *testing.T) {
 
 func TestLegacyNetworkSaveEndpointCannotPersistDraft(t *testing.T) {
 	a := &app{cfg: config{UpdateLock: t.TempDir() + "/no-lock"}}
-	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile", strings.NewReader(`{"isp":"vladlink","dns_mode":"xkeen"}`))
+	r := httptest.NewRequest(http.MethodPost, "http://192.168.50.1:1001/api/network-profile", strings.NewReader(`{"dns_mode":"xkeen"}`))
 	r.Host = "192.168.50.1:1001"
 	r.Header.Set("Origin", "http://192.168.50.1:1001")
 	r.Header.Set("Content-Type", "application/json")
@@ -50,10 +50,9 @@ func TestNetworkDraftEnhancementRemovesSaveFirstFlow(t *testing.T) {
 	text := string(js)
 	for _, required := range []string{
 		"Проверить изменения",
-		"Активный ISP/DNS будет сохранён только после успешной проверки результата",
+		"Активный DNS-профиль будет сохранён только после успешной проверки результата",
 		"/api/network-profile/plan?",
-		"q.set('isp', isp.value)",
-		"q.set('dns_mode', dns.value)",
+				"q.set('dns_mode', dns.value)",
 		"if (oldSave) oldSave.hidden = true",
 	} {
 		if !strings.Contains(text, required) {

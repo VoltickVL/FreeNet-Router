@@ -7,7 +7,6 @@ import (
 
 func TestParseNetworkPlanMarksNativeKeeneticDNSActive(t *testing.T) {
 	out := strings.Join([]string{
-		"ISP_ID=rostelecom",
 		"DNS_MODE=firmware",
 		"EFFECTIVE_DNS_MODE=firmware",
 		"SUPPORTED=yes",
@@ -45,7 +44,6 @@ func TestParseNetworkPlanMarksNativeKeeneticDNSActive(t *testing.T) {
 
 func TestParseNetworkPlanRejectsLegacyStandardAsNative(t *testing.T) {
 	out := strings.Join([]string{
-		"ISP_ID=rostelecom",
 		"DNS_MODE=firmware",
 		"EFFECTIVE_DNS_MODE=firmware",
 		"SUPPORTED=yes",
