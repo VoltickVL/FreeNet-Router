@@ -162,9 +162,9 @@ save_config() {
             if (!geo) print "AUTO_XKEEN_GEODATA=" geodata
             if (!cron) print "AUTO_XKEEN_GEODATA_CRON=\047" geodata_cron "\047"
         }
-    ' "$CONFIG_FILE" > "$CONFIG_FILE.tmp.$" || return 1
-    chmod 600 "$CONFIG_FILE.tmp.$" 2>/dev/null || true
-    mv -f "$CONFIG_FILE.tmp.$" "$CONFIG_FILE"
+    ' "$CONFIG_FILE" > "$CONFIG_FILE.tmp.$$" || return 1
+    chmod 600 "$CONFIG_FILE.tmp.$$" 2>/dev/null || true
+    mv -f "$CONFIG_FILE.tmp.$$" "$CONFIG_FILE"
 }
 
 get_arch() {
