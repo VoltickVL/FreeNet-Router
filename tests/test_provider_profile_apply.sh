@@ -53,20 +53,20 @@ chmod 755 "$TMP/bin/xkeen"
 
 cat > "$TMP/bin/provider-route-probe" <<EOF
 #!/bin/sh
-MODE="$(cat "$TMP/route-probe.mode" 2>/dev/null || echo pass)"
-case "$MODE" in
+MODE="\$(cat "$TMP/route-probe.mode" 2>/dev/null || echo pass)"
+case "\$MODE" in
   fail-all) exit 1 ;;
   fail-live-once)
-    if [ "$1" = "$TMP/configs/04_outbounds.json" ]; then
+    if [ "\$1" = "$TMP/configs/04_outbounds.json" ]; then
       COUNT=0
-      [ -f "$TMP/route-probe-live.count" ] && COUNT="$(cat "$TMP/route-probe-live.count")"
-      COUNT=$((COUNT+1))
-      printf '%s\n' "$COUNT" > "$TMP/route-probe-live.count"
-      [ "$COUNT" -eq 1 ] && exit 1
+      [ -f "$TMP/route-probe-live.count" ] && COUNT="\$(cat "$TMP/route-probe-live.count")"
+      COUNT=\$((COUNT+1))
+      printf '%s\n' "\$COUNT" > "$TMP/route-probe-live.count"
+      [ "\$COUNT" -eq 1 ] && exit 1
     fi
     ;;
 esac
-[ -s "$1" ] || exit 1
+[ -s "\$1" ] || exit 1
 exit 0
 EOF
 chmod 755 "$TMP/bin/provider-route-probe"
