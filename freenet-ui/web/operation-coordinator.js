@@ -454,6 +454,9 @@
     } else if (latencyOnlyWarning(candidate)) {
       box.className = 'current-health warning';
       box.textContent = 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nАвтоматическое переключение на такой профиль запрещено.';
+    } else if (Number(candidate?.fallback_download_mbps || 0) > 0 && candidate?.throughput_source === 'current_fallback') {
+      box.className = 'current-health neutral';
+      box.textContent = 'VPN доступен. Строгий сравнимый замер скорости не получен.\nБыстрый контроль канала не участвует в выборе Best Server/AUTO VPN.';
     } else {
       box.className = 'current-health neutral';
       box.textContent = 'VPN доступен, но часть критериев качества не пройдена.';
@@ -483,7 +486,7 @@
       const speedSuffix = strictMeasured
         ? ' · ' + metric(shown, 'speed')
         : fallbackMeasured
-          ? ' · быстрый замер ' + metric(shown, 'fallback_speed')
+          ? ' · быстрый контроль ' + metric(shown, 'fallback_speed')
           : '';
       setText(qs('#bestCurrentQuality'), `Последняя проверка: ${time || 'сейчас'}${speedSuffix}`);
       setText(qs('#bestServerStatus'), candidate ? 'Проверка текущего VPN завершена.' : 'Проверка текущего VPN завершена. Показан последний подтверждённый замер.');
