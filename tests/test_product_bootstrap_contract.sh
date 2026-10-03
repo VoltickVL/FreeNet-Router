@@ -83,6 +83,19 @@ grep -Fq 'SETUP_COMPLETE=no' "$INSTALL" || fail 'installer fresh/default setup s
 grep -Fq 'AUTO_ENDPOINT_UPDATE=no' "$INSTALL" || fail 'installer fresh/default endpoint update должен быть выключен'
 grep -Fq 'SETUP_COMPLETE=$SETUP_COMPLETE' "$INSTALL" || fail 'installer не сохраняет setup-complete state'
 
+# Compatibility CLI больше не является вторым AUTO settings owner и при сохранении
+# своих локальных параметров не имеет права перезаписывать современный config.
+SAVE_BLOCK="$(sed -n '/^save_config() {/,/^}/p' "$INSTALL")"
+MENU_BLOCK="$(sed -n '/^configure_menu() {/,/^}/p' "$INSTALL")"
+printf '%s\n' "$SAVE_BLOCK" | grep -Fq '{ print }' || fail 'CLI save_config не сохраняет неизвестные/современные ключи'
+if printf '%s\n' "$SAVE_BLOCK" | grep -Eq 'print "?(SETUP_COMPLETE|AUTO_ENDPOINT_UPDATE|AUTO_ENDPOINT_CRON)='; then
+    fail 'CLI save_config всё ещё владеет AUTO/setup ключами'
+fi
+printf '%s\n' "$MENU_BLOCK" | grep -Fq 'AUTO VPN / health-watch / endpoint recovery управляются только в FreeNet Control Center.' || fail 'CLI не объясняет canonical AUTO owner'
+if printf '%s\n' "$MENU_BLOCK" | grep -Fq 'Автообновление endpoint/IP'; then
+    fail 'CLI всё ещё предлагает parallel AUTO endpoint control'
+fi
+
 # Существующая subscription никогда не печатается и не заменяется bootstrap-ом.
 if grep -Eq 'cat[[:space:]]+.*blanc_subscription|Введите URL подписки|read.*SUB' "$BOOT"; then
     fail 'bootstrap не должен раскрывать или запрашивать subscription secret'
