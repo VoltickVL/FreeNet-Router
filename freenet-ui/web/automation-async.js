@@ -171,7 +171,11 @@
     if (latency) latency.textContent = automation.current_quality_known && automation.current_latency_ms ? `${automation.current_latency_ms} мс` : '—';
     if (speed) speed.textContent = automation.current_quality_known && automation.current_download_mbps ? `${Math.round(automation.current_download_mbps)} Мбит/с` : '—';
     if (jitter) jitter.textContent = automation.current_quality_known && automation.current_jitter_ms ? `${automation.current_jitter_ms} мс` : '—';
-    if (health) health.textContent = automation.current_quality_known ? 'Текущий VPN работает стабильно.' : 'FreeNet контролирует доступность текущего VPN.';
+    if (health) {
+      health.textContent = automation.mutation_blocked
+        ? 'AUTO VPN остановлен после неподтверждённого rollback. FreeNet выполняет только read-only проверку фактического состояния.'
+        : (automation.current_quality_known ? 'Текущий VPN работает стабильно.' : 'FreeNet контролирует доступность текущего VPN.');
+    }
     applyFullDates(data);
   }
 
