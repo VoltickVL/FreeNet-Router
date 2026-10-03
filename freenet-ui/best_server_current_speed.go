@@ -15,8 +15,9 @@ const (
 
 // probeBestServerCurrentFallbackDownload is an observability-only fallback for
 // the explicit current-VPN check. It runs through the same temporary SOCKS/VPN
-// path as the strict media probe. Its result may be displayed, but it does not
-// change Media.OK or any Best Server/AUTO eligibility requirement.
+// path as the strict media probe. Its result is published only as
+// fallback_download_mbps/current_fallback provenance; it must never populate the
+// canonical comparable download_mbps field or affect Best Server/AUTO decisions.
 func probeBestServerCurrentFallbackDownload(ctx context.Context, curlPath, socks string) (float64, string) {
 	if strings.TrimSpace(curlPath) == "" || strings.TrimSpace(socks) == "" {
 		return 0, "current VPN fallback throughput probe unavailable"
