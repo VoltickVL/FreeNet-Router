@@ -11,9 +11,10 @@ for NEEDLE in \
     'SETUP_COMPLETE=yes' \
     'xkeen -auto on' \
     '# BEGIN FREENET' \
-    'AUTO_ENDPOINT_UPDATE' \
-    'AUTO_VPN_FAILOVER' \
-    '/opt/bin/vpn failover' \
+    'settings-v3-reconcile' \
+    'automation-health-watch' \
+    'settings-v3-endpoint-refresh' \
+    'SCHEDULER_OWNER=FreeNet Settings v3' \
     'NETWORK_EFFECTIVE_DNS_MODE' \
     'NETWORK_PROXY_DNS' \
     'ACTIVE_VPN_FILTER_SET' \
@@ -45,10 +46,16 @@ INSTALL_SCENARIO=existing_stack
 SETUP_COMPLETE=no
 ISP_ID=rostelecom
 DNS_MODE=xkeen
+AUTO_VPN_V1=no
+AUTO_VPN_MODE=best
+AUTO_VPN_HEALTH_INTERVAL=1m
+AUTO_VPN_V1_INTERVAL=manual
 AUTO_ENDPOINT_UPDATE=no
 AUTO_ENDPOINT_CRON='*/15 * * * *'
 AUTO_XKEEN_GEODATA=yes
 AUTO_XKEEN_GEODATA_CRON='30 6 * * *'
+AUTO_GEODATA_ENABLED=yes
+AUTO_GEODATA_INTERVAL=24h
 EOF
 printf '%s\n' 'https://example.invalid/key' > "$SUB"
 printf '%s\n' 'Poland Warsaw Extra' > "$PROFILE"
@@ -92,12 +99,59 @@ cat > "$TROOT/sbin/xray" <<'EOF'
 exit 0
 EOF
 chmod 755 "$TROOT/sbin/xray"
-cat > "$TROOT/bin/vpn" <<'EOF'
+cat > "$TROOT/sbin/freenet-ui" <<'EOF'
 #!/bin/sh
-[ "${1:-}" = failover ] || exit 2
-exit 0
+[ "${1:-}" = settings-v3-reconcile ] || exit 2
+CURRENT="$(mktemp)"
+NEW="$(mktemp)"
+trap 'rm -f "$CURRENT" "$NEW"' EXIT INT TERM
+"$FREENET_CRONTAB_BIN" -l > "$CURRENT" 2>/dev/null || :
+awk '
+    /^# BEGIN FREENET$/ {skip=1; next}
+    /^# END FREENET$/ {skip=0; next}
+    skip {next}
+    /[[:space:]]\/opt\/bin\/blanc_xkeen_update_outbounds\.sh([[:space:]]|$)/ {next}
+    /[[:space:]]\/opt\/bin\/vpn[[:space:]]+failover([[:space:]]|$)/ {next}
+    /[[:space:]]\/opt\/lib\/freenet\/auto_vpn\.sh[[:space:]]+run([[:space:]]|$)/ {next}
+    /[[:space:]]automation-best-run([[:space:]]|$)/ {next}
+    /[[:space:]]automation-health-watch([[:space:]]|$)/ {next}
+    /[[:space:]]settings-v3-endpoint-refresh([[:space:]]|$)/ {next}
+    /[[:space:]]\/opt\/sbin\/xkeen[[:space:]]+-ug([[:space:]]|$)/ {next}
+    {print}
+' "$CURRENT" > "$NEW" || exit 1
+value() {
+    key="$1"; def="$2"
+    got="$(sed -n "s/^${key}=//p" "$FREENET_CONFIG_FILE" | tail -n 1 | tr -d "'\"\r")"
+    [ -n "$got" ] && printf '%s\n' "$got" || printf '%s\n' "$def"
+}
+AUTO="$(value AUTO_VPN_V1 no)"
+MODE="$(value AUTO_VPN_MODE best)"
+HEALTH="$(value AUTO_VPN_HEALTH_INTERVAL 1m)"
+INTERVAL="$(value AUTO_VPN_V1_INTERVAL manual)"
+GEO="$(value AUTO_GEODATA_ENABLED "$(value AUTO_XKEEN_GEODATA yes)")"
+{
+    echo '# BEGIN FREENET'
+    [ "$GEO" = yes ] && echo "30 6 * * * /opt/sbin/xkeen -ug"
+    if [ "$AUTO" = yes ]; then
+        case "$HEALTH" in
+            5m) echo "*/5 * * * * '$FREENET_UI_BIN' automation-health-watch" ;;
+            *) echo "* * * * * '$FREENET_UI_BIN' automation-health-watch" ;;
+        esac
+        if [ "$MODE" = endpoint ] && [ "$INTERVAL" != manual ]; then
+            case "$INTERVAL" in
+                30m) echo "1,31 * * * * '$FREENET_UI_BIN' settings-v3-endpoint-refresh" ;;
+                1h) echo "1 * * * * '$FREENET_UI_BIN' settings-v3-endpoint-refresh" ;;
+                3h) echo "1 */3 * * * '$FREENET_UI_BIN' settings-v3-endpoint-refresh" ;;
+                6h) echo "1 */6 * * * '$FREENET_UI_BIN' settings-v3-endpoint-refresh" ;;
+                *) exit 1 ;;
+            esac
+        fi
+    fi
+    echo '# END FREENET'
+} >> "$NEW"
+"$FREENET_CRONTAB_BIN" "$NEW"
 EOF
-chmod 755 "$TROOT/bin/vpn"
+chmod 755 "$TROOT/sbin/freenet-ui"
 cat > "$TROOT/lib/freenet/apply_network_profile.sh" <<'EOF'
 #!/bin/sh
 [ "${1:-}" = plan ] || exit 2
@@ -136,7 +190,7 @@ run_finalize() {
     FREENET_XRAY_ASSET_DIR="$TROOT/etc/xray/dat" \
     FREENET_XKEEN_BIN="$TROOT/sbin/xkeen" \
     FREENET_XRAY_BIN="$TROOT/sbin/xray" \
-    FREENET_VPN_BIN="$TROOT/bin/vpn" \
+    FREENET_UI_BIN="$TROOT/sbin/freenet-ui" \
     FREENET_NETWORK_HELPER="$TROOT/lib/freenet/apply_network_profile.sh" \
     FREENET_CRONTAB_BIN="$CRON_BIN" \
     FREENET_FINALIZE_TEST_MODE=yes \
@@ -155,8 +209,9 @@ grep -Fq 'XKEEN_AUTOSTART=off' "$TMP/plan.out" || fail 'plan must expose autosta
 grep -Fq 'NETWORK_EFFECTIVE_DNS_MODE=xkeen' "$TMP/plan.out" || fail 'plan must expose effective split-DNS mode'
 grep -Fq 'NETWORK_PROXY_DNS=on' "$TMP/plan.out" || fail 'plan must expose legacy proxy_dns fact'
 grep -Fq 'ACTIVE_VPN_FILTER_SET=yes' "$TMP/plan.out" || fail 'managed VPN filter must be exposed'
-grep -Fq 'AUTO_VPN_FAILOVER=no' "$TMP/plan.out" || fail 'legacy config must default failover to disabled'
-grep -Fq 'keep automatic VPN failover disabled' "$TMP/plan.out" || fail 'plan must disclose disabled failover'
+grep -Fq 'AUTO_VPN_ENABLED=no' "$TMP/plan.out" || fail 'AUTO VPN disabled state not exposed'
+grep -Fq 'AUTO_VPN_MODE=best' "$TMP/plan.out" || fail 'AUTO VPN mode not exposed'
+grep -Fq 'keep AUTO VPN scheduler disabled' "$TMP/plan.out" || fail 'plan must disclose disabled canonical scheduler'
 grep -Fq 'enable XKeen autostart through xkeen -auto on' "$TMP/plan.out" || fail 'plan must disclose autostart delta'
 grep -Fq 'MUTATION=NONE' "$TMP/plan.out" || fail 'plan must be read-only'
 
@@ -180,36 +235,39 @@ if grep -q '^[^#].*/opt/bin/vpn[[:space:]]\+failover' "$CRON_STORE"; then
     fail 'legacy config must not silently enable failover'
 fi
 
-# Explicit failover enablement is independent from endpoint refresh.
+# Canonical endpoint-only AUTO mode is reconciled by the FreeNet UI scheduler owner.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
 sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
-printf '%s\n' 'AUTO_VPN_FAILOVER=yes' >> "$CONF"
-printf '%s\n' "AUTO_VPN_FAILOVER_CRON='7,22,37,52 * * * *'" >> "$CONF"
-run_finalize plan > "$TMP/failover-plan.out"
-grep -Fq 'AUTO_VPN_FAILOVER=yes' "$TMP/failover-plan.out" || fail 'explicit failover enablement not exposed'
-grep -Fq 'activate configured VPN failover schedule' "$TMP/failover-plan.out" || fail 'failover delta missing'
-if ! run_finalize apply > "$TMP/failover-apply.out" 2>&1; then
-    cat "$TMP/failover-apply.out" >&2
-    fail 'failover-enabled finalize should succeed'
+sed -i 's/^AUTO_VPN_V1=.*/AUTO_VPN_V1=yes/' "$CONF"
+sed -i 's/^AUTO_VPN_MODE=.*/AUTO_VPN_MODE=endpoint/' "$CONF"
+sed -i 's/^AUTO_VPN_HEALTH_INTERVAL=.*/AUTO_VPN_HEALTH_INTERVAL=30s/' "$CONF"
+sed -i 's/^AUTO_VPN_V1_INTERVAL=.*/AUTO_VPN_V1_INTERVAL=30m/' "$CONF"
+run_finalize plan > "$TMP/endpoint-plan.out"
+grep -Fq 'AUTO_VPN_ENABLED=yes' "$TMP/endpoint-plan.out" || fail 'canonical AUTO enablement not exposed'
+grep -Fq 'AUTO_VPN_MODE=endpoint' "$TMP/endpoint-plan.out" || fail 'endpoint mode not exposed'
+grep -Fq 'activate canonical endpoint refresh schedule' "$TMP/endpoint-plan.out" || fail 'endpoint schedule delta missing'
+if ! run_finalize apply > "$TMP/endpoint-apply.out" 2>&1; then
+    cat "$TMP/endpoint-apply.out" >&2
+    fail 'endpoint-mode finalize should succeed'
 fi
-grep -Fq '7,22,37,52 * * * * /opt/bin/vpn failover' "$CRON_STORE" || fail 'managed failover cron missing'
-if grep -q '^[^#].*/opt/bin/blanc_xkeen_update_outbounds.sh' "$CRON_STORE"; then
-    fail 'enabling failover must not enable endpoint refresh'
-fi
-grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry lost after failover enablement'
+grep -Fq "automation-health-watch" "$CRON_STORE" || fail 'canonical health watchdog missing'
+grep -Fq "settings-v3-endpoint-refresh" "$CRON_STORE" || fail 'canonical endpoint refresh missing'
+for LEGACY in '/opt/bin/blanc_xkeen_update_outbounds.sh' '/opt/bin/vpn failover' 'automation-best-run' '/opt/lib/freenet/auto_vpn.sh run'; do
+    if grep -Fq "$LEGACY" "$CRON_STORE"; then fail "legacy scheduler survived finalize: $LEGACY"; fi
+done
+grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry lost after endpoint-mode finalize'
 
-# Disabling failover removes an existing active failover job while preserving foreign jobs.
+# Full AUTO keeps watchdog but never retains the endpoint-only or legacy scheduler.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
 sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
-sed -i 's/^AUTO_VPN_FAILOVER=.*/AUTO_VPN_FAILOVER=no/' "$CONF"
-if ! run_finalize apply > "$TMP/failover-disable.out" 2>&1; then
-    cat "$TMP/failover-disable.out" >&2
-    fail 'failover-disabled finalize should succeed'
+sed -i 's/^AUTO_VPN_MODE=.*/AUTO_VPN_MODE=best/' "$CONF"
+if ! run_finalize apply > "$TMP/full-auto-apply.out" 2>&1; then
+    cat "$TMP/full-auto-apply.out" >&2
+    fail 'full-AUTO finalize should succeed'
 fi
-if grep -q '^[^#].*/opt/bin/vpn[[:space:]]\+failover' "$CRON_STORE"; then
-    fail 'disabled failover cron remains active'
-fi
-grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry lost after failover disablement'
+grep -Fq 'automation-health-watch' "$CRON_STORE" || fail 'full AUTO watchdog missing'
+if grep -Fq 'settings-v3-endpoint-refresh' "$CRON_STORE"; then fail 'full AUTO retained endpoint-only scheduler'; fi
+grep -Fq '/opt/bin/unrelated-task' "$CRON_STORE" || fail 'foreign cron entry lost after full-AUTO finalize'
 
 # Direct-DNS quick-country state is managed by the active filter even when preferred-profile metadata is absent.
 # Regression: legacy/runtime proxy_dns may still report on, but the accepted effective mode is firmware.
@@ -270,7 +328,6 @@ printf '%s\n' 'Warsaw|Warszawa|Poland|Polska|Польша|Варшава' > "$FI
 # Simulate one cron-write failure after autostart mutation. Config, cron and autostart must roll back.
 sed -i 's/^SETUP_COMPLETE=.*/SETUP_COMPLETE=no/' "$CONF"
 sed -i 's/^start_auto=.*/start_auto="off"/' "$INIT"
-sed -i 's/^AUTO_VPN_FAILOVER=.*/AUTO_VPN_FAILOVER=yes/' "$CONF"
 cat > "$CRON_STORE" <<'EOF'
 17 3 * * * /opt/bin/original-task
 EOF
