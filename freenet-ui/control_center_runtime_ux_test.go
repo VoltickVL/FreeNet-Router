@@ -86,3 +86,22 @@ func TestExtraProfileCountryMarkerHasPortableFallback(t *testing.T) {
 		}
 	}
 }
+
+
+func TestCurrentFallbackThroughputIsExplicitlyNonComparable(t *testing.T) {
+	data, err := webFS.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+	for _, want := range []string{
+		"Строгий сравнимый замер скорости не получен.",
+		"Быстрый контроль канала не участвует в выборе Best Server/AUTO VPN.",
+		"не для сравнения",
+		"throughput_source === 'current_fallback'",
+	} {
+		if !strings.Contains(ui, want) {
+			t.Fatalf("current throughput provenance UX missing %q", want)
+		}
+	}
+}
