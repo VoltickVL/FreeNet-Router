@@ -88,20 +88,31 @@ func TestExtraProfileCountryMarkerHasPortableFallback(t *testing.T) {
 }
 
 
-func TestCurrentFallbackThroughputIsExplicitlyNonComparable(t *testing.T) {
+func TestCurrentVPNSpeedUIIsStrictComparableOnly(t *testing.T) {
 	data, err := webFS.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ui := string(data)
-	for _, want := range []string{
-		"Строгий сравнимый замер скорости не получен.",
-		"Быстрый контроль канала не участвует в выборе Best Server/AUTO VPN.",
+	for _, forbidden := range []string{
+		"Быстрый замер",
+		"быстрый контроль",
 		"не для сравнения",
+		"fallback_speed",
+		"fallback_download_mbps",
 		"throughput_source === 'current_fallback'",
 	} {
+		if strings.Contains(ui, forbidden) {
+			t.Fatalf("current VPN UI still exposes non-comparable speed %q", forbidden)
+		}
+	}
+	for _, want := range []string{
+		"'Скорость VPN'",
+		"throughput_source === 'strict_aggregate'",
+		"candidate.download_mbps",
+	} {
 		if !strings.Contains(ui, want) {
-			t.Fatalf("current throughput provenance UX missing %q", want)
+			t.Fatalf("strict comparable current-speed UI contract missing %q", want)
 		}
 	}
 }
