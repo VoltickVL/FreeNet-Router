@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestCurrentQualityCacheStripsLegacyFallbackSpeed(t *testing.T) {
 	resetBestServerCurrentQualityCacheForTest()
@@ -64,5 +68,31 @@ func TestCurrentFallbackSpeedDoesNotRelaxEligibility(t *testing.T) {
 	}
 	if eligibleBestServerQuality(candidate) {
 		t.Fatal("legacy fallback throughput must never make a current VPN eligible")
+	}
+}
+
+
+func TestCurrentAndBestServerShareCanonicalSpeedAlgorithm(t *testing.T) {
+	currentBytes, err := os.ReadFile("best_server_current_live.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bestBytes, err := os.ReadFile("best_server_quality.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := string(currentBytes)
+	best := string(bestBytes)
+	const canonical = "probeBestServerMediaQuality(ctx, curlPath, socks)"
+	if !strings.Contains(current, canonical) || !strings.Contains(best, canonical) {
+		t.Fatalf("Current VPN and Best Server must share canonical media/speed probe")
+	}
+	for _, forbidden := range []string{
+		"probeBestServerCurrentFallbackDownload",
+		"bestServerCurrentFallbackDownloadURL",
+	} {
+		if strings.Contains(current, forbidden) {
+			t.Fatalf("current VPN reintroduced alternate speed algorithm %q", forbidden)
+		}
 	}
 }
