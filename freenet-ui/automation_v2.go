@@ -614,7 +614,6 @@ func acquireAutomationBestLock() (func(), error) {
 }
 
 func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings automationSettings, currentCountry string) (bestServerQualityResponse, error) {
-	invalidateBestServerSelectionSnapshot()
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
 	all, _, truncated, err := a.discoverBestServerCandidates(ctx)
