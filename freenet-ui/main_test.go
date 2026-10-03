@@ -79,7 +79,7 @@ func TestVPNPostconditionAllowsDirectDNSWithoutDNSOut(t *testing.T) {
 func TestDNSModeConfigRoundTripPreservesLegacyISPAndOtherSettings(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "freenet.conf")
-	before := "UI_PORT=1001\nAUTO_ENDPOINT_UPDATE=yes\nISP_ID=legacy-provider\nDNS_MODE=auto\n"
+	before := "UI_PORT=1001\nAUTO_ENDPOINT_UPDATE=yes\nLEGACY_UNUSED_KEY=preserved\nDNS_MODE=auto\n"
 	if err := os.WriteFile(p, []byte(before), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -94,13 +94,13 @@ func TestDNSModeConfigRoundTripPreservesLegacyISPAndOtherSettings(t *testing.T) 
 		t.Fatal(err)
 	}
 	text := string(b)
-	for _, keep := range []string{"UI_PORT=1001", "AUTO_ENDPOINT_UPDATE=yes", "ISP_ID=legacy-provider", "DNS_MODE=firmware"} {
+	for _, keep := range []string{"UI_PORT=1001", "AUTO_ENDPOINT_UPDATE=yes", "LEGACY_UNUSED_KEY=preserved", "DNS_MODE=firmware"} {
 		if !strings.Contains(text, keep) {
 			t.Fatalf("config lost setting %q: %s", keep, text)
 		}
 	}
-	if strings.Count(text, "ISP_ID=") != 1 {
-		t.Fatalf("legacy ISP_ID must be preserved verbatim, not rewritten: %s", text)
+	if strings.Count(text, "LEGACY_UNUSED_KEY=") != 1 {
+		t.Fatalf("unknown config keys must be preserved verbatim, not rewritten: %s", text)
 	}
 }
 
@@ -201,7 +201,7 @@ func TestRunCommandDoesNotHangOnInheritedOutputPipe(t *testing.T) {
 }
 
 func TestStatusJSONDoesNotExposeSecrets(t *testing.T) {
-	s := statusResponse{Version: "0.2.1", CountryCode: "de", Country: "Германия", City: "Frankfurt", Endpoint: "1.2.3.4:443", ISP: "vladlink", DNSMode: "xkeen", SubscriptionConfigured: true}
+	s := statusResponse{Version: "0.2.1", CountryCode: "de", Country: "Германия", City: "Frankfurt", Endpoint: "1.2.3.4:443", DNSMode: "xkeen", SubscriptionConfigured: true}
 	b, err := json.Marshal(s)
 	if err != nil {
 		t.Fatal(err)
