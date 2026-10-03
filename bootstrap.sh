@@ -401,33 +401,10 @@ has_dns_out() {
 }
 
 apply_safe_cron() {
-    C1="$TMP_DIR/cron.current"
-    C2="$TMP_DIR/cron.new"
-    crontab -l > "$C1" 2>/dev/null || : > "$C1"
-
-    awk '
-        /^# BEGIN FREENET$/ {skip=1; next}
-        /^# END FREENET$/ {skip=0; next}
-        skip {next}
-        /[[:space:]]\/opt\/bin\/blanc_xkeen_update_outbounds\.sh([[:space:]]|$)/ {next}
-        /[[:space:]]\/opt\/sbin\/xkeen[[:space:]]+-ug([[:space:]]|$)/ {next}
-        {print}
-    ' "$C1" > "$C2" || return 1
-
-    AUTO_XKEEN_GEODATA="$(config_value AUTO_XKEEN_GEODATA yes)"
-    AUTO_XKEEN_GEODATA_CRON="$(config_value AUTO_XKEEN_GEODATA_CRON '30 6 * * *')"
-
-    {
-        echo '# BEGIN FREENET'
-        if [ "$AUTO_XKEEN_GEODATA" = yes ]; then
-            echo "$AUTO_XKEEN_GEODATA_CRON /opt/sbin/xkeen -ug"
-        fi
-        echo '# AUTO VPN scheduler is owned by FreeNet Settings v3 after UI startup'
-        echo '# END FREENET'
-    } >> "$C2"
-
-    crontab "$C2"
+    [ -x "$FREENET_BIN" ] || return 1
+    "$FREENET_BIN" settings-v3-reconcile --config "$CONFIG_FILE" >/dev/null 2>&1 || return 1
 }
+
 
 write_ui_init() {
     cat > "$FREENET_INIT.tmp.$$" <<EOF
