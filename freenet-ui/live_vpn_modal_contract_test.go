@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -85,7 +86,7 @@ func TestVPNPickerV2OwnsTopbarAndBodyPanel(t *testing.T) {
 
 func TestVPNLegacyVisualOwnersAreRetired(t *testing.T) {
 	for _, path := range []string{"web/operation-coordinator.js", "web/topbar-settings-profile-cache.js", "web/accepted-ux.js"} {
-		data, err := webFS.ReadFile(path)
+		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
