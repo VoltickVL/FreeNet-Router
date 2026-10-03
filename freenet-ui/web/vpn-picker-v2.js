@@ -55,28 +55,22 @@
   let host, toggle, panel, search, list, footer, statusText, detail, connect, reset, refresh, currentName, currentCopy, currentFlag, badge;
   let paintQueued = false, listKey = '', timer = null, observedCard = null, observedButton = null, staleRefresh = null;
   let rttByID = new Map(), rttRanked = false, rttScanning = false, rttVersion = 0, rttSummary = '', rttError = '';
-  const atlas = new Map();
-  function readAtlas() {
-    // Reuse the EXACT integrated freenetCanonicalAllFlags SVG data, including
-    // emblems. The original stylesheet is scoped to #controlCenter; the body
-    // panel receives the same URL inline, rather than falling back to OS glyphs.
-    if (atlas.size) return;
-    const sheet = q('#freenetCanonicalAllFlags')?.sheet;
-    if (!sheet) return;
-    for (const rule of Array.from(sheet.cssRules || [])) {
-      const code = rule.selectorText?.match(/\.flag-([a-z]{2})(?:\b)/)?.[1];
-      const image = rule.style?.backgroundImage;
-      if (code && image?.includes('data:image/svg+xml')) atlas.set(code, image);
+  function canonicalFlagBackground(code) {
+    try {
+      return typeof window.FreeNetFlagBackground === 'function' ? window.FreeNetFlagBackground(code) : '';
+    } catch (_) {
+      return '';
     }
   }
   function setFlag(node, code) {
-    readAtlas();
-    const key = atlas.has(code) ? code : '';
-    if (node.dataset.country === key) return;
+    const safe = /^[a-z]{2}$/.test(String(code || '').toLowerCase()) ? String(code).toLowerCase() : '';
+    const image = safe ? canonicalFlagBackground(safe) : '';
+    const key = image ? safe : '';
+    if (node.dataset.country === key && node.dataset.flagSource === (key ? 'canonical' : 'unknown')) return;
     node.dataset.country = key;
     node.className = 'flag-icon fnv2-flag' + (key ? ' flag-' + key : ' flag-unknown');
     node.dataset.flagSource = key ? 'canonical' : 'unknown';
-    node.style.setProperty('background-image', atlas.get(key) || 'none', 'important');
+    node.style.setProperty('background-image', image || 'none', 'important');
   }
   function profileSource() {
     let profiles = [], stale = false;
@@ -120,7 +114,7 @@
       .fnv2-flag::before,.fnv2-flag::after{display:none!important;content:none!important}
       html body #controlCenter #fnVpnPickerV2Toggle .fnv2-flag svg,html body #fnVpnPickerV2Panel .fnv2-flag svg{display:none!important}
       #fnVpnPickerV2Toggle .fnv2-flag{width:20px;height:14px}
-      #fnVpnPickerV2Panel{position:fixed;z-index:2600;box-sizing:border-box;display:flex;flex-direction:column;gap:0;width:540px;max-width:calc(100vw - 24px);height:min(760px,var(--fnv2-space,760px));max-height:var(--fnv2-space,760px);margin:0;padding:0;color:#eef4ff;background:#0c1c2e;border:1px solid #355473;border-radius:16px;box-shadow:0 24px 70px #0009;font-family:Inter,ui-sans-serif,system-ui,sans-serif;overflow:hidden}
+      #fnVpnPickerV2Panel{position:fixed;z-index:2600;box-sizing:border-box;display:flex;flex-direction:column;gap:0;width:540px;max-width:calc(100vw - 24px);height:min(760px,var(--fnv2-space,760px));min-height:min(420px,var(--fnv2-space,760px));max-height:var(--fnv2-space,760px);margin:0;padding:0;color:#eef4ff;background:#0c1c2e;border:1px solid #355473;border-radius:16px;box-shadow:0 24px 70px #0009;font-family:Inter,ui-sans-serif,system-ui,sans-serif;overflow:hidden;resize:vertical}
       #fnVpnPickerV2Panel[hidden]{display:none!important}
       #fnVpnPickerV2Panel *{box-sizing:border-box}
       #fnVpnPickerV2Panel button,#fnVpnPickerV2Panel input{font:inherit}
@@ -172,7 +166,7 @@
       #fnVpnPickerV2Footer button{height:41px;appearance:none;border:1px solid #3b638c;border-radius:9px;color:#edf5ff;background:#12283f;cursor:pointer;font-size:12px;font-weight:750}
       #fnVpnPickerV2Connect{background:linear-gradient(180deg,#347eff,#2465dc)!important;border-color:#6d9ee9!important}
       #fnVpnPickerV2Footer button:disabled{opacity:.45;cursor:not-allowed}
-      @media(max-width:760px){#fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;height:auto;max-height:calc(100dvh - 24px)}#fnVpnPickerV2Toggle{width:174px}#fnVpnPickerV2Results{max-height:32dvh;flex:1 1 32dvh}#fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}}
+      @media(max-width:760px){#fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;height:auto;min-height:0!important;max-height:calc(100dvh - 24px);resize:none}#fnVpnPickerV2Toggle{width:174px}#fnVpnPickerV2Results{max-height:32dvh;flex:1 1 32dvh}#fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}}
       @media(max-height:580px){#fnVpnPickerV2Panel .fnv2-current{padding-top:6px;padding-bottom:6px}#fnVpnPickerV2Panel .fnv2-current-copy span{display:none}#fnVpnPickerV2Results{min-height:55px}#fnVpnPickerV2Footer{padding-top:6px;gap:5px;margin-top:5px}}
     `;
     document.head.appendChild(style);
