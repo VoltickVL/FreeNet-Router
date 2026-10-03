@@ -54,7 +54,7 @@
   let sourceKey = '', rows = [], selected = null, choosing = false, error = '', sent = false;
   let host, toggle, panel, search, list, footer, statusText, detail, connect, reset, refresh, currentName, currentCopy, currentFlag, badge;
   let paintQueued = false, listKey = '', timer = null, observedCard = null, observedButton = null, staleRefresh = null;
-  let rttByID = new Map(), rttRanked = false, rttScanning = false, rttVersion = 0, rttSummary = '', rttError = '';
+  let rttByID = new Map(), rttRanked = false, rttScanning = false, rttVersion = 0, rttSummary = '', rttError = '', rttAutoAttempted = false;
   function setFlag(node, code) {
     if (!node) return;
     const api = window.FreeNetFlags;
@@ -74,7 +74,7 @@
     }
     const safe = profiles.filter(p => p && typeof p.id === 'string' && p.id && !['ru','ua'].includes(codeOf(p))).slice(0,100).map(p => ({id:p.id,name:String(p.name || p.label || ''),country_code:codeOf(p),endpoint:endpoint(p),address:String(p.address || ''),port:Number(p.port || 0)}));
     const key = JSON.stringify([safe, stale]);
-    if (key !== sourceKey) { sourceKey = key; rows = safe; listKey = ''; rttByID.clear(); rttRanked = false; rttSummary=''; rttError=''; rttVersion++; }
+    if (key !== sourceKey) { sourceKey = key; rows = safe; listKey = ''; rttByID.clear(); rttRanked = false; rttSummary=''; rttError=''; rttAutoAttempted=false; rttVersion++; }
     return {stale};
   }
   function currentIdentity(s) {
@@ -192,7 +192,7 @@
     currentName = q('.fnv2-current-copy strong',panel); currentCopy = q('.fnv2-current-copy span',panel); currentFlag = q('#fnVpnPickerV2CurrentFlag'); badge = q('#fnVpnPickerV2State');
     toggle.addEventListener('click',() => panel.hidden ? open() : close(true));
     q('#fnVpnPickerV2Close').addEventListener('click',() => close(true));
-    refresh.addEventListener('click',refreshRTT);
+    refresh.addEventListener('click',()=>refreshRTT(true));
     search.addEventListener('input',() => { listKey=''; paint(); });
     list.addEventListener('keydown',event => {
       if (!['ArrowDown','ArrowUp','Home','End'].includes(event.key)) return;
@@ -256,12 +256,12 @@
     try { await selectProviderProfile(profile); } catch (_) { error=L.failed; }
     finally { choosing=false; paint(); }
   }
-  async function refreshRTT() {
+  async function refreshRTT(force=false) {
     if (rttScanning || busy()) return;
     rttScanning=true; rttError=''; rttSummary=''; listKey=''; paint();
     try {
       if (typeof window.freenetProviderRTTScan!=='function') throw new Error('rtt');
-      const data=await window.freenetProviderRTTScan();
+      const data=await window.freenetProviderRTTScan(force);
       const next=new Map();
       let reachable=0, checked=0, unknown=0;
       for (const item of data.results) {
@@ -278,9 +278,10 @@
       const serverChecked=Number.isFinite(Number(data.checked))?Number(data.checked):checked;
       const serverUnknown=Number.isFinite(Number(data.unknown))?Number(data.unknown):unknown;
       const serverReachable=Number.isFinite(Number(data.reachable))?Number(data.reachable):reachable;
+      const sourceNote=data.cached?' Использован свежий результат последнего полного измерения.':'';
       rttSummary=data.partial
         ? `VPN-пинг: завершён частично — ответили ${serverReachable} из ${serverChecked}, не проверено ${serverUnknown} из ${total}.`
-        : `VPN-пинг: ответили ${serverReachable} из ${serverChecked}. Список отсортирован от меньшей задержки к большей.`;
+        : `VPN-пинг: проверено ${serverChecked} из ${total}, ответили ${serverReachable}. Список отсортирован от меньшей задержки к большей.${sourceNote}`;
     } catch (_) {
       rttByID.clear(); rttRanked=false; rttVersion++;
       rttError=L.pingFailed;
@@ -369,7 +370,7 @@
       text(rttState,message); rttState.hidden=!message; rttState.dataset.error=String(!!rttError);
     }
     text(q('#fnVpnPickerV2Stale'),L.stale); q('#fnVpnPickerV2Stale').hidden=!stale;
-    if (!panel.hidden) { renderList(); positionPanel(); }
+    if (!panel.hidden) { renderList(); positionPanel(); queueMicrotask(maybeAutoRTT); }
   }
   function schedulePaint() { if (paintQueued) return; paintQueued=true; requestAnimationFrame(()=>{paintQueued=false;paint();}); }
   function positionPanel() {
@@ -391,18 +392,26 @@
     }
   }
   function refreshStaleCatalogOnOpen() {
-    if (staleRefresh || selected || choosing || busy()) return;
-    if (!profileSource().stale) return;
+    if (staleRefresh) return staleRefresh;
+    if (selected || choosing || busy() || !profileSource().stale) return Promise.resolve();
     let loader = null;
     try { if (typeof loadNetworkPlan === 'function') loader = loadNetworkPlan; } catch (_) {}
-    if (!loader) return;
+    if (!loader) return Promise.resolve();
     staleRefresh = Promise.resolve(loader(''))
       .catch(() => {})
       .finally(() => { staleRefresh = null; schedulePaint(); });
+    return staleRefresh;
+  }
+  function maybeAutoRTT() {
+    if (!panel || panel.hidden || rttRanked || rttScanning || rttAutoAttempted || busy()) return;
+    if (!rows.length) profileSource();
+    if (!rows.length) return;
+    rttAutoAttempted=true;
+    void refreshRTT(false);
   }
   function open() {
     panel.hidden=false; toggle.setAttribute('aria-expanded','true'); listKey=''; paint();
-    refreshStaleCatalogOnOpen();
+    Promise.resolve(refreshStaleCatalogOnOpen()).finally(()=>{ profileSource(); maybeAutoRTT(); });
     search.focus({preventScroll:true});
   }
   function close(restore=false) { if (!panel) return; panel.hidden=true; toggle.setAttribute('aria-expanded','false'); if (restore) toggle.focus({preventScroll:true}); }
