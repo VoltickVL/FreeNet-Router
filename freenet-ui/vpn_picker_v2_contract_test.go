@@ -20,13 +20,13 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"xray-vpn-dns-freenet",
 		"selectProviderProfile(profile)", "e.button.click()", "e.button.disabled",
 		"observer.disconnect()", "requestAnimationFrame", "text(connect,L.connect)",
-		"0x1F1E6", "cached rows may belong to another router", "refreshStaleCatalogOnOpen", "loadNetworkPlan",
+		"0x1F1E6", "cached rows may belong to another router",
 		"height:min(760px,var(--fnv2-space,760px))", "flex:1 1 auto",
 		"fnVpnPickerV2Resize", "setPointerCapture", "dataset.userHeight",
 		"завершён частично", "не проверен",
-		"refresh.addEventListener('click',refreshRTT)",
-		"expectedSourceKey", "expectedCatalog", "sourceKey!==expectedSourceKey",
-		"expectedCatalog.get(id)!==measuredEndpoint", "pingCatalogChanged", "!!staleRefresh",
+		"refresh.addEventListener('click',event => { if (event.isTrusted === true) void refreshRTT(event); })",
+		"safeRTTCatalog", "publishRTTCatalog", "window.freenetProviderRTTScan(event)",
+		"measuredByID.get(id)!==measuredEndpoint", "pingCatalogChanged",
 	} {
 		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
 	}
@@ -36,12 +36,12 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 	if strings.Contains(js, "VPN есть · DNS?") || strings.Contains(js, "transport_only") {
 		t.Fatal("quick VPN RTT UI must not expose obsolete named-DNS preflight states")
 	}
-	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint", "max-height:280px", "sheet.cssRules", "maybeAutoRTT", "rttAutoAttempted", "refreshRTT(false)", "refreshRTT(true)"} {
+	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint", "max-height:280px", "sheet.cssRules", "maybeAutoRTT", "rttAutoAttempted", "refreshRTT(false)", "refreshRTT(true)", "refreshStaleCatalogOnOpen", "staleRefresh", "expectedSourceKey", "expectedCatalog"} {
 		if strings.Contains(js, forbidden) { t.Fatalf("presentation must not contain %q", forbidden) }
 	}
 	mainData, err := os.ReadFile("main.go")
 	if err != nil { t.Fatal(err) }
-	for _, required := range []string{"web/vpn-picker-v2.js", "window.__freenetVPNPickerV2=true;", "/vpn-picker-v2.js?v=v%s"} {
+	for _, required := range []string{"web/vpn-picker-v2.js", "window.__freenetVPNPickerV2=true;", "/vpn-picker-v2.js?v=v%s", "window.__freenetBootVersion=%q"} {
 		if !strings.Contains(string(mainData), required) { t.Fatalf("delivery missing %q", required) }
 	}
 	operation, err := webFS.ReadFile("web/operation-coordinator.js")
@@ -89,7 +89,8 @@ func TestVPNPickerRTTBridgeIsExplicitRefreshOnly(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"async function scanProviderProfileRTT()",
+		"async function scanProviderProfileRTT(event)",
+		"event.isTrusted !== true",
 		"fetch('/api/provider-profiles/rtt?refresh=1'",
 	} {
 		if !strings.Contains(js, want) {
@@ -103,6 +104,26 @@ func TestVPNPickerRTTBridgeIsExplicitRefreshOnly(t *testing.T) {
 	} {
 		if strings.Contains(js, forbidden) {
 			t.Fatalf("RTT bridge must not expose hidden cache/auto mode: found %q", forbidden)
+		}
+	}
+}
+
+
+func TestControlCenterMixedBuildGuardReloadsBeforeVPNActions(t *testing.T) {
+	data, err := os.ReadFile("web/vpn-ux-fix.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, want := range []string{
+		"window.__freenetBootVersion",
+		"enforceSingleFrontendBuild",
+		"document.documentElement.dataset.freenetMixedBuild = '1'",
+		"buttonsBusy(true)",
+		"location.reload()",
+	} {
+		if !strings.Contains(js, want) {
+			t.Fatalf("mixed frontend/backend build guard missing %q", want)
 		}
 	}
 }
