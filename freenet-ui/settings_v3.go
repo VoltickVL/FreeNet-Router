@@ -1042,6 +1042,8 @@ func runSettingsV3CLI(command string) int {
 	defer cancel()
 	var err error
 	switch command {
+	case "settings-v3-reconcile":
+		_, err = a.reconcileSettingsV3Scheduler()
 	case "settings-v3-endpoint-refresh":
 		err = a.runV3ScheduledEndpointRefresh(ctx)
 	case "settings-v3-subscription":
