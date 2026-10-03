@@ -229,17 +229,27 @@ async function capture(label){
   assert.match(await page.locator('.fnv2-current-copy').textContent(),/Цюрих, Швейцария/);
   assert.equal(countApply(),1,'identity reconcile must not mutate VPN');
 
-  // A stale cache is only a temporary safe presentation fallback. Reopening the
-  // picker must perform one read-only fresh plan attempt and clear stale state
-  // when the catalog is available again.
+  // A stale cache is presentation-only. Reopening the picker must stay
+  // network-idle; only an explicit trusted RTT refresh may replace it with the
+  // exact fresh catalog snapshot that was actually measured.
   planMode='ok';
   await page.keyboard.press('Escape');
   const planReadsBeforeReopen=calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length;
+  const rttReadsBeforeStaleReopen=calls.filter(c=>c.path==='/api/provider-profiles/rtt').length;
   await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});
-  await until(()=>document.querySelector('#fnVpnPickerV2Stale')?.hidden===true,'stale cache refreshed on reopen');
+  await delay(250);
+  assert.equal(await page.locator('#fnVpnPickerV2Stale').isVisible(),true,'stale cache must remain explicitly stale until trusted refresh');
   const planReadsAfterReopen=calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length;
-  assert.equal(planReadsAfterReopen,planReadsBeforeReopen+1,'stale reopen must perform exactly one read-only refresh');
-  assert.equal(countApply(),1,'stale refresh must not apply VPN');
+  assert.equal(planReadsAfterReopen,planReadsBeforeReopen,'stale reopen must not perform hidden network-plan refresh');
+  assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,rttReadsBeforeStaleReopen,'stale reopen must not auto-run RTT');
+
+  rttMode='ok';
+  await page.locator(RTT).click();
+  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'explicit stale catalog refresh complete');
+  await until(()=>document.querySelector('#fnVpnPickerV2Stale')?.hidden===true,'fresh measured catalog replaces stale cache');
+  assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,rttReadsBeforeStaleReopen+1,'explicit refresh must issue one RTT/catalog request');
+  assert.equal(calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length,planReadsBeforeReopen,'explicit RTT catalog refresh must not require hidden network-plan hydrate');
+  assert.equal(countApply(),1,'catalog refresh must remain read-only');
   await page.keyboard.press('Escape');
   for(const viewport of [{width:1440,height:900},{width:980,height:800},{width:760,height:700},{width:390,height:844},{width:844,height:390}]){
     await page.setViewportSize(viewport);
