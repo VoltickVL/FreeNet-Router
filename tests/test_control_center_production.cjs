@@ -109,7 +109,7 @@ async function capture(label){
     if(url.pathname==='/api/automation')return answer(route,{success:true,settings:{enabled:true,country_scope:'region',countries:[]},current_profile:status.profile_label,current_endpoint:status.endpoint,country_code:status.country_code,events:[]});
     if(url.pathname==='/api/settings-v3/countries')return answer(route,{success:true,countries:[...locations.map(([code,,name])=>({code,name,available:true})),{code:'ua',name:'Украина',available:true}],selected:['ua'],fresh:true});
     if(url.pathname==='/api/geodata/files')return answer(route,{success:true,files:[],search_enabled:false});
-    if(url.pathname.startsWith('/api/system/update/'))return answer(route,{success:true,ready:true,state:'IDLE',current_version:'v0.3.92',latest_version:'v0.3.92',update_available:false,rollback_state:'NOT_NEEDED'});
+    if(url.pathname.startsWith('/api/system/update/'))return answer(route,{success:true,ready:true,state:'IDLE',current_version:'v'+fixtureVersion,latest_version:'v'+fixtureVersion,update_available:false,rollback_state:'NOT_NEEDED'});
     if(req.method()!=='GET')throw new Error('Unexpected mutation '+url.pathname);
     unhandled.push(url.pathname);return answer(route,{success:true,available:false,configured:true,active:false,events:[]});
   });
@@ -121,7 +121,7 @@ async function capture(label){
   await until(()=>document.querySelector('#fnVpnPickerV2Flag')?.dataset.country==='be','profile identity fallback');
   await until(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-be'),'Overview current flag');
   assert.equal(await page.locator('#fnVpnPickerV2Country').textContent(),'Бельгия');
-  await until(()=>/Скорость VPN/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'strict current speed UI');
+  await until(()=>/55\.0 Мбит\/с/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'strict current speed value');
   assert.match(await page.locator('#bestCurrentMetrics').textContent(),/55\.0 Мбит\/с/);
   currentCacheMode='fallback';
   await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','legacy fallback canonical boot');
