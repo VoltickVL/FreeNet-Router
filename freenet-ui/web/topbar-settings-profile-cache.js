@@ -7,6 +7,7 @@
   const cacheKey = 'freenet-extra-profiles-last-good-v1';
   const patchFlag = 'freenetProfileCacheFallbackPatch';
   const renderFlag = 'freenetCachedSelectorRenderer';
+  let catalogStale = false;
 
   const q = (selector, root = document) => root.querySelector(selector);
 
@@ -120,26 +121,41 @@
       const wrapped = function(plan) {
         const incoming = cloneProfiles(plan && plan.extra_profiles);
         if (incoming.length && !(plan && plan.profiles_error)) {
+          catalogStale = false;
           writeCache(incoming);
           return previous(plan);
         }
         const cache = readCache();
         if (cache && cache.profiles.length && (!incoming.length || plan && plan.profiles_error)) {
+          catalogStale = true;
           const result = previous(cachedPlan(plan, cache));
           setFallbackNotice(cache, String(plan && (plan.profiles_error || plan.error) || ''));
           return result;
         }
+        catalogStale = false;
         return previous(plan);
       };
       wrapped[patchFlag] = true;
       renderExtraProfiles = wrapped;
+      window.freenetPublishMeasuredProfileCatalog = function(profiles) {
+        const incoming = cloneProfiles(profiles);
+        if (!incoming.length) return false;
+        catalogStale = false;
+        writeCache(incoming);
+        previous({extra_profiles: incoming});
+        return true;
+      };
+      window.freenetProfileCatalogState = function() {
+        const state = currentProfilesWithCache();
+        return {profiles: cloneProfiles(state.profiles), stale: !!state.stale};
+      };
     } catch (_) {}
   }
 
   function currentProfilesWithCache() {
     try {
       if (Array.isArray(extraProfiles) && extraProfiles.length) {
-        return {profiles: extraProfiles, stale: false};
+        return {profiles: extraProfiles, stale: catalogStale};
       }
     } catch (_) {}
     const cache = readCache();
