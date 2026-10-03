@@ -299,9 +299,13 @@
     }
   }
 
-  async function scanProviderProfileRTT() {
-    // UI contract: provider RTT is an explicit user action only. There is no
-    // cache/auto mode here, so future callers cannot silently start a sweep.
+  async function scanProviderProfileRTT(event) {
+    // Physical product gate: a full-pool RTT sweep may only originate from a
+    // trusted user click on the selector refresh control. Programmatic calls,
+    // repaint/open hooks and synthetic .click() events must fail closed.
+    if (!event || event.type !== 'click' || event.isTrusted !== true) {
+      throw new Error('RTT scan requires explicit user action');
+    }
     const r = await fetch('/api/provider-profiles/rtt?refresh=1', {cache:'no-store'});
     if (r.status === 401) {
       if (typeof loadAuthStatus === 'function') await loadAuthStatus();
@@ -333,11 +337,31 @@
     }
   }
 
+  let mixedBuildReloadScheduled = false;
+  function normalizeBuildVersion(value) {
+    return String(value || '').trim().replace(/^v/i, '');
+  }
+  function enforceSingleFrontendBuild(s) {
+    const boot = normalizeBuildVersion(window.__freenetBootVersion);
+    const live = normalizeBuildVersion(s && s.version);
+    if (!boot || !live || boot === live) return false;
+    document.documentElement.dataset.freenetMixedBuild = '1';
+    const topStatus = qs('#topStatus');
+    if (topStatus) topStatus.textContent = 'Обновляем интерфейс…';
+    if (typeof buttonsBusy === 'function') buttonsBusy(true);
+    if (!mixedBuildReloadScheduled) {
+      mixedBuildReloadScheduled = true;
+      setTimeout(() => location.reload(), 120);
+    }
+    return true;
+  }
+
   function patchStatusRendering() {
     if (typeof updateStatusViews !== 'function') return;
     const originalUpdateStatusViews = updateStatusViews;
     updateStatusViews = function(s) {
       ensureLegacyVPNStatusNodes();
+      if (enforceSingleFrontendBuild(s)) return;
       originalUpdateStatusViews(s);
       if (!s) return;
 

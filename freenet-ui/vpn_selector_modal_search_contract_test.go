@@ -44,7 +44,9 @@ func TestVPNSelectorModalSearchContract(t *testing.T) {
 		"fnVpnPickerV2Search",
 		"fnVpnPickerV2Results",
 		"selectProviderProfile(profile)",
-		"refreshStaleCatalogOnOpen",
+		"safeRTTCatalog",
+		"publishRTTCatalog",
+		"event.isTrusted === true",
 		"xray-vpn-dns-freenet",
 	} {
 		if !strings.Contains(v2, required) {

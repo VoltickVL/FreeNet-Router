@@ -5,6 +5,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawn}=require('node:child_process');
 const root=path.resolve(__dirname,'..'),artifacts=path.join(root,'test-artifacts','control-center');
+const fixtureVersion=fs.readFileSync(path.join(root,'VERSION'),'utf8').trim().replace(/^v/i,'');
 const temp=fs.mkdtempSync(path.join(os.tmpdir(),'freenet-production-browser-'));
 const addressFile=path.join(temp,'address');
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -16,7 +17,7 @@ const profiles=Array.from({length:49},(_,i)=>{const[code,city,country]=locations
 const ukraine={id:'fixture-ua',name:'UA Kyiv, Ukraine, Extra',country_code:'ua',address:'192.0.2.250',port:443};
 const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
-let status={version:'0.3.92',country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
+let status={version:fixtureVersion,country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',isp:'vladlink',isp_label:'Владлинк',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
 let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict',rttMode='ok';
 const calls=[],unhandled=[],errors=[];
 const P='#fnVpnPickerV2Panel',T='#fnVpnPickerV2Toggle',S='#fnVpnPickerV2Search',R='#fnVpnPickerV2Results',F='#fnVpnPickerV2Footer',C='#fnVpnPickerV2Connect',RTT='#fnVpnPickerV2Refresh',RESIZE='#fnVpnPickerV2Resize';
@@ -69,12 +70,14 @@ async function capture(label){
       return answer(route,{success:true,available:candidate.eligible,scanned_at:new Date().toISOString(),candidates:[candidate]});
     }
     if(url.pathname==='/api/provider-profiles/rtt'){
-      const results=profiles.map((p,i)=>i===7
+      const measuredProfiles=profiles.map((p,i)=>rttMode==='rotate'&&i===1?{...p,address:'192.0.2.254'}:{...p});
+      const catalog=measuredProfiles.map(p=>({id:p.id,name:p.name,country_code:p.country_code,address:p.address,port:p.port}));
+      const results=measuredProfiles.map((p,i)=>i===7
         ?{profile_id:p.id,endpoint:ep(p),reachable:false,attempted:false,status:'unknown'}
         :i===8
           ?{profile_id:p.id,endpoint:ep(p),reachable:false,attempted:true,status:'unreachable'}
-          :{profile_id:p.id,endpoint:rttMode==='mismatch'&&i===1?'192.0.2.254:443':ep(p),reachable:true,attempted:true,status:'reachable',rtt_ms:55+((48-i)*4),jitter_ms:i%9});
-      return answer(route,{success:true,results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:true,mutation:'NONE'});
+          :{profile_id:p.id,endpoint:rttMode==='malformed'&&i===1?'192.0.2.253:443':ep(p),reachable:true,attempted:true,status:'reachable',rtt_ms:55+((48-i)*4),jitter_ms:i%9});
+      return answer(route,{success:true,catalog,catalog_key:'fixture-catalog',results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:true,mutation:'NONE'});
     }
     if(url.pathname==='/api/provider-profile/plan'){
       const id=url.searchParams.get('profile_id');
@@ -106,7 +109,7 @@ async function capture(label){
     if(url.pathname==='/api/automation')return answer(route,{success:true,settings:{enabled:true,country_scope:'region',countries:[]},current_profile:status.profile_label,current_endpoint:status.endpoint,country_code:status.country_code,events:[]});
     if(url.pathname==='/api/settings-v3/countries')return answer(route,{success:true,countries:[...locations.map(([code,,name])=>({code,name,available:true})),{code:'ua',name:'Украина',available:true}],selected:['ua'],fresh:true});
     if(url.pathname==='/api/geodata/files')return answer(route,{success:true,files:[],search_enabled:false});
-    if(url.pathname.startsWith('/api/system/update/'))return answer(route,{success:true,ready:true,state:'IDLE',current_version:'v0.3.92',latest_version:'v0.3.92',update_available:false,rollback_state:'NOT_NEEDED'});
+    if(url.pathname.startsWith('/api/system/update/'))return answer(route,{success:true,ready:true,state:'IDLE',current_version:'v'+fixtureVersion,latest_version:'v'+fixtureVersion,update_available:false,rollback_state:'NOT_NEEDED'});
     if(req.method()!=='GET')throw new Error('Unexpected mutation '+url.pathname);
     unhandled.push(url.pathname);return answer(route,{success:true,available:false,configured:true,active:false,events:[]});
   });
@@ -118,7 +121,7 @@ async function capture(label){
   await until(()=>document.querySelector('#fnVpnPickerV2Flag')?.dataset.country==='be','profile identity fallback');
   await until(()=>document.querySelector('#bestCurrentFlag')?.classList.contains('flag-be'),'Overview current flag');
   assert.equal(await page.locator('#fnVpnPickerV2Country').textContent(),'Бельгия');
-  await until(()=>/Скорость VPN/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'strict current speed UI');
+  await until(()=>/55\.0 Мбит\/с/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'strict current speed value');
   assert.match(await page.locator('#bestCurrentMetrics').textContent(),/55\.0 Мбит\/с/);
   currentCacheMode='fallback';
   await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','legacy fallback canonical boot');
@@ -142,6 +145,12 @@ async function capture(label){
   const initialRTT=await page.locator(R+' .fnv2-rtt').evaluateAll(nodes=>nodes.map(n=>n.textContent||''));
   assert.ok(initialRTT.every(v=>v===''),'selector must show no invented RTT before explicit refresh');
 
+  const planCallsBeforeSynthetic=calls.filter(c=>c.path==='/api/network-profile/plan').length;
+  await page.evaluate(()=>document.querySelector('#fnVpnPickerV2Refresh').click());
+  await delay(120);
+  assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen,'synthetic refresh must not issue RTT request');
+  assert.equal(calls.filter(c=>c.path==='/api/network-profile/plan').length,planCallsBeforeSynthetic,'opening/synthetic refresh must not hydrate network plan');
+
   await page.locator(RTT).click();
   for(let i=0;i<100&&calls.filter(c=>c.path==='/api/provider-profiles/rtt').length<rttCallsBeforeOpen+1;i++)await delay(25);
   await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'forced RTT refresh complete');
@@ -156,17 +165,31 @@ async function capture(label){
   assert.equal(await page.locator(R+' [data-profile-id="fixture-8"] .fnv2-rtt').textContent(),'нет ответа','attempted negative profile remains explicit');
 
   await page.locator('#fnVpnPickerV2Close').click();
+  const planCallsBeforeReopen=calls.filter(c=>c.path==='/api/network-profile/plan').length;
   await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});
   await delay(250);
   assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen+1,'reopening picker must not start another RTT sweep');
-  rttMode='mismatch';
+  assert.equal(calls.filter(c=>c.path==='/api/network-profile/plan').length,planCallsBeforeReopen,'reopening picker must remain network-idle');
+
+  rttMode='rotate';
   await page.locator(RTT).click();
-  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'mismatched RTT refresh complete');
-  assert.match(await page.locator('#fnVpnPickerV2RTTState').textContent(),/Список VPN изменился/,'catalog mismatch must be explicit');
+  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'rotated RTT refresh complete');
+  assert.doesNotMatch(await page.locator('#fnVpnPickerV2RTTState').textContent(),/Список VPN изменился/,'endpoint rotation before RTT sweep is a valid new snapshot');
+  assert.equal(await page.locator(R+' [data-profile-id="fixture-1"] small').textContent(),'192.0.2.254:443','selector must adopt exact endpoint snapshot measured by RTT API');
+  assert.match(await page.locator(R+' [data-profile-id="fixture-1"] .fnv2-rtt').textContent(),/мс/,'rotated snapshot RTT must remain attached');
+
+  rttMode='malformed';
+  await page.locator(RTT).click();
+  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'malformed RTT refresh complete');
+  assert.match(await page.locator('#fnVpnPickerV2RTTState').textContent(),/Список VPN изменился/,'internally inconsistent RTT/catalog response must fail closed');
   const rejectedRTT=await page.locator(R+' .fnv2-rtt').evaluateAll(nodes=>nodes.map(n=>n.textContent||''));
-  assert.ok(rejectedRTT.every(v=>v===''),'catalog mismatch must not attach RTT from another snapshot');
-  assert.doesNotMatch(await page.locator('#fnVpnPickerV2RTTState').textContent(),/проверено .* ответили/i,'mismatched snapshot must not publish misleading aggregate summary');
+  assert.ok(rejectedRTT.every(v=>v===''),'inconsistent snapshot must not attach RTT from another snapshot');
+  assert.doesNotMatch(await page.locator('#fnVpnPickerV2RTTState').textContent(),/проверено .* ответили/i,'inconsistent snapshot must not publish aggregate summary');
+
   rttMode='ok';
+  await page.locator(RTT).click();
+  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'baseline RTT refresh complete');
+  assert.equal(await page.locator(R+' [data-profile-id="fixture-1"] small').textContent(),ep(profiles[1]),'baseline refresh must restore current safe catalog snapshot');
   const initial=await geometry('desktop-initial');assert.ok(initial.panel.y>=initial.toggle.bottom,'anchored below VPN');assert.ok(initial.results.height>=400,'desktop list must use available viewport height: '+JSON.stringify(initial));
   assert.equal(await page.locator(RESIZE).isVisible(),true,'desktop picker must expose one vertical resize affordance');
   const resizeBox=await page.locator(RESIZE).boundingBox();assert.ok(resizeBox,'desktop resize handle missing');
@@ -206,17 +229,27 @@ async function capture(label){
   assert.match(await page.locator('.fnv2-current-copy').textContent(),/Цюрих, Швейцария/);
   assert.equal(countApply(),1,'identity reconcile must not mutate VPN');
 
-  // A stale cache is only a temporary safe presentation fallback. Reopening the
-  // picker must perform one read-only fresh plan attempt and clear stale state
-  // when the catalog is available again.
+  // A stale cache is presentation-only. Reopening the picker must stay
+  // network-idle; only an explicit trusted RTT refresh may replace it with the
+  // exact fresh catalog snapshot that was actually measured.
   planMode='ok';
   await page.keyboard.press('Escape');
   const planReadsBeforeReopen=calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length;
+  const rttReadsBeforeStaleReopen=calls.filter(c=>c.path==='/api/provider-profiles/rtt').length;
   await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});
-  await until(()=>document.querySelector('#fnVpnPickerV2Stale')?.hidden===true,'stale cache refreshed on reopen');
+  await delay(250);
+  assert.equal(await page.locator('#fnVpnPickerV2Stale').isVisible(),true,'stale cache must remain explicitly stale until trusted refresh');
   const planReadsAfterReopen=calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length;
-  assert.equal(planReadsAfterReopen,planReadsBeforeReopen+1,'stale reopen must perform exactly one read-only refresh');
-  assert.equal(countApply(),1,'stale refresh must not apply VPN');
+  assert.equal(planReadsAfterReopen,planReadsBeforeReopen,'stale reopen must not perform hidden network-plan refresh');
+  assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,rttReadsBeforeStaleReopen,'stale reopen must not auto-run RTT');
+
+  rttMode='ok';
+  await page.locator(RTT).click();
+  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'explicit stale catalog refresh complete');
+  await until(()=>document.querySelector('#fnVpnPickerV2Stale')?.hidden===true,'fresh measured catalog replaces stale cache');
+  assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,rttReadsBeforeStaleReopen+1,'explicit refresh must issue one RTT/catalog request');
+  assert.equal(calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length,planReadsBeforeReopen,'explicit RTT catalog refresh must not require hidden network-plan hydrate');
+  assert.equal(countApply(),1,'catalog refresh must remain read-only');
   await page.keyboard.press('Escape');
   for(const viewport of [{width:1440,height:900},{width:980,height:800},{width:760,height:700},{width:390,height:844},{width:844,height:390}]){
     await page.setViewportSize(viewport);

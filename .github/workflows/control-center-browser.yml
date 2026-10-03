@@ -23,6 +23,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: Stamp production UI version from VERSION
+        run: |
+          VERSION="$(tr -d '\r\n' < VERSION)"
+          UI_VERSION="${VERSION#v}"
+          sed -i "s/^const version = \".*\"$/const version = \"$UI_VERSION\"/" freenet-ui/main.go
+          grep -Fq "const version = \"$UI_VERSION\"" freenet-ui/main.go
       - name: Install pinned browser test tools
         run: |
           npm install --prefix "$RUNNER_TEMP/freenet-production-browser" --no-package-lock --ignore-scripts playwright@1.51.1

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -338,5 +339,34 @@ func TestProviderProfileRTTCacheBridgesBestServerSubsetIntoSelectorPool(t *testi
 	cached, missing, _ := splitProviderProfileRTTCache(all)
 	if len(cached) != 2 || len(missing) != 1 || missing[0].Profile.ID != "currentcurrent00" {
 		t.Fatalf("selector must reuse Best Server RTT subset and measure only current profile: cached=%#v missing=%#v", cached, missing)
+	}
+}
+
+
+func TestProviderProfileRTTCatalogPreservesExactSafeSnapshot(t *testing.T) {
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "aaaaaaaaaaaaaaaa", Name: "FR Paris, France, Extra", CountryCode: "fr", Address: "203.0.113.10", Port: 443}, Raw: "vless://secret-a@203.0.113.10:443#Paris"},
+		{Profile: subscriptionProfile{ID: "bbbbbbbbbbbbbbbb", Name: "DE Berlin, Germany, Extra", CountryCode: "de", Address: "203.0.113.20", Port: 8443}, Raw: "vless://secret-b@203.0.113.20:8443#Berlin"},
+	}
+	catalog := providerProfileRTTCatalog(candidates)
+	if len(catalog) != 2 {
+		t.Fatalf("catalog=%d want=2", len(catalog))
+	}
+	if catalog[0].ID != "aaaaaaaaaaaaaaaa" || catalog[0].Name != "FR Paris, France, Extra" || catalog[0].CountryCode != "fr" || profileEndpoint(catalog[0]) != "203.0.113.10:443" {
+		t.Fatalf("first safe catalog entry does not preserve measured identity: %#v", catalog[0])
+	}
+	key := providerProfileRTTCatalogKey(catalog)
+	if key == "" {
+		t.Fatal("measured catalog key must not be empty")
+	}
+	rotated := append([]subscriptionProfile(nil), catalog...)
+	rotated[0].Address = "198.51.100.77"
+	if providerProfileRTTCatalogKey(rotated) == key {
+		t.Fatal("catalog key must change when the measured endpoint snapshot changes")
+	}
+	for _, p := range catalog {
+		if strings.Contains(p.Name, "secret-") || strings.Contains(p.Address, "secret-") {
+			t.Fatalf("safe catalog leaked credential-bearing raw data: %#v", p)
+		}
 	}
 }

@@ -63,11 +63,22 @@ const server = http.createServer((req,res)=>{
         return answer(route,providerPlan,providerPlan.success?200:409);
       }
       if(url.pathname==='/api/provider-profiles/rtt'){
+        const winnerEndpoint=rttMode==='rotate'?'192.0.2.99:443':winner.endpoint;
+        const safeProfile=(p,forcedEndpoint='')=>{
+          const value=forcedEndpoint||p.endpoint;
+          const split=value.lastIndexOf(':');
+          return {id:p.id,name:p.name,country_code:p.country_code,address:value.slice(0,split),port:Number(value.slice(split+1))};
+        };
+        const catalog=[
+          safeProfile(second),
+          safeProfile(winner,winnerEndpoint),
+          safeProfile(current)
+        ];
         return answer(route,{
-          success:true,cached:!url.searchParams.has('refresh'),mutation:'NONE',profiles:3,checked:3,reachable:3,unknown:0,partial:false,
+          success:true,cached:false,mutation:'NONE',profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
           results:[
             {profile_id:second.id,endpoint:second.endpoint,rtt_ms:92,jitter_ms:3,reachable:true,attempted:true,status:'reachable'},
-            {profile_id:winner.id,endpoint:rttMode==='mismatch'?'192.0.2.99:443':winner.endpoint,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
+            {profile_id:winner.id,endpoint:rttMode==='malformed'?'192.0.2.98:443':winnerEndpoint,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
             {profile_id:current.id,endpoint:current.endpoint,rtt_ms:148,jitter_ms:5,reachable:true,attempted:true,status:'reachable'}
           ]
         });
@@ -182,25 +193,42 @@ const server = http.createServer((req,res)=>{
     assert.equal(calls.filter(x=>x.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen,'opening selector must be network-idle and never auto-start RTT');
     const initialRTT=await page.locator('#fnVpnPickerV2Results .fnv2-option .fnv2-rtt').evaluateAll(nodes=>nodes.map(n=>n.textContent||''));
     assert.ok(initialRTT.every(v=>v===''),'selector without explicit RTT refresh must not invent measurement state');
+    await page.evaluate(()=>document.querySelector('#fnVpnPickerV2Refresh').click());
+    await page.waitForTimeout(120);
+    assert.equal(calls.filter(x=>x.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen,'synthetic refresh click must never start RTT');
     await page.locator('#fnVpnPickerV2Refresh').click();
     await page.waitForFunction(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled);
     await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2RTTState')?.textContent.includes('Список отсортирован'));
-    const rttOrder=await page.locator('#fnVpnPickerV2Results .fnv2-option').evaluateAll(nodes=>nodes.map(n=>({id:n.dataset.profileId,rtt:n.querySelector('.fnv2-rtt')?.textContent||''})));
+    let rttOrder=await page.locator('#fnVpnPickerV2Results .fnv2-option').evaluateAll(nodes=>nodes.map(n=>({id:n.dataset.profileId,rtt:n.querySelector('.fnv2-rtt')?.textContent||''})));
     assert.deepEqual(rttOrder.slice(0,3).map(x=>x.id),[second.id,winner.id,current.id],'explicit RTT refresh must sort measured profiles by canonical VPN RTT');
     assert.deepEqual(rttOrder.slice(0,3).map(x=>x.rtt),['92 мс','121 мс','148 мс'],'explicit RTT refresh must show RTT for every measured profile');
-    const forcedRTTCalls=calls.filter(x=>x.path==='/api/provider-profiles/rtt'&&x.query.includes('refresh=1')).length;
+    let forcedRTTCalls=calls.filter(x=>x.path==='/api/provider-profiles/rtt'&&x.query.includes('refresh=1')).length;
     assert.equal(forcedRTTCalls,1,'one explicit refresh must start exactly one full-pool RTT sweep');
     await page.locator('#fnVpnPickerV2Close').click();
     await openPicker();
     await page.waitForTimeout(200);
     assert.equal(calls.filter(x=>x.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen+1,'reopening selector must not start another RTT sweep');
-    rttMode='mismatch';
+
+    rttMode='rotate';
     await page.locator('#fnVpnPickerV2Refresh').click();
     await page.waitForFunction(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled);
-    assert.match(await page.locator('#fnVpnPickerV2RTTState').textContent(),/Список VPN изменился/,'mismatched RTT/catalog snapshot must fail closed');
+    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2RTTState')?.textContent.includes('Список отсортирован'));
+    assert.doesNotMatch(await page.locator('#fnVpnPickerV2RTTState').textContent(),/Список VPN изменился/,'endpoint rotation before sweep is a valid new measured snapshot');
+    assert.equal(await page.locator('#fnVpnPickerV2Results [data-profile-id="fixture-de"] small').textContent(),'192.0.2.99:443','selector must atomically adopt the endpoint snapshot that was actually measured');
+    assert.equal(await page.locator('#fnVpnPickerV2Results [data-profile-id="fixture-de"] .fnv2-rtt').textContent(),'121 мс','rotated measured snapshot must retain its RTT');
+
+    rttMode='malformed';
+    await page.locator('#fnVpnPickerV2Refresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled);
+    assert.match(await page.locator('#fnVpnPickerV2RTTState').textContent(),/Список VPN изменился/,'internally inconsistent RTT/catalog response must fail closed');
     const rejectedRTT=await page.locator('#fnVpnPickerV2Results .fnv2-option .fnv2-rtt').evaluateAll(nodes=>nodes.map(n=>n.textContent||''));
-    assert.ok(rejectedRTT.every(v=>v===''),'mismatched snapshot must not attach stale RTT values to visible rows');
+    assert.ok(rejectedRTT.every(v=>v===''),'inconsistent snapshot must not attach RTT values');
+
     rttMode='ok';
+    await page.locator('#fnVpnPickerV2Refresh').click();
+    await page.waitForFunction(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled);
+    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2RTTState')?.textContent.includes('Список отсортирован'));
+    assert.equal(await page.locator('#fnVpnPickerV2Results [data-profile-id="fixture-de"] small').textContent(),winner.endpoint,'fresh baseline snapshot must restore canonical endpoint after rotation test');
     await page.waitForFunction(() => {
       const pop = document.querySelector('#fnVpnPickerV2Panel')?.getBoundingClientRect();
       const search = document.querySelector('#fnVpnPickerV2Search')?.getBoundingClientRect();
