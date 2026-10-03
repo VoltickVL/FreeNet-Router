@@ -24,7 +24,7 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"height:min(760px,var(--fnv2-space,760px))", "flex:1 1 auto",
 		"fnVpnPickerV2Resize", "setPointerCapture", "dataset.userHeight",
 		"завершён частично", "не проверен",
-		"refresh.addEventListener('click',()=>refreshRTT(true))", "data.cached",
+		"refresh.addEventListener('click',refreshRTT)", "data.cached",
 	} {
 		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
 	}
@@ -34,7 +34,7 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 	if strings.Contains(js, "VPN есть · DNS?") || strings.Contains(js, "transport_only") {
 		t.Fatal("quick VPN RTT UI must not expose obsolete named-DNS preflight states")
 	}
-	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint", "max-height:280px", "sheet.cssRules", "maybeAutoRTT", "rttAutoAttempted", "refreshRTT(false)"} {
+	for _, forbidden := range []string{"/api/network-profile/apply", "fetch(", "document.body.innerHTML", "renderProfileOptions =", "removeLegacyPickerStyles", "rows.find(p => s?.endpoint", "#bestCurrentFlag", "#bestCurrentEndpoint", "max-height:280px", "sheet.cssRules", "maybeAutoRTT", "rttAutoAttempted", "refreshRTT(false)", "refreshRTT(true)"} {
 		if strings.Contains(js, forbidden) { t.Fatalf("presentation must not contain %q", forbidden) }
 	}
 	mainData, err := os.ReadFile("main.go")
@@ -80,18 +80,27 @@ func TestControlCenterBrowserServer(t *testing.T) {
 	}
 }
 
-func TestVPNPickerRTTBridgeKeepsExplicitForcedRefreshCapability(t *testing.T) {
+func TestVPNPickerRTTBridgeIsExplicitRefreshOnly(t *testing.T) {
 	data, err := os.ReadFile("web/vpn-ux-fix.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(data)
 	for _, want := range []string{
-		"async function scanProviderProfileRTT(force = false)",
-		"'/api/provider-profiles/rtt' + (force ? '?refresh=1' : '')",
+		"async function scanProviderProfileRTT()",
+		"fetch('/api/provider-profiles/rtt?refresh=1'",
 	} {
 		if !strings.Contains(js, want) {
-			t.Fatalf("RTT bridge missing %q", want)
+			t.Fatalf("RTT bridge missing explicit-only contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"scanProviderProfileRTT(force",
+		"force ? '?refresh=1' : ''",
+		"fetch('/api/provider-profiles/rtt',",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("RTT bridge must not expose hidden cache/auto mode: found %q", forbidden)
 		}
 	}
 }

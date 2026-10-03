@@ -299,9 +299,10 @@
     }
   }
 
-  async function scanProviderProfileRTT(force = false) {
-    const url = '/api/provider-profiles/rtt' + (force ? '?refresh=1' : '');
-    const r = await fetch(url, {cache:'no-store'});
+  async function scanProviderProfileRTT() {
+    // UI contract: provider RTT is an explicit user action only. There is no
+    // cache/auto mode here, so future callers cannot silently start a sweep.
+    const r = await fetch('/api/provider-profiles/rtt?refresh=1', {cache:'no-store'});
     if (r.status === 401) {
       if (typeof loadAuthStatus === 'function') await loadAuthStatus();
       throw new Error('authentication required');
