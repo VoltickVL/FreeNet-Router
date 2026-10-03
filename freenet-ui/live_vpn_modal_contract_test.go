@@ -74,8 +74,10 @@ func TestVPNPickerV2OwnsTopbarAndBodyPanel(t *testing.T) {
 		`document.body.appendChild(panel)`,
 		`xray-vpn-dns-freenet`,
 		`[xray,host,dns,freenet]`,
-		`refreshStaleCatalogOnOpen`,
-		`selectProviderProfile(profile)`,
+				`selectProviderProfile(profile)`,
+		`safeRTTCatalog`,
+		`publishRTTCatalog`,
+		`event.isTrusted === true`,
 		`fnVpnPickerV2Resize`,
 	} {
 		if !strings.Contains(ux, required) {
