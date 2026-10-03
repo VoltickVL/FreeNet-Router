@@ -126,6 +126,7 @@
 
   const iconPaths = {
     speed: '<path d="M12 3v12m0 0 5-5m-5 5-5-5"/><path d="M5 21h14"/>',
+    fallback_speed: '<path d="M12 3v12m0 0 5-5m-5 5-5-5"/><path d="M5 21h14"/>',
     http: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     tcp: '<circle cx="12" cy="5" r="2"/><circle cx="5" cy="16" r="2"/><circle cx="19" cy="16" r="2"/><path d="M10.8 6.7 6.2 14M13.2 6.7l4.6 7.3M7 16h10"/>',
     jitter: '<path d="M3 13h3l2-6 3 11 3-13 2 8h5"/>',
@@ -362,7 +363,7 @@
     const node = document.createElement('div');
     node.className = 'best-v4-pill' + (key === 'speed' && trustedSpeed ? ' speed' : '');
     node.dataset.metric = key;
-    node.appendChild(makeIcon(key === 'fallback_speed' ? 'speed' : key, 'metric-icon'));
+    node.appendChild(makeIcon(key, 'metric-icon'));
     const copy = document.createElement('div'); copy.className = 'metric-copy';
     const name = document.createElement('span'); name.className = 'metric-label'; name.textContent = label;
     const valueLine = document.createElement('div'); valueLine.className = 'metric-value-line';
