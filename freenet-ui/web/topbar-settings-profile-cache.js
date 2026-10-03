@@ -248,17 +248,17 @@
     style.id = styleID;
     style.textContent = `
       .overview-approved-top.fn-shell-summary{align-items:center!important;gap:9px!important}
-      .topbar #bestServerAdvanced.fn-topbar-vpn-picker{width:230px!important;min-width:0!important;max-width:230px!important;flex:0 0 230px!important;margin-left:0!important}
-      .topbar #fnVpnPickerTrigger{width:100%!important;min-width:0!important;max-width:230px!important;height:50px!important;min-height:50px!important;border-radius:11px!important;padding:6px 10px!important;display:flex!important;align-items:center!important}
-      #fnVpnPickerTrigger .fn-vpn-picker-main,#fnVpnPickerTrigger strong{max-width:142px!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important}
-      #fnVpnPickerTrigger .fn-vpn-picker-copy,#fnVpnPickerTrigger span{font-size:10px!important;line-height:1.05!important}
-      #fnVpnPickerTrigger strong{font-size:13px!important;line-height:1.15!important;font-weight:800!important}
+
+
+
+
+
       .overview-approved-fact.fn-shell-fact,#topFreenetUpdate{height:50px!important;min-height:50px!important;border-radius:11px!important;padding:6px 11px!important;display:flex!important;align-items:center!important}
       .overview-approved-fact.fn-shell-fact{min-width:112px!important}
       .overview-approved-fact.fn-shell-fact span,.overview-approved-fact.fn-shell-fact small,#topFreenetUpdate span{font-size:10px!important;line-height:1.05!important;font-weight:760!important}
       .overview-approved-fact.fn-shell-fact strong,#topFreenetUpdate strong{font-size:13px!important;line-height:1.15!important;font-weight:800!important}
-      .overview-approved-fact.fn-shell-fact .fn-shell-icon,#topFreenetUpdate .fn-shell-icon,#fnVpnPickerTrigger .fn-shell-icon{width:30px!important;height:30px!important;min-width:30px!important}
-      #fnVpnPickerBody #bestServerAdvanced.fn-topbar-vpn-picker{width:100%!important;max-width:none!important;flex:auto!important}
+
+
       #profilesMenu .fn-selector-cache-note{padding:10px 12px!important;margin:0 0 8px!important;border:1px solid rgba(241,184,75,.32)!important;border-radius:10px!important;background:rgba(100,72,18,.22)!important;color:#ffd98a!important;font-size:11.5px!important;line-height:1.35!important}
       body:has([data-page-view="settings"].active) .fn3-grid{align-items:stretch!important}
       body:has([data-page-view="settings"].active) .fn3-left{display:flex!important;flex-direction:column!important;min-height:100%!important}
@@ -268,7 +268,7 @@
       body:has([data-page-view="settings"].active) .fn3-extra-action,body:has([data-page-view="settings"].active) .fn3-backup-actions .btn{height:56px!important;min-height:56px!important;display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;line-height:1.16!important}
       body:has([data-page-view="settings"].active) .fn3-backup-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important;margin-top:auto!important;align-items:stretch!important}
       body:has([data-page-view="settings"].active) .fn3-extra-card .fn3-extra-action{margin-top:auto!important;width:100%!important}
-      @media(max-width:900px){.topbar #bestServerAdvanced.fn-topbar-vpn-picker{width:50px!important;max-width:50px!important;flex-basis:50px!important}.topbar #fnVpnPickerTrigger{width:50px!important;max-width:50px!important;padding-left:9px!important;padding-right:9px!important}.topbar #fnVpnPickerTrigger .fn-vpn-picker-main,.topbar #fnVpnPickerTrigger .fn-vpn-picker-copy{display:none!important}}
+      @media(max-width:900px){}
     `;
     document.head.appendChild(style);
   }
