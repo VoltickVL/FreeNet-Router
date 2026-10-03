@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# FreeNet ISP/DNS controller.
+# FreeNet DNS topology controller.
 # plan  - read-only facts and expected delta.
 # apply - transactional switch between native Keenetic DNS and OPKG/Xray Split DNS.
 
@@ -618,9 +618,7 @@ non_dns_hashes() {
 }
 
 resolve_profile() {
-    ISP_ID="$(config_value ISP_ID auto)"
     DNS_MODE="$(config_value DNS_MODE firmware)"
-    case "$ISP_ID" in auto|vladlink|alliancetelecom|rostelecom|podryad|custom) : ;; *) SUPPORTED=no; EFFECTIVE_DNS=unknown; REASON='неизвестный профиль интернет-провайдера'; return ;; esac
     case "$DNS_MODE" in
         auto|firmware) EFFECTIVE_DNS=firmware; SUPPORTED=yes; REASON='нативный DNS Keenetic без VPN-проксирования' ;;
         xkeen) EFFECTIVE_DNS=xkeen; SUPPORTED=yes; REASON='Split DNS через OPKG/Xray выбран явно' ;;
@@ -665,7 +663,6 @@ runtime_facts() {
 plan() {
     resolve_profile
     say '========== FreeNet Network Plan =========='
-    say "ISP_ID=$ISP_ID"
     say "DNS_MODE=$DNS_MODE"
     say "EFFECTIVE_DNS_MODE=$EFFECTIVE_DNS"
     say "SUPPORTED=$SUPPORTED"
@@ -949,7 +946,7 @@ apply_native() {
     PRESERVE_BEFORE="$(non_dns_hashes)" || { fail_not_applied 'не удалось снять non-DNS preserve hashes'; return 1; }
 
     # A healthy existing native topology may still carry legacy proxy_dns=on in the init file.
-    # Normalize only the persisted init value here; do not restart a working runtime merely to save ISP metadata.
+    # Normalize only the persisted init value here; do not restart a working runtime merely to save DNS metadata.
     if [ "$NDM_OVERRIDE_INITIAL" = off ] && [ "$(port53_owner)" = ndnproxy ] && [ "$(xray_dns_inbound_count)" = 0 ] && ! has_dns_out && [ "$(dns_routing_mode)" = native ]; then
         [ "$NDM_FILTER_ENGINE_INITIAL" != opkg ] || { fail_not_applied 'native topology с Keenetic filter engine opkg неоднозначна; STOP'; return 1; }
         dns_query_ok || { fail_not_applied 'native Keenetic DNS query failed'; return 1; }
