@@ -54,7 +54,7 @@
           operation_id: op.id, rollback_state: 'NOT_NEEDED', message: op.message || 'Свежий endpoint применён и проверен'});
       }
       return jsonResponse(200, {
-        success: true, applied: true, operation: 'provider', profile_id: meta.target,
+        success: true, applied: true, operation: 'provider', profile_id: meta.profileID || meta.target,
         operation_id: op.id, rollback_state: 'NOT_NEEDED', message: op.message || 'VPN-профиль применён и проверен'
       });
     }
