@@ -286,7 +286,7 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('#bestCurrentMetrics').textContent(),/37\.4 Мбит\/с/);
     assert.match(await page.locator('#bestCurrentMetrics').textContent(),/не для сравнения/);
     assert.doesNotMatch(await page.locator('#bestCurrentMetrics').textContent(),/Скорость VPN/,'fallback throughput must not masquerade as canonical speed');
-    assert.match(await page.locator('#bestCurrentQuality').textContent(),/быстрый замер 37\.4 Мбит\/с/i);
+    assert.match(await page.locator('#bestCurrentQuality').textContent(),/быстрый контроль 37\.4 Мбит\/с/i);
 
     bestMode='no-current';
     await page.locator('#bestServerRefresh').click();
