@@ -37,7 +37,7 @@ func TestPartialLegacySplitSelfRepairNormalizesDNSLayer(t *testing.T) {
 		}
 	}
 
-	writePartialSplitTestFile(t, filepath.Join(root, "etc", "freenet", "freenet.conf"), "ISP_ID=vladlink\nDNS_MODE=xkeen\n", 0o644)
+	writePartialSplitTestFile(t, filepath.Join(root, "etc", "freenet", "freenet.conf"), "DNS_MODE=xkeen\n", 0o644)
 	writePartialSplitTestFile(t, filepath.Join(root, "etc", "init.d", "S05xkeen"), "#!/bin/sh\nproxy_dns=\"off\"\n", 0o755)
 	writePartialSplitTestFile(t, filepath.Join(configDir, "02_dns.json"), `{"dns":{"tag":"dns-vless","servers":[{"address":"https://8.8.8.8/dns-query","tag":"dns-vless"}],"queryStrategy":"UseIPv4"}}`+"\n", 0o644)
 	writePartialSplitTestFile(t, filepath.Join(configDir, "03_inbounds.json"), `{"inbounds":[{"tag":"redirect","port":5000,"protocol":"dokodemo-door"},{"tag":"dns","port":53,"protocol":"dokodemo-door","settings":{"network":"tcp,udp"}}]}`+"\n", 0o644)
