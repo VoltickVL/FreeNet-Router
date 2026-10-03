@@ -797,10 +797,10 @@
         if(response.ok){
           const status=await response.json();
           if(status&&!status.busy&&!status.updater_busy&&status.xray_online){
-            const endpointOK=!expectedEndpoint||status.endpoint===expectedEndpoint;
             const statusName=String(status.profile_label||status.profile||'').trim();
-            const nameOK=!expectedName||statusName===expectedName||profileDisplayName({name:statusName},statusName)===profileDisplayName(candidate,expectedName);
-            if(endpointOK&&nameOK)return status;
+            const endpointOK=!!expectedEndpoint&&status.endpoint===expectedEndpoint;
+            const nameOK=!expectedEndpoint&&!!expectedName&&(statusName===expectedName||profileDisplayName({name:statusName},statusName)===profileDisplayName(candidate,expectedName));
+            if(endpointOK||nameOK||(!expectedEndpoint&&!expectedName))return status;
           }
         }
       }catch(_){}
