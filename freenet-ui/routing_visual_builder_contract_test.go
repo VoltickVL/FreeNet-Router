@@ -145,3 +145,46 @@ func TestRoutingAndConfigStudioLiveSyncContract(t *testing.T) {
 		}
 	}
 }
+
+
+func TestRoutingWorkspaceHasFirstClassXrayTab(t *testing.T) {
+	routingData, err := os.ReadFile("web/routing-v2.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	managerData, err := os.ReadFile("web/xray-core-manager.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routing := string(routingData)
+	manager := string(managerData)
+
+	for _, want := range []string{
+		`data-mode="xray"`,
+		`data-mode="rules"`,
+		`data-mode="config"`,
+		`id="rv2XrayPanel"`,
+		`id="rv2XrayStart"`,
+		`id="rv2XrayStop"`,
+		`id="rv2XrayRestart"`,
+		`id="rv2XrayVersions"`,
+		`id="rv2XrayJournal"`,
+		"freenet:xray-service-changed",
+		"FreeNetXrayControl",
+	} {
+		if !strings.Contains(routing, want) {
+			t.Fatalf("embedded Xray workspace missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"window.FreeNetXrayControl",
+		"action: mutateService",
+		"refresh: fetchServiceSnapshot",
+		"openVersions",
+		"openJournal",
+	} {
+		if !strings.Contains(manager, want) {
+			t.Fatalf("canonical Xray owner API missing %q", want)
+		}
+	}
+}
