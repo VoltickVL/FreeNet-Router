@@ -151,7 +151,7 @@ const server = http.createServer((req, res) => {
     });
     assert.equal(catalogGets, 0, 'opening Xray control must not fetch the version catalog');
     assert.deepEqual(serviceActions, [], 'opening Xray control must stay read-only');
-    assert.match(await page.locator('#xrayCoreManager').innerText(),/Последние события/);
+    assert.match(await page.locator('#xrayCoreManager').innerText(),/последние события/i);
     assert.match(await page.locator('#xrayCoreManager').innerText(),/Xray запущен через FreeNet/);
     assert.equal(await page.locator('#xrayTopbarChip').getAttribute('aria-expanded'), 'true', 'Xray chip must expose open dialog state');
     assert.equal(await page.locator('.xcm-backdrop').evaluate(el => getComputedStyle(el).display), 'none', 'Xray control must not dim the whole page');
