@@ -479,6 +479,14 @@ func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	select {
+	case a.sem <- struct{}{}:
+		defer func() { <-a.sem }()
+	default:
+		writeJSON(w, http.StatusConflict, routingApplyResponse{Success: false, Mutation: "NONE", XrayValid: true, Rollback: "NOT_NEEDED", Error: "another FreeNet mutation is already running"})
+		return
+	}
+
 	wasRunning := xrayServiceProcessRunning("xray")
 	if wasRunning {
 		if err := xrayCoreRestartPreflight(); err != nil {
