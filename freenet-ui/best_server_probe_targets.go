@@ -132,17 +132,23 @@ func probeBestServerCanonicalVPNPing(ctx context.Context, curlPath, socks string
 // signal but repeats it only for the bounded finalist set. Full-pool discovery
 // stays fast (one sample per profile); finalists use median evidence so a
 // single transient RTT spike cannot decide AUTO/Best Server ordering.
-func probeBestServerConfirmedVPNPing(ctx context.Context, curlPath, socks string) bestServerProbeResult {
+func probeBestServerConfirmedVPNPingWith(ctx context.Context, curlPath, socks string, runner bestServerHTTPProbeRunner) bestServerProbeResult {
 	samples := make([]int, 0, bestServerConfirmedVPNPingRuns)
 	for i := 0; i < bestServerConfirmedVPNPingRuns; i++ {
 		if ctx.Err() != nil {
 			break
 		}
-		if ms, ok := probeBestServerTransportRTT(ctx, curlPath, socks); ok {
+		if ms, ok := probeBestServerTransportRTTWith(
+			ctx, curlPath, socks, bestServerTransportProbeURL, bestServerTransportProbeTimeout, runner,
+		); ok {
 			samples = append(samples, ms)
 		}
 	}
 	return summarizeBestServerSamples(samples, bestServerConfirmedVPNPingRequired)
+}
+
+func probeBestServerConfirmedVPNPing(ctx context.Context, curlPath, socks string) bestServerProbeResult {
+	return probeBestServerConfirmedVPNPingWith(ctx, curlPath, socks, runBestServerTransportRTT)
 }
 
 // probeBestServerTransportIP remains diagnostic-only for VPN Outbound Doctor.
