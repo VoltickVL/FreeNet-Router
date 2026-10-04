@@ -10,6 +10,7 @@
   const state = {
     mounted: false,
     loading: false,
+    loadPromise: null,
     active: '',
     tabs: [],
     live: new Map(),
@@ -335,25 +336,37 @@
     state.active = preferred || (state.tabs[0] && state.tabs[0].name) || '';
   }
 
-  async function reloadWorkspace(message) {
-    if (state.loading) return false;
+  async function reloadWorkspace(message, force = false) {
+    if (state.loadPromise) {
+      const active = state.loadPromise;
+      if (!force) return active;
+      await active;
+    }
+    if (state.loadPromise) return reloadWorkspace(message, force);
+
     state.loading = true;
     const previousActive = state.active;
-    try {
-      const body = await api('/api/config-studio');
-      if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract Config Studio');
-      loadWorkspaceData(body);
-      if (previousActive && tabByName(previousActive)) state.active = previousActive;
-      state.stale = false;
-      render();
-      if (message) setNotice(message, 'ok');
-      return true;
-    } catch (error) {
-      setNotice(`Config Studio недоступен: ${error.message || 'ошибка API'}`, 'bad');
-      return false;
-    } finally {
-      state.loading = false;
-    }
+    const task = (async () => {
+      try {
+        const body = await api('/api/config-studio');
+        if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract Config Studio');
+        loadWorkspaceData(body);
+        if (previousActive && tabByName(previousActive)) state.active = previousActive;
+        state.stale = false;
+        render();
+        if (message) setNotice(message, 'ok');
+        return true;
+      } catch (error) {
+        setNotice(`Config Studio недоступен: ${error.message || 'ошибка API'}`, 'bad');
+        return false;
+      } finally {
+        state.loading = false;
+        state.loadPromise = null;
+      }
+    })();
+
+    state.loadPromise = task;
+    return task;
   }
 
   function formatActive() {
@@ -433,7 +446,7 @@
       const appliedMessage = body.core_restart
         ? 'Изменения применены, post-validation подтверждён, Xray Core перезапущен безопасным core-only path.'
         : 'Изменения сохранены и post-validation подтверждён. Xray был остановлен и остался остановлен; новый конфиг загрузится при следующем запуске.';
-      await reloadWorkspace(appliedMessage);
+      await reloadWorkspace(appliedMessage, true);
       document.dispatchEvent(new CustomEvent('freenet:xray-config-applied', {
         detail:{
           source:'config-studio',
@@ -467,13 +480,13 @@
       return;
     }
 
-    await reloadWorkspace();
+    await reloadWorkspace('', true);
   }
 
   async function handleRoutingModeChanged(event) {
     const mode = String(event?.detail?.mode || '');
     if (mode !== 'config' || hasDirtyDrafts() || state.stale) return;
-    await reloadWorkspace();
+    await reloadWorkspace('', true);
   }
 
   document.addEventListener('freenet:xray-config-applied', event => { void handleExternalConfigApplied(event); });
