@@ -765,7 +765,7 @@
     qs('#rv2ConfigPanel').hidden = selected !== 'config';
 
     if (selected === 'rules') {
-      if (!hasRuleDraft()) void loadConfig();
+      if (!hasRuleDraft()) void loadConfig(true);
       else renderLiveRules();
     } else if (!state.configLoaded) {
       void loadConfig();
@@ -803,8 +803,13 @@
     const file = qs('#rv2ConfigFile'); if (file) file.textContent = state.configTab === 'routing' ? '05_routing.json' : '06_policy.json';
   }
 
-  async function loadConfig() {
-    if (state.configLoadPromise) return state.configLoadPromise;
+  async function loadConfig(force = false) {
+    if (state.configLoadPromise) {
+      const active = state.configLoadPromise;
+      if (!force) return active;
+      await active;
+    }
+    if (state.configLoadPromise) return loadConfig(force);
 
     state.configLoading = true;
     const task = (async () => {
@@ -1233,7 +1238,7 @@
 
   async function reconcileExternalLiveIfSafe() {
     if (!state.liveStale || hasRuleDraft()) return false;
-    const ok = await loadConfig();
+    const ok = await loadConfig(true);
     if (ok) setNotice('rv2RulesApplyResult', 'Live-маршрутизация синхронизирована с конфигурацией Xray.', 'ok');
     return ok;
   }
@@ -1252,7 +1257,7 @@
     }
 
     state.liveStale = false;
-    await loadConfig();
+    await loadConfig(true);
   }
 
   document.addEventListener('freenet:xray-config-applied', event => { void handleExternalConfigApplied(event); });
@@ -1278,7 +1283,7 @@
     closeInlineComposer(true);
     renderRuleList();
     renderCompileState();
-    await loadConfig();
+    await loadConfig(true);
     setMode('rules');
     setNotice('rv2RulesApplyResult', message || 'Изменения применены.', 'ok');
     document.dispatchEvent(new CustomEvent('freenet:xray-config-applied', {
