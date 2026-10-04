@@ -695,10 +695,8 @@
   function syncRuleActionButtons() {
     const additionsReady = state.rules.length === 0 || !!state.compiled;
     const hasDraft = hasRuleDraft() && additionsReady;
-    const validate = qs('#rv2ValidateRules'); if (validate) validate.disabled = !hasDraft;
-    if (!hasDraft) {
-      const apply = qs('#rv2ApplyRules'); if (apply) apply.disabled = true;
-    }
+    const apply = qs('#rv2ApplyRules');
+    if (apply) apply.disabled = !hasDraft;
   }
 
   function renderCompileState() {
@@ -715,7 +713,7 @@
     const parts = [];
     if (state.rules.length) parts.push(`добавить: ${state.rules.length}`);
     if (removals.length) parts.push(`удалить: ${removals.length}`);
-    summary.innerHTML = `<strong>Черновик · ${parts.join(' · ')}</strong> · live-маршрутизация не изменится до проверки и явного применения.`;
+    summary.innerHTML = `<strong>Изменения · ${parts.join(' · ')}</strong> · нажмите «Сохранить и применить».`;
   }
 
   async function searchGeo() {
@@ -852,6 +850,63 @@
     return xray;
   }
 
+  function managedRuleFamily(rule) {
+    if (Array.isArray(rule?.domain) && rule.domain.length === 1) return 'domain';
+    if (Array.isArray(rule?.ip) && rule.ip.length === 1) return 'ip';
+    return '';
+  }
+
+  function isSimpleMergeTarget(rule, family, outboundTag) {
+    if (!rule || typeof rule !== 'object' || Array.isArray(rule)) return false;
+    if (String(rule.type || '') !== 'field' || String(rule.outboundTag || '') !== String(outboundTag || '')) return false;
+    const allowed = new Set(['type','outboundTag',family]);
+    if (Object.keys(rule).some(key => !allowed.has(key))) return false;
+    return Array.isArray(rule[family]);
+  }
+
+  function hasEarlierFamilyConflict(rules, beforeIndex, family, outboundTag) {
+    for (let i = 0; i < beforeIndex; i++) {
+      const rule = rules[i];
+      const values = Array.isArray(rule?.[family]) ? rule[family] : [];
+      if (!values.length) continue;
+      if (String(rule?.outboundTag || '') !== String(outboundTag || '')) return true;
+    }
+    return false;
+  }
+
+  function mergeManagedRulesSafely(existingRules, managedRules) {
+    const existing = existingRules.map(clone);
+    const prepend = [];
+    let mergedCount = 0;
+
+    managedRules.forEach(managed => {
+      const family = managedRuleFamily(managed);
+      const outboundTag = String(managed?.outboundTag || '');
+      const selector = family ? String(managed[family][0] || '') : '';
+      if (!family || !selector) {
+        prepend.push(managed);
+        return;
+      }
+
+      let target = -1;
+      for (let i = 0; i < existing.length; i++) {
+        if (!isSimpleMergeTarget(existing[i], family, outboundTag)) continue;
+        if (hasEarlierFamilyConflict(existing, i, family, outboundTag)) continue;
+        target = i;
+        break;
+      }
+
+      if (target < 0) {
+        prepend.push(managed);
+        return;
+      }
+      if (!existing[target][family].some(value => String(value) === selector)) existing[target][family].push(selector);
+      mergedCount++;
+    });
+
+    return {rules: prepend.concat(existing), mergedCount, prependedCount: prepend.length};
+  }
+
   async function buildRoutingDraftFromRules(openConfig = true) {
     if (!hasRuleDraft() || (state.rules.length > 0 && !state.compiled)) {
       setNotice('rv2RulesApplyResult', 'Сначала добавьте или отметьте для удаления хотя бы одно правило.', 'bad');
@@ -892,7 +947,8 @@
       });
 
       const managed = state.rules.length ? (state.compiled.payload || []).map(compiledRuleToXray) : [];
-      base.routing.rules = managed.concat(existing);
+      const merged = mergeManagedRulesSafely(existing, managed);
+      base.routing.rules = merged.rules;
       state.draft.routing = JSON.stringify(base, null, 2);
       state.draft.policy = JSON.stringify(state.live.policy, null, 2);
       state.configDirty = true; state.configValidated = false; state.configTab = 'routing'; showActiveEditor();
@@ -904,12 +960,14 @@
       const copy = `Изменения: ${parts.join(', ')}. Остальные пользовательские и все служебные правила сохраняются без изменений.`;
       setNotice('rv2RulesApplyResult', copy, 'ok');
       setNotice('rv2ConfigNotice', `${copy} Это пока только черновик.`, 'ok');
-      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} Сначала выполните проверку Xray.`;
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `${copy} FreeNet проверит candidate перед записью автоматически.`;
       if (openConfig) setMode('config');
       return {
         routing: base,
         policy: clone(state.live.policy),
         managedCount: managed.length,
+        mergedCount: merged.mergedCount,
+        prependedCount: merged.prependedCount,
         removedCount: removalCount,
         existingCount: originalExisting.length,
         remainingCount: existing.length
@@ -964,7 +1022,7 @@
       if (prepared.managedCount) changes.push(`добавить: ${prepared.managedCount}`);
       if (prepared.removedCount) changes.push(`удалить: ${prepared.removedCount}`);
       setNotice('rv2RulesApplyResult', `Проверка пройдена · ${changes.join(' · ')}. Остальные правила сохраняются без изменений.`, 'ok');
-      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. ${changes.join(' · ')}. Существующие правила сохранены, кроме явно отмеченных удалений. Служебные правила сохранены без изменений. Перед записью FreeNet создаст резервную точку и автоматически откатит изменение при ошибке.`;
+      const preview = qs('#rv2RulesApplyPreview'); if (preview) preview.textContent = `Проверка Xray пройдена. ${changes.join(' · ')}. Остальные пользовательские и служебные правила сохраняются без изменений.`;
     } else {
       setNotice('rv2RulesApplyResult', 'Проверка не пройдена. Применение заблокировано; текущая маршрутизация не изменена.', 'bad');
     }
@@ -1079,13 +1137,13 @@
           <div class="rv2-card-head">
             <div>
               <div class="rv2-draft-head"><h2>Черновик изменений</h2><span id="rv2DraftCount" class="rv2-draft-count">0</span></div>
-              <p class="rv2-copy">Новые правила ещё не применены. Сначала проверка, затем одно безопасное применение.</p>
+              <p class="rv2-copy">Изменения ещё не сохранены. FreeNet сам проверит Xray перед применением.</p>
             </div>
           </div>
           <div id="rv2RuleList" class="rv2-rule-list"></div><div id="rv2CompiledSummary" class="rv2-compiled" hidden></div>
           <div class="rv2-rule-footer">
             <div id="rv2RulesApplyPreview" class="rv2-rule-footer-copy">Текущая маршрутизация не изменена.</div>
-            <div class="rv2-rule-footer-actions"><button id="rv2ValidateRules" class="btn secondary" type="button" disabled>Проверить</button><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
+            <div class="rv2-rule-footer-actions"><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Сохранить и применить</button></div>
           </div>
           <div id="rv2RulesApplyResult" class="rv2-notice"></div>
         </div>
@@ -1133,13 +1191,43 @@
         addOrUpdateRule();
       }
     });
-    qs('#rv2ValidateRules')?.addEventListener('click', validateRulesCandidate);
     qsa('.rv2-config-tab').forEach(button => button.addEventListener('click', () => switchConfigTab(button.dataset.configTab)));
     qs('#rv2FormatConfig')?.addEventListener('click', formatActiveConfig);
     qs('#rv2ValidateConfig')?.addEventListener('click', validateConfig);
     qs('#rv2ReloadConfig')?.addEventListener('click', resetConfigDraft);
     qs('#rv2ConfigEditor')?.addEventListener('input', () => { state.configDirty = true; state.configValidated = false; storeEditor(); setConfigStatus('Черновик', 'warn'); });
   }
+
+
+  async function prepareRulesCandidateForApply() {
+    if (!hasRuleDraft() || (state.rules.length > 0 && !state.compiled)) {
+      syncRuleActionButtons();
+      setNotice('rv2RulesApplyResult', 'Нет готовых изменений для сохранения.', 'bad');
+      return false;
+    }
+    const prepared = await buildRoutingDraftFromRules(false);
+    if (!prepared) return false;
+    return await validateConfig();
+  }
+
+  async function refreshRulesAfterApply(message = '') {
+    state.rules = [];
+    state.compiled = null;
+    state.removals = [];
+    state.editing = -1;
+    state.selectedSource = '';
+    closeInlineComposer(true);
+    renderRuleList();
+    renderCompileState();
+    await loadConfig();
+    setMode('rules');
+    setNotice('rv2RulesApplyResult', message || 'Сохранено и применено.', 'ok');
+  }
+
+  window.FreeNetRoutingV2 = Object.assign(window.FreeNetRoutingV2 || {}, {
+    prepareRulesCandidate: prepareRulesCandidateForApply,
+    refreshAfterApply: refreshRulesAfterApply
+  });
 
   function mount() {
     const page = qs('[data-page-view="network"]');
