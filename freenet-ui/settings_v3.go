@@ -12,15 +12,20 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
 const (
-	settingsV3StatePathDefault   = "/opt/var/run/freenet-settings-v3.state"
-	settingsV3HistoryPathDefault = "/opt/var/log/freenet-settings-v3.history"
-	settingsV3BackupRootDefault  = "/opt/backups/freenet-settings"
-	settingsV3UpdaterDefault     = "/opt/bin/blanc_xkeen_update_outbounds.sh"
+	settingsV3StatePathDefault    = "/opt/var/run/freenet-settings-v3.state"
+	settingsV3HistoryPathDefault  = "/opt/var/log/freenet-settings-v3.history"
+	settingsV3BackupRootDefault   = "/opt/backups/freenet-settings"
+	settingsV3UpdaterDefault      = "/opt/bin/blanc_xkeen_update_outbounds.sh"
+	journalHistoryFileLimit       = 200
+	journalSemanticDedupeWindow   = 15 * time.Second
 )
+
+var journalHistoryMu sync.Mutex
 
 type settingsV3Schedule struct {
 	Enabled  bool   `json:"enabled"`
@@ -62,6 +67,12 @@ type settingsV3Response struct {
 	Error        string               `json:"error,omitempty"`
 }
 
+type journalResponse struct {
+	Success     bool              `json:"success"`
+	Events      []automationEvent `json:"events"`
+	GeneratedAt string            `json:"generated_at"`
+}
+
 type settingsV3SaveRequest struct {
 	Action                   string   `json:"action"`
 	AutoVPNEnabled           *bool    `json:"auto_vpn_enabled,omitempty"`
@@ -97,6 +108,7 @@ type settingsV3ActionResponse struct {
 
 func registerSettingsV3API(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/settings-v3", a.requireAuth(a.handleSettingsV3Get))
+	mux.HandleFunc("GET /api/journal", a.requireAuth(a.handleJournalGet))
 	mux.HandleFunc("POST /api/settings-v3", a.requireAuth(a.handleSettingsV3Save))
 	mux.HandleFunc("POST /api/settings-v3/action", a.requireAuth(a.handleSettingsV3Action))
 }
@@ -329,15 +341,33 @@ func v3WriteState(values map[string]string) error {
 	return os.Rename(tmp, path)
 }
 
-func v3AppendEvent(kind, result, message string) {
-	path := settingsV3HistoryPath()
+func appendBoundedJournalLine(path, line string) {
+	journalHistoryMu.Lock()
+	defer journalHistoryMu.Unlock()
+
 	_ = os.MkdirAll(filepath.Dir(path), 0755)
-	line := time.Now().UTC().Format(time.RFC3339) + "\t" + sanitizeAutomationReason(kind) + "\t" + sanitizeAutomationReason(result) + "\t" + sanitizeAutomationReason(message) + "\n"
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-	if err == nil {
-		_, _ = file.WriteString(line)
-		_ = file.Close()
+	if err != nil {
+		return
 	}
+	_, _ = file.WriteString(line)
+	_ = file.Close()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(data), "\r", "")), "\n")
+	if len(lines) <= journalHistoryFileLimit {
+		return
+	}
+	lines = lines[len(lines)-journalHistoryFileLimit:]
+	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600)
+}
+
+func v3AppendEvent(kind, result, message string) {
+	line := time.Now().UTC().Format(time.RFC3339) + "\t" + sanitizeAutomationReason(kind) + "\t" + sanitizeAutomationReason(result) + "\t" + sanitizeAutomationReason(message) + "\n"
+	appendBoundedJournalLine(settingsV3HistoryPath(), line)
 }
 
 func v3Next(last, interval string) string {
@@ -455,11 +485,74 @@ func selfUpdateJournalEvents(path string) []automationEvent {
 	return []automationEvent{{At: at, Kind: "freenet_update", Result: result, Message: prefix}}
 }
 
-func canonicalJournalEvents(limit int, updateStatePath ...string) []automationEvent {
-	if limit <= 0 {
-		limit = 50
+func canonicalJournalKindKey(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "auto vpn", "auto_vpn":
+		return "auto_vpn"
+	case "vpn":
+		return "vpn"
+	case "subscription":
+		return "subscription"
+	default:
+		return strings.ToLower(strings.TrimSpace(kind))
 	}
-	automationEvents := readAutomationEvents(automationHistoryPath(), limit)
+}
+
+func canonicalJournalMessageKey(message string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(message)), " "))
+}
+
+func journalResultPriority(result string) int {
+	value := strings.ToLower(strings.TrimSpace(result))
+	if idx := strings.LastIndex(value, ":"); idx >= 0 {
+		value = strings.TrimSpace(value[idx+1:])
+	}
+	switch value {
+	case "failed", "critical", "rollback_failed":
+		return 3
+	case "success", "healthy", "switched", "updated", "cleared":
+		return 2
+	default:
+		return 1
+	}
+}
+
+func dedupeCanonicalJournalEvents(events []automationEvent) []automationEvent {
+	out := make([]automationEvent, 0, len(events))
+	seen := map[string]int{}
+	for _, event := range events {
+		key := canonicalJournalKindKey(event.Kind) + "\x00" + canonicalJournalMessageKey(event.Message)
+		if key == "\x00" {
+			out = append(out, event)
+			continue
+		}
+		if index, ok := seen[key]; ok {
+			newerAt, newerErr := time.Parse(time.RFC3339, out[index].At)
+			eventAt, eventErr := time.Parse(time.RFC3339, event.At)
+			if newerErr == nil && eventErr == nil {
+				delta := newerAt.Sub(eventAt)
+				if delta < 0 {
+					delta = -delta
+				}
+				if delta <= journalSemanticDedupeWindow {
+					if journalResultPriority(event.Result) > journalResultPriority(out[index].Result) {
+						out[index].Result = event.Result
+					}
+					continue
+				}
+			}
+		}
+		seen[key] = len(out)
+		out = append(out, event)
+	}
+	return out
+}
+
+func canonicalJournalEvents(limit int, updateStatePath ...string) []automationEvent {
+	if limit <= 0 || limit > journalHistoryFileLimit {
+		limit = journalHistoryFileLimit
+	}
+	automationEvents := readAutomationEvents(automationHistoryPath(), journalHistoryFileLimit)
 	filteredAutomation := make([]automationEvent, 0, len(automationEvents))
 	for _, event := range automationEvents {
 		// Provider helper writes legacy generic switch rows into the automation
@@ -471,12 +564,17 @@ func canonicalJournalEvents(limit int, updateStatePath ...string) []automationEv
 		}
 		filteredAutomation = append(filteredAutomation, event)
 	}
-	settingsEvents := readAutomationEvents(settingsV3HistoryPath(), limit)
+	settingsEvents := readAutomationEvents(settingsV3HistoryPath(), journalHistoryFileLimit)
 	groups := [][]automationEvent{filteredAutomation, settingsEvents}
 	if len(updateStatePath) > 0 && strings.TrimSpace(updateStatePath[0]) != "" {
 		groups = append(groups, selfUpdateJournalEvents(updateStatePath[0]))
 	}
-	return v3MergeEvents(limit, groups...)
+	merged := v3MergeEvents(0, groups...)
+	merged = dedupeCanonicalJournalEvents(merged)
+	if len(merged) > limit {
+		merged = merged[:limit]
+	}
+	return merged
 }
 
 func (a *app) settingsV3Snapshot() settingsV3Response {
@@ -518,6 +616,14 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 
 func (a *app) handleSettingsV3Get(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.settingsV3Snapshot())
+}
+
+func (a *app) handleJournalGet(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, journalResponse{
+		Success: true,
+		Events: canonicalJournalEvents(journalHistoryFileLimit, a.cfg.UpdateState),
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func v3ShellQuote(value string) string {
