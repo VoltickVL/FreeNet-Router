@@ -78,10 +78,10 @@ const server=http.createServer(async(req,res)=>{
   const browser=await chromium.launch({headless:true});
   try{
     const page=await browser.newPage({viewport:{width:1600,height:1000}});
-    const errors=[];const consoleErrors=[];
+    const errors=[];const consoleErrors=[];let dialogCount=0;
     page.on('pageerror',e=>errors.push(e.message));
     page.on('console',m=>{if(m.type()==='error')consoleErrors.push(m.text());});
-    page.on('dialog',d=>d.accept());
+    page.on('dialog',d=>{dialogCount++;d.accept();});
     const base=`http://127.0.0.1:${server.address().port}`;
     await page.goto(`${base}/`);
 
@@ -165,7 +165,7 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await categoryRU.evaluate(el=>el.classList.contains('pending-remove')),true);
     assert.equal(await page.locator('#rv2DraftCard').isVisible(),true);
     assert.match(await page.locator('#rv2RuleList').innerText(),/Удалить · GeoSite · category-ru/);
-    assert.equal(await page.locator('#rv2ValidateRules').isDisabled(),false,'deletion-only draft must be validatable');
+    assert.equal(await page.locator('#rv2ApplyRules').isDisabled(),false,'deletion-only draft must be ready for one-click save');
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,chipApplyBefore,'staging removal must not mutate runtime');
     await categoryRU.click();
     assert.equal(await page.locator('#rv2DraftCard').isHidden(),true,'inline undo must clear the deletion-only draft');
@@ -188,6 +188,44 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#rv2DraftCard').isHidden(),true);
     assert.equal(await page.locator('#rv2InlineComposer').isHidden(),true);
 
+    // Common case: a new DIRECT domain is merged into the existing compatible DIRECT domain rule.
+    const directApplyBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
+    const directValidateBefore=calls.filter(x=>x==='POST /api/routing/validate').length;
+    const directDialogsBefore=dialogCount;
+    await page.locator('.rv4-board-add[data-add-action="DIRECT"]').click();
+    await page.locator('#rv2Kind').selectOption('domain');
+    await page.locator('#rv2Value').fill('ifconfig.me');
+    await page.locator('#rv2AddRule').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
+    assert.match(await page.locator('#rv2RuleList').innerText(),/Сайт · ifconfig\.me/);
+    assert.equal(routingLive.routing.rules.length,8,'draft must not mutate live routing');
+    await page.locator('#rv2ApplyRules').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Сохранено и применено'),null,{timeout:10000});
+    assert.equal(calls.filter(x=>x==='POST /api/routing/validate').length,directValidateBefore+1,'one-click save must validate exactly once');
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,directApplyBefore+1,'one-click save must apply exactly once');
+    assert.equal(dialogCount,directDialogsBefore,'Rules save must not open a browser confirm dialog');
+    assert.equal(await page.locator('[data-page-view="routing"]').evaluate(el=>el.classList.contains('active')),true,'successful Rules apply must stay on Routing');
+    assert.equal(routingLive.routing.rules.length,8,'compatible DIRECT domain selector must merge without adding an Xray rule object');
+    assert.equal(routingLive.routing.rules[3].outboundTag,'direct');
+    assert.equal(routingLive.routing.rules[3].domain.includes('domain:ifconfig.me'),true,'ifconfig.me must merge into existing DIRECT domain array');
+    assert.equal(routingLive.routing.rules[0].domain?.includes?.('domain:ifconfig.me')||false,false,'merged selector must not be prepended as a separate rule');
+    await page.waitForFunction(()=>document.querySelector('#rv2DirectCount')?.textContent==='24');
+    assert.match(await page.locator('#rv2DirectContent').innerText(),/ifconfig\.me/);
+
+    // The same selector can be removed with the same one-click path, still in-place.
+    const ifconfigChip=page.locator('#rv2DirectContent .rv4-chip').filter({hasText:'ifconfig.me'}).first();
+    await ifconfigChip.click();
+    await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
+    const directRemoveBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
+    await page.locator('#rv2ApplyRules').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Сохранено и применено'),null,{timeout:10000});
+    await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules')?.textContent==='Сохранить и применить');
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,directRemoveBefore+1);
+    assert.equal(routingLive.routing.rules.length,8,'selector removal must not drop the containing DIRECT rule');
+    assert.equal(routingLive.routing.rules.some(rule=>Array.isArray(rule.domain)&&rule.domain.includes('domain:ifconfig.me')),false);
+    await page.waitForFunction(()=>document.querySelector('#rv2DirectCount')?.textContent==='23');
+    assert.equal(dialogCount,directDialogsBefore,'Rules deletion must not open a browser confirm dialog');
+
     // Boards collapse independently; Add expands only the selected board.
     await page.locator('#rv2VPNBoard .rv4-board-collapse').click();
     assert.equal(await page.locator('#rv2VPNBoard').evaluate(el=>el.classList.contains('collapsed')),true);
@@ -203,6 +241,7 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await page.locator('#rv2ComposerHint').textContent(),/через текущий VPN/);
 
     // Bounded GeoData search stays read-only inside the selected board composer.
+    const geoMutationBefore = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
     await page.locator('#rv2Kind').selectOption('geosite');
     await page.locator('#rv2Value').fill('youtube');
     await page.locator('#rv2GeoSearch').click();
@@ -212,16 +251,17 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await page.locator('#rv2RuleNotice').textContent(),/Часть источников GeoData/);
     assert.doesNotMatch(await page.locator('#rv2RuleNotice').textContent(),/broken\.dat/);
     const geoMutationCalls = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
-    assert.equal(geoMutationCalls,0,'GeoData search must not mutate runtime state');
+    assert.equal(geoMutationCalls,geoMutationBefore,'GeoData search must remain fully read-only');
     await page.locator('.rv2-search-result').first().click();
     assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
     assert.match(await page.locator('#rv2RuleNotice').textContent(),/Нажмите «Добавить»/);
 
-    // Empty draft must not present actionable validation/apply buttons.
-    assert.equal(await page.locator('#rv2ValidateRules').isDisabled(),true);
+    // Empty draft has only one save action and it is disabled until a change exists.
+    assert.equal(await page.locator('#rv2ValidateRules').count(),0);
     assert.equal(await page.locator('#rv2ApplyRules').isDisabled(),true);
+    assert.equal(await page.locator('#rv2ApplyRules').textContent(),'Сохранить и применить');
 
-    // Add the GeoSite to VPN without touching the live board, then validate through the shared engine.
+    // Add the GeoSite to VPN without touching the live board; one click validates and applies.
     await page.locator('#rv2AddRule').click();
     await page.waitForFunction(()=>document.querySelectorAll('#rv2RuleList .rv2-rule').length===1);
     assert.match(await page.locator('#rv2RuleList').innerText(),/GeoSite · youtube/);
@@ -230,53 +270,43 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#rv2VPNCount').textContent(),'4','draft must not rewrite live VPN board before apply');
     assert.equal(await page.locator('#rv2DraftCard').isVisible(),true,'draft card appears only after the first change');
     assert.equal(await page.locator('#rv2DraftCount').textContent(),'1');
-    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,0,'adding a rule must remain read-only');
-
-    await page.locator('#rv2ValidateRules').click();
     await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
-    assert.match(await page.locator('#rv2RulesApplyPreview').textContent(),/Существующие правила сохранены/);
-    assert.match(await page.locator('#rv2RulesApplyResult').textContent(),/Проверка пройдена/);
 
     const visualBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
+    const visualValidateBefore=calls.filter(x=>x==='POST /api/routing/validate').length;
+    const visualDialogsBefore=dialogCount;
     await page.locator('#rv2ApplyRules').click();
-    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('APPLIED'),null,{timeout:10000});
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Сохранено и применено'),null,{timeout:10000});
     const visualAfter=calls.filter(x=>x==='POST /api/routing/apply').length;
-    assert.equal(visualAfter,visualBefore+1,'visual rules apply must issue exactly one transactional mutation');
-    assert.equal(routingLive.routing.rules.length,9,'new rule must be prepended while all existing live rules are preserved');
+    assert.equal(visualAfter,visualBefore+1,'visual rules save must issue exactly one transactional mutation');
+    assert.equal(calls.filter(x=>x==='POST /api/routing/validate').length,visualValidateBefore+1,'visual rules save must validate exactly once');
+    assert.equal(dialogCount,visualDialogsBefore,'Rules save must not show native confirm');
+    assert.equal(routingLive.routing.rules.length,9,'precedence conflict must keep the new VPN rule prepended instead of unsafe merge');
     assert.deepEqual(routingLive.routing.rules[0],{type:'field',outboundTag:'vless-reality',domain:['geosite:youtube']});
     assert.deepEqual(routingLive.routing.rules[8],{type:'field',network:'tcp,udp',outboundTag:'vless-reality'},'complex existing rule must be preserved exact');
 
-    // Reload returns to Overview; reopen Routing and confirm the applied rule is now live.
-    await page.waitForSelector('#routingV2Workspace',{state:'attached'});
-    const navAfterApply=page.locator('.nav-btn[data-page="routing"]');
-    await navAfterApply.click();
-    await page.waitForSelector('#routingV2Workspace',{state:'visible'});
+    // SUCCESS rereads live state in-place and keeps the current Routing page.
+    assert.equal(await page.locator('[data-page-view="routing"]').evaluate(el=>el.classList.contains('active')),true);
     await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('5 пользовательских'));
     assert.equal(await page.locator('#rv2DirectCount').textContent(),'23');
     assert.equal(await page.locator('#rv2VPNCount').textContent(),'5');
     assert.match(await page.locator('#rv2VPNContent').innerText(),/youtube/);
 
-    // Apply a deletion-only draft through the same validation/snapshot/rollback engine.
+    // Deletion uses the same one-click validate/apply path and stays in-place.
     const removeApplyBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
     const liveCategoryRU=page.locator('#rv2DirectContent .rv4-chip').filter({hasText:'category-ru'}).first();
     await liveCategoryRU.click();
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,removeApplyBefore,'live chip click must only stage a deletion');
     assert.match(await page.locator('#rv2RuleList').innerText(),/Удалить · GeoSite · category-ru/);
-    await page.locator('#rv2ValidateRules').click();
     await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
-    assert.match(await page.locator('#rv2RulesApplyResult').textContent(),/удалить: 1/);
     await page.locator('#rv2ApplyRules').click();
-    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('APPLIED'),null,{timeout:10000});
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Сохранено и применено'),null,{timeout:10000});
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,removeApplyBefore+1,'deletion must use exactly one controlled apply');
     assert.equal(routingLive.routing.rules.length,9,'removing one selector must not drop its containing rule or unrelated rules');
     assert.equal(routingLive.routing.rules.some(rule=>Array.isArray(rule.domain)&&rule.domain.includes('ext:geosite.dat:category-ru')),false,'selected live selector must be removed');
     assert.equal(routingLive.routing.rules.some(rule=>Array.isArray(rule.domain)&&rule.domain.includes('ext:geosite.dat:google')),true,'unrelated selectors must remain');
     assert.deepEqual(routingLive.routing.rules[8],{type:'field',network:'tcp,udp',outboundTag:'vless-reality'},'system/complex rule must remain exact after chip deletion');
-
-    await page.waitForSelector('#routingV2Workspace',{state:'attached'});
-    const navAfterDelete=page.locator('.nav-btn[data-page="routing"]');
-    await navAfterDelete.click();
-    await page.waitForSelector('#routingV2Workspace',{state:'visible'});
+    assert.equal(await page.locator('[data-page-view="routing"]').evaluate(el=>el.classList.contains('active')),true);
     assert.doesNotMatch(await page.locator('#rv2DirectContent').innerText(),/category-ru/);
     assert.match(await page.locator('#rv2DirectContent').innerText(),/google/);
 
