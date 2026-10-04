@@ -69,7 +69,7 @@ const server=http.createServer(async(req,res)=>{
   }
   if(url.pathname==='/api/routing/config')return json(res,{success:true,mutation:'NONE',routing:routingLive,policy:policyLive,routing_present:true,policy_present:true,routing_sha256:'1'.repeat(64),policy_sha256:'2'.repeat(64)});
   if(url.pathname==='/api/routing/validate'&&req.method==='POST'){const c=await bodyJSON(req);return json(res,{success:true,mutation:'NONE',xray_valid:true,routing:c.routing,policy:c.policy});}
-  if(url.pathname==='/api/routing/apply'&&req.method==='POST'){const c=await bodyJSON(req);routingLive=c.routing;policyLive=c.policy;return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',before:{'05_routing.json':'1111','06_policy.json':'2222'},after:{'05_routing.json':'3333','06_policy.json':'2222'},result:'routing policy applied to managed sections'});}
+  if(url.pathname==='/api/routing/apply'&&req.method==='POST'){const c=await bodyJSON(req);routingLive=c.routing;policyLive=c.policy;return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',core_restart:true,before:{'05_routing.json':'1111','06_policy.json':'2222'},after:{'05_routing.json':'3333','06_policy.json':'2222'},result:'routing policy applied; active Xray Core restarted with firewall-preserving core-only path'});}
   return json(res,{success:true});
 });
 
@@ -297,7 +297,7 @@ const server=http.createServer(async(req,res)=>{
     const after=calls.filter(x=>x==='POST /api/routing/apply').length;
     assert.equal(after,before+1,'controlled apply must issue exactly one routing mutation');
     const result=await page.locator('#rv2ApplyResult').textContent();
-    assert.match(result,/Результат: APPLIED/);assert.match(result,/Откат: NOT_NEEDED/);
+    assert.match(result,/Результат: APPLIED/);assert.match(result,/Откат: NOT_NEEDED/);assert.match(result,/Xray Core restarted/);
     assert.equal(errors.length,0,errors.join('\n'));assert.equal(consoleErrors.length,0,consoleErrors.join('\n'));
     console.log('ROUTING_V2_RUNTIME',JSON.stringify(pre));console.log('ROUTING_V2_APPLY_CALLS',after);
   }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
