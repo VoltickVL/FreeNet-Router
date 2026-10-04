@@ -152,7 +152,7 @@ func TestRoutingV2AssetContract(t *testing.T) {
 	for _, want := range []string{
 		`data-mode="rules"`, `data-mode="config"`, `DIRECT`, `VPN`, `BLOCK`,
 		`domain`, `geosite`, `ip`, `cidr`, `geoip`,
-		`/api/policy/compile`, `/api/geodata/search`, `/api/routing/config`, `/api/routing/validate`,
+		`/api/policy/compile`, `/api/geodata/suggest`, `/api/routing/config`, `/api/routing/validate`,
 		`05_routing.json`, `06_policy.json`, `Проверить Xray`, `MUTATION: NONE`,
 	} {
 		if !strings.Contains(s, want) {

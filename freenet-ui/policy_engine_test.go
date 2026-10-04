@@ -102,3 +102,43 @@ func TestCompilePolicyBlockIsExplicitInBothDomainLegs(t *testing.T) {
 		t.Fatalf("block mapping=%+v", compiled.Rules[0])
 	}
 }
+
+
+func TestCompilePolicyPreservesGeoDataSource(t *testing.T) {
+	compiled, err := CompilePolicy([]PolicyRule{
+		{Selector: PolicySelector{Kind: "geosite", Value: "Example", Source: "geosite-extra.dat"}, Action: "DIRECT"},
+		{Selector: PolicySelector{Kind: "geoip", Value: "Private", Source: "geoip-extra.dat"}, Action: "VPN"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compiled.Rules[0].Selector.Source != "geosite-extra.dat" || compiled.Rules[0].Selector.Value != "example" {
+		t.Fatalf("geosite source lost: %+v", compiled.Rules[0].Selector)
+	}
+	if compiled.Rules[1].Selector.Source != "geoip-extra.dat" || compiled.Rules[1].Selector.Value != "private" {
+		t.Fatalf("geoip source lost: %+v", compiled.Rules[1].Selector)
+	}
+}
+
+func TestCompilePolicyGeoDataSourceParticipatesInDuplicateIdentity(t *testing.T) {
+	compiled, err := CompilePolicy([]PolicyRule{
+		{Selector: PolicySelector{Kind: "geosite", Value: "example"}, Action: "DIRECT"},
+		{Selector: PolicySelector{Kind: "geosite", Value: "example", Source: "geosite-extra.dat"}, Action: "VPN"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(compiled.Rules) != 2 {
+		t.Fatalf("rules=%+v", compiled.Rules)
+	}
+	if _, err := CompilePolicy([]PolicyRule{
+		{Selector: PolicySelector{Kind: "geoip", Value: "private", Source: "../geoip.dat"}, Action: "DIRECT"},
+	}); err == nil {
+		t.Fatal("invalid GeoData source unexpectedly accepted")
+	}
+	if _, err := CompilePolicy([]PolicyRule{
+		{Selector: PolicySelector{Kind: "domain", Value: "example.com", Source: "geosite.dat"}, Action: "DIRECT"},
+	}); err == nil {
+		t.Fatal("source on non-GeoData selector unexpectedly accepted")
+	}
+}

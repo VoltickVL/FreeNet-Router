@@ -86,7 +86,16 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/auth/status') return json(res,{configured:true,authenticated:true});
   if (url.pathname === '/api/status') return json(res,status);
   if (url.pathname === '/api/network-profile/plan') return json(res,{success:true,supported:true,active:true,extra_profiles:[]});
-  if (url.pathname === '/api/geodata/files') return json(res,{success:true,files:[],search_enabled:false});
+  if (url.pathname === '/api/geodata/files') return json(res,{success:true,files:[{name:'geosite.dat',kind:'geosite',size:4096},{name:'geoip.dat',kind:'geoip',size:4096}],search_enabled:true});
+  if (url.pathname === '/api/geodata/suggest') {
+    const kind = url.searchParams.get('kind') || '';
+    const file = url.searchParams.get('file') || (kind === 'geoip' ? 'geoip.dat' : 'geosite.dat');
+    const q = (url.searchParams.get('q') || '').toLowerCase();
+    const category = kind === 'geoip' ? 'private' : 'youtube';
+    return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:[
+      {file,kind,category,selector:(kind==='geoip'?'geoip:':'geosite:')+category,ext_selector:'ext:'+file+':'+category,match:'category'}
+    ],warnings:[]});
+  }
   if (url.pathname === '/api/capabilities') return json(res,{success:true,split_dns_supported:true,memory_total_mib:1024,split_dns_min_mib:768});
   if (url.pathname === '/api/subscription') return json(res,{success:true,configured:true});
   if (url.pathname === '/api/policy/compile' && req.method === 'POST') {
@@ -242,8 +251,45 @@ const server = http.createServer(async (req, res) => {
     await page.waitForFunction(() => (document.querySelector('#csInput')?.value || '').includes('domain:sync.test'));
     assert.equal(await page.locator('#csApply').textContent(),'Применить');
 
-    // Config Studio -> Rules: routing apply pushes the same authoritative live state back into the Rules board.
+    // Routing editor GeoData autocomplete replaces only the active JSON string token and never applies by itself.
     const routingInput = page.locator('#csInput');
+    const autoApplyBefore = calls.filter(x => x === 'POST /api/routing/apply').length;
+    const geoDraft = JSON.stringify({routing:{domainStrategy:'AsIs',rules:[
+      {type:'field',domain:['geosite:you'],outboundTag:'direct'}
+    ]}},null,2);
+    await routingInput.fill(geoDraft);
+    await page.evaluate(() => {
+      const input=document.querySelector('#csInput');
+      const needle='geosite:you';
+      const pos=input.value.indexOf(needle)+needle.length;
+      input.setSelectionRange(pos,pos);
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    await page.waitForSelector('#csGeoAutocomplete .cs-geo-item');
+    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/geosite:youtube/);
+    await routingInput.press('Tab');
+    assert.match(await routingInput.inputValue(),/geosite:youtube/);
+    assert.doesNotMatch(await routingInput.inputValue(),/geosite:you"/);
+    assert.equal(calls.filter(x => x === 'POST /api/routing/apply').length,autoApplyBefore,'editor autocomplete must remain read-only');
+
+    const extDraft = JSON.stringify({routing:{domainStrategy:'AsIs',rules:[
+      {type:'field',ip:['ext:geoip.dat:pri'],outboundTag:'direct'}
+    ]}},null,2);
+    await routingInput.fill(extDraft);
+    await page.evaluate(() => {
+      const input=document.querySelector('#csInput');
+      const needle='ext:geoip.dat:pri';
+      const pos=input.value.indexOf(needle)+needle.length;
+      input.setSelectionRange(pos,pos);
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    await page.waitForSelector('#csGeoAutocomplete .cs-geo-item');
+    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/ext:geoip\.dat:private/);
+    await routingInput.press('Enter');
+    assert.match(await routingInput.inputValue(),/ext:geoip\.dat:private/);
+    assert.equal(calls.filter(x => x === 'POST /api/routing/apply').length,autoApplyBefore);
+
+    // Config Studio -> Rules: routing apply pushes the same authoritative live state back into the Rules board.
     await routingInput.fill(JSON.stringify({routing:{domainStrategy:'AsIs',rules:[
       {type:'field',domain:['domain:studio.test'],outboundTag:'direct'}
     ]}},null,2));
