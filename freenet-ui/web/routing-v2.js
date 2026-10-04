@@ -880,6 +880,9 @@
       closeGeoAutocomplete();
       return;
     }
+    // Never leave suggestions from the previous query visible while the new
+    // request is debounced/in flight.
+    hideGeoAutocomplete();
     setNotice('rv2RuleNotice', 'GeoData: ищу локальные категории…');
     state.geoSuggestTimer = setTimeout(() => {
       state.geoSuggestTimer = null;
