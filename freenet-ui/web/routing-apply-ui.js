@@ -170,7 +170,11 @@
     const candidate = validatedCandidate;
     validatedCandidate = null;
     const buttons = applyButtons();
-    buttons.forEach(button => { button.disabled = true; button.dataset.previousText = button.textContent; button.textContent = 'Применяем…'; });
+    buttons.forEach(button => {
+      button.disabled = true;
+      button.dataset.previousText = button.id === 'rv2ApplyRules' ? 'Сохранить и применить' : button.textContent;
+      button.textContent = 'Применяем…';
+    });
     setResult('Сохраняем и применяем…');
 
     try {
