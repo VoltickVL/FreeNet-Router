@@ -73,6 +73,12 @@ const server=http.createServer(async(req,res)=>{
       {file:'geosite-extra.dat',kind:'geosite',category:'youtube-extra',selector:'ext:geosite-extra.dat:youtube-extra',ext_selector:'ext:geosite-extra.dat:youtube-extra',match:'category'}
     ],warnings:[]});
     if(kind==='geosite'&&q==='steam.') return json(res,{success:false,kind,query:q,mutation:'NONE',error:'invalid host or URL'});
+    if(kind==='geosite'&&q==='slow-blur'){
+      await new Promise(resolve=>setTimeout(resolve,350));
+      return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:[
+        {file:'geosite.dat',kind:'geosite',category:'slow-blur-result',selector:'geosite:slow-blur-result',ext_selector:'ext:geosite.dat:slow-blur-result',match:'category'}
+      ],warnings:[]});
+    }
     if(kind==='geosite') return json(res,{success:true,kind,query:q,mode:q.includes('.')?'domain':'prefix',mutation:'NONE',suggestions:[
       {file:'geosite.dat',kind:'geosite',category:'youtube',selector:'geosite:youtube',ext_selector:'ext:geosite.dat:youtube',match:'category'},
       {file:'geosite-extra.dat',kind:'geosite',category:'youtube-extra',selector:'ext:geosite-extra.dat:youtube-extra',ext_selector:'ext:geosite-extra.dat:youtube-extra',match:'category'}
@@ -333,6 +339,20 @@ const server=http.createServer(async(req,res)=>{
     assert.doesNotMatch(await page.locator('#rv2RuleNotice').textContent(),/invalid host or URL/);
     assert.match(await page.locator('#rv2RuleNotice').textContent(),/GeoData: найдено/);
     assert.ok(geoSuggestRequests.some(x => x.kind==='geosite' && x.q==='you' && x.mode==='prefix'),'bare category autocomplete must force prefix mode');
+
+    // Losing focus while the read-only lookup is in flight must not abort it
+    // and leave Rules stuck on the loading notice.
+    const delayedRequest = page.waitForRequest(req => req.url().includes('/api/geodata/suggest') && req.url().includes('q=slow-blur'));
+    await page.locator('#rv2Value').fill('slow-blur');
+    await delayedRequest;
+    await page.locator('#rv2GeoSearch').focus();
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/ищу локальные категории/);
+    await page.waitForFunction(() => (document.querySelector('#rv2RuleNotice')?.textContent || '').includes('GeoData: найдено 1'));
+    assert.equal(await page.locator('#rv2GeoAutocomplete').isHidden(),true,'blur may hide popup but must not abort lookup completion');
+
+    await page.locator('#rv2Value').focus();
+    await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
+    assert.match(await page.locator('#rv2GeoAutocomplete').innerText(),/slow-blur-result/);
 
     await page.locator('#rv2Value').fill('you');
     await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
