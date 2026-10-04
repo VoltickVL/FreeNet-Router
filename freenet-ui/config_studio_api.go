@@ -452,7 +452,7 @@ func (a *app) handleConfigStudioApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, configStudioMutationResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: false, Rollback: "FAILED", Snapshot: backup.Snapshot, CoreRestart: false, Error: "post-apply validation failed and rollback write failed"})
 		return
 	}
-	if err := a.validateConfigStudioLive(r.Context()); err != nil {
+	if err := a.validateConfigStudioLive(context.Background()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, configStudioMutationResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: false, Rollback: "FAILED", Snapshot: backup.Snapshot, CoreRestart: false, Error: "post-apply validation failed and rollback validation is not confirmed"})
 		return
 	}
