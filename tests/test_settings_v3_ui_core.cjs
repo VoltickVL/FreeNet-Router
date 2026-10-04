@@ -19,6 +19,7 @@ let installedFreeNetVersion = 'v0.3.43';
 let activeFreeNetTarget = '';
 let backupCreatePosts = 0;
 let backupRestorePosts = 0;
+let journalGets = 0;
 
 const settings = {
   success: true,
@@ -43,7 +44,9 @@ const settings = {
   },
   events:[
     {at:'2026-09-12T11:35:00Z',kind:'auto_vpn',result:'success',message:'Текущий VPN работает нормально, смена не требуется.'},
-    {at:'2026-09-12T10:35:00Z',kind:'auto_vpn',result:'same',message:'Для текущего VPN нет нового адреса подключения.'},
+    {at:'2026-09-12T11:34:30Z',kind:'auto_vpn',result:'candidate_selection:start',message:'Endpoint fast-path не восстановил VPN; запускаем canonical Best Server до Top-3 проверенных.'},
+    {at:'2026-09-12T11:34:00Z',kind:'AUTO VPN',result:'selection',message:'AUTO VPN Top-3: Франкфурт [VPN 175 мс, сайты 177 мс, скорость 151 Мбит/с, стабильность 17 мс]; Цюрих [VPN 188 мс, сайты 191 мс, скорость 159 Мбит/с, стабильность 8 мс]. Выбран: Франкфурт.'},
+    {at:'2026-09-12T10:35:00Z',kind:'VPN',result:'success',message:'Ручная проверка текущего VPN завершена.'},
     {at:'2026-09-12T09:35:00Z',kind:'geodata',result:'updated',message:'GeoData / GeoIP обновлены.'},
     {at:'2026-09-12T08:35:00Z',kind:'backup',result:'success',message:'Резервная копия FreeNet создана.'},
     {at:'2026-09-12T07:35:00Z',kind:'freenet',result:'failed',message:'Проверка обновления FreeNet завершилась ошибкой.'},
@@ -102,6 +105,10 @@ const server = http.createServer((req, res) => {
       return json(res, settings);
     });
     return;
+  }
+  if (url.pathname === '/api/journal') {
+    journalGets += 1;
+    return json(res, {success:true,events:settings.events,generated_at:new Date().toISOString()});
   }
   if (url.pathname === '/api/settings-v3/action' && req.method === 'POST') {
     let raw = '';
@@ -459,22 +466,56 @@ const server = http.createServer((req, res) => {
     await page.locator('#fn3AllEvents').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
     await page.waitForSelector('#fn3JournalSummary');
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull tr').length === 8);
     const journalPage = await page.evaluate(() => ({
       rows: document.querySelectorAll('#fn3JournalFull tr').length,
       stats: [...document.querySelectorAll('#fn3JournalSummary .fn3-journal-stat strong')].map(node => node.textContent.trim()),
       tableFont: parseFloat(getComputedStyle(document.querySelector('.fn3-journal-page .fn3-table')).fontSize),
       kindBadges: document.querySelectorAll('#fn3JournalFull .fn3-kind').length,
       resultBadges: document.querySelectorAll('#fn3JournalFull .fn3-result').length,
-      badBadges: document.querySelectorAll('#fn3JournalFull .fn3-result.bad').length
+      badBadges: document.querySelectorAll('#fn3JournalFull .fn3-result.bad').length,
+      copy: document.querySelector('#fn3JournalFull')?.textContent || '',
+      searchVisible: !!document.querySelector('#fn3JournalSearch')?.getClientRects().length,
+      live: document.querySelector('#fn3JournalLive')?.getAttribute('aria-pressed')
     }));
-    assert.equal(journalPage.rows, 6, `full Journal must show all fixture events: ${JSON.stringify(journalPage)}`);
-    assert.deepEqual(journalPage.stats, ['6','4','1','1'], `Journal summary counts are wrong: ${JSON.stringify(journalPage)}`);
+    assert.equal(journalPage.rows, 8, `full Journal must show all canonical fixture events: ${JSON.stringify(journalPage)}`);
+    assert.deepEqual(journalPage.stats, ['8','5','2','1'], `Journal summary counts are wrong: ${JSON.stringify(journalPage)}`);
     assert.ok(journalPage.tableFont >= 13.5, `full Journal typography is still too small: ${journalPage.tableFont}px`);
-    assert.equal(journalPage.kindBadges, 6, 'Journal event kinds must use badges');
-    assert.equal(journalPage.resultBadges, 6, 'Journal results must use badges');
+    assert.equal(journalPage.kindBadges, 8, 'Journal event kinds must use badges');
+    assert.equal(journalPage.resultBadges, 8, 'Journal results must use badges');
     assert.equal(journalPage.badBadges, 1, 'failed Journal event must use error treatment');
+    assert.equal(journalPage.searchVisible, true, 'Journal search must be visible');
+    assert.equal(journalPage.live, 'true', 'Journal live refresh must start enabled');
+    assert.match(journalPage.copy, /AUTO VPN · Подбор/, 'recovery stage must be readable');
+    assert.match(journalPage.copy, /AUTO VPN · Решение/, 'Top-3 decision must have an explicit stage');
+    assert.match(journalPage.copy, /VPN 175 мс/, 'Top-3 decision metrics must remain visible');
+
+    await page.locator('#fn3JournalSearch').fill('Франкфурт');
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull tr').length === 1);
+    assert.match((await page.locator('#fn3JournalFull').textContent()) || '', /Выбран: Франкфурт/);
+    assert.deepEqual(await page.locator('#fn3JournalSummary .fn3-journal-stat strong').allTextContents(), ['1','0','1','0']);
+
+    await page.locator('#fn3JournalSearch').fill('');
+    await page.locator('[data-journal-result="bad"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull tr').length === 1);
+    assert.match((await page.locator('#fn3JournalFull').textContent()) || '', /ошибкой/i);
+    await page.locator('[data-journal-result="all"]').click();
+    await page.locator('[data-journal-filter="auto"]').click();
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull tr').length === 3);
+    assert.equal(await page.locator('#fn3JournalFull .fn3-kind').count(), 3);
+
+    await page.locator('[data-journal-filter="all"]').click();
+    const journalGetsBeforeLive = journalGets;
+    settings.events.unshift({at:'2026-09-12T11:36:00Z',kind:'subscription',result:'success',message:'LIVE_EVENT подписка обновилась.'});
+    await page.waitForFunction(() => (document.querySelector('#fn3JournalFull')?.textContent || '').includes('LIVE_EVENT'), null, {timeout:7000});
+    assert.ok(journalGets > journalGetsBeforeLive, 'open Journal must refresh through read-only /api/journal polling');
+    assert.equal(await page.locator('#fn3JournalSearch').inputValue(), '', 'live refresh must preserve search state');
 
     await page.locator('.nav-btn[data-page="settings"]').click();
+    await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    const journalGetsAfterLeave = journalGets;
+    await page.waitForTimeout(5200);
+    assert.equal(journalGets, journalGetsAfterLeave, 'Journal polling must stop when Journal page is not active');
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
 
     // FreeNet topbar version manager: selecting an older stable release is read-only

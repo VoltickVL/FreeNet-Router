@@ -190,3 +190,91 @@ func TestSelfUpdateJournalIgnoresNonTerminalProgress(t *testing.T) {
 		t.Fatalf("non-terminal updater progress must not duplicate journal rows: %#v", got)
 	}
 }
+
+
+func TestCanonicalJournalDedupesSameAutoOutcomeAcrossHistories(t *testing.T) {
+	dir := t.TempDir()
+	autoPath := filepath.Join(dir, "automation.history")
+	settingsPath := filepath.Join(dir, "settings.history")
+	t.Setenv("FREENET_AUTOMATION_HISTORY", autoPath)
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", settingsPath)
+
+	message := "Текущий VPN заменён на проверенный вариант: Франкфурт-на-Майне, Германия, Extra"
+	auto := strings.Join([]string{
+		"2026-10-04T00:05:01Z\tAUTO VPN\tsuccess\t" + message,
+		"2026-10-04T00:04:00Z\tAUTO VPN\tselection\tAUTO VPN Top-3: Frankfurt [VPN 175 мс, сайты 177 мс, скорость 151 Мбит/с, стабильность 17 мс]. Выбран: Frankfurt.",
+	}, "\n") + "\n"
+	settings := "2026-10-04T00:05:00Z\tauto_vpn\tsame\t" + message + "\n"
+	if err := os.WriteFile(autoPath, []byte(auto), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(settings), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := canonicalJournalEvents(50)
+	if len(got) != 2 {
+		t.Fatalf("semantic duplicate was not collapsed: %#v", got)
+	}
+	if got[0].Message != message || got[0].Result != "success" {
+		t.Fatalf("canonical switch row=%#v want newest success outcome", got[0])
+	}
+	if got[1].Result != "selection" || !strings.Contains(got[1].Message, "Top-3") {
+		t.Fatalf("decision evidence must remain visible: %#v", got[1])
+	}
+}
+
+func TestCanonicalJournalKeepsSameMessageOutsideDedupeWindow(t *testing.T) {
+	message := "VPN health transition"
+	got := dedupeCanonicalJournalEvents([]automationEvent{
+		{At: "2026-10-04T00:10:30Z", Kind: "AUTO VPN", Result: "success", Message: message},
+		{At: "2026-10-04T00:10:00Z", Kind: "auto_vpn", Result: "success", Message: message},
+	})
+	if len(got) != 2 {
+		t.Fatalf("events outside dedupe window must remain separate: %#v", got)
+	}
+}
+
+func TestJournalHistoryWriterKeepsNewestTwoHundredRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "journal.history")
+	for i := 0; i < journalHistoryFileLimit+17; i++ {
+		appendBoundedJournalLine(path, fmt.Sprintf("2026-10-04T00:%02d:%02dZ\ttest\tsuccess\trow-%03d\n", (i/60)%60, i%60, i))
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != journalHistoryFileLimit {
+		t.Fatalf("history rows=%d want=%d", len(lines), journalHistoryFileLimit)
+	}
+	if !strings.Contains(lines[0], "row-017") || !strings.Contains(lines[len(lines)-1], "row-216") {
+		t.Fatalf("bounded history did not preserve newest rows: first=%q last=%q", lines[0], lines[len(lines)-1])
+	}
+}
+
+
+func TestCanonicalJournalHidesHistoricalCanceledReleaseCatalogNoise(t *testing.T) {
+	dir := t.TempDir()
+	autoPath := filepath.Join(dir, "automation.history")
+	settingsPath := filepath.Join(dir, "settings.history")
+	t.Setenv("FREENET_AUTOMATION_HISTORY", autoPath)
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", settingsPath)
+
+	settings := strings.Join([]string{
+		"2026-10-04T00:11:00Z\tfreenet_release_catalog\tfailed\tLatest fallback failed: latest release metadata unavailable: context canceled",
+		"2026-10-04T00:10:59Z\tfreenet_release_catalog\tdegraded\tPRIMARY ERROR: release catalog page 1 unavailable: context canceled",
+		"2026-10-04T00:10:00Z\tfreenet_release_catalog\tfailed\tPRIMARY ERROR: release catalog page 1 unavailable: resolver failure",
+	}, "\n") + "\n"
+	if err := os.WriteFile(settingsPath, []byte(settings), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := canonicalJournalEvents(50)
+	if len(got) != 1 {
+		t.Fatalf("canceled release-catalog noise not suppressed: %#v", got)
+	}
+	if !strings.Contains(got[0].Message, "resolver failure") {
+		t.Fatalf("real release-catalog failure must remain visible: %#v", got)
+	}
+}

@@ -173,6 +173,12 @@ func fallbackSelfUpdateReleaseCatalog(current, latest string) []selfUpdateReleas
 	return items
 }
 
+func selfUpdateRequestCanceled(r *http.Request, err error) bool {
+	return r != nil &&
+		errors.Is(r.Context().Err(), context.Canceled) &&
+		errors.Is(err, context.Canceled)
+}
+
 func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 	current := "v" + version
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
@@ -182,12 +188,21 @@ func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 	degraded := false
 	warning := ""
 	if err != nil {
+		// Closing/navigating away from the browser cancels the request context.
+		// That is not a FreeNet/system failure and must not pollute the persistent
+		// Journal. Real resolver/API/manifest errors and timeouts remain visible.
+		if selfUpdateRequestCanceled(r, err) {
+			return
+		}
 		primary := err.Error()
 		v3AppendEvent("freenet_release_catalog", "degraded", "PRIMARY ERROR: "+primary)
 		fallbackCtx, fallbackCancel := context.WithTimeout(r.Context(), 15*time.Second)
 		latest, fallbackErr := recoveryLatestTag(fallbackCtx)
 		fallbackCancel()
 		if fallbackErr != nil {
+			if selfUpdateRequestCanceled(r, fallbackErr) {
+				return
+			}
 			v3AppendEvent("freenet_release_catalog", "failed", "Latest fallback failed: "+fallbackErr.Error())
 			writeJSON(w, http.StatusBadGateway, selfUpdateReleaseCatalogResponse{
 				Success: false, CurrentVersion: current, Error: "cannot load FreeNet release catalog",
