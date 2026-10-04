@@ -79,6 +79,114 @@ func TestGeoDataSuggestCategoryPrefixDoesNotUseDNS(t *testing.T) {
 	}
 }
 
+func TestGeoDataSuggestCanonicalGeoSiteWinsOverAlternateSources(t *testing.T) {
+	_, mux, cookie, dir := testGeoDataAPIApp(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "geosite.dat"), testGeoSiteList(
+		testGeoSiteEntry("INSTAGRAM", testDomainRule(2, "instagram.com")),
+		testGeoSiteEntry("META", testDomainRule(2, "instagram.com")),
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "geosite_v2fly.dat"), testGeoSiteList(
+		testGeoSiteEntry("INSTAGRAM", testDomainRule(2, "instagram.com")),
+		testGeoSiteEntry("CATEGORY-SOCIAL-MEDIA-!CN", testDomainRule(2, "instagram.com")),
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/suggest?kind=geosite&q=instagram.com")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	resp := decodeGeoDataSuggest(t, w.Body.Bytes())
+	if !resp.Success || resp.Mode != "domain" || resp.Mutation != "NONE" {
+		t.Fatalf("resp=%+v", resp)
+	}
+	if len(resp.Suggestions) != 2 {
+		t.Fatalf("suggestions=%+v", resp.Suggestions)
+	}
+	for _, item := range resp.Suggestions {
+		if item.File != "geosite.dat" {
+			t.Fatalf("alternate source leaked ahead of canonical DAT: %+v", item)
+		}
+		if !strings.HasPrefix(item.Selector, "geosite:") {
+			t.Fatalf("canonical GeoSite selector must not use ext: %+v", item)
+		}
+	}
+}
+
+func TestGeoDataSuggestCanonicalGeoIPWinsOverAlternateSources(t *testing.T) {
+	_, mux, cookie, dir := testGeoDataAPIApp(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "geoip.dat"), testGeoIPList(
+		testGeoIPEntry("FACEBOOK", false, testCIDR(net.ParseIP("157.240.223.0").To4(), 24)),
+		testGeoIPEntry("RU-BLOCKED", false, testCIDR(net.ParseIP("157.240.223.0").To4(), 24)),
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "geoip_v2fly.dat"), testGeoIPList(
+		testGeoIPEntry("FACEBOOK", false, testCIDR(net.ParseIP("157.240.223.0").To4(), 24)),
+		testGeoIPEntry("FI", false, testCIDR(net.ParseIP("157.240.223.0").To4(), 24)),
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	previous := geoDataLookupIPAddr
+	geoDataLookupIPAddr = func(context.Context, string) ([]net.IPAddr, error) {
+		return []net.IPAddr{{IP: net.ParseIP("157.240.223.174")}}, nil
+	}
+	defer func() { geoDataLookupIPAddr = previous }()
+
+	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/suggest?kind=geoip&q=instagram.com")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	resp := decodeGeoDataSuggest(t, w.Body.Bytes())
+	if !resp.Success || resp.Mode != "dns" || resp.Mutation != "NONE" {
+		t.Fatalf("resp=%+v", resp)
+	}
+	if len(resp.Suggestions) != 2 {
+		t.Fatalf("suggestions=%+v", resp.Suggestions)
+	}
+	for _, item := range resp.Suggestions {
+		if item.File != "geoip.dat" {
+			t.Fatalf("alternate GeoIP source leaked ahead of canonical DAT: %+v", item)
+		}
+		if !strings.HasPrefix(item.Selector, "geoip:") {
+			t.Fatalf("canonical GeoIP selector must not use ext: %+v", item)
+		}
+	}
+}
+
+func TestGeoDataSuggestFallsBackWhenCanonicalHasNoMatch(t *testing.T) {
+	_, mux, cookie, dir := testGeoDataAPIApp(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "geosite.dat"), testGeoSiteList(
+		testGeoSiteEntry("YOUTUBE", testDomainRule(2, "youtube.com")),
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "geosite_v2fly.dat"), testGeoSiteList(
+		testGeoSiteEntry("INSTAGRAM", testDomainRule(2, "instagram.com")),
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/suggest?kind=geosite&q=instagram.com")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	resp := decodeGeoDataSuggest(t, w.Body.Bytes())
+	if len(resp.Suggestions) != 1 {
+		t.Fatalf("suggestions=%+v", resp.Suggestions)
+	}
+	item := resp.Suggestions[0]
+	if item.File != "geosite_v2fly.dat" || item.Selector != "ext:geosite_v2fly.dat:instagram" {
+		t.Fatalf("fallback suggestion=%+v", item)
+	}
+}
+
 func TestGeoDataSuggestSuccessfulMixedDirectorySuppressesGenericScanNoise(t *testing.T) {
 	_, mux, cookie, dir := testGeoDataAPIApp(t)
 
