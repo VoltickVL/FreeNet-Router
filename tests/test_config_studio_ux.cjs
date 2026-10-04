@@ -13,6 +13,7 @@ let serviceOnline = true;
 let events = [{at:'2026-09-17T10:01:00Z', kind:'xray', result:'success', message:'Предыдущая операция Xray завершена.'}];
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Config Studio UX fixture</title></head><body>
+<button id="xrayTopbarChip" type="button">Xray owner</button>
 <button data-page="access" id="journalNav">Журнал</button>
 <div class="rv2-modebar"><span id="rv2WorkspaceState" class="rv2-state">DRAFT · MUTATION: NONE</span></div>
 <section id="configStudioWorkspace" class="cs-shell">
