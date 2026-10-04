@@ -828,14 +828,24 @@
     const controller = new AbortController();
     state.geoSuggestController = controller;
     try {
-      const body = await api(`/api/geodata/suggest?kind=${encodeURIComponent(state.kind)}&q=${encodeURIComponent(value)}`, {signal:controller.signal});
+      const lower = value.toLowerCase();
+      const explicitPrefix = lower.startsWith('geosite:') || lower.startsWith('geoip:') || lower.startsWith('ext:');
+      const hostShaped = value.includes('://') || value.includes('/') || value.includes('.');
+      const mode = explicitPrefix || !hostShaped ? '&mode=prefix' : '';
+      const body = await api(`/api/geodata/suggest?kind=${encodeURIComponent(state.kind)}&q=${encodeURIComponent(value)}${mode}`, {signal:controller.signal});
       if (body.mutation !== 'NONE') throw new Error('Нарушен read-only GeoData contract.');
       if (controller.signal.aborted) return null;
       if (renderInline) {
         renderGeoAutocomplete(body);
-        // A successful newer request must clear an error left by an older
-        // transient host-shaped input (for example while editing steam.com).
-        setNotice('rv2RuleNotice', '');
+        const items = Array.isArray(body?.suggestions) ? body.suggestions : [];
+        const warnings = Array.isArray(body?.warnings) ? body.warnings.filter(Boolean) : [];
+        if (items.length) {
+          setNotice('rv2RuleNotice', `GeoData: найдено ${items.length}. Выберите категорию из подсказок.`, 'ok');
+        } else if (warnings.length) {
+          setNotice('rv2RuleNotice', `GeoData: ${warnings.join(' · ')}`, 'warn');
+        } else {
+          setNotice('rv2RuleNotice', 'GeoData: совпадений не найдено. Уточните запрос или используйте «Найти в GeoData».');
+        }
       }
       return body;
     } catch (error) {
@@ -852,16 +862,21 @@
 
   function queueGeoAutocomplete() {
     if (state.geoSuggestTimer) clearTimeout(state.geoSuggestTimer);
+    if (state.geoSuggestController) {
+      state.geoSuggestController.abort();
+      state.geoSuggestController = null;
+    }
     const input = qs('#rv2Value');
     const query = String(input?.value || '').trim();
     if (!(state.kind === 'geosite' || state.kind === 'geoip') || query.length < 2) {
       closeGeoAutocomplete();
       return;
     }
+    setNotice('rv2RuleNotice', 'GeoData: ищу локальные категории…');
     state.geoSuggestTimer = setTimeout(() => {
       state.geoSuggestTimer = null;
       void requestGeoSuggestions(query, true).catch(() => {});
-    }, 320);
+    }, 220);
   }
 
   async function searchGeo() {

@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui', 'web');
 const calls = [];
 let standardGeoHadExplicitFile = false;
+const geoSuggestModes = [];
 let live = {
   '01_log': {log:{loglevel:'warning'}},
   '02_dns': {dns:{servers:['1.1.1.1']}},
@@ -91,7 +92,10 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/geodata/suggest') {
     const kind = url.searchParams.get('kind') || '';
     const requestedFile = url.searchParams.get('file') || '';
+    const mode = url.searchParams.get('mode') || '';
+    geoSuggestModes.push(mode);
     const q = (url.searchParams.get('q') || '').toLowerCase();
+    if (q.includes('geosite:fail')) return json(res,{success:false,kind,query:q,mode,mutation:'NONE',error:'prefix backend failed'});
     const category = kind === 'geoip' ? 'private' : 'youtube';
     if (kind === 'geosite' && !q.startsWith('ext:') && requestedFile) standardGeoHadExplicitFile = true;
     const file = requestedFile || (kind === 'geoip' ? 'geoip.dat' : 'geosite_v2fly.dat');
@@ -277,6 +281,7 @@ const server = http.createServer(async (req, res) => {
     assert.match(await routingInput.inputValue(),/ext:geosite_v2fly\.dat:youtube/);
     assert.doesNotMatch(await routingInput.inputValue(),/geosite:you"/);
     assert.equal(standardGeoHadExplicitFile,false,'standard geosite autocomplete must scan compatible installed DATs instead of forcing geosite.dat');
+    assert.ok(geoSuggestModes.includes('prefix'),'Config Studio must force category-prefix mode instead of host heuristics');
     assert.equal(calls.filter(x => x === 'POST /api/routing/apply').length,autoApplyBefore,'editor autocomplete must remain read-only');
 
     // Normal typing in a new, not-yet-closed JSON string must still trigger suggestions.
@@ -290,6 +295,17 @@ const server = http.createServer(async (req, res) => {
     assert.match(await page.locator('#csGeoAutocomplete').innerText(),/ext:geosite_v2fly\.dat:youtube/);
     await routingInput.press('Tab');
     assert.match(await routingInput.inputValue(),/ext:geosite_v2fly\.dat:youtube$/);
+
+    // Backend failures must be visible in the editor instead of silently
+    // disappearing as "no suggestions".
+    await routingInput.fill('{"routing":{"rules":[{"domain":["geosite:fail');
+    await page.evaluate(() => {
+      const input=document.querySelector('#csInput');
+      input.setSelectionRange(input.value.length,input.value.length);
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    await page.waitForSelector('#csGeoAutocomplete .cs-geo-status.bad');
+    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/prefix backend failed/);
 
     const extDraft = JSON.stringify({routing:{domainStrategy:'AsIs',rules:[
       {type:'field',ip:['ext:geoip.dat:pri'],outboundTag:'direct'}

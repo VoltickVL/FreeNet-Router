@@ -30,6 +30,7 @@ let routingLive = {routing:{domainStrategy:'AsIs',rules:[
 let policyLive = {policy:{}};
 let xrayOnline = true;
 let xrayVersion = 'v26.9.9';
+const geoSuggestRequests = [];
 let xrayEvents = [{at:'2026-10-04T01:00:00Z',kind:'xray',result:'success',message:'Xray запущен через FreeNet.'}];
 const xrayActions = [];
 let xrayCatalogGets = 0;
@@ -62,6 +63,8 @@ const server=http.createServer(async(req,res)=>{
     const kind=url.searchParams.get('kind')||'';
     const q=(url.searchParams.get('q')||'').toLowerCase();
     const file=url.searchParams.get('file')||'';
+    const mode=url.searchParams.get('mode')||'';
+    geoSuggestRequests.push({kind,q,file,mode});
     if(kind==='geoip'&&q.includes('example.com')) return json(res,{success:true,kind,query:q,mode:'dns',mutation:'NONE',resolved:['1.1.1.7','8.8.8.8'],suggestions:[
       {file:'geoip.dat',kind:'geoip',category:'cloudflare',selector:'geoip:cloudflare',ext_selector:'ext:geoip.dat:cloudflare',match:'dns',evidence:['1.1.1.7']},
       {file:'geoip.dat',kind:'geoip',category:'google',selector:'geoip:google',ext_selector:'ext:geoip.dat:google',match:'dns',evidence:['8.8.8.8']}
@@ -325,8 +328,11 @@ const server=http.createServer(async(req,res)=>{
     await page.locator('#rv2Value').fill('steam.');
     await page.waitForFunction(() => (document.querySelector('#rv2RuleNotice')?.textContent || '').includes('invalid host or URL'));
     await page.locator('#rv2Value').fill('you');
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/ищу локальные категории/);
     await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
     assert.doesNotMatch(await page.locator('#rv2RuleNotice').textContent(),/invalid host or URL/);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/GeoData: найдено/);
+    assert.ok(geoSuggestRequests.some(x => x.kind==='geosite' && x.q==='you' && x.mode==='prefix'),'bare category autocomplete must force prefix mode');
 
     await page.locator('#rv2Value').fill('you');
     await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
@@ -354,6 +360,7 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
     assert.match(await page.locator('#rv2GeoAutocomplete').innerText(),/1\.1\.1\.7/);
     assert.match(await page.locator('#rv2GeoAutocomplete').innerText(),/8\.8\.8\.8/);
+    assert.ok(geoSuggestRequests.some(x => x.kind==='geoip' && x.q==='example.com' && x.mode===''),'host-shaped GeoIP autocomplete must keep automatic DNS mode');
     await page.locator('#rv2Value').press('Escape');
     assert.equal(await page.locator('#rv2GeoAutocomplete').isHidden(),true);
     assert.equal(await page.locator('#rv2RuleList .rv2-rule').count(),0,'autocomplete must not create a draft');

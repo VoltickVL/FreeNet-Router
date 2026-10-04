@@ -113,6 +113,60 @@ func TestGeoDataSuggestSuccessfulMixedDirectorySuppressesGenericScanNoise(t *tes
 	}
 }
 
+func TestGeoDataSuggestPrefixFastPathSkipsNestedPayloadOnTypedDAT(t *testing.T) {
+	_, mux, cookie, dir := testGeoDataAPIApp(t)
+
+	// Real autocomplete needs only category codes. Model a filename-typed V2Fly
+	// GeoSite entry whose nested payload is intentionally not parseable as a
+	// Domain message. The category-code fast path must skip it instead of decoding
+	// every nested rule on each keystroke.
+	brokenNested := []byte{0xff, 0xff, 0xff, 0x7f}
+	if err := os.WriteFile(filepath.Join(dir, "geosite_v2fly.dat"), testGeoSiteList(
+		testGeoSiteEntry("STEAM", brokenNested),
+		testGeoSiteEntry("STEAM-TOOLS", brokenNested),
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "xkeenip.dat"), []byte("not-geodata"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/suggest?kind=geosite&q=steam&mode=prefix")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	resp := decodeGeoDataSuggest(t, w.Body.Bytes())
+	if !resp.Success || resp.Mode != "prefix" || resp.Mutation != "NONE" {
+		t.Fatalf("resp=%+v", resp)
+	}
+	got := make([]string, 0, len(resp.Suggestions))
+	for _, item := range resp.Suggestions {
+		got = append(got, item.Category)
+		if item.File != "geosite_v2fly.dat" {
+			t.Fatalf("unexpected fallback file in fast-path result: %+v", item)
+		}
+	}
+	if !reflect.DeepEqual(got, []string{"steam", "steam-tools"}) {
+		t.Fatalf("categories=%v", got)
+	}
+	if len(resp.Warnings) != 0 {
+		t.Fatalf("typed DAT success must not probe/report unknown fallback noise: %v", resp.Warnings)
+	}
+}
+
+func TestGeoDataSuggestExplicitPrefixModeNeverTreatsCategoryAsHost(t *testing.T) {
+	query, err := classifyGeoDataSuggestQueryWithMode(GeoDataSite, "steam", "prefix")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Mode != "prefix" || query.Value != "steam" {
+		t.Fatalf("query=%+v", query)
+	}
+	if _, err := classifyGeoDataSuggestQueryWithMode(GeoDataSite, "steam", "bogus"); err == nil {
+		t.Fatal("unsupported mode unexpectedly accepted")
+	}
+}
+
 func TestGeoDataSuggestGeoSiteURLUsesHostLookup(t *testing.T) {
 	_, mux, cookie, dir := testGeoDataAPIApp(t)
 	writeSmartGeoDataFixture(t, dir)
