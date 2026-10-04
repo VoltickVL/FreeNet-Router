@@ -103,7 +103,7 @@ const server = http.createServer(async (req, res) => {
     const name = String(c.file || '').replace(/\.json$/, '');
     assert.ok(['01_log','02_dns','03_inbounds','04_outbounds'].includes(name), 'unexpected single-file apply target');
     live[name] = c.content;
-    return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',core_restart:false,snapshot:'/safe/snapshot',sha256:'8'.repeat(64),result:'config written and post-validated; Xray restart was not performed'});
+    return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',core_restart:true,snapshot:'/safe/snapshot',sha256:'8'.repeat(64),result:'config written, post-validated and activated by firewall-preserving Xray core restart'});
   }
   if (url.pathname === '/api/routing/validate' && req.method === 'POST') {
     const c = await bodyJSON(req);
@@ -113,7 +113,7 @@ const server = http.createServer(async (req, res) => {
     const c = await bodyJSON(req);
     live['05_routing'] = c.routing;
     live['06_policy'] = c.policy;
-    return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',result:'routing applied'});
+    return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',core_restart:true,result:'routing policy applied; active Xray Core restarted with firewall-preserving core-only path'});
   }
   return json(res,{success:true});
 });
@@ -200,6 +200,7 @@ const server = http.createServer(async (req, res) => {
     const beforeOut = calls.filter(x => x === 'POST /api/config-studio/apply').length;
     await page.locator('#csApply').click();
     await page.waitForFunction(() => (document.querySelector('#csNotice')?.textContent || '').includes('post-validation'));
+    assert.match(await page.locator('#csNotice').textContent(),/Xray Core.*core-only path/);
     const afterOut = calls.filter(x => x === 'POST /api/config-studio/apply').length;
     assert.equal(afterOut,beforeOut+1,'04_outbounds must issue exactly one controlled apply');
     assert.equal(calls.filter(x => x === 'POST /api/config-studio/validate').length,beforeValidate,'Save must not require a separate validation POST');
