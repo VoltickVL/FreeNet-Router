@@ -56,8 +56,28 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/auth/status')return json(res,{configured:true,authenticated:true});
   if(url.pathname==='/api/status')return json(res,status);
   if(url.pathname==='/api/network-profile/plan')return json(res,{success:true,supported:true,active:true,extra_profiles:[]});
-  if(url.pathname==='/api/geodata/files')return json(res,{success:true,files:[{name:'geosite.dat',kind:'geosite',size:4096}],search_enabled:true});
+  if(url.pathname==='/api/geodata/files')return json(res,{success:true,files:[{name:'geosite.dat',kind:'geosite',size:4096},{name:'geoip.dat',kind:'geoip',size:4096},{name:'geosite-extra.dat',kind:'geosite',size:2048}],search_enabled:true});
   if(url.pathname==='/api/geodata/search')return json(res,{success:true,kind:'geosite',query:url.searchParams.get('q')||'',mutation:'NONE',matches:[{file:'geosite.dat',kind:'geosite',categories:['youtube'],truncated:true}],warnings:['broken.dat: geodata file is unreadable or invalid']});
+  if(url.pathname==='/api/geodata/suggest'){
+    const kind=url.searchParams.get('kind')||'';
+    const q=(url.searchParams.get('q')||'').toLowerCase();
+    const file=url.searchParams.get('file')||'';
+    if(kind==='geoip'&&q.includes('example.com')) return json(res,{success:true,kind,query:q,mode:'dns',mutation:'NONE',resolved:['1.1.1.7','8.8.8.8'],suggestions:[
+      {file:'geoip.dat',kind:'geoip',category:'cloudflare',selector:'geoip:cloudflare',ext_selector:'ext:geoip.dat:cloudflare',match:'dns',evidence:['1.1.1.7']},
+      {file:'geoip.dat',kind:'geoip',category:'google',selector:'geoip:google',ext_selector:'ext:geoip.dat:google',match:'dns',evidence:['8.8.8.8']}
+    ],warnings:[]});
+    if(kind==='geosite'&&file==='geosite-extra.dat') return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:[
+      {file:'geosite-extra.dat',kind:'geosite',category:'youtube-extra',selector:'ext:geosite-extra.dat:youtube-extra',ext_selector:'ext:geosite-extra.dat:youtube-extra',match:'category'}
+    ],warnings:[]});
+    if(kind==='geosite') return json(res,{success:true,kind,query:q,mode:q.includes('.')?'domain':'prefix',mutation:'NONE',suggestions:[
+      {file:'geosite.dat',kind:'geosite',category:'youtube',selector:'geosite:youtube',ext_selector:'ext:geosite.dat:youtube',match:'category'},
+      {file:'geosite-extra.dat',kind:'geosite',category:'youtube-extra',selector:'ext:geosite-extra.dat:youtube-extra',ext_selector:'ext:geosite-extra.dat:youtube-extra',match:'category'}
+    ],warnings:['broken.dat: geodata file is unreadable or invalid']});
+    if(kind==='geoip') return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:[
+      {file:'geoip.dat',kind:'geoip',category:'private',selector:'geoip:private',ext_selector:'ext:geoip.dat:private',match:'category'}
+    ],warnings:[]});
+    return json(res,{success:false,mutation:'NONE',error:'invalid suggestion query'},400);
+  }
   if(url.pathname==='/api/capabilities')return json(res,{success:true,split_dns_supported:true,memory_total_mib:1024,split_dns_min_mib:768});
   if(url.pathname==='/api/subscription')return json(res,{success:true,configured:true});
   if(url.pathname==='/api/xray/service'&&req.method==='GET')return json(res,{success:true,online:xrayOnline,version:xrayVersion,events:xrayEvents});
@@ -295,21 +315,45 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await page.locator('#rv2ComposerTitle').textContent(),/Добавить через VPN/);
     assert.match(await page.locator('#rv2ComposerHint').textContent(),/через текущий VPN/);
 
-    // Bounded GeoData search stays read-only inside the selected board composer.
+    // Smart GeoData autocomplete is read-only, debounced and keyboard-selectable; manual search remains fallback.
     const geoMutationBefore = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
     await page.locator('#rv2Kind').selectOption('geosite');
-    await page.locator('#rv2Value').fill('youtube');
+    await page.locator('#rv2Value').fill('you');
+    await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
+    assert.equal(await page.locator('#rv2GeoAutocomplete .rv2-autocomplete-item').count(),2);
+    assert.match(await page.locator('#rv2GeoAutocomplete').innerText(),/youtube-extra/);
+    await page.locator('#rv2Value').press('ArrowDown');
+    await page.locator('#rv2Value').press('ArrowUp');
+    await page.locator('#rv2Value').press('Enter');
+    assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
+    assert.equal(await page.locator('#rv2GeoAutocomplete').isHidden(),true);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Нажмите «Добавить»/);
+
     await page.locator('#rv2GeoSearch').click();
     await page.waitForSelector('.rv2-search-result');
     assert.match(await page.locator('.rv2-search-result').first().textContent(),/GeoSite · youtube/);
-    assert.match(await page.locator('.rv2-search-result').first().textContent(),/показана часть совпадений/);
-    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Часть источников GeoData/);
-    assert.doesNotMatch(await page.locator('#rv2RuleNotice').textContent(),/broken\.dat/);
+    assert.match(await page.locator('#rv2RuleNotice').textContent(),/broken\.dat/);
     const geoMutationCalls = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
-    assert.equal(geoMutationCalls,geoMutationBefore,'GeoData search must remain fully read-only');
+    assert.equal(geoMutationCalls,geoMutationBefore,'GeoData autocomplete/search must remain fully read-only');
     await page.locator('.rv2-search-result').first().click();
     assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
-    assert.match(await page.locator('#rv2RuleNotice').textContent(),/Нажмите «Добавить»/);
+
+    // GeoIP accepts a host, resolves it through the bounded backend and exposes A/AAAA evidence without creating a draft.
+    await page.locator('#rv2Kind').selectOption('geoip');
+    await page.locator('#rv2Value').fill('example.com');
+    await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
+    assert.match(await page.locator('#rv2GeoAutocomplete').innerText(),/1\.1\.1\.7/);
+    assert.match(await page.locator('#rv2GeoAutocomplete').innerText(),/8\.8\.8\.8/);
+    await page.locator('#rv2Value').press('Escape');
+    assert.equal(await page.locator('#rv2GeoAutocomplete').isHidden(),true);
+    assert.equal(await page.locator('#rv2RuleList .rv2-rule').count(),0,'autocomplete must not create a draft');
+
+    // Return to GeoSite and choose the standard category for the existing apply scenario.
+    await page.locator('#rv2Kind').selectOption('geosite');
+    await page.locator('#rv2Value').fill('you');
+    await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
+    await page.locator('#rv2Value').press('Tab');
+    assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
 
     // Empty draft has only one save action and it is disabled until a change exists.
     assert.equal(await page.locator('#rv2ValidateRules').count(),0);
