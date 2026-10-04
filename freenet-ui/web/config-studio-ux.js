@@ -46,9 +46,8 @@
     node.id = 'csService';
     node.className = 'cs-service';
     node.innerHTML = `
-      <div class="cs-service-main"><span class="cs-service-title">Xray</span><span id="csServiceStatus" class="cs-service-status">Проверяю…</span><button id="csServiceVersion" type="button" class="cs-version" title="Выбрать версию Xray">Версия…</button></div>
-      <div class="cs-service-actions"><button id="csRestartXray" type="button" class="cs-service-btn">Управление Xray</button><button id="csToggleJournal" type="button" class="cs-service-btn">Журнал</button></div>
-      <div id="csServiceJournal" class="cs-journal"><div class="cs-journal-head"><span class="cs-journal-title">Последние действия Xray</span><button id="csOpenFullJournal" type="button" class="cs-service-btn">Все события</button></div><div id="csServiceJournalList" class="cs-journal-list"></div></div>`;
+      <div class="cs-service-main"><span class="cs-service-title">Xray</span><span id="csServiceStatus" class="cs-service-status">Проверяю…</span><button id="csServiceVersion" type="button" class="cs-version" title="Открыть Xray">Версия…</button></div>
+      <div class="cs-service-actions"><button id="csRestartXray" type="button" class="cs-service-btn">Открыть Xray</button></div>`;
     return node;
   }
 
@@ -77,7 +76,7 @@
       version.disabled = !shortVersion || busy;
     }
     if (restart) {
-      setText(restart, 'Управление Xray');
+      setText(restart, 'Открыть Xray');
       restart.disabled = busy || unavailable;
     }
     const list = qs('#csServiceJournalList');
@@ -145,8 +144,6 @@
       if (groups) groups.parentNode.insertBefore(serviceMarkup(), groups);
       else shell.prepend(serviceMarkup());
       qs('#csRestartXray')?.addEventListener('click', controlXray);
-      qs('#csToggleJournal')?.addEventListener('click', () => qs('#csServiceJournal')?.classList.toggle('show'));
-      qs('#csOpenFullJournal')?.addEventListener('click', openFullJournal);
       loadService();
     }
     return true;

@@ -17,6 +17,8 @@
     configLoading: false,
     configLoadPromise: null,
     liveStale: false,
+    xrayService: null,
+    xrayBusy: false,
     configTab: 'routing',
     live: {routing: {routing: {}}, policy: {policy: {}}},
     draft: {routing: '', policy: ''},
@@ -45,6 +47,8 @@
       .rv2-state::before{content:'';width:7px;height:7px;border-radius:50%;background:#8094ad}.rv2-state.ok{color:#74edb5;border-color:rgba(54,227,162,.38)}.rv2-state.ok::before{background:#36e3a2}.rv2-state.warn{color:#ffc85b;border-color:rgba(255,190,67,.38)}.rv2-state.warn::before{background:#ffbe43}
       .rv2-panel[hidden]{display:none!important}.rv2-card{border:1px solid #294360;border-radius:16px;background:linear-gradient(180deg,#0c1c2f,#0a1828);padding:16px}.rv2-card+.rv2-card{margin-top:12px}
       .rv2-card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}.rv2-card h2{margin:0;color:#f4f7fb;font-size:17px}.rv2-copy{margin:4px 0 0;color:#91a5c0;font-size:13px;line-height:1.45}
+      .rv2-xray-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:14px}.rv2-xray-fact{padding:13px 14px;border:1px solid #2a4562;border-radius:12px;background:#081522}.rv2-xray-fact span{display:block;color:#8399b6;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em}.rv2-xray-fact strong{display:block;margin-top:5px;color:#f2f7ff;font-size:16px}.rv2-xray-fact strong.ok{color:#62e8aa}.rv2-xray-fact strong.bad{color:#ff909a}.rv2-xray-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}.rv2-xray-actions .btn{min-width:128px}.rv2-xray-actions [hidden]{display:none!important}.rv2-xray-events{display:grid;gap:7px;margin-top:14px}.rv2-xray-event{display:grid;grid-template-columns:120px 72px minmax(0,1fr);gap:9px;align-items:center;padding:9px 10px;border:1px solid #263e59;border-radius:10px;background:#081522;color:#9db1ca;font-size:11px}.rv2-xray-event b{color:#61e8aa}.rv2-xray-event.bad b{color:#ff929c}.rv2-xray-event span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
       .rv2-builder-grid{display:grid;grid-template-columns:165px minmax(0,1fr) auto;gap:9px;margin-top:13px}.rv2-builder-grid select,.rv2-builder-grid input,.rv2-editor{width:100%;box-sizing:border-box;border:1px solid #2b405e;background:#081421;color:#eef5ff;border-radius:11px;outline:none}.rv2-builder-grid select,.rv2-builder-grid input{min-height:42px;padding:9px 11px;font:inherit;font-size:13px}.rv2-builder-grid input:focus,.rv2-builder-grid select:focus,.rv2-editor:focus{border-color:#5b8cff;box-shadow:0 0 0 2px rgba(91,140,255,.08)}
       .rv2-search{margin-top:9px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rv2-search .btn{min-height:36px}.rv2-search-results{display:grid;gap:6px;margin-top:9px}.rv2-search-result{appearance:none;width:100%;text-align:left;border:1px solid #26384f;background:#091522;color:#eef5ff;border-radius:10px;padding:9px 11px;cursor:pointer}.rv2-search-result:hover{border-color:#5b8cff;background:#11243b}.rv2-search-result b{display:block;font-size:13px}.rv2-search-result span{display:block;margin-top:3px;color:#859bb7;font-size:12px}
       .rv2-order{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;background:#12243a;color:#91b6eb;font-size:11px;font-weight:850}.rv2-selector{min-width:0}.rv2-selector b{display:block;color:#eef5ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rv2-selector span{display:block;color:#8398b4;margin-top:3px}.rv2-rule-action{font-weight:850}.rv2-rule-action.direct{color:#5ce8a5}.rv2-rule-action.vpn{color:#7dabff}.rv2-rule-action.block{color:#ff858e}.rv2-rule-tools{display:flex;justify-content:flex-end;gap:5px;flex-wrap:wrap}
@@ -73,7 +77,7 @@
       .rv2-rule-list{display:grid;gap:8px;margin-top:12px}.rv2-rule-empty{padding:14px;border:1px dashed #2d425d;border-radius:12px;color:#8498b4;font-size:13px;text-align:center}.rv2-rule{display:grid;grid-template-columns:34px minmax(0,1fr) 100px 155px;align-items:center;gap:10px;padding:10px 11px;border:1px solid #263d58;border-radius:12px;background:#081522}.rv2-rule.removal{border-color:#663342;background:#25151d}.rv2-rule.removal .rv2-order{background:#48202b;color:#ffafb8}.rv2-rule.removal .rv2-rule-action{color:#ff9aa5}.rv2-selector b{font-size:13px}.rv2-selector span{font-size:12px}.rv2-rule-action{font-size:12px}
       .rv2-notice.warn{border-color:rgba(255,190,67,.38);background:rgba(103,70,15,.16);color:#f0cf8e}
       @media(max-width:1120px){.rv4-board-grid{grid-template-columns:1fr 1fr}.rv4-board.direct{grid-column:1/-1}.rv4-board.block{min-height:100%}}
-      @media(max-width:760px){.rv4-board-grid{grid-template-columns:1fr}.rv4-board.direct{grid-column:auto}.rv2-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}.rv2-system-rule{grid-template-columns:1fr}.rv2-system-route{justify-self:start}}
+      @media(max-width:760px){.rv4-board-grid{grid-template-columns:1fr}.rv4-board.direct{grid-column:auto}.rv2-rule{grid-template-columns:34px minmax(0,1fr)}.rv2-rule-action{grid-column:2}.rv2-rule-tools{grid-column:2;justify-content:flex-start}.rv2-system-rule{grid-template-columns:1fr}.rv2-system-route{justify-self:start}.rv2-xray-grid{grid-template-columns:1fr}.rv2-xray-event{grid-template-columns:1fr}.rv2-xray-actions .btn{flex:1 1 140px}}
       @media(max-width:620px){.rv2-card{padding:13px}.rv2-mode{flex:1}.rv2-modes{width:100%}.rv2-editor{min-height:330px}.rv4-board-head{padding:13px}.rv4-board-body{padding:2px 13px 11px}.rv4-board-head-actions{gap:5px}.rv4-board-add{padding:6px 8px}.rv4-composer-slot{padding:0 10px 10px}}
     `;
     document.head.appendChild(style);
@@ -758,13 +762,121 @@
     }
   }
 
+  function compactXrayVersion(raw) {
+    const match = String(raw || '').match(/\bv?\d+(?:\.\d+){1,3}(?:[-+][0-9A-Za-z.-]+)?/);
+    if (!match) return String(raw || '').trim() || '—';
+    return match[0].startsWith('v') ? match[0] : `v${match[0]}`;
+  }
+
+  function xrayFriendlyTime(raw) {
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return String(raw || '');
+    return date.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  }
+
+  function renderXraySurface(result = state.xrayService) {
+    if (!result) return;
+    state.xrayService = result;
+    const status = qs('#rv2XrayStatus');
+    const version = qs('#rv2XrayVersion');
+    if (status) {
+      status.textContent = result.online ? 'Работает' : 'Остановлен';
+      status.className = result.online ? 'ok' : 'bad';
+    }
+    if (version) version.textContent = compactXrayVersion(result.version);
+
+    const start = qs('#rv2XrayStart');
+    const stop = qs('#rv2XrayStop');
+    const restart = qs('#rv2XrayRestart');
+    const versions = qs('#rv2XrayVersions');
+    const ownerReady = !!window.FreeNetXrayControl?.action;
+    const blocked = !ownerReady || !!window.FreeNetXrayControl?.mutationBlocked?.();
+    if (start) { start.hidden = !!result.online; start.disabled = state.xrayBusy || blocked; }
+    if (stop) { stop.hidden = !result.online; stop.disabled = state.xrayBusy || blocked; }
+    if (restart) { restart.hidden = !result.online; restart.disabled = state.xrayBusy || blocked; }
+    if (versions) { versions.hidden = !result.online; versions.disabled = state.xrayBusy || blocked; }
+
+    const events = qs('#rv2XrayEvents');
+    if (events) {
+      events.textContent = '';
+      const rows = Array.isArray(result.events) ? result.events.slice(0,5) : [];
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.className = 'rv2-copy';
+        empty.textContent = 'Действий Xray пока нет.';
+        events.appendChild(empty);
+      } else rows.forEach(event => {
+        const row = document.createElement('div');
+        const ok = String(event?.result || '').toLowerCase() === 'success';
+        row.className = `rv2-xray-event${ok ? '' : ' bad'}`;
+        const at = document.createElement('span'); at.textContent = xrayFriendlyTime(event?.at);
+        const outcome = document.createElement('b'); outcome.textContent = ok ? 'Успешно' : 'Ошибка';
+        const message = document.createElement('span'); message.textContent = String(event?.message || '');
+        row.append(at, outcome, message);
+        events.appendChild(row);
+      });
+    }
+  }
+
+  async function loadXraySurface() {
+    const notice = qs('#rv2XrayNotice');
+    if (notice) { notice.className = 'rv2-notice show'; notice.textContent = 'Проверяю состояние Xray…'; }
+    try {
+      let result;
+      if (window.FreeNetXrayControl?.refresh) result = await window.FreeNetXrayControl.refresh();
+      else {
+        result = await api('/api/xray/service');
+        if (!result.success) throw new Error(result.error || 'Состояние Xray недоступно');
+      }
+      renderXraySurface(result);
+      if (notice) { notice.className = 'rv2-notice'; notice.textContent = ''; }
+      return true;
+    } catch (error) {
+      if (notice) { notice.className = 'rv2-notice show bad'; notice.textContent = safeError(error,'Состояние Xray недоступно.'); }
+      return false;
+    }
+  }
+
+  async function runXrayAction(action) {
+    if (state.xrayBusy) return;
+    const owner = window.FreeNetXrayControl;
+    const notice = qs('#rv2XrayNotice');
+    if (!owner?.action) {
+      if (notice) { notice.className = 'rv2-notice show bad'; notice.textContent = 'Canonical Xray control ещё не готов. Никаких изменений не выполнено.'; }
+      return;
+    }
+
+    state.xrayBusy = true;
+    renderXraySurface();
+    const labels = {start:'Запускаю Xray…',stop:'Останавливаю Xray…',restart:'Перезапускаю Xray…'};
+    if (notice) { notice.className = 'rv2-notice show'; notice.textContent = labels[action] || 'Выполняю операцию Xray…'; }
+    try {
+      const result = await owner.action(action);
+      renderXraySurface(result);
+      if (notice) { notice.className = 'rv2-notice show ok'; notice.textContent = result.message || 'Операция Xray завершена.'; }
+    } catch (error) {
+      if (notice) { notice.className = 'rv2-notice show bad'; notice.textContent = `${safeError(error,'Состояние Xray не подтверждено.')} Сначала нажмите «Проверить состояние».`; }
+    } finally {
+      state.xrayBusy = false;
+      renderXraySurface();
+    }
+  }
+
+  document.addEventListener('freenet:xray-service-changed', event => {
+    const detail = event && event.detail && typeof event.detail === 'object' ? event.detail : null;
+    if (detail) renderXraySurface(detail);
+  });
+
   function setMode(mode) {
-    const selected = mode === 'config' ? 'config' : 'rules';
+    const selected = mode === 'xray' ? 'xray' : mode === 'config' ? 'config' : 'rules';
     qsa('.rv2-mode').forEach(button => button.classList.toggle('active', button.dataset.mode === selected));
+    qs('#rv2XrayPanel').hidden = selected !== 'xray';
     qs('#rv2RulesPanel').hidden = selected !== 'rules';
     qs('#rv2ConfigPanel').hidden = selected !== 'config';
 
-    if (selected === 'rules') {
+    if (selected === 'xray') {
+      void loadXraySurface();
+    } else if (selected === 'rules') {
       if (!hasRuleDraft()) void loadConfig(true);
       else renderLiveRules();
     } else if (!state.configLoaded) {
@@ -1082,8 +1194,30 @@
     const root = document.createElement('div'); root.id = 'routingV2Workspace'; root.className = 'rv2-workspace';
     root.innerHTML = `
       <div class="rv2-modebar">
-        <div class="rv2-modes"><button type="button" class="rv2-mode active" data-mode="rules">Правила</button><button type="button" class="rv2-mode" data-mode="config">Конфигурация</button></div>
+        <div class="rv2-modes"><button type="button" class="rv2-mode" data-mode="xray">Xray</button><button type="button" class="rv2-mode active" data-mode="rules">Правила</button><button type="button" class="rv2-mode" data-mode="config">Конфигурация</button></div>
       </div>
+      <section id="rv2XrayPanel" class="rv2-panel" hidden>
+        <div class="rv2-card">
+          <div class="rv2-card-head">
+            <div><h2>Управление Xray</h2><p class="rv2-copy">Сервис, версия и последние действия — отдельно от экспертной конфигурации.</p></div>
+          </div>
+          <div class="rv2-xray-grid">
+            <div class="rv2-xray-fact"><span>Состояние</span><strong id="rv2XrayStatus">Проверяю…</strong></div>
+            <div class="rv2-xray-fact"><span>Версия</span><strong id="rv2XrayVersion">—</strong></div>
+          </div>
+          <div class="rv2-xray-actions">
+            <button id="rv2XrayStart" class="btn primary" type="button" hidden>Запустить Xray</button>
+            <button id="rv2XrayRestart" class="btn secondary" type="button" hidden>Перезапустить</button>
+            <button id="rv2XrayStop" class="btn secondary" type="button" hidden>Остановить</button>
+            <button id="rv2XrayVersions" class="btn secondary" type="button" hidden>Версии</button>
+            <button id="rv2XrayJournal" class="btn secondary" type="button">Журнал</button>
+            <button id="rv2XrayRefresh" class="btn secondary" type="button">Проверить состояние</button>
+          </div>
+          <div class="rv2-card-head" style="margin-top:16px"><div><h2>Последние действия Xray</h2></div></div>
+          <div id="rv2XrayEvents" class="rv2-xray-events"></div>
+          <div id="rv2XrayNotice" class="rv2-notice"></div>
+        </div>
+      </section>
       <section id="rv2RulesPanel" class="rv2-panel">
         <div class="rv2-card">
           <div class="rv2-card-head">
@@ -1200,6 +1334,12 @@
 
   function bind() {
     qsa('.rv2-mode').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode)));
+    qs('#rv2XrayStart')?.addEventListener('click', () => runXrayAction('start'));
+    qs('#rv2XrayStop')?.addEventListener('click', () => runXrayAction('stop'));
+    qs('#rv2XrayRestart')?.addEventListener('click', () => runXrayAction('restart'));
+    qs('#rv2XrayRefresh')?.addEventListener('click', loadXraySurface);
+    qs('#rv2XrayVersions')?.addEventListener('click', () => window.FreeNetXrayControl?.openVersions?.());
+    qs('#rv2XrayJournal')?.addEventListener('click', () => window.FreeNetXrayControl?.openJournal?.());
     qsa('.rv4-board-add').forEach(button => button.addEventListener('click', () => openInlineComposer(button.dataset.addAction || 'DIRECT')));
     qsa('.rv4-board-collapse').forEach(button => button.addEventListener('click', () => toggleBoard(button.dataset.collapseAction || 'DIRECT')));
     qs('#rv2ComposerClose')?.addEventListener('click', () => closeInlineComposer(true));

@@ -28,6 +28,11 @@ let routingLive = {routing:{domainStrategy:'AsIs',rules:[
   {type:'field',network:'tcp,udp',outboundTag:'vless-reality'}
 ]}};
 let policyLive = {policy:{}};
+let xrayOnline = true;
+let xrayVersion = 'v26.9.9';
+let xrayEvents = [{at:'2026-10-04T01:00:00Z',kind:'xray',result:'success',message:'Xray запущен через FreeNet.'}];
+const xrayActions = [];
+let xrayCatalogGets = 0;
 
 function canonicalRoutingV2Source() {
   return fs.readFileSync(path.join(web, 'routing-v2.js'), 'utf8')
@@ -38,7 +43,7 @@ function canonicalRoutingV2Source() {
 function json(res, body, code=200) { res.writeHead(code, {'Content-Type':'application/json; charset=utf-8'}); res.end(JSON.stringify(body)); }
 function bodyJSON(req) { return new Promise(resolve => { let raw=''; req.on('data', c => raw += c); req.on('end', () => { try { resolve(JSON.parse(raw||'{}')); } catch (_) { resolve({}); } }); }); }
 const status={version:'0.3.69',country:'Германия',city:'Франкфурт-на-Майне',country_code:'de',profile_label:'Франкфурт-на-Майне, Германия, Extra',endpoint:'192.0.2.67:443',xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',setup_complete:true,subscription_configured:true,busy:false,updater_busy:false,last_action:{success:true}};
-const scripts=['vpn-ux-fix.js','automation.js','routing-v2-canonical.js','routing-apply-ui.js'];
+const scripts=['vpn-ux-fix.js','automation.js','xray-core-manager.js','routing-v2-canonical.js','routing-apply-ui.js'];
 
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost'); calls.push(`${req.method} ${url.pathname}${url.search}`);
@@ -55,6 +60,22 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/geodata/search')return json(res,{success:true,kind:'geosite',query:url.searchParams.get('q')||'',mutation:'NONE',matches:[{file:'geosite.dat',kind:'geosite',categories:['youtube'],truncated:true}],warnings:['broken.dat: geodata file is unreadable or invalid']});
   if(url.pathname==='/api/capabilities')return json(res,{success:true,split_dns_supported:true,memory_total_mib:1024,split_dns_min_mib:768});
   if(url.pathname==='/api/subscription')return json(res,{success:true,configured:true});
+  if(url.pathname==='/api/xray/service'&&req.method==='GET')return json(res,{success:true,online:xrayOnline,version:xrayVersion,events:xrayEvents});
+  if(url.pathname==='/api/xray/service'&&req.method==='POST'){
+    const request=await bodyJSON(req);
+    xrayActions.push(String(request.action||''));
+    if(request.action==='stop') xrayOnline=false;
+    else if(request.action==='start'||request.action==='restart') xrayOnline=true;
+    xrayEvents=[{at:'2026-10-04T01:01:00Z',kind:'xray',result:'success',message:request.action==='stop'?'Xray остановлен через FreeNet.':request.action==='restart'?'Xray перезапущен через FreeNet.':'Xray запущен через FreeNet.'},...xrayEvents];
+    return json(res,{success:true,online:xrayOnline,version:xrayVersion,message:xrayEvents[0].message,events:xrayEvents});
+  }
+  if(url.pathname==='/api/xray/core/catalog'){
+    xrayCatalogGets++;
+    return json(res,{success:true,current_version:xrayVersion,latest_version:'v26.10.1',releases:[
+      {version:'v26.10.1',latest:true,current:false,prerelease:false,published_at:'2026-10-03T00:00:00Z'},
+      {version:xrayVersion,latest:false,current:true,prerelease:false,published_at:'2026-09-20T00:00:00Z'}
+    ]});
+  }
   if(url.pathname==='/api/policy/compile'&&req.method==='POST'){
     const request=await bodyJSON(req);
     const rules=Array.isArray(request.rules)?request.rules:[];
@@ -106,6 +127,40 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForSelector('#routingV2Workspace',{state:'visible'});
     await page.waitForFunction(()=>document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
     assert.match(await page.locator('[data-page-view="routing"] .page-head').textContent(),/Сайты и категории/);
+
+    // Primary workspace order is Xray / Rules / Configuration; Xray is a first-class surface, not a Config Studio sub-control.
+    const modeLabels = await page.locator('.rv2-mode').allTextContents();
+    assert.deepEqual(modeLabels.map(v=>v.trim()), ['Xray','Правила','Конфигурация']);
+    assert.equal(await page.locator('.rv2-mode[data-mode="rules"]').evaluate(el=>el.classList.contains('active')),true,'Rules remains the default routing workspace');
+    await page.locator('.rv2-mode[data-mode="xray"]').click();
+    await page.waitForSelector('#rv2XrayPanel',{state:'visible'});
+    await page.waitForFunction(()=>document.querySelector('#rv2XrayStatus')?.textContent==='Работает');
+    assert.equal(await page.locator('#rv2XrayVersion').textContent(),'v26.9.9');
+    assert.match(await page.locator('#rv2XrayEvents').innerText(),/Xray запущен через FreeNet/);
+    assert.equal(xrayActions.length,0,'opening Xray tab must remain read-only');
+
+    await page.locator('#rv2XrayRestart').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2XrayNotice')?.textContent.includes('перезапущен'));
+    assert.deepEqual(xrayActions,['restart'],'embedded Xray tab must use the canonical lifecycle mutation owner');
+
+    await page.locator('#rv2XrayStop').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2XrayStatus')?.textContent==='Остановлен');
+    assert.deepEqual(xrayActions,['restart','stop']);
+    assert.equal(await page.locator('#rv2XrayStart').isVisible(),true);
+    assert.equal(await page.locator('#rv2XrayVersions').isHidden(),true,'intentionally stopped Xray must not expose version mutation');
+
+    await page.locator('#rv2XrayStart').click();
+    await page.waitForFunction(()=>document.querySelector('#rv2XrayStatus')?.textContent==='Работает');
+    assert.deepEqual(xrayActions,['restart','stop','start']);
+
+    await page.locator('#rv2XrayVersions').click();
+    await page.waitForFunction(()=>document.querySelector('#xrayCoreManager') && !document.querySelector('#xrayCoreManager').hidden && (document.querySelector('#xrayCoreManager')?.innerText||'').includes('v26.10.1'));
+    assert.equal(xrayCatalogGets,1,'Versions must reuse the existing lazy Xray Core Manager');
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(()=>document.querySelector('#xrayCoreManager')?.hidden===true);
+
+    await page.locator('.rv2-mode[data-mode="rules"]').click();
+    await page.waitForSelector('#rv2RulesPanel',{state:'visible'});
 
     // Wide desktop canvas must use the available viewport instead of the old 1180px cap.
     const desktopLayout=await page.evaluate(()=> {

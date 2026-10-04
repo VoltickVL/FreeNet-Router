@@ -8,6 +8,7 @@
   let applying = false;
   let topbarVersionLoading = false;
   let topbarVersionAttempts = 0;
+  let serviceMutationUnknown = false;
 
   function installStyles() {
     if (qs('#xrayCoreManagerStyles')) return;
@@ -189,6 +190,7 @@
     let result = {};
     try { result = await response.json(); } catch (_) {}
     if (!response.ok || !result.success) throw new Error(result.error || 'Состояние Xray недоступно');
+    serviceMutationUnknown = false;
     syncServiceSurfaces(result);
     return result;
   }
@@ -367,7 +369,7 @@
       status.className = `cs-service-status ${result?.online ? 'ok' : 'bad'}`;
     }
     if (button) {
-      button.textContent = 'Управление Xray';
+      button.textContent = 'Открыть Xray';
       button.disabled = false;
     }
     if (version && result?.version) version.textContent = `${compactVersion(result.version) || result.version} ▾`;
@@ -466,9 +468,39 @@
     renderServiceHome(result);
   }
 
+  async function mutateService(action) {
+    if (serviceMutationUnknown) {
+      throw new Error('Состояние Xray не подтверждено. Сначала перечитайте фактическое состояние.');
+    }
+    if (applying) throw new Error('Операция Xray уже выполняется.');
+
+    applying = true;
+    try {
+      const response = await fetch('/api/xray/service', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action}),
+        cache:'no-store'
+      });
+      let result = {};
+      try { result = await response.json(); } catch (_) {}
+      if (!response.ok || !result.success) {
+        serviceMutationUnknown = true;
+        throw new Error(result.error || 'Операция Xray не завершена');
+      }
+      serviceMutationUnknown = false;
+      syncServiceSurfaces(result);
+      return result;
+    } catch (error) {
+      serviceMutationUnknown = true;
+      throw error;
+    } finally {
+      applying = false;
+    }
+  }
+
   async function controlService(action) {
     if (applying) return;
-    applying = true;
     const target = body();
     const footer = actions();
     clearNode(target);
@@ -486,21 +518,9 @@
     target.appendChild(progress);
 
     try {
-      const response = await fetch('/api/xray/service', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({action}),
-        cache:'no-store'
-      });
-      let result = {};
-      try { result = await response.json(); } catch (_) {}
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Операция Xray не завершена');
-      }
-      syncServiceSurfaces(result);
-      applying = false;
+      const result = await mutateService(action);
       renderServiceHome(result, result.message || label[1]);
-      return;
+      return result;
     } catch (error) {
       clearNode(target);
       clearNode(footer);
@@ -510,19 +530,15 @@
       target.appendChild(box);
       addButton(footer, 'Закрыть', '', closeManager);
       addButton(footer, 'Проверить состояние', 'primary', async () => {
-        if (applying) return;
-        applying = true;
         try {
           const result = await fetchServiceSnapshot();
-          applying = false;
           renderServiceHome(result);
         } catch (readError) {
-          applying = false;
           box.textContent = (readError?.message || 'Состояние Xray недоступно.') + ' Следующая mutation остаётся заблокированной.';
         }
       });
+      return null;
     } finally {
-      applying = false;
       requestAnimationFrame(positionManager);
     }
   }
@@ -658,6 +674,19 @@
       addButton(footer, 'Закрыть', '', closeManager);
     }
   }
+
+  window.FreeNetXrayControl = Object.assign(window.FreeNetXrayControl || {}, {
+    refresh: fetchServiceSnapshot,
+    action: mutateService,
+    open: openManager,
+    openVersions: async () => {
+      await openManager();
+      if (serviceState?.online) await loadCatalog();
+    },
+    openJournal,
+    getState: () => serviceState,
+    mutationBlocked: () => serviceMutationUnknown || applying
+  });
 
   installStyles();
   document.addEventListener('click', event => {

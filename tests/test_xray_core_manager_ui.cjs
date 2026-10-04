@@ -135,7 +135,7 @@ const server = http.createServer((req, res) => {
     assert.equal(catalogGets, 0, 'catalog must not load until explicit Versions action');
     assert.equal(applyPosts, 0, 'page load must not mutate Xray');
     assert.deepEqual(serviceActions, [], 'page load must not control Xray');
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray', 'Config Studio must point to the canonical Xray owner');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray', 'Config Studio must point to the canonical Xray owner');
 
     await page.evaluate(() => {
       window.__xrayJournalClicks = 0;
@@ -176,7 +176,7 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Xray перезапущен и снова работает'));
     assert.deepEqual(serviceActions, ['restart']);
     assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает');
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray');
 
     // Running -> Stop must truthfully reconcile every surface and hide version mutation while stopped.
     await manager.getByRole('button', {name:'Остановить'}).click();
@@ -193,7 +193,7 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.trim() === 'v26.9.9');
     assert.deepEqual(serviceActions, ['restart','stop','start']);
     assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает');
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray');
 
     // Journal is part of the same surface and navigates to the existing full Journal.
     await manager.getByRole('button', {name:'Журнал'}).click();
