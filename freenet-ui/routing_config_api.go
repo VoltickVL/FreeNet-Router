@@ -461,6 +461,9 @@ func (a *app) restartXrayCorePreservingFirewall(parent context.Context) error {
 }
 
 func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
+	if a.mutationBlockedBySelfUpdate(w) {
+		return
+	}
 	req, ok := decodeRoutingCandidateRequest(w, r, "NONE")
 	if !ok {
 		return
