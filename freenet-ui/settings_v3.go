@@ -502,6 +502,11 @@ func canonicalJournalMessageKey(message string) string {
 	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(message)), " "))
 }
 
+func journalEventIsCanceledReleaseCatalogNoise(event automationEvent) bool {
+	return strings.EqualFold(strings.TrimSpace(event.Kind), "freenet_release_catalog") &&
+		strings.Contains(strings.ToLower(event.Message), "context canceled")
+}
+
 func journalResultPriority(result string) int {
 	value := strings.ToLower(strings.TrimSpace(result))
 	if idx := strings.LastIndex(value, ":"); idx >= 0 {
@@ -564,7 +569,14 @@ func canonicalJournalEvents(limit int, updateStatePath ...string) []automationEv
 		}
 		filteredAutomation = append(filteredAutomation, event)
 	}
-	settingsEvents := readAutomationEvents(settingsV3HistoryPath(), journalHistoryFileLimit)
+	rawSettingsEvents := readAutomationEvents(settingsV3HistoryPath(), journalHistoryFileLimit)
+	settingsEvents := make([]automationEvent, 0, len(rawSettingsEvents))
+	for _, event := range rawSettingsEvents {
+		if journalEventIsCanceledReleaseCatalogNoise(event) {
+			continue
+		}
+		settingsEvents = append(settingsEvents, event)
+	}
 	groups := [][]automationEvent{filteredAutomation, settingsEvents}
 	if len(updateStatePath) > 0 && strings.TrimSpace(updateStatePath[0]) != "" {
 		groups = append(groups, selfUpdateJournalEvents(updateStatePath[0]))
