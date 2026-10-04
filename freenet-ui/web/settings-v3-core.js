@@ -53,8 +53,8 @@
       .fn3-journal-linkrow{display:flex;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid #244663}.fn3-link{border:0;background:transparent;color:#9dc7f2;font-size:12px;cursor:pointer}.fn3-link:hover{color:#c9e2ff;text-decoration:underline}.fn3-table{width:100%;border-collapse:collapse;font-size:12.5px;line-height:1.42}.fn3-table th{text-align:left;padding:9px 10px;background:#123655;color:#b9cce0;font-size:11.5px;font-weight:800}.fn3-table td{padding:9px 10px;border-top:1px solid #254765;color:#d8e4ef;vertical-align:top}.fn3-table td:first-child{white-space:nowrap;color:#a9bfd6}.fn3-table td:nth-child(2){font-weight:720;color:#c8d8e8}.fn3-kind{display:inline-flex;align-items:center;min-height:24px;padding:3px 8px;border:1px solid #355878;border-radius:999px;background:#0a2035;color:#bdd0e4;font-size:10.5px;font-weight:800;white-space:nowrap}.fn3-kind.auto{border-color:#2e679a;color:#a9cfff;background:#0b2947}.fn3-kind.system{border-color:#41627f;color:#c4d1df;background:#112339}.fn3-result{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:3px 8px;border:1px solid rgba(82,228,168,.26);border-radius:999px;background:rgba(35,124,90,.16);color:#52e4a8;font-weight:760;white-space:nowrap}.fn3-result.neutral{border-color:#3c5875;background:#102239;color:#c4d0dc}.fn3-result.bad{border-color:rgba(255,103,115,.4);background:rgba(102,34,45,.24);color:#ff9da7}.fn3-dot{width:7px;height:7px;border-radius:50%;background:currentColor}
       .fn3-extra{grid-column:1/-1}.fn3-extra-title{margin-bottom:10px}.fn3-extra-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.fn3-extra-card{border:1px solid #2c5274;border-radius:11px;background:#081b2f;padding:11px;min-width:0}.fn3-extra-head{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:start}.fn3-extra-icon{display:grid;place-items:center;width:34px;height:34px;border-radius:9px;background:#1555a5;color:#b4d4ff}.fn3-extra-icon svg{width:20px;height:20px}.fn3-extra-card h3{font-size:12px}.fn3-extra-card p{margin:3px 0 0;color:#8fa5bf;font-size:10px;line-height:1.4}.fn3-extra-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:center;margin-top:10px}.fn3-extra-row label{color:#9eb2c9;font-size:10.5px}.fn3-extra-row select{height:31px;border:1px solid #315777;border-radius:7px;background:#091a2b;color:#e7eff9;padding:0 8px;font-size:11px}.fn3-extra-meta{display:grid;grid-template-columns:auto 1fr;gap:7px;margin-top:7px;font-size:10px}.fn3-extra-meta span{color:#879db7}.fn3-extra-meta b{color:#dce7f2}.fn3-extra-meta b.ok{color:#4de0a5}.fn3-extra-action{width:100%;margin-top:9px;min-height:34px!important;justify-content:center!important;font-size:11px!important}.fn3-extra-save-row{display:flex;justify-content:flex-end;margin-top:10px;padding-top:10px;border-top:1px solid #244663}.fn3-extra-save{min-width:170px;min-height:36px!important;gap:7px;justify-content:center!important;font-size:11px!important}.fn3-extra-save[disabled]{opacity:.52;filter:saturate(.7)}.fn3-backup-storage{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 8px;margin-top:9px;padding:9px 10px;border:1px solid #2b506f;border-radius:9px;background:#07192a;font-size:10px}.fn3-backup-storage span{color:#879db7}.fn3-backup-storage code{color:#d9e7f6;font:600 10px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;word-break:break-word}.fn3-backup-contents{margin-top:8px;color:#8fa7c1;font-size:10px;line-height:1.42}.fn3-backup-result{display:grid;gap:4px;margin-top:9px;padding:9px 10px;border:1px solid #16815e;border-radius:9px;background:#073c30;color:#cdeee0;font-size:10.5px;line-height:1.4}.fn3-backup-result[hidden]{display:none!important}.fn3-backup-result.bad{border-color:#9b3b51;background:#351725;color:#ffd4dc}.fn3-backup-result strong{font-size:11.5px;color:#5ee7af}.fn3-backup-result.bad strong{color:#ffb1bf}.fn3-backup-result code{font:600 10px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;word-break:break-word;color:#eef7ff}.fn3-backup-actions{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}.fn3-backup-actions .btn{min-height:34px!important;justify-content:center!important;font-size:10.5px!important}.fn3-danger{border-color:#9b3b51!important;color:#ffc0cc!important;background:#351725!important}
       .fn3-country-pop{position:fixed;z-index:1900;width:min(520px,calc(100vw - 28px));max-height:min(620px,calc(100vh - 36px));overflow:auto;padding:14px;border:1px solid #35638e;border-radius:14px;background:#091c30;box-shadow:0 24px 74px #0009}.fn3-country-pop[hidden]{display:none!important}.fn3-country-list{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}.fn3-country-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border:1px solid #294f70;border-radius:8px;font-size:11.5px;min-height:42px}.fn3-country-item input{accent-color:#2fdfa1}.fn3-country-flag{width:24px!important;height:16px!important;flex:0 0 24px!important;border-radius:3px!important}.fn3-country-copy{display:flex;flex-direction:column;gap:2px;min-width:0}.fn3-country-copy small{font-size:9.5px;color:#8098b2}.fn3-country-item.unavailable{border-style:dashed;opacity:.78}.fn3-country-state{margin-top:10px;padding:10px 11px;border:1px solid #2a567d;border-radius:8px;background:#07192a;color:#9eb5cf;font-size:11px}.fn3-pop-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:11px}.fn3-compat{display:none!important}
-      .fn3-journal-page .fn3-card{margin-top:14px;padding:18px 16px}.fn3-journal-page h1{font-size:32px;margin:0}.fn3-journal-page p{color:#9bb0c9;margin:6px 0 0;font-size:14px;line-height:1.5}.fn3-journal-filters{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.fn3-journal-filter{min-height:34px;padding:6px 12px;border:1px solid #315777;border-radius:999px;background:#091c30;color:#b9cce0;font:700 11px/1.2 inherit;cursor:pointer}.fn3-journal-filter.active{border-color:#2f8cf8;background:#0d345c;color:#e8f3ff;box-shadow:inset 0 0 0 1px #2f8cf8}.fn3-journal-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:16px}.fn3-journal-stat{padding:11px 12px;border:1px solid #2b506f;border-radius:11px;background:#0a1d30}.fn3-journal-stat span{display:block;color:#8ea6c1;font-size:10.5px;font-weight:720}.fn3-journal-stat strong{display:block;margin-top:4px;color:#eef5ff;font-size:18px}.fn3-journal-stat.ok strong{color:#58e2aa}.fn3-journal-stat.bad strong{color:#ff9ba5}.fn3-journal-page .fn3-table,#fn3JournalTable{margin-top:0;font-size:14px!important;line-height:1.5}.fn3-journal-page .fn3-table th{padding:11px 12px;font-size:12px!important}.fn3-journal-page .fn3-table td{padding:11px 12px;font-size:13.5px!important}.fn3-journal-page .fn3-table td:nth-child(4){min-width:320px}.fn3-journal-page .fn3-kind,.fn3-journal-page .fn3-result{font-size:11.5px;min-height:27px;padding:4px 9px}
-      @media(max-width:1120px){.fn3-extra{grid-column:auto}.fn3-extra-grid{grid-template-columns:1fr 1fr}.fn3-journal-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:760px){.fn3-head{display:block}.fn3-save{width:100%;margin-top:10px}.fn3-extra-save-row{display:block}.fn3-extra-save{width:100%;min-width:0}.fn3-mode-list{grid-template-columns:1fr}.fn3-endpoint-schedule{align-items:flex-start;flex-direction:column}.fn3-endpoint-schedule select{width:100%;min-width:0}.fn3-auto-actions,.fn3-profile-facts{grid-template-columns:1fr}.fn3-metrics{grid-template-columns:1fr 1fr}.fn3-extra-grid{grid-template-columns:1fr}.fn3-country-list{grid-template-columns:1fr}.fn3-table{font-size:11.5px}.fn3-table th,.fn3-table td{padding:8px 7px}.fn3-journal-page .fn3-card{overflow-x:auto}}
+      .fn3-journal-page .fn3-card{margin-top:14px;padding:18px 16px}.fn3-journal-page h1{font-size:32px;margin:0}.fn3-journal-page p{color:#9bb0c9;margin:6px 0 0;font-size:14px;line-height:1.5}.fn3-journal-toolbar{display:grid;grid-template-columns:minmax(260px,1fr) auto;gap:10px;align-items:center;margin-top:15px}.fn3-journal-search{height:40px;border:1px solid #315777;border-radius:10px;background:#071a2c;color:#eef5ff;padding:0 12px;font:600 12px/1.2 inherit;outline:none}.fn3-journal-search:focus{border-color:#2f8cf8;box-shadow:0 0 0 2px rgba(47,140,248,.18)}.fn3-journal-actions{display:flex;align-items:center;gap:8px}.fn3-journal-live,.fn3-journal-refresh{min-height:38px;padding:7px 11px;border:1px solid #315777;border-radius:9px;background:#091c30;color:#b9cce0;font:700 11px/1.2 inherit;cursor:pointer}.fn3-journal-live.active{border-color:#1e9d74;color:#6aebba;background:#073c30}.fn3-journal-live-dot{display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:currentColor;vertical-align:1px}.fn3-journal-meta{margin-top:7px;color:#7892ad;font-size:10.5px}.fn3-journal-meta.bad{color:#ff9da7}.fn3-journal-filter-groups{display:grid;gap:8px;margin-top:14px}.fn3-journal-filter-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}.fn3-journal-filter-title{min-width:68px;color:#7892ad;font-size:10.5px;font-weight:800}.fn3-journal-filters{display:flex;flex-wrap:wrap;gap:8px}.fn3-journal-filter{min-height:34px;padding:6px 12px;border:1px solid #315777;border-radius:999px;background:#091c30;color:#b9cce0;font:700 11px/1.2 inherit;cursor:pointer}.fn3-journal-filter.active{border-color:#2f8cf8;background:#0d345c;color:#e8f3ff;box-shadow:inset 0 0 0 1px #2f8cf8}.fn3-journal-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:16px}.fn3-journal-stat{padding:11px 12px;border:1px solid #2b506f;border-radius:11px;background:#0a1d30}.fn3-journal-stat span{display:block;color:#8ea6c1;font-size:10.5px;font-weight:720}.fn3-journal-stat strong{display:block;margin-top:4px;color:#eef5ff;font-size:18px}.fn3-journal-stat.ok strong{color:#58e2aa}.fn3-journal-stat.bad strong{color:#ff9ba5}.fn3-journal-page .fn3-table,#fn3JournalTable{margin-top:0;font-size:14px!important;line-height:1.5}.fn3-journal-page .fn3-table th{padding:11px 12px;font-size:12px!important}.fn3-journal-page .fn3-table td{padding:11px 12px;font-size:13.5px!important}.fn3-journal-page .fn3-table td:nth-child(4){min-width:320px}.fn3-journal-page .fn3-kind,.fn3-journal-page .fn3-result{font-size:11.5px;min-height:27px;padding:4px 9px}
+      @media(max-width:1120px){.fn3-extra{grid-column:auto}.fn3-extra-grid{grid-template-columns:1fr 1fr}.fn3-journal-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:760px){.fn3-head{display:block}.fn3-save{width:100%;margin-top:10px}.fn3-extra-save-row{display:block}.fn3-extra-save{width:100%;min-width:0}.fn3-mode-list{grid-template-columns:1fr}.fn3-endpoint-schedule{align-items:flex-start;flex-direction:column}.fn3-endpoint-schedule select{width:100%;min-width:0}.fn3-auto-actions,.fn3-profile-facts{grid-template-columns:1fr}.fn3-metrics{grid-template-columns:1fr 1fr}.fn3-extra-grid{grid-template-columns:1fr}.fn3-country-list{grid-template-columns:1fr}.fn3-table{font-size:11.5px}.fn3-table th,.fn3-table td{padding:8px 7px}.fn3-journal-toolbar{grid-template-columns:1fr}.fn3-journal-actions{justify-content:stretch}.fn3-journal-live,.fn3-journal-refresh{flex:1}.fn3-journal-filter-title{width:100%;min-width:0}.fn3-journal-page .fn3-card{overflow-x:auto}}
     `;
     document.head.appendChild(style);
   }
@@ -662,9 +662,15 @@
     return true;
   }
 
+  function journalPageActive() {
+    const page = q('[data-page-view="journal"]');
+    return !!page && document.visibilityState !== 'hidden' &&
+      (page.classList.contains('active') || location.hash.slice(1) === 'journal');
+  }
+
   function renderJournalSummary(events) {
     const host = q('#fn3JournalSummary'); if (!host) return;
-    const rows = filteredJournalEvents(events).slice(0, 50);
+    const rows = filteredJournalEvents(events).slice(0, 200);
     let ok = 0, neutral = 0, bad = 0;
     rows.forEach(e => {
       const [, , tone] = humanResult(e.result, e.message);
@@ -675,21 +681,97 @@
     host.innerHTML = `
       <div class="fn3-journal-stat"><span>Показано событий</span><strong>${rows.length}</strong></div>
       <div class="fn3-journal-stat ok"><span>Успешно</span><strong>${ok}</strong></div>
-      <div class="fn3-journal-stat"><span>Без изменений / пропущено</span><strong>${neutral}</strong></div>
+      <div class="fn3-journal-stat"><span>Без изменений / этапы</span><strong>${neutral}</strong></div>
       <div class="fn3-journal-stat bad"><span>Ошибки</span><strong>${bad}</strong></div>`;
+  }
+
+  function renderJournalPageState() {
+    const page = q('[data-page-view="journal"]'); if (!page || page.dataset.journalV4 !== '1') return;
+    qa('[data-journal-filter]', page).forEach(button => button.classList.toggle('active', button.dataset.journalFilter === state.journalFilter));
+    qa('[data-journal-result]', page).forEach(button => button.classList.toggle('active', button.dataset.journalResult === state.journalResultFilter));
+    const search = q('#fn3JournalSearch', page);
+    if (search && document.activeElement !== search && search.value !== state.journalQuery) search.value = state.journalQuery;
+    const live = q('#fn3JournalLive', page);
+    if (live) {
+      live.classList.toggle('active', state.journalLive);
+      live.setAttribute('aria-pressed', state.journalLive ? 'true' : 'false');
+      live.innerHTML = `<span class="fn3-journal-live-dot"></span>${state.journalLive ? 'Авто · 5 с' : 'Авто выключено'}`;
+    }
+    const meta = q('#fn3JournalMeta', page);
+    if (meta) {
+      meta.classList.toggle('bad', !!state.journalError);
+      meta.textContent = state.journalError
+        ? `Не удалось обновить журнал: ${state.journalError}`
+        : state.journalRefreshing
+          ? 'Обновляем read-only журнал…'
+          : state.journalGeneratedAt
+            ? `Данные обновлены: ${formatDate(state.journalGeneratedAt)} · read-only`
+            : 'Read-only журнал готов к обновлению.';
+    }
+    renderJournalSummary(state.journalEvents);
+    renderJournal(state.journalEvents, '#fn3JournalFull');
+  }
+
+  async function loadJournal(force = false) {
+    if (state.journalRefreshing) return;
+    if (!force && (!state.journalLive || !journalPageActive())) return;
+    if (document.visibilityState === 'hidden') return;
+    state.journalRefreshing = true;
+    state.journalError = '';
+    renderJournalPageState();
+    try {
+      const data = await fetchJSON('/api/journal', {cache:'no-store'});
+      state.journalEvents = Array.isArray(data.events) ? data.events : [];
+      state.journalGeneratedAt = data.generated_at || new Date().toISOString();
+    } catch (err) {
+      state.journalError = err?.message || 'неизвестная ошибка чтения';
+    } finally {
+      state.journalRefreshing = false;
+      renderJournalPageState();
+    }
+  }
+
+  function ensureJournalLiveTimer() {
+    if (state.journalTimer) return;
+    state.journalTimer = window.setInterval(() => {
+      if (journalPageActive() && state.journalLive) void loadJournal(false);
+    }, 5000);
   }
 
   function mountJournalPage() {
     const page = q('[data-page-view="journal"]'); if (!page) return;
     const filters = [['all','Все'],['vpn','VPN'],['auto','AUTO VPN'],['subscription','Подписка'],['system','Система']];
-    page.innerHTML = `<h1>Журнал</h1><p>Единая серверная история ручных VPN-действий, AUTO VPN, подписки и системного обслуживания. До 50 последних событий; секреты и credential-bearing данные не записываются.</p><div class="fn3-journal-filters">${filters.map(([key,label]) => `<button class="fn3-journal-filter${state.journalFilter===key?' active':''}" type="button" data-journal-filter="${key}">${label}</button>`).join('')}</div><div id="fn3JournalSummary" class="fn3-journal-summary"></div><section class="fn3-card"><table id="fn3JournalTable" class="fn3-table"><thead><tr><th>Время</th><th>Событие</th><th>Результат</th><th>Комментарий</th></tr></thead><tbody id="fn3JournalFull"></tbody></table></section>`;
-    qa('[data-journal-filter]', page).forEach(button => button.onclick = () => {
-      state.journalFilter = button.dataset.journalFilter || 'all';
-      mountJournalPage();
-    });
-    const events = state.data?.events || [];
-    renderJournalSummary(events);
-    renderJournal(events, '#fn3JournalFull');
+    const results = [['all','Все результаты'],['ok','Успешно'],['neutral','Без изменений / этапы'],['bad','Ошибки']];
+    if (page.dataset.journalV4 !== '1') {
+      page.dataset.journalV4 = '1';
+      page.innerHTML = `<h1>Журнал</h1><p>Что произошло → почему → какие проверки выполнил FreeNet → какое решение принял → чем завершилось. До 200 последних canonical событий; секреты и credential-bearing данные не записываются.</p><div class="fn3-journal-toolbar"><input id="fn3JournalSearch" class="fn3-journal-search" type="search" autocomplete="off" placeholder="Поиск: сервер, AUTO, ошибка, обновление, 189 мс…"><div class="fn3-journal-actions"><button id="fn3JournalLive" class="fn3-journal-live active" type="button" aria-pressed="true"><span class="fn3-journal-live-dot"></span>Авто · 5 с</button><button id="fn3JournalRefresh" class="fn3-journal-refresh" type="button">Обновить</button></div></div><div id="fn3JournalMeta" class="fn3-journal-meta">Read-only журнал готов к обновлению.</div><div class="fn3-journal-filter-groups"><div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Событие</span><div class="fn3-journal-filters">${filters.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-filter="${key}">${label}</button>`).join('')}</div></div><div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Результат</span><div class="fn3-journal-filters">${results.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-result="${key}">${label}</button>`).join('')}</div></div></div><div id="fn3JournalSummary" class="fn3-journal-summary"></div><section class="fn3-card"><table id="fn3JournalTable" class="fn3-table"><thead><tr><th>Время</th><th>Событие / этап</th><th>Результат</th><th>Что произошло и почему</th></tr></thead><tbody id="fn3JournalFull"></tbody></table></section>`;
+
+      qa('[data-journal-filter]', page).forEach(button => button.onclick = () => {
+        state.journalFilter = button.dataset.journalFilter || 'all';
+        renderJournalPageState();
+      });
+      qa('[data-journal-result]', page).forEach(button => button.onclick = () => {
+        state.journalResultFilter = button.dataset.journalResult || 'all';
+        renderJournalPageState();
+      });
+      const search = q('#fn3JournalSearch', page);
+      if (search) search.oninput = () => {
+        state.journalQuery = search.value || '';
+        renderJournalPageState();
+      };
+      const live = q('#fn3JournalLive', page);
+      if (live) live.onclick = () => {
+        state.journalLive = !state.journalLive;
+        renderJournalPageState();
+        if (state.journalLive) void loadJournal(true);
+      };
+      const refresh = q('#fn3JournalRefresh', page);
+      if (refresh) refresh.onclick = () => void loadJournal(true);
+    }
+    if (!state.journalEvents.length && Array.isArray(state.data?.events)) state.journalEvents = state.data.events.slice();
+    renderJournalPageState();
+    ensureJournalLiveTimer();
+    void loadJournal(true);
   }
 
   window.openFreeNetJournal = filter => {
@@ -702,6 +784,13 @@
   function boot() {
     rewireNavigation();
     mountSettings();
+    ensureJournalLiveTimer();
+    document.addEventListener('visibilitychange', () => {
+      if (journalPageActive() && state.journalLive) void loadJournal(false);
+    });
+    window.addEventListener('hashchange', () => {
+      if (location.hash.slice(1) === 'journal') mountJournalPage();
+    });
     if (location.hash.slice(1) === 'settings' && typeof window.setPage === 'function') window.setPage('settings');
     if (location.hash.slice(1) === 'journal') mountJournalPage();
   }
