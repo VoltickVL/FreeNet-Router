@@ -132,35 +132,88 @@ const server = http.createServer((req, res) => {
     await page.locator('#csNotice').evaluate(el => { el.className = 'cs-notice show bad'; el.textContent = 'Ошибка JSON: comma expected, строка 20'; });
     assert.notEqual(await page.locator('#csNotice').evaluate(el => getComputedStyle(el).display), 'none', 'real error diagnostics must remain visible');
 
-    assert.equal(catalogGets, 0, 'catalog must not load until explicit version click');
+    assert.equal(catalogGets, 0, 'catalog must not load until explicit Versions action');
     assert.equal(applyPosts, 0, 'page load must not mutate Xray');
-    await page.locator('#xrayTopbarChip').click();
-    await page.waitForFunction(() => document.querySelector('#xrayCoreManager') && !document.querySelector('#xrayCoreManager').hidden && document.querySelector('#xrayCoreManager').innerText.includes('v26.10.1'));
-    assert.equal(catalogGets, 1, 'one click should load catalog once');
-    assert.equal(applyPosts, 0, 'catalog load must be read-only');
-    const modalText = await page.locator('#xrayCoreManager').innerText();
-    assert(modalText.includes('Установлена v26.9.9'));
-    assert(modalText.includes('Доступна v26.10.1'));
-    assert(modalText.includes('Предрелиз'));
-    assert(!modalText.includes('Последний стабильный релиз с исправлениями XTLS.'), 'catalog rows must not expand into release descriptions');
+    assert.deepEqual(serviceActions, [], 'page load must not control Xray');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray', 'Config Studio must point to the canonical Xray owner');
+
+    await page.evaluate(() => {
+      window.__xrayJournalClicks = 0;
+      document.querySelector('#journalNav')?.addEventListener('click', () => { window.__xrayJournalClicks += 1; });
+    });
+
+    // Config Studio and topbar use one canonical Xray control surface.
+    await page.locator('#csRestartXray').click();
+    await page.waitForFunction(() => {
+      const root = document.querySelector('#xrayCoreManager');
+      const text = root?.innerText || '';
+      return root && !root.hidden && text.includes('Работает') && text.includes('Перезапустить') && text.includes('Остановить') && text.includes('Версии');
+    });
+    assert.equal(catalogGets, 0, 'opening Xray control must not fetch the version catalog');
+    assert.deepEqual(serviceActions, [], 'opening Xray control must stay read-only');
+    assert.match(await page.locator('#xrayCoreManager').innerText(),/Последние события/);
+    assert.match(await page.locator('#xrayCoreManager').innerText(),/Xray запущен через FreeNet/);
     assert.equal(await page.locator('#xrayTopbarChip').getAttribute('aria-expanded'), 'true', 'Xray chip must expose open dialog state');
-    assert.equal(await page.locator('.xcm-current-copy').count(), 0, 'normal Xray manager must not duplicate a technical current-version card');
-    assert.equal(await page.getByRole('button', {name:'Обновить до v26.10.1'}).count(), 1, 'latest stable Xray must be immediately actionable');
-    assert.equal(await page.locator('.xcm-backdrop').evaluate(el => getComputedStyle(el).display), 'none', 'Xray browse flow must not dim the whole page');
-    assert.equal(await page.locator('.xcm-search').count(), 1, 'Xray dropdown must expose compact version search');
+    assert.equal(await page.locator('.xcm-backdrop').evaluate(el => getComputedStyle(el).display), 'none', 'Xray control must not dim the whole page');
+
     const desktopGeometry = await page.evaluate(() => {
       const modal = document.querySelector('#xrayCoreManager .xcm-modal').getBoundingClientRect();
       const chip = document.querySelector('#xrayTopbarChip').getBoundingClientRect();
       return {width:modal.width,right:modal.right,top:modal.top,chipBottom:chip.bottom,bottom:modal.bottom,viewportWidth:innerWidth,viewportHeight:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,rootPointer:getComputedStyle(document.querySelector('#xrayCoreManager')).pointerEvents,modalPointer:getComputedStyle(document.querySelector('#xrayCoreManager .xcm-modal')).pointerEvents};
     });
-    assert.ok(desktopGeometry.width <= 540.5 && desktopGeometry.right <= desktopGeometry.viewportWidth, 'Xray dropdown must match the VPN-style compact width and stay inside desktop viewport');
-    assert.ok(desktopGeometry.top >= 0 && desktopGeometry.bottom <= desktopGeometry.viewportHeight, 'Xray dropdown must stay inside desktop viewport');
-    assert.equal(desktopGeometry.rootPointer, 'none', 'Xray dropdown root must not block the page');
-    assert.notEqual(desktopGeometry.modalPointer, 'none', 'Xray dropdown panel must remain interactive');
-    assert.equal(desktopGeometry.overflow, false, 'Xray panel must not create horizontal overflow');
+    assert.ok(desktopGeometry.width <= 540.5 && desktopGeometry.right <= desktopGeometry.viewportWidth, 'Xray control must stay inside desktop viewport');
+    assert.ok(desktopGeometry.top >= 0 && desktopGeometry.bottom <= desktopGeometry.viewportHeight, 'Xray control must stay inside desktop viewport vertically');
+    assert.equal(desktopGeometry.rootPointer, 'none', 'Xray control root must not block the page');
+    assert.notEqual(desktopGeometry.modalPointer, 'none', 'Xray control panel must remain interactive');
+    assert.equal(desktopGeometry.overflow, false, 'Xray control must not create horizontal overflow');
     const topbarGeometry = await page.locator('#xrayTopbarChip').evaluate(node => ({width:Math.round(node.getBoundingClientRect().width),height:Math.round(node.getBoundingClientRect().height)}));
     assert.ok(topbarGeometry.width >= 145, `Xray topbar control is too small: ${JSON.stringify(topbarGeometry)}`);
     assert.ok(topbarGeometry.height >= 58, `Xray topbar control is too short: ${JSON.stringify(topbarGeometry)}`);
+
+    // Running -> Restart -> running, through the shared backend owner.
+    const manager = page.locator('#xrayCoreManager');
+    await manager.getByRole('button', {name:'Перезапустить'}).click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Xray перезапущен и снова работает'));
+    assert.deepEqual(serviceActions, ['restart']);
+    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray');
+
+    // Running -> Stop must truthfully reconcile every surface and hide version mutation while stopped.
+    await manager.getByRole('button', {name:'Остановить'}).click();
+    await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.trim() === 'остановлен');
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Остановлен'));
+    assert.deepEqual(serviceActions, ['restart','stop']);
+    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Остановлен');
+    assert.equal(await manager.getByRole('button', {name:'Версии'}).count(), 0, 'stopped Xray must not expose a version mutation that could start it implicitly');
+    assert.equal(catalogGets, 0, 'Stop must not fetch version catalog');
+
+    // Stopped -> Start must return to running without a separate control path.
+    await manager.getByRole('button', {name:'Запустить Xray'}).click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Xray запущен и работает'));
+    await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.trim() === 'v26.9.9');
+    assert.deepEqual(serviceActions, ['restart','stop','start']);
+    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray');
+
+    // Journal is part of the same surface and navigates to the existing full Journal.
+    await manager.getByRole('button', {name:'Журнал'}).click();
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.hidden === true);
+    assert.equal(await page.evaluate(() => window.__xrayJournalClicks), 1, 'Xray Journal action must use the existing full Journal');
+
+    // Version management remains explicit and lazy-loaded from the same surface.
+    await page.locator('#xrayTopbarChip').click();
+    await page.waitForFunction(() => document.querySelector('#xrayCoreManager') && !document.querySelector('#xrayCoreManager').hidden);
+    await manager.getByRole('button', {name:'Версии'}).click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.10.1'));
+    assert.equal(catalogGets, 1, 'explicit Versions action should load catalog once');
+    assert.equal(applyPosts, 0, 'catalog load must be read-only');
+    const modalText = await manager.innerText();
+    assert(modalText.includes('Установлена v26.9.9'));
+    assert(modalText.includes('Доступна v26.10.1'));
+    assert(modalText.includes('Предрелиз'));
+    assert(!modalText.includes('Последний стабильный релиз с исправлениями XTLS.'), 'catalog rows must stay compact');
+    assert.equal(await page.getByRole('button', {name:'Обновить до v26.10.1'}).count(), 1, 'latest stable Xray must remain actionable');
+    assert.equal(await page.locator('.xcm-search').count(), 1, 'Versions view must expose compact search');
     await page.locator('.xcm-search').fill('v26.8');
     assert.equal(await page.locator('.xcm-release:not([hidden])').count(), 1, 'Xray version search must filter catalog without mutation');
     await page.locator('.xcm-search').fill('');
@@ -168,13 +221,16 @@ const server = http.createServer((req, res) => {
     await page.locator('.xcm-release[data-version="v26.8.1"]').click();
     assert.equal(applyPosts, 0, 'selecting an older release must not apply it');
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'selecting a target must not replace current topbar version');
-    const downgradeButton = page.getByRole('button', {name:'Откатить до v26.8.1'});
+    const downgradeButton = manager.getByRole('button', {name:'Откатить до v26.8.1'});
     assert.equal(await downgradeButton.count(), 1, 'older release must be presented as rollback/downgrade');
     await downgradeButton.click();
-    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray переключён'));
-    assert.equal(applyPosts, 1, 'one explicit version action must issue exactly one apply POST without a second confirmation screen');
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Xray переключён'));
+    assert.equal(applyPosts, 1, 'one explicit version action must issue exactly one apply POST');
     assert.deepEqual(applyBody, {target_version:'v26.8.1'});
-    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'successful Xray apply must update the topbar version immediately');
+    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'successful Xray apply must update topbar version immediately');
+    await manager.getByRole('button', {name:'К управлению'}).click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.8.1') && (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Работает'));
+    assert.equal((await page.locator('#csServiceVersion').textContent()).trim(), 'v26.8.1 ▾', 'Config Studio version must reconcile without page reload');
 
     await page.locator('#xcmClose').click();
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.hidden === true);
@@ -193,26 +249,9 @@ const server = http.createServer((req, res) => {
     assert.ok(mobileGeometry.modal <= mobileGeometry.viewport - 20, 'mobile Xray panel must fit viewport');
     await page.keyboard.press('Escape');
 
-    serviceOnline = false;
-    const catalogBeforeOfflineRecovery = catalogGets;
-    await page.reload();
-    await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.includes('остановлен'));
-    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'остановлен', 'topbar must expose stopped Xray truthfully');
-    await page.locator('#xrayTopbarChip').click();
-    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray остановлен'));
-    assert.equal(catalogGets, catalogBeforeOfflineRecovery, 'offline recovery must not browse core catalog before runtime is healthy');
-    const recoveryButton = page.locator('#xrayCoreManager').getByRole('button', {name:'Запустить Xray'});
-    assert.equal(await recoveryButton.count(), 1, 'offline Xray manager must expose one direct recovery action');
-    await recoveryButton.click();
-    await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.innerText.includes('Xray запущен и работает'));
-    assert.deepEqual(serviceActions, ['start'], 'topbar recovery must use explicit start, never stop/restart');
-    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'successful recovery must restore topbar version');
-    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает', 'Config Studio status must reconcile after topbar recovery');
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Перезапустить', 'recovered service returns to restart action');
-
     const responsive = await page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('alive'), 20)));
     assert.equal(responsive, 'alive', 'Xray manager UI must not starve browser event loop');
-    console.log('Xray Core Manager selector + offline recovery + clean Config Studio UX: OK');
+    console.log('Unified Xray Control Surface + service lifecycle + versions + Journal: OK');
   } finally {
     await browser.close(); server.close();
   }
