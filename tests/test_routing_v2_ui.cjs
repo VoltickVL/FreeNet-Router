@@ -69,6 +69,7 @@ const server=http.createServer(async(req,res)=>{
     if(kind==='geosite'&&file==='geosite-extra.dat') return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:[
       {file:'geosite-extra.dat',kind:'geosite',category:'youtube-extra',selector:'ext:geosite-extra.dat:youtube-extra',ext_selector:'ext:geosite-extra.dat:youtube-extra',match:'category'}
     ],warnings:[]});
+    if(kind==='geosite'&&q==='steam.') return json(res,{success:false,kind,query:q,mutation:'NONE',error:'invalid host or URL'});
     if(kind==='geosite') return json(res,{success:true,kind,query:q,mode:q.includes('.')?'domain':'prefix',mutation:'NONE',suggestions:[
       {file:'geosite.dat',kind:'geosite',category:'youtube',selector:'geosite:youtube',ext_selector:'ext:geosite.dat:youtube',match:'category'},
       {file:'geosite-extra.dat',kind:'geosite',category:'youtube-extra',selector:'ext:geosite-extra.dat:youtube-extra',ext_selector:'ext:geosite-extra.dat:youtube-extra',match:'category'}
@@ -318,6 +319,15 @@ const server=http.createServer(async(req,res)=>{
     // Smart GeoData autocomplete is read-only, debounced and keyboard-selectable; manual search remains fallback.
     const geoMutationBefore = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
     await page.locator('#rv2Kind').selectOption('geosite');
+
+    // A transient host-shaped error while editing must not remain after a newer
+    // successful category-prefix request.
+    await page.locator('#rv2Value').fill('steam.');
+    await page.waitForFunction(() => (document.querySelector('#rv2RuleNotice')?.textContent || '').includes('invalid host or URL'));
+    await page.locator('#rv2Value').fill('you');
+    await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
+    assert.doesNotMatch(await page.locator('#rv2RuleNotice').textContent(),/invalid host or URL/);
+
     await page.locator('#rv2Value').fill('you');
     await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
     assert.equal(await page.locator('#rv2GeoAutocomplete .rv2-autocomplete-item').count(),2);

@@ -8,6 +8,7 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui', 'web');
 const calls = [];
+let standardGeoHadExplicitFile = false;
 let live = {
   '01_log': {log:{loglevel:'warning'}},
   '02_dns': {dns:{servers:['1.1.1.1']}},
@@ -86,14 +87,19 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/auth/status') return json(res,{configured:true,authenticated:true});
   if (url.pathname === '/api/status') return json(res,status);
   if (url.pathname === '/api/network-profile/plan') return json(res,{success:true,supported:true,active:true,extra_profiles:[]});
-  if (url.pathname === '/api/geodata/files') return json(res,{success:true,files:[{name:'geosite.dat',kind:'geosite',size:4096},{name:'geoip.dat',kind:'geoip',size:4096}],search_enabled:true});
+  if (url.pathname === '/api/geodata/files') return json(res,{success:true,files:[{name:'geosite.dat',kind:'geosite',size:4096},{name:'geosite_v2fly.dat',kind:'geosite',size:4096},{name:'geoip.dat',kind:'geoip',size:4096}],search_enabled:true});
   if (url.pathname === '/api/geodata/suggest') {
     const kind = url.searchParams.get('kind') || '';
-    const file = url.searchParams.get('file') || (kind === 'geoip' ? 'geoip.dat' : 'geosite.dat');
+    const requestedFile = url.searchParams.get('file') || '';
     const q = (url.searchParams.get('q') || '').toLowerCase();
     const category = kind === 'geoip' ? 'private' : 'youtube';
+    if (kind === 'geosite' && !q.startsWith('ext:') && requestedFile) standardGeoHadExplicitFile = true;
+    const file = requestedFile || (kind === 'geoip' ? 'geoip.dat' : 'geosite_v2fly.dat');
+    const selector = requestedFile
+      ? 'ext:' + file + ':' + category
+      : (kind === 'geoip' ? 'geoip:' + category : 'ext:' + file + ':' + category);
     return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:[
-      {file,kind,category,selector:(kind==='geoip'?'geoip:':'geosite:')+category,ext_selector:'ext:'+file+':'+category,match:'category'}
+      {file,kind,category,selector,ext_selector:'ext:'+file+':'+category,match:'category'}
     ],warnings:[]});
   }
   if (url.pathname === '/api/capabilities') return json(res,{success:true,split_dns_supported:true,memory_total_mib:1024,split_dns_min_mib:768});
@@ -266,11 +272,24 @@ const server = http.createServer(async (req, res) => {
       input.dispatchEvent(new Event('input',{bubbles:true}));
     });
     await page.waitForSelector('#csGeoAutocomplete .cs-geo-item');
-    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/geosite:youtube/);
+    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/ext:geosite_v2fly\.dat:youtube/);
     await routingInput.press('Tab');
-    assert.match(await routingInput.inputValue(),/geosite:youtube/);
+    assert.match(await routingInput.inputValue(),/ext:geosite_v2fly\.dat:youtube/);
     assert.doesNotMatch(await routingInput.inputValue(),/geosite:you"/);
+    assert.equal(standardGeoHadExplicitFile,false,'standard geosite autocomplete must scan compatible installed DATs instead of forcing geosite.dat');
     assert.equal(calls.filter(x => x === 'POST /api/routing/apply').length,autoApplyBefore,'editor autocomplete must remain read-only');
+
+    // Normal typing in a new, not-yet-closed JSON string must still trigger suggestions.
+    await routingInput.fill('{"routing":{"rules":[{"domain":["geosite:you');
+    await page.evaluate(() => {
+      const input=document.querySelector('#csInput');
+      input.setSelectionRange(input.value.length,input.value.length);
+      input.dispatchEvent(new Event('input',{bubbles:true}));
+    });
+    await page.waitForSelector('#csGeoAutocomplete .cs-geo-item');
+    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/ext:geosite_v2fly\.dat:youtube/);
+    await routingInput.press('Tab');
+    assert.match(await routingInput.inputValue(),/ext:geosite_v2fly\.dat:youtube$/);
 
     const extDraft = JSON.stringify({routing:{domainStrategy:'AsIs',rules:[
       {type:'field',ip:['ext:geoip.dat:pri'],outboundTag:'direct'}

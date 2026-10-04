@@ -78,6 +78,41 @@ func TestGeoDataSuggestCategoryPrefixDoesNotUseDNS(t *testing.T) {
 	}
 }
 
+func TestGeoDataSuggestSuccessfulMixedDirectorySuppressesGenericScanNoise(t *testing.T) {
+	_, mux, cookie, dir := testGeoDataAPIApp(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "geosite.dat"), []byte("not-a-geodata-file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "xkeenip.dat"), []byte("also-not-a-geodata-file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "geosite_v2fly.dat"), testGeoSiteList(
+		testGeoSiteEntry("STEAM", testDomainRule(2, "steam.com")),
+		testGeoSiteEntry("CATEGORY-GAMES", testDomainRule(2, "steam.com")),
+	), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/suggest?kind=geosite&q=steam")
+	if w.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
+	}
+	resp := decodeGeoDataSuggest(t, w.Body.Bytes())
+	if !resp.Success || resp.Mode != "prefix" || resp.Mutation != "NONE" {
+		t.Fatalf("resp=%+v", resp)
+	}
+	if len(resp.Suggestions) != 1 || resp.Suggestions[0].Category != "steam" || resp.Suggestions[0].File != "geosite_v2fly.dat" {
+		t.Fatalf("suggestions=%+v", resp.Suggestions)
+	}
+	if resp.Suggestions[0].Selector != "ext:geosite_v2fly.dat:steam" {
+		t.Fatalf("selector=%q", resp.Suggestions[0].Selector)
+	}
+	if len(resp.Warnings) != 0 {
+		t.Fatalf("successful mixed-DAT lookup must suppress unrelated generic scan warnings: %v", resp.Warnings)
+	}
+}
+
 func TestGeoDataSuggestGeoSiteURLUsesHostLookup(t *testing.T) {
 	_, mux, cookie, dir := testGeoDataAPIApp(t)
 	writeSmartGeoDataFixture(t, dir)

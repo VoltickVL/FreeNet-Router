@@ -831,7 +831,12 @@
       const body = await api(`/api/geodata/suggest?kind=${encodeURIComponent(state.kind)}&q=${encodeURIComponent(value)}`, {signal:controller.signal});
       if (body.mutation !== 'NONE') throw new Error('Нарушен read-only GeoData contract.');
       if (controller.signal.aborted) return null;
-      if (renderInline) renderGeoAutocomplete(body);
+      if (renderInline) {
+        renderGeoAutocomplete(body);
+        // A successful newer request must clear an error left by an older
+        // transient host-shaped input (for example while editing steam.com).
+        setNotice('rv2RuleNotice', '');
+      }
       return body;
     } catch (error) {
       if (controller.signal.aborted || error?.name === 'AbortError') return null;
