@@ -77,7 +77,7 @@
       version.disabled = !shortVersion || busy;
     }
     if (restart) {
-      setText(restart, service.online ? 'Перезапустить' : 'Запустить Xray');
+      setText(restart, 'Управление Xray');
       restart.disabled = busy || unavailable;
     }
     const list = qs('#csServiceJournalList');
@@ -111,25 +111,13 @@
 
   async function controlXray() {
     if (busy || service?.unavailable) return;
-    const action = service?.online ? 'restart' : 'start';
-    const starting = action === 'start';
-    busy = true; renderService(service || {});
-    const button = qs('#csRestartXray');
-    setText(button, starting ? 'Запускаю…' : 'Перезапускаю…');
-    setNotice(starting ? 'Проверяю конфигурацию и запускаю Xray…' : 'Проверяю конфигурацию и перезапускаю Xray…');
-    try {
-      const response = await fetch('/api/xray/service', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action}),cache:'no-store'});
-      let body = {}; try { body = await response.json(); } catch (_) {}
-      if (!response.ok || !body.success) throw new Error(body.error || (starting ? 'Не удалось запустить Xray' : 'Не удалось перезапустить Xray'));
-      renderService(body);
-      setNotice(body.message || (starting ? 'Xray запущен.' : 'Xray перезапущен.'), 'ok');
-    } catch (error) {
-      setNotice(error.message || (starting ? 'Не удалось запустить Xray.' : 'Не удалось перезапустить Xray.'), 'bad');
-      await loadService();
-    } finally {
-      busy = false;
-      renderService(service || {});
+    const owner = qs('#xrayTopbarChip');
+    if (owner) {
+      owner.click();
+      return;
     }
+    const version = qs('#csServiceVersion');
+    if (version) version.click();
   }
 
   function openFullJournal() {
@@ -179,6 +167,10 @@
 
   function start() {
     polish();
+    document.addEventListener('freenet:xray-service-changed', event => {
+      const next = event && event.detail && typeof event.detail === 'object' ? event.detail : null;
+      if (next) renderService(next);
+    });
     document.addEventListener('click', event => {
       if (!event.target.closest?.('.cs-tab')) return;
       setTimeout(syncActiveKind, 0);
