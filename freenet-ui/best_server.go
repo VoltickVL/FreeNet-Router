@@ -30,10 +30,11 @@ const (
 )
 
 type bestServerInternalCandidate struct {
-	Profile     subscriptionProfile
-	Raw         string
-	VPNRTTMS    int
-	VPNJitterMS int
+	Profile          subscriptionProfile
+	Raw              string
+	VPNRTTMS         int
+	VPNJitterMS      int
+	VPNPingConfirmed bool
 }
 
 type bestServerProbeResult struct {
