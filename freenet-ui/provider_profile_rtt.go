@@ -226,8 +226,15 @@ func isUserExcludedVPNCountry(code string) bool {
 // through different exits. Endpoint TCP RTT therefore must never be copied from
 // one logical profile to another.
 func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInternalCandidate, probe providerRTTProbe) []providerProfileRTTItem {
+	return measureProviderProfileRTTWithTimeout(ctx, candidates, probe, bestServerProfilePingTimeout)
+}
+
+func measureProviderProfileRTTWithTimeout(ctx context.Context, candidates []bestServerInternalCandidate, probe providerRTTProbe, perProfileTimeout time.Duration) []providerProfileRTTItem {
 	if probe == nil {
 		return []providerProfileRTTItem{}
+	}
+	if perProfileTimeout <= 0 {
+		perProfileTimeout = bestServerProfilePingTimeout
 	}
 	results := make([]providerProfileRTTItem, len(candidates))
 	jobs := make(chan int)
@@ -245,7 +252,7 @@ func measureProviderProfileRTT(ctx context.Context, candidates []bestServerInter
 				if ctx.Err() != nil {
 					continue
 				}
-				probeCtx, cancel := context.WithTimeout(ctx, bestServerProfilePingTimeout)
+				probeCtx, cancel := context.WithTimeout(ctx, perProfileTimeout)
 				value := probe(probeCtx, candidates[index])
 				probeEndedByContext := probeCtx.Err() != nil
 				cancel()
