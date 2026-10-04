@@ -239,7 +239,11 @@
       return;
     }
     if (button) button.textContent = 'Применяем…';
-    await applyValidatedCandidate({rules:true, skipConfirm:true, inPlace:true});
+    const applied = await applyValidatedCandidate({rules:true, skipConfirm:true, inPlace:true});
+    if (!applied && !stopLatched && button) {
+      button.disabled = false;
+      button.textContent = previous || 'Сохранить и применить';
+    }
   }
 
   function enhanceWorkspace() {
