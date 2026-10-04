@@ -369,7 +369,7 @@
       status.className = `cs-service-status ${result?.online ? 'ok' : 'bad'}`;
     }
     if (button) {
-      button.textContent = 'Управление Xray';
+      button.textContent = 'Открыть Xray';
       button.disabled = false;
     }
     if (version && result?.version) version.textContent = `${compactVersion(result.version) || result.version} ▾`;
