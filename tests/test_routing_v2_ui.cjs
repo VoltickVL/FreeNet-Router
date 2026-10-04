@@ -256,18 +256,15 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#rv2DraftCard').isHidden(),true,'inline undo must clear the deletion-only draft');
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,chipApplyBefore,'undo must remain read-only');
 
-    // System rules stay outside the main boards and are collapsed by default.
-    assert.equal(await page.locator('#rv2SystemList').isHidden(),true);
-    assert.match(await page.locator('#rv2SystemToggle').innerText(),/Служебные правила Xray/);
-    assert.match(await page.locator('#rv2SystemToggle').innerText(),/защищены FreeNet/);
-    assert.match(await page.locator('#rv2SystemToggle').innerText(),/4 · показать/);
-    await page.locator('#rv2SystemToggle').click();
-    assert.equal(await page.locator('#rv2SystemList .rv2-system-rule').count(),4);
-    const systemText=await page.locator('#rv2SystemList').innerText();
-    assert.match(systemText,/входящее подключение/);
-    assert.match(systemText,/тип сети/);
-    assert.match(systemText,/DNS/);
-    assert.doesNotMatch(systemText,/inboundTag|network|dns-out|#\d+/);
+    // Protected Xray service rules remain in the authoritative live config but
+    // are not user-facing routing controls and must not be rendered in Rules.
+    assert.equal(await page.locator('#rv2SystemWrap').count(),0);
+    assert.equal(await page.locator('#rv2SystemToggle').count(),0);
+    assert.equal(await page.locator('#rv2SystemList').count(),0);
+    const rulesPanelText=await page.locator('#rv2RulesPanel').innerText();
+    assert.doesNotMatch(rulesPanelText,/Служебные правила Xray|защищены FreeNet|Входящий трафик|DNS-запросы|Сетевой транспорт/);
+    assert.equal(routingLive.routing.rules.length,8,'hiding service-rule details must not remove protected Xray rules');
+    assert.equal(routingLive.routing.rules.filter(rule=>rule.inboundTag||rule.port==='53'||rule.network).length,4,'all protected service rules must remain authoritative');
 
     // Empty draft and inline composer stay out of the way until the user asks to add something.
     assert.equal(await page.locator('#rv2DraftCard').isHidden(),true);
