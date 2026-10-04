@@ -746,16 +746,20 @@
     return file && file.toLowerCase() !== defaultGeoDataFile(state.kind).toLowerCase() ? file : '';
   }
 
-  function closeGeoAutocomplete() {
-    if (state.geoSuggestTimer) { clearTimeout(state.geoSuggestTimer); state.geoSuggestTimer = null; }
-    if (state.geoSuggestBlurTimer) { clearTimeout(state.geoSuggestBlurTimer); state.geoSuggestBlurTimer = null; }
-    if (state.geoSuggestController) { state.geoSuggestController.abort(); state.geoSuggestController = null; }
+  function hideGeoAutocomplete() {
     state.geoSuggestItems = [];
     state.geoSuggestIndex = -1;
     const box = qs('#rv2GeoAutocomplete');
     if (box) { box.hidden = true; box.textContent = ''; }
     const input = qs('#rv2Value');
     if (input) input.setAttribute('aria-expanded','false');
+  }
+
+  function closeGeoAutocomplete() {
+    if (state.geoSuggestTimer) { clearTimeout(state.geoSuggestTimer); state.geoSuggestTimer = null; }
+    if (state.geoSuggestBlurTimer) { clearTimeout(state.geoSuggestBlurTimer); state.geoSuggestBlurTimer = null; }
+    if (state.geoSuggestController) { state.geoSuggestController.abort(); state.geoSuggestController = null; }
+    hideGeoAutocomplete();
   }
 
   function selectGeoSuggestion(item, fromAutocomplete = true) {
@@ -822,6 +826,7 @@
 
   async function requestGeoSuggestions(query, renderInline = true) {
     if (!(state.kind === 'geosite' || state.kind === 'geoip')) return null;
+    const kind = state.kind;
     const value = String(query || '').trim();
     if (value.length < 2) { if (renderInline) closeGeoAutocomplete(); return null; }
     if (state.geoSuggestController) state.geoSuggestController.abort();
@@ -832,11 +837,14 @@
       const explicitPrefix = lower.startsWith('geosite:') || lower.startsWith('geoip:') || lower.startsWith('ext:');
       const hostShaped = value.includes('://') || value.includes('/') || value.includes('.');
       const mode = explicitPrefix || !hostShaped ? '&mode=prefix' : '';
-      const body = await api(`/api/geodata/suggest?kind=${encodeURIComponent(state.kind)}&q=${encodeURIComponent(value)}${mode}`, {signal:controller.signal});
+      const body = await api(`/api/geodata/suggest?kind=${encodeURIComponent(kind)}&q=${encodeURIComponent(value)}${mode}`, {signal:controller.signal});
       if (body.mutation !== 'NONE') throw new Error('Нарушен read-only GeoData contract.');
-      if (controller.signal.aborted) return null;
+      const input = qs('#rv2Value');
+      const currentValue = String(input?.value || '').trim();
+      if (controller.signal.aborted || state.kind !== kind || currentValue !== value) return null;
       if (renderInline) {
-        renderGeoAutocomplete(body);
+        if (document.activeElement === input) renderGeoAutocomplete(body);
+        else hideGeoAutocomplete();
         const items = Array.isArray(body?.suggestions) ? body.suggestions : [];
         const warnings = Array.isArray(body?.warnings) ? body.warnings.filter(Boolean) : [];
         if (items.length) {
@@ -872,6 +880,9 @@
       closeGeoAutocomplete();
       return;
     }
+    // Never leave suggestions from the previous query visible while the new
+    // request is debounced/in flight.
+    hideGeoAutocomplete();
     setNotice('rv2RuleNotice', 'GeoData: ищу локальные категории…');
     state.geoSuggestTimer = setTimeout(() => {
       state.geoSuggestTimer = null;
@@ -1545,6 +1556,7 @@
       if (geoMode && event.key === 'Escape') {
         event.preventDefault();
         closeGeoAutocomplete();
+        setNotice('rv2RuleNotice', '');
         return;
       }
       if (event.key === 'Enter' && !geoMode) {
@@ -1554,12 +1566,20 @@
     });
     qs('#rv2Value')?.addEventListener('focus', () => {
       if (state.geoSuggestBlurTimer) { clearTimeout(state.geoSuggestBlurTimer); state.geoSuggestBlurTimer = null; }
+      const input = qs('#rv2Value');
+      const query = String(input?.value || '').trim();
+      if ((state.kind === 'geosite' || state.kind === 'geoip') && query.length >= 2 && !state.geoSuggestController) {
+        queueGeoAutocomplete();
+      }
     });
     qs('#rv2Value')?.addEventListener('blur', () => {
       if (state.geoSuggestBlurTimer) clearTimeout(state.geoSuggestBlurTimer);
       state.geoSuggestBlurTimer = setTimeout(() => {
         state.geoSuggestBlurTimer = null;
-        closeGeoAutocomplete();
+        // Losing focus is presentation-only. Do not cancel a read-only lookup:
+        // its completion must still resolve the visible search status instead of
+        // leaving Rules stuck on "ищу локальные категории…".
+        hideGeoAutocomplete();
       }, 120);
     });
     qsa('.rv2-config-tab').forEach(button => button.addEventListener('click', () => switchConfigTab(button.dataset.configTab)));
