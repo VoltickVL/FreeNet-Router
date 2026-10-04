@@ -77,7 +77,7 @@ func decodeXrayServiceAction(w http.ResponseWriter, r *http.Request) (string, bo
 		return "", false
 	}
 	action := strings.TrimSpace(req.Action)
-	if action != "start" && action != "restart" {
+	if action != "start" && action != "stop" && action != "restart" {
 		writeJSON(w, http.StatusBadRequest, xrayServiceResponse{Success: false, Events: []automationEvent{}, Error: "unsupported action"})
 		return "", false
 	}
@@ -99,33 +99,70 @@ func waitForXrayOnline(ctx context.Context) bool {
 	}
 }
 
+func waitForXrayOffline(ctx context.Context) bool {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if !xrayServiceProcessRunning("xray") {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-ticker.C:
+		}
+	}
+}
+
 func (a *app) controlXrayService(parent context.Context, action string) (bool, error) {
-	if action != "start" && action != "restart" {
+	if action != "start" && action != "stop" && action != "restart" {
 		return false, errors.New("unsupported Xray service action")
 	}
-	if action == "start" && xrayServiceProcessRunning("xray") {
+	online := xrayServiceProcessRunning("xray")
+	if action == "start" && online {
+		return false, nil
+	}
+	if action == "stop" && !online {
 		return false, nil
 	}
 
 	ctx, cancel := context.WithTimeout(parent, xrayRestartTimeout)
 	defer cancel()
-	if err := a.validateConfigStudioLive(ctx); err != nil {
-		if action == "start" {
-			return false, errors.New("текущая конфигурация Xray не прошла проверку; запуск отменён")
+
+	if action != "stop" {
+		if err := a.validateConfigStudioLive(ctx); err != nil {
+			if action == "start" {
+				return false, errors.New("текущая конфигурация Xray не прошла проверку; запуск отменён")
+			}
+			return false, errors.New("текущая конфигурация Xray не прошла проверку; перезапуск отменён")
 		}
-		return false, errors.New("текущая конфигурация Xray не прошла проверку; перезапуск отменён")
 	}
 
 	arg := "-restart"
-	if action == "start" {
+	switch action {
+	case "start":
 		arg = "-start"
+	case "stop":
+		arg = "-stop"
 	}
 	if _, err := runCommand(ctx, a.cfg.XKeenPath, arg); err != nil {
-		if action == "start" {
+		switch action {
+		case "start":
 			return false, errors.New("Xray не удалось запустить")
+		case "stop":
+			return false, errors.New("Xray не удалось остановить")
+		default:
+			return false, errors.New("Xray не удалось перезапустить")
 		}
-		return false, errors.New("Xray не удалось перезапустить")
 	}
+
+	if action == "stop" {
+		if !waitForXrayOffline(ctx) {
+			return true, errors.New("Xray не перешёл в остановленное состояние")
+		}
+		return true, nil
+	}
+
 	if !waitForXrayOnline(ctx) {
 		if action == "start" {
 			return true, errors.New("Xray не перешёл в рабочее состояние после запуска")
@@ -140,6 +177,11 @@ func (a *app) controlXrayService(parent context.Context, action string) (bool, e
 
 func (a *app) startXrayControlled(parent context.Context) error {
 	_, err := a.controlXrayService(parent, "start")
+	return err
+}
+
+func (a *app) stopXrayControlled(parent context.Context) error {
+	_, err := a.controlXrayService(parent, "stop")
 	return err
 }
 
@@ -172,7 +214,8 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := a.xrayServiceSnapshot(r.Context())
-	if action == "start" {
+	switch action {
+	case "start":
 		if !changed && wasOnline {
 			resp.Message = "Xray уже работает; запуск не требовался."
 			v3AppendEvent("xray", "success", resp.Message)
@@ -180,7 +223,15 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 			resp.Message = "Xray запущен и работает."
 			v3AppendEvent("xray", "success", "Xray запущен через FreeNet.")
 		}
-	} else {
+	case "stop":
+		if !changed && !wasOnline {
+			resp.Message = "Xray уже остановлен."
+			v3AppendEvent("xray", "success", resp.Message)
+		} else {
+			resp.Message = "Xray остановлен."
+			v3AppendEvent("xray", "success", "Xray остановлен через FreeNet.")
+		}
+	default:
 		resp.Message = "Xray перезапущен и снова работает."
 		v3AppendEvent("xray", "success", "Xray перезапущен через FreeNet.")
 	}
