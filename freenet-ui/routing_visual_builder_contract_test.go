@@ -41,7 +41,7 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		"Черновик изменений",
 		"rv2DraftCard",
 		"rv2ApplyRules",
-		"Сохранить и применить",
+		"Применить",
 		"prepareRulesCandidateForApply",
 		"mergeManagedRulesSafely",
 		"hasEarlierFamilyConflict",
@@ -93,7 +93,7 @@ func TestVisualRoutingBuilderUsesSharedTransactionalApply(t *testing.T) {
 		"Проверка Xray пройдена",
 		"applyRulesOneClick",
 		"FreeNetRoutingV2.refreshAfterApply",
-		"Сохранить и применить",
+		"Применить",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("shared visual routing apply contract missing %q", want)
