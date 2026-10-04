@@ -242,6 +242,7 @@ func TestScheduledAutomationBestIsFencedByHealthRecovery(t *testing.T) {
 
 func TestAutomationBestBudgetsFollowCanonicalTargets(t *testing.T) {
 	canonicalFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+		bestServerConfirmedRTTSweepTimeout +
 		time.Duration(bestServerVisibleAlternatives)*bestServerQualityCandidateTimeout +
 		automationBestBudgetSlack
 	for _, policy := range []string{automationPolicyDegraded, automationPolicyBetter} {
