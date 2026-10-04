@@ -20,7 +20,7 @@ func configStudioTestApp(t *testing.T) (*app, string) {
 	writeRoutingTestFile(t, filepath.Join(dir, "04_outbounds.json"), `{"outbounds":[{"tag":"test-out","settings":{"vnext":[{"address":"192.0.2.10","users":[{"id":"TEST-UUID-00000000"}]}]}}]}`, 0600)
 	writeRoutingTestFile(t, filepath.Join(dir, "05_routing.json"), `{"routing":{"domainStrategy":"AsIs","rules":[]}}`, 0600)
 	writeRoutingTestFile(t, filepath.Join(dir, "06_policy.json"), `{"policy":{"levels":{"0":{"handshake":4}}}}`, 0600)
-	return &app{cfg: config{OutPath: filepath.Join(dir, "04_outbounds.json"), GeoDataDir: dir}}, dir
+	return &app{cfg: config{OutPath: filepath.Join(dir, "04_outbounds.json"), GeoDataDir: dir}, sem: make(chan struct{}, 1)}, dir
 }
 
 func configStudioFakeXray(t *testing.T, script string) string {
