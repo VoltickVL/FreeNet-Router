@@ -252,3 +252,29 @@ func TestJournalHistoryWriterKeepsNewestTwoHundredRows(t *testing.T) {
 		t.Fatalf("bounded history did not preserve newest rows: first=%q last=%q", lines[0], lines[len(lines)-1])
 	}
 }
+
+
+func TestCanonicalJournalHidesHistoricalCanceledReleaseCatalogNoise(t *testing.T) {
+	dir := t.TempDir()
+	autoPath := filepath.Join(dir, "automation.history")
+	settingsPath := filepath.Join(dir, "settings.history")
+	t.Setenv("FREENET_AUTOMATION_HISTORY", autoPath)
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", settingsPath)
+
+	settings := strings.Join([]string{
+		"2026-10-04T00:11:00Z\tfreenet_release_catalog\tfailed\tLatest fallback failed: latest release metadata unavailable: context canceled",
+		"2026-10-04T00:10:59Z\tfreenet_release_catalog\tdegraded\tPRIMARY ERROR: release catalog page 1 unavailable: context canceled",
+		"2026-10-04T00:10:00Z\tfreenet_release_catalog\tfailed\tPRIMARY ERROR: release catalog page 1 unavailable: resolver failure",
+	}, "\n") + "\n"
+	if err := os.WriteFile(settingsPath, []byte(settings), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := canonicalJournalEvents(50)
+	if len(got) != 1 {
+		t.Fatalf("canceled release-catalog noise not suppressed: %#v", got)
+	}
+	if !strings.Contains(got[0].Message, "resolver failure") {
+		t.Fatalf("real release-catalog failure must remain visible: %#v", got)
+	}
+}
