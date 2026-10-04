@@ -304,8 +304,8 @@
     const cursor = input.selectionStart;
     const startQuote = unescapedQuoteBefore(text, cursor - 1);
     if (startQuote < 0) return null;
-    const endQuote = unescapedQuoteAfter(text, cursor);
-    if (endQuote < 0 || endQuote < cursor) return null;
+    const foundEndQuote = unescapedQuoteAfter(text, cursor);
+    const endQuote = foundEndQuote >= cursor ? foundEndQuote : cursor;
     const beforeCursor = text.slice(startQuote + 1, cursor);
     const fullValue = text.slice(startQuote + 1, endQuote);
 
@@ -314,7 +314,8 @@
       const kind = match[1].toLowerCase();
       return {
         kind,
-        file: kind === 'geosite' ? 'geosite.dat' : 'geoip.dat',
+        file: '',
+        explicitFile: false,
         prefix: match[2],
         typedPrefix: kind + ':',
         start: startQuote + 1,
@@ -332,6 +333,7 @@
     return {
       kind,
       file,
+      explicitFile: true,
       prefix: match[2],
       typedPrefix: 'ext:' + file + ':',
       start: startQuote + 1,
@@ -353,11 +355,17 @@
     });
   }
 
+  function geoEditorSuggestionValue(item, token) {
+    if (!item || !token) return '';
+    if (token.explicitFile) return token.typedPrefix + String(item.category || '');
+    return String(item.selector || (token.typedPrefix + String(item.category || '')));
+  }
+
   function chooseGeoEditorSuggestion(item) {
     const input = qs('#csInput');
     const token = state.geoSuggestToken;
     if (!input || !token || !item) return;
-    const value = token.typedPrefix + String(item.category || '');
+    const value = geoEditorSuggestionValue(item, token);
     input.setRangeText(value, token.start, token.end, 'end');
     input.dispatchEvent(new Event('input', {bubbles:true}));
     closeGeoAutocomplete();
@@ -379,7 +387,7 @@
       button.setAttribute('role','option');
       button.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
       const title = document.createElement('b');
-      title.textContent = token.typedPrefix + String(item.category || '');
+      title.textContent = geoEditorSuggestionValue(item, token);
       const meta = document.createElement('span');
       meta.textContent = String(item.file || token.file);
       button.append(title, meta);
@@ -403,7 +411,8 @@
     const controller = new AbortController();
     state.geoSuggestController = controller;
     const q = token.typedPrefix + token.prefix;
-    const url = '/api/geodata/suggest?kind=' + encodeURIComponent(token.kind) + '&q=' + encodeURIComponent(q) + '&file=' + encodeURIComponent(token.file);
+    let url = '/api/geodata/suggest?kind=' + encodeURIComponent(token.kind) + '&q=' + encodeURIComponent(q);
+    if (token.explicitFile && token.file) url += '&file=' + encodeURIComponent(token.file);
     try {
       const body = await api(url, {signal:controller.signal});
       if (body.mutation !== 'NONE' || controller.signal.aborted) return;
