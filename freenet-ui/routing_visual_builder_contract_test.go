@@ -188,3 +188,47 @@ func TestRoutingWorkspaceHasFirstClassXrayTab(t *testing.T) {
 		}
 	}
 }
+
+
+func TestSmartGeoDataAutocompleteContract(t *testing.T) {
+	routingData, err := os.ReadFile("web/routing-v2.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	studioData, err := os.ReadFile("web/config-studio-parity.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routing := string(routingData)
+	studio := string(studioData)
+
+	for _, want := range []string{
+		"/api/geodata/suggest",
+		"rv2GeoAutocomplete",
+		"queueGeoAutocomplete",
+		"AbortController",
+		"ArrowDown",
+		"ArrowUp",
+		"state.selectedSource",
+		"ext:${source}:${value}",
+		"Найти в GeoData",
+	} {
+		if !strings.Contains(routing, want) {
+			t.Fatalf("Routing Smart GeoData contract missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"/api/geodata/suggest",
+		"csGeoAutocomplete",
+		"geoEditorToken",
+		"queueGeoEditorAutocomplete",
+		"ext:([^:",
+		"ArrowDown",
+		"ArrowUp",
+		"chooseGeoEditorSuggestion",
+	} {
+		if !strings.Contains(studio, want) {
+			t.Fatalf("Config Studio Smart GeoData contract missing %q", want)
+		}
+	}
+}
