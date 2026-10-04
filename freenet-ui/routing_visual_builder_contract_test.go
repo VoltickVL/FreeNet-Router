@@ -32,9 +32,6 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		"rv2BlockContent",
 		"rv2InlineComposer",
 		"rv2ComposerTitle",
-		"rv2SystemToggle",
-		"Служебные правила Xray",
-		"защищены FreeNet",
 		"function toggleLiveSelectorRemoval(selector, action)",
 		"function setBoardCollapsed(action, collapsed)",
 		"function removalGroups()",
@@ -70,6 +67,10 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		"font-size:9.5px",
 		"font-size:8.5px",
 		"id=\"rv2ValidateRules\"",
+		"rv2SystemToggle",
+		"rv2SystemList",
+		"Служебные правила Xray",
+		"защищены FreeNet",
 	} {
 		if strings.Contains(js, unwanted) {
 			t.Fatalf("Routing UX v4 still contains obsolete table/global-builder UI %q", unwanted)
