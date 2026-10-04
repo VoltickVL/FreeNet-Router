@@ -524,6 +524,7 @@
     if (hint) hint.textContent = state.action === 'BLOCK' ? 'Сайт или категория будут заблокированы.' : (state.action === 'VPN' ? 'Трафик будет направлен через текущий VPN.' : 'Трафик пойдёт напрямую, минуя VPN.');
     const add = qs('#rv2AddRule'); if (add) add.textContent = state.editing >= 0 ? 'Сохранить' : 'Добавить';
     const cancel = qs('#rv2CancelEdit'); if (cancel) cancel.hidden = state.editing < 0;
+    syncRuleActionButtons();
     const input = qs('#rv2Value'); if (input) setTimeout(() => input.focus(), 0);
   }
 
@@ -765,6 +766,7 @@
     if (fromAutocomplete) closeGeoAutocomplete();
     const sourceCopy = state.selectedSource ? ` из ${state.selectedSource}` : '';
     const evidence = Array.isArray(item.evidence) && item.evidence.length ? ` · найдено по ${item.evidence.join(', ')}` : '';
+    syncRuleActionButtons();
     setNotice('rv2RuleNotice', `Выбрана ${humanKind(state.kind)} категория ${item.category}${sourceCopy}${evidence}. Нажмите «Добавить».`, 'ok');
   }
 
@@ -1503,6 +1505,7 @@
     qs('#rv2Value')?.addEventListener('input', () => {
       state.selectedSource = '';
       const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
+      syncRuleActionButtons();
       queueGeoAutocomplete();
     });
     qs('#rv2Value')?.addEventListener('keydown', event => {
