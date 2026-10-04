@@ -59,6 +59,7 @@ type routingApplyResponse struct {
 	XrayValid         bool              `json:"xray_valid"`
 	Applied           bool              `json:"applied"`
 	Rollback          string            `json:"rollback"`
+	CoreRestart       bool              `json:"core_restart"`
 	Snapshot          string            `json:"snapshot,omitempty"`
 	Before            map[string]string `json:"before,omitempty"`
 	After             map[string]string `json:"after,omitempty"`
@@ -436,6 +437,29 @@ func routingApplyHashes(before routingManagedBackup, routing, policy json.RawMes
 	return beforeHashes, afterHashes
 }
 
+func xrayCoreRestartPreflight() error {
+	info, err := os.Stat(providerHelperPath())
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 {
+		return errors.New("firewall-preserving Xray core restart helper is unavailable")
+	}
+	return nil
+}
+
+func (a *app) restartXrayCorePreservingFirewall(parent context.Context) error {
+	ctx, cancel := context.WithTimeout(parent, xrayRestartTimeout)
+	defer cancel()
+	if _, err := runCommand(ctx, providerHelperPath(), "core-restart"); err != nil {
+		return errors.New("firewall-preserving Xray core restart failed")
+	}
+	if !waitForXrayOnline(ctx) {
+		return errors.New("Xray core did not return online after restart")
+	}
+	if err := a.validateConfigStudioLive(ctx); err != nil {
+		return errors.New("Xray core restarted but live config post-check failed")
+	}
+	return nil
+}
+
 func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
 	req, ok := decodeRoutingCandidateRequest(w, r, "NONE")
 	if !ok {
@@ -450,6 +474,14 @@ func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
 		status, message := routingValidationFailureStatus(err)
 		writeJSON(w, status, routingApplyResponse{Success: false, Mutation: "NONE", XrayValid: false, Rollback: "NOT_NEEDED", Error: message})
 		return
+	}
+
+	wasRunning := xrayServiceProcessRunning("xray")
+	if wasRunning {
+		if err := xrayCoreRestartPreflight(); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, routingApplyResponse{Success: false, Mutation: "NONE", XrayValid: true, Rollback: "NOT_NEEDED", Error: err.Error()})
+			return
+		}
 	}
 
 	dir := a.routingConfigDir()
@@ -477,7 +509,7 @@ func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rollbackRouting, rollbackPolicy, rollbackErr := routingRollbackCandidate(backup)
-		if rollbackErr != nil || a.validateRoutingCandidate(r.Context(), rollbackRouting, rollbackPolicy) != nil {
+		if rollbackErr != nil || a.validateRoutingCandidate(context.Background(), rollbackRouting, rollbackPolicy) != nil {
 			writeJSON(w, http.StatusInternalServerError, routingApplyResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: true, Rollback: "FAILED", Snapshot: backup.Snapshot, Before: before, After: after, Error: "post-apply validation failed and rollback validation failed; STOP"})
 			return
 		}
@@ -485,7 +517,29 @@ func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, routingApplyResponse{Success: true, Mutation: "APPLIED", XrayValid: true, Applied: true, Rollback: "NOT_NEEDED", Snapshot: backup.Snapshot, Before: before, After: after, Result: "routing policy applied to managed sections"})
+	if wasRunning {
+		if err := a.restartXrayCorePreservingFirewall(context.Background()); err != nil {
+			if restoreErr := restoreRoutingManagedBackup(dir, backup); restoreErr != nil {
+				writeJSON(w, http.StatusInternalServerError, routingApplyResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: true, Rollback: "FAILED", Snapshot: backup.Snapshot, Before: before, After: after, Error: "Xray core activation failed and rollback restore failed; STOP"})
+				return
+			}
+			rollbackRouting, rollbackPolicy, rollbackErr := routingRollbackCandidate(backup)
+			if rollbackErr != nil || a.validateRoutingCandidate(context.Background(), rollbackRouting, rollbackPolicy) != nil {
+				writeJSON(w, http.StatusInternalServerError, routingApplyResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: true, Rollback: "FAILED", Snapshot: backup.Snapshot, Before: before, After: after, Error: "Xray core activation failed and rollback validation failed; STOP"})
+				return
+			}
+			if restartErr := a.restartXrayCorePreservingFirewall(context.Background()); restartErr != nil {
+				writeJSON(w, http.StatusInternalServerError, routingApplyResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: false, Rollback: "FAILED", Snapshot: backup.Snapshot, Before: before, After: after, Error: "Xray core activation failed and rollback runtime restart failed; STOP"})
+				return
+			}
+			writeJSON(w, http.StatusBadGateway, routingApplyResponse{Success: false, Mutation: "ROLLED_BACK", XrayValid: false, Applied: false, Rollback: "SUCCESS", Snapshot: backup.Snapshot, Before: before, After: after, Error: "Xray core activation failed; previous config and runtime restored"})
+			return
+		}
+		writeJSON(w, http.StatusOK, routingApplyResponse{Success: true, Mutation: "APPLIED", XrayValid: true, Applied: true, Rollback: "NOT_NEEDED", CoreRestart: true, Snapshot: backup.Snapshot, Before: before, After: after, Result: "routing policy applied; active Xray Core restarted with firewall-preserving core-only path"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, routingApplyResponse{Success: true, Mutation: "APPLIED", XrayValid: true, Applied: true, Rollback: "NOT_NEEDED", CoreRestart: false, Snapshot: backup.Snapshot, Before: before, After: after, Result: "routing policy saved; Xray was stopped and remains stopped; config will load on next start"})
 }
 
 func routingRollbackCandidate(b routingManagedBackup) (json.RawMessage, json.RawMessage, error) {
