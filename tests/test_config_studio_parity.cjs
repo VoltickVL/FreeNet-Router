@@ -98,10 +98,10 @@ const server = http.createServer(async (req, res) => {
     if (q.includes('geosite:fail')) return json(res,{success:false,kind,query:q,mode,mutation:'NONE',error:'prefix backend failed'});
     const category = kind === 'geoip' ? 'private' : 'youtube';
     if (kind === 'geosite' && !q.startsWith('ext:') && requestedFile) standardGeoHadExplicitFile = true;
-    const file = requestedFile || (kind === 'geoip' ? 'geoip.dat' : 'geosite_v2fly.dat');
+    const file = requestedFile || (kind === 'geoip' ? 'geoip.dat' : 'geosite.dat');
     const selector = requestedFile
       ? 'ext:' + file + ':' + category
-      : (kind === 'geoip' ? 'geoip:' + category : 'ext:' + file + ':' + category);
+      : (kind === 'geoip' ? 'geoip:' + category : 'geosite:' + category);
     return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:[
       {file,kind,category,selector,ext_selector:'ext:'+file+':'+category,match:'category'}
     ],warnings:[]});
@@ -276,9 +276,9 @@ const server = http.createServer(async (req, res) => {
       input.dispatchEvent(new Event('input',{bubbles:true}));
     });
     await page.waitForSelector('#csGeoAutocomplete .cs-geo-item');
-    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/ext:geosite_v2fly\.dat:youtube/);
+    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/geosite:youtube/);
     await routingInput.press('Tab');
-    assert.match(await routingInput.inputValue(),/ext:geosite_v2fly\.dat:youtube/);
+    assert.match(await routingInput.inputValue(),/geosite:youtube/);
     assert.doesNotMatch(await routingInput.inputValue(),/geosite:you"/);
     assert.equal(standardGeoHadExplicitFile,false,'standard geosite autocomplete must scan compatible installed DATs instead of forcing geosite.dat');
     assert.ok(geoSuggestModes.includes('prefix'),'Config Studio must force category-prefix mode instead of host heuristics');
@@ -292,9 +292,9 @@ const server = http.createServer(async (req, res) => {
       input.dispatchEvent(new Event('input',{bubbles:true}));
     });
     await page.waitForSelector('#csGeoAutocomplete .cs-geo-item');
-    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/ext:geosite_v2fly\.dat:youtube/);
+    assert.match(await page.locator('#csGeoAutocomplete').innerText(),/geosite:youtube/);
     await routingInput.press('Tab');
-    assert.match(await routingInput.inputValue(),/ext:geosite_v2fly\.dat:youtube$/);
+    assert.match(await routingInput.inputValue(),/geosite:youtube$/);
 
     // Backend failures must be visible in the editor instead of silently
     // disappearing as "no suggestions".
