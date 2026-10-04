@@ -89,6 +89,10 @@ const server = http.createServer((req, res) => {
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.waitForSelector('#csServiceVersion');
     await page.waitForFunction(() => document.querySelector('#csServiceVersion')?.textContent.includes('26.9.9'));
+    await page.evaluate(() => {
+      window.__xrayOwnerClicks = 0;
+      document.querySelector('#xrayTopbarChip')?.addEventListener('click', () => { window.__xrayOwnerClicks += 1; });
+    });
 
     const browserAlive = await Promise.race([
       page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('alive'), 60))),
@@ -171,11 +175,12 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => document.querySelector('#csServiceJournal')?.classList.contains('show'));
     assert((await page.locator('#csServiceJournal').innerText()).includes('Предыдущая операция Xray завершена.'));
 
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray');
     await page.locator('#csRestartXray').click();
-    await page.waitForFunction(() => document.querySelector('#csNotice')?.textContent.includes('снова работает'));
-    assert.equal(restartPosts, 1, 'one explicit click must issue exactly one restart POST');
+    assert.equal(await page.evaluate(() => window.__xrayOwnerClicks), 1, 'Config Studio Xray button must delegate to the canonical topbar owner');
+    assert.equal(restartPosts, 0, 'Config Studio must not own a separate restart mutation path');
+    assert.equal(startPosts, 0, 'Config Studio must not own a separate start mutation path');
     assert((await page.locator('#csServiceStatus').innerText()).includes('Работает'));
-    assert((await page.locator('#csServiceJournal').innerText()).includes('Xray перезапущен через FreeNet.'));
 
     const afterMutationAlive = await Promise.race([
       page.evaluate(() => new Promise(resolve => {
@@ -187,21 +192,16 @@ const server = http.createServer((req, res) => {
       new Promise(resolve => setTimeout(() => resolve('starved'), 1200))
     ]);
     assert.equal(afterMutationAlive, 'alive', 'unrelated DOM mutation must not trigger a runaway observer loop');
-    assert.equal(restartPosts, 1, 'observer/rerender must not repeat restart automatically');
+    assert.equal(restartPosts, 0, 'observer/rerender must not create a hidden restart path');
 
     serviceOnline = false;
     await page.reload();
     await page.waitForFunction(() => document.querySelector('#csServiceStatus')?.textContent.includes('Остановлен'));
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Запустить Xray', 'offline service must expose explicit start recovery');
-    await page.locator('#csRestartXray').click();
-    await page.waitForFunction(() => document.querySelector('#csNotice')?.textContent.includes('запущен и работает'));
-    assert.equal(startPosts, 1, 'offline recovery must issue exactly one start POST');
-    assert.equal(restartPosts, 1, 'offline recovery must not disguise start as restart');
-    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает');
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Перезапустить');
-    assert((await page.locator('#csServiceJournal').innerText()).includes('Xray запущен через FreeNet.'));
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray', 'offline state must still use the same canonical Xray owner');
+    assert.equal(startPosts, 0, 'Config Studio must not start stopped Xray by itself');
+    assert.equal(restartPosts, 0, 'Config Studio must not restart stopped Xray by itself');
 
-    console.log('Config Studio simplified UX + Xray restart/offline recovery journal: OK');
+    console.log('Config Studio simplified UX delegates all Xray lifecycle mutations to canonical owner: OK');
   } finally {
     await browser.close();
     server.close();
