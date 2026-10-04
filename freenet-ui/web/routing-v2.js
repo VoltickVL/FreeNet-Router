@@ -11,6 +11,7 @@
     action: 'DIRECT',
     selectedSource: '',
     geoSuggestTimer: null,
+    geoSuggestBlurTimer: null,
     geoSuggestController: null,
     geoSuggestItems: [],
     geoSuggestIndex: -1,
@@ -746,6 +747,7 @@
 
   function closeGeoAutocomplete() {
     if (state.geoSuggestTimer) { clearTimeout(state.geoSuggestTimer); state.geoSuggestTimer = null; }
+    if (state.geoSuggestBlurTimer) { clearTimeout(state.geoSuggestBlurTimer); state.geoSuggestBlurTimer = null; }
     if (state.geoSuggestController) { state.geoSuggestController.abort(); state.geoSuggestController = null; }
     state.geoSuggestItems = [];
     state.geoSuggestIndex = -1;
@@ -1527,7 +1529,16 @@
         addOrUpdateRule();
       }
     });
-    qs('#rv2Value')?.addEventListener('blur', () => setTimeout(() => closeGeoAutocomplete(), 120));
+    qs('#rv2Value')?.addEventListener('focus', () => {
+      if (state.geoSuggestBlurTimer) { clearTimeout(state.geoSuggestBlurTimer); state.geoSuggestBlurTimer = null; }
+    });
+    qs('#rv2Value')?.addEventListener('blur', () => {
+      if (state.geoSuggestBlurTimer) clearTimeout(state.geoSuggestBlurTimer);
+      state.geoSuggestBlurTimer = setTimeout(() => {
+        state.geoSuggestBlurTimer = null;
+        closeGeoAutocomplete();
+      }, 120);
+    });
     qsa('.rv2-config-tab').forEach(button => button.addEventListener('click', () => switchConfigTab(button.dataset.configTab)));
     qs('#rv2FormatConfig')?.addEventListener('click', formatActiveConfig);
     qs('#rv2ValidateConfig')?.addEventListener('click', validateConfig);
