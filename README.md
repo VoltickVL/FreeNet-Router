@@ -497,6 +497,7 @@ FreeNet не должен:
 - [`docs/ARCHITECTURE-RU.md`](docs/ARCHITECTURE-RU.md) — архитектура;
 - [`docs/RECOVERY-RU.md`](docs/RECOVERY-RU.md) — recovery/rollback;
 - [`docs/UPSTREAM-PINS-RU.md`](docs/UPSTREAM-PINS-RU.md) — pinned upstream и SHA-256;
+- [`docs/ROUTING-REFERENCE-RU.md`](docs/ROUTING-REFERENCE-RU.md) — реальные reference-сценарии Routing для Владлинк/Ростелеком без секретов;
 - [`docs/providers/BLANCVPN-RU.md`](docs/providers/BLANCVPN-RU.md) — provider integration.
 
 ---
