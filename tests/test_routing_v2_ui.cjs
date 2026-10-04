@@ -200,7 +200,7 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await page.locator('#rv2RuleList').innerText(),/Сайт · ifconfig\.me/);
     assert.equal(routingLive.routing.rules.length,8,'draft must not mutate live routing');
     await page.locator('#rv2ApplyRules').click();
-    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Сохранено и применено'),null,{timeout:10000});
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Изменения применены'),null,{timeout:10000});
     assert.equal(calls.filter(x=>x==='POST /api/routing/validate').length,directValidateBefore+1,'one-click save must validate exactly once');
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,directApplyBefore+1,'one-click save must apply exactly once');
     assert.equal(dialogCount,directDialogsBefore,'Rules save must not open a browser confirm dialog');
@@ -218,8 +218,8 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
     const directRemoveBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
     await page.locator('#rv2ApplyRules').click();
-    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Сохранено и применено'),null,{timeout:10000});
-    await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules')?.textContent==='Сохранить и применить');
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Изменения применены'),null,{timeout:10000});
+    await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules')?.textContent==='Применить');
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,directRemoveBefore+1);
     assert.equal(routingLive.routing.rules.length,8,'selector removal must not drop the containing DIRECT rule');
     assert.equal(routingLive.routing.rules.some(rule=>Array.isArray(rule.domain)&&rule.domain.includes('domain:ifconfig.me')),false);
@@ -259,7 +259,7 @@ const server=http.createServer(async(req,res)=>{
     // Empty draft has only one save action and it is disabled until a change exists.
     assert.equal(await page.locator('#rv2ValidateRules').count(),0);
     assert.equal(await page.locator('#rv2ApplyRules').isDisabled(),true);
-    assert.equal(await page.locator('#rv2ApplyRules').textContent(),'Сохранить и применить');
+    assert.equal(await page.locator('#rv2ApplyRules').textContent(),'Применить');
 
     // Add the GeoSite to VPN without touching the live board; one click validates and applies.
     await page.locator('#rv2AddRule').click();
@@ -276,7 +276,7 @@ const server=http.createServer(async(req,res)=>{
     const visualValidateBefore=calls.filter(x=>x==='POST /api/routing/validate').length;
     const visualDialogsBefore=dialogCount;
     await page.locator('#rv2ApplyRules').click();
-    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Сохранено и применено'),null,{timeout:10000});
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Изменения применены'),null,{timeout:10000});
     const visualAfter=calls.filter(x=>x==='POST /api/routing/apply').length;
     assert.equal(visualAfter,visualBefore+1,'visual rules save must issue exactly one transactional mutation');
     assert.equal(calls.filter(x=>x==='POST /api/routing/validate').length,visualValidateBefore+1,'visual rules save must validate exactly once');
@@ -300,7 +300,7 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await page.locator('#rv2RuleList').innerText(),/Удалить · GeoSite · category-ru/);
     await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
     await page.locator('#rv2ApplyRules').click();
-    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Сохранено и применено'),null,{timeout:10000});
+    await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Изменения применены'),null,{timeout:10000});
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,removeApplyBefore+1,'deletion must use exactly one controlled apply');
     assert.equal(routingLive.routing.rules.length,9,'removing one selector must not drop its containing rule or unrelated rules');
     assert.equal(routingLive.routing.rules.some(rule=>Array.isArray(rule.domain)&&rule.domain.includes('ext:geosite.dat:category-ru')),false,'selected live selector must be removed');

@@ -89,6 +89,18 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/geodata/files') return json(res,{success:true,files:[],search_enabled:false});
   if (url.pathname === '/api/capabilities') return json(res,{success:true,split_dns_supported:true,memory_total_mib:1024,split_dns_min_mib:768});
   if (url.pathname === '/api/subscription') return json(res,{success:true,configured:true});
+  if (url.pathname === '/api/policy/compile' && req.method === 'POST') {
+    const request = await bodyJSON(req);
+    const rules = Array.isArray(request.rules) ? request.rules : [];
+    const compiledRules = rules.map((rule,index) => {
+      const action = String(rule.action || 'DIRECT').toUpperCase();
+      const kind = String(rule.selector?.kind || '');
+      const payload_outbound = action === 'DIRECT' ? 'direct' : action === 'VPN' ? 'vless-reality' : 'block';
+      const dns_leg = (kind === 'domain' || kind === 'geosite') ? (action === 'DIRECT' ? 'dns-direct' : action === 'VPN' ? 'dns-vless' : 'block') : '';
+      return {order:index,selector:rule.selector,action,payload_outbound,...(dns_leg ? {dns_leg} : {})};
+    });
+    return json(res,{success:true,mutation:'NONE',compiled:{rules:compiledRules,payload:compiledRules,dns:compiledRules.filter(rule=>rule.dns_leg)}});
+  }
   if (url.pathname === '/api/routing/config') {
     return json(res,{success:true,mutation:'NONE',routing:live['05_routing'],policy:live['06_policy'],routing_present:true,policy_present:true,routing_sha256:'e'.repeat(64),policy_sha256:'f'.repeat(64)});
   }
@@ -210,6 +222,59 @@ const server = http.createServer(async (req, res) => {
     await page.locator('.cs-tab[data-tab="03_inbounds"]').click();
     assert.equal(await page.locator('#csInput').count(),1);
     assert.match(await page.locator('#csInput').inputValue(),/TEST-INBOUND-AUTH/);
+
+    // Rules -> Config Studio: apply once, then open Configuration and see authoritative live state without F5.
+    await page.locator('.rv2-mode[data-mode="rules"]').click();
+    await page.waitForSelector('#rv2RulesPanel',{state:'visible'});
+    await page.locator('.rv4-board-add[data-add-action="DIRECT"]').click();
+    await page.locator('#rv2Kind').selectOption('domain');
+    await page.locator('#rv2Value').fill('sync.test');
+    await page.locator('#rv2AddRule').click();
+    await page.waitForFunction(() => document.querySelector('#rv2ApplyRules') && !document.querySelector('#rv2ApplyRules').disabled);
+    assert.equal(await page.locator('#rv2ApplyRules').textContent(),'Применить');
+    await page.locator('#rv2ApplyRules').click();
+    await page.waitForFunction(() => (document.querySelector('#rv2RulesApplyResult')?.textContent || '').includes('Изменения применены'),null,{timeout:10000});
+    assert.equal(live['05_routing'].routing.rules.some(rule => Array.isArray(rule.domain) && rule.domain.includes('domain:sync.test')),true);
+
+    await page.locator('.rv2-mode[data-mode="config"]').click();
+    await page.waitForSelector('#csTabsMain',{state:'visible'});
+    await page.locator('.cs-tab[data-tab="05_routing"]').click();
+    await page.waitForFunction(() => (document.querySelector('#csInput')?.value || '').includes('domain:sync.test'));
+    assert.equal(await page.locator('#csApply').textContent(),'Применить');
+
+    // Config Studio -> Rules: routing apply pushes the same authoritative live state back into the Rules board.
+    const routingInput = page.locator('#csInput');
+    await routingInput.fill(JSON.stringify({routing:{domainStrategy:'AsIs',rules:[
+      {type:'field',domain:['domain:studio.test'],outboundTag:'direct'}
+    ]}},null,2));
+    assert.equal(await page.locator('#csApply').isDisabled(),false);
+    const routingApplyBefore = calls.filter(x => x === 'POST /api/routing/apply').length;
+    await page.locator('#csApply').click();
+    await page.waitForFunction(() => (document.querySelector('#csNotice')?.textContent || '').includes('post-validation'),null,{timeout:10000});
+    assert.equal(calls.filter(x => x === 'POST /api/routing/apply').length,routingApplyBefore+1);
+
+    await page.locator('.rv2-mode[data-mode="rules"]').click();
+    await page.waitForSelector('#rv2RulesPanel',{state:'visible'});
+    await page.waitForFunction(() => (document.querySelector('#rv2DirectContent')?.textContent || '').includes('studio.test'));
+    assert.match(await page.locator('#rv2DirectContent').innerText(),/studio\.test/);
+    assert.doesNotMatch(await page.locator('#rv2DirectContent').innerText(),/sync\.test/);
+
+    // An external live change must never silently overwrite a local Config Studio draft.
+    await page.locator('.rv2-mode[data-mode="config"]').click();
+    await page.waitForSelector('#csTabsMain',{state:'visible'});
+    await page.locator('.cs-tab[data-tab="05_routing"]').click();
+    await page.locator('#csInput').fill(JSON.stringify({routing:{domainStrategy:'AsIs',rules:[
+      {type:'field',domain:['domain:draft.test'],outboundTag:'direct'}
+    ]}},null,2));
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('freenet:xray-config-applied', {
+      detail:{source:'rules',files:['05_routing','06_policy']}
+    })));
+    await page.waitForFunction(() => (document.querySelector('#csNotice')?.textContent || '').includes('Локальный черновик сохранён'));
+    assert.match(await page.locator('#csInput').inputValue(),/draft\.test/);
+    assert.equal(await page.locator('#csApply').isDisabled(),true,'stale Config Studio draft must be blocked, not overwritten or applied');
+    await page.locator('#csReset').click();
+    await page.waitForFunction(() => (document.querySelector('#csInput')?.value || '').includes('studio.test'));
+    assert.doesNotMatch(await page.locator('#csInput').inputValue(),/draft\.test/);
 
     // List artifacts remain read-only and visibly separated from 01-06.
     await page.locator('.cs-tab[data-tab="port_proxying"]').click();

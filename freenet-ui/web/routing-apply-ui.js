@@ -101,7 +101,7 @@
       const routingHash = body.routing_sha256 ? String(body.routing_sha256).slice(0, 12) : 'new';
       const policyHash = body.policy_sha256 ? String(body.policy_sha256).slice(0, 12) : 'new';
       setPreview(`Live snapshot: 05_routing ${routingHash} · 06_policy ${policyHash}\nЧтобы применить изменения, сначала выполните «Проверить Xray».`);
-      setRulesPreview('Добавьте или удалите правило, затем нажмите «Сохранить и применить».');
+      setRulesPreview('Добавьте или удалите правило, затем нажмите «Применить».');
     } catch (_) {}
   }
 
@@ -172,10 +172,10 @@
     const buttons = applyButtons();
     buttons.forEach(button => {
       button.disabled = true;
-      button.dataset.previousText = button.id === 'rv2ApplyRules' ? 'Сохранить и применить' : button.textContent;
+      button.dataset.previousText = button.id === 'rv2ApplyRules' ? 'Применить' : button.textContent;
       button.textContent = 'Применяем…';
     });
-    setResult('Сохраняем и применяем…');
+    setResult('Применяем…');
 
     try {
       const response = await originalFetch('/api/routing/apply', {
@@ -197,8 +197,8 @@
       }
 
       const shortMessage = body.core_restart
-        ? 'Сохранено и применено. Xray перезапущен.'
-        : 'Сохранено. Xray был остановлен и остался остановлен.';
+        ? 'Изменения применены. Xray перезапущен.'
+        : 'Изменения применены. Xray был остановлен и остался остановлен.';
       if (opts.inPlace && window.FreeNetRoutingV2 && typeof window.FreeNetRoutingV2.refreshAfterApply === 'function') {
         await window.FreeNetRoutingV2.refreshAfterApply(shortMessage);
         await loadBaseline();
@@ -216,7 +216,7 @@
       return false;
     } finally {
       buttons.forEach(button => {
-        button.textContent = button.dataset.previousText || (button.id === 'rv2ApplyRules' ? 'Сохранить и применить' : 'Сохранить');
+        button.textContent = button.dataset.previousText || 'Применить';
         delete button.dataset.previousText;
       });
     }
@@ -239,14 +239,14 @@
     invalidateCandidate();
     const ok = await bridge.prepareRulesCandidate();
     if (!ok || !validatedCandidate) {
-      if (button) { button.disabled = false; button.textContent = previous || 'Сохранить и применить'; }
+      if (button) { button.disabled = false; button.textContent = previous || 'Применить'; }
       return;
     }
     if (button) button.textContent = 'Применяем…';
     const applied = await applyValidatedCandidate({rules:true, skipConfirm:true, inPlace:true});
     if (!applied && !stopLatched && button) {
       button.disabled = false;
-      button.textContent = previous || 'Сохранить и применить';
+      button.textContent = previous || 'Применить';
     }
   }
 
@@ -265,7 +265,7 @@
       apply.type = 'button';
       apply.className = 'btn primary';
       apply.disabled = true;
-      apply.textContent = 'Сохранить';
+      apply.textContent = 'Применить';
       apply.addEventListener('click', applyValidatedCandidate);
       toolbar.appendChild(apply);
     }
@@ -288,7 +288,7 @@
     const rulesApply = q('#rv2ApplyRules', workspace);
     if (rulesApply && rulesApply.dataset.applyBound !== '1') {
       rulesApply.dataset.applyBound = '1';
-      rulesApply.textContent = 'Сохранить и применить';
+      rulesApply.textContent = 'Применить';
       rulesApply.addEventListener('click', applyRulesOneClick);
     }
     if (workspace.dataset.ruleDraftListener !== '1') {

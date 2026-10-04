@@ -144,13 +144,13 @@ const server = http.createServer((req, res) => {
     assert.equal(visual.formatBackground, 'none', 'Format must be a tertiary action, not another blue primary');
     assert.equal(visual.resetBackground, 'none', 'Reset must use its own neutral/warn treatment');
     assert.notEqual(visual.formatColor, visual.resetColor, 'Format and reset need distinct visual meaning');
-    assert.match(visual.applyBackground, /gradient/i, 'Save must remain the only primary blue editor action');
+    assert.match(visual.applyBackground, /gradient/i, 'Apply must remain the only primary blue editor action');
     assert.equal(visual.toolbarBorder, 'solid', 'Editor footer actions need a separator below the editor body');
     assert(visibleText.includes('v26.9.9'));
     assert.equal(await page.locator('#csFormat').textContent(), 'Форматировать');
     assert.equal(await page.locator('#csValidate').count(), 0, 'manual validation control must be removed');
     assert.equal(await page.locator('#csReset').textContent(), 'Отменить');
-    assert.equal(await page.locator('#csApply').textContent(), 'Сохранить');
+    assert.equal(await page.locator('#csApply').textContent(), 'Применить');
     assert.equal(await page.locator('#csMeta').count(), 0, 'file/hash metadata must be removed from normal UI');
     assert.equal(await page.locator('#csApplyNote').count(), 0, 'Live snapshot note must be removed');
     assert.equal(await page.locator('#rv2ApplyPreview').count(), 0, 'legacy routing preview must be removed');

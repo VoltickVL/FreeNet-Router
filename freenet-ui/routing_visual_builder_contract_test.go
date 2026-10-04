@@ -41,10 +41,13 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		"Черновик изменений",
 		"rv2DraftCard",
 		"rv2ApplyRules",
-		"Сохранить и применить",
+		"Применить",
 		"prepareRulesCandidateForApply",
 		"mergeManagedRulesSafely",
 		"hasEarlierFamilyConflict",
+		"freenet:xray-config-applied",
+		"freenet:routing-mode-changed",
+		"state.liveStale",
 		"clone(base.routing.rules)",
 		"ext:([^:]+):(.+)",
 	} {
@@ -93,7 +96,7 @@ func TestVisualRoutingBuilderUsesSharedTransactionalApply(t *testing.T) {
 		"Проверка Xray пройдена",
 		"applyRulesOneClick",
 		"FreeNetRoutingV2.refreshAfterApply",
-		"Сохранить и применить",
+		"Применить",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("shared visual routing apply contract missing %q", want)
@@ -101,5 +104,44 @@ func TestVisualRoutingBuilderUsesSharedTransactionalApply(t *testing.T) {
 	}
 	if strings.Count(js, "originalFetch('/api/routing/apply'") != 1 {
 		t.Fatal("routing mutation must have one shared apply path")
+	}
+}
+
+
+func TestRoutingAndConfigStudioLiveSyncContract(t *testing.T) {
+	routingData, err := os.ReadFile("web/routing-v2.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	studioData, err := os.ReadFile("web/config-studio-parity.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routing := string(routingData)
+	studio := string(studioData)
+
+	for _, want := range []string{
+		"freenet:xray-config-applied",
+		"freenet:routing-mode-changed",
+		"handleExternalConfigApplied",
+		"state.liveStale",
+		"reconcileExternalLiveIfSafe",
+	} {
+		if !strings.Contains(routing, want) {
+			t.Fatalf("routing live-sync contract missing %q", want)
+		}
+	}
+	for _, want := range []string{
+		"freenet:xray-config-applied",
+		"freenet:routing-mode-changed",
+		"handleExternalConfigApplied",
+		"handleRoutingModeChanged",
+		"hasDirtyDrafts",
+		"state.stale",
+		"Применить",
+	} {
+		if !strings.Contains(studio, want) {
+			t.Fatalf("Config Studio live-sync contract missing %q", want)
+		}
 	}
 }

@@ -15,6 +15,8 @@
     editing: -1,
     configLoaded: false,
     configLoading: false,
+    configLoadPromise: null,
+    liveStale: false,
     configTab: 'routing',
     live: {routing: {routing: {}}, policy: {policy: {}}},
     draft: {routing: '', policy: ''},
@@ -539,6 +541,7 @@
       renderCompileState();
       signalRuleDraftChanged();
       if (successCopy) setNotice('rv2RuleNotice', successCopy, 'ok');
+      void reconcileExternalLiveIfSafe();
       return true;
     }
     try {
@@ -642,6 +645,7 @@
     renderRuleList();
     renderCompileState();
     setNotice('rv2RulesApplyResult', `${humanKind(group.kind)} «${group.value}» возвращён. На роутере ничего не изменено.`);
+    void reconcileExternalLiveIfSafe();
   }
 
   function renderRuleList() {
@@ -696,7 +700,7 @@
     const additionsReady = state.rules.length === 0 || !!state.compiled;
     const hasDraft = hasRuleDraft() && additionsReady;
     const apply = qs('#rv2ApplyRules');
-    if (apply) apply.disabled = !hasDraft;
+    if (apply) apply.disabled = !hasDraft || state.liveStale;
   }
 
   function renderCompileState() {
@@ -713,7 +717,7 @@
     const parts = [];
     if (state.rules.length) parts.push(`добавить: ${state.rules.length}`);
     if (removals.length) parts.push(`удалить: ${removals.length}`);
-    summary.innerHTML = `<strong>Изменения · ${parts.join(' · ')}</strong> · нажмите «Сохранить и применить».`;
+    summary.innerHTML = `<strong>Изменения · ${parts.join(' · ')}</strong> · нажмите «Применить».`;
   }
 
   async function searchGeo() {
@@ -759,8 +763,15 @@
     qsa('.rv2-mode').forEach(button => button.classList.toggle('active', button.dataset.mode === selected));
     qs('#rv2RulesPanel').hidden = selected !== 'rules';
     qs('#rv2ConfigPanel').hidden = selected !== 'config';
-    if (!state.configLoaded) loadConfig();
-    if (selected === 'rules') renderLiveRules();
+
+    if (selected === 'rules') {
+      if (!hasRuleDraft()) void loadConfig(true);
+      else renderLiveRules();
+    } else if (!state.configLoaded) {
+      void loadConfig();
+    }
+
+    document.dispatchEvent(new CustomEvent('freenet:routing-mode-changed', {detail:{mode:selected}}));
   }
 
   function sectionDefault(name) {
@@ -792,27 +803,53 @@
     const file = qs('#rv2ConfigFile'); if (file) file.textContent = state.configTab === 'routing' ? '05_routing.json' : '06_policy.json';
   }
 
-  async function loadConfig() {
-    if (state.configLoading) return;
-    state.configLoading = true; setConfigStatus('Загрузка…'); setNotice('rv2ConfigNotice', ''); renderLiveRules();
-    try {
-      const body = await api('/api/routing/config');
-      if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract.');
-      state.live.routing = normalizeLoadedSection(body.routing, 'routing', body.routing_present);
-      state.live.policy = normalizeLoadedSection(body.policy, 'policy', body.policy_present);
-      state.draft.routing = JSON.stringify(state.live.routing, null, 2);
-      state.draft.policy = JSON.stringify(state.live.policy, null, 2);
-      state.configLoaded = true; state.configDirty = false; state.configValidated = false;
-      showActiveEditor(); renderLiveRules();
-      const hashes = qs('#rv2ConfigHashes');
-      if (hashes) hashes.textContent = `routing ${body.routing_sha256 ? String(body.routing_sha256).slice(0, 12) : 'new'} · policy ${body.policy_sha256 ? String(body.policy_sha256).slice(0, 12) : 'new'}`;
-      setConfigStatus('Live загружен', 'ok');
-      setNotice('rv2ConfigNotice', 'Загружены 05_routing.json и 06_policy.json. Редактирование здесь — экспертный режим; применение остаётся защищённым Xray validation и rollback.', 'ok');
-    } catch (error) {
-      state.configLoaded = false; setConfigStatus('Недоступно', 'warn'); renderLiveRules();
-      setNotice('rv2LiveNotice', `Не удалось прочитать текущие правила: ${safeError(error, 'ошибка')}. Никаких изменений не выполнено.`, 'bad');
-      setNotice('rv2ConfigNotice', `Не удалось загрузить managed sections: ${safeError(error, 'ошибка')}`, 'bad');
-    } finally { state.configLoading = false; renderLiveRules(); }
+  async function loadConfig(force = false) {
+    if (state.configLoadPromise) {
+      const active = state.configLoadPromise;
+      if (!force) return active;
+      await active;
+    }
+    if (state.configLoadPromise) return loadConfig(force);
+
+    state.configLoading = true;
+    const task = (async () => {
+      setConfigStatus('Загрузка…');
+      setNotice('rv2ConfigNotice', '');
+      renderLiveRules();
+      try {
+        const body = await api('/api/routing/config');
+        if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract.');
+        state.live.routing = normalizeLoadedSection(body.routing, 'routing', body.routing_present);
+        state.live.policy = normalizeLoadedSection(body.policy, 'policy', body.policy_present);
+        state.draft.routing = JSON.stringify(state.live.routing, null, 2);
+        state.draft.policy = JSON.stringify(state.live.policy, null, 2);
+        state.configLoaded = true;
+        state.configDirty = false;
+        state.configValidated = false;
+        state.liveStale = false;
+        showActiveEditor();
+        renderLiveRules();
+        const hashes = qs('#rv2ConfigHashes');
+        if (hashes) hashes.textContent = `routing ${body.routing_sha256 ? String(body.routing_sha256).slice(0, 12) : 'new'} · policy ${body.policy_sha256 ? String(body.policy_sha256).slice(0, 12) : 'new'}`;
+        setConfigStatus('Live загружен', 'ok');
+        setNotice('rv2ConfigNotice', 'Загружены 05_routing.json и 06_policy.json. Редактирование здесь — экспертный режим; применение остаётся защищённым Xray validation и rollback.', 'ok');
+        return true;
+      } catch (error) {
+        state.configLoaded = false;
+        setConfigStatus('Недоступно', 'warn');
+        renderLiveRules();
+        setNotice('rv2LiveNotice', `Не удалось прочитать текущие правила: ${safeError(error, 'ошибка')}. Никаких изменений не выполнено.`, 'bad');
+        setNotice('rv2ConfigNotice', `Не удалось загрузить managed sections: ${safeError(error, 'ошибка')}`, 'bad');
+        return false;
+      } finally {
+        state.configLoading = false;
+        state.configLoadPromise = null;
+        renderLiveRules();
+      }
+    })();
+
+    state.configLoadPromise = task;
+    return task;
   }
 
   function switchConfigTab(tab) {
@@ -1143,7 +1180,7 @@
           <div id="rv2RuleList" class="rv2-rule-list"></div><div id="rv2CompiledSummary" class="rv2-compiled" hidden></div>
           <div class="rv2-rule-footer">
             <div id="rv2RulesApplyPreview" class="rv2-rule-footer-copy">Текущая маршрутизация не изменена.</div>
-            <div class="rv2-rule-footer-actions"><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Сохранить и применить</button></div>
+            <div class="rv2-rule-footer-actions"><button id="rv2ApplyRules" class="btn primary" type="button" disabled>Применить</button></div>
           </div>
           <div id="rv2RulesApplyResult" class="rv2-notice"></div>
         </div>
@@ -1199,10 +1236,36 @@
   }
 
 
+  async function reconcileExternalLiveIfSafe() {
+    if (!state.liveStale || hasRuleDraft()) return false;
+    const ok = await loadConfig(true);
+    if (ok) setNotice('rv2RulesApplyResult', 'Live-маршрутизация синхронизирована с конфигурацией Xray.', 'ok');
+    return ok;
+  }
+
+  async function handleExternalConfigApplied(event) {
+    const detail = event && event.detail && typeof event.detail === 'object' ? event.detail : {};
+    if (detail.source === 'rules') return;
+    const files = Array.isArray(detail.files) ? detail.files.map(String) : [];
+    if (files.length && !files.some(name => name === '05_routing' || name === '06_policy')) return;
+
+    if (hasRuleDraft()) {
+      state.liveStale = true;
+      syncRuleActionButtons();
+      setNotice('rv2RulesApplyResult', 'Live-конфигурация изменилась в «Конфигурация Xray». Текущий черновик правил сохранён, но применение заблокировано до отмены или повторного создания черновика.', 'bad');
+      return;
+    }
+
+    state.liveStale = false;
+    await loadConfig(true);
+  }
+
+  document.addEventListener('freenet:xray-config-applied', event => { void handleExternalConfigApplied(event); });
+
   async function prepareRulesCandidateForApply() {
     if (!hasRuleDraft() || (state.rules.length > 0 && !state.compiled)) {
       syncRuleActionButtons();
-      setNotice('rv2RulesApplyResult', 'Нет готовых изменений для сохранения.', 'bad');
+      setNotice('rv2RulesApplyResult', 'Нет готовых изменений для применения.', 'bad');
       return false;
     }
     const prepared = await buildRoutingDraftFromRules(false);
@@ -1216,12 +1279,16 @@
     state.removals = [];
     state.editing = -1;
     state.selectedSource = '';
+    state.liveStale = false;
     closeInlineComposer(true);
     renderRuleList();
     renderCompileState();
-    await loadConfig();
+    await loadConfig(true);
     setMode('rules');
-    setNotice('rv2RulesApplyResult', message || 'Сохранено и применено.', 'ok');
+    setNotice('rv2RulesApplyResult', message || 'Изменения применены.', 'ok');
+    document.dispatchEvent(new CustomEvent('freenet:xray-config-applied', {
+      detail:{source:'rules', files:['05_routing','06_policy']}
+    }));
   }
 
   window.FreeNetRoutingV2 = Object.assign(window.FreeNetRoutingV2 || {}, {

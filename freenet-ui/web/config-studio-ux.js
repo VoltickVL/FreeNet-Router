@@ -145,7 +145,7 @@
     setText(qs(':scope > .rv2-copy', shell), 'Редактирование конфигов Xray и списков XKeen.');
     setText(qs('#csFormat'), 'Форматировать');
     setText(qs('#csReset'), 'Отменить');
-    setText(qs('#csApply'), 'Сохранить');
+    setText(qs('#csApply'), 'Применить');
     qs('#csFormat')?.classList.add('cs-btn-tertiary');
     qs('#csReset')?.classList.add('cs-btn-reset');
     qs('.cs-toolbar', shell)?.classList.add('cs-editor-footer');
