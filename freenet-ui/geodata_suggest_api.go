@@ -67,7 +67,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, geoDataSuggestResponse{Success: false, Kind: kind, Query: raw, Suggestions: []geoDataSuggestion{}, Mutation: "NONE", Error: "invalid geodata suggestion query"})
 		return
 	}
-	query, err := classifyGeoDataSuggestQuery(kind, raw)
+	query, err := classifyGeoDataSuggestQueryWithMode(kind, raw, r.URL.Query().Get("mode"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, geoDataSuggestResponse{Success: false, Kind: kind, Query: raw, Suggestions: []geoDataSuggestion{}, Mutation: "NONE", Error: err.Error()})
 		return
@@ -82,10 +82,15 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 	for _, file := range installed {
 		byName[file.Name] = file
 	}
-	selected, err := selectGeoDataFiles(kind, r.URL.Query()["file"], installed, byName)
+	requestedFiles := r.URL.Query()["file"]
+	selected, err := selectGeoDataFiles(kind, requestedFiles, installed, byName)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, geoDataSuggestResponse{Success: false, Kind: kind, Query: raw, Mode: query.Mode, Suggestions: []geoDataSuggestion{}, Mutation: "NONE", Error: err.Error()})
 		return
+	}
+	explicitFiles := len(requestedFiles) > 0
+	if !explicitFiles {
+		selected = prioritizeGeoDataSuggestFiles(kind, selected)
 	}
 
 	ctx, cancel := geoDataSearchContext(r.Context())
@@ -109,6 +114,12 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 	scanWarnings := make([]string, 0)
 	var budgetUsed int64
 	for _, file := range selected {
+		// Unknown-name DATs are a compatibility fallback. On the normal autocomplete
+		// path, a usable result from a filename-typed DAT is authoritative enough;
+		// do not burn the remaining router budget probing unrelated custom files.
+		if !explicitFiles && file.Kind == GeoDataUnknown && len(suggestions) > 0 {
+			break
+		}
 		if err := geoDataContextErr(ctx); err != nil {
 			writeJSON(w, http.StatusRequestTimeout, geoDataSuggestResponse{Success: false, Kind: kind, Query: raw, Mode: query.Mode, Suggestions: []geoDataSuggestion{}, Mutation: "NONE", Error: "geodata suggestion search timed out"})
 			return
@@ -134,7 +145,17 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 		path := filepath.Join(a.geoDataAssetDir(), file.Name)
 		switch query.Mode {
 		case "prefix":
-			result, scanErr := searchGeoDataCategoryPrefixFileStream(ctx, path, kind, query.Value, maxGeoDataSuggestions)
+			var result geoDataStreamSearchResult
+			var scanErr error
+			if file.Kind == kind {
+				// Prefix autocomplete needs category names only. For a filename-typed
+				// compatible DAT, skip nested domain/CIDR payloads instead of decoding
+				// every rule on every keystroke.
+				result, scanErr = searchGeoDataCategoryCodePrefixFileStream(ctx, path, query.Value, maxGeoDataSuggestions)
+			} else {
+				// Explicit/custom unknown-name DATs still use the kind-validating path.
+				result, scanErr = searchGeoDataCategoryPrefixFileStream(ctx, path, kind, query.Value, maxGeoDataSuggestions)
+			}
 			if scanErr != nil {
 				if isGeoDataTimeout(scanErr) {
 					writeJSON(w, http.StatusRequestTimeout, geoDataSuggestResponse{Success: false, Kind: kind, Query: raw, Mode: query.Mode, Suggestions: []geoDataSuggestion{}, Mutation: "NONE", Error: "geodata suggestion search timed out"})
@@ -223,6 +244,37 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 		Success: true, Kind: kind, Query: raw, Mode: query.Mode,
 		Suggestions: items, Resolved: resolved, Warnings: warnings, Mutation: "NONE",
 	})
+}
+
+func classifyGeoDataSuggestQueryWithMode(kind GeoDataKind, raw, mode string) (geoDataSuggestQuery, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	switch mode {
+	case "", "auto":
+		return classifyGeoDataSuggestQuery(kind, raw)
+	case "prefix":
+		prefix, err := normalizeGeoDataCategoryPrefix(kind, raw)
+		if err != nil {
+			return geoDataSuggestQuery{}, err
+		}
+		return geoDataSuggestQuery{Mode: "prefix", Value: prefix}, nil
+	default:
+		return geoDataSuggestQuery{}, fmt.Errorf("unsupported geodata suggestion mode")
+	}
+}
+
+func prioritizeGeoDataSuggestFiles(kind GeoDataKind, selected []GeoDataFile) []GeoDataFile {
+	ordered := make([]GeoDataFile, 0, len(selected))
+	for _, file := range selected {
+		if file.Kind == kind {
+			ordered = append(ordered, file)
+		}
+	}
+	for _, file := range selected {
+		if file.Kind == GeoDataUnknown {
+			ordered = append(ordered, file)
+		}
+	}
+	return ordered
 }
 
 func classifyGeoDataSuggestQuery(kind GeoDataKind, raw string) (geoDataSuggestQuery, error) {
@@ -385,6 +437,133 @@ func uniqueSortedStrings(values []string, limit int) []string {
 		out = out[:limit]
 	}
 	return out
+}
+
+func searchGeoDataCategoryCodePrefixFileStream(ctx context.Context, path, prefix string, categoryLimit int) (geoDataStreamSearchResult, error) {
+	if categoryLimit <= 0 {
+		return geoDataStreamSearchResult{}, fmt.Errorf("invalid category limit")
+	}
+	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	if prefix == "" {
+		return geoDataStreamSearchResult{}, fmt.Errorf("invalid category prefix")
+	}
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		return geoDataStreamSearchResult{}, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return geoDataStreamSearchResult{}, fmt.Errorf("not a regular geodata file")
+	}
+	if info.Size() < 0 || info.Size() > maxGeoDataFileSize {
+		return geoDataStreamSearchResult{}, fmt.Errorf("geodata file exceeds safe size")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return geoDataStreamSearchResult{}, err
+	}
+	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil {
+		return geoDataStreamSearchResult{}, err
+	}
+	if !opened.Mode().IsRegular() || opened.Size() != info.Size() {
+		return geoDataStreamSearchResult{}, fmt.Errorf("geodata file changed during open")
+	}
+
+	br := bufio.NewReaderSize(f, geoDataStreamBufferSize)
+	found := make(map[string]struct{})
+	var consumed int64
+	for consumed < opened.Size() {
+		if err := geoDataContextErr(ctx); err != nil {
+			return geoDataStreamSearchResult{}, err
+		}
+		number, wire, n, err := readGeoProtoKey(ctx, br)
+		if err != nil {
+			return geoDataStreamSearchResult{}, err
+		}
+		consumed += n
+		if wire != 2 {
+			n, err := skipGeoFieldBody(ctx, br, wire, opened.Size()-consumed)
+			if err != nil {
+				return geoDataStreamSearchResult{}, err
+			}
+			consumed += n
+			continue
+		}
+		length, n, err := readGeoUvarint(ctx, br)
+		if err != nil {
+			return geoDataStreamSearchResult{}, err
+		}
+		consumed += n
+		if length > uint64(maxGeoDataStreamEntrySize) {
+			return geoDataStreamSearchResult{}, fmt.Errorf("geodata entry exceeds safe size")
+		}
+		if err := ensureGeoRemaining(opened.Size(), consumed, int64(length)); err != nil {
+			return geoDataStreamSearchResult{}, err
+		}
+		if number != 1 {
+			if err := skipGeoBytes(ctx, br, int64(length)); err != nil {
+				return geoDataStreamSearchResult{}, err
+			}
+			consumed += int64(length)
+			continue
+		}
+		code, err := scanGeoDataCategoryCodeEntryStream(ctx, br, int64(length))
+		if err != nil {
+			return geoDataStreamSearchResult{}, err
+		}
+		consumed += int64(length)
+		code = strings.ToLower(strings.TrimSpace(code))
+		if code != "" && strings.HasPrefix(code, prefix) {
+			found[code] = struct{}{}
+			if len(found) >= categoryLimit {
+				return geoDataStreamSearchResult{Categories: sortedStringSet(found), Truncated: true, Observed: true}, nil
+			}
+		}
+	}
+	return geoDataStreamSearchResult{Categories: sortedStringSet(found), Observed: true}, nil
+}
+
+func scanGeoDataCategoryCodeEntryStream(ctx context.Context, br *bufio.Reader, total int64) (string, error) {
+	var consumed int64
+	var code string
+	for consumed < total {
+		number, wire, n, err := readGeoProtoKey(ctx, br)
+		if err != nil {
+			return "", err
+		}
+		consumed += n
+		if number == 1 && wire == 2 {
+			length, n, err := readGeoUvarint(ctx, br)
+			if err != nil {
+				return "", err
+			}
+			consumed += n
+			if length > uint64(maxGeoDataStreamValueSize) {
+				return "", fmt.Errorf("geodata category exceeds safe size")
+			}
+			if err := ensureGeoRemaining(total, consumed, int64(length)); err != nil {
+				return "", err
+			}
+			value, err := readGeoBytes(ctx, br, int64(length))
+			if err != nil {
+				return "", err
+			}
+			code = string(value)
+			consumed += int64(length)
+			continue
+		}
+		n, err = skipGeoFieldBody(ctx, br, wire, total-consumed)
+		if err != nil {
+			return "", err
+		}
+		consumed += n
+	}
+	if consumed != total {
+		return "", fmt.Errorf("invalid geodata entry length")
+	}
+	return code, nil
 }
 
 func searchGeoDataCategoryPrefixFileStream(ctx context.Context, path string, expected GeoDataKind, prefix string, categoryLimit int) (geoDataStreamSearchResult, error) {
