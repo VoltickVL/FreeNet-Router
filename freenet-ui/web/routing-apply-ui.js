@@ -207,7 +207,7 @@
       return true;
     } catch (_) {
       stopLatched = true;
-      setResult('Связь прервалась, поэтому результат применения и отката не подтверждён. STOP: не повторяйте изменение до проверки фактического состояния.', 'bad');
+      setResult('Связь прервалась, поэтому результат применения и отката не подтверждён. STOP: не повторяйте mutation до проверки фактического состояния.', 'bad');
       q('#rv2ApplyResult')?.classList.add('rv2-apply-stop'); q('#rv2RulesApplyResult')?.classList.add('rv2-apply-stop');
       return false;
     } finally {
