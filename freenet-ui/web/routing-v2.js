@@ -789,7 +789,8 @@
     const stop = qs('#rv2XrayStop');
     const restart = qs('#rv2XrayRestart');
     const versions = qs('#rv2XrayVersions');
-    const blocked = !!window.FreeNetXrayControl?.mutationBlocked?.();
+    const ownerReady = !!window.FreeNetXrayControl?.action;
+    const blocked = !ownerReady || !!window.FreeNetXrayControl?.mutationBlocked?.();
     if (start) { start.hidden = !!result.online; start.disabled = state.xrayBusy || blocked; }
     if (stop) { stop.hidden = !result.online; stop.disabled = state.xrayBusy || blocked; }
     if (restart) { restart.hidden = !result.online; restart.disabled = state.xrayBusy || blocked; }
