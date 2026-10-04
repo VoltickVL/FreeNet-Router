@@ -8,7 +8,8 @@
   const state = {
     data: null, status: null, baseline: '', dirty: false, saving: false, checking: false, controlsBusy: false,
     countries: [], countryCatalog: [], countryCatalogFresh: false, countryCatalogLoading: false, countryCatalogWarning: '',
-    journalFilter: 'all'
+    journalFilter: 'all', journalResultFilter: 'all', journalQuery: '', journalEvents: [], journalLive: true,
+    journalRefreshing: false, journalGeneratedAt: '', journalError: '', journalTimer: null
   };
 
   const svg = (name) => {
@@ -171,12 +172,15 @@
   }
 
   function humanResult(result, message) {
-    const raw = String(result || '').toLowerCase();
+    const full = String(result || '').trim().toLowerCase();
+    const raw = full.includes(':') ? full.slice(full.lastIndexOf(':') + 1) : full;
     const msg = String(message || '');
-    if (raw === 'success' || raw === 'healthy' || raw === 'switched' || raw === 'updated') return ['Успешно', translateMessage(msg), 'ok'];
-    if (raw === 'same' || raw === 'no_new' || raw === 'candidate' || raw === 'disabled') return ['Без изменений', translateMessage(msg), 'neutral'];
-    if (raw === 'uncertain' || raw === 'busy') return ['Пропущено', translateMessage(msg), 'neutral'];
-    if (raw === 'failed' || raw === 'critical') return ['Ошибка', translateMessage(msg), 'bad'];
+    if (full === 'selection') return ['Решение', translateMessage(msg), 'neutral'];
+    if (raw === 'start' || raw === 'started') return ['Этап', translateMessage(msg), 'neutral'];
+    if (raw === 'success' || raw === 'healthy' || raw === 'switched' || raw === 'updated' || raw === 'cleared') return ['Успешно', translateMessage(msg), 'ok'];
+    if (raw === 'same' || raw === 'no_new' || raw === 'candidate' || raw === 'disabled' || raw === 'blocked' || raw === 'cooldown') return ['Без изменений', translateMessage(msg), 'neutral'];
+    if (raw === 'uncertain' || raw === 'busy' || raw === 'degraded' || raw === 'recovery_allowed' || raw === 'reconciled_failed') return ['Пропущено', translateMessage(msg), 'neutral'];
+    if (raw === 'failed' || raw === 'critical' || raw === 'rollback_failed') return ['Ошибка', translateMessage(msg), 'bad'];
     return ['Без изменений', translateMessage(msg), 'neutral'];
   }
 
@@ -383,8 +387,8 @@
     const scopeInput = q(`input[name="fn3Scope"][value="${scope}"]`); if (scopeInput) scopeInput.checked = true;
     renderMode();
 
-    renderJournal(data.events || [], '#fn3JournalFull');
-    renderJournalSummary(data.events || []);
+    if (!state.journalEvents.length && Array.isArray(data.events)) state.journalEvents = data.events.slice();
+    if (journalPageActive()) renderJournalPageState();
     applySchedule('subscription', data.subscription); applySchedule('geodata', data.geodata); applySchedule('freenet', data.freenet); applySchedule('backup', data.backup);
     renderBackupInfo(data.backup_info);
     state.baseline = formKey(); state.dirty = false; renderSave();
@@ -400,35 +404,86 @@
     return 'system';
   }
 
+  function journalStage(event) {
+    if (journalCategory(event) !== 'auto') return '';
+    const raw = String(event?.result || '').trim().toLowerCase();
+    if (raw === 'selection') return 'selection';
+    const split = raw.indexOf(':');
+    return split > 0 ? raw.slice(0, split) : '';
+  }
+
+  function journalStageLabel(stage) {
+    return ({
+      detect:'Проверка',
+      wan:'Обычный интернет',
+      confirm:'Подтверждение',
+      endpoint_refresh:'Endpoint',
+      candidate_selection:'Подбор',
+      selection:'Решение',
+      apply:'Применение',
+      post_check:'Post-check',
+      rollback:'Rollback',
+      post_update_guard:'После обновления',
+      rollback_guard:'Защита rollback'
+    })[stage] || '';
+  }
+
   function journalKind(event) {
     const kind = String(event?.kind || '').trim();
     const category = journalCategory(event);
     if (category === 'vpn') return ['VPN', 'vpn'];
-    if (category === 'auto') return ['AUTO VPN', 'auto'];
+    if (category === 'auto') {
+      const stage = journalStageLabel(journalStage(event));
+      return [stage ? `AUTO VPN · ${stage}` : 'AUTO VPN', 'auto'];
+    }
     if (category === 'subscription') return ['Подписка', 'system'];
     if (kind === 'geodata') return ['GeoData / GeoIP', 'system'];
     if (kind === 'freenet') return ['FreeNet', 'system'];
+    if (kind === 'freenet_release_catalog') return ['Каталог FreeNet', 'system'];
     if (kind === 'freenet_update' || kind === 'freenet_update_recovery') return ['Обновление FreeNet', 'system'];
     if (kind === 'backup') return ['Резервная копия', 'system'];
     return [kind || 'Система', 'system'];
   }
 
-  function filteredJournalEvents(events) {
-    const rows = Array.isArray(events) ? events : [];
-    if (state.journalFilter === 'all') return rows;
-    return rows.filter(event => journalCategory(event) === state.journalFilter);
+  function journalTone(event) {
+    return humanResult(event?.result, event?.message)[2];
   }
 
-  function renderJournal(events, target = '#fn3Journal') {
+  function normalizedSearch(value) {
+    return String(value || '').toLocaleLowerCase('ru-RU').replace(/\s+/g, ' ').trim();
+  }
+
+  function filteredJournalEvents(events) {
+    let rows = Array.isArray(events) ? events.slice() : [];
+    if (state.journalFilter !== 'all') rows = rows.filter(event => journalCategory(event) === state.journalFilter);
+    if (state.journalResultFilter !== 'all') rows = rows.filter(event => journalTone(event) === state.journalResultFilter);
+    const query = normalizedSearch(state.journalQuery);
+    if (query) {
+      rows = rows.filter(event => {
+        const [result, translated] = humanResult(event?.result, event?.message);
+        const [kind] = journalKind(event);
+        const haystack = normalizedSearch([
+          formatDate(event?.at), event?.at, event?.kind, event?.result, kind, result, translated, event?.message
+        ].join(' '));
+        return haystack.includes(query);
+      });
+    }
+    return rows;
+  }
+
+  function renderJournal(events, target = '#fn3JournalFull') {
     const body = q(target); if (!body) return;
-    const source = target === '#fn3JournalFull' ? filteredJournalEvents(events) : (events || []);
-    const filtered = source.slice(0, target === '#fn3Journal' ? 4 : 50);
-    if (!filtered.length) { body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#8198b2;padding:16px">Событий по выбранному фильтру пока нет.</td></tr>'; return; }
+    const source = target === '#fn3JournalFull' ? filteredJournalEvents(events) : (Array.isArray(events) ? events : []);
+    const filtered = source.slice(0, target === '#fn3JournalFull' ? 200 : 4);
+    if (!filtered.length) {
+      body.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#8198b2;padding:18px">По текущему поиску и фильтрам событий нет.</td></tr>';
+      return;
+    }
     body.innerHTML = filtered.map(e => {
       const [result, msg, tone] = humanResult(e.result, e.message);
       const [kind, kindClass] = journalKind(e);
       const toneClass = tone === 'ok' ? '' : tone === 'bad' ? 'bad' : 'neutral';
-      return `<tr><td>${formatDate(e.at)}</td><td><span class="fn3-kind ${kindClass}">${escapeHTML(kind)}</span></td><td><span class="fn3-result ${toneClass}"><i class="fn3-dot"></i>${result}</span></td><td>${escapeHTML(msg)}</td></tr>`;
+      return `<tr><td>${formatDate(e.at)}</td><td><span class="fn3-kind ${kindClass}">${escapeHTML(kind)}</span></td><td><span class="fn3-result ${toneClass}"><i class="fn3-dot"></i>${escapeHTML(result)}</span></td><td>${escapeHTML(msg)}</td></tr>`;
     }).join('');
   }
 
