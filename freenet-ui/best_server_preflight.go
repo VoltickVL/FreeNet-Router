@@ -187,14 +187,18 @@ func (a *app) probeBestServerProfilePingConfirmed(ctx context.Context, candidate
 }
 
 func (a *app) confirmBestServerShortlistVPNPing(ctx context.Context, candidates []bestServerInternalCandidate) []bestServerInternalCandidate {
-	if len(candidates) == 0 || ctx.Err() != nil {
+	return confirmBestServerShortlistVPNPingWith(ctx, candidates, a.probeBestServerProfilePingConfirmed)
+}
+
+func confirmBestServerShortlistVPNPingWith(ctx context.Context, candidates []bestServerInternalCandidate, probe providerRTTProbe) []bestServerInternalCandidate {
+	if len(candidates) == 0 || ctx.Err() != nil || probe == nil {
 		return candidates
 	}
 	phaseCtx, cancel := context.WithTimeout(ctx, bestServerConfirmedRTTSweepTimeout)
 	items := measureProviderProfileRTTWithTimeout(
 		phaseCtx,
 		candidates,
-		a.probeBestServerProfilePingConfirmed,
+		probe,
 		bestServerConfirmedProfilePingTimeout,
 	)
 	cancel()
