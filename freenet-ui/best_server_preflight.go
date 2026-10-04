@@ -17,8 +17,9 @@ const (
 	bestServerPreflightShortlist           = 10
 	bestServerDiagnosticHTTPRuns           = 2
 	bestServerProfilePingTimeout           = 5 * time.Second
+	bestServerConfirmedShortlistLimit      = 6
 	bestServerConfirmedProfilePingTimeout  = 6 * time.Second
-	bestServerConfirmedRTTSweepTimeout     = 18 * time.Second
+	bestServerConfirmedRTTSweepTimeout     = 10 * time.Second
 	bestServerRTTSweepSlack                = 5 * time.Second
 )
 
@@ -194,10 +195,14 @@ func confirmBestServerShortlistVPNPingWith(ctx context.Context, candidates []bes
 	if len(candidates) == 0 || ctx.Err() != nil || probe == nil {
 		return candidates
 	}
+	limit := bestServerConfirmedShortlistLimit
+	if limit > len(candidates) {
+		limit = len(candidates)
+	}
 	phaseCtx, cancel := context.WithTimeout(ctx, bestServerConfirmedRTTSweepTimeout)
 	items := measureProviderProfileRTTWithTimeout(
 		phaseCtx,
-		candidates,
+		candidates[:limit],
 		probe,
 		bestServerConfirmedProfilePingTimeout,
 	)
@@ -219,9 +224,10 @@ func confirmBestServerShortlistVPNPingWith(ctx context.Context, candidates []bes
 		out[i].VPNPingConfirmed = true
 	}
 
-	// Confirmed finalists are ordered by their median. If the bounded
-	// confirmation budget expires, unconfirmed reserve candidates keep their
-	// original quick-sweep order and can be reported but cannot become Eligible.
+	// Confirmed finalists are ordered by their median. Only the first bounded
+	// competitive cohort is repeated; reserve candidates keep their original
+	// quick-sweep order. Any reserve candidate that reaches deep quality is
+	// confirmed again inside that isolated deep probe before it can win.
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].VPNPingConfirmed != out[j].VPNPingConfirmed {
 			return out[i].VPNPingConfirmed
