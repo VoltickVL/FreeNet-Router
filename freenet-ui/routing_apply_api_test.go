@@ -40,6 +40,34 @@ grep -q 'SECRET-UUID-MUST-NOT-LEAK' "$dir/04_outbounds.json"
 	return fakeXray
 }
 
+func installRoutingCoreRestartHelper(t *testing.T, failCounts ...string) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	counter := filepath.Join(dir, "core-restart.count")
+	failExpr := ""
+	for _, n := range failCounts {
+		failExpr += "[ \"$count\" = \"" + n + "\" ] && exit 1\n"
+	}
+	helper := filepath.Join(dir, "apply_provider_profile.sh")
+	writeRoutingTestFile(t, helper, `#!/bin/sh
+set -eu
+[ "${1:-}" = "core-restart" ]
+count=1
+if [ -f "`+counter+`" ]; then count=$(( $(cat "`+counter+`") + 1 )); fi
+printf '%s' "$count" > "`+counter+`"
+`+failExpr+`exit 0
+`, 0700)
+	t.Setenv("FREENET_PROVIDER_HELPER", helper)
+	return helper, counter
+}
+
+func withRunningXray(t *testing.T) {
+	t.Helper()
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(string) bool { return true }
+	t.Cleanup(func() { xrayServiceProcessRunning = previous })
+}
+
 func performRoutingApply(t *testing.T, a *app, body string) (*httptest.ResponseRecorder, routingApplyResponse) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "http://router/api/routing/apply", strings.NewReader(body))
@@ -159,6 +187,97 @@ func TestRoutingApplyRollbackValidationFailureStops(t *testing.T) {
 	after06, _ := os.ReadFile(filepath.Join(dir, "06_policy.json"))
 	if !bytes.Equal(before05, after05) || !bytes.Equal(before06, after06) {
 		t.Fatal("rollback restore should still put bytes back before reporting failed validation")
+	}
+}
+
+
+func TestRoutingApplyRestartsRunningXrayCore(t *testing.T) {
+	a, dir := routingTestApp(t)
+	t.Setenv("FREENET_XRAY_BIN", installCountingRoutingXray(t))
+	_, counter := installRoutingCoreRestartHelper(t)
+	withRunningXray(t)
+
+	rec, resp := performRoutingApply(t, a, routingApplyCandidatePayload)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !resp.Success || resp.Mutation != "APPLIED" || !resp.CoreRestart {
+		t.Fatalf("running Xray apply must activate runtime: %+v", resp)
+	}
+	count, err := os.ReadFile(counter)
+	if err != nil || strings.TrimSpace(string(count)) != "1" {
+		t.Fatalf("core-only restart count=%q err=%v", string(count), err)
+	}
+	after05, _ := os.ReadFile(filepath.Join(dir, "05_routing.json"))
+	if !strings.Contains(string(after05), "candidate.example") {
+		t.Fatal("running apply did not keep candidate bytes")
+	}
+}
+
+func TestRoutingApplyCoreRestartFailureRestoresBytesAndRuntime(t *testing.T) {
+	a, dir := routingTestApp(t)
+	t.Setenv("FREENET_XRAY_BIN", installCountingRoutingXray(t))
+	_, counter := installRoutingCoreRestartHelper(t, "1")
+	withRunningXray(t)
+	before05, _ := os.ReadFile(filepath.Join(dir, "05_routing.json"))
+	before06, _ := os.ReadFile(filepath.Join(dir, "06_policy.json"))
+
+	rec, resp := performRoutingApply(t, a, routingApplyCandidatePayload)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if resp.Success || resp.Mutation != "ROLLED_BACK" || resp.Rollback != "SUCCESS" || resp.Applied {
+		t.Fatalf("restart failure must restore old runtime: %+v", resp)
+	}
+	after05, _ := os.ReadFile(filepath.Join(dir, "05_routing.json"))
+	after06, _ := os.ReadFile(filepath.Join(dir, "06_policy.json"))
+	if !bytes.Equal(before05, after05) || !bytes.Equal(before06, after06) {
+		t.Fatal("restart failure did not restore managed bytes")
+	}
+	count, err := os.ReadFile(counter)
+	if err != nil || strings.TrimSpace(string(count)) != "2" {
+		t.Fatalf("expected failed activation + rollback restart, count=%q err=%v", string(count), err)
+	}
+}
+
+func TestRoutingApplyRollbackRuntimeFailureStops(t *testing.T) {
+	a, dir := routingTestApp(t)
+	t.Setenv("FREENET_XRAY_BIN", installCountingRoutingXray(t))
+	_, counter := installRoutingCoreRestartHelper(t, "1", "2")
+	withRunningXray(t)
+	before05, _ := os.ReadFile(filepath.Join(dir, "05_routing.json"))
+
+	rec, resp := performRoutingApply(t, a, routingApplyCandidatePayload)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if resp.Mutation != "STOP" || resp.Rollback != "FAILED" {
+		t.Fatalf("rollback runtime failure must STOP: %+v", resp)
+	}
+	after05, _ := os.ReadFile(filepath.Join(dir, "05_routing.json"))
+	if !bytes.Equal(before05, after05) {
+		t.Fatal("STOP path must restore old routing bytes even when runtime restart is unknown")
+	}
+	count, err := os.ReadFile(counter)
+	if err != nil || strings.TrimSpace(string(count)) != "2" {
+		t.Fatalf("expected activation and rollback restart attempts, count=%q err=%v", string(count), err)
+	}
+}
+
+func TestRoutingApplyRunningXrayRequiresCoreRestartHelperBeforeMutation(t *testing.T) {
+	a, dir := routingTestApp(t)
+	t.Setenv("FREENET_XRAY_BIN", installCountingRoutingXray(t))
+	t.Setenv("FREENET_PROVIDER_HELPER", filepath.Join(t.TempDir(), "missing-helper"))
+	withRunningXray(t)
+	before05, _ := os.ReadFile(filepath.Join(dir, "05_routing.json"))
+
+	rec, resp := performRoutingApply(t, a, routingApplyCandidatePayload)
+	if rec.Code != http.StatusServiceUnavailable || resp.Mutation != "NONE" {
+		t.Fatalf("missing core restart helper must stop before write: status=%d resp=%+v", rec.Code, resp)
+	}
+	after05, _ := os.ReadFile(filepath.Join(dir, "05_routing.json"))
+	if !bytes.Equal(before05, after05) {
+		t.Fatal("missing core restart helper mutated routing before preflight")
 	}
 }
 
