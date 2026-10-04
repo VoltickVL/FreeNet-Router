@@ -164,3 +164,60 @@ func TestSelfUpdateReleaseHandlerFallsBackToRecoveryLatest(t *testing.T) {
 		t.Fatalf("primary catalog error not journaled: %s", data)
 	}
 }
+
+
+func TestSelfUpdateCanceledBrowserRequestDoesNotPolluteJournal(t *testing.T) {
+	oldDownload := selfUpdateReleaseDownload
+	oldAPI := selfUpdateReleasesAPI
+	defer func() {
+		selfUpdateReleaseDownload = oldDownload
+		selfUpdateReleasesAPI = oldAPI
+		resetSelfUpdateReleaseCacheForTest()
+	}()
+	resetSelfUpdateReleaseCacheForTest()
+	selfUpdateReleasesAPI = "https://catalog.test/releases"
+	selfUpdateReleaseDownload = func(ctx context.Context, _ string, _ int64) ([]byte, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	history := filepath.Join(t.TempDir(), "history.tsv")
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", history)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "http://router.test/api/system/update/releases?fresh=1", nil).WithContext(ctx)
+	cancel()
+	rr := httptest.NewRecorder()
+	(&app{}).handleSelfUpdateReleases(rr, req)
+
+	if data, err := os.ReadFile(history); err == nil && strings.TrimSpace(string(data)) != "" {
+		t.Fatalf("browser cancellation leaked into persistent Journal: %s", data)
+	}
+}
+
+func TestSelfUpdateRealCatalogFailureStillJournalsPrimaryError(t *testing.T) {
+	oldDownload := selfUpdateReleaseDownload
+	defer func() {
+		selfUpdateReleaseDownload = oldDownload
+		resetSelfUpdateReleaseCacheForTest()
+	}()
+	resetSelfUpdateReleaseCacheForTest()
+	selfUpdateReleaseDownload = func(context.Context, string, int64) ([]byte, error) {
+		return nil, errors.New("resolver failure")
+	}
+	history := filepath.Join(t.TempDir(), "history.tsv")
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", history)
+	// Force fallback to fail without involving request cancellation.
+	t.Setenv("FREENET_RECOVERY_LATEST_URL", "http://127.0.0.1:1/unavailable")
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "http://router.test/api/system/update/releases?fresh=1", nil)
+	(&app{}).handleSelfUpdateReleases(rr, req)
+
+	data, err := os.ReadFile(history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "PRIMARY ERROR: release catalog page 1 unavailable: resolver failure") {
+		t.Fatalf("real catalog failure must remain visible: %s", data)
+	}
+}
