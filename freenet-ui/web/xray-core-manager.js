@@ -611,8 +611,20 @@
       }
     } catch (_) {
       clearNode(target);
-      const box = document.createElement('div'); box.className = 'xcm-result bad'; box.textContent = 'Связь с FreeNet прервалась во время операции. Не повторяйте установку вслепую: сначала обновите состояние.'; target.appendChild(box);
-      addButton(footer, 'Обновить состояние', 'primary', () => location.reload());
+      clearNode(footer);
+      const box = document.createElement('div');
+      box.className = 'xcm-result bad stop';
+      box.textContent = 'Связь с FreeNet прервалась во время операции. Не повторяйте установку вслепую: сначала перечитайте фактическое состояние Xray.';
+      target.appendChild(box);
+      addButton(footer, 'Закрыть', '', closeManager);
+      addButton(footer, 'Проверить состояние', 'primary', async () => {
+        try {
+          const current = await fetchServiceSnapshot();
+          renderServiceHome(current);
+        } catch (_) {
+          box.textContent = 'Состояние Xray пока не подтверждено. Следующая mutation остаётся заблокированной.';
+        }
+      });
     } finally {
       applying = false;
     }
