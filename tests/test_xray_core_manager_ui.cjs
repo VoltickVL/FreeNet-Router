@@ -228,8 +228,8 @@ const server = http.createServer((req, res) => {
     assert.equal(applyPosts, 1, 'one explicit version action must issue exactly one apply POST');
     assert.deepEqual(applyBody, {target_version:'v26.8.1'});
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'successful Xray apply must update topbar version immediately');
-    await manager.getByRole('button', {name:'К управлению'}).click();
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.8.1') && (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Работает'));
+    assert.match(await manager.innerText(),/Xray переключён: v26\.9\.9 → v26\.8\.1/);
     assert.equal((await page.locator('#csServiceVersion').textContent()).trim(), 'v26.8.1 ▾', 'Config Studio version must reconcile without page reload');
 
     await page.locator('#xcmClose').click();
