@@ -106,6 +106,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 
 	suggestions := make(map[string]*geoDataSuggestion)
 	warnings := make([]string, 0)
+	scanWarnings := make([]string, 0)
 	var budgetUsed int64
 	for _, file := range selected {
 		if err := geoDataContextErr(ctx); err != nil {
@@ -139,7 +140,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 					writeJSON(w, http.StatusRequestTimeout, geoDataSuggestResponse{Success: false, Kind: kind, Query: raw, Mode: query.Mode, Suggestions: []geoDataSuggestion{}, Mutation: "NONE", Error: "geodata suggestion search timed out"})
 					return
 				}
-				warnings = append(warnings, geoDataWarning(file.Name, geoDataGenericFileError))
+				scanWarnings = append(scanWarnings, geoDataWarning(file.Name, geoDataGenericFileError))
 				continue
 			}
 			for _, category := range result.Categories {
@@ -155,7 +156,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 					writeJSON(w, http.StatusRequestTimeout, geoDataSuggestResponse{Success: false, Kind: kind, Query: raw, Mode: query.Mode, Suggestions: []geoDataSuggestion{}, Mutation: "NONE", Error: "geodata suggestion search timed out"})
 					return
 				}
-				warnings = append(warnings, geoDataWarning(file.Name, geoDataGenericFileError))
+				scanWarnings = append(scanWarnings, geoDataWarning(file.Name, geoDataGenericFileError))
 				continue
 			}
 			for _, category := range result.Categories {
@@ -168,7 +169,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 					writeJSON(w, http.StatusRequestTimeout, geoDataSuggestResponse{Success: false, Kind: kind, Query: raw, Mode: query.Mode, Suggestions: []geoDataSuggestion{}, Mutation: "NONE", Error: "geodata suggestion search timed out"})
 					return
 				}
-				warnings = append(warnings, geoDataWarning(file.Name, geoDataGenericFileError))
+				scanWarnings = append(scanWarnings, geoDataWarning(file.Name, geoDataGenericFileError))
 				continue
 			}
 			for _, category := range result.Categories {
@@ -182,7 +183,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 						writeJSON(w, http.StatusRequestTimeout, geoDataSuggestResponse{Success: false, Kind: kind, Query: raw, Mode: query.Mode, Suggestions: []geoDataSuggestion{}, Mutation: "NONE", Error: "geodata suggestion search timed out"})
 						return
 					}
-					warnings = append(warnings, geoDataWarning(file.Name, geoDataGenericFileError))
+					scanWarnings = append(scanWarnings, geoDataWarning(file.Name, geoDataGenericFileError))
 					break
 				}
 				for _, category := range result.Categories {
@@ -208,6 +209,14 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 	})
 	if len(items) > maxGeoDataSuggestions {
 		items = items[:maxGeoDataSuggestions]
+	}
+	// A mixed GeoData directory is common on real XKeen installs. If at least one
+	// compatible DAT produced usable suggestions, generic decode/type failures from
+	// unrelated DAT files are diagnostic noise rather than a failed user lookup.
+	// Keep safety/budget/truncation warnings, but surface generic scan failures only
+	// when no usable suggestion was found.
+	if len(items) == 0 {
+		warnings = append(warnings, scanWarnings...)
 	}
 
 	writeJSON(w, http.StatusOK, geoDataSuggestResponse{
