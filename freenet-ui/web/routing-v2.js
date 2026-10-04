@@ -10,6 +10,10 @@
     kind: 'domain',
     action: 'DIRECT',
     selectedSource: '',
+    geoSuggestTimer: null,
+    geoSuggestController: null,
+    geoSuggestItems: [],
+    geoSuggestIndex: -1,
     rules: [],
     compiled: null,
     editing: -1,
@@ -71,6 +75,7 @@
       .rv4-composer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}.rv4-composer-head strong{display:block;color:#f2f7ff;font-size:14px}.rv4-composer-head span{display:block;margin-top:3px;color:#89a0bc;font-size:12px}.rv4-composer-close{appearance:none;width:30px;height:30px;border:1px solid #314a67;border-radius:9px;background:#0a1828;color:#aabbd0;font:inherit;font-size:17px;cursor:pointer}.rv4-composer-close:hover{border-color:#5f83ad;color:#fff}
       .rv4-composer-grid{display:grid;gap:8px}.rv4-field label{display:block;margin-bottom:5px;color:#859bb7;font-size:12px;font-weight:750}.rv4-composer select,.rv4-composer input{width:100%;box-sizing:border-box;min-height:41px;padding:9px 10px;border:1px solid #2e4968;border-radius:10px;background:#071522;color:#eef5ff;outline:none;font:inherit;font-size:13px}.rv4-composer select:focus,.rv4-composer input:focus{border-color:#5b8cff;box-shadow:0 0 0 2px rgba(91,140,255,.08)}
       .rv4-composer .rv2-search{margin-top:8px}.rv4-composer .rv2-search-result{padding:9px 10px}.rv4-composer-submit{width:100%;min-height:41px;margin-top:1px}
+      .rv2-input-wrap{position:relative}.rv2-autocomplete{position:absolute;z-index:40;left:0;right:0;top:calc(100% + 5px);display:grid;gap:4px;max-height:290px;overflow:auto;padding:6px;border:1px solid #315275;border-radius:11px;background:#071522;box-shadow:0 18px 44px rgba(0,0,0,.42)}.rv2-autocomplete[hidden]{display:none!important}.rv2-autocomplete-item{appearance:none;width:100%;text-align:left;border:1px solid transparent;border-radius:9px;background:#0a1a2b;color:#edf5ff;padding:8px 9px;cursor:pointer}.rv2-autocomplete-item:hover,.rv2-autocomplete-item.active{border-color:#5b8cff;background:#132b49}.rv2-autocomplete-item b{display:block;font-size:12.5px}.rv2-autocomplete-item span{display:block;margin-top:2px;color:#859bb7;font-size:11px;white-space:normal}.rv2-autocomplete-warning{padding:7px 8px;color:#e8c77f;font-size:10.5px;line-height:1.35}
       .rv4-system{margin-top:14px}.rv4-system .rv2-system-toggle{border-radius:13px;background:#091724}
       .rv2-system-toggle{appearance:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border:1px solid #283e58;border-radius:13px;background:#091724;color:#a8bbd2;font:inherit;font-size:13px;font-weight:750;cursor:pointer}.rv2-system-toggle:hover{border-color:#3e5d81;background:#0d1f33}.rv2-system-toggle b{color:#dce8f8}.rv2-system-list{display:grid;gap:7px;margin-top:8px}.rv2-system-list[hidden]{display:none!important}.rv2-system-rule{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 13px;border:1px solid #233951;border-radius:11px;background:#081522;color:#9eb1c9;font-size:13px}.rv2-system-copy b{display:block;color:#d9e6f5;font-size:13.5px}.rv2-system-copy span{display:block;margin-top:3px;color:#8298b3;font-size:12px;line-height:1.4}.rv2-system-route{padding:5px 9px;border:1px solid #304965;border-radius:999px;color:#aec2db;font-size:12px;font-weight:800;white-space:nowrap}.rv2-system-protected{color:#7f95ae;font-size:11.5px;font-weight:650}
       .rv2-draft-card[hidden]{display:none!important}.rv2-draft-head{display:flex;align-items:center;gap:9px}.rv2-draft-count{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 7px;border-radius:9px;background:#18325a;color:#cfe0ff;font-size:12px;font-weight:850}.rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:12px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}.rv2-workspace button:disabled{opacity:.38!important;cursor:not-allowed!important;filter:saturate(.55);box-shadow:none!important}.rv2-compiled[hidden]{display:none!important}
@@ -150,7 +155,7 @@
     if (family === 'domain') {
       if (value.startsWith('geosite:')) return {kind:'geosite', value:value.slice(8), raw:value};
       const ext = value.match(/^ext:([^:]+):(.+)$/i);
-      if (ext && /geosite/i.test(ext[1])) return {kind:'geosite', value:ext[2], raw:value};
+      if (ext && /geosite/i.test(ext[1])) return {kind:'geosite', value:ext[2], source:ext[1], raw:value};
       if (value.startsWith('domain:')) return {kind:'domain', value:value.slice(7), raw:value};
       if (value.startsWith('full:')) return {kind:'domain', value:value.slice(5), raw:value, exact:true};
       if (/^(regexp|keyword):/i.test(value)) return {kind:'custom', value, raw:value};
@@ -158,7 +163,7 @@
     }
     if (value.startsWith('geoip:')) return {kind:'geoip', value:value.slice(6), raw:value};
     const ext = value.match(/^ext:([^:]+):(.+)$/i);
-    if (ext && /geoip/i.test(ext[1])) return {kind:'geoip', value:ext[2], raw:value};
+    if (ext && /geoip/i.test(ext[1])) return {kind:'geoip', value:ext[2], source:ext[1], raw:value};
     if (value.includes('/')) return {kind:'cidr', value, raw:value};
     return {kind:'ip', value, raw:value};
   }
@@ -213,7 +218,7 @@
     const result = [];
     const index = new Map();
     items.forEach(item => item.selectors.forEach(selector => {
-      const key = `${selector.kind}\u0000${selector.value}`;
+      const key = `${selector.kind}\u0000${selector.source || ''}\u0000${selector.value}`;
       let target = index.get(key);
       if (!target) {
         target = Object.assign({}, selector, {sources: []});
@@ -431,6 +436,7 @@
     input.placeholder = modeMeta().placeholder;
     const search = qs('#rv2GeoSearch');
     if (search) search.hidden = !(state.kind === 'geosite' || state.kind === 'geoip');
+    if (!(state.kind === 'geosite' || state.kind === 'geoip')) closeGeoAutocomplete();
   }
 
   function setAction(action) {
@@ -483,6 +489,7 @@
       state.selectedSource = '';
       const input = qs('#rv2Value'); if (input) input.value = '';
       const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
+      closeGeoAutocomplete();
       const cancel = qs('#rv2CancelEdit'); if (cancel) cancel.hidden = true;
       const add = qs('#rv2AddRule'); if (add) add.textContent = 'Добавить';
       setNotice('rv2RuleNotice', '');
@@ -526,15 +533,18 @@
   function currentInputRule() {
     const value = String(qs('#rv2Value')?.value || '').trim();
     if (!value) throw new Error('Укажите сайт, группу, IP-адрес или подсеть.');
-    return {selector: {kind: state.kind, value}, action: state.action};
+    const selector = {kind: state.kind, value};
+    if ((state.kind === 'geosite' || state.kind === 'geoip') && state.selectedSource) selector.source = state.selectedSource;
+    return {selector, action: state.action};
   }
 
   function normalizeCompiledRules(compiled) {
     if (!compiled || !Array.isArray(compiled.rules)) return [];
-    return compiled.rules.map(rule => ({
-      selector: {kind: String(rule.selector?.kind || ''), value: String(rule.selector?.value || '')},
-      action: String(rule.action || 'DIRECT')
-    }));
+    return compiled.rules.map(rule => {
+      const selector = {kind: String(rule.selector?.kind || ''), value: String(rule.selector?.value || '')};
+      if (rule.selector?.source) selector.source = String(rule.selector.source);
+      return {selector, action: String(rule.action || 'DIRECT')};
+    });
   }
 
   async function compileCandidate(candidate, successCopy) {
@@ -611,6 +621,7 @@
     state.editing = index;
     state.kind = rule.selector.kind;
     state.family = ['ip','cidr','geoip'].includes(rule.selector.kind) ? 'ip' : 'domain';
+    state.selectedSource = String(rule.selector.source || '');
     state.action = rule.action;
     openInlineComposer(rule.action, true);
     const input = qs('#rv2Value'); if (input) { input.value = rule.selector.value; input.focus(); }
@@ -669,7 +680,7 @@
       const row = document.createElement('div'); row.className = 'rv2-rule'; row.dataset.ruleIndex = String(index);
       const order = document.createElement('div'); order.className = 'rv2-order'; order.textContent = String(index + 1);
       const selector = document.createElement('div'); selector.className = 'rv2-selector';
-      const strong = document.createElement('b'); strong.textContent = `${humanKind(rule.selector.kind)} · ${rule.selector.value}`;
+      const strong = document.createElement('b'); strong.textContent = `${humanKind(rule.selector.kind)} · ${rule.selector.value}${rule.selector.source ? ` · ${rule.selector.source}` : ''}`;
       const meta = document.createElement('span'); meta.textContent = ruleDetails(index);
       selector.append(strong, meta);
       const action = document.createElement('div'); action.className = `rv2-rule-action ${rule.action.toLowerCase()}`; action.textContent = rule.action;
@@ -724,41 +735,163 @@
     summary.innerHTML = `<strong>Изменения · ${parts.join(' · ')}</strong> · нажмите «Применить».`;
   }
 
+  function defaultGeoDataFile(kind) {
+    return kind === 'geoip' ? 'geoip.dat' : 'geosite.dat';
+  }
+
+  function sourceForSuggestion(item) {
+    const file = String(item?.file || '').trim();
+    return file && file.toLowerCase() !== defaultGeoDataFile(state.kind).toLowerCase() ? file : '';
+  }
+
+  function closeGeoAutocomplete() {
+    if (state.geoSuggestTimer) { clearTimeout(state.geoSuggestTimer); state.geoSuggestTimer = null; }
+    if (state.geoSuggestController) { state.geoSuggestController.abort(); state.geoSuggestController = null; }
+    state.geoSuggestItems = [];
+    state.geoSuggestIndex = -1;
+    const box = qs('#rv2GeoAutocomplete');
+    if (box) { box.hidden = true; box.textContent = ''; }
+    const input = qs('#rv2Value');
+    if (input) input.setAttribute('aria-expanded','false');
+  }
+
+  function selectGeoSuggestion(item, fromAutocomplete = true) {
+    if (!item) return;
+    const input = qs('#rv2Value');
+    if (input) input.value = String(item.category || '');
+    state.selectedSource = sourceForSuggestion(item);
+    if (fromAutocomplete) closeGeoAutocomplete();
+    const sourceCopy = state.selectedSource ? ` из ${state.selectedSource}` : '';
+    const evidence = Array.isArray(item.evidence) && item.evidence.length ? ` · найдено по ${item.evidence.join(', ')}` : '';
+    setNotice('rv2RuleNotice', `Выбрана ${humanKind(state.kind)} категория ${item.category}${sourceCopy}${evidence}. Нажмите «Добавить».`, 'ok');
+  }
+
+  function setGeoSuggestIndex(index) {
+    const box = qs('#rv2GeoAutocomplete');
+    if (!box || !state.geoSuggestItems.length) return;
+    const count = state.geoSuggestItems.length;
+    state.geoSuggestIndex = ((index % count) + count) % count;
+    qsa('.rv2-autocomplete-item', box).forEach((node,i) => {
+      const active = i === state.geoSuggestIndex;
+      node.classList.toggle('active', active);
+      node.setAttribute('aria-selected', active ? 'true' : 'false');
+      if (active) node.scrollIntoView({block:'nearest'});
+    });
+  }
+
+  function renderGeoAutocomplete(body) {
+    const box = qs('#rv2GeoAutocomplete');
+    const input = qs('#rv2Value');
+    if (!box || !input) return;
+    box.textContent = '';
+    const items = Array.isArray(body?.suggestions) ? body.suggestions.slice(0,12) : [];
+    state.geoSuggestItems = items;
+    state.geoSuggestIndex = items.length ? 0 : -1;
+
+    items.forEach((item,index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `rv2-autocomplete-item${index === 0 ? ' active' : ''}`;
+      button.setAttribute('role','option');
+      button.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+      const title = document.createElement('b');
+      title.textContent = `${humanKind(state.kind)} · ${String(item.category || '')}`;
+      const meta = document.createElement('span');
+      const evidence = Array.isArray(item.evidence) && item.evidence.length ? ` · ${item.evidence.join(', ')}` : '';
+      meta.textContent = `${String(item.file || defaultGeoDataFile(state.kind))}${evidence}`;
+      button.append(title, meta);
+      button.addEventListener('mousedown', event => event.preventDefault());
+      button.addEventListener('click', () => selectGeoSuggestion(item, true));
+      box.appendChild(button);
+    });
+
+    const warnings = Array.isArray(body?.warnings) ? body.warnings.filter(Boolean) : [];
+    if (warnings.length) {
+      const warn = document.createElement('div');
+      warn.className = 'rv2-autocomplete-warning';
+      warn.textContent = warnings.join(' · ');
+      box.appendChild(warn);
+    }
+    box.hidden = !items.length && !warnings.length;
+    input.setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
+  }
+
+  async function requestGeoSuggestions(query, renderInline = true) {
+    if (!(state.kind === 'geosite' || state.kind === 'geoip')) return null;
+    const value = String(query || '').trim();
+    if (value.length < 2) { if (renderInline) closeGeoAutocomplete(); return null; }
+    if (state.geoSuggestController) state.geoSuggestController.abort();
+    const controller = new AbortController();
+    state.geoSuggestController = controller;
+    try {
+      const body = await api(`/api/geodata/suggest?kind=${encodeURIComponent(state.kind)}&q=${encodeURIComponent(value)}`, {signal:controller.signal});
+      if (body.mutation !== 'NONE') throw new Error('Нарушен read-only GeoData contract.');
+      if (controller.signal.aborted) return null;
+      if (renderInline) renderGeoAutocomplete(body);
+      return body;
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') return null;
+      if (renderInline) {
+        closeGeoAutocomplete();
+        setNotice('rv2RuleNotice', `GeoData: ${safeError(error,'поиск недоступен')}. Текущая маршрутизация не меняется.`, 'bad');
+      }
+      throw error;
+    } finally {
+      if (state.geoSuggestController === controller) state.geoSuggestController = null;
+    }
+  }
+
+  function queueGeoAutocomplete() {
+    if (state.geoSuggestTimer) clearTimeout(state.geoSuggestTimer);
+    const input = qs('#rv2Value');
+    const query = String(input?.value || '').trim();
+    if (!(state.kind === 'geosite' || state.kind === 'geoip') || query.length < 2) {
+      closeGeoAutocomplete();
+      return;
+    }
+    state.geoSuggestTimer = setTimeout(() => {
+      state.geoSuggestTimer = null;
+      void requestGeoSuggestions(query, true).catch(() => {});
+    }, 320);
+  }
+
   async function searchGeo() {
     if (!(state.kind === 'geosite' || state.kind === 'geoip')) return;
     const query = String(qs('#rv2Value')?.value || '').trim();
-    if (!query) { setNotice('rv2RuleNotice', 'Введите название группы или часть названия.', 'bad'); return; }
+    if (!query) { setNotice('rv2RuleNotice', 'Введите категорию, домен, URL или IP.', 'bad'); return; }
     const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
+    closeGeoAutocomplete();
     try {
-      const body = await api(`/api/geodata/search?kind=${encodeURIComponent(state.kind)}&q=${encodeURIComponent(query)}`);
-      if (body.mutation !== 'NONE') throw new Error('Нарушен read-only GeoData contract.');
-      const warnings = Array.isArray(body.warnings) ? body.warnings.map(value => String(value || '').trim()).filter(Boolean) : [];
-      let count = 0;
-      (body.matches || []).forEach(match => (match.categories || []).forEach(category => {
-        count++;
+      const body = await requestGeoSuggestions(query, false);
+      if (!body) return;
+      const items = Array.isArray(body.suggestions) ? body.suggestions : [];
+      items.forEach(item => {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'rv2-search-result';
-        const bounded = match.truncated ? ' · показана часть совпадений' : '';
-        const title = document.createElement('b'); title.textContent = `${humanKind(state.kind)} · ${String(category)}`;
-        const meta = document.createElement('span'); meta.textContent = `Выбрать эту категорию${bounded}`;
+        const title = document.createElement('b'); title.textContent = `${humanKind(state.kind)} · ${String(item.category || '')}`;
+        const meta = document.createElement('span');
+        const evidence = Array.isArray(item.evidence) && item.evidence.length ? ` · evidence: ${item.evidence.join(', ')}` : '';
+        meta.textContent = `Выбрать · ${String(item.file || defaultGeoDataFile(state.kind))}${evidence}`;
         button.append(title, meta);
         button.addEventListener('click', () => {
-          const input = qs('#rv2Value'); if (input) input.value = String(category);
-          state.selectedSource = String(match.file || '');
-          qsa('.rv2-search-result').forEach(node => node.classList.remove('active')); button.classList.add('active');
-          syncRuleActionButtons();
-          setNotice('rv2RuleNotice', `Выбрана категория ${category}. Нажмите «Добавить».`);
+          qsa('.rv2-search-result').forEach(node => node.classList.remove('active'));
+          button.classList.add('active');
+          selectGeoSuggestion(item, false);
         });
         results?.appendChild(button);
       }));
+      const warnings = Array.isArray(body.warnings) ? body.warnings.filter(Boolean) : [];
+      const resolved = Array.isArray(body.resolved) ? body.resolved.filter(Boolean) : [];
       if (warnings.length) {
-        setNotice('rv2RuleNotice', `${count ? `Найдено: ${count}. ` : ''}Часть источников GeoData сейчас недоступна. Доступные результаты показаны.`, 'warn');
-      } else if (!count) {
-        setNotice('rv2RuleNotice', 'Группы не найдены. Название можно ввести вручную — FreeNet проверит его перед применением.');
+        setNotice('rv2RuleNotice', `${items.length ? `Найдено: ${items.length}. ` : ''}${warnings.join(' · ')}`, 'warn');
+      } else if (!items.length) {
+        const dnsCopy = resolved.length ? ` DNS: ${resolved.join(', ')}.` : '';
+        setNotice('rv2RuleNotice', `Подходящие категории не найдены.${dnsCopy} Можно уточнить запрос или ввести категорию вручную.`);
       } else {
-        setNotice('rv2RuleNotice', `Найдено групп: ${count}. Выберите нужную — действующая маршрутизация пока не меняется.`, 'ok');
+        const dnsCopy = resolved.length ? ` DNS: ${resolved.join(', ')}.` : '';
+        setNotice('rv2RuleNotice', `Найдено категорий: ${items.length}.${dnsCopy} Выберите нужную — live routing не меняется.`, 'ok');
       }
     } catch (error) {
-      setNotice('rv2RuleNotice', `Поиск GeoData сейчас недоступен. Категорию можно ввести вручную; текущая маршрутизация не меняется.`, 'bad');
+      setNotice('rv2RuleNotice', `GeoData: ${safeError(error,'поиск недоступен')}. Категорию можно ввести вручную; live routing не меняется.`, 'bad');
     }
   }
 
@@ -991,9 +1124,10 @@
   function compiledRuleToXray(rule) {
     const kind = String(rule.selector?.kind || ''); const value = String(rule.selector?.value || '');
     const xray = {type: 'field', outboundTag: String(rule.payload_outbound || '')};
+    const source = String(rule.selector?.source || '').trim();
     if (kind === 'domain') xray.domain = [`domain:${value}`];
-    else if (kind === 'geosite') xray.domain = [`geosite:${value}`];
-    else if (kind === 'geoip') xray.ip = [`geoip:${value}`];
+    else if (kind === 'geosite') xray.domain = [source ? `ext:${source}:${value}` : `geosite:${value}`];
+    else if (kind === 'geoip') xray.ip = [source ? `ext:${source}:${value}` : `geoip:${value}`];
     else if (kind === 'ip' || kind === 'cidr') xray.ip = [value];
     else throw new Error(`Неизвестный selector kind: ${kind}`);
     return xray;
@@ -1286,7 +1420,7 @@
               </div>
               <div class="rv4-composer-grid">
                 <div class="rv4-field"><label for="rv2Kind">Что добавить</label><select id="rv2Kind" aria-label="Тип правила"></select></div>
-                <div class="rv4-field"><label for="rv2Value">Сайт или категория</label><input id="rv2Value" type="text" autocomplete="off" spellcheck="false"></div>
+                <div class="rv4-field"><label for="rv2Value">Сайт или категория</label><div class="rv2-input-wrap"><input id="rv2Value" type="text" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="rv2GeoAutocomplete" aria-expanded="false"><div id="rv2GeoAutocomplete" class="rv2-autocomplete" role="listbox" hidden></div></div></div>
                 <button id="rv2AddRule" class="btn primary rv4-composer-submit" type="button">Добавить</button>
               </div>
               <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена редактирования</button></div>
@@ -1347,7 +1481,9 @@
       state.kind = String(event.target.value || 'domain');
       state.selectedSource = '';
       const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
+      closeGeoAutocomplete();
       syncKindOptions();
+      queueGeoAutocomplete();
     });
     qs('#rv2AddRule')?.addEventListener('click', addOrUpdateRule);
     qs('#rv2CancelEdit')?.addEventListener('click', () => closeInlineComposer(true));
@@ -1362,12 +1498,36 @@
       const action = qs('#rv2SystemToggleAction');
       if (action) action.textContent = expanded ? 'показать' : 'скрыть';
     });
+    qs('#rv2Value')?.addEventListener('input', () => {
+      state.selectedSource = '';
+      const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
+      queueGeoAutocomplete();
+    });
     qs('#rv2Value')?.addEventListener('keydown', event => {
-      if (event.key === 'Enter' && !(state.kind === 'geosite' || state.kind === 'geoip')) {
+      const geoMode = state.kind === 'geosite' || state.kind === 'geoip';
+      const box = qs('#rv2GeoAutocomplete');
+      const open = geoMode && box && !box.hidden && state.geoSuggestItems.length > 0;
+      if (open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        event.preventDefault();
+        setGeoSuggestIndex(state.geoSuggestIndex + (event.key === 'ArrowDown' ? 1 : -1));
+        return;
+      }
+      if (open && (event.key === 'Enter' || event.key === 'Tab')) {
+        event.preventDefault();
+        selectGeoSuggestion(state.geoSuggestItems[state.geoSuggestIndex >= 0 ? state.geoSuggestIndex : 0], true);
+        return;
+      }
+      if (geoMode && event.key === 'Escape') {
+        event.preventDefault();
+        closeGeoAutocomplete();
+        return;
+      }
+      if (event.key === 'Enter' && !geoMode) {
         event.preventDefault();
         addOrUpdateRule();
       }
     });
+    qs('#rv2Value')?.addEventListener('blur', () => setTimeout(() => closeGeoAutocomplete(), 120));
     qsa('.rv2-config-tab').forEach(button => button.addEventListener('click', () => switchConfigTab(button.dataset.configTab)));
     qs('#rv2FormatConfig')?.addEventListener('click', formatActiveConfig);
     qs('#rv2ValidateConfig')?.addEventListener('click', validateConfig);
