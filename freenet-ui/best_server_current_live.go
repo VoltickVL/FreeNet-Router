@@ -164,7 +164,7 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 	}
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
-	vpnResult := probeBestServerCanonicalVPNPing(ctx, curlPath, socks)
+	vpnResult := probeBestServerConfirmedVPNPing(ctx, curlPath, socks)
 	httpResult := probeBestServerCanonicalApplicationRTT(ctx, curlPath, socks)
 	if !httpResult.OK {
 		return bestServerQualityApplicationResult{}
@@ -247,6 +247,7 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 	if probe.VPN.OK {
 		candidate.VPNRTTMS = probe.VPN.Median
 		candidate.VPNJitterMS = probe.VPN.Jitter
+		candidate.VPNPingConfirmed = true
 	}
 	candidate.ApplicationMS = probe.HTTP.Median
 	candidate.JitterMS = probe.HTTP.Jitter
