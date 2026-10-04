@@ -31,6 +31,7 @@ const (
 func automationBestForeignTimeout(policy string) time.Duration {
 	target := automationBestEligibleTarget(policy)
 	return bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+		bestServerConfirmedRTTSweepTimeout +
 		time.Duration(target)*bestServerQualityCandidateTimeout +
 		automationBestBudgetSlack
 }
@@ -679,6 +680,32 @@ func bestAutomationCandidate(response bestServerQualityResponse) (bestServerQual
 	return bestServerQualityCandidate{}, false
 }
 
+func automationBestSelectionSummary(response bestServerQualityResponse, selected bestServerQualityCandidate) string {
+	parts := make([]string, 0, bestServerVisibleAlternatives)
+	for _, candidate := range response.Candidates {
+		if candidate.Current || !candidate.Eligible || !candidate.Available {
+			continue
+		}
+		name := profileDisplayName(candidate.Name)
+		if name == "" {
+			name = "VPN"
+		}
+		parts = append(parts, fmt.Sprintf("%s [VPN %d мс, сайты %d мс, скорость %.0f Мбит/с, стабильность %d мс]",
+			name, candidate.VPNRTTMS, candidate.ApplicationMS, candidate.DownloadMbps, candidate.JitterMS))
+		if len(parts) >= bestServerVisibleAlternatives {
+			break
+		}
+	}
+	selectedName := profileDisplayName(selected.Name)
+	if selectedName == "" {
+		selectedName = "VPN"
+	}
+	if len(parts) == 0 {
+		return "AUTO VPN выбрал " + selectedName + "; сравнимый Top-3 отсутствует."
+	}
+	return "AUTO VPN Top-3: " + strings.Join(parts, "; ") + ". Выбран: " + selectedName + "."
+}
+
 func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (automationBestCycleResult, error) {
 	settings := readAutomationSettings(a.cfg.ConfigPath)
 	if settings.Mode != automationModeBest {
@@ -806,6 +833,7 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 		return automationBestCycleResult{Result: "candidate", Reason: reason, ProfileID: candidate.ID}, nil
 	}
 
+	appendAutomationHistoryV2("selection", automationBestSelectionSummary(candidates, candidate))
 	status, applied := a.executeProviderProfileApply(networkApplyRequest{
 		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
 	})
