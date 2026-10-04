@@ -240,6 +240,7 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await page.locator('#rv2ComposerHint').textContent(),/через текущий VPN/);
 
     // Bounded GeoData search stays read-only inside the selected board composer.
+    const geoMutationBefore = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
     await page.locator('#rv2Kind').selectOption('geosite');
     await page.locator('#rv2Value').fill('youtube');
     await page.locator('#rv2GeoSearch').click();
@@ -249,7 +250,7 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await page.locator('#rv2RuleNotice').textContent(),/Часть источников GeoData/);
     assert.doesNotMatch(await page.locator('#rv2RuleNotice').textContent(),/broken\.dat/);
     const geoMutationCalls = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
-    assert.equal(geoMutationCalls,directRemoveBefore+1,'GeoData search must not add a runtime mutation beyond the completed DIRECT add/remove checks');
+    assert.equal(geoMutationCalls,geoMutationBefore,'GeoData search must remain fully read-only');
     await page.locator('.rv2-search-result').first().click();
     assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
     assert.match(await page.locator('#rv2RuleNotice').textContent(),/Нажмите «Добавить»/);
