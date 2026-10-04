@@ -379,6 +379,9 @@ func (a *app) validateConfigStudioLive(parent context.Context) error {
 }
 
 func (a *app) handleConfigStudioApply(w http.ResponseWriter, r *http.Request) {
+	if a.mutationBlockedBySelfUpdate(w) {
+		return
+	}
 	name, content, ok := decodeConfigStudioCandidate(w, r, "PENDING")
 	if !ok {
 		return
@@ -387,6 +390,22 @@ func (a *app) handleConfigStudioApply(w http.ResponseWriter, r *http.Request) {
 		status, message := routingValidationFailureStatus(err)
 		writeJSON(w, status, configStudioMutationResponse{Success: false, Mutation: "NONE", XrayValid: false, Rollback: "NOT_NEEDED", CoreRestart: false, Error: message})
 		return
+	}
+
+	select {
+	case a.sem <- struct{}{}:
+		defer func() { <-a.sem }()
+	default:
+		writeJSON(w, http.StatusConflict, configStudioMutationResponse{Success: false, Mutation: "NONE", XrayValid: true, Rollback: "NOT_NEEDED", CoreRestart: false, Error: "another FreeNet mutation is already running"})
+		return
+	}
+
+	wasRunning := xrayServiceProcessRunning("xray")
+	if wasRunning {
+		if err := xrayCoreRestartPreflight(); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, configStudioMutationResponse{Success: false, Mutation: "NONE", XrayValid: true, Rollback: "NOT_NEEDED", CoreRestart: false, Error: err.Error()})
+			return
+		}
 	}
 
 	dir := a.routingConfigDir()
@@ -405,7 +424,27 @@ func (a *app) handleConfigStudioApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := a.validateConfigStudioLive(r.Context()); err == nil {
-		writeJSON(w, http.StatusOK, configStudioMutationResponse{Success: true, Mutation: "APPLIED", XrayValid: true, Applied: true, Rollback: "NOT_NEEDED", Snapshot: backup.Snapshot, SHA256: sha256Hex(content), CoreRestart: false, Result: "config written and post-validated; Xray restart was not performed"})
+		if wasRunning {
+			if restartErr := a.restartXrayCorePreservingFirewall(context.Background()); restartErr != nil {
+				if restoreErr := restoreConfigStudioBackup(dir, name, backup); restoreErr != nil {
+					writeJSON(w, http.StatusInternalServerError, configStudioMutationResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: true, Rollback: "FAILED", Snapshot: backup.Snapshot, SHA256: sha256Hex(content), CoreRestart: false, Error: "Xray core activation failed and rollback write failed"})
+					return
+				}
+				if validateErr := a.validateConfigStudioLive(context.Background()); validateErr != nil {
+					writeJSON(w, http.StatusInternalServerError, configStudioMutationResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: false, Rollback: "FAILED", Snapshot: backup.Snapshot, SHA256: sha256Hex(content), CoreRestart: false, Error: "Xray core activation failed and rollback validation is not confirmed"})
+					return
+				}
+				if rollbackRestartErr := a.restartXrayCorePreservingFirewall(context.Background()); rollbackRestartErr != nil {
+					writeJSON(w, http.StatusInternalServerError, configStudioMutationResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: false, Rollback: "FAILED", Snapshot: backup.Snapshot, SHA256: sha256Hex(content), CoreRestart: false, Error: "Xray core activation failed and rollback runtime restart failed"})
+					return
+				}
+				writeJSON(w, http.StatusBadGateway, configStudioMutationResponse{Success: false, Mutation: "ROLLED_BACK", XrayValid: false, Applied: false, Rollback: "SUCCESS", Snapshot: backup.Snapshot, SHA256: sha256Hex(backup.Data), CoreRestart: true, Error: "Xray core activation failed; previous config and runtime restored"})
+				return
+			}
+			writeJSON(w, http.StatusOK, configStudioMutationResponse{Success: true, Mutation: "APPLIED", XrayValid: true, Applied: true, Rollback: "NOT_NEEDED", Snapshot: backup.Snapshot, SHA256: sha256Hex(content), CoreRestart: true, Result: "config written, post-validated and activated by firewall-preserving Xray core restart"})
+			return
+		}
+		writeJSON(w, http.StatusOK, configStudioMutationResponse{Success: true, Mutation: "APPLIED", XrayValid: true, Applied: true, Rollback: "NOT_NEEDED", Snapshot: backup.Snapshot, SHA256: sha256Hex(content), CoreRestart: false, Result: "config saved; Xray was stopped and remains stopped; config will load on next start"})
 		return
 	}
 
@@ -413,7 +452,7 @@ func (a *app) handleConfigStudioApply(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, configStudioMutationResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: false, Rollback: "FAILED", Snapshot: backup.Snapshot, CoreRestart: false, Error: "post-apply validation failed and rollback write failed"})
 		return
 	}
-	if err := a.validateConfigStudioLive(r.Context()); err != nil {
+	if err := a.validateConfigStudioLive(context.Background()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, configStudioMutationResponse{Success: false, Mutation: "STOP", XrayValid: false, Applied: false, Rollback: "FAILED", Snapshot: backup.Snapshot, CoreRestart: false, Error: "post-apply validation failed and rollback validation is not confirmed"})
 		return
 	}
