@@ -106,14 +106,74 @@ func TestStartXrayControlledStopsBeforeStartOnInvalidConfig(t *testing.T) {
 	}
 }
 
-func TestDecodeXrayServiceActionAllowsStartAndRestartOnly(t *testing.T) {
+func TestStopXrayControlledStopsRunningServiceOnce(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 0)
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(name string) bool {
+		if name != "xray" {
+			return false
+		}
+		_, err := os.Stat(marker)
+		return os.IsNotExist(err)
+	}
+	defer func() { xrayServiceProcessRunning = previous }()
+
+	if err := a.stopXrayControlled(context.Background()); err != nil {
+		t.Fatalf("stop failed: %v", err)
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil { t.Fatal(err) }
+	lines := strings.Fields(strings.TrimSpace(string(data)))
+	if len(lines) != 1 || lines[0] != "-stop" {
+		t.Fatalf("expected exactly one -stop call, got %q", string(data))
+	}
+}
+
+func TestStopXrayControlledDoesNotValidateConfig(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 1)
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(name string) bool {
+		if name != "xray" {
+			return false
+		}
+		_, err := os.Stat(marker)
+		return os.IsNotExist(err)
+	}
+	defer func() { xrayServiceProcessRunning = previous }()
+
+	if err := a.stopXrayControlled(context.Background()); err != nil {
+		t.Fatalf("stop must remain available with invalid config: %v", err)
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil { t.Fatal(err) }
+	if strings.TrimSpace(string(data)) != "-stop" {
+		t.Fatalf("expected -stop, got %q", string(data))
+	}
+}
+
+func TestStopXrayControlledNoopWhenAlreadyOffline(t *testing.T) {
+	a, marker := prepareXrayServiceTest(t, 0)
+	previous := xrayServiceProcessRunning
+	xrayServiceProcessRunning = func(string) bool { return false }
+	defer func() { xrayServiceProcessRunning = previous }()
+
+	if err := a.stopXrayControlled(context.Background()); err != nil {
+		t.Fatalf("offline stop no-op failed: %v", err)
+	}
+	if _, statErr := os.Stat(marker); !os.IsNotExist(statErr) {
+		t.Fatalf("already-offline stop must not call XKeen")
+	}
+}
+
+func TestDecodeXrayServiceActionAllowsStartStopAndRestart(t *testing.T) {
 	for _, tc := range []struct {
 		action string
 		ok     bool
 	}{
 		{action: "start", ok: true},
+		{action: "stop", ok: true},
 		{action: "restart", ok: true},
-		{action: "stop", ok: false},
+		{action: "remove", ok: false},
 	} {
 		t.Run(tc.action, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "http://router/api/xray/service", strings.NewReader(`{"action":"`+tc.action+`"}`))
