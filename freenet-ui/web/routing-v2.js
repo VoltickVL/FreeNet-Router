@@ -335,43 +335,9 @@
     groupSelectors(selectors).forEach(group => renderAggregateType(container, group, action));
   }
 
-  function systemRuleCopy(item) {
-    if (item.actionLabel === 'DNS' || /^dns-/i.test(item.outboundTag || '')) {
-      return ['DNS-запросы', 'Служебный DNS-маршрут Xray. FreeNet сохраняет его без изменений.'];
-    }
-    if (item.extraKeys.includes('inboundTag')) {
-      return ['Входящий трафик', 'Служебное правило по входящему подключению Xray.'];
-    }
-    if (item.extraKeys.includes('network')) {
-      return ['Сетевой транспорт', 'Служебное правило по типу сети (TCP/UDP).'];
-    }
-    if (item.extraKeys.includes('port')) {
-      return ['Служебный порт', 'Правило Xray по порту назначения.'];
-    }
-    if (item.selectors.length) {
-      return ['Сложное правило Xray', 'Содержит дополнительные условия и поэтому защищено от быстрого редактирования.'];
-    }
-    return ['Служебное правило Xray', 'Техническое правило, необходимое для работы текущей конфигурации.'];
-  }
-
-  function renderSystemRule(container, item) {
-    const row = document.createElement('div'); row.className = 'rv2-system-rule';
-    const copy = document.createElement('div'); copy.className = 'rv2-system-copy';
-    const [titleText, detailText] = systemRuleCopy(item);
-    const title = document.createElement('b'); title.textContent = titleText;
-    const detail = document.createElement('span');
-    const condition = item.conditions.length ? ` Условие: ${item.conditions.join(', ')}.` : '';
-    detail.textContent = `${detailText}${condition} Только просмотр.`;
-    copy.append(title, detail);
-    const route = document.createElement('span'); route.className = 'rv2-system-route'; route.textContent = item.actionLabel || 'Системный маршрут';
-    row.append(copy, route); container.appendChild(row);
-  }
-
   function renderLiveRules() {
     const status = qs('#rv2LiveState');
-    const systemList = qs('#rv2SystemList');
-    if (!status || !systemList) return;
-    systemList.textContent = '';
+    if (!status) return;
     if (!state.configLoaded) {
       status.className = 'rv2-state'; status.textContent = state.configLoading ? 'Загрузка…' : 'Не загружено';
       return;
@@ -386,6 +352,8 @@
       BLOCK: visible.filter(item => item.action === 'BLOCK')
     };
 
+    // System/transport/DNS rules remain authoritative and protected internally,
+    // but are deliberately not rendered in the user-facing Rules workspace.
     state.liveRules = presented;
     state.liveComplexCount = system.length;
     status.className = 'rv2-state ok';
@@ -394,11 +362,6 @@
     renderActionBoard('DIRECT', byAction.DIRECT);
     renderActionBoard('VPN', byAction.VPN);
     renderActionBoard('BLOCK', byAction.BLOCK);
-
-    const systemWrap = qs('#rv2SystemWrap');
-    if (systemWrap) systemWrap.hidden = system.length === 0;
-    const systemCount = qs('#rv2SystemCount'); if (systemCount) systemCount.textContent = String(system.length);
-    system.forEach(item => renderSystemRule(systemList, item));
   }
 
   function modeMeta() {
@@ -1464,13 +1427,6 @@
             </div>
           </div>
 
-          <div id="rv2SystemWrap" class="rv4-system" hidden>
-            <button id="rv2SystemToggle" class="rv2-system-toggle" type="button" aria-expanded="false">
-              <span><b>Служебные правила Xray</b> · <span class="rv2-system-protected">защищены FreeNet · только просмотр</span></span>
-              <span><span id="rv2SystemCount">0</span> · <span id="rv2SystemToggleAction">показать</span></span>
-            </button>
-            <div id="rv2SystemList" class="rv2-system-list" hidden></div>
-          </div>
         </div>
 
         <div id="rv2DraftCard" class="rv2-card rv2-draft-card" hidden>
@@ -1523,16 +1479,6 @@
     qs('#rv2AddRule')?.addEventListener('click', addOrUpdateRule);
     qs('#rv2CancelEdit')?.addEventListener('click', () => closeInlineComposer(true));
     qs('#rv2GeoSearch')?.addEventListener('click', searchGeo);
-    qs('#rv2SystemToggle')?.addEventListener('click', () => {
-      const list = qs('#rv2SystemList');
-      const toggle = qs('#rv2SystemToggle');
-      if (!list || !toggle) return;
-      const expanded = toggle.getAttribute('aria-expanded') === 'true';
-      list.hidden = expanded;
-      toggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
-      const action = qs('#rv2SystemToggleAction');
-      if (action) action.textContent = expanded ? 'показать' : 'скрыть';
-    });
     qs('#rv2Value')?.addEventListener('input', () => {
       state.selectedSource = '';
       const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
