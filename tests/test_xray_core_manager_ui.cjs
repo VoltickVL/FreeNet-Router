@@ -12,6 +12,10 @@ let catalogGets = 0;
 let applyPosts = 0;
 let applyBody = null;
 let serviceOnline = true;
+let serviceVersion = 'v26.9.9';
+let serviceEvents = [
+  {at:'2026-10-04T00:01:00Z',kind:'xray',result:'success',message:'Xray запущен через FreeNet.'}
+];
 const serviceActions = [];
 
 const html = `<!doctype html><html><head><meta charset="utf-8"><title>Xray Core Manager fixture</title>
@@ -53,7 +57,7 @@ const server = http.createServer((req, res) => {
   if (req.url === '/xray-core-manager.js') { res.writeHead(200, {'content-type':'application/javascript'}); res.end(managerScript); return; }
   if (req.url === '/api/xray/service' && req.method === 'GET') {
     res.writeHead(200, {'content-type':'application/json'});
-    res.end(JSON.stringify({success:true, online:serviceOnline, version:'26.9.9 (Xray, Penetrates Everything.) 52a412d (go1.27.1 linux/arm64)', events:[]}));
+    res.end(JSON.stringify({success:true, online:serviceOnline, version:`${serviceVersion} (Xray, Penetrates Everything.) 52a412d (go1.27.1 linux/arm64)`, events:serviceEvents}));
     return;
   }
   if (req.url === '/api/xray/core/catalog' && req.method === 'GET') {
@@ -64,8 +68,11 @@ const server = http.createServer((req, res) => {
     req.on('data', chunk => { raw += chunk; });
     req.on('end', () => {
       applyBody = JSON.parse(raw);
+      const previous = serviceVersion;
+      serviceVersion = applyBody.target_version;
+      serviceEvents = [{at:'2026-10-04T00:04:00Z',kind:'xray',result:'success',message:`Xray переключён: ${previous} → ${serviceVersion}.`}, ...serviceEvents];
       res.writeHead(200, {'content-type':'application/json'});
-      res.end(JSON.stringify({success:true, previous_version:'v26.9.9', current_version:applyBody.target_version, target_version:applyBody.target_version, rollback:'NOT_NEEDED', message:`Xray переключён: v26.9.9 → ${applyBody.target_version}.`, events:[]}));
+      res.end(JSON.stringify({success:true, previous_version:previous, current_version:serviceVersion, target_version:serviceVersion, rollback:'NOT_NEEDED', message:`Xray переключён: ${previous} → ${serviceVersion}.`, events:serviceEvents}));
     });
     return;
   }
@@ -77,17 +84,27 @@ const server = http.createServer((req, res) => {
       serviceActions.push(payload.action);
       if (payload.action === 'start') {
         serviceOnline = true;
+        serviceEvents = [{at:'2026-10-04T00:03:00Z',kind:'xray',result:'success',message:'Xray запущен через FreeNet.'}, ...serviceEvents];
         res.writeHead(200, {'content-type':'application/json'});
-        res.end(JSON.stringify({success:true,online:true,version:'26.9.9',message:'Xray запущен и работает.',events:[]}));
+        res.end(JSON.stringify({success:true,online:true,version:serviceVersion,message:'Xray запущен и работает.',events:serviceEvents}));
+        return;
+      }
+      if (payload.action === 'stop') {
+        serviceOnline = false;
+        serviceEvents = [{at:'2026-10-04T00:02:00Z',kind:'xray',result:'success',message:'Xray остановлен через FreeNet.'}, ...serviceEvents];
+        res.writeHead(200, {'content-type':'application/json'});
+        res.end(JSON.stringify({success:true,online:false,version:serviceVersion,message:'Xray остановлен.',events:serviceEvents}));
         return;
       }
       if (payload.action === 'restart') {
+        serviceOnline = true;
+        serviceEvents = [{at:'2026-10-04T00:01:30Z',kind:'xray',result:'success',message:'Xray перезапущен через FreeNet.'}, ...serviceEvents];
         res.writeHead(200, {'content-type':'application/json'});
-        res.end(JSON.stringify({success:true,online:true,version:'26.9.9',message:'Xray перезапущен и снова работает.',events:[]}));
+        res.end(JSON.stringify({success:true,online:true,version:serviceVersion,message:'Xray перезапущен и снова работает.',events:serviceEvents}));
         return;
       }
       res.writeHead(400, {'content-type':'application/json'});
-      res.end(JSON.stringify({success:false,error:'unsupported action',events:[]}));
+      res.end(JSON.stringify({success:false,error:'unsupported action',events:serviceEvents}));
     });
     return;
   }
