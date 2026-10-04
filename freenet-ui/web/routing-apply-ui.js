@@ -83,9 +83,9 @@
     const afterRules = Array.isArray(candidate?.routing?.routing?.rules) ? candidate.routing.routing.rules.length : beforeRules;
     if (routingChanged) {
       const added = Math.max(0, afterRules - beforeRules);
-      setRulesPreview(`${added ? `${added} новых правил готовы к применению. ` : ''}Существующие правила сохранены. FreeNet создаст резервную точку, проверит результат и выполнит откат при ошибке.`);
+      setRulesPreview(`${added ? `${added} новых правил готовы к применению. ` : ''}FreeNet проверит Xray и сохранит изменения одним действием.`);
     } else if (policyChanged) {
-      setRulesPreview('Изменения проверены. Перед применением FreeNet создаст резервную точку и проверит результат.');
+      setRulesPreview('Изменения готовы. FreeNet проверит и применит их одним действием.');
     } else {
       setRulesPreview('Проверка пройдена, но фактических изменений относительно текущей конфигурации нет.');
     }
@@ -101,7 +101,7 @@
       const routingHash = body.routing_sha256 ? String(body.routing_sha256).slice(0, 12) : 'new';
       const policyHash = body.policy_sha256 ? String(body.policy_sha256).slice(0, 12) : 'new';
       setPreview(`Live snapshot: 05_routing ${routingHash} · 06_policy ${policyHash}\nЧтобы применить изменения, сначала выполните «Проверить Xray».`);
-      setRulesPreview('Добавьте правило и нажмите «Проверить изменения». До применения текущая маршрутизация не изменится.');
+      setRulesPreview('Добавьте или удалите правило, затем нажмите «Сохранить и применить».');
     } catch (_) {}
   }
 
@@ -155,22 +155,23 @@
     return mutation === 'STOP' || rollback === 'FAILED' || rollback === 'UNKNOWN';
   }
 
-  async function applyValidatedCandidate() {
+  async function applyValidatedCandidate(options = {}) {
+    const opts = options || {};
     if (stopLatched) {
       setResult('STOP: предыдущий откат не подтверждён. Новое изменение заблокировано до проверки фактического состояния.', 'bad');
-      return;
+      return false;
     }
     if (!validatedCandidate) {
-      setResult('Сначала нажмите «Проверить изменения».', 'bad');
-      return;
+      setResult(opts.rules ? 'Изменения не прошли Xray validation.' : 'Сначала выполните проверку Xray.', 'bad');
+      return false;
     }
-    if (!window.confirm('Применить проверенные правила?\n\nFreeNet создаст резервную точку, применит изменения, проверит результат и автоматически откатится при ошибке.')) return;
+    if (!opts.skipConfirm && !window.confirm('Применить проверенную конфигурацию?')) return false;
 
     const candidate = validatedCandidate;
     validatedCandidate = null;
     const buttons = applyButtons();
     buttons.forEach(button => { button.disabled = true; button.dataset.previousText = button.textContent; button.textContent = 'Применяем…'; });
-    setResult('Создаём резервную точку и применяем проверенные правила…');
+    setResult('Сохраняем и применяем…');
 
     try {
       const response = await originalFetch('/api/routing/apply', {
@@ -184,22 +185,61 @@
         stopLatched = true;
         setResult(`${describeApply(body)}\nSTOP: дальнейшие routing mutation запрещены до проверки фактического состояния.`, 'bad');
         q('#rv2ApplyResult')?.classList.add('rv2-apply-stop'); q('#rv2RulesApplyResult')?.classList.add('rv2-apply-stop');
-        return;
+        return false;
       }
       if (!response.ok || !body.success || !body.applied) {
         setResult(describeApply(body, `HTTP ${response.status}`), 'bad');
-        return;
+        return false;
       }
-      const message = `${describeApply(body)}\nLive state будет перечитан после обновления страницы.`;
-      try { sessionStorage.setItem('freenet-routing-last-result', message); } catch (_) {}
-      location.reload();
+
+      const shortMessage = body.core_restart
+        ? 'Сохранено и применено. Xray перезапущен.'
+        : 'Сохранено. Xray был остановлен и остался остановлен.';
+      if (opts.inPlace && window.FreeNetRoutingV2 && typeof window.FreeNetRoutingV2.refreshAfterApply === 'function') {
+        await window.FreeNetRoutingV2.refreshAfterApply(shortMessage);
+        await loadBaseline();
+        setResult(shortMessage, 'ok');
+      } else {
+        const message = `${describeApply(body)}\nLive state будет перечитан после обновления страницы.`;
+        try { sessionStorage.setItem('freenet-routing-last-result', message); } catch (_) {}
+        location.reload();
+      }
+      return true;
     } catch (_) {
       stopLatched = true;
-      setResult('Связь прервалась, поэтому результат применения и отката не подтверждён. STOP: не повторяйте mutation/изменение до проверки фактического состояния.', 'bad');
+      setResult('Связь прервалась, поэтому результат применения и отката не подтверждён. STOP: не повторяйте изменение до проверки фактического состояния.', 'bad');
       q('#rv2ApplyResult')?.classList.add('rv2-apply-stop'); q('#rv2RulesApplyResult')?.classList.add('rv2-apply-stop');
+      return false;
     } finally {
-      buttons.forEach(button => { button.textContent = button.dataset.previousText || (button.id === 'rv2ApplyRules' ? 'Применить' : 'Применить проверенный candidate'); delete button.dataset.previousText; });
+      buttons.forEach(button => {
+        button.textContent = button.dataset.previousText || (button.id === 'rv2ApplyRules' ? 'Сохранить и применить' : 'Сохранить');
+        delete button.dataset.previousText;
+      });
     }
+  }
+
+  async function applyRulesOneClick() {
+    if (stopLatched) {
+      setResult('STOP: предыдущий откат не подтверждён. Новое изменение заблокировано до проверки фактического состояния.', 'bad');
+      return;
+    }
+    const bridge = window.FreeNetRoutingV2;
+    if (!bridge || typeof bridge.prepareRulesCandidate !== 'function') {
+      setResult('Rules UI не готов к применению. Никаких изменений не выполнено.', 'bad');
+      return;
+    }
+    const button = q('#rv2ApplyRules');
+    const previous = button ? button.textContent : '';
+    if (button) { button.disabled = true; button.textContent = 'Проверяем…'; }
+    setResult('Проверяем Xray…');
+    invalidateCandidate();
+    const ok = await bridge.prepareRulesCandidate();
+    if (!ok || !validatedCandidate) {
+      if (button) { button.disabled = false; button.textContent = previous || 'Сохранить и применить'; }
+      return;
+    }
+    if (button) button.textContent = 'Применяем…';
+    await applyValidatedCandidate({rules:true, skipConfirm:true, inPlace:true});
   }
 
   function enhanceWorkspace() {
@@ -217,7 +257,7 @@
       apply.type = 'button';
       apply.className = 'btn primary';
       apply.disabled = true;
-      apply.textContent = 'Применить проверенный candidate';
+      apply.textContent = 'Сохранить';
       apply.addEventListener('click', applyValidatedCandidate);
       toolbar.appendChild(apply);
     }
@@ -240,11 +280,12 @@
     const rulesApply = q('#rv2ApplyRules', workspace);
     if (rulesApply && rulesApply.dataset.applyBound !== '1') {
       rulesApply.dataset.applyBound = '1';
-      rulesApply.addEventListener('click', applyValidatedCandidate);
+      rulesApply.textContent = 'Сохранить и применить';
+      rulesApply.addEventListener('click', applyRulesOneClick);
     }
     if (workspace.dataset.ruleDraftListener !== '1') {
       workspace.dataset.ruleDraftListener = '1';
-      document.addEventListener('freenet:routing-draft-changed', () => invalidateCandidate('Черновик правил изменён. Выполните проверку ещё раз.'));
+      document.addEventListener('freenet:routing-draft-changed', () => invalidateCandidate('Изменения готовы к проверке и сохранению.'));
     }
     if (!workspace.dataset.applyBound) {
       workspace.dataset.applyBound = '1';
