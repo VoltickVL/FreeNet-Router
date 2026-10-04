@@ -29,6 +29,7 @@
       .xcm-search{width:100%;height:42px;margin:0 0 8px;padding:0 12px;border:1px solid #315276;border-radius:10px;background:#081827;color:#eef5ff;font:inherit;font-size:11.5px;outline:none}.xcm-search:focus{border-color:#6597d9;box-shadow:0 0 0 2px rgba(101,151,217,.12)}.xcm-list{display:grid;gap:6px;margin-top:0;max-height:236px;overflow-y:auto;overscroll-behavior:contain}.xcm-release{appearance:none;width:100%;min-height:42px;display:flex;align-items:center;justify-content:space-between;gap:10px;text-align:left;border:1px solid #263f5c;border-radius:9px;background:#081827;color:#dbe7f6;padding:8px 10px;cursor:pointer}.xcm-release:hover:not(:disabled),.xcm-release.selected{border-color:#4f82bf;background:#15304d}.xcm-release.selected{box-shadow:inset 3px 0 #5b9cff}.xcm-release:disabled{cursor:not-allowed;opacity:.48}
       .xcm-release-main{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.xcm-release-version{font-size:12.5px;font-weight:800;color:#f5f8fd}.xcm-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:#163552;color:#a9caff;font-size:8px;font-weight:800}.xcm-badge.current{background:rgba(52,221,159,.14);color:#65e3aa}.xcm-badge.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.xcm-badge.preview{background:rgba(255,190,74,.13);color:#ffd17a}.xcm-release-date{margin:0;color:#839ab7;font-size:9px;white-space:nowrap}.xcm-selection{margin-top:10px;padding:10px 12px;border:1px solid #29445f;border-radius:10px;background:#091827;color:#9fb2ca;font-size:11px;line-height:1.35}.xcm-selection.ready{border-color:#35658e;color:#c9d8ea}.xcm-selection.bad{border-color:rgba(255,104,115,.45);color:#ffd0d4}
       .xcm-empty{padding:16px;border:1px dashed #2c4664;border-radius:11px;color:#8da3bf;text-align:center;font-size:11px}.xcm-error,.xcm-confirm,.xcm-progress,.xcm-result{margin-top:14px;padding:12px 13px;border-radius:11px;font-size:11px;line-height:1.5}.xcm-error{border:1px solid rgba(255,101,112,.42);background:rgba(83,21,31,.28);color:#ffc8cd}.xcm-confirm,.xcm-progress{border:1px solid #315071;background:#091a2a;color:#c8d7e9}.xcm-confirm strong{color:#fff}.xcm-progress::before{content:'';display:inline-block;width:9px;height:9px;margin-right:8px;border:2px solid #6b93d0;border-top-color:transparent;border-radius:50%;animation:xcm-spin .8s linear infinite}@keyframes xcm-spin{to{transform:rotate(360deg)}}.xcm-result.ok{border:1px solid rgba(58,220,158,.4);background:rgba(18,83,60,.28);color:#c9f5df}.xcm-result.bad{border:1px solid rgba(255,104,115,.42);background:rgba(83,21,31,.28);color:#ffd0d4}.xcm-result.stop{border-color:#ff6571;color:#fff0f1}
+      .xcm-service-card{display:grid;gap:10px;padding:12px;border:1px solid #29445f;border-radius:11px;background:#091827}.xcm-service-row{display:flex;align-items:center;justify-content:space-between;gap:12px}.xcm-service-label{color:#8fa6c1;font-size:10px;font-weight:750;text-transform:uppercase;letter-spacing:.08em}.xcm-service-value{color:#f4f8ff;font-size:13px;font-weight:800}.xcm-service-value.ok{color:#6ce7ae}.xcm-service-value.bad{color:#ff9da6}.xcm-service-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}.xcm-service-actions .xcm-btn{width:100%;justify-content:center}.xcm-service-events{display:grid;gap:6px;margin-top:10px}.xcm-service-event{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:8px;align-items:center;padding:8px 9px;border:1px solid #263f5c;border-radius:9px;background:#081827;color:#a9bbd0;font-size:10px}.xcm-service-event b{font-size:9px;color:#6ce7ae}.xcm-service-event.bad b{color:#ff9da6}.xcm-service-event span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.xcm-section-title{margin-top:12px;color:#c8d7e9;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
       .xcm-actions{flex:none;display:flex;justify-content:flex-end;gap:8px;padding:10px 12px;border-top:1px solid #28415b;background:#0b1b2d}.xcm-btn{appearance:none;min-height:44px;border:1px solid #365473;border-radius:9px;background:#10233a;color:#eaf2fb;padding:8px 13px;font:inherit;font-size:11px;font-weight:800;cursor:pointer}.xcm-btn:hover:not(:disabled){border-color:#6593ff}.xcm-btn.primary{min-width:210px;border-color:#5d8dff;background:linear-gradient(180deg,#347eff,#2367e7);color:#fff}.xcm-btn:disabled{opacity:.42;cursor:not-allowed}
       @media(max-width:760px){.fn-xray-topbar{width:50px;min-width:50px;padding:0;place-items:center}.fn-xray-chip{display:none}.xcm-modal{width:calc(100vw - 24px)!important;max-width:none;max-height:calc(100vh - 24px)}.xcm-list{max-height:min(236px,38vh)}.xcm-actions{display:grid;grid-template-columns:1fr}.xcm-btn,.xcm-btn.primary{width:100%;min-width:0}}
       @media(max-height:580px) and (min-width:761px){.xcm-modal{max-height:calc(100vh - 16px)}.xcm-head{padding-top:9px;padding-bottom:9px}.xcm-release{padding-top:7px;padding-bottom:7px}}
@@ -76,6 +77,14 @@
     syncTopbarVersion(result?.version || result?.current_version || '');
   }
 
+  function syncServiceSurfaces(result) {
+    if (!result || result.success === false) return;
+    serviceState = result;
+    syncTopbarService(result);
+    syncConfigStudioService(result);
+    document.dispatchEvent(new CustomEvent('freenet:xray-service-changed', {detail:result}));
+  }
+
   function mountTopbarChip() {
     const topbar = qs('.topbar.overview-approved') || qs('.topbar');
     if (!topbar) return null;
@@ -85,7 +94,7 @@
       chip.id = 'xrayTopbarChip';
       chip.type = 'button';
       chip.className = 'fn-xray-topbar';
-      chip.title = 'Версия и обновление Xray Core';
+      chip.title = 'Управление Xray';
       chip.setAttribute('aria-haspopup', 'dialog');
       chip.setAttribute('aria-controls', 'xrayCoreManager');
       chip.setAttribute('aria-expanded', 'false');
@@ -115,8 +124,7 @@
       }
       const result = await response.json();
       if (response.ok && result && result.success) {
-        serviceState = result;
-        syncTopbarService(result);
+        syncServiceSurfaces(result);
       }
     } catch (_) {
       if (topbarVersionAttempts < 3) setTimeout(refreshTopbarVersion, 1200);
@@ -158,6 +166,31 @@
     const date = new Date(raw);
     if (Number.isNaN(date.getTime())) return '';
     return date.toLocaleDateString('ru-RU', {day:'2-digit', month:'2-digit', year:'numeric'});
+  }
+
+  function friendlyTime(raw) {
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return String(raw || '');
+    return date.toLocaleString('ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  }
+
+  function openJournal() {
+    closeManager();
+    const button = qs('[data-page="access"]');
+    if (button) {
+      button.click();
+      return;
+    }
+    location.hash = '#access';
+  }
+
+  async function fetchServiceSnapshot() {
+    const response = await fetch('/api/xray/service', {cache:'no-store'});
+    let result = {};
+    try { result = await response.json(); } catch (_) {}
+    if (!response.ok || !result.success) throw new Error(result.error || 'Состояние Xray недоступно');
+    syncServiceSurfaces(result);
+    return result;
   }
 
   let focusBeforeOpen = null;
@@ -239,6 +272,7 @@
 
     const renderFooter = () => {
       clearNode(footer);
+      addButton(footer, 'Назад', '', () => renderServiceHome(serviceState));
       addButton(footer, 'Закрыть', '', closeManager);
       const selected = releases.find(item => item.version === selectedVersion);
       if (!selected) {
@@ -333,71 +367,200 @@
       status.className = `cs-service-status ${result?.online ? 'ok' : 'bad'}`;
     }
     if (button) {
-      button.textContent = result?.online ? 'Перезапустить' : 'Запустить Xray';
+      button.textContent = 'Управление Xray';
       button.disabled = false;
     }
     if (version && result?.version) version.textContent = `${compactVersion(result.version) || result.version} ▾`;
   }
 
-  function renderOfflineRecovery(result) {
-    serviceState = result || {success:true, online:false};
-    syncTopbarService(serviceState);
-    syncConfigStudioService(serviceState);
-    setManagerHeading('Xray остановлен', 'Восстановление сервиса без XKeen UI');
+  function renderServiceEvents(target, events) {
+    const title = document.createElement('div');
+    title.className = 'xcm-section-title';
+    title.textContent = 'Последние события';
+    target.appendChild(title);
+
+    const list = document.createElement('div');
+    list.className = 'xcm-service-events';
+    const rows = Array.isArray(events) ? events.slice(0, 5) : [];
+    if (!rows.length) {
+      const empty = document.createElement('div');
+      empty.className = 'xcm-empty';
+      empty.textContent = 'Действий Xray пока нет.';
+      list.appendChild(empty);
+    } else {
+      rows.forEach(event => {
+        const row = document.createElement('div');
+        const ok = String(event?.result || '').toLowerCase() === 'success';
+        row.className = `xcm-service-event${ok ? '' : ' bad'}`;
+        const at = document.createElement('span');
+        at.textContent = friendlyTime(event?.at);
+        const result = document.createElement('b');
+        result.textContent = ok ? 'Успешно' : 'Ошибка';
+        const message = document.createElement('span');
+        message.textContent = String(event?.message || '');
+        row.append(at, result, message);
+        list.appendChild(row);
+      });
+    }
+    target.appendChild(list);
+  }
+
+  function renderServiceHome(result, notice = '') {
+    serviceState = result || serviceState || {success:true,online:false,events:[]};
+    syncServiceSurfaces(serviceState);
+    setManagerHeading('Xray', 'Сервис, версия и последние события');
     const target = body();
     const footer = actions();
     clearNode(target); clearNode(footer);
 
-    const box = document.createElement('div');
-    box.className = 'xcm-error';
-    box.textContent = 'Сервис Xray остановлен. FreeNet проверит текущую конфигурацию и запустит Xray штатно через XKeen.';
-    target.appendChild(box);
+    const card = document.createElement('div');
+    card.className = 'xcm-service-card';
 
+    const statusRow = document.createElement('div');
+    statusRow.className = 'xcm-service-row';
+    const statusLabel = document.createElement('span');
+    statusLabel.className = 'xcm-service-label';
+    statusLabel.textContent = 'Состояние';
+    const statusValue = document.createElement('strong');
+    statusValue.className = `xcm-service-value ${serviceState.online ? 'ok' : 'bad'}`;
+    statusValue.textContent = serviceState.online ? 'Работает' : 'Остановлен';
+    statusRow.append(statusLabel, statusValue);
+
+    const versionRow = document.createElement('div');
+    versionRow.className = 'xcm-service-row';
+    const versionLabel = document.createElement('span');
+    versionLabel.className = 'xcm-service-label';
+    versionLabel.textContent = 'Версия';
+    const versionValue = document.createElement('strong');
+    versionValue.className = 'xcm-service-value';
+    versionValue.textContent = compactVersion(serviceState.version) || String(serviceState.version || '—');
+    versionRow.append(versionLabel, versionValue);
+    card.append(statusRow, versionRow);
+    target.appendChild(card);
+
+    if (notice) {
+      const box = document.createElement('div');
+      box.className = 'xcm-result ok';
+      box.textContent = notice;
+      target.appendChild(box);
+    }
+
+    const controls = document.createElement('div');
+    controls.className = 'xcm-service-actions';
+    if (serviceState.online) {
+      addButton(controls, 'Перезапустить', '', () => controlService('restart'));
+      addButton(controls, 'Остановить', '', () => controlService('stop'));
+      addButton(controls, 'Версии', '', loadCatalog);
+    } else {
+      addButton(controls, 'Запустить Xray', 'primary', () => controlService('start'));
+    }
+    addButton(controls, 'Журнал', '', openJournal);
+    target.appendChild(controls);
+
+    renderServiceEvents(target, serviceState.events);
     addButton(footer, 'Закрыть', '', closeManager);
-    addButton(footer, 'Запустить Xray', 'primary', recoverOfflineXray);
     requestAnimationFrame(positionManager);
   }
 
-  async function recoverOfflineXray() {
+  function renderOfflineRecovery(result) {
+    renderServiceHome(result);
+  }
+
+  async function controlService(action) {
     if (applying) return;
     applying = true;
     const target = body();
     const footer = actions();
-    clearNode(target); clearNode(footer);
+    clearNode(target);
+    clearNode(footer);
+
+    const labels = {
+      start: ['Проверяю конфигурацию и запускаю Xray…', 'Xray запущен и работает.'],
+      stop: ['Останавливаю Xray…', 'Xray остановлен.'],
+      restart: ['Проверяю конфигурацию и перезапускаю Xray…', 'Xray перезапущен и снова работает.']
+    };
+    const label = labels[action] || ['Выполняю операцию Xray…', 'Операция Xray завершена.'];
     const progress = document.createElement('div');
     progress.className = 'xcm-progress';
-    progress.textContent = 'Проверяю конфигурацию и запускаю Xray…';
+    progress.textContent = label[0];
+    target.appendChild(progress);
+
+    try {
+      const response = await fetch('/api/xray/service', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action}),
+        cache:'no-store'
+      });
+      let result = {};
+      try { result = await response.json(); } catch (_) {}
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Операция Xray не завершена');
+      }
+      syncServiceSurfaces(result);
+      applying = false;
+      renderServiceHome(result, result.message || label[1]);
+      return;
+    } catch (error) {
+      clearNode(target);
+      clearNode(footer);
+      const box = document.createElement('div');
+      box.className = 'xcm-result bad stop';
+      box.textContent = (error?.message || 'Состояние Xray не подтверждено.') + ' Перед следующей операцией перечитайте фактическое состояние.';
+      target.appendChild(box);
+      addButton(footer, 'Закрыть', '', closeManager);
+      addButton(footer, 'Проверить состояние', 'primary', async () => {
+        if (applying) return;
+        applying = true;
+        try {
+          const result = await fetchServiceSnapshot();
+          applying = false;
+          renderServiceHome(result);
+        } catch (readError) {
+          applying = false;
+          box.textContent = (readError?.message || 'Состояние Xray недоступно.') + ' Следующая mutation остаётся заблокированной.';
+        }
+      });
+    } finally {
+      applying = false;
+      requestAnimationFrame(positionManager);
+    }
+  }
+
+  async function recoverOfflineXray() {
+    return controlService('start');
+  }
+
+  async function loadCatalog() {
+    if (applying || !serviceState?.online) return;
+    applying = true;
+    const target = body();
+    const footer = actions();
+    clearNode(target);
+    clearNode(footer);
+    setManagerHeading('Версия Xray Core', 'Выбор версии, затем проверка и установка');
+    const progress = document.createElement('div');
+    progress.className = 'xcm-progress';
+    progress.textContent = 'Получаю список официальных версий Xray…';
     target.appendChild(progress);
     try {
-      const response = await fetch('/api/xray/service', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'start'}), cache:'no-store'});
-      let result = {}; try { result = await response.json(); } catch (_) {}
+      const response = await fetch('/api/xray/core/catalog', {cache:'no-store'});
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || 'Каталог Xray недоступен');
+      catalog = result;
+      selectedVersion = result.latest_version && result.latest_version !== result.current_version
+        ? result.latest_version
+        : (result.current_version || '');
+      applying = false;
+      renderCatalog();
+    } catch (error) {
       clearNode(target);
+      clearNode(footer);
       const box = document.createElement('div');
-      if (response.ok && result.success && result.online) {
-        serviceState = result;
-        syncTopbarService(result);
-        syncConfigStudioService(result);
-        box.className = 'xcm-result ok';
-        box.textContent = result.message || 'Xray запущен и работает.';
-        target.appendChild(box);
-        addButton(footer, 'Готово', 'primary', closeManager);
-      } else {
-        box.className = 'xcm-result bad';
-        box.textContent = result.error || 'Xray не удалось запустить. Состояние не подтверждено.';
-        target.appendChild(box);
-        addButton(footer, 'Закрыть', '', closeManager);
-        addButton(footer, 'Проверить снова', 'primary', async () => {
-          applying = false;
-          closeManager();
-          await openManager();
-        });
-      }
-    } catch (_) {
-      clearNode(target);
-      const box = document.createElement('div');
-      box.className = 'xcm-result bad';
-      box.textContent = 'Связь с FreeNet прервалась во время запуска Xray. Не повторяйте действие вслепую: сначала обновите состояние.';
+      box.className = 'xcm-error';
+      box.textContent = error.message || 'Каталог Xray недоступен.';
       target.appendChild(box);
+      addButton(footer, 'Назад', '', () => renderServiceHome(serviceState));
       addButton(footer, 'Закрыть', '', closeManager);
     } finally {
       applying = false;
@@ -416,12 +579,15 @@
       clearNode(target);
       const box = document.createElement('div');
       if (response.ok && result.success) {
-        box.className = 'xcm-result ok';
-        box.textContent = result.message || `Xray ${release.version} установлен.`;
+        const message = result.message || `Xray ${release.version} установлен.`;
         const chip = qs('#csServiceVersion'); if (chip) chip.textContent = `${result.current_version || release.version} ▾`;
         syncTopbarVersion(result.current_version || release.version);
-        target.appendChild(box);
-        addButton(footer, 'Готово', 'primary', () => location.reload());
+        try {
+          const current = await fetchServiceSnapshot();
+          renderServiceHome(current, message);
+        } catch (_) {
+          renderServiceHome(Object.assign({}, serviceState || {}, {success:true, online:true, version:result.current_version || release.version}), message);
+        }
       } else {
         const rollbackFailed = result.rollback === 'FAILED';
         box.className = `xcm-result bad${rollbackFailed ? ' stop' : ''}`;
@@ -429,12 +595,31 @@
         box.textContent = prefix + (result.error || 'Не удалось изменить версию Xray.');
         target.appendChild(box);
         addButton(footer, 'Закрыть', '', closeManager);
-        addButton(footer, 'Обновить состояние', 'primary', () => location.reload());
+        addButton(footer, 'Проверить состояние', 'primary', async () => {
+          try {
+            const current = await fetchServiceSnapshot();
+            renderServiceHome(current);
+          } catch (_) {
+            box.textContent = box.textContent + ' Состояние Xray пока недоступно.';
+          }
+        });
       }
     } catch (_) {
       clearNode(target);
-      const box = document.createElement('div'); box.className = 'xcm-result bad'; box.textContent = 'Связь с FreeNet прервалась во время операции. Не повторяйте установку вслепую: сначала обновите состояние.'; target.appendChild(box);
-      addButton(footer, 'Обновить состояние', 'primary', () => location.reload());
+      clearNode(footer);
+      const box = document.createElement('div');
+      box.className = 'xcm-result bad stop';
+      box.textContent = 'Связь с FreeNet прервалась во время операции. Не повторяйте установку вслепую: сначала перечитайте фактическое состояние Xray.';
+      target.appendChild(box);
+      addButton(footer, 'Закрыть', '', closeManager);
+      addButton(footer, 'Проверить состояние', 'primary', async () => {
+        try {
+          const current = await fetchServiceSnapshot();
+          renderServiceHome(current);
+        } catch (_) {
+          box.textContent = 'Состояние Xray пока не подтверждено. Следующая mutation остаётся заблокированной.';
+        }
+      });
     } finally {
       applying = false;
     }
@@ -451,40 +636,32 @@
     positionManager();
     requestAnimationFrame(() => qs('.xcm-modal', root)?.focus({preventScroll:true}));
     selectedVersion = '';
-    const target = body(); const footer = actions(); clearNode(target); clearNode(footer);
+    const target = body();
+    const footer = actions();
+    clearNode(target);
+    clearNode(footer);
     setManagerHeading('Xray', 'Проверка состояния сервиса');
-    const progress = document.createElement('div'); progress.className = 'xcm-progress'; progress.textContent = 'Проверяю состояние Xray…'; target.appendChild(progress);
+    const progress = document.createElement('div');
+    progress.className = 'xcm-progress';
+    progress.textContent = 'Проверяю состояние Xray…';
+    target.appendChild(progress);
     try {
-      const serviceResponse = await fetch('/api/xray/service', {cache:'no-store'});
-      const currentService = await serviceResponse.json();
-      if (!serviceResponse.ok || !currentService.success) throw new Error(currentService.error || 'Состояние Xray недоступно');
-      serviceState = currentService;
-      syncTopbarService(currentService);
-      syncConfigStudioService(currentService);
-      if (!currentService.online) {
-        renderOfflineRecovery(currentService);
-        return;
-      }
-
-      progress.textContent = 'Получаю список официальных версий Xray…';
-      const response = await fetch('/api/xray/core/catalog', {cache:'no-store'});
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || 'Каталог Xray недоступен');
-      catalog = result;
-      selectedVersion = result.latest_version && result.latest_version !== result.current_version
-        ? result.latest_version
-        : (result.current_version || '');
-      renderCatalog();
+      const currentService = await fetchServiceSnapshot();
+      renderServiceHome(currentService);
     } catch (error) {
-      clearNode(target); clearNode(footer);
-      const box = document.createElement('div'); box.className = 'xcm-error'; box.textContent = error.message || 'Состояние Xray недоступно.'; target.appendChild(box);
+      clearNode(target);
+      clearNode(footer);
+      const box = document.createElement('div');
+      box.className = 'xcm-error';
+      box.textContent = error.message || 'Состояние Xray недоступно.';
+      target.appendChild(box);
       addButton(footer, 'Закрыть', '', closeManager);
     }
   }
 
   installStyles();
   document.addEventListener('click', event => {
-    const chip = event.target.closest?.('#csServiceVersion');
+    const chip = event.target.closest?.('#csServiceVersion,#csRestartXray');
     if (!chip) return;
     event.preventDefault();
     openManager();
