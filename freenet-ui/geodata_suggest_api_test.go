@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net"
@@ -110,6 +111,48 @@ func TestGeoDataSuggestSuccessfulMixedDirectorySuppressesGenericScanNoise(t *tes
 	}
 	if len(resp.Warnings) != 0 {
 		t.Fatalf("successful mixed-DAT lookup must suppress unrelated generic scan warnings: %v", resp.Warnings)
+	}
+}
+
+type countingReadSeeker struct {
+	reader *bytes.Reader
+	read   int64
+	seeks  int
+}
+
+func (c *countingReadSeeker) Read(p []byte) (int, error) {
+	n, err := c.reader.Read(p)
+	c.read += int64(n)
+	return n, err
+}
+
+func (c *countingReadSeeker) Seek(offset int64, whence int) (int64, error) {
+	c.seeks++
+	return c.reader.Seek(offset, whence)
+}
+
+func TestGeoDataSuggestPrefixSeekSkipsLargeNestedPayloadIO(t *testing.T) {
+	largePayload := make([]byte, 2<<20)
+	data := testGeoSiteList(
+		testGeoSiteEntry("CATEGORY-ENTERTAINMENT", largePayload),
+		testGeoSiteEntry("STEAM", largePayload),
+	)
+	rs := &countingReadSeeker{reader: bytes.NewReader(data)}
+	result, err := searchGeoDataCategoryCodePrefixReadSeeker(context.Background(), rs, int64(len(data)), "steam", maxGeoDataSuggestions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result.Categories, []string{"steam"}) {
+		t.Fatalf("categories=%v", result.Categories)
+	}
+	// The production regression is specifically about router IO. A streaming
+	// skip would read several MiB here. The seek-aware path should only consume
+	// protobuf headers/category prefixes plus bounded bufio prefetch.
+	if rs.read >= 1<<20 {
+		t.Fatalf("prefix scanner read too much nested payload: read=%d total=%d", rs.read, len(data))
+	}
+	if rs.seeks < 2 {
+		t.Fatalf("prefix scanner did not seek across nested payloads: seeks=%d", rs.seeks)
 	}
 }
 
