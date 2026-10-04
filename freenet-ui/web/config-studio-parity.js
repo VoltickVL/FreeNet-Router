@@ -268,7 +268,166 @@
     editorResizeObserver.observe(editor);
   }
 
+  function closeGeoAutocomplete() {
+    if (state.geoSuggestTimer) { clearTimeout(state.geoSuggestTimer); state.geoSuggestTimer = null; }
+    if (state.geoSuggestController) { state.geoSuggestController.abort(); state.geoSuggestController = null; }
+    state.geoSuggestItems = [];
+    state.geoSuggestIndex = -1;
+    state.geoSuggestToken = null;
+    const box = qs('#csGeoAutocomplete');
+    if (box) { box.hidden = true; box.textContent = ''; }
+  }
+
+  function unescapedQuoteBefore(text, from) {
+    for (let i = from; i >= 0; i--) {
+      if (text[i] !== '"') continue;
+      let slashes = 0;
+      for (let j = i - 1; j >= 0 && text[j] === '\\'; j--) slashes++;
+      if (slashes % 2 === 0) return i;
+    }
+    return -1;
+  }
+
+  function unescapedQuoteAfter(text, from) {
+    for (let i = from; i < text.length; i++) {
+      if (text[i] !== '"') continue;
+      let slashes = 0;
+      for (let j = i - 1; j >= 0 && text[j] === '\\'; j--) slashes++;
+      if (slashes % 2 === 0) return i;
+    }
+    return -1;
+  }
+
+  function geoEditorToken(input) {
+    if (state.active !== '05_routing' || !input) return null;
+    const text = input.value;
+    const cursor = input.selectionStart;
+    const startQuote = unescapedQuoteBefore(text, cursor - 1);
+    if (startQuote < 0) return null;
+    const endQuote = unescapedQuoteAfter(text, cursor);
+    if (endQuote < 0 || endQuote < cursor) return null;
+    const beforeCursor = text.slice(startQuote + 1, cursor);
+    const fullValue = text.slice(startQuote + 1, endQuote);
+
+    let match = beforeCursor.match(/^(geosite|geoip):([a-z0-9._@:-]{1,128})$/i);
+    if (match) {
+      const kind = match[1].toLowerCase();
+      return {
+        kind,
+        file: kind === 'geosite' ? 'geosite.dat' : 'geoip.dat',
+        prefix: match[2],
+        typedPrefix: kind + ':',
+        start: startQuote + 1,
+        end: endQuote,
+        fullValue
+      };
+    }
+
+    match = beforeCursor.match(/^ext:([^:"\\/]+\.dat):([a-z0-9._@:-]{1,128})$/i);
+    if (!match) return null;
+    const file = match[1];
+    const lowerFile = file.toLowerCase();
+    const kind = lowerFile.includes('geoip') ? 'geoip' : lowerFile.includes('geosite') ? 'geosite' : '';
+    if (!kind) return null;
+    return {
+      kind,
+      file,
+      prefix: match[2],
+      typedPrefix: 'ext:' + file + ':',
+      start: startQuote + 1,
+      end: endQuote,
+      fullValue
+    };
+  }
+
+  function setGeoSuggestIndex(index) {
+    const box = qs('#csGeoAutocomplete');
+    if (!box || !state.geoSuggestItems.length) return;
+    const count = state.geoSuggestItems.length;
+    state.geoSuggestIndex = ((index % count) + count) % count;
+    Array.from(box.querySelectorAll('.cs-geo-item')).forEach((node,i) => {
+      const active = i === state.geoSuggestIndex;
+      node.classList.toggle('active', active);
+      node.setAttribute('aria-selected', active ? 'true' : 'false');
+      if (active) node.scrollIntoView({block:'nearest'});
+    });
+  }
+
+  function chooseGeoEditorSuggestion(item) {
+    const input = qs('#csInput');
+    const token = state.geoSuggestToken;
+    if (!input || !token || !item) return;
+    const value = token.typedPrefix + String(item.category || '');
+    input.setRangeText(value, token.start, token.end, 'end');
+    input.dispatchEvent(new Event('input', {bubbles:true}));
+    closeGeoAutocomplete();
+    input.focus();
+  }
+
+  function renderGeoEditorSuggestions(body, token) {
+    const box = qs('#csGeoAutocomplete');
+    if (!box) return;
+    box.textContent = '';
+    const items = Array.isArray(body?.suggestions) ? body.suggestions.slice(0,10) : [];
+    state.geoSuggestItems = items;
+    state.geoSuggestIndex = items.length ? 0 : -1;
+    state.geoSuggestToken = token;
+    items.forEach((item,index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cs-geo-item' + (index === 0 ? ' active' : '');
+      button.setAttribute('role','option');
+      button.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+      const title = document.createElement('b');
+      title.textContent = token.typedPrefix + String(item.category || '');
+      const meta = document.createElement('span');
+      meta.textContent = String(item.file || token.file);
+      button.append(title, meta);
+      button.addEventListener('mousedown', event => event.preventDefault());
+      button.addEventListener('click', () => chooseGeoEditorSuggestion(item));
+      box.appendChild(button);
+    });
+    const warnings = Array.isArray(body?.warnings) ? body.warnings.filter(Boolean) : [];
+    if (warnings.length) {
+      const warn = document.createElement('div');
+      warn.className = 'cs-geo-warning';
+      warn.textContent = warnings.join(' · ');
+      box.appendChild(warn);
+    }
+    box.hidden = !items.length && !warnings.length;
+  }
+
+  async function requestGeoEditorSuggestions(input, token) {
+    if (!token || token.prefix.length < 1) { closeGeoAutocomplete(); return; }
+    if (state.geoSuggestController) state.geoSuggestController.abort();
+    const controller = new AbortController();
+    state.geoSuggestController = controller;
+    const q = token.typedPrefix + token.prefix;
+    const url = '/api/geodata/suggest?kind=' + encodeURIComponent(token.kind) + '&q=' + encodeURIComponent(q) + '&file=' + encodeURIComponent(token.file);
+    try {
+      const body = await api(url, {signal:controller.signal});
+      if (body.mutation !== 'NONE' || controller.signal.aborted) return;
+      renderGeoEditorSuggestions(body, token);
+    } catch (error) {
+      if (controller.signal.aborted || error?.name === 'AbortError') return;
+      closeGeoAutocomplete();
+    } finally {
+      if (state.geoSuggestController === controller) state.geoSuggestController = null;
+    }
+  }
+
+  function queueGeoEditorAutocomplete(input) {
+    if (state.geoSuggestTimer) clearTimeout(state.geoSuggestTimer);
+    const token = geoEditorToken(input);
+    if (!token) { closeGeoAutocomplete(); return; }
+    state.geoSuggestTimer = setTimeout(() => {
+      state.geoSuggestTimer = null;
+      void requestGeoEditorSuggestions(input, token);
+    }, 300);
+  }
+
   function renderReadOnly(tab) {
+    closeGeoAutocomplete();
     const host = qs('#csBody');
     if (!host) return;
     const text = String(tab.text || '');
@@ -280,19 +439,38 @@
   }
 
   function renderEditor(tab) {
+    closeGeoAutocomplete();
     const host = qs('#csBody');
     if (!host) return;
     const text = activeText();
-    host.innerHTML = `<div class="cs-editor"><div id="csLines" class="cs-lines"></div><div class="cs-code"><pre id="csHighlight" class="cs-highlight" aria-hidden="true"></pre><textarea id="csInput" class="cs-input" spellcheck="false" aria-label="${escapeHTML(tab.name)} JSON editor"></textarea></div></div><div id="csDiagnostic" class="cs-diagnostic"></div>`;
+    host.innerHTML = `<div class="cs-editor"><div id="csLines" class="cs-lines"></div><div class="cs-code"><pre id="csHighlight" class="cs-highlight" aria-hidden="true"></pre><textarea id="csInput" class="cs-input" spellcheck="false" aria-label="${escapeHTML(tab.name)} JSON editor" aria-autocomplete="list" aria-controls="csGeoAutocomplete"></textarea><div id="csGeoAutocomplete" class="cs-geo-autocomplete" role="listbox" hidden></div></div></div><div id="csDiagnostic" class="cs-diagnostic"></div>`;
     const input = qs('#csInput');
     input.value = text;
     input.addEventListener('input', () => {
       state.draft.set(state.active, input.value);
       state.valid.delete(state.active);
       updateEditorVisuals();
+      queueGeoEditorAutocomplete(input);
     });
     input.addEventListener('scroll', syncEditorScroll);
     input.addEventListener('keydown', event => {
+      const box = qs('#csGeoAutocomplete');
+      const open = box && !box.hidden && state.geoSuggestItems.length > 0;
+      if (open && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        event.preventDefault();
+        setGeoSuggestIndex(state.geoSuggestIndex + (event.key === 'ArrowDown' ? 1 : -1));
+        return;
+      }
+      if (open && (event.key === 'Enter' || event.key === 'Tab')) {
+        event.preventDefault();
+        chooseGeoEditorSuggestion(state.geoSuggestItems[state.geoSuggestIndex >= 0 ? state.geoSuggestIndex : 0]);
+        return;
+      }
+      if (open && event.key === 'Escape') {
+        event.preventDefault();
+        closeGeoAutocomplete();
+        return;
+      }
       if (event.key === 'Tab') {
         event.preventDefault();
         const start = input.selectionStart, end = input.selectionEnd;
@@ -300,6 +478,11 @@
         input.dispatchEvent(new Event('input', {bubbles:true}));
       }
     });
+    input.addEventListener('click', () => queueGeoEditorAutocomplete(input));
+    input.addEventListener('keyup', event => {
+      if (['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) queueGeoEditorAutocomplete(input);
+    });
+    input.addEventListener('blur', () => setTimeout(() => closeGeoAutocomplete(), 120));
     bindEditorResize(qs('.cs-editor', host));
     updateEditorVisuals();
   }
