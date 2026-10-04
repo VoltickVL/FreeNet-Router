@@ -30,8 +30,9 @@ const (
 
 // PolicySelector is the declarative selector stored in the FreeNet policy model.
 type PolicySelector struct {
-	Kind  PolicySelectorKind `json:"kind"`
-	Value string             `json:"value"`
+	Kind   PolicySelectorKind `json:"kind"`
+	Value  string             `json:"value"`
+	Source string             `json:"source,omitempty"`
 }
 
 // PolicyRule is one ordered user policy rule. Input order is first-match order.
@@ -82,7 +83,7 @@ func CompilePolicy(input []PolicyRule) (CompiledPolicy, error) {
 			return CompiledPolicy{}, fmt.Errorf("rule %d: %w", i+1, err)
 		}
 
-		key := string(selector.Kind) + "\x00" + selector.Value
+		key := string(selector.Kind) + "\x00" + selector.Source + "\x00" + selector.Value
 		if _, ok := seen[key]; ok {
 			return CompiledPolicy{}, fmt.Errorf("rule %d: duplicate selector %s:%s", i+1, selector.Kind, selector.Value)
 		}
@@ -121,8 +122,12 @@ func normalizePolicyAction(action PolicyAction) (PolicyAction, error) {
 func normalizePolicySelector(selector PolicySelector) (PolicySelector, error) {
 	kind := PolicySelectorKind(strings.ToLower(strings.TrimSpace(string(selector.Kind))))
 	value := strings.TrimSpace(selector.Value)
+	source := strings.TrimSpace(selector.Source)
 	if value == "" {
 		return PolicySelector{}, fmt.Errorf("empty selector value")
+	}
+	if source != "" && kind != PolicySelectorGeoSite && kind != PolicySelectorGeoIP {
+		return PolicySelector{}, fmt.Errorf("GeoData source is only valid for geosite/geoip selectors")
 	}
 
 	switch kind {
@@ -137,7 +142,10 @@ func normalizePolicySelector(selector PolicySelector) (PolicySelector, error) {
 		if !policyCategoryPattern.MatchString(normalized) {
 			return PolicySelector{}, fmt.Errorf("invalid %s category %q", kind, value)
 		}
-		return PolicySelector{Kind: kind, Value: normalized}, nil
+		if source != "" && !validGeoDataFileSelector(source) {
+			return PolicySelector{}, fmt.Errorf("invalid GeoData source %q", source)
+		}
+		return PolicySelector{Kind: kind, Value: normalized, Source: source}, nil
 	case PolicySelectorIP:
 		ip := net.ParseIP(value)
 		if ip == nil {
