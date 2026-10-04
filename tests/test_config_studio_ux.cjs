@@ -118,7 +118,6 @@ const server = http.createServer((req, res) => {
       const mainLabel = getComputedStyle(main, '::before');
       const listLabel = getComputedStyle(lists, '::before');
       const restart = getComputedStyle(document.querySelector('#csRestartXray'));
-      const journal = getComputedStyle(document.querySelector('#csToggleJournal'));
       const format = getComputedStyle(document.querySelector('#csFormat'));
       const reset = getComputedStyle(document.querySelector('#csReset'));
       const apply = getComputedStyle(document.querySelector('#csApply'));
@@ -130,7 +129,6 @@ const server = http.createServer((req, res) => {
         mainLabelBackground: mainLabel.backgroundImage,
         listLabelBackground: listLabel.backgroundImage,
         restartBackground: restart.backgroundImage,
-        journalBackground: journal.backgroundImage,
         formatBackground: format.backgroundImage,
         formatColor: format.color,
         resetBackground: reset.backgroundImage,
@@ -145,7 +143,6 @@ const server = http.createServer((req, res) => {
     assert.match(visual.mainLabelBackground, /gradient/i);
     assert.match(visual.listLabelBackground, /gradient/i);
     assert.equal(visual.restartBackground, 'none', 'Xray operational controls should use the neutral treatment');
-    assert.equal(visual.journalBackground, 'none', 'Journal control should use the neutral treatment');
     assert.equal(visual.formatBackground, 'none', 'Format must be a tertiary action, not another blue primary');
     assert.equal(visual.resetBackground, 'none', 'Reset must use its own neutral/warn treatment');
     assert.notEqual(visual.formatColor, visual.resetColor, 'Format and reset need distinct visual meaning');
@@ -172,11 +169,7 @@ const server = http.createServer((req, res) => {
     });
     await page.waitForFunction(() => document.querySelector('.cs-shell')?.classList.contains('cs-list-view'));
 
-    await page.locator('#csToggleJournal').click();
-    await page.waitForFunction(() => document.querySelector('#csServiceJournal')?.classList.contains('show'));
-    assert((await page.locator('#csServiceJournal').innerText()).includes('Предыдущая операция Xray завершена.'));
-
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray');
     await page.locator('#csRestartXray').click();
     assert.equal(await page.evaluate(() => window.__xrayOwnerClicks), 1, 'Config Studio Xray button must delegate to the canonical topbar owner');
     assert.equal(restartPosts, 0, 'Config Studio must not own a separate restart mutation path');
@@ -198,11 +191,11 @@ const server = http.createServer((req, res) => {
     serviceOnline = false;
     await page.reload();
     await page.waitForFunction(() => document.querySelector('#csServiceStatus')?.textContent.includes('Остановлен'));
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Управление Xray', 'offline state must still use the same canonical Xray owner');
+    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray', 'offline state must still use the same canonical Xray owner');
     assert.equal(startPosts, 0, 'Config Studio must not start stopped Xray by itself');
     assert.equal(restartPosts, 0, 'Config Studio must not restart stopped Xray by itself');
 
-    console.log('Config Studio simplified UX delegates all Xray lifecycle mutations to canonical owner: OK');
+    console.log('Config Studio compact Xray status delegates lifecycle to canonical owner: OK');
   } finally {
     await browser.close();
     server.close();
