@@ -472,14 +472,18 @@ func searchGeoDataCategoryCodePrefixFileStream(ctx context.Context, path, prefix
 		return geoDataStreamSearchResult{}, fmt.Errorf("geodata file changed during open")
 	}
 
+	return searchGeoDataCategoryCodePrefixReadSeeker(ctx, f, opened.Size(), prefix, categoryLimit)
+}
+
+func searchGeoDataCategoryCodePrefixReadSeeker(ctx context.Context, rs io.ReadSeeker, total int64, prefix string, categoryLimit int) (geoDataStreamSearchResult, error) {
 	// Prefix autocomplete only needs top-level category codes. Keep a logical
 	// absolute offset and reset the buffered reader after Seek so large nested
 	// domain/CIDR payloads are skipped by the kernel instead of being copied
 	// through userspace on every keystroke.
-	br := bufio.NewReaderSize(f, geoDataStreamBufferSize)
+	br := bufio.NewReaderSize(rs, geoDataStreamBufferSize)
 	found := make(map[string]struct{})
 	var offset int64
-	for offset < opened.Size() {
+	for offset < total {
 		if err := geoDataContextErr(ctx); err != nil {
 			return geoDataStreamSearchResult{}, err
 		}
@@ -489,7 +493,7 @@ func searchGeoDataCategoryCodePrefixFileStream(ctx context.Context, path, prefix
 		}
 		offset += n
 		if wire != 2 {
-			if err := skipGeoFieldBodySeek(ctx, f, br, wire, opened.Size()-offset, &offset); err != nil {
+			if err := skipGeoFieldBodySeek(ctx, rs, br, wire, total-offset, &offset); err != nil {
 				return geoDataStreamSearchResult{}, err
 			}
 			continue
@@ -502,18 +506,18 @@ func searchGeoDataCategoryCodePrefixFileStream(ctx context.Context, path, prefix
 		if length > uint64(maxGeoDataStreamEntrySize) {
 			return geoDataStreamSearchResult{}, fmt.Errorf("geodata entry exceeds safe size")
 		}
-		if err := ensureGeoRemaining(opened.Size(), offset, int64(length)); err != nil {
+		if err := ensureGeoRemaining(total, offset, int64(length)); err != nil {
 			return geoDataStreamSearchResult{}, err
 		}
 		entryEnd := offset + int64(length)
 		if number != 1 {
-			if err := seekGeoBufferedTo(f, br, entryEnd); err != nil {
+			if err := seekGeoBufferedTo(rs, br, entryEnd); err != nil {
 				return geoDataStreamSearchResult{}, err
 			}
 			offset = entryEnd
 			continue
 		}
-		code, err := scanGeoDataCategoryCodeEntrySeek(ctx, f, br, entryEnd, &offset)
+		code, err := scanGeoDataCategoryCodeEntrySeek(ctx, rs, br, entryEnd, &offset)
 		if err != nil {
 			return geoDataStreamSearchResult{}, err
 		}
@@ -525,13 +529,13 @@ func searchGeoDataCategoryCodePrefixFileStream(ctx context.Context, path, prefix
 			}
 		}
 	}
-	if offset != opened.Size() {
+	if offset != total {
 		return geoDataStreamSearchResult{}, io.ErrUnexpectedEOF
 	}
 	return geoDataStreamSearchResult{Categories: sortedStringSet(found), Observed: true}, nil
 }
 
-func scanGeoDataCategoryCodeEntrySeek(ctx context.Context, f *os.File, br *bufio.Reader, entryEnd int64, offset *int64) (string, error) {
+func scanGeoDataCategoryCodeEntrySeek(ctx context.Context, rs io.ReadSeeker, br *bufio.Reader, entryEnd int64, offset *int64) (string, error) {
 	var code string
 	for *offset < entryEnd {
 		if err := geoDataContextErr(ctx); err != nil {
@@ -563,14 +567,14 @@ func scanGeoDataCategoryCodeEntrySeek(ctx context.Context, f *os.File, br *bufio
 			// GeoData category code is all the prefix path needs. Do not walk the
 			// nested rule payload after it; jump directly to the next top-level entry.
 			if *offset < entryEnd {
-				if err := seekGeoBufferedTo(f, br, entryEnd); err != nil {
+				if err := seekGeoBufferedTo(rs, br, entryEnd); err != nil {
 					return "", err
 				}
 				*offset = entryEnd
 			}
 			return code, nil
 		}
-		if err := skipGeoFieldBodySeek(ctx, f, br, wire, entryEnd-*offset, offset); err != nil {
+		if err := skipGeoFieldBodySeek(ctx, rs, br, wire, entryEnd-*offset, offset); err != nil {
 			return "", err
 		}
 	}
@@ -580,7 +584,7 @@ func scanGeoDataCategoryCodeEntrySeek(ctx context.Context, f *os.File, br *bufio
 	return code, nil
 }
 
-func skipGeoFieldBodySeek(ctx context.Context, f *os.File, br *bufio.Reader, wire int, remaining int64, offset *int64) error {
+func skipGeoFieldBodySeek(ctx context.Context, rs io.ReadSeeker, br *bufio.Reader, wire int, remaining int64, offset *int64) error {
 	switch wire {
 	case 0:
 		_, n, err := readGeoUvarint(ctx, br)
@@ -591,7 +595,7 @@ func skipGeoFieldBodySeek(ctx context.Context, f *os.File, br *bufio.Reader, wir
 			return err
 		}
 		target := *offset + 8
-		if err := seekGeoBufferedTo(f, br, target); err != nil {
+		if err := seekGeoBufferedTo(rs, br, target); err != nil {
 			return err
 		}
 		*offset = target
@@ -609,7 +613,7 @@ func skipGeoFieldBodySeek(ctx context.Context, f *os.File, br *bufio.Reader, wir
 			return err
 		}
 		target := *offset + int64(length)
-		if err := seekGeoBufferedTo(f, br, target); err != nil {
+		if err := seekGeoBufferedTo(rs, br, target); err != nil {
 			return err
 		}
 		*offset = target
@@ -619,7 +623,7 @@ func skipGeoFieldBodySeek(ctx context.Context, f *os.File, br *bufio.Reader, wir
 			return err
 		}
 		target := *offset + 4
-		if err := seekGeoBufferedTo(f, br, target); err != nil {
+		if err := seekGeoBufferedTo(rs, br, target); err != nil {
 			return err
 		}
 		*offset = target
@@ -629,14 +633,14 @@ func skipGeoFieldBodySeek(ctx context.Context, f *os.File, br *bufio.Reader, wir
 	}
 }
 
-func seekGeoBufferedTo(f *os.File, br *bufio.Reader, offset int64) error {
+func seekGeoBufferedTo(rs io.ReadSeeker, br *bufio.Reader, offset int64) error {
 	if offset < 0 {
 		return fmt.Errorf("invalid geodata seek offset")
 	}
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+	if _, err := rs.Seek(offset, io.SeekStart); err != nil {
 		return err
 	}
-	br.Reset(f)
+	br.Reset(rs)
 	return nil
 }
 
