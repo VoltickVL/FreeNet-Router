@@ -878,7 +878,7 @@
           selectGeoSuggestion(item, false);
         });
         results?.appendChild(button);
-      }));
+      });
       const warnings = Array.isArray(body.warnings) ? body.warnings.filter(Boolean) : [];
       const resolved = Array.isArray(body.resolved) ? body.resolved.filter(Boolean) : [];
       if (warnings.length) {
