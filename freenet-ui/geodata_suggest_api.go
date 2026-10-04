@@ -115,6 +115,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 	scanWarnings := make([]string, 0)
 	var budgetUsed int64
 	for _, file := range selected {
+		beforeFileSuggestions := len(suggestions)
 		// Unknown-name DATs are a compatibility fallback. On the normal autocomplete
 		// path, a usable result from a filename-typed DAT is authoritative enough;
 		// do not burn the remaining router budget probing unrelated custom files.
@@ -213,6 +214,13 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		// For implicit lookup, canonical geosite.dat / geoip.dat are authoritative
+		// primary sources. If the canonical DAT produced a usable match, do not
+		// replace or duplicate it with v2fly/refilter/custom copies. Alternate DATs
+		// are fallback only when canonical has no usable match.
+		if !explicitFiles && isCanonicalGeoDataFile(kind, file) && len(suggestions) > beforeFileSuggestions {
+			break
+		}
 		if len(suggestions) >= maxGeoDataSuggestions {
 			break
 		}
@@ -263,10 +271,34 @@ func classifyGeoDataSuggestQueryWithMode(kind GeoDataKind, raw, mode string) (ge
 	}
 }
 
+func canonicalGeoDataFilename(kind GeoDataKind) string {
+	switch kind {
+	case GeoDataSite:
+		return "geosite.dat"
+	case GeoDataIP:
+		return "geoip.dat"
+	default:
+		return ""
+	}
+}
+
+func isCanonicalGeoDataFile(kind GeoDataKind, file GeoDataFile) bool {
+	name := canonicalGeoDataFilename(kind)
+	return name != "" && strings.EqualFold(file.Name, name)
+}
+
 func prioritizeGeoDataSuggestFiles(kind GeoDataKind, selected []GeoDataFile) []GeoDataFile {
 	ordered := make([]GeoDataFile, 0, len(selected))
+	// Canonical FreeNet/XKeen DATs are the primary source. They are the files
+	// maintained by the normal GeoData update path, so implicit Smart GeoData
+	// lookups must prefer their categories and canonical selectors.
 	for _, file := range selected {
-		if file.Kind == kind {
+		if file.Kind == kind && isCanonicalGeoDataFile(kind, file) {
+			ordered = append(ordered, file)
+		}
+	}
+	for _, file := range selected {
+		if file.Kind == kind && !isCanonicalGeoDataFile(kind, file) {
 			ordered = append(ordered, file)
 		}
 	}
