@@ -219,6 +219,7 @@ const server=http.createServer(async(req,res)=>{
     const directRemoveBefore=calls.filter(x=>x==='POST /api/routing/apply').length;
     await page.locator('#rv2ApplyRules').click();
     await page.waitForFunction(()=>document.querySelector('#rv2RulesApplyResult')?.textContent.includes('Сохранено и применено'),null,{timeout:10000});
+    await page.waitForFunction(()=>document.querySelector('#rv2ApplyRules')?.textContent==='Сохранить и применить');
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,directRemoveBefore+1);
     assert.equal(routingLive.routing.rules.length,8,'selector removal must not drop the containing DIRECT rule');
     assert.equal(routingLive.routing.rules.some(rule=>Array.isArray(rule.domain)&&rule.domain.includes('domain:ifconfig.me')),false);
