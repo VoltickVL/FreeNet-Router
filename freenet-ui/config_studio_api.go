@@ -379,6 +379,9 @@ func (a *app) validateConfigStudioLive(parent context.Context) error {
 }
 
 func (a *app) handleConfigStudioApply(w http.ResponseWriter, r *http.Request) {
+	if a.mutationBlockedBySelfUpdate(w) {
+		return
+	}
 	name, content, ok := decodeConfigStudioCandidate(w, r, "PENDING")
 	if !ok {
 		return
@@ -386,6 +389,14 @@ func (a *app) handleConfigStudioApply(w http.ResponseWriter, r *http.Request) {
 	if err := a.validateConfigStudioCandidate(r.Context(), name, content); err != nil {
 		status, message := routingValidationFailureStatus(err)
 		writeJSON(w, status, configStudioMutationResponse{Success: false, Mutation: "NONE", XrayValid: false, Rollback: "NOT_NEEDED", CoreRestart: false, Error: message})
+		return
+	}
+
+	select {
+	case a.sem <- struct{}{}:
+		defer func() { <-a.sem }()
+	default:
+		writeJSON(w, http.StatusConflict, configStudioMutationResponse{Success: false, Mutation: "NONE", XrayValid: true, Rollback: "NOT_NEEDED", CoreRestart: false, Error: "another FreeNet mutation is already running"})
 		return
 	}
 
