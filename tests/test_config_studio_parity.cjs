@@ -89,6 +89,18 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/geodata/files') return json(res,{success:true,files:[],search_enabled:false});
   if (url.pathname === '/api/capabilities') return json(res,{success:true,split_dns_supported:true,memory_total_mib:1024,split_dns_min_mib:768});
   if (url.pathname === '/api/subscription') return json(res,{success:true,configured:true});
+  if (url.pathname === '/api/policy/compile' && req.method === 'POST') {
+    const request = await bodyJSON(req);
+    const rules = Array.isArray(request.rules) ? request.rules : [];
+    const compiledRules = rules.map((rule,index) => {
+      const action = String(rule.action || 'DIRECT').toUpperCase();
+      const kind = String(rule.selector?.kind || '');
+      const payload_outbound = action === 'DIRECT' ? 'direct' : action === 'VPN' ? 'vless-reality' : 'block';
+      const dns_leg = (kind === 'domain' || kind === 'geosite') ? (action === 'DIRECT' ? 'dns-direct' : action === 'VPN' ? 'dns-vless' : 'block') : '';
+      return {order:index,selector:rule.selector,action,payload_outbound,...(dns_leg ? {dns_leg} : {})};
+    });
+    return json(res,{success:true,mutation:'NONE',compiled:{rules:compiledRules,payload:compiledRules,dns:compiledRules.filter(rule=>rule.dns_leg)}});
+  }
   if (url.pathname === '/api/routing/config') {
     return json(res,{success:true,mutation:'NONE',routing:live['05_routing'],policy:live['06_policy'],routing_present:true,policy_present:true,routing_sha256:'e'.repeat(64),policy_sha256:'f'.repeat(64)});
   }
