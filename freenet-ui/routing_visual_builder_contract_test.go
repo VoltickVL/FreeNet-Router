@@ -40,11 +40,12 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		"function removalGroups()",
 		"Черновик изменений",
 		"rv2DraftCard",
-		"rv2ValidateRules",
 		"rv2ApplyRules",
-		"validateRulesCandidate",
+		"Сохранить и применить",
+		"prepareRulesCandidateForApply",
+		"mergeManagedRulesSafely",
+		"hasEarlierFamilyConflict",
 		"clone(base.routing.rules)",
-		"managed.concat(existing)",
 		"ext:([^:]+):(.+)",
 	} {
 		if !strings.Contains(js, want) {
@@ -65,6 +66,7 @@ func TestVisualRoutingBuilderContract(t *testing.T) {
 		`data-action="DIRECT"`,
 		"font-size:9.5px",
 		"font-size:8.5px",
+		"id=\"rv2ValidateRules\"",
 	} {
 		if strings.Contains(js, unwanted) {
 			t.Fatalf("Routing UX v4 still contains obsolete table/global-builder UI %q", unwanted)
@@ -89,7 +91,9 @@ func TestVisualRoutingBuilderUsesSharedTransactionalApply(t *testing.T) {
 		"rollback",
 		"STOP",
 		"Проверка Xray пройдена",
-		"Применить проверенные правила",
+		"applyRulesOneClick",
+		"FreeNetRoutingV2.refreshAfterApply",
+		"Сохранить и применить",
 	} {
 		if !strings.Contains(js, want) {
 			t.Fatalf("shared visual routing apply contract missing %q", want)
