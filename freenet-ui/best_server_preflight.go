@@ -14,10 +14,13 @@ import (
 )
 
 const (
-	bestServerPreflightShortlist  = 10
-	bestServerDiagnosticHTTPRuns  = 2
-	bestServerProfilePingTimeout  = 5 * time.Second
-	bestServerRTTSweepSlack       = 5 * time.Second
+	bestServerPreflightShortlist           = 10
+	bestServerDiagnosticHTTPRuns           = 2
+	bestServerProfilePingTimeout           = 5 * time.Second
+	bestServerConfirmedShortlistLimit      = 6
+	bestServerConfirmedProfilePingTimeout  = 6 * time.Second
+	bestServerConfirmedRTTSweepTimeout     = 10 * time.Second
+	bestServerRTTSweepSlack                = 5 * time.Second
 )
 
 func bestServerRTTSweepTimeout(candidateCount int) time.Duration {
@@ -66,7 +69,12 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 		}
 		selected = append(selected, candidate)
 	}
-	return selected
+
+	// Full-pool discovery remains one fast sample per logical profile. Only the
+	// bounded shortlist is re-measured with three samples/median before deep
+	// checks. This prevents a single transient RTT spike from deciding which
+	// three candidates receive the expensive strict quality probes.
+	return a.confirmBestServerShortlistVPNPing(ctx, selected)
 }
 
 // selectBestServerRTTShortlistIndexes builds the bounded deep-check queue from
@@ -173,6 +181,69 @@ func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate
 // intentionally deferred to strict deep quality.
 func (a *app) probeBestServerProfilePing(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
 	return a.withBestServerCandidateSOCKS(ctx, candidate, probeBestServerCanonicalVPNPing)
+}
+
+func (a *app) probeBestServerProfilePingConfirmed(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+	return a.withBestServerCandidateSOCKS(ctx, candidate, probeBestServerConfirmedVPNPing)
+}
+
+func (a *app) confirmBestServerShortlistVPNPing(ctx context.Context, candidates []bestServerInternalCandidate) []bestServerInternalCandidate {
+	return confirmBestServerShortlistVPNPingWith(ctx, candidates, a.probeBestServerProfilePingConfirmed)
+}
+
+func confirmBestServerShortlistVPNPingWith(ctx context.Context, candidates []bestServerInternalCandidate, probe providerRTTProbe) []bestServerInternalCandidate {
+	if len(candidates) == 0 || ctx.Err() != nil || probe == nil {
+		return candidates
+	}
+	limit := bestServerConfirmedShortlistLimit
+	if limit > len(candidates) {
+		limit = len(candidates)
+	}
+	phaseCtx, cancel := context.WithTimeout(ctx, bestServerConfirmedRTTSweepTimeout)
+	items := measureProviderProfileRTTWithTimeout(
+		phaseCtx,
+		candidates[:limit],
+		probe,
+		bestServerConfirmedProfilePingTimeout,
+	)
+	cancel()
+
+	byID := make(map[string]providerProfileRTTItem, len(items))
+	for _, item := range items {
+		byID[strings.TrimSpace(item.ProfileID)] = item
+	}
+	out := append([]bestServerInternalCandidate(nil), candidates...)
+	for i := range out {
+		item, ok := byID[strings.TrimSpace(out[i].Profile.ID)]
+		if !ok || !item.Reachable || item.RTTMS <= 0 {
+			out[i].VPNPingConfirmed = false
+			continue
+		}
+		out[i].VPNRTTMS = item.RTTMS
+		out[i].VPNJitterMS = item.JitterMS
+		out[i].VPNPingConfirmed = true
+	}
+
+	// Confirmed finalists are ordered by their median. Only the first bounded
+	// competitive cohort is repeated; reserve candidates keep their original
+	// quick-sweep order. Any reserve candidate that reaches deep quality is
+	// confirmed again inside that isolated deep probe before it can win.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].VPNPingConfirmed != out[j].VPNPingConfirmed {
+			return out[i].VPNPingConfirmed
+		}
+		if !out[i].VPNPingConfirmed {
+			return false
+		}
+		if out[i].VPNRTTMS != out[j].VPNRTTMS {
+			return out[i].VPNRTTMS < out[j].VPNRTTMS
+		}
+		if out[i].VPNJitterMS != out[j].VPNJitterMS {
+			return out[i].VPNJitterMS < out[j].VPNJitterMS
+		}
+		return out[i].Profile.ID < out[j].Profile.ID
+	})
+	return out
 }
 
 type bestServerCandidateSOCKSProbe func(context.Context, string, string) bestServerProbeResult

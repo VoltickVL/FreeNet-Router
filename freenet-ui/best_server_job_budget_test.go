@@ -29,11 +29,12 @@ func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
 }
 
 func TestBestServerJobBudgetCompletesThreeVisibleAttempts(t *testing.T) {
-	// Cover the maximum 64-profile whole-pool VPN RTT sweep plus three complete
-	// strict deep windows. Raw endpoint TCP is not a selection gate and therefore
-	// has no separate ranking budget.
+	// Cover the maximum 64-profile whole-pool quick VPN RTT sweep, the bounded
+	// six-finalist median confirmation, and three complete strict deep windows.
+	// Raw endpoint TCP is not a selection gate and has no separate ranking budget.
 	const completionReserve = 5 * time.Second
 	minimum := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+		bestServerConfirmedRTTSweepTimeout +
 		time.Duration(bestServerVisibleAlternatives)*bestServerQualityCandidateTimeout +
 		completionReserve
 	if bestServerAsyncJobTimeout < minimum {

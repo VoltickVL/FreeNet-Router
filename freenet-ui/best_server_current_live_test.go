@@ -92,12 +92,13 @@ func TestCurrentVPNUsesSameCanonicalPingAndApplicationRTTAsBestServer(t *testing
 	}
 	current := string(currentData)
 	for _, want := range []string{
-		"vpnResult := probeBestServerCanonicalVPNPing(ctx, curlPath, socks)",
+		"vpnResult := probeBestServerConfirmedVPNPing(ctx, curlPath, socks)",
 		"httpResult := probeBestServerCanonicalApplicationRTT(ctx, curlPath, socks)",
 		"candidate.VPNRTTMS = probe.VPN.Median",
+		"candidate.VPNPingConfirmed = true",
 	} {
 		if !strings.Contains(current, want) {
-			t.Fatalf("current VPN canonical measurement contract missing %q", want)
+			t.Fatalf("current VPN confirmed measurement contract missing %q", want)
 		}
 	}
 
@@ -105,8 +106,12 @@ func TestCurrentVPNUsesSameCanonicalPingAndApplicationRTTAsBestServer(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(preflightData), "withBestServerCandidateSOCKS(ctx, candidate, probeBestServerCanonicalVPNPing)") {
-		t.Fatal("Best Server Stage-0 must use the same canonical VPN-ping owner as Current VPN")
+	preflight := string(preflightData)
+	if !strings.Contains(preflight, "withBestServerCandidateSOCKS(ctx, candidate, probeBestServerCanonicalVPNPing)") {
+		t.Fatal("Best Server Stage-0 must keep the canonical one-sample full-pool VPN-ping signal")
+	}
+	if !strings.Contains(preflight, "probeBestServerProfilePingConfirmed") {
+		t.Fatal("Best Server shortlist must confirm the same fixed-IP VPN-ping signal before deep ranking")
 	}
 
 	qualityData, err := os.ReadFile("best_server_quality.go")

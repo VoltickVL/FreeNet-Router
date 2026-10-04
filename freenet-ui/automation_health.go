@@ -354,6 +354,7 @@ func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings a
 		return automationBestCycleResult{Result: "candidate", Reason: reason, ProfileID: candidate.ID}, nil
 	}
 
+	appendAutomationHistoryV2("selection", automationBestSelectionSummary(candidates, candidate))
 	status, applied := a.executeProviderProfileApply(networkApplyRequest{
 		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
 	})

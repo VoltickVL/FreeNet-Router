@@ -34,6 +34,11 @@ const (
 	bestServerQualityModerateSpeedPenalty = 500
 	bestServerQualityHighJitterMS         = 80
 	bestServerQualityMaxApplicationMS     = 220
+	bestServerQualitySpeedPrimaryCapMbps  = 100.0
+	bestServerQualitySpeedMaxCapMbps      = 200.0
+	bestServerQualitySpeedPrimaryWeight   = 10.0
+	bestServerQualitySpeedExcessWeight    = 2.0
+	bestServerQualityVPNRTTWeight         = 2
 	bestServerThroughputStrictAggregate   = "strict_aggregate"
 	bestServerThroughputCurrentFallback   = "current_fallback"
 )
@@ -53,9 +58,10 @@ type bestServerQualityCandidate struct {
 	Available     bool     `json:"available"`
 	TCPRTTMS      int      `json:"tcp_rtt_ms,omitempty"`
 	TCPJitterMS   int      `json:"tcp_jitter_ms,omitempty"`
-	VPNRTTMS      int      `json:"vpn_rtt_ms,omitempty"`
-	VPNJitterMS   int      `json:"vpn_jitter_ms,omitempty"`
-	ApplicationMS int      `json:"application_rtt_ms,omitempty"`
+	VPNRTTMS         int      `json:"vpn_rtt_ms,omitempty"`
+	VPNJitterMS      int      `json:"vpn_jitter_ms,omitempty"`
+	VPNPingConfirmed bool     `json:"vpn_ping_confirmed,omitempty"`
+	ApplicationMS    int      `json:"application_rtt_ms,omitempty"`
 	JitterMS      int      `json:"jitter_ms,omitempty"`
 	DownloadMbps         float64 `json:"download_mbps,omitempty"`
 	FallbackDownloadMbps float64 `json:"fallback_download_mbps,omitempty"`
@@ -160,7 +166,7 @@ func rankBestServerQualityCandidates(
 		results[i] = bestServerQualityCandidate{
 			ID: candidate.Profile.ID, Name: candidate.Profile.Name, CountryCode: candidate.Profile.CountryCode,
 			Endpoint: profileEndpoint(candidate.Profile), Current: i == currentIndex,
-			VPNRTTMS: candidate.VPNRTTMS, VPNJitterMS: candidate.VPNJitterMS,
+			VPNRTTMS: candidate.VPNRTTMS, VPNJitterMS: candidate.VPNJitterMS, VPNPingConfirmed: candidate.VPNPingConfirmed,
 			Reason: "VPN quality probe pending",
 		}
 	}
@@ -187,6 +193,11 @@ func rankBestServerQualityCandidates(
 
 		results[index].Reachable = true
 		results[index].Available = true
+		if probe.VPN.OK {
+			results[index].VPNRTTMS = probe.VPN.Median
+			results[index].VPNJitterMS = probe.VPN.Jitter
+			results[index].VPNPingConfirmed = true
+		}
 		results[index].DownloadIssue = probe.DownloadIssue
 		results[index].MediaIssue = probe.Media.Issue
 		results[index].ApplicationMS = probe.HTTP.Median
@@ -210,6 +221,9 @@ func rankBestServerQualityCandidates(
 			probe.DownloadMbps,
 			probe.DownloadOK,
 		)
+		if results[index].VPNRTTMS > 0 {
+			baseScore -= minInt(results[index].VPNRTTMS, 2500) * bestServerQualityVPNRTTWeight
+		}
 		results[index].Score = baseScore - probe.Media.Penalty
 		if results[index].Score < 1 {
 			results[index].Score = 1
@@ -309,7 +323,18 @@ func bestServerQualityScore(httpMS, httpJitterMS int, downloadMbps float64, down
 	score -= minInt(httpMS, 2500) * 2
 	score -= minInt(httpJitterMS, 1000) * 3
 	if downloadOK {
-		score += int(math.Min(downloadMbps, 200) * 25)
+		// Throughput remains important, but once a VPN is already fast enough
+		// for ordinary traffic, small Mbps differences must not dominate a
+		// materially better latency path. Reward the first 100 Mbps strongly,
+		// then apply diminishing returns up to the existing 200 Mbps cap.
+		primary := math.Min(downloadMbps, bestServerQualitySpeedPrimaryCapMbps)
+		if primary > 0 {
+			score += int(primary * bestServerQualitySpeedPrimaryWeight)
+		}
+		if downloadMbps > bestServerQualitySpeedPrimaryCapMbps {
+			excess := math.Min(downloadMbps-bestServerQualitySpeedPrimaryCapMbps, bestServerQualitySpeedMaxCapMbps-bestServerQualitySpeedPrimaryCapMbps)
+			score += int(excess * bestServerQualitySpeedExcessWeight)
+		}
 		switch {
 		case downloadMbps < 10:
 			score -= bestServerQualityVeryLowSpeedPenalty
@@ -451,12 +476,16 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 	}
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
+	vpnResult := probeBestServerConfirmedVPNPing(ctx, curlPath, socks)
+	if !vpnResult.OK {
+		return bestServerQualityApplicationResult{}
+	}
 	httpResult := probeBestServerCanonicalApplicationRTT(ctx, curlPath, socks)
 	if !httpResult.OK {
 		return bestServerQualityApplicationResult{}
 	}
 
-	result := bestServerQualityApplicationResult{OK: true, HTTP: httpResult}
+	result := bestServerQualityApplicationResult{OK: true, VPN: vpnResult, HTTP: httpResult}
 	result.Media = probeBestServerMediaQuality(ctx, curlPath, socks)
 	if result.Media.OK && result.Media.MedianMbps > 0 {
 		result.DownloadOK = true
