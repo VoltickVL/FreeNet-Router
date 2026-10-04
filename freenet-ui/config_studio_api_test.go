@@ -219,6 +219,115 @@ exit 0
 	}
 }
 
+
+func performConfigStudioApply(t *testing.T, a *app, payload string) (*httptest.ResponseRecorder, configStudioMutationResponse) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "http://router/api/config-studio/apply", strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Origin", "http://router")
+	rec := httptest.NewRecorder()
+	a.handleConfigStudioApply(rec, req)
+	var resp configStudioMutationResponse
+	if rec.Body.Len() > 0 {
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("invalid response JSON: %v body=%s", err, rec.Body.String())
+		}
+	}
+	return rec, resp
+}
+
+func TestConfigStudioApplyRestartsRunningXrayCore(t *testing.T) {
+	a, dir := configStudioTestApp(t)
+	configStudioFakeXray(t, `#!/bin/sh
+set -eu
+[ "$1" = "run" ]
+[ "$2" = "-test" ]
+[ "$3" = "-confdir" ]
+exit 0
+`)
+	_, counter := installRoutingCoreRestartHelper(t)
+	withRunningXray(t)
+
+	payload := `{"file":"01_log.json","content":{"log":{"loglevel":"debug"}}}`
+	rec, resp := performConfigStudioApply(t, a, payload)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !resp.Success || resp.Mutation != "APPLIED" || resp.Rollback != "NOT_NEEDED" || !resp.CoreRestart {
+		t.Fatalf("running Config Studio apply must activate runtime: %+v", resp)
+	}
+	count, err := os.ReadFile(counter)
+	if err != nil || strings.TrimSpace(string(count)) != "1" {
+		t.Fatalf("core-only restart count=%q err=%v", string(count), err)
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, "01_log.json"))
+	if !strings.Contains(string(after), `"loglevel": "debug"`) {
+		t.Fatal("Config Studio running apply did not keep candidate bytes")
+	}
+}
+
+func TestConfigStudioApplyCoreRestartFailureRestoresBytesAndRuntime(t *testing.T) {
+	a, dir := configStudioTestApp(t)
+	configStudioFakeXray(t, `#!/bin/sh
+set -eu
+[ "$1" = "run" ]
+[ "$2" = "-test" ]
+[ "$3" = "-confdir" ]
+exit 0
+`)
+	_, counter := installRoutingCoreRestartHelper(t, "1")
+	withRunningXray(t)
+	before, _ := os.ReadFile(filepath.Join(dir, "01_log.json"))
+
+	payload := `{"file":"01_log.json","content":{"log":{"loglevel":"debug"}}}`
+	rec, resp := performConfigStudioApply(t, a, payload)
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if resp.Success || resp.Mutation != "ROLLED_BACK" || resp.Rollback != "SUCCESS" || resp.Applied {
+		t.Fatalf("restart failure must restore old Config Studio runtime: %+v", resp)
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, "01_log.json"))
+	if !bytes.Equal(before, after) {
+		t.Fatal("restart failure did not restore Config Studio bytes")
+	}
+	count, err := os.ReadFile(counter)
+	if err != nil || strings.TrimSpace(string(count)) != "2" {
+		t.Fatalf("expected failed activation + rollback restart, count=%q err=%v", string(count), err)
+	}
+}
+
+func TestConfigStudioApplyRollbackRuntimeFailureStops(t *testing.T) {
+	a, dir := configStudioTestApp(t)
+	configStudioFakeXray(t, `#!/bin/sh
+set -eu
+[ "$1" = "run" ]
+[ "$2" = "-test" ]
+[ "$3" = "-confdir" ]
+exit 0
+`)
+	_, counter := installRoutingCoreRestartHelper(t, "1", "2")
+	withRunningXray(t)
+	before, _ := os.ReadFile(filepath.Join(dir, "01_log.json"))
+
+	payload := `{"file":"01_log.json","content":{"log":{"loglevel":"debug"}}}`
+	rec, resp := performConfigStudioApply(t, a, payload)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if resp.Mutation != "STOP" || resp.Rollback != "FAILED" {
+		t.Fatalf("rollback runtime failure must STOP Config Studio mutation: %+v", resp)
+	}
+	after, _ := os.ReadFile(filepath.Join(dir, "01_log.json"))
+	if !bytes.Equal(before, after) {
+		t.Fatal("STOP path must restore Config Studio bytes before reporting unknown runtime")
+	}
+	count, err := os.ReadFile(counter)
+	if err != nil || strings.TrimSpace(string(count)) != "2" {
+		t.Fatalf("expected activation and rollback restart attempts, count=%q err=%v", string(count), err)
+	}
+}
+
 func TestConfigStudioRejectsManagedOrMalformedMutationBeforeXray(t *testing.T) {
 	a, _ := configStudioTestApp(t)
 	t.Setenv("FREENET_XRAY_BIN", filepath.Join(t.TempDir(), "must-not-run"))
