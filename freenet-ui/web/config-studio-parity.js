@@ -16,6 +16,7 @@
     draft: new Map(),
     valid: new Set(),
     errors: new Map(),
+    stale: false,
     xray: {online: false, version: ''},
     editorHeight: 0
   };
@@ -114,6 +115,10 @@
   function activeFile() { return state.active + '.json'; }
   function activeText() { return String(state.draft.get(state.active) || ''); }
   function isDirty(name) { return state.draft.has(name) && state.draft.get(name) !== state.live.get(name); }
+
+  function hasDirtyDrafts() {
+    return state.tabs.some(tab => JSON_TABS.has(tab.name) && isDirty(tab.name));
+  }
 
   function statusFor(tab) {
     if (!tab) return ['Не загружено', ''];
@@ -234,8 +239,8 @@
     if (format) format.disabled = !jsonEditable || listTab;
     if (reset) reset.disabled = !jsonEditable || !dirty;
     if (apply) {
-      apply.disabled = !jsonEditable || !dirty || hasError;
-      apply.textContent = 'Сохранить';
+      apply.disabled = !jsonEditable || !dirty || hasError || state.stale;
+      apply.textContent = 'Применить';
     }
   }
 
@@ -331,16 +336,21 @@
   }
 
   async function reloadWorkspace(message) {
-    if (state.loading) return;
+    if (state.loading) return false;
     state.loading = true;
+    const previousActive = state.active;
     try {
       const body = await api('/api/config-studio');
       if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract Config Studio');
       loadWorkspaceData(body);
+      if (previousActive && tabByName(previousActive)) state.active = previousActive;
+      state.stale = false;
       render();
       if (message) setNotice(message, 'ok');
+      return true;
     } catch (error) {
       setNotice(`Config Studio недоступен: ${error.message || 'ошибка API'}`, 'bad');
+      return false;
     } finally {
       state.loading = false;
     }
@@ -359,6 +369,10 @@
   }
 
   function resetActive() {
+    if (state.stale) {
+      void reloadWorkspace('Черновик отменён. Загружена актуальная live-конфигурация.');
+      return;
+    }
     if (!state.live.has(state.active)) return;
     state.draft.set(state.active, state.live.get(state.active));
     state.valid.delete(state.active);
@@ -404,9 +418,10 @@
 
   async function applyActive() {
     const tab = activeTab();
-    if (!tab || !isDirty(tab.name) || state.errors.has(tab.name)) return;
+    if (!tab || !isDirty(tab.name) || state.errors.has(tab.name) || state.stale) return;
+    const appliedTab = tab.name;
     const button = qs('#csApply');
-    if (button) { button.disabled = true; button.textContent = 'Сохраняю…'; }
+    if (button) { button.disabled = true; button.textContent = 'Применяю…'; }
     try {
       let body;
       if (ROUTING_TABS.has(tab.name)) {
@@ -419,20 +434,50 @@
         ? 'Изменения применены, post-validation подтверждён, Xray Core перезапущен безопасным core-only path.'
         : 'Изменения сохранены и post-validation подтверждён. Xray был остановлен и остался остановлен; новый конфиг загрузится при следующем запуске.';
       await reloadWorkspace(appliedMessage);
+      document.dispatchEvent(new CustomEvent('freenet:xray-config-applied', {
+        detail:{
+          source:'config-studio',
+          files:ROUTING_TABS.has(appliedTab) ? ['05_routing','06_policy'] : [appliedTab]
+        }
+      }));
     } catch (error) {
       setNotice(`Apply не завершён: ${error.message || 'неизвестная ошибка'}. Blind retry не запускается. Проверьте результат/rollback перед повтором.`, 'bad');
     } finally {
-      if (button) button.textContent = 'Сохранить';
+      if (button) button.textContent = 'Применить';
       renderStatusAndActions();
     }
   }
 
   function mountMarkup(panel) {
-    panel.innerHTML = `<div class="rv2-card"><div class="cs-shell"><div class="cs-head"><div class="cs-title"><h2>Config Studio</h2><span id="csState" class="cs-state">Загрузка</span></div><div id="csXray" class="cs-xray"></div></div><p class="rv2-copy">Полный Xray workspace после авторизации FreeNet: syntax highlight, dirty-state, diagnostics, validation и controlled apply.</p><div class="cs-tab-groups"><div id="csTabsMain" class="cs-tabs cs-tabs-main" aria-label="Xray config files"></div><div id="csTabsLists" class="cs-tabs cs-tabs-lists" aria-label="XKeen list files"></div></div><div id="csBody"></div><div class="cs-toolbar cs-editor-footer"><div class="cs-actions"><button id="csFormat" class="cs-btn cs-btn-tertiary" type="button">Форматировать</button><button id="csReset" class="cs-btn cs-btn-reset" type="button">Отменить</button></div><button id="csApply" class="cs-btn primary" type="button">Сохранить</button></div><div id="csMeta" class="cs-meta"></div><div class="cs-safe-note">01–06 доступны владельцу после авторизации FreeNet. Credential-bearing значения остаются только в authenticated browser session и не должны попадать в Journal, GitHub или CI logs. Apply: validation → snapshot → atomic write → post-check → rollback/STOP.</div><div id="csNotice" class="cs-notice"></div></div></div>`;
+    panel.innerHTML = `<div class="rv2-card"><div class="cs-shell"><div class="cs-head"><div class="cs-title"><h2>Config Studio</h2><span id="csState" class="cs-state">Загрузка</span></div><div id="csXray" class="cs-xray"></div></div><p class="rv2-copy">Полный Xray workspace после авторизации FreeNet: syntax highlight, dirty-state, diagnostics, validation и controlled apply.</p><div class="cs-tab-groups"><div id="csTabsMain" class="cs-tabs cs-tabs-main" aria-label="Xray config files"></div><div id="csTabsLists" class="cs-tabs cs-tabs-lists" aria-label="XKeen list files"></div></div><div id="csBody"></div><div class="cs-toolbar cs-editor-footer"><div class="cs-actions"><button id="csFormat" class="cs-btn cs-btn-tertiary" type="button">Форматировать</button><button id="csReset" class="cs-btn cs-btn-reset" type="button">Отменить</button></div><button id="csApply" class="cs-btn primary" type="button">Применить</button></div><div id="csMeta" class="cs-meta"></div><div class="cs-safe-note">01–06 доступны владельцу после авторизации FreeNet. Credential-bearing значения остаются только в authenticated browser session и не должны попадать в Journal, GitHub или CI logs. Apply: validation → snapshot → atomic write → post-check → rollback/STOP.</div><div id="csNotice" class="cs-notice"></div></div></div>`;
     qs('#csFormat')?.addEventListener('click', formatActive);
     qs('#csReset')?.addEventListener('click', resetActive);
     qs('#csApply')?.addEventListener('click', applyActive);
   }
+
+  async function handleExternalConfigApplied(event) {
+    const detail = event && event.detail && typeof event.detail === 'object' ? event.detail : {};
+    if (detail.source === 'config-studio') return;
+
+    if (hasDirtyDrafts()) {
+      state.stale = true;
+      state.valid.clear();
+      renderStatusAndActions();
+      setNotice('Live-конфигурация изменилась в «Правила». Локальный черновик сохранён, но применение заблокировано. Нажмите «Отменить», чтобы загрузить актуальный live state.', 'bad');
+      return;
+    }
+
+    await reloadWorkspace();
+  }
+
+  async function handleRoutingModeChanged(event) {
+    const mode = String(event?.detail?.mode || '');
+    if (mode !== 'config' || hasDirtyDrafts() || state.stale) return;
+    await reloadWorkspace();
+  }
+
+  document.addEventListener('freenet:xray-config-applied', event => { void handleExternalConfigApplied(event); });
+  document.addEventListener('freenet:routing-mode-changed', event => { void handleRoutingModeChanged(event); });
 
   function mount() {
     if (state.mounted) return;
@@ -444,6 +489,11 @@
     reloadWorkspace();
     panel.dataset.configStudioParity = '1';
   }
+
+  window.FreeNetConfigStudio = Object.assign(window.FreeNetConfigStudio || {}, {
+    reloadWorkspace,
+    hasDirtyDrafts
+  });
 
   function tryMount() {
     if (!state.mounted) mount();
