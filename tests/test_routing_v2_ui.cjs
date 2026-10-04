@@ -69,7 +69,7 @@ const server=http.createServer(async(req,res)=>{
     if(kind==='geosite'&&file==='geosite-extra.dat') return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:[
       {file:'geosite-extra.dat',kind:'geosite',category:'youtube-extra',selector:'ext:geosite-extra.dat:youtube-extra',ext_selector:'ext:geosite-extra.dat:youtube-extra',match:'category'}
     ],warnings:[]});
-    if(kind==='geosite'&&q==='steam.') return json(res,{success:false,kind,query:q,mutation:'NONE',error:'invalid host or URL'},400);
+    if(kind==='geosite'&&q==='steam.') return json(res,{success:false,kind,query:q,mutation:'NONE',error:'invalid host or URL'});
     if(kind==='geosite') return json(res,{success:true,kind,query:q,mode:q.includes('.')?'domain':'prefix',mutation:'NONE',suggestions:[
       {file:'geosite.dat',kind:'geosite',category:'youtube',selector:'geosite:youtube',ext_selector:'ext:geosite.dat:youtube',match:'category'},
       {file:'geosite-extra.dat',kind:'geosite',category:'youtube-extra',selector:'ext:geosite-extra.dat:youtube-extra',ext_selector:'ext:geosite-extra.dat:youtube-extra',match:'category'}
