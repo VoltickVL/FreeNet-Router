@@ -415,7 +415,10 @@
         body = await api('/api/config-studio/apply', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({file:activeFile(), content:JSON.parse(activeText())})});
       }
       if (body.mutation !== 'APPLIED') throw new Error(body.error || `mutation ${body.mutation || 'UNKNOWN'}`);
-      await reloadWorkspace('Изменения применены и post-validation подтверждён. Xray Core автоматически не перезапускался.');
+      const appliedMessage = body.core_restart
+        ? 'Изменения применены, post-validation подтверждён, Xray Core перезапущен безопасным core-only path.'
+        : 'Изменения сохранены и post-validation подтверждён. Xray был остановлен и остался остановлен; новый конфиг загрузится при следующем запуске.';
+      await reloadWorkspace(appliedMessage);
     } catch (error) {
       setNotice(`Apply не завершён: ${error.message || 'неизвестная ошибка'}. Blind retry не запускается. Проверьте результат/rollback перед повтором.`, 'bad');
     } finally {
