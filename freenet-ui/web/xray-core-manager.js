@@ -579,20 +579,15 @@
       clearNode(target);
       const box = document.createElement('div');
       if (response.ok && result.success) {
-        box.className = 'xcm-result ok';
-        box.textContent = result.message || `Xray ${release.version} установлен.`;
+        const message = result.message || `Xray ${release.version} установлен.`;
         const chip = qs('#csServiceVersion'); if (chip) chip.textContent = `${result.current_version || release.version} ▾`;
         syncTopbarVersion(result.current_version || release.version);
-        target.appendChild(box);
-        addButton(footer, 'Закрыть', '', closeManager);
-        addButton(footer, 'К управлению', 'primary', async () => {
-          try {
-            const current = await fetchServiceSnapshot();
-            renderServiceHome(current);
-          } catch (_) {
-            renderServiceHome(Object.assign({}, serviceState || {}, {version:result.current_version || release.version}));
-          }
-        });
+        try {
+          const current = await fetchServiceSnapshot();
+          renderServiceHome(current, message);
+        } catch (_) {
+          renderServiceHome(Object.assign({}, serviceState || {}, {success:true, online:true, version:result.current_version || release.version}), message);
+        }
       } else {
         const rollbackFailed = result.rollback === 'FAILED';
         box.className = `xcm-result bad${rollbackFailed ? ' stop' : ''}`;
