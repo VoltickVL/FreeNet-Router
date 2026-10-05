@@ -22,8 +22,8 @@ const (
 	bestServerQualityTCPRequired          = 2
 	bestServerQualityTCPTimeout           = 1200 * time.Millisecond
 	bestServerQualityWarmupRuns           = 1
-	bestServerQualityHTTPRuns             = 3
-	bestServerQualityHTTPRequired         = 2
+	bestServerQualityHTTPRuns             = 5
+	bestServerQualityHTTPRequired         = 3
 	bestServerQualityHTTPTimeout          = 5 * time.Second
 	bestServerQualityCandidateTimeout     = 50 * time.Second
 	bestServerQualityScanTimeout          = 420 * time.Second
@@ -38,6 +38,8 @@ const (
 	bestServerQualitySpeedMaxCapMbps      = 150.0
 	bestServerQualitySpeedPrimaryWeight   = 4.0
 	bestServerQualitySpeedExcessWeight    = 0.5
+	bestServerQualityApplicationRTTWeight = 3
+	bestServerQualityJitterWeight         = 5
 	bestServerQualityVPNRTTWeight         = 2
 	bestServerThroughputStrictAggregate   = "strict_aggregate"
 	bestServerThroughputCurrentFallback   = "current_fallback"
@@ -324,8 +326,8 @@ func defaultBestServerQualityTCPProbe(ctx context.Context, profile subscriptionP
 
 func bestServerQualityScore(httpMS, httpJitterMS int, downloadMbps float64, downloadOK bool) int {
 	score := 10000
-	score -= minInt(httpMS, 2500) * 2
-	score -= minInt(httpJitterMS, 1000) * 4
+	score -= minInt(httpMS, 2500) * bestServerQualityApplicationRTTWeight
+	score -= minInt(httpJitterMS, 1000) * bestServerQualityJitterWeight
 	if downloadOK {
 		// Throughput is a qualification and tie-break signal, not the primary
 		// user-experience score. Reward useful capacity up to 50 Mbps, then only
