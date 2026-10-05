@@ -233,14 +233,79 @@ func TestAutomationServicePathHealthRequiresAllBoundedTargets(t *testing.T) {
 }
 
 func TestAutomationReachableDegradationNeverTriggersRecovery(t *testing.T) {
-	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS+80, 4, 4); got.State != automationHealthUncertain {
-		t.Fatalf("high-latency reachable VPN state=%q want uncertain/no-mutation", got.State)
+	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS+80, 4, 4); got.State != automationHealthUncertain || !got.QualityDegraded {
+		t.Fatalf("high-latency reachable VPN result=%+v want uncertain quality-degraded/no-recovery", got)
 	}
-	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS, 3, 4); got.State != automationHealthUncertain {
-		t.Fatalf("partial service degradation state=%q want uncertain/no-mutation", got.State)
+	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS, 3, 4); got.State != automationHealthUncertain || !got.QualityDegraded {
+		t.Fatalf("partial service degradation result=%+v want uncertain quality-degraded/no-recovery", got)
 	}
-	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS, 4, 4); got.State != automationHealthHealthy {
-		t.Fatalf("fully healthy VPN state=%q want healthy", got.State)
+	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS, 4, 4); got.State != automationHealthHealthy || got.QualityDegraded {
+		t.Fatalf("fully healthy VPN result=%+v want healthy/not-degraded", got)
+	}
+	if got := classifyAutomationApplicationFailure(true); got.QualityDegraded {
+		t.Fatalf("ambiguous named-origin failure must not count as a quality strike: %+v", got)
+	}
+}
+
+func TestAutomationQualityOptimizationNeedsThreeStrikesInsideWindow(t *testing.T) {
+	base := time.Date(2026, 10, 5, 10, 0, 0, 0, time.UTC)
+	state := map[string]string{}
+
+	updates, due := automationQualityOptimizationPlan(state, base, true)
+	if due || updates["QUALITY_DEGRADED_COUNT"] != "1" {
+		t.Fatalf("first strike updates=%v due=%v", updates, due)
+	}
+	for k, v := range updates {
+		state[k] = v
+	}
+
+	// A healthy sample between strikes does not erase a recent instability
+	// window; this models HOME where degraded and healthy samples alternated.
+	updates, due = automationQualityOptimizationPlan(state, base.Add(5*time.Minute), false)
+	if due {
+		t.Fatal("healthy sample unexpectedly triggered optimization")
+	}
+	for k, v := range updates {
+		state[k] = v
+	}
+
+	updates, due = automationQualityOptimizationPlan(state, base.Add(10*time.Minute), true)
+	if due || updates["QUALITY_DEGRADED_COUNT"] != "2" {
+		t.Fatalf("second strike updates=%v due=%v", updates, due)
+	}
+	for k, v := range updates {
+		state[k] = v
+	}
+
+	updates, due = automationQualityOptimizationPlan(state, base.Add(20*time.Minute), true)
+	if !due {
+		t.Fatalf("third strike inside %s must trigger one optimization: updates=%v", automationQualityStrikeWindow, updates)
+	}
+	if updates["QUALITY_DEGRADED_COUNT"] != "0" || updates["QUALITY_OPTIMIZATION_LAST"] == "" {
+		t.Fatalf("trigger must reset strikes and stamp attempt: %v", updates)
+	}
+}
+
+func TestAutomationQualityOptimizationSingleSpikeExpiresAndAttemptCoolsDown(t *testing.T) {
+	base := time.Date(2026, 10, 5, 10, 0, 0, 0, time.UTC)
+	state := map[string]string{
+		"QUALITY_DEGRADED_COUNT": "1",
+		"QUALITY_DEGRADED_SINCE": base.Format(time.RFC3339),
+	}
+	updates, due := automationQualityOptimizationPlan(state, base.Add(automationQualityStrikeWindow+time.Minute), false)
+	if due || updates["QUALITY_DEGRADED_COUNT"] != "0" {
+		t.Fatalf("expired single spike must clear without scan: updates=%v due=%v", updates, due)
+	}
+
+	last := base.Add(-30 * time.Minute)
+	state = map[string]string{
+		"QUALITY_DEGRADED_COUNT": "2",
+		"QUALITY_DEGRADED_SINCE": base.Add(-10 * time.Minute).Format(time.RFC3339),
+		"QUALITY_OPTIMIZATION_LAST": last.Format(time.RFC3339),
+	}
+	updates, due = automationQualityOptimizationPlan(state, base, true)
+	if due {
+		t.Fatalf("heavy quality scan ignored %s attempt cooldown: %v", automationQualityOptimizationCooldown, updates)
 	}
 }
 

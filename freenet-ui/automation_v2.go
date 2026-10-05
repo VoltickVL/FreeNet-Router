@@ -691,7 +691,14 @@ func automationBestSelectionSummary(response bestServerQualityResponse, selected
 }
 
 func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (automationBestCycleResult, error) {
-	settings := readAutomationSettings(a.cfg.ConfigPath)
+	return a.runAutomationBestCycleWithSettings(parent, readAutomationSettings(a.cfg.ConfigPath), manual)
+}
+
+func (a *app) runAutomationBestCycleWithSettings(parent context.Context, settings automationSettings, manual bool) (automationBestCycleResult, error) {
+	settings.Mode = normalizeAutomationMode(settings.Mode)
+	settings.Policy = normalizeAutomationPolicy(settings.Policy)
+	settings.CountryScope = normalizeAutomationCountryScope(settings.CountryScope)
+	settings.Countries = normalizeAutomationCountries(settings.Countries)
 	if settings.Mode != automationModeBest {
 		return automationBestCycleResult{Result: "same", Reason: "Режим «Лучший VPN автоматически» не выбран."}, nil
 	}
