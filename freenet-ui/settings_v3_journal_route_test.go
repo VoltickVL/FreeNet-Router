@@ -41,3 +41,46 @@ func TestSettingsV3JournalRouteBridgeHandlesSlashHash(t *testing.T) {
 		}
 	}
 }
+
+func TestJournalAnalysisControlsAndExportRoute(t *testing.T) {
+	coreData, err := os.ReadFile("web/settings-v3-core.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	core := string(coreData)
+	for _, want := range []string{
+		"Экспорт CSV",
+		"Сегодня",
+		"24 часа",
+		"7 дней",
+		"Страница ${state.journalPage} из ${state.journalPages}",
+		"<option>50</option>",
+		"<option selected>100</option>",
+		"<option>200</option>",
+		"<option>500</option>",
+		"/api/journal/export?",
+		"? 'Обновление' : 'Запущено'",
+	} {
+		if !strings.Contains(core, want) {
+			t.Fatalf("Journal analysis UI missing %q", want)
+		}
+	}
+
+	goData, err := os.ReadFile("settings_v3.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	goSource := string(goData)
+	for _, want := range []string{
+		`mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))`,
+		"journalCanonicalRetentionLimit  = 15000",
+		"journalHistoryFileLimit         = 20000",
+		"journalDefaultPageSize          = 100",
+		"journalMaxPageSize              = 500",
+	} {
+		if !strings.Contains(goSource, want) {
+			t.Fatalf("Journal analysis backend missing %q", want)
+		}
+	}
+}
+

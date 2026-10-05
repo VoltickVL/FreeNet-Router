@@ -27,17 +27,17 @@ func TestUnifiedJournalUIHasCanonicalFiltersAndCategories(t *testing.T) {
 		"if (kind === 'auto vpn' || kind === 'auto_vpn') return 'auto'",
 		"if (kind === 'freenet_update' || kind === 'freenet_update_recovery') return ['Обновление FreeNet', 'system']",
 		"window.openFreeNetJournal = filter =>",
-		"source.slice(0, target === '#fn3JournalFull' ? 200 : 4)",
+		"source.slice(0, target === '#fn3JournalFull' ? state.journalPageSize : 4)",
 		"function journalStage(event)",
 		"candidate_selection:'Подбор'",
 		"selection:'Решение'",
 		"function loadJournal(force = false)",
-		"fetchJSON('/api/journal', {cache:'no-store'})",
+		"fetchJSON('/api/journal?' + journalQueryString(true), {cache:'no-store'})",
 		"window.setInterval(() =>",
 		"journalPageActive() && state.journalLive",
 		"data-journal-result",
 		"id=\"fn3JournalSearch\"",
-		"До 200 последних canonical событий",
+		"Храним до 15 000 canonical событий",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("unified Journal UI contract missing %q", want)
@@ -103,11 +103,13 @@ func TestUnifiedJournalBackendHasReadOnlyEndpointAndSemanticDedupe(t *testing.T)
 	source := string(data)
 	for _, want := range []string{
 		`mux.HandleFunc("GET /api/journal", a.requireAuth(a.handleJournalGet))`,
-		"journalHistoryFileLimit       = 200",
-		"journalSemanticDedupeWindow   = 15 * time.Second",
+		"journalHistoryFileLimit         = 20000",
+		"journalCanonicalRetentionLimit  = 15000",
+		"journalSemanticDedupeWindow     = 15 * time.Second",
 		"func dedupeCanonicalJournalEvents(events []automationEvent)",
 		"func appendBoundedJournalLine(path, line string)",
-		"Events: canonicalJournalEvents(journalHistoryFileLimit, a.cfg.UpdateState)",
+		"all := canonicalJournalEvents(journalCanonicalRetentionLimit, a.cfg.UpdateState)",
+		`mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))`,
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("Journal backend contract missing %q", want)

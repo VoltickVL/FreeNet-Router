@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +24,11 @@ const (
 	settingsV3HistoryPathDefault  = "/opt/var/log/freenet-settings-v3.history"
 	settingsV3BackupRootDefault   = "/opt/backups/freenet-settings"
 	settingsV3UpdaterDefault      = "/opt/bin/blanc_xkeen_update_outbounds.sh"
-	journalHistoryFileLimit       = 200
-	journalSemanticDedupeWindow   = 15 * time.Second
+	journalHistoryFileLimit         = 20000
+	journalCanonicalRetentionLimit  = 15000
+	journalDefaultPageSize          = 100
+	journalMaxPageSize              = 500
+	journalSemanticDedupeWindow     = 15 * time.Second
 )
 
 var journalHistoryMu sync.Mutex
@@ -67,10 +73,41 @@ type settingsV3Response struct {
 	Error        string               `json:"error,omitempty"`
 }
 
+type journalStats struct {
+	Total    int            `json:"total"`
+	Success  int            `json:"success"`
+	Neutral  int            `json:"neutral"`
+	Errors   int            `json:"errors"`
+	ByKind   map[string]int `json:"by_kind"`
+	ByResult map[string]int `json:"by_result"`
+}
+
 type journalResponse struct {
-	Success     bool              `json:"success"`
-	Events      []automationEvent `json:"events"`
-	GeneratedAt string            `json:"generated_at"`
+	Success       bool              `json:"success"`
+	Events        []automationEvent `json:"events"`
+	GeneratedAt   string            `json:"generated_at"`
+	Total         int               `json:"total"`
+	FilteredTotal int               `json:"filtered_total"`
+	Page          int               `json:"page"`
+	PageSize      int               `json:"page_size"`
+	Pages         int               `json:"pages"`
+	RetainedFrom  string            `json:"retained_from,omitempty"`
+	RetainedTo    string            `json:"retained_to,omitempty"`
+	RangeFrom     string            `json:"range_from,omitempty"`
+	RangeTo       string            `json:"range_to,omitempty"`
+	Stats         journalStats      `json:"stats"`
+}
+
+type journalQuery struct {
+	Page       int
+	PageSize   int
+	Category   string
+	Result     string
+	Search     string
+	From       time.Time
+	To         time.Time
+	HasFrom    bool
+	HasTo      bool
 }
 
 type settingsV3SaveRequest struct {
@@ -109,6 +146,7 @@ type settingsV3ActionResponse struct {
 func registerSettingsV3API(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/settings-v3", a.requireAuth(a.handleSettingsV3Get))
 	mux.HandleFunc("GET /api/journal", a.requireAuth(a.handleJournalGet))
+	mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))
 	mux.HandleFunc("POST /api/settings-v3", a.requireAuth(a.handleSettingsV3Save))
 	mux.HandleFunc("POST /api/settings-v3/action", a.requireAuth(a.handleSettingsV3Action))
 }
@@ -554,8 +592,8 @@ func dedupeCanonicalJournalEvents(events []automationEvent) []automationEvent {
 }
 
 func canonicalJournalEvents(limit int, updateStatePath ...string) []automationEvent {
-	if limit <= 0 || limit > journalHistoryFileLimit {
-		limit = journalHistoryFileLimit
+	if limit <= 0 || limit > journalCanonicalRetentionLimit {
+		limit = journalCanonicalRetentionLimit
 	}
 	automationEvents := readAutomationEvents(automationHistoryPath(), journalHistoryFileLimit)
 	filteredAutomation := make([]automationEvent, 0, len(automationEvents))
@@ -630,12 +668,297 @@ func (a *app) handleSettingsV3Get(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, a.settingsV3Snapshot())
 }
 
-func (a *app) handleJournalGet(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, journalResponse{
+func journalEventCategory(event automationEvent) string {
+	kind := strings.ToLower(strings.TrimSpace(event.Kind))
+	switch kind {
+	case "vpn":
+		return "vpn"
+	case "auto vpn", "auto_vpn":
+		return "auto"
+	case "subscription":
+		return "subscription"
+	default:
+		return "system"
+	}
+}
+
+func journalEventResultClass(event automationEvent) string {
+	full := strings.ToLower(strings.TrimSpace(event.Result))
+	if full == "selection" {
+		return "neutral"
+	}
+	raw := full
+	if index := strings.LastIndex(raw, ":"); index >= 0 {
+		raw = strings.TrimSpace(raw[index+1:])
+	}
+	switch raw {
+	case "success", "healthy", "switched", "updated", "cleared":
+		return "ok"
+	case "failed", "critical", "rollback_failed":
+		return "bad"
+	default:
+		return "neutral"
+	}
+}
+
+func parseJournalQuery(r *http.Request) (journalQuery, error) {
+	values := r.URL.Query()
+	query := journalQuery{Page: 1, PageSize: journalDefaultPageSize, Category: "all", Result: "all"}
+
+	if raw := strings.TrimSpace(values.Get("page")); raw != "" {
+		page, err := strconv.Atoi(raw)
+		if err != nil || page < 1 {
+			return journalQuery{}, errors.New("invalid Journal page")
+		}
+		query.Page = page
+	}
+	if raw := strings.TrimSpace(values.Get("page_size")); raw != "" {
+		pageSize, err := strconv.Atoi(raw)
+		if err != nil {
+			return journalQuery{}, errors.New("invalid Journal page_size")
+		}
+		switch pageSize {
+		case 50, 100, 200, journalMaxPageSize:
+			query.PageSize = pageSize
+		default:
+			return journalQuery{}, errors.New("unsupported Journal page_size")
+		}
+	}
+	if raw := strings.ToLower(strings.TrimSpace(values.Get("category"))); raw != "" {
+		switch raw {
+		case "all", "vpn", "auto", "subscription", "system":
+			query.Category = raw
+		default:
+			return journalQuery{}, errors.New("unsupported Journal category")
+		}
+	}
+	if raw := strings.ToLower(strings.TrimSpace(values.Get("result"))); raw != "" {
+		switch raw {
+		case "all", "ok", "neutral", "bad":
+			query.Result = raw
+		default:
+			return journalQuery{}, errors.New("unsupported Journal result")
+		}
+	}
+	query.Search = strings.TrimSpace(values.Get("q"))
+	if len([]rune(query.Search)) > 200 {
+		return journalQuery{}, errors.New("Journal search is too long")
+	}
+	if raw := strings.TrimSpace(values.Get("from")); raw != "" {
+		value, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return journalQuery{}, errors.New("invalid Journal from timestamp")
+		}
+		query.From, query.HasFrom = value, true
+	}
+	if raw := strings.TrimSpace(values.Get("to")); raw != "" {
+		value, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			return journalQuery{}, errors.New("invalid Journal to timestamp")
+		}
+		query.To, query.HasTo = value, true
+	}
+	if query.HasFrom && query.HasTo && !query.To.After(query.From) {
+		return journalQuery{}, errors.New("Journal to timestamp must be after from")
+	}
+	return query, nil
+}
+
+func filterJournalEvents(events []automationEvent, query journalQuery) []automationEvent {
+	search := strings.ToLower(strings.TrimSpace(query.Search))
+	filtered := make([]automationEvent, 0, len(events))
+	for _, event := range events {
+		if query.Category != "all" && journalEventCategory(event) != query.Category {
+			continue
+		}
+		if query.Result != "all" && journalEventResultClass(event) != query.Result {
+			continue
+		}
+		if query.HasFrom || query.HasTo {
+			at, err := time.Parse(time.RFC3339, strings.TrimSpace(event.At))
+			if err != nil {
+				continue
+			}
+			if query.HasFrom && at.Before(query.From) {
+				continue
+			}
+			if query.HasTo && !at.Before(query.To) {
+				continue
+			}
+		}
+		if search != "" {
+			haystack := strings.ToLower(strings.Join([]string{
+				event.At, event.Kind, event.Result, event.Message, journalEventCategory(event),
+			}, " "))
+			if !strings.Contains(haystack, search) {
+				continue
+			}
+		}
+		filtered = append(filtered, event)
+	}
+	return filtered
+}
+
+func journalStatsFor(events []automationEvent) journalStats {
+	stats := journalStats{
+		Total: len(events),
+		ByKind: map[string]int{},
+		ByResult: map[string]int{},
+	}
+	for _, event := range events {
+		switch journalEventResultClass(event) {
+		case "ok":
+			stats.Success++
+		case "bad":
+			stats.Errors++
+		default:
+			stats.Neutral++
+		}
+		kind := canonicalJournalKindKey(event.Kind)
+		if kind == "" {
+			kind = "system"
+		}
+		result := strings.ToLower(strings.TrimSpace(event.Result))
+		if result == "" {
+			result = "unknown"
+		}
+		stats.ByKind[kind]++
+		stats.ByResult[result]++
+	}
+	return stats
+}
+
+func paginateJournalEvents(events []automationEvent, page, pageSize int) ([]automationEvent, int, int) {
+	if pageSize <= 0 || pageSize > journalMaxPageSize {
+		pageSize = journalDefaultPageSize
+	}
+	pages := (len(events) + pageSize - 1) / pageSize
+	if pages < 1 {
+		pages = 1
+	}
+	if page < 1 {
+		page = 1
+	}
+	if page > pages {
+		page = pages
+	}
+	start := (page - 1) * pageSize
+	if start >= len(events) {
+		return []automationEvent{}, page, pages
+	}
+	end := start + pageSize
+	if end > len(events) {
+		end = len(events)
+	}
+	return append([]automationEvent(nil), events[start:end]...), page, pages
+}
+
+func retainedJournalBounds(events []automationEvent) (string, string) {
+	if len(events) == 0 {
+		return "", ""
+	}
+	return events[len(events)-1].At, events[0].At
+}
+
+func journalQueryRange(query journalQuery) (string, string) {
+	from, to := "", ""
+	if query.HasFrom {
+		from = query.From.Format(time.RFC3339)
+	}
+	if query.HasTo {
+		to = query.To.Format(time.RFC3339)
+	}
+	return from, to
+}
+
+func (a *app) journalQueryResponse(r *http.Request) (journalResponse, error) {
+	query, err := parseJournalQuery(r)
+	if err != nil {
+		return journalResponse{}, err
+	}
+	all := canonicalJournalEvents(journalCanonicalRetentionLimit, a.cfg.UpdateState)
+	filtered := filterJournalEvents(all, query)
+	pageEvents, page, pages := paginateJournalEvents(filtered, query.Page, query.PageSize)
+	retainedFrom, retainedTo := retainedJournalBounds(all)
+	rangeFrom, rangeTo := journalQueryRange(query)
+	return journalResponse{
 		Success: true,
-		Events: canonicalJournalEvents(journalHistoryFileLimit, a.cfg.UpdateState),
+		Events: pageEvents,
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-	})
+		Total: len(all),
+		FilteredTotal: len(filtered),
+		Page: page,
+		PageSize: query.PageSize,
+		Pages: pages,
+		RetainedFrom: retainedFrom,
+		RetainedTo: retainedTo,
+		RangeFrom: rangeFrom,
+		RangeTo: rangeTo,
+		Stats: journalStatsFor(filtered),
+	}, nil
+}
+
+func (a *app) handleJournalGet(w http.ResponseWriter, r *http.Request) {
+	response, err := a.journalQueryResponse(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, response)
+}
+
+func journalCSV(events []automationEvent) ([]byte, error) {
+	var buffer bytes.Buffer
+	buffer.Write([]byte{0xEF, 0xBB, 0xBF})
+	writer := csv.NewWriter(&buffer)
+	if err := writer.Write([]string{"timestamp", "category", "kind", "result", "message"}); err != nil {
+		return nil, err
+	}
+	for index := len(events) - 1; index >= 0; index-- {
+		event := events[index]
+		if err := writer.Write([]string{event.At, journalEventCategory(event), event.Kind, event.Result, event.Message}); err != nil {
+			return nil, err
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
+}
+
+func journalExportFilename(query journalQuery) string {
+	from := "retained"
+	to := time.Now().UTC().Format("20060102")
+	if query.HasFrom {
+		from = query.From.Format("20060102")
+	}
+	if query.HasTo {
+		to = query.To.Add(-time.Nanosecond).Format("20060102")
+	}
+	return "freenet-journal-" + from + "-" + to + ".csv"
+}
+
+func (a *app) handleJournalExport(w http.ResponseWriter, r *http.Request) {
+	query, err := parseJournalQuery(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	all := canonicalJournalEvents(journalCanonicalRetentionLimit, a.cfg.UpdateState)
+	filtered := filterJournalEvents(all, query)
+	payload, err := journalCSV(filtered)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "error": "Journal export failed"})
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+journalExportFilename(query)+`"`)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(payload)
 }
 
 func v3ShellQuote(value string) string {
