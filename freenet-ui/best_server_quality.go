@@ -34,10 +34,10 @@ const (
 	bestServerQualityModerateSpeedPenalty = 500
 	bestServerQualityHighJitterMS         = 80
 	bestServerQualityMaxApplicationMS     = 220
-	bestServerQualitySpeedPrimaryCapMbps  = 100.0
-	bestServerQualitySpeedMaxCapMbps      = 200.0
-	bestServerQualitySpeedPrimaryWeight   = 10.0
-	bestServerQualitySpeedExcessWeight    = 2.0
+	bestServerQualitySpeedPrimaryCapMbps  = 50.0
+	bestServerQualitySpeedMaxCapMbps      = 150.0
+	bestServerQualitySpeedPrimaryWeight   = 4.0
+	bestServerQualitySpeedExcessWeight    = 0.5
 	bestServerQualityVPNRTTWeight         = 2
 	bestServerThroughputStrictAggregate   = "strict_aggregate"
 	bestServerThroughputCurrentFallback   = "current_fallback"
@@ -321,12 +321,12 @@ func defaultBestServerQualityTCPProbe(ctx context.Context, profile subscriptionP
 func bestServerQualityScore(httpMS, httpJitterMS int, downloadMbps float64, downloadOK bool) int {
 	score := 10000
 	score -= minInt(httpMS, 2500) * 2
-	score -= minInt(httpJitterMS, 1000) * 3
+	score -= minInt(httpJitterMS, 1000) * 4
 	if downloadOK {
-		// Throughput remains important, but once a VPN is already fast enough
-		// for ordinary traffic, small Mbps differences must not dominate a
-		// materially better latency path. Reward the first 100 Mbps strongly,
-		// then apply diminishing returns up to the existing 200 Mbps cap.
+		// Throughput is a qualification and tie-break signal, not the primary
+		// user-experience score. Reward useful capacity up to 50 Mbps, then only
+		// weakly reward excess capacity. Latency/jitter/VPN RTT dominate once a
+		// candidate already passes strict service/stall/min-speed eligibility.
 		primary := math.Min(downloadMbps, bestServerQualitySpeedPrimaryCapMbps)
 		if primary > 0 {
 			score += int(primary * bestServerQualitySpeedPrimaryWeight)

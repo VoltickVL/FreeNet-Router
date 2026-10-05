@@ -241,13 +241,19 @@ func TestScheduledAutomationBestIsFencedByHealthRecovery(t *testing.T) {
 }
 
 func TestAutomationBestBudgetsFollowCanonicalTargets(t *testing.T) {
-	canonicalFloor := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
-		bestServerConfirmedRTTSweepTimeout +
-		time.Duration(bestServerVisibleAlternatives)*bestServerQualityCandidateTimeout +
-		automationBestBudgetSlack
-	for _, policy := range []string{automationPolicyDegraded, automationPolicyBetter} {
-		if got := automationBestForeignTimeout(policy); got < canonicalFloor {
-			t.Fatalf("%s foreign budget=%s below canonical Top-3 floor=%s", policy, got, canonicalFloor)
+	for _, tc := range []struct {
+		policy string
+		target int
+	}{
+		{automationPolicyDegraded, 1},
+		{automationPolicyBetter, 2},
+	} {
+		floor := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
+			bestServerConfirmedRTTSweepTimeout +
+			time.Duration(tc.target)*bestServerQualityCandidateTimeout +
+			automationBestBudgetSlack
+		if got := automationBestForeignTimeout(tc.policy); got < floor {
+			t.Fatalf("%s foreign budget=%s below target-%d floor=%s", tc.policy, got, tc.target, floor)
 		}
 	}
 	cycleFloor := bestServerCurrentScanTimeout + automationBestForeignTimeout(automationPolicyBetter) + automationBestBudgetSlack
@@ -256,11 +262,12 @@ func TestAutomationBestBudgetsFollowCanonicalTargets(t *testing.T) {
 	}
 }
 
-func TestAutomationBestTargetMatchesManualTopThreeForEveryPolicy(t *testing.T) {
-	for _, policy := range []string{automationPolicyDegraded, automationPolicyBetter} {
-		if got := automationBestEligibleTarget(policy); got != bestServerVisibleAlternatives {
-			t.Fatalf("%s target=%d want manual Top-%d", policy, got, bestServerVisibleAlternatives)
-		}
+func TestAutomationBestTargetsMatchRecoveryAndQualityNeeds(t *testing.T) {
+	if got := automationBestEligibleTarget(automationPolicyDegraded); got != 1 {
+		t.Fatalf("emergency/degraded target=%d want first fully measured Eligible replacement", got)
+	}
+	if got := automationBestEligibleTarget(automationPolicyBetter); got != 2 {
+		t.Fatalf("quality target=%d want current + 2 alternatives measured Top-3", got)
 	}
 	if automationNeedsForeignScan(automationPolicyDegraded, "healthy") {
 		t.Fatal("healthy current VPN must not trigger an expensive foreign scan in degraded-only policy")
@@ -273,16 +280,20 @@ func TestAutomationBestTargetMatchesManualTopThreeForEveryPolicy(t *testing.T) {
 	}
 }
 
-func TestAutomationMeaningfulImprovementUsesHysteresis(t *testing.T) {
-	current := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 100, ApplicationMS: 180, JitterMS: 10}
-	better := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 130, ApplicationMS: 150, JitterMS: 8}
-	noise := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 103, ApplicationMS: 176, JitterMS: 10}
+func TestAutomationMeaningfulImprovementUsesStabilityFirstHysteresis(t *testing.T) {
+	current := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 100, ApplicationMS: 180, JitterMS: 35, VPNRTTMS: 185}
+	better := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 115, ApplicationMS: 150, JitterMS: 12, VPNRTTMS: 155}
+	noise := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 103, ApplicationMS: 176, JitterMS: 33, VPNRTTMS: 182}
+	speedOnly := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 180, ApplicationMS: 195, JitterMS: 42, VPNRTTMS: 200}
 	partial := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 150}
 	if !automationMeaningfullyBetter(current, better) {
-		t.Fatal("clear improvement must pass hysteresis")
+		t.Fatal("clear stability/latency improvement must pass hysteresis")
 	}
 	if automationMeaningfullyBetter(current, noise) {
 		t.Fatal("measurement noise must not trigger auto-switch")
+	}
+	if automationMeaningfullyBetter(current, speedOnly) {
+		t.Fatal("extra Mbps must not outweigh worse latency and jitter")
 	}
 	if automationMeaningfullyBetter(current, partial) {
 		t.Fatal("incomplete metrics must fail closed")
