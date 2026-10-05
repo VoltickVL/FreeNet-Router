@@ -750,7 +750,7 @@
     const input = qs('#rv2Value');
     if (!box || !input) return;
     box.textContent = '';
-    const items = Array.isArray(body?.suggestions) ? body.suggestions.slice(0,12) : [];
+    const items = Array.isArray(body?.suggestions) ? body.suggestions.slice(0,24) : [];
     state.geoSuggestItems = items;
     state.geoSuggestIndex = items.length ? 0 : -1;
 
