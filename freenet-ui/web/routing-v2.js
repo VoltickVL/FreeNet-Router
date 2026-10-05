@@ -76,7 +76,7 @@
       .rv4-composer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}.rv4-composer-head strong{display:block;color:#f2f7ff;font-size:14px}.rv4-composer-head span{display:block;margin-top:3px;color:#89a0bc;font-size:12px}.rv4-composer-close{appearance:none;width:30px;height:30px;border:1px solid #314a67;border-radius:9px;background:#0a1828;color:#aabbd0;font:inherit;font-size:17px;cursor:pointer}.rv4-composer-close:hover{border-color:#5f83ad;color:#fff}
       .rv4-composer-grid{display:grid;gap:8px}.rv4-field label{display:block;margin-bottom:5px;color:#859bb7;font-size:12px;font-weight:750}.rv4-composer select,.rv4-composer input{width:100%;box-sizing:border-box;min-height:41px;padding:9px 10px;border:1px solid #2e4968;border-radius:10px;background:#071522;color:#eef5ff;outline:none;font:inherit;font-size:13px}.rv4-composer select:focus,.rv4-composer input:focus{border-color:#5b8cff;box-shadow:0 0 0 2px rgba(91,140,255,.08)}
       .rv4-composer .rv2-search{margin-top:8px}.rv4-composer-submit{width:100%;min-height:41px;margin-top:1px}
-      .rv2-input-wrap{position:relative}.rv2-autocomplete{position:absolute;z-index:40;left:-6px;right:-6px;top:calc(100% + 5px);display:grid;gap:4px;max-height:min(52vh,520px);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:6px;border:1px solid #315275;border-radius:11px;background:#071522;box-shadow:0 18px 44px rgba(0,0,0,.42)}.rv2-autocomplete[hidden]{display:none!important}.rv2-autocomplete-item{appearance:none;width:100%;text-align:left;border:1px solid transparent;border-radius:9px;background:#0a1a2b;color:#edf5ff;padding:8px 9px;cursor:pointer}.rv2-autocomplete-item:hover,.rv2-autocomplete-item.active{border-color:#5b8cff;background:#132b49}.rv2-autocomplete-item b{display:block;font-size:12.5px}.rv2-autocomplete-item span{display:block;margin-top:2px;color:#859bb7;font-size:11px;white-space:normal}.rv2-autocomplete-warning{padding:7px 8px;color:#e8c77f;font-size:10.5px;line-height:1.35}
+      .rv2-input-wrap{position:relative}.rv2-autocomplete{position:fixed;z-index:12000;display:grid;gap:4px;box-sizing:border-box;min-width:240px;max-width:calc(100vw - 16px);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:6px;border:1px solid #315275;border-radius:11px;background:#071522;box-shadow:0 18px 44px rgba(0,0,0,.56)}.rv2-autocomplete[hidden]{display:none!important}.rv2-autocomplete-item{appearance:none;width:100%;text-align:left;border:1px solid transparent;border-radius:9px;background:#0a1a2b;color:#edf5ff;padding:8px 9px;cursor:pointer}.rv2-autocomplete-item:hover,.rv2-autocomplete-item.active{border-color:#5b8cff;background:#132b49}.rv2-autocomplete-item b{display:block;font-size:12.5px}.rv2-autocomplete-item span{display:block;margin-top:2px;color:#859bb7;font-size:11px;white-space:normal}.rv2-autocomplete-warning{padding:7px 8px;color:#e8c77f;font-size:10.5px;line-height:1.35}
       .rv4-system{margin-top:14px}.rv4-system .rv2-system-toggle{border-radius:13px;background:#091724}
       .rv2-system-toggle{appearance:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border:1px solid #283e58;border-radius:13px;background:#091724;color:#a8bbd2;font:inherit;font-size:13px;font-weight:750;cursor:pointer}.rv2-system-toggle:hover{border-color:#3e5d81;background:#0d1f33}.rv2-system-toggle b{color:#dce8f8}.rv2-system-list{display:grid;gap:7px;margin-top:8px}.rv2-system-list[hidden]{display:none!important}.rv2-system-rule{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 13px;border:1px solid #233951;border-radius:11px;background:#081522;color:#9eb1c9;font-size:13px}.rv2-system-copy b{display:block;color:#d9e6f5;font-size:13.5px}.rv2-system-copy span{display:block;margin-top:3px;color:#8298b3;font-size:12px;line-height:1.4}.rv2-system-route{padding:5px 9px;border:1px solid #304965;border-radius:999px;color:#aec2db;font-size:12px;font-weight:800;white-space:nowrap}.rv2-system-protected{color:#7f95ae;font-size:11.5px;font-weight:650}
       .rv2-draft-card[hidden]{display:none!important}.rv2-draft-head{display:flex;align-items:center;gap:9px}.rv2-draft-count{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 7px;border-radius:9px;background:#18325a;color:#cfe0ff;font-size:12px;font-weight:850}.rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:12px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}.rv2-workspace button:disabled{opacity:.38!important;cursor:not-allowed!important;filter:saturate(.55);box-shadow:none!important}.rv2-compiled[hidden]{display:none!important}
@@ -704,6 +704,42 @@
     return file && file.toLowerCase() !== defaultGeoDataFile(state.kind).toLowerCase() ? file : '';
   }
 
+  function geoAutocompleteBox() {
+    const box = qs('#rv2GeoAutocomplete');
+    if (box && box.parentElement !== document.body) document.body.appendChild(box);
+    return box;
+  }
+
+  function positionGeoAutocomplete() {
+    const box = qs('#rv2GeoAutocomplete');
+    const input = qs('#rv2Value');
+    if (!box || box.hidden || !input || !input.isConnected) return;
+    const rect = input.getBoundingClientRect();
+    const edge = 8;
+    const gap = 6;
+    const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+    const viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
+    const below = Math.max(0, viewportHeight - rect.bottom - edge - gap);
+    const above = Math.max(0, rect.top - edge - gap);
+    const openAbove = below < 260 && above > below;
+    const available = Math.max(140, openAbove ? above : below);
+    const maxHeight = Math.min(available, Math.floor(viewportHeight * 0.72));
+    const width = Math.min(Math.max(rect.width + 12, 280), Math.max(280, viewportWidth - edge * 2));
+    const left = Math.min(Math.max(edge, rect.left - 6), Math.max(edge, viewportWidth - edge - width));
+
+    box.style.left = `${Math.round(left)}px`;
+    box.style.right = 'auto';
+    box.style.width = `${Math.round(width)}px`;
+    box.style.maxHeight = `${Math.max(140, Math.floor(maxHeight))}px`;
+    if (openAbove) {
+      box.style.top = 'auto';
+      box.style.bottom = `${Math.max(edge, Math.round(viewportHeight - rect.top + gap))}px`;
+    } else {
+      box.style.bottom = 'auto';
+      box.style.top = `${Math.max(edge, Math.round(rect.bottom + gap))}px`;
+    }
+  }
+
   function hideGeoAutocomplete() {
     state.geoSuggestItems = [];
     state.geoSuggestIndex = -1;
@@ -746,7 +782,7 @@
   }
 
   function renderGeoAutocomplete(body) {
-    const box = qs('#rv2GeoAutocomplete');
+    const box = geoAutocompleteBox();
     const input = qs('#rv2Value');
     if (!box || !input) return;
     box.textContent = '';
@@ -780,6 +816,7 @@
     }
     box.hidden = !items.length && !warnings.length;
     input.setAttribute('aria-expanded', box.hidden ? 'false' : 'true');
+    if (!box.hidden) positionGeoAutocomplete();
   }
 
   async function requestGeoSuggestions(query, renderInline = true) {
@@ -1484,6 +1521,8 @@
     qs('#rv2ValidateConfig')?.addEventListener('click', validateConfig);
     qs('#rv2ReloadConfig')?.addEventListener('click', resetConfigDraft);
     qs('#rv2ConfigEditor')?.addEventListener('input', () => { state.configDirty = true; state.configValidated = false; storeEditor(); setConfigStatus('Черновик', 'warn'); });
+    window.addEventListener('resize', positionGeoAutocomplete);
+    document.addEventListener('scroll', positionGeoAutocomplete, true);
   }
 
 
