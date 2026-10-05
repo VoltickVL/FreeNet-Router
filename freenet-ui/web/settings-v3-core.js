@@ -671,9 +671,21 @@
       (page.classList.contains('active') || location.hash.slice(1) === 'journal');
   }
 
+  function journalStatsFallback(events) {
+    const list = Array.isArray(events) ? events : [];
+    const stats = {total:list.length,success:0,neutral:0,errors:0};
+    list.forEach(event => {
+      const cls = humanResult(event?.result, event?.message)[2];
+      if (cls === 'ok') stats.success += 1;
+      else if (cls === 'bad') stats.errors += 1;
+      else stats.neutral += 1;
+    });
+    return stats;
+  }
+
   function renderJournalSummary() {
     const host = q('#fn3JournalSummary'); if (!host) return;
-    const stats = state.journalStats || {};
+    const stats = state.journalStats || journalStatsFallback(state.journalEvents);
     host.innerHTML = `
       <div class="fn3-journal-stat"><span>Событий в выборке</span><strong>${Number(stats.total || state.journalFilteredTotal || 0)}</strong></div>
       <div class="fn3-journal-stat ok"><span>Успешно</span><strong>${Number(stats.success || 0)}</strong></div>
@@ -765,12 +777,12 @@
       const data = await fetchJSON('/api/journal?' + journalQueryString(true), {cache:'no-store'});
       state.journalEvents = Array.isArray(data.events) ? data.events : [];
       state.journalGeneratedAt = data.generated_at || new Date().toISOString();
-      state.journalTotal = Number(data.total || 0);
-      state.journalFilteredTotal = Number(data.filtered_total || 0);
+      state.journalTotal = Number(data.total ?? state.journalEvents.length);
+      state.journalFilteredTotal = Number(data.filtered_total ?? state.journalEvents.length);
       state.journalPage = Number(data.page || 1);
       state.journalPages = Number(data.pages || 1);
       state.journalPageSize = Number(data.page_size || state.journalPageSize || 100);
-      state.journalStats = data.stats || {total:0,success:0,neutral:0,errors:0};
+      state.journalStats = data.stats || journalStatsFallback(state.journalEvents);
       state.journalRetainedFrom = data.retained_from || '';
       state.journalRetainedTo = data.retained_to || '';
     } catch (err) {
