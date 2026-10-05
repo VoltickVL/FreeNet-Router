@@ -25,7 +25,6 @@ const (
 	settingsV3BackupRootDefault   = "/opt/backups/freenet-settings"
 	settingsV3UpdaterDefault      = "/opt/bin/blanc_xkeen_update_outbounds.sh"
 	journalHistoryFileLimit         = 20000
-	journalHistoryTrimSlack         = 1000
 	journalCanonicalRetentionLimit  = 15000
 	journalDefaultPageSize          = 100
 	journalMaxPageSize              = 500
@@ -397,7 +396,7 @@ func appendBoundedJournalLine(path, line string) {
 		return
 	}
 	lines := strings.Split(strings.TrimSpace(strings.ReplaceAll(string(data), "\r", "")), "\n")
-	if len(lines) <= journalHistoryFileLimit+journalHistoryTrimSlack {
+	if len(lines) <= journalHistoryFileLimit {
 		return
 	}
 	lines = lines[len(lines)-journalHistoryFileLimit:]
