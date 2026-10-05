@@ -144,6 +144,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 		budgetUsed += needed
 
 		path := filepath.Join(a.geoDataAssetDir(), file.Name)
+		canonicalScanOK := false
 		switch query.Mode {
 		case "prefix":
 			var result geoDataStreamSearchResult
@@ -165,6 +166,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 				scanWarnings = append(scanWarnings, geoDataWarning(file.Name, geoDataGenericFileError))
 				continue
 			}
+			canonicalScanOK = isCanonicalGeoDataFile(kind, file)
 			for _, category := range result.Categories {
 				addGeoDataSuggestion(suggestions, file.Name, kind, category, "category", nil)
 			}
@@ -181,6 +183,7 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 				scanWarnings = append(scanWarnings, geoDataWarning(file.Name, geoDataGenericFileError))
 				continue
 			}
+			canonicalScanOK = isCanonicalGeoDataFile(kind, file)
 			for _, category := range result.Categories {
 				addGeoDataSuggestion(suggestions, file.Name, kind, category, "domain", []string{query.Value})
 			}
@@ -194,10 +197,12 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 				scanWarnings = append(scanWarnings, geoDataWarning(file.Name, geoDataGenericFileError))
 				continue
 			}
+			canonicalScanOK = isCanonicalGeoDataFile(kind, file)
 			for _, category := range result.Categories {
 				addGeoDataSuggestion(suggestions, file.Name, kind, category, "ip", []string{query.Value})
 			}
 		case "dns":
+			scanOK := true
 			for _, ip := range resolved {
 				result, scanErr := searchGeoDataFileStream(ctx, path, kind, ip, maxGeoDataSuggestions)
 				if scanErr != nil {
@@ -206,12 +211,22 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 					scanWarnings = append(scanWarnings, geoDataWarning(file.Name, geoDataGenericFileError))
+					scanOK = false
 					break
 				}
 				for _, category := range result.Categories {
 					addGeoDataSuggestion(suggestions, file.Name, kind, category, "dns", []string{ip})
 				}
 			}
+			canonicalScanOK = scanOK && isCanonicalGeoDataFile(kind, file)
+		}
+		// A parseable canonical DAT is authoritative even when it has no match.
+		// Only an unreadable/invalid canonical source may fall through to compatible
+		// local alternates. This preserves canonical no-match semantics while avoiding
+		// a hard failure on real XKeen stacks that carry a broken canonical copy next
+		// to a usable provider DAT.
+		if !explicitFiles && canonicalScanOK {
+			break
 		}
 		if len(suggestions) >= maxGeoDataSuggestions {
 			break
@@ -280,26 +295,18 @@ func isCanonicalGeoDataFile(kind GeoDataKind, file GeoDataFile) bool {
 }
 
 func prioritizeGeoDataSuggestFiles(kind GeoDataKind, selected []GeoDataFile) []GeoDataFile {
-	canonical := make([]GeoDataFile, 0, 1)
+	ordered := make([]GeoDataFile, 0, len(selected))
+	// Canonical stays first, but presence alone is not proof that the file is
+	// usable. The request loop decides authority only after a successful bounded
+	// parse. If canonical parsing fails, compatible local DATs may provide a
+	// read-only fallback; a valid canonical no-match remains authoritative.
 	for _, file := range selected {
 		if file.Kind == kind && isCanonicalGeoDataFile(kind, file) {
-			canonical = append(canonical, file)
+			ordered = append(ordered, file)
 		}
 	}
-	// FreeNet updates canonical geosite.dat / geoip.dat through the normal
-	// GeoData maintenance path. When the canonical DAT is installed it is the
-	// authoritative source for implicit Smart GeoData: a no-match is a real
-	// no-match, not a reason to silently fall through to stale alternate copies.
-	// Alternate/custom DATs remain available through explicit file= / ext: and
-	// are an implicit compatibility fallback only when the canonical file is
-	// genuinely absent.
-	if len(canonical) > 0 {
-		return canonical
-	}
-
-	ordered := make([]GeoDataFile, 0, len(selected))
 	for _, file := range selected {
-		if file.Kind == kind {
+		if file.Kind == kind && !isCanonicalGeoDataFile(kind, file) {
 			ordered = append(ordered, file)
 		}
 	}
@@ -310,7 +317,6 @@ func prioritizeGeoDataSuggestFiles(kind GeoDataKind, selected []GeoDataFile) []G
 	}
 	return ordered
 }
-
 func classifyGeoDataSuggestQuery(kind GeoDataKind, raw string) (geoDataSuggestQuery, error) {
 	value := strings.TrimSpace(raw)
 	lower := strings.ToLower(value)
