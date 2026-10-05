@@ -16,12 +16,12 @@ import (
 const (
 	bestServerSpeedtestServersURL       = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=true&limit=20"
 	bestServerFallbackSpeedURL          = "https://speed.cloudflare.com/__down"
-	bestServerSpeedtestBytes            = int64(8_000_000)
+	bestServerSpeedtestBytes            = int64(20_000_000)
 	bestServerSpeedtestPreflightBytes   = int64(256_000)
 	bestServerSpeedtestPreflightMinimum = int64(32_000)
 	bestServerSpeedtestListTimeout      = 8 * time.Second
 	bestServerSpeedtestPreflightTimeout = 4 * time.Second
-	bestServerSpeedtestRunTimeout       = 8 * time.Second
+	bestServerSpeedtestRunTimeout       = 10 * time.Second
 	bestServerSpeedtestServerTries      = 3
 	bestServerSpeedtestServerLimit      = 8
 )
@@ -186,7 +186,7 @@ func probeBestServerFallbackConcurrent(ctx context.Context, curlPath, socks stri
 			runCtx, cancel := context.WithTimeout(ctx, bestServerSpeedtestRunTimeout)
 			output, transferErr := exec.CommandContext(runCtx, curlPath,
 				"--socks5-hostname", socks,
-				"-sS", "--connect-timeout", "3", "--max-time", "8",
+				"-sS", "--connect-timeout", "3", "--max-time", "10",
 				"-o", "/dev/null",
 				"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
 				downloadURL,
@@ -283,7 +283,7 @@ func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks str
 				runCtx, cancel := context.WithTimeout(ctx, bestServerSpeedtestRunTimeout)
 				output, transferErr := exec.CommandContext(runCtx, curlPath,
 					"--socks5-hostname", socks,
-					"-sS", "--connect-timeout", "3", "--max-time", "8",
+					"-sS", "--connect-timeout", "3", "--max-time", "10",
 					"-o", "/dev/null",
 					"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
 					downloadURL,
