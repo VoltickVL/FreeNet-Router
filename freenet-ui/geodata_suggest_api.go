@@ -115,7 +115,6 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 	scanWarnings := make([]string, 0)
 	var budgetUsed int64
 	for _, file := range selected {
-		beforeFileSuggestions := len(suggestions)
 		// Unknown-name DATs are a compatibility fallback. On the normal autocomplete
 		// path, a usable result from a filename-typed DAT is authoritative enough;
 		// do not burn the remaining router budget probing unrelated custom files.
@@ -214,13 +213,6 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		// For implicit lookup, canonical geosite.dat / geoip.dat are authoritative
-		// primary sources. If the canonical DAT produced a usable match, do not
-		// replace or duplicate it with v2fly/refilter/custom copies. Alternate DATs
-		// are fallback only when canonical has no usable match.
-		if !explicitFiles && isCanonicalGeoDataFile(kind, file) && len(suggestions) > beforeFileSuggestions {
-			break
-		}
 		if len(suggestions) >= maxGeoDataSuggestions {
 			break
 		}
@@ -288,17 +280,26 @@ func isCanonicalGeoDataFile(kind GeoDataKind, file GeoDataFile) bool {
 }
 
 func prioritizeGeoDataSuggestFiles(kind GeoDataKind, selected []GeoDataFile) []GeoDataFile {
-	ordered := make([]GeoDataFile, 0, len(selected))
-	// Canonical FreeNet/XKeen DATs are the primary source. They are the files
-	// maintained by the normal GeoData update path, so implicit Smart GeoData
-	// lookups must prefer their categories and canonical selectors.
+	canonical := make([]GeoDataFile, 0, 1)
 	for _, file := range selected {
 		if file.Kind == kind && isCanonicalGeoDataFile(kind, file) {
-			ordered = append(ordered, file)
+			canonical = append(canonical, file)
 		}
 	}
+	// FreeNet updates canonical geosite.dat / geoip.dat through the normal
+	// GeoData maintenance path. When the canonical DAT is installed it is the
+	// authoritative source for implicit Smart GeoData: a no-match is a real
+	// no-match, not a reason to silently fall through to stale alternate copies.
+	// Alternate/custom DATs remain available through explicit file= / ext: and
+	// are an implicit compatibility fallback only when the canonical file is
+	// genuinely absent.
+	if len(canonical) > 0 {
+		return canonical
+	}
+
+	ordered := make([]GeoDataFile, 0, len(selected))
 	for _, file := range selected {
-		if file.Kind == kind && !isCanonicalGeoDataFile(kind, file) {
+		if file.Kind == kind {
 			ordered = append(ordered, file)
 		}
 	}

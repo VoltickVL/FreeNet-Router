@@ -55,14 +55,14 @@
       .rv2-xray-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:14px}.rv2-xray-fact{padding:13px 14px;border:1px solid #2a4562;border-radius:12px;background:#081522}.rv2-xray-fact span{display:block;color:#8399b6;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.07em}.rv2-xray-fact strong{display:block;margin-top:5px;color:#f2f7ff;font-size:16px}.rv2-xray-fact strong.ok{color:#62e8aa}.rv2-xray-fact strong.bad{color:#ff909a}.rv2-xray-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px}.rv2-xray-actions .btn{min-width:128px}.rv2-xray-actions [hidden]{display:none!important}.rv2-xray-events{display:grid;gap:7px;margin-top:14px}.rv2-xray-event{display:grid;grid-template-columns:120px 72px minmax(0,1fr);gap:9px;align-items:center;padding:9px 10px;border:1px solid #263e59;border-radius:10px;background:#081522;color:#9db1ca;font-size:11px}.rv2-xray-event b{color:#61e8aa}.rv2-xray-event.bad b{color:#ff929c}.rv2-xray-event span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
       .rv2-builder-grid{display:grid;grid-template-columns:165px minmax(0,1fr) auto;gap:9px;margin-top:13px}.rv2-builder-grid select,.rv2-builder-grid input,.rv2-editor{width:100%;box-sizing:border-box;border:1px solid #2b405e;background:#081421;color:#eef5ff;border-radius:11px;outline:none}.rv2-builder-grid select,.rv2-builder-grid input{min-height:42px;padding:9px 11px;font:inherit;font-size:13px}.rv2-builder-grid input:focus,.rv2-builder-grid select:focus,.rv2-editor:focus{border-color:#5b8cff;box-shadow:0 0 0 2px rgba(91,140,255,.08)}
-      .rv2-search{margin-top:9px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rv2-search .btn{min-height:36px}.rv2-search-results{display:grid;gap:6px;margin-top:9px}.rv2-search-result{appearance:none;width:100%;text-align:left;border:1px solid #26384f;background:#091522;color:#eef5ff;border-radius:10px;padding:9px 11px;cursor:pointer}.rv2-search-result:hover{border-color:#5b8cff;background:#11243b}.rv2-search-result b{display:block;font-size:13px}.rv2-search-result span{display:block;margin-top:3px;color:#859bb7;font-size:12px}
+      .rv2-search{margin-top:9px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.rv2-search .btn{min-height:36px}
       .rv2-order{display:grid;place-items:center;width:27px;height:27px;border-radius:8px;background:#12243a;color:#91b6eb;font-size:11px;font-weight:850}.rv2-selector{min-width:0}.rv2-selector b{display:block;color:#eef5ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rv2-selector span{display:block;color:#8398b4;margin-top:3px}.rv2-rule-action{font-weight:850}.rv2-rule-action.direct{color:#5ce8a5}.rv2-rule-action.vpn{color:#7dabff}.rv2-rule-action.block{color:#ff858e}.rv2-rule-tools{display:flex;justify-content:flex-end;gap:5px;flex-wrap:wrap}
       .rv2-compiled{margin-top:12px;padding:11px;border:1px solid #263d58;border-radius:11px;background:#091522;color:#92a7c2;font-size:11px;line-height:1.5}.rv2-compiled strong{color:#dce8f8}.rv2-notice{margin-top:10px;display:none;padding:10px 11px;border:1px solid #315071;border-radius:11px;background:#0c2138;color:#b9cbe1;font-size:12px;white-space:pre-wrap}.rv2-notice.show{display:block}.rv2-notice.bad{border-color:rgba(255,103,115,.45);background:#321923;color:#ffd4d7}.rv2-notice.ok{border-color:rgba(54,227,162,.36);background:#0f2b24;color:#d3fae9}
       .rv2-editor-wrap{margin-top:12px}.rv2-editor{display:block;min-height:430px;resize:vertical;padding:14px 15px;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;tab-size:2;white-space:pre}
       .rv2-config-meta{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:9px;color:#8499b6;font-size:10px}.rv2-config-meta code{color:#b7c8db}
       .rv2-danger-note{margin-top:12px;padding:10px 11px;border:1px solid rgba(255,190,67,.30);border-radius:11px;background:rgba(103,70,15,.16);color:#e7ca8a;font-size:11px;line-height:1.45}
       .rv4-board-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(270px,1fr) minmax(240px,.85fr);gap:12px;margin-top:15px;align-items:start}
-      .rv4-board{--accent:#8aa2bf;border:1px solid #28415e;border-radius:16px;background:#081522;overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,.08)}
+      .rv4-board{--accent:#8aa2bf;border:1px solid #28415e;border-radius:16px;background:#081522;overflow:visible;box-shadow:0 8px 24px rgba(0,0,0,.08)}
       .rv4-board.direct{--accent:#42df9c}.rv4-board.vpn{--accent:#6fa2ff}.rv4-board.block{--accent:#ff7f88}
       .rv4-board-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:15px 15px 13px;border-bottom:1px solid #203650;background:linear-gradient(180deg,rgba(18,40,65,.72),rgba(10,25,42,.45))}
       .rv4-board-title{min-width:0}.rv4-board-title-line{display:flex;align-items:center;gap:9px}.rv4-board-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 12%,transparent)}.rv4-board-title strong{font-size:17px;color:#f2f7ff}.rv4-board-sub{margin-top:4px;color:#8fa4bf;font-size:12.5px;line-height:1.35}
@@ -75,8 +75,8 @@
       .rv4-composer-slot:empty{display:none}.rv4-composer-slot{padding:0 12px 12px}.rv4-composer{border:1px solid #33506f;border-radius:13px;background:#0b1c2f;padding:12px;box-shadow:0 10px 28px rgba(0,0,0,.16)}.rv4-composer[hidden]{display:none!important}
       .rv4-composer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px}.rv4-composer-head strong{display:block;color:#f2f7ff;font-size:14px}.rv4-composer-head span{display:block;margin-top:3px;color:#89a0bc;font-size:12px}.rv4-composer-close{appearance:none;width:30px;height:30px;border:1px solid #314a67;border-radius:9px;background:#0a1828;color:#aabbd0;font:inherit;font-size:17px;cursor:pointer}.rv4-composer-close:hover{border-color:#5f83ad;color:#fff}
       .rv4-composer-grid{display:grid;gap:8px}.rv4-field label{display:block;margin-bottom:5px;color:#859bb7;font-size:12px;font-weight:750}.rv4-composer select,.rv4-composer input{width:100%;box-sizing:border-box;min-height:41px;padding:9px 10px;border:1px solid #2e4968;border-radius:10px;background:#071522;color:#eef5ff;outline:none;font:inherit;font-size:13px}.rv4-composer select:focus,.rv4-composer input:focus{border-color:#5b8cff;box-shadow:0 0 0 2px rgba(91,140,255,.08)}
-      .rv4-composer .rv2-search{margin-top:8px}.rv4-composer .rv2-search-result{padding:9px 10px}.rv4-composer-submit{width:100%;min-height:41px;margin-top:1px}
-      .rv2-input-wrap{position:relative}.rv2-autocomplete{position:absolute;z-index:40;left:0;right:0;top:calc(100% + 5px);display:grid;gap:4px;max-height:290px;overflow:auto;padding:6px;border:1px solid #315275;border-radius:11px;background:#071522;box-shadow:0 18px 44px rgba(0,0,0,.42)}.rv2-autocomplete[hidden]{display:none!important}.rv2-autocomplete-item{appearance:none;width:100%;text-align:left;border:1px solid transparent;border-radius:9px;background:#0a1a2b;color:#edf5ff;padding:8px 9px;cursor:pointer}.rv2-autocomplete-item:hover,.rv2-autocomplete-item.active{border-color:#5b8cff;background:#132b49}.rv2-autocomplete-item b{display:block;font-size:12.5px}.rv2-autocomplete-item span{display:block;margin-top:2px;color:#859bb7;font-size:11px;white-space:normal}.rv2-autocomplete-warning{padding:7px 8px;color:#e8c77f;font-size:10.5px;line-height:1.35}
+      .rv4-composer .rv2-search{margin-top:8px}.rv4-composer-submit{width:100%;min-height:41px;margin-top:1px}
+      .rv2-input-wrap{position:relative}.rv2-autocomplete{position:absolute;z-index:40;left:-6px;right:-6px;top:calc(100% + 5px);display:grid;gap:4px;max-height:min(52vh,520px);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:6px;border:1px solid #315275;border-radius:11px;background:#071522;box-shadow:0 18px 44px rgba(0,0,0,.42)}.rv2-autocomplete[hidden]{display:none!important}.rv2-autocomplete-item{appearance:none;width:100%;text-align:left;border:1px solid transparent;border-radius:9px;background:#0a1a2b;color:#edf5ff;padding:8px 9px;cursor:pointer}.rv2-autocomplete-item:hover,.rv2-autocomplete-item.active{border-color:#5b8cff;background:#132b49}.rv2-autocomplete-item b{display:block;font-size:12.5px}.rv2-autocomplete-item span{display:block;margin-top:2px;color:#859bb7;font-size:11px;white-space:normal}.rv2-autocomplete-warning{padding:7px 8px;color:#e8c77f;font-size:10.5px;line-height:1.35}
       .rv4-system{margin-top:14px}.rv4-system .rv2-system-toggle{border-radius:13px;background:#091724}
       .rv2-system-toggle{appearance:none;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 14px;border:1px solid #283e58;border-radius:13px;background:#091724;color:#a8bbd2;font:inherit;font-size:13px;font-weight:750;cursor:pointer}.rv2-system-toggle:hover{border-color:#3e5d81;background:#0d1f33}.rv2-system-toggle b{color:#dce8f8}.rv2-system-list{display:grid;gap:7px;margin-top:8px}.rv2-system-list[hidden]{display:none!important}.rv2-system-rule{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 13px;border:1px solid #233951;border-radius:11px;background:#081522;color:#9eb1c9;font-size:13px}.rv2-system-copy b{display:block;color:#d9e6f5;font-size:13.5px}.rv2-system-copy span{display:block;margin-top:3px;color:#8298b3;font-size:12px;line-height:1.4}.rv2-system-route{padding:5px 9px;border:1px solid #304965;border-radius:999px;color:#aec2db;font-size:12px;font-weight:800;white-space:nowrap}.rv2-system-protected{color:#7f95ae;font-size:11.5px;font-weight:650}
       .rv2-draft-card[hidden]{display:none!important}.rv2-draft-head{display:flex;align-items:center;gap:9px}.rv2-draft-count{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0 7px;border-radius:9px;background:#18325a;color:#cfe0ff;font-size:12px;font-weight:850}.rv2-rule-footer{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid #223a55}.rv2-rule-footer-copy{max-width:680px;color:#8fa4bf;font-size:12px;line-height:1.45}.rv2-rule-footer-actions{display:flex;gap:8px;flex-wrap:wrap}.rv2-rule-footer-actions .btn{min-height:40px}.rv2-workspace button:disabled{opacity:.38!important;cursor:not-allowed!important;filter:saturate(.55);box-shadow:none!important}.rv2-compiled[hidden]{display:none!important}
@@ -398,8 +398,6 @@
     });
     select.value = state.kind;
     input.placeholder = modeMeta().placeholder;
-    const search = qs('#rv2GeoSearch');
-    if (search) search.hidden = !(state.kind === 'geosite' || state.kind === 'geoip');
     if (!(state.kind === 'geosite' || state.kind === 'geoip')) closeGeoAutocomplete();
   }
 
@@ -452,7 +450,6 @@
       state.editing = -1;
       state.selectedSource = '';
       const input = qs('#rv2Value'); if (input) input.value = '';
-      const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
       closeGeoAutocomplete();
       const cancel = qs('#rv2CancelEdit'); if (cancel) cancel.hidden = true;
       const add = qs('#rv2AddRule'); if (add) add.textContent = 'Добавить';
@@ -469,7 +466,6 @@
       state.family = 'domain';
       state.selectedSource = '';
       const input = qs('#rv2Value'); if (input) input.value = '';
-      const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
       setNotice('rv2RuleNotice', '');
     }
     syncKindOptions();
@@ -559,7 +555,6 @@
     state.editing = -1;
     state.selectedSource = '';
     const input = qs('#rv2Value'); if (input) { input.value = ''; input.focus(); }
-    const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
     const add = qs('#rv2AddRule'); if (add) add.textContent = 'Добавить';
   }
 
@@ -755,7 +750,7 @@
     const input = qs('#rv2Value');
     if (!box || !input) return;
     box.textContent = '';
-    const items = Array.isArray(body?.suggestions) ? body.suggestions.slice(0,12) : [];
+    const items = Array.isArray(body?.suggestions) ? body.suggestions.slice(0,24) : [];
     state.geoSuggestItems = items;
     state.geoSuggestIndex = items.length ? 0 : -1;
 
@@ -815,7 +810,7 @@
         } else if (warnings.length) {
           setNotice('rv2RuleNotice', `GeoData: ${warnings.join(' · ')}`, 'warn');
         } else {
-          setNotice('rv2RuleNotice', 'GeoData: совпадений не найдено. Уточните запрос или используйте «Найти в GeoData».');
+          setNotice('rv2RuleNotice', 'GeoData: совпадений не найдено. Уточните запрос или введите категорию вручную.');
         }
       }
       return body;
@@ -851,46 +846,6 @@
       state.geoSuggestTimer = null;
       void requestGeoSuggestions(query, true).catch(() => {});
     }, 220);
-  }
-
-  async function searchGeo() {
-    if (!(state.kind === 'geosite' || state.kind === 'geoip')) return;
-    const query = String(qs('#rv2Value')?.value || '').trim();
-    if (!query) { setNotice('rv2RuleNotice', 'Введите категорию, домен, URL или IP.', 'bad'); return; }
-    const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
-    closeGeoAutocomplete();
-    try {
-      const body = await requestGeoSuggestions(query, false);
-      if (!body) return;
-      const items = Array.isArray(body.suggestions) ? body.suggestions : [];
-      items.forEach(item => {
-        const button = document.createElement('button'); button.type = 'button'; button.className = 'rv2-search-result';
-        const title = document.createElement('b'); title.textContent = `${humanKind(state.kind)} · ${String(item.category || '')}`;
-        const meta = document.createElement('span');
-        const evidence = Array.isArray(item.evidence) && item.evidence.length ? ` · evidence: ${item.evidence.join(', ')}` : '';
-        meta.textContent = `Выбрать · ${String(item.file || defaultGeoDataFile(state.kind))}${evidence}`;
-        button.append(title, meta);
-        button.addEventListener('click', () => {
-          qsa('.rv2-search-result').forEach(node => node.classList.remove('active'));
-          button.classList.add('active');
-          selectGeoSuggestion(item, false);
-        });
-        results?.appendChild(button);
-      });
-      const warnings = Array.isArray(body.warnings) ? body.warnings.filter(Boolean) : [];
-      const resolved = Array.isArray(body.resolved) ? body.resolved.filter(Boolean) : [];
-      if (warnings.length) {
-        setNotice('rv2RuleNotice', `${items.length ? `Найдено: ${items.length}. ` : ''}${warnings.join(' · ')}`, 'warn');
-      } else if (!items.length) {
-        const dnsCopy = resolved.length ? ` DNS: ${resolved.join(', ')}.` : '';
-        setNotice('rv2RuleNotice', `Подходящие категории не найдены.${dnsCopy} Можно уточнить запрос или ввести категорию вручную.`);
-      } else {
-        const dnsCopy = resolved.length ? ` DNS: ${resolved.join(', ')}.` : '';
-        setNotice('rv2RuleNotice', `Найдено категорий: ${items.length}.${dnsCopy} Выберите нужную — live routing не меняется.`, 'ok');
-      }
-    } catch (error) {
-      setNotice('rv2RuleNotice', `GeoData: ${safeError(error,'поиск недоступен')}. Категорию можно ввести вручную; live routing не меняется.`, 'bad');
-    }
   }
 
   function compactXrayVersion(raw) {
@@ -1421,8 +1376,7 @@
                 <div class="rv4-field"><label for="rv2Value">Сайт или категория</label><div class="rv2-input-wrap"><input id="rv2Value" type="text" autocomplete="off" spellcheck="false" aria-autocomplete="list" aria-controls="rv2GeoAutocomplete" aria-expanded="false"><div id="rv2GeoAutocomplete" class="rv2-autocomplete" role="listbox" hidden></div></div></div>
                 <button id="rv2AddRule" class="btn primary rv4-composer-submit" type="button">Добавить</button>
               </div>
-              <div class="rv2-search"><button id="rv2GeoSearch" class="btn secondary" type="button" hidden>Найти в GeoData</button><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена редактирования</button></div>
-              <div id="rv2SearchResults" class="rv2-search-results"></div>
+              <div class="rv2-search"><button id="rv2CancelEdit" class="btn secondary" type="button" hidden>Отмена редактирования</button></div>
               <div id="rv2RuleNotice" class="rv2-notice"></div>
             </div>
           </div>
@@ -1471,17 +1425,14 @@
     qs('#rv2Kind')?.addEventListener('change', event => {
       state.kind = String(event.target.value || 'domain');
       state.selectedSource = '';
-      const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
       closeGeoAutocomplete();
       syncKindOptions();
       queueGeoAutocomplete();
     });
     qs('#rv2AddRule')?.addEventListener('click', addOrUpdateRule);
     qs('#rv2CancelEdit')?.addEventListener('click', () => closeInlineComposer(true));
-    qs('#rv2GeoSearch')?.addEventListener('click', searchGeo);
     qs('#rv2Value')?.addEventListener('input', () => {
       state.selectedSource = '';
-      const results = qs('#rv2SearchResults'); if (results) results.textContent = '';
       syncRuleActionButtons();
       queueGeoAutocomplete();
     });
