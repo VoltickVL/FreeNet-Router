@@ -115,7 +115,6 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 	scanWarnings := make([]string, 0)
 	var budgetUsed int64
 	for _, file := range selected {
-		beforeFileSuggestions := len(suggestions)
 		// Unknown-name DATs are a compatibility fallback. On the normal autocomplete
 		// path, a usable result from a filename-typed DAT is authoritative enough;
 		// do not burn the remaining router budget probing unrelated custom files.
@@ -213,13 +212,6 @@ func (a *app) handleGeoDataSuggest(w http.ResponseWriter, r *http.Request) {
 					addGeoDataSuggestion(suggestions, file.Name, kind, category, "dns", []string{ip})
 				}
 			}
-		}
-		// For implicit lookup, canonical geosite.dat / geoip.dat are authoritative
-		// primary sources. If the canonical DAT produced a usable match, do not
-		// replace or duplicate it with v2fly/refilter/custom copies. Alternate DATs
-		// are fallback only when canonical has no usable match.
-		if !explicitFiles && isCanonicalGeoDataFile(kind, file) && len(suggestions) > beforeFileSuggestions {
-			break
 		}
 		if len(suggestions) >= maxGeoDataSuggestions {
 			break
