@@ -290,7 +290,7 @@ FreeNet использует единый смысл latency-метрик во �
 - **VPN-пинг** — fixed-IP HTTPS RTT через фактический VPN-тракт без DNS. Это не ICMP echo непосредственно до IP VPN-сервера. Метрика показывает базовую задержку работающего туннеля + exit path.
 - **Отклик сайтов** — median HTTPS response latency именованных origin через VPN. Это наиболее прямой показатель того, насколько отзывчиво ощущаются сайты и приложения.
 - **Стабильность** — spread/jitter серии application RTT samples: разница между самым быстрым и самым медленным валидным sample. Чем меньше, тем ровнее VPN.
-- **Скорость VPN** — измеренная throughput/capacity. После прохождения strict minimum она имеет меньший приоритет, чем задержка и стабильность.
+- **Скорость VPN** — измеренная throughput/capacity. После прохождения strict minimum она имеет меньший приоритет, чем задержка и стабильность. Throughput plateau адаптивный: baseline = 4×40 MB (160 MB aggregate); если baseline показывает >=180 Mbps, FreeNet повторяет финальный speed measurement на 4×80 MB (320 MB aggregate). Поэтому 300 Mbps-class path получает примерно вдвое более длинное финальное окно, а 100 Mbps-class path не тратит время на ненужный второй проход.
 
 Canonical priority:
 
