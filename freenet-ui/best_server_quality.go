@@ -89,6 +89,10 @@ type bestServerQualityResponse struct {
 	Candidates        []bestServerQualityCandidate `json:"candidates"`
 	ProfilesScanned   int                          `json:"profiles_scanned"`
 	ProfilesTotal     int                          `json:"profiles_total"`
+	DeepChecked       int                          `json:"deep_checked,omitempty"`
+	DeepTotal         int                          `json:"deep_total,omitempty"`
+	EligibleFound     int                          `json:"eligible_found,omitempty"`
+	EligibleTarget    int                          `json:"eligible_target,omitempty"`
 	ProfilesTruncated bool                         `json:"profiles_truncated,omitempty"`
 	Mutation          string                       `json:"mutation"`
 	Message           string                       `json:"message,omitempty"`
