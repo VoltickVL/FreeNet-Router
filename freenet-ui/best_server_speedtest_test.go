@@ -31,13 +31,14 @@ func TestBestServerSpeedtestAdaptiveWindowFitsFastAnd100MbpsLines(t *testing.T) 
 }
 
 func TestBestServerSpeedtestExtendsOnlyHighSpeedPaths(t *testing.T) {
-	if bestServerShouldExtendSpeedtest([]float64{50, 49, 48, 51}) {
-		t.Fatal("~198 Mbps aggregate should be evaluated against exact aggregate threshold test data, not this message")
-	}
 	if !bestServerShouldExtendSpeedtest([]float64{50, 49, 48, 51}) {
-		// 198 Mbps is intentionally above the high-speed extension threshold.
-	} else {
-		return
+		t.Fatal("~198 Mbps aggregate must trigger the extended plateau")
+	}
+	if bestServerShouldExtendSpeedtest([]float64{24, 24, 24, 24}) {
+		t.Fatal("~96 Mbps aggregate must stay on the already-long baseline window")
+	}
+	if bestServerShouldExtendSpeedtest([]float64{90, 90}) {
+		t.Fatal("too few completed streams must not trigger an extended plateau")
 	}
 }
 
