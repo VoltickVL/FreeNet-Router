@@ -235,7 +235,7 @@ func TestCanonicalJournalKeepsSameMessageOutsideDedupeWindow(t *testing.T) {
 	}
 }
 
-func TestJournalHistoryWriterKeepsNewestTwoHundredRows(t *testing.T) {
+func TestJournalHistoryWriterKeepsNewestBoundedRows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "journal.history")
 	for i := 0; i < journalHistoryFileLimit+17; i++ {
 		appendBoundedJournalLine(path, fmt.Sprintf("2026-10-04T00:%02d:%02dZ\ttest\tsuccess\trow-%03d\n", (i/60)%60, i%60, i))
@@ -248,8 +248,10 @@ func TestJournalHistoryWriterKeepsNewestTwoHundredRows(t *testing.T) {
 	if len(lines) != journalHistoryFileLimit {
 		t.Fatalf("history rows=%d want=%d", len(lines), journalHistoryFileLimit)
 	}
-	if !strings.Contains(lines[0], "row-017") || !strings.Contains(lines[len(lines)-1], "row-216") {
-		t.Fatalf("bounded history did not preserve newest rows: first=%q last=%q", lines[0], lines[len(lines)-1])
+	wantFirst := "row-017"
+	wantLast := fmt.Sprintf("row-%03d", journalHistoryFileLimit+16)
+	if !strings.Contains(lines[0], wantFirst) || !strings.Contains(lines[len(lines)-1], wantLast) {
+		t.Fatalf("bounded history did not preserve newest rows: first=%q last=%q wantFirst=%q wantLast=%q", lines[0], lines[len(lines)-1], wantFirst, wantLast)
 	}
 }
 
