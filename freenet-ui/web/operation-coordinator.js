@@ -752,7 +752,7 @@
         if(job.state!=='running')throw new Error('Invalid quality job state');
         stage.textContent=job.stage==='quality'?`Глубоко проверяем кандидатов · проверено ${job.completed} из ${job.total} · цель 3 подходящих`:job.stage==='preflight'?`Сравниваем реальный отклик через VPN · завершено ${job.completed} из ${job.total}`:job.stage==='tcp'?'Проверяем доступность серверов…':'Получаем профили подписки…';
         if(job.stage==='preflight'&&job.total>0){progress.max=job.total;progress.value=job.completed}else progress.removeAttribute('value');
-        if(Date.now()-started>340000)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
+        if(Date.now()-started>370000)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
       }
       return response;
     } finally {clearInterval(ticker);panel.remove();if(controls)controls.inert=wasInert;if(focused?.isConnected)focused.focus();}
