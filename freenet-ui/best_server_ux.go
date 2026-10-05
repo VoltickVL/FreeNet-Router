@@ -125,15 +125,11 @@ func bestServerCompletionPartial(budgetLimited bool, candidates []bestServerQual
 	return bestServerCompletionPartialForTarget(budgetLimited, candidates, currentEndpoint, bestServerVisibleAlternatives)
 }
 
-func bestServerForeignEligibleTarget(currentBaselineOK bool) int {
-	target := bestServerVisibleAlternatives
-	if currentBaselineOK && target > 1 {
-		// The Overview promise is Top-3 measured choices, not three foreign
-		// alternatives in addition to an already fresh/eligible current VPN.
-		// A canonical current baseline therefore occupies one Top-3 slot.
-		target--
-	}
-	return target
+func bestServerForeignEligibleTarget(_ bool) int {
+	// Manual "Подобрать варианты" shows alternatives only; the current VPN is
+	// already presented separately in the left panel and must not consume one
+	// of the three comparison slots.
+	return bestServerVisibleAlternatives
 }
 
 func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
@@ -190,6 +186,7 @@ func (a *app) rankMeasuredBestServerBatches(
 	}
 	aggregate := bestServerQualityResponse{
 		Candidates: []bestServerQualityCandidate{}, ProfilesScanned: profilesScanned, ProfilesTotal: profilesScanned,
+		DeepTotal: len(candidates), EligibleTarget: targetEligible,
 		ProfilesTruncated: truncated, Mutation: "NONE",
 	}
 	budgetLimited := false
@@ -222,8 +219,11 @@ func (a *app) rankMeasuredBestServerBatches(
 			budgetLimited = true
 		}
 		aggregate.Candidates = append(aggregate.Candidates, filterMeasuredBestServerResults(batch.Candidates)...)
+		aggregate.DeepChecked = end
+		aggregate.EligibleFound = eligibleBestServerAlternativeCount(aggregate.Candidates, currentEndpoint)
 		reportBestServerProgress(ctx, "quality", end, len(candidates))
 	}
+	aggregate.EligibleFound = eligibleBestServerAlternativeCount(aggregate.Candidates, currentEndpoint)
 	aggregate.Partial = bestServerCompletionPartialForTarget(budgetLimited, aggregate.Candidates, currentEndpoint, targetEligible)
 	sortMeasuredBestServerResults(aggregate.Candidates)
 	for _, candidate := range aggregate.Candidates {
