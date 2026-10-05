@@ -196,6 +196,67 @@ func sortProviderProfileRTTItems(items []providerProfileRTTItem) {
 	})
 }
 
+func confirmProviderProfileRTTLeaders(
+	ctx context.Context,
+	candidates []bestServerInternalCandidate,
+	items []providerProfileRTTItem,
+	limit int,
+	probe providerRTTProbe,
+) []providerProfileRTTItem {
+	out := cloneProviderProfileRTTItems(items)
+	if len(out) == 0 || len(candidates) == 0 || limit <= 0 || probe == nil || ctx.Err() != nil {
+		return out
+	}
+	sortProviderProfileRTTItems(out)
+
+	byID := make(map[string]bestServerInternalCandidate, len(candidates))
+	for _, candidate := range candidates {
+		if id := strings.TrimSpace(candidate.Profile.ID); id != "" {
+			byID[id] = candidate
+		}
+	}
+	leaders := make([]bestServerInternalCandidate, 0, limit)
+	for _, item := range out {
+		if !item.Reachable || item.RTTMS <= 0 {
+			continue
+		}
+		candidate, ok := byID[strings.TrimSpace(item.ProfileID)]
+		if !ok {
+			continue
+		}
+		leaders = append(leaders, candidate)
+		if len(leaders) >= limit {
+			break
+		}
+	}
+	if len(leaders) == 0 {
+		return out
+	}
+
+	phaseCtx, cancel := context.WithTimeout(ctx, bestServerConfirmedRTTSweepTimeout)
+	confirmed := measureProviderProfileRTTWithTimeout(
+		phaseCtx,
+		leaders,
+		probe,
+		bestServerConfirmedProfilePingTimeout,
+	)
+	cancel()
+
+	confirmedByID := make(map[string]providerProfileRTTItem, len(confirmed))
+	for _, item := range confirmed {
+		if item.Reachable && item.RTTMS > 0 {
+			confirmedByID[strings.TrimSpace(item.ProfileID)] = item
+		}
+	}
+	for index := range out {
+		if item, ok := confirmedByID[strings.TrimSpace(out[index].ProfileID)]; ok {
+			out[index] = item
+		}
+	}
+	sortProviderProfileRTTItems(out)
+	return out
+}
+
 func beginProviderProfileRTTScan() bool {
 	select {
 	case providerProfileRTTScanGate <- struct{}{}:
@@ -438,9 +499,20 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		sweepCtx, cancelSweep := context.WithTimeout(r.Context(), bestServerRTTSweepTimeout(len(toMeasure)))
 		measured = measureProviderProfileRTT(sweepCtx, toMeasure, a.probeBestServerProfilePing)
 		cancelSweep()
-		storeProviderProfileRTTCache(toMeasure, measured)
 	}
 	items := mergeProviderProfileRTTItems(filtered, cached, measured)
+	// Keep the full-pool selector fast with one quick sample per logical VPN,
+	// then re-measure only the visible competitive leaders using the same
+	// warm-up + repeated fixed-IP HTTPS median as Current/Best/AUTO.
+	items = confirmProviderProfileRTTLeaders(
+		r.Context(),
+		filtered,
+		items,
+		bestServerConfirmedShortlistLimit,
+		a.probeBestServerProfilePingConfirmed,
+	)
+	storeProviderProfileRTTCache(filtered, items)
+
 	checked, reachable, unknown := 0, 0, 0
 	for _, item := range items {
 		if item.Attempted {
