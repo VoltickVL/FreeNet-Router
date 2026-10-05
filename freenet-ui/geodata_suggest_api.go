@@ -317,6 +317,7 @@ func prioritizeGeoDataSuggestFiles(kind GeoDataKind, selected []GeoDataFile) []G
 	}
 	return ordered
 }
+
 func classifyGeoDataSuggestQuery(kind GeoDataKind, raw string) (geoDataSuggestQuery, error) {
 	value := strings.TrimSpace(raw)
 	lower := strings.ToLower(value)
