@@ -25,6 +25,14 @@ const (
 	automationHealthProbeTimeout      = 12 * time.Second
 	automationHealthRunTimeout        = 35 * time.Second
 	automationEndpointRecoveryTimeout = 20 * time.Second
+
+	// Reachable quality degradation must be repeated before Full AUTO spends
+	// bandwidth on a heavy Best Server comparison. A completed optimization
+	// attempt is also cooled down independently from the existing 6h switch
+	// cooldown, so a noisy line cannot trigger repeated Top-3 scans.
+	automationQualityStrikeWindow        = 30 * time.Minute
+	automationQualityStrikeThreshold     = 3
+	automationQualityOptimizationCooldown = 2 * time.Hour
 )
 
 type automationHealthResult struct {
@@ -34,8 +42,9 @@ type automationHealthResult struct {
 }
 
 type automationHealthProbe struct {
-	State  string
-	Reason string
+	State           string
+	Reason          string
+	QualityDegraded bool
 }
 
 var automationEndpointCurrentRefresh = func(a *app, ctx context.Context) (int, bestServerRefreshResponse) {
@@ -153,17 +162,77 @@ func automationApplicationPathHealthy(ms int) bool {
 func classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal int) automationHealthProbe {
 	if !automationApplicationPathHealthy(applicationMS) {
 		return automationHealthProbe{
-			State: automationHealthUncertain,
-			Reason: fmt.Sprintf("VPN отвечает, но отклик высокий: %d мс. Рабочее подключение сохраняется без переключения.", applicationMS),
+			State:           automationHealthUncertain,
+			Reason:          fmt.Sprintf("VPN отвечает, но отклик высокий: %d мс. Рабочее подключение сохраняется без переключения.", applicationMS),
+			QualityDegraded: true,
 		}
 	}
 	if !automationServicePathHealthy(serviceOK, serviceTotal) {
 		return automationHealthProbe{
-			State: automationHealthUncertain,
-			Reason: fmt.Sprintf("VPN даёт доступ в интернет, но часть сервисных проверок нестабильна: %d/%d. Рабочее подключение сохраняется без переключения.", serviceOK, serviceTotal),
+			State:           automationHealthUncertain,
+			Reason:          fmt.Sprintf("VPN даёт доступ в интернет, но часть сервисных проверок нестабильна: %d/%d. Рабочее подключение сохраняется без переключения.", serviceOK, serviceTotal),
+			QualityDegraded: true,
 		}
 	}
 	return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."}
+}
+
+func automationQualityOptimizationPlan(state map[string]string, now time.Time, degraded bool) (map[string]string, bool) {
+	updates := map[string]string{}
+	parseStamp := func(key string) time.Time {
+		value := strings.TrimSpace(state[key])
+		if value == "" {
+			return time.Time{}
+		}
+		stamp, err := time.Parse(time.RFC3339, value)
+		if err != nil {
+			return time.Time{}
+		}
+		return stamp
+	}
+	count, _ := strconv.Atoi(strings.TrimSpace(state["QUALITY_DEGRADED_COUNT"]))
+	if count < 0 {
+		count = 0
+	}
+	start := parseStamp("QUALITY_DEGRADED_SINCE")
+	lastOptimization := parseStamp("QUALITY_OPTIMIZATION_LAST")
+
+	if !degraded {
+		if !start.IsZero() && (now.Before(start) || now.Sub(start) > automationQualityStrikeWindow) {
+			updates["QUALITY_DEGRADED_COUNT"] = "0"
+			updates["QUALITY_DEGRADED_SINCE"] = ""
+		}
+		return updates, false
+	}
+
+	if start.IsZero() || now.Before(start) || now.Sub(start) > automationQualityStrikeWindow {
+		start = now
+		count = 0
+	}
+	count++
+	updates["QUALITY_DEGRADED_COUNT"] = strconv.Itoa(count)
+	updates["QUALITY_DEGRADED_SINCE"] = start.UTC().Format(time.RFC3339)
+
+	if !lastOptimization.IsZero() && now.Before(lastOptimization.Add(automationQualityOptimizationCooldown)) {
+		return updates, false
+	}
+	if count < automationQualityStrikeThreshold {
+		return updates, false
+	}
+
+	updates["QUALITY_DEGRADED_COUNT"] = "0"
+	updates["QUALITY_DEGRADED_SINCE"] = ""
+	updates["QUALITY_OPTIMIZATION_LAST"] = now.UTC().Format(time.RFC3339)
+	return updates, true
+}
+
+func automationQualityOptimizationDue(now time.Time, degraded bool) bool {
+	state := v3ParseState(settingsV3StatePath())
+	updates, due := automationQualityOptimizationPlan(state, now, degraded)
+	if len(updates) > 0 {
+		_ = v3WriteState(updates)
+	}
+	return due
 }
 
 func classifyAutomationApplicationFailure(transportOK bool) automationHealthProbe {
@@ -603,8 +672,27 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
-	if first.State == automationHealthHealthy || first.State == automationHealthUncertain {
+	if first.State == automationHealthHealthy {
+		_ = automationQualityOptimizationDue(time.Now().UTC(), false)
 		cancel()
+		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
+	}
+	if first.State == automationHealthUncertain {
+		qualityDue := false
+		if settings.Mode == automationModeBest && first.QualityDegraded {
+			qualityDue = automationQualityOptimizationDue(time.Now().UTC(), true)
+		} else {
+			_ = automationQualityOptimizationDue(time.Now().UTC(), false)
+		}
+		cancel()
+		if qualityDue {
+			qualitySettings := settings
+			qualitySettings.Policy = automationPolicyBetter
+			appendAutomationRecoveryStage("quality_optimization", "start", "Повторяющаяся деградация качества подтверждена; сравниваем текущий VPN с fully measured Top-3.")
+			best, bestErr := a.runAutomationBestCycleWithSettings(parent, qualitySettings, false)
+			appendAutomationRecoveryStage("quality_optimization", best.Result, best.Reason)
+			return recordAndReturnHealth(automationHealthResult{State: best.Result, Reason: best.Reason, Mutated: best.Mutated}, bestErr)
+		}
 		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
 	}
 	cancel()
