@@ -49,7 +49,7 @@ func TestJournalCSVIsChronologicalAndEscaped(t *testing.T) {
 	payload, err := journalCSV(events)
 	if err != nil { t.Fatal(err) }
 	text := string(payload)
-	if !strings.Contains(text, ""new, value"") {
+	if !strings.Contains(text, "\"new, value\"") {
 		t.Fatalf("csv comma escaping missing: %q", text)
 	}
 	if strings.Index(text, "10:01:00Z") > strings.Index(text, "10:02:00Z") {
