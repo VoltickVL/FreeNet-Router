@@ -408,7 +408,7 @@ func TestGeoDataSuggestGeoIPPrefixAndExtSelector(t *testing.T) {
 	}
 	defer func() { geoDataLookupIPAddr = previous }()
 
-	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/suggest?kind=geoip&q=extra")
+	w := doGeoDataAPIRequest(mux, cookie, "/api/geodata/suggest?kind=geoip&q=extra&file=geoip-extra.dat")
 	if w.Code != http.StatusOK {
 		t.Fatalf("code=%d body=%s", w.Code, w.Body.String())
 	}
