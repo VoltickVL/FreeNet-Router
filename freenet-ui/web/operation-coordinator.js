@@ -743,7 +743,7 @@
         if(job.state==='completed'&&job.result)return new Response(JSON.stringify(job.result),{status:200});
         if(job.state==='failed')return new Response(JSON.stringify({success:false,error:job.error||'Проверка не завершена'}),{status:503});
         if(job.state!=='running')throw new Error('Invalid quality job state');
-        stage.textContent=job.stage==='quality'?`Глубоко проверяем лучшие VPN · проверено ${job.completed} · цель до 3 подходящих`:job.stage==='preflight'?`Сравниваем реальный отклик через VPN · завершено ${job.completed} из ${job.total}`:job.stage==='tcp'?'Проверяем доступность серверов…':'Получаем профили подписки…';
+        stage.textContent=job.stage==='quality'?`Глубоко проверяем кандидатов · проверено ${job.completed}`:job.stage==='preflight'?`Сравниваем реальный отклик через VPN · завершено ${job.completed} из ${job.total}`:job.stage==='tcp'?'Проверяем доступность серверов…':'Получаем профили подписки…';
         if(job.stage==='preflight'&&job.total>0){progress.max=job.total;progress.value=job.completed}else progress.removeAttribute('value');
         if(Date.now()-started>340000)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
       }
@@ -925,7 +925,7 @@
     if (!first) return;
     first.classList.add('fn-best-alternative');
     const badge = first.querySelector('.vpn-state-badge');
-    if (badge && badge.textContent.trim() === 'Для сравнения') badge.textContent = 'Лучший из вариантов';
+    if (badge && badge.textContent.trim() === 'Для сравнения') badge.textContent = 'Лучший из альтернатив';
   }
 
   function fitCurrentMetrics() {

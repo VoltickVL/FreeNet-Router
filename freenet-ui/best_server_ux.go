@@ -125,6 +125,17 @@ func bestServerCompletionPartial(budgetLimited bool, candidates []bestServerQual
 	return bestServerCompletionPartialForTarget(budgetLimited, candidates, currentEndpoint, bestServerVisibleAlternatives)
 }
 
+func bestServerForeignEligibleTarget(currentBaselineOK bool) int {
+	target := bestServerVisibleAlternatives
+	if currentBaselineOK && target > 1 {
+		// The Overview promise is Top-3 measured choices, not three foreign
+		// alternatives in addition to an already fresh/eligible current VPN.
+		// A canonical current baseline therefore occupies one Top-3 slot.
+		target--
+	}
+	return target
+}
+
 func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
 	sort.SliceStable(candidates, func(i, j int) bool {
 		a, b := candidates[i], candidates[j]
@@ -362,7 +373,8 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	// Rank logical profiles by the real proxy path. Shared provider ingress
 	// IP:port is not logical identity and must not influence the shortlist.
 	candidates = a.applicationAwareBestServerShortlist(ctx, candidates, currentEndpoint, currentFilter)
-	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter, bestServerVisibleAlternatives)
+	targetEligible := bestServerForeignEligibleTarget(currentBaselineOK)
+	response := a.rankMeasuredBestServerBatches(ctx, candidates, profilesScanned, truncated, currentEndpoint, currentFilter, targetEligible)
 	if ctx.Err() != nil && len(response.Candidates) == 0 && !currentBaselineOK {
 		return bestServerQualityResponse{}, ctx.Err()
 	}

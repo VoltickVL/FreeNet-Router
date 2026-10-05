@@ -15,7 +15,7 @@ func TestOverviewRuntimePolishContract(t *testing.T) {
 	for _, needle := range []string{
 		"FreeNetFinalRuntimePolish",
 		"fn-best-alternative",
-		"Лучший из вариантов",
+		"Лучший из альтернатив",
 		"fn-long-value",
 		".topbar.overview-approved .top-status{display:none!important}",
 		"vpn-current-panel .best-v4-pill{grid-template-columns:20px minmax(0,1fr)!important",

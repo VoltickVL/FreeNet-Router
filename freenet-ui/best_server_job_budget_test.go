@@ -151,8 +151,8 @@ func TestBestServerBrowserShowsAdaptiveDeepProgress(t *testing.T) {
 		t.Fatal(err)
 	}
 	src := string(data)
-	if !strings.Contains(src, "Глубоко проверяем лучшие VPN · проверено ${job.completed} · цель до 3 подходящих") {
-		t.Fatal("Best Server UI must show cumulative adaptive deep-check progress")
+	if !strings.Contains(src, "Глубоко проверяем кандидатов · проверено ${job.completed}") {
+		t.Fatal("Best Server UI must show cumulative adaptive deep-check progress without a misleading fixed foreign target")
 	}
 	if strings.Contains(src, "Глубоко проверяем лучшие VPN · завершено ${job.completed} из ${job.total}") {
 		t.Fatal("Best Server UI must not reset sequential deep checks to misleading 0 из 1 progress")
