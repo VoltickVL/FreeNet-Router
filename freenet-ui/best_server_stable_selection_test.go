@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-func TestConfirmedVPNPingUsesMedianOfThree(t *testing.T) {
-	values := []int{238, 174, 179}
+func TestConfirmedVPNPingUsesWarmupAndMedianOfFive(t *testing.T) {
+	values := []int{999, 174, 179, 176, 181, 175}
 	calls := 0
 	runner := func(_ context.Context, _, _, target string, timeout time.Duration) (int, bool) {
 		if target != bestServerTransportProbeURL || timeout != bestServerTransportProbeTimeout {
@@ -21,11 +21,15 @@ func TestConfirmedVPNPingUsesMedianOfThree(t *testing.T) {
 		return value, true
 	}
 	got := probeBestServerConfirmedVPNPingWith(context.Background(), "curl", "127.0.0.1:1080", runner)
-	if !got.OK || calls != bestServerConfirmedVPNPingRuns {
-		t.Fatalf("confirmed ping result=%+v calls=%d", got, calls)
+	wantCalls := bestServerConfirmedVPNPingWarmupRuns + bestServerConfirmedVPNPingRuns
+	if !got.OK || calls != wantCalls {
+		t.Fatalf("confirmed ping result=%+v calls=%d want=%d", got, calls, wantCalls)
 	}
-	if got.Median != 179 || got.Jitter != 64 {
-		t.Fatalf("confirmed median/jitter=%d/%d want 179/64 from %#v", got.Median, got.Jitter, values)
+	if got.Median != 176 || got.Jitter != 7 {
+		t.Fatalf("confirmed median/jitter=%d/%d want 176/7 from measured %#v", got.Median, got.Jitter, got.Samples)
+	}
+	if len(got.Samples) != bestServerConfirmedVPNPingRuns {
+		t.Fatalf("warm-up must not enter measured samples: %+v", got)
 	}
 }
 
