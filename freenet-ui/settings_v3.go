@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,8 +23,12 @@ const (
 	settingsV3HistoryPathDefault  = "/opt/var/log/freenet-settings-v3.history"
 	settingsV3BackupRootDefault   = "/opt/backups/freenet-settings"
 	settingsV3UpdaterDefault      = "/opt/bin/blanc_xkeen_update_outbounds.sh"
-	journalHistoryFileLimit       = 200
-	journalSemanticDedupeWindow   = 15 * time.Second
+	journalHistoryFileLimit         = 20000
+	journalHistoryTrimSlack         = 1000
+	journalCanonicalRetentionLimit  = 15000
+	journalDefaultPageSize          = 100
+	journalMaxPageSize              = 500
+	journalSemanticDedupeWindow     = 15 * time.Second
 )
 
 var journalHistoryMu sync.Mutex
@@ -67,10 +73,41 @@ type settingsV3Response struct {
 	Error        string               `json:"error,omitempty"`
 }
 
+type journalStats struct {
+	Total    int            `json:"total"`
+	Success  int            `json:"success"`
+	Neutral  int            `json:"neutral"`
+	Errors   int            `json:"errors"`
+	ByKind   map[string]int `json:"by_kind"`
+	ByResult map[string]int `json:"by_result"`
+}
+
 type journalResponse struct {
-	Success     bool              `json:"success"`
-	Events      []automationEvent `json:"events"`
-	GeneratedAt string            `json:"generated_at"`
+	Success       bool              `json:"success"`
+	Events        []automationEvent `json:"events"`
+	GeneratedAt   string            `json:"generated_at"`
+	Total         int               `json:"total"`
+	FilteredTotal int               `json:"filtered_total"`
+	Page          int               `json:"page"`
+	PageSize      int               `json:"page_size"`
+	Pages         int               `json:"pages"`
+	RetainedFrom  string            `json:"retained_from,omitempty"`
+	RetainedTo    string            `json:"retained_to,omitempty"`
+	RangeFrom     string            `json:"range_from,omitempty"`
+	RangeTo       string            `json:"range_to,omitempty"`
+	Stats         journalStats      `json:"stats"`
+}
+
+type journalQuery struct {
+	Page       int
+	PageSize   int
+	Category   string
+	Result     string
+	Search     string
+	From       time.Time
+	To         time.Time
+	HasFrom    bool
+	HasTo      bool
 }
 
 type settingsV3SaveRequest struct {
@@ -109,6 +146,7 @@ type settingsV3ActionResponse struct {
 func registerSettingsV3API(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/settings-v3", a.requireAuth(a.handleSettingsV3Get))
 	mux.HandleFunc("GET /api/journal", a.requireAuth(a.handleJournalGet))
+	mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))
 	mux.HandleFunc("POST /api/settings-v3", a.requireAuth(a.handleSettingsV3Save))
 	mux.HandleFunc("POST /api/settings-v3/action", a.requireAuth(a.handleSettingsV3Action))
 }
