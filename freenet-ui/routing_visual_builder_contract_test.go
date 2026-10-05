@@ -212,10 +212,24 @@ func TestSmartGeoDataAutocompleteContract(t *testing.T) {
 		"ArrowUp",
 		"state.selectedSource",
 		"ext:${source}:${value}",
-		"Найти в GeoData",
+		"max-height:min(52vh,520px)",
+		"overflow-y:auto",
+		"overscroll-behavior:contain",
+		".rv4-board{",
+		"overflow:visible",
 	} {
 		if !strings.Contains(routing, want) {
 			t.Fatalf("Routing Smart GeoData contract missing %q", want)
+		}
+	}
+	for _, obsolete := range []string{
+		"Найти в GeoData",
+		`id="rv2GeoSearch"`,
+		"function searchGeo()",
+		"rv2SearchResults",
+	} {
+		if strings.Contains(routing, obsolete) {
+			t.Fatalf("Routing Smart GeoData still contains redundant manual search surface %q", obsolete)
 		}
 	}
 	for _, want := range []string{
