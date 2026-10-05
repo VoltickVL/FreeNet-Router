@@ -353,25 +353,50 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
     assert.match(await page.locator('#rv2GeoAutocomplete').innerText(),/slow-blur-result/);
 
+    // Reproduce the real-router layout where the next routing card sits below
+    // the open composer. The popup must leave the board stacking context and
+    // paint as a viewport overlay above that following card.
+    await page.setViewportSize({width:700,height:900});
+    await page.locator('#rv2Value').evaluate(el => el.scrollIntoView({block:'start'}));
     await page.locator('#rv2Value').fill('many');
     await page.waitForFunction(() => document.querySelectorAll('#rv2GeoAutocomplete .rv2-autocomplete-item').length === 24);
     const geoMenu = await page.locator('#rv2GeoAutocomplete').evaluate(el => {
       const style = getComputedStyle(el);
       const before = el.scrollTop;
       el.scrollTop = el.scrollHeight;
+      const box = el.getBoundingClientRect();
+      const block = document.querySelector('#rv2BlockBoard')?.getBoundingClientRect();
+      const vpn = document.querySelector('#rv2VPNBoard');
       return {
         clientHeight: el.clientHeight,
         scrollHeight: el.scrollHeight,
         scrolled: el.scrollTop > before,
-        overflowY: style.overflowY
+        overflowY: style.overflowY,
+        position: style.position,
+        zIndex: Number(style.zIndex || 0),
+        parentIsBody: el.parentElement === document.body,
+        insideVPNBoard: !!vpn?.contains(el),
+        top: box.top,
+        bottom: box.bottom,
+        left: box.left,
+        right: box.right,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        overlapsFollowingBlock: !!block && box.bottom > block.top && box.top < block.bottom && box.right > block.left && box.left < block.right
       };
     });
-    assert.ok(geoMenu.clientHeight >= 400,'GeoData menu should be materially taller than the old 290px popup');
-    assert.ok(geoMenu.scrollHeight > geoMenu.clientHeight,'GeoData menu must expose overflow when many suggestions exist');
+    assert.equal(geoMenu.parentIsBody,true,'GeoData popup must be portaled to document.body');
+    assert.equal(geoMenu.insideVPNBoard,false,'GeoData popup must not remain inside the routing board stacking context');
+    assert.equal(geoMenu.position,'fixed','GeoData popup must use viewport-fixed geometry');
+    assert.ok(geoMenu.zIndex >= 10000,'GeoData popup must paint above routing cards');
+    assert.ok(geoMenu.top >= 0 && geoMenu.bottom <= geoMenu.viewportHeight + 1,'GeoData popup must stay inside the visible viewport');
+    assert.ok(geoMenu.left >= 0 && geoMenu.right <= geoMenu.viewportWidth + 1,'GeoData popup must stay inside viewport width');
+    assert.ok(geoMenu.scrollHeight > geoMenu.clientHeight,'GeoData menu must expose all lower results through scrolling');
     assert.equal(geoMenu.overflowY,'auto');
-    assert.equal(geoMenu.scrolled,true,'GeoData menu must actually scroll');
-    assert.equal(await page.locator('#rv2VPNBoard').evaluate(el=>getComputedStyle(el).overflow),'visible','open board must not clip autocomplete');
+    assert.equal(geoMenu.scrolled,true,'GeoData menu must actually scroll to lower results');
+    assert.equal(geoMenu.overlapsFollowingBlock,true,'real stacked layout must prove popup overlays the following BLOCK card instead of being clipped by it');
     assert.equal(await page.locator('#rv2GeoSearch').count(),0,'redundant manual GeoData button must be removed');
+    await page.setViewportSize({width:1600,height:1000});
 
     await page.locator('#rv2Value').fill('you');
     await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
