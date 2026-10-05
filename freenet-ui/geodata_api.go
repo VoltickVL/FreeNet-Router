@@ -99,9 +99,9 @@ func listGeoDataFileMetadata(assetDir string) ([]GeoDataFile, error) {
 func geoDataKindFilenameHint(name string) GeoDataKind {
 	lower := strings.ToLower(filepath.Base(name))
 	switch {
-	case strings.Contains(lower, "geosite"):
+	case strings.Contains(lower, "geosite") || lower == "zkeen.dat":
 		return GeoDataSite
-	case strings.Contains(lower, "geoip"):
+	case strings.Contains(lower, "geoip") || lower == "zkeenip.dat":
 		return GeoDataIP
 	default:
 		return GeoDataUnknown
