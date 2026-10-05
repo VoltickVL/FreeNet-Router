@@ -283,11 +283,22 @@ Subscription URL и VPN credentials остаются на роутере и не
 
 Если fresh source недоступен, операция должна использовать только допустимый source-bound last-known-good fallback либо завершиться fail-closed — без угадывания credentials.
 
-## Canonical VPN-ping
+## Canonical VPN-ping и приоритет качества
 
-Current VPN, ручной selector и первый этап Best Server используют одну canonical VPN-ping метрику. Пользовательский VPN-ping не подменяется raw TCP RTT.
+FreeNet использует единый смысл latency-метрик во всех пользовательских и automatic flow.
 
-Отдельные последовательные замеры всё равно могут отличаться на несколько миллисекунд из-за реального состояния сети.
+- **VPN-пинг** — fixed-IP HTTPS RTT через фактический VPN-тракт без DNS. Это не ICMP echo непосредственно до IP VPN-сервера. Метрика показывает базовую задержку работающего туннеля + exit path.
+- **Отклик сайтов** — median HTTPS response latency именованных origin через VPN. Это наиболее прямой показатель того, насколько отзывчиво ощущаются сайты и приложения.
+- **Стабильность** — spread/jitter серии application RTT samples: разница между самым быстрым и самым медленным валидным sample. Чем меньше, тем ровнее VPN.
+- **Скорость VPN** — измеренная throughput/capacity. После прохождения strict minimum она имеет меньший приоритет, чем задержка и стабильность. Throughput plateau адаптивный: baseline = 4×40 MB (160 MB aggregate); если baseline показывает >=180 Mbps, FreeNet повторяет финальный speed measurement на 4×80 MB (320 MB aggregate). Поэтому 300 Mbps-class path получает примерно вдвое более длинное финальное окно, а 100 Mbps-class path не тратит время на ненужный второй проход.
+
+Canonical priority:
+
+`liveness / services / no stalls → отклик сайтов → стабильность → VPN-пинг → скорость`.
+
+Broad full-pool discovery остаётся быстрым: каждый logical profile сначала получает один одинаковый fixed-IP HTTPS sample. Competitive Top-10 затем получает canonical confirmed measurement: bounded warm-up + 5 samples, median и spread. Current VPN, deep Best Server и AUTO VPN используют тот же confirmed VPN RTT method; deep application RTT также использует warm-up + 5 samples.
+
+Небольшая разница RTT сама по себе не считается преимуществом. Если delta укладывается в measured spread/noise двух сравниваемых VPN, она обнуляется как measurement noise и не может самостоятельно вызвать AUTO switch или Best Server recommendation.
 
 ## Best Server
 
@@ -361,7 +372,7 @@ post-check
 
 Если rollback получил `FAILED` или `UNKNOWN`, следующая automatic mutation запрещается.
 
-Quality optimization отделена от аварийного recovery. Для рабочего, но деградирующего VPN FreeNet использует stability-first оценку: strict liveness/service/stall gates обязательны, затем приоритет имеют application RTT, jitter и VPN RTT; дополнительная скорость является вторичным сигналом. Reachable degradation учитывается по severity (RTT/service quality), а не одинаковыми flat-strikes. Тяжёлая деградация может раньше запустить measured comparison, но сама по себе никогда не переключает VPN: новый профиль должен пройти full measurement, Eligibility и materially-better hysteresis.
+Quality optimization отделена от аварийного recovery. Для рабочего, но деградирующего VPN FreeNet использует stability-first оценку: strict liveness/service/stall gates обязательны; затем веса materially-better comparison распределены как application RTT **35%**, stability spread **30%**, confirmed VPN RTT **25%**, throughput **10%**. Latency gain внутри measured noise floor не учитывается. Reachable degradation учитывается по severity (RTT/service quality), а не одинаковыми flat-strikes. Тяжёлая деградация может раньше запустить measured comparison, но сама по себе никогда не переключает VPN: новый профиль должен пройти full measurement, Eligibility и materially-better hysteresis.
 
 ---
 

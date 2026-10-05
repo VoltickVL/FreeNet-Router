@@ -94,3 +94,40 @@ func TestBestServerRecommendationRemovesSameLogicalCurrentAlternatives(t *testin
 		t.Fatalf("different logical profile must remain available for comparison: %#v", final.Candidates)
 	}
 }
+
+
+func TestBestServerRecommendationIgnoresLatencyDeltaInsideMeasuredSpread(t *testing.T) {
+	current := healthyRecommendationCandidate("current", true, 150, 180, 10000)
+	current.JitterMS = 30
+	current.VPNRTTMS = 180
+	current.VPNJitterMS = 24
+
+	challenger := healthyRecommendationCandidate("challenger", false, 150, 165, 10100)
+	challenger.JitterMS = 30
+	challenger.VPNRTTMS = 166
+	challenger.VPNJitterMS = 24
+
+	response := bestServerQualityResponse{Available:true, Candidates:[]bestServerQualityCandidate{challenger,current}, Recommendation:&challenger}
+	final := applyBestServerRecommendationDeadband(response)
+	if final.Recommendation == nil || final.Recommendation.ID != "current" {
+		t.Fatalf("latency delta inside measured spread must keep current: %#v", final.Recommendation)
+	}
+}
+
+func TestBestServerRecommendationAcceptsConfirmedLatencyAndStabilityGain(t *testing.T) {
+	current := healthyRecommendationCandidate("current", true, 150, 205, 10000)
+	current.JitterMS = 45
+	current.VPNRTTMS = 200
+	current.VPNJitterMS = 28
+
+	challenger := healthyRecommendationCandidate("challenger", false, 145, 165, 10600)
+	challenger.JitterMS = 10
+	challenger.VPNRTTMS = 160
+	challenger.VPNJitterMS = 8
+
+	response := bestServerQualityResponse{Available:true, Candidates:[]bestServerQualityCandidate{challenger,current}, Recommendation:&challenger}
+	final := applyBestServerRecommendationDeadband(response)
+	if final.Recommendation == nil || final.Recommendation.ID != "challenger" {
+		t.Fatalf("confirmed latency/stability gain must allow challenger: %#v", final.Recommendation)
+	}
+}

@@ -7,10 +7,45 @@ import (
 )
 
 const (
-	bestServerMeaningfulSpeedGainRatio = 0.15
-	bestServerMeaningfulSpeedGainMbps  = 15.0
-	bestServerMeaningfulHTTPGainMS     = 20
+	bestServerMeaningfulSpeedGainRatio     = 0.15
+	bestServerMeaningfulSpeedGainMbps      = 15.0
+	bestServerMeaningfulHTTPGainMS         = 12
+	bestServerMeaningfulVPNGainMS          = 12
+	bestServerMeaningfulStabilityGainMS    = 15
+	bestServerLatencyNoiseFloorMS          = 10
 )
+
+func bestServerLatencyNoiseFloor(currentSpread, challengerSpread int) int {
+	spread := currentSpread
+	if challengerSpread > spread {
+		spread = challengerSpread
+	}
+	floor := bestServerLatencyNoiseFloorMS
+	if spread > 0 {
+		// Jitter is stored as max-min spread across the sample set. Half of
+		// that range is a conservative local uncertainty estimate.
+		estimated := (spread + 1) / 2
+		if estimated > floor {
+			floor = estimated
+		}
+	}
+	return floor
+}
+
+func bestServerNoiseAwareLatencyDelta(currentMS, challengerMS, currentSpread, challengerSpread int) int {
+	if currentMS <= 0 || challengerMS <= 0 {
+		return 0
+	}
+	delta := currentMS - challengerMS
+	floor := bestServerLatencyNoiseFloor(currentSpread, challengerSpread)
+	if delta > floor {
+		return delta - floor
+	}
+	if delta < -floor {
+		return delta + floor
+	}
+	return 0
+}
 
 func bestServerMeaningfullyBetter(current, challenger bestServerQualityCandidate) bool {
 	if !challenger.Eligible || challenger.Current {
@@ -25,9 +60,21 @@ func bestServerMeaningfullyBetter(current, challenger bestServerQualityCandidate
 
 	minimumSpeedGain := math.Max(bestServerMeaningfulSpeedGainMbps, current.DownloadMbps*bestServerMeaningfulSpeedGainRatio)
 	speedGain := challenger.DownloadMbps - current.DownloadMbps
-	httpGain := current.ApplicationMS - challenger.ApplicationMS
+	httpGain := bestServerNoiseAwareLatencyDelta(
+		current.ApplicationMS, challenger.ApplicationMS,
+		current.JitterMS, challenger.JitterMS,
+	)
+	vpnGain := bestServerNoiseAwareLatencyDelta(
+		current.VPNRTTMS, challenger.VPNRTTMS,
+		current.VPNJitterMS, challenger.VPNJitterMS,
+	)
+	stabilityGain := current.JitterMS - challenger.JitterMS
 	speedNotMateriallyWorse := current.DownloadMbps <= 0 || challenger.DownloadMbps >= current.DownloadMbps*0.90
-	return speedGain >= minimumSpeedGain || (httpGain >= bestServerMeaningfulHTTPGainMS && speedNotMateriallyWorse)
+
+	return speedGain >= minimumSpeedGain ||
+		(speedNotMateriallyWorse && httpGain >= bestServerMeaningfulHTTPGainMS) ||
+		(speedNotMateriallyWorse && vpnGain >= bestServerMeaningfulVPNGainMS) ||
+		(speedNotMateriallyWorse && stabilityGain >= bestServerMeaningfulStabilityGainMS)
 }
 
 func completeBestServerCurrentBaseline(candidate bestServerQualityCandidate) bool {

@@ -11,8 +11,9 @@ const (
 	bestServerApplicationProbePerTargetTimeout = 1500 * time.Millisecond
 	bestServerTransportProbeTimeout            = 1500 * time.Millisecond
 	bestServerTransportProbeURL                = "https://1.1.1.1/cdn-cgi/trace"
-	bestServerConfirmedVPNPingRuns              = 3
-	bestServerConfirmedVPNPingRequired          = 2
+	bestServerConfirmedVPNPingWarmupRuns        = 1
+	bestServerConfirmedVPNPingRuns              = 5
+	bestServerConfirmedVPNPingRequired          = 3
 )
 
 var bestServerApplicationProbeURLs = []string{
@@ -133,6 +134,19 @@ func probeBestServerCanonicalVPNPing(ctx context.Context, curlPath, socks string
 // stays fast (one sample per profile); finalists use median evidence so a
 // single transient RTT spike cannot decide AUTO/Best Server ordering.
 func probeBestServerConfirmedVPNPingWith(ctx context.Context, curlPath, socks string, runner bestServerHTTPProbeRunner) bestServerProbeResult {
+	// A freshly started isolated Xray/SOCKS path can make the first HTTPS
+	// transaction measurably slower than the steady-state path. Use the exact
+	// same fixed-IP HTTPS signal for Current/Best/AUTO, but discard a bounded
+	// warm-up before collecting the robust median evidence.
+	for i := 0; i < bestServerConfirmedVPNPingWarmupRuns; i++ {
+		if ctx.Err() != nil {
+			break
+		}
+		_, _ = probeBestServerTransportRTTWith(
+			ctx, curlPath, socks, bestServerTransportProbeURL, bestServerTransportProbeTimeout, runner,
+		)
+	}
+
 	samples := make([]int, 0, bestServerConfirmedVPNPingRuns)
 	for i := 0; i < bestServerConfirmedVPNPingRuns; i++ {
 		if ctx.Err() != nil {

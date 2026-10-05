@@ -11,7 +11,7 @@ import (
 const (
 	bestServerMediaChunkRuns     = 4
 	bestServerMediaRequiredRuns  = 3
-	bestServerMediaTimeout       = 22 * time.Second
+	bestServerMediaTimeout       = 32 * time.Second
 	bestServerServiceTimeout     = 8 * time.Second
 )
 

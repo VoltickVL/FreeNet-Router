@@ -370,3 +370,38 @@ func TestProviderProfileRTTCatalogPreservesExactSafeSnapshot(t *testing.T) {
 		}
 	}
 }
+
+
+func TestConfirmProviderProfileRTTLeadersRemeasuresOnlyBoundedLeaders(t *testing.T) {
+	candidates := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID:"a", Address:"203.0.113.1", Port:443}},
+		{Profile: subscriptionProfile{ID:"b", Address:"203.0.113.2", Port:443}},
+		{Profile: subscriptionProfile{ID:"c", Address:"203.0.113.3", Port:443}},
+		{Profile: subscriptionProfile{ID:"d", Address:"203.0.113.4", Port:443}},
+	}
+	items := []providerProfileRTTItem{
+		{ProfileID:"a", Endpoint:"203.0.113.1:443", RTTMS:100, Reachable:true, Attempted:true, Status:"reachable"},
+		{ProfileID:"b", Endpoint:"203.0.113.2:443", RTTMS:110, Reachable:true, Attempted:true, Status:"reachable"},
+		{ProfileID:"c", Endpoint:"203.0.113.3:443", RTTMS:120, Reachable:true, Attempted:true, Status:"reachable"},
+		{ProfileID:"d", Endpoint:"203.0.113.4:443", RTTMS:130, Reachable:true, Attempted:true, Status:"reachable"},
+	}
+	calls := map[string]int{}
+	probe := func(_ context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+		calls[candidate.Profile.ID]++
+		switch candidate.Profile.ID {
+		case "a":
+			return bestServerProbeResult{OK:true, Median:150, Jitter:8}
+		case "b":
+			return bestServerProbeResult{OK:true, Median:90, Jitter:6}
+		default:
+			return bestServerProbeResult{OK:true, Median:95, Jitter:7}
+		}
+	}
+	got := confirmProviderProfileRTTLeaders(context.Background(), candidates, items, 2, probe)
+	if calls["a"] != 1 || calls["b"] != 1 || calls["c"] != 0 || calls["d"] != 0 {
+		t.Fatalf("confirmation calls=%v want only quick leaders a+b", calls)
+	}
+	if len(got) != 4 || got[0].ProfileID != "b" || got[0].RTTMS != 90 || got[1].ProfileID != "c" || got[1].RTTMS != 120 {
+		t.Fatalf("confirmed leaders were not merged/resorted correctly: %#v", got)
+	}
+}

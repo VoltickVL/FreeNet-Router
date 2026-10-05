@@ -406,6 +406,25 @@ func automationClampedRelativeGain(current, candidate, floor float64, lowerIsBet
 	return gain
 }
 
+func automationNoiseAwareLatencyGain(currentMS, candidateMS, currentSpread, candidateSpread int, floor float64) float64 {
+	delta := bestServerNoiseAwareLatencyDelta(currentMS, candidateMS, currentSpread, candidateSpread)
+	if delta == 0 || currentMS <= 0 {
+		return 0
+	}
+	denom := float64(currentMS)
+	if denom < floor {
+		denom = floor
+	}
+	gain := float64(delta) / denom
+	if gain > 1 {
+		return 1
+	}
+	if gain < -1 {
+		return -1
+	}
+	return gain
+}
+
 func automationMeaningfullyBetter(current, candidate bestServerQualityCandidate) bool {
 	if !candidate.Eligible || !candidate.Available {
 		return false
@@ -428,9 +447,15 @@ func automationMeaningfullyBetter(current, candidate bestServerQualityCandidate)
 	}
 
 	gain := 0.10 * automationClampedRelativeGain(current.DownloadMbps, candidate.DownloadMbps, 50, false)
-	gain += 0.35 * automationClampedRelativeGain(float64(current.ApplicationMS), float64(candidate.ApplicationMS), 100, true)
-	gain += 0.35 * automationClampedRelativeGain(float64(current.JitterMS), float64(candidate.JitterMS), 20, true)
-	gain += 0.20 * automationClampedRelativeGain(float64(current.VPNRTTMS), float64(candidate.VPNRTTMS), 100, true)
+	gain += 0.35 * automationNoiseAwareLatencyGain(
+		current.ApplicationMS, candidate.ApplicationMS,
+		current.JitterMS, candidate.JitterMS, 100,
+	)
+	gain += 0.30 * automationClampedRelativeGain(float64(current.JitterMS), float64(candidate.JitterMS), 20, true)
+	gain += 0.25 * automationNoiseAwareLatencyGain(
+		current.VPNRTTMS, candidate.VPNRTTMS,
+		current.VPNJitterMS, candidate.VPNJitterMS, 100,
+	)
 	return gain >= 0.10
 }
 

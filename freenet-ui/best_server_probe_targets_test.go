@@ -73,3 +73,33 @@ func TestProbeBestServerTransportRTTUsesFixedIPHTTPSWithoutDNS(t *testing.T) {
 		t.Fatalf("fixed-IP VPN RTT result ms=%d ok=%v calls=%d", ms, ok, calls)
 	}
 }
+
+
+func TestProbeBestServerConfirmedVPNPingUsesWarmupAndMedian(t *testing.T) {
+	values := []int{999, 180, 160, 170, 175, 165}
+	calls := 0
+	runner := func(_ context.Context, _, _, target string, _ time.Duration) (int, bool) {
+		if target != bestServerTransportProbeURL {
+			t.Fatalf("target=%q want=%q", target, bestServerTransportProbeURL)
+		}
+		if calls >= len(values) {
+			t.Fatalf("too many calls: %d", calls+1)
+		}
+		value := values[calls]
+		calls++
+		return value, true
+	}
+	got := probeBestServerConfirmedVPNPingWith(context.Background(), "curl", "127.0.0.1:1080", runner)
+	wantCalls := bestServerConfirmedVPNPingWarmupRuns + bestServerConfirmedVPNPingRuns
+	if calls != wantCalls {
+		t.Fatalf("calls=%d want=%d", calls, wantCalls)
+	}
+	if !got.OK || got.Median != 170 || got.Jitter != 20 {
+		t.Fatalf("confirmed result=%+v want median=170 jitter=20", got)
+	}
+	for _, sample := range got.Samples {
+		if sample == 999 {
+			t.Fatalf("warm-up leaked into measured samples: %+v", got)
+		}
+	}
+}

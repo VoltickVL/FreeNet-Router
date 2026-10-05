@@ -281,16 +281,20 @@ func TestAutomationBestTargetsMatchRecoveryAndQualityNeeds(t *testing.T) {
 }
 
 func TestAutomationMeaningfulImprovementUsesStabilityFirstHysteresis(t *testing.T) {
-	current := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 100, ApplicationMS: 180, JitterMS: 35, VPNRTTMS: 185}
-	better := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 115, ApplicationMS: 150, JitterMS: 12, VPNRTTMS: 155}
-	noise := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 103, ApplicationMS: 176, JitterMS: 33, VPNRTTMS: 182}
-	speedOnly := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 180, ApplicationMS: 195, JitterMS: 42, VPNRTTMS: 200}
+	current := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 100, ApplicationMS: 180, JitterMS: 35, VPNRTTMS: 185, VPNJitterMS: 24}
+	better := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 115, ApplicationMS: 150, JitterMS: 12, VPNRTTMS: 155, VPNJitterMS: 8}
+	noise := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 103, ApplicationMS: 176, JitterMS: 33, VPNRTTMS: 182, VPNJitterMS: 22}
+	withinSpread := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 100, ApplicationMS: 166, JitterMS: 35, VPNRTTMS: 172, VPNJitterMS: 24}
+	speedOnly := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 180, ApplicationMS: 195, JitterMS: 42, VPNRTTMS: 200, VPNJitterMS: 28}
 	partial := bestServerQualityCandidate{Available: true, Eligible: true, DownloadMbps: 150}
 	if !automationMeaningfullyBetter(current, better) {
 		t.Fatal("clear stability/latency improvement must pass hysteresis")
 	}
 	if automationMeaningfullyBetter(current, noise) {
 		t.Fatal("measurement noise must not trigger auto-switch")
+	}
+	if automationMeaningfullyBetter(current, withinSpread) {
+		t.Fatal("10-20 ms latency delta inside measured spread must not trigger auto-switch")
 	}
 	if automationMeaningfullyBetter(current, speedOnly) {
 		t.Fatal("extra Mbps must not outweigh worse latency and jitter")

@@ -18,7 +18,7 @@ func TestProviderRTTFullPoolFitsHTTPWriteBudget(t *testing.T) {
 }
 
 func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
-	const browserBudget = 340 * time.Second
+	const browserBudget = 370 * time.Second
 	const minimumSlack = 10 * time.Second
 	if bestServerAsyncJobTimeout >= browserBudget {
 		t.Fatalf("Best Server async job timeout %s must be below browser budget %s", bestServerAsyncJobTimeout, browserBudget)
@@ -30,7 +30,7 @@ func TestBestServerAsyncJobFitsBrowserBudget(t *testing.T) {
 
 func TestBestServerJobBudgetCompletesThreeVisibleAttempts(t *testing.T) {
 	// Cover the maximum 64-profile whole-pool quick VPN RTT sweep, the bounded
-	// six-finalist median confirmation, and three complete strict deep windows.
+	// Top-10 confirmed median pass, and three complete strict deep windows.
 	// Raw endpoint TCP is not a selection gate and has no separate ranking budget.
 	const completionReserve = 5 * time.Second
 	minimum := bestServerRTTSweepTimeout(bestServerMaxCandidates) +
@@ -81,7 +81,7 @@ func TestBestServerBrowserTimeoutContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), "Date.now()-started>340000") {
+	if !strings.Contains(string(data), "Date.now()-started>370000") {
 		t.Fatal("browser Best Server timeout marker changed; update the server/browser budget contract together")
 	}
 }

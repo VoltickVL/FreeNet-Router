@@ -17,9 +17,9 @@ const (
 	bestServerPreflightShortlist           = 10
 	bestServerDiagnosticHTTPRuns           = 2
 	bestServerProfilePingTimeout           = 5 * time.Second
-	bestServerConfirmedShortlistLimit      = 6
-	bestServerConfirmedProfilePingTimeout  = 6 * time.Second
-	bestServerConfirmedRTTSweepTimeout     = 10 * time.Second
+	bestServerConfirmedShortlistLimit      = 10
+	bestServerConfirmedProfilePingTimeout  = 8 * time.Second
+	bestServerConfirmedRTTSweepTimeout     = 20 * time.Second
 	bestServerRTTSweepSlack                = 5 * time.Second
 )
 
@@ -71,9 +71,9 @@ func (a *app) applicationAwareBestServerShortlist(ctx context.Context, candidate
 	}
 
 	// Full-pool discovery remains one fast sample per logical profile. Only the
-	// bounded shortlist is re-measured with three samples/median before deep
-	// checks. This prevents a single transient RTT spike from deciding which
-	// three candidates receive the expensive strict quality probes.
+	// bounded shortlist is re-measured with warm-up + five samples/median before
+	// deep checks. This prevents a single transient RTT spike from deciding which
+	// candidates receive the expensive strict quality probes.
 	return a.confirmBestServerShortlistVPNPing(ctx, selected)
 }
 

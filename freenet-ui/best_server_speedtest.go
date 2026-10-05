@@ -16,12 +16,15 @@ import (
 const (
 	bestServerSpeedtestServersURL       = "https://www.speedtest.net/api/js/servers?engine=js&https_functional=true&limit=20"
 	bestServerFallbackSpeedURL          = "https://speed.cloudflare.com/__down"
-	bestServerSpeedtestBytes            = int64(40_000_000)
-	bestServerSpeedtestPreflightBytes   = int64(256_000)
+	bestServerSpeedtestBytes              = int64(40_000_000)
+	bestServerSpeedtestExtendedBytes      = int64(80_000_000)
+	bestServerSpeedtestExtendThresholdMbps = 180.0
+	bestServerSpeedtestPreflightBytes     = int64(256_000)
 	bestServerSpeedtestPreflightMinimum = int64(32_000)
 	bestServerSpeedtestListTimeout      = 8 * time.Second
 	bestServerSpeedtestPreflightTimeout = 4 * time.Second
-	bestServerSpeedtestRunTimeout       = 15 * time.Second
+	bestServerSpeedtestRunTimeout         = 15 * time.Second
+	bestServerSpeedtestExtendedRunTimeout = 24 * time.Second
 	bestServerSpeedtestServerTries      = 3
 	bestServerSpeedtestServerLimit      = 8
 )
@@ -170,8 +173,8 @@ func bestServerSpeedtestServerIndex(serverCount, streams, attempt, stream int) i
 	return (attempt*streams + stream) % serverCount
 }
 
-func probeBestServerFallbackConcurrent(ctx context.Context, curlPath, socks string, streams int) ([]float64, string) {
-	if streams < 1 {
+func probeBestServerFallbackConcurrentSized(ctx context.Context, curlPath, socks string, streams int, transferBytes int64, runTimeout time.Duration) ([]float64, string) {
+	if streams < 1 || transferBytes < 1 || runTimeout <= 0 {
 		return nil, "fallback stream count invalid"
 	}
 	results := make(chan bestServerSpeedtestStreamResult, streams)
@@ -182,17 +185,17 @@ func probeBestServerFallbackConcurrent(ctx context.Context, curlPath, socks stri
 		go func() {
 			defer wg.Done()
 			nonce := time.Now().UnixNano() + int64(stream)
-			downloadURL := bestServerFallbackSpeedURL + "?bytes=" + strconv.FormatInt(bestServerSpeedtestBytes, 10) + "&nocache=" + strconv.FormatInt(nonce, 10)
-			runCtx, cancel := context.WithTimeout(ctx, bestServerSpeedtestRunTimeout)
+			downloadURL := bestServerFallbackSpeedURL + "?bytes=" + strconv.FormatInt(transferBytes, 10) + "&nocache=" + strconv.FormatInt(nonce, 10)
+			runCtx, cancel := context.WithTimeout(ctx, runTimeout)
 			output, transferErr := exec.CommandContext(runCtx, curlPath,
 				"--socks5-hostname", socks,
-				"-sS", "--connect-timeout", "3", "--max-time", "15",
+				"-sS", "--connect-timeout", "3", "--max-time", fmt.Sprintf("%.0f", runTimeout.Seconds()),
 				"-o", "/dev/null",
 				"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
 				downloadURL,
 			).Output()
 			cancel()
-			minimum := bestServerSpeedtestBytes / 5
+			minimum := transferBytes / 5
 			if mbps, ok := parseBestServerDownloadMbpsAtLeast(string(output), minimum); ok {
 				results <- bestServerSpeedtestStreamResult{Mbps: mbps, OK: true}
 				return
@@ -229,11 +232,26 @@ func probeBestServerFallbackConcurrent(ctx context.Context, curlPath, socks stri
 	return speeds, "Cloudflare throughput unavailable: " + strings.Join(issues, "; ")
 }
 
-func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks string, streams int) ([]float64, string) {
-	if streams < 1 {
+func bestServerAggregateThroughputMbps(speeds []float64) float64 {
+	total := 0.0
+	for _, speed := range speeds {
+		if speed > 0 {
+			total += speed
+		}
+	}
+	return total
+}
+
+func bestServerShouldExtendSpeedtest(speeds []float64) bool {
+	return len(speeds) >= bestServerMediaRequiredRuns &&
+		bestServerAggregateThroughputMbps(speeds) >= bestServerSpeedtestExtendThresholdMbps
+}
+
+func probeBestServerSpeedtestConcurrentSized(ctx context.Context, curlPath, socks string, streams int, transferBytes int64, runTimeout time.Duration) ([]float64, string) {
+	if streams < 1 || transferBytes < 1 || runTimeout <= 0 {
 		return nil, "Speedtest stream count invalid"
 	}
-	fallbackSpeeds, fallbackIssue := probeBestServerFallbackConcurrent(ctx, curlPath, socks, streams)
+	fallbackSpeeds, fallbackIssue := probeBestServerFallbackConcurrentSized(ctx, curlPath, socks, streams, transferBytes, runTimeout)
 	if len(fallbackSpeeds) >= bestServerMediaRequiredRuns {
 		return fallbackSpeeds, fallbackIssue
 	}
@@ -275,21 +293,21 @@ func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks str
 			go func() {
 				defer wg.Done()
 				nonce := time.Now().UnixNano() + int64(stream)
-				downloadURL := bestServerSpeedtestDownloadURL(server, nonce)
+				downloadURL := bestServerSpeedtestDownloadURLForSize(server, transferBytes, nonce)
 				if downloadURL == "" {
 					results <- bestServerSpeedtestStreamResult{Issue: "Speedtest download URL invalid"}
 					return
 				}
-				runCtx, cancel := context.WithTimeout(ctx, bestServerSpeedtestRunTimeout)
+				runCtx, cancel := context.WithTimeout(ctx, runTimeout)
 				output, transferErr := exec.CommandContext(runCtx, curlPath,
 					"--socks5-hostname", socks,
-					"-sS", "--connect-timeout", "3", "--max-time", "15",
+					"-sS", "--connect-timeout", "3", "--max-time", fmt.Sprintf("%.0f", runTimeout.Seconds()),
 					"-o", "/dev/null",
 					"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
 					downloadURL,
 				).Output()
 				cancel()
-				minimum := bestServerSpeedtestBytes / 5
+				minimum := transferBytes / 5
 				if mbps, ok := parseBestServerDownloadMbpsAtLeast(string(output), minimum); ok {
 					results <- bestServerSpeedtestStreamResult{Mbps: mbps, OK: true}
 					return
@@ -339,5 +357,29 @@ func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks str
 	if len(bestIssues) > 0 {
 		message += ": " + strings.Join(bestIssues, "; ")
 	}
+
 	return bestSpeeds, message
+}
+
+func probeBestServerSpeedtestConcurrent(ctx context.Context, curlPath, socks string, streams int) ([]float64, string) {
+	baseSpeeds, baseIssue := probeBestServerSpeedtestConcurrentSized(
+		ctx, curlPath, socks, streams,
+		bestServerSpeedtestBytes, bestServerSpeedtestRunTimeout,
+	)
+	if !bestServerShouldExtendSpeedtest(baseSpeeds) || ctx.Err() != nil {
+		return baseSpeeds, baseIssue
+	}
+
+	// High-speed lines complete 160 MB too quickly to reach a stable plateau.
+	// Re-measure only those paths with a longer 320 MB aggregate window.
+	// 100 Mbps-class links already spend ~12.8 s in the baseline window and
+	// therefore avoid the extra transfer entirely.
+	extendedSpeeds, extendedIssue := probeBestServerSpeedtestConcurrentSized(
+		ctx, curlPath, socks, streams,
+		bestServerSpeedtestExtendedBytes, bestServerSpeedtestExtendedRunTimeout,
+	)
+	if len(extendedSpeeds) >= bestServerMediaRequiredRuns {
+		return extendedSpeeds, extendedIssue
+	}
+	return baseSpeeds, baseIssue
 }
