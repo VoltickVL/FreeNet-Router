@@ -543,7 +543,7 @@ func searchGeoDataCategoryCodePrefixReadSeeker(ctx context.Context, rs io.ReadSe
 			return geoDataStreamSearchResult{}, err
 		}
 		offset += n
-		if length > uint64(maxGeoDataStreamEntrySize) {
+		if length > uint64(maxGeoDataTopLevelEntrySize) {
 			return geoDataStreamSearchResult{}, fmt.Errorf("geodata entry exceeds safe size")
 		}
 		if err := ensureGeoRemaining(total, offset, int64(length)); err != nil {
@@ -784,7 +784,7 @@ func searchGeoDataCategoryPrefixFileStream(ctx context.Context, path string, exp
 			return geoDataStreamSearchResult{}, err
 		}
 		consumed += n
-		if length > uint64(maxGeoDataStreamEntrySize) {
+		if length > uint64(maxGeoDataTopLevelEntrySize) {
 			return geoDataStreamSearchResult{}, fmt.Errorf("geodata entry exceeds safe size")
 		}
 		if err := ensureGeoRemaining(opened.Size(), consumed, int64(length)); err != nil {

@@ -18,6 +18,11 @@ import (
 const (
 	geoDataSearchTimeout          = 8 * time.Second
 	maxGeoDataSearchTotalBytes   = int64(128 << 20)
+	// A top-level GeoSite/GeoIP protobuf entry can legitimately grow well past
+	// 16 MiB as a category accumulates many small rules. We stream/seek the entry
+	// and never allocate it as one blob, so the whole-file guard is the correct
+	// safety ceiling here. Keep the tighter 16 MiB guard for unknown nested fields.
+	maxGeoDataTopLevelEntrySize  = maxGeoDataFileSize
 	maxGeoDataStreamEntrySize    = int64(16 << 20)
 	maxGeoDataStreamNestedSize   = int64(1 << 20)
 	maxGeoDataStreamValueSize    = int64(64 << 10)
@@ -115,7 +120,7 @@ func searchGeoSiteStream(ctx context.Context, br *bufio.Reader, total int64, que
 				return geoDataStreamSearchResult{}, err
 			}
 			consumed += n
-			if length > uint64(maxGeoDataStreamEntrySize) {
+			if length > uint64(maxGeoDataTopLevelEntrySize) {
 				return geoDataStreamSearchResult{}, fmt.Errorf("geodata entry exceeds safe size")
 			}
 			if err := ensureGeoRemaining(total, consumed, int64(length)); err != nil {
@@ -320,7 +325,7 @@ func searchGeoIPStream(ctx context.Context, br *bufio.Reader, total int64, targe
 				return geoDataStreamSearchResult{}, err
 			}
 			consumed += n
-			if length > uint64(maxGeoDataStreamEntrySize) {
+			if length > uint64(maxGeoDataTopLevelEntrySize) {
 				return geoDataStreamSearchResult{}, fmt.Errorf("geodata entry exceeds safe size")
 			}
 			if err := ensureGeoRemaining(total, consumed, int64(length)); err != nil {

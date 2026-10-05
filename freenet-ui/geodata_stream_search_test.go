@@ -94,7 +94,7 @@ func TestGeoDataStreamSearchRejectsOversizeEntryBeforeAllocation(t *testing.T) {
 	path := filepath.Join(dir, "geosite.dat")
 	var data []byte
 	data = testPBAppendUvarint(data, uint64(1<<3|2))
-	data = testPBAppendUvarint(data, uint64(maxGeoDataStreamEntrySize+1))
+	data = testPBAppendUvarint(data, uint64(maxGeoDataTopLevelEntrySize+1))
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}

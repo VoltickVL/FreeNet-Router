@@ -212,11 +212,13 @@ func TestSmartGeoDataAutocompleteContract(t *testing.T) {
 		"ArrowUp",
 		"state.selectedSource",
 		"ext:${source}:${value}",
-		"max-height:min(52vh,520px)",
+		"position:fixed",
+		"z-index:12000",
+		"geoAutocompleteBox",
+		"document.body.appendChild(box)",
+		"positionGeoAutocomplete",
 		"overflow-y:auto",
 		"overscroll-behavior:contain",
-		".rv4-board{",
-		"overflow:visible",
 	} {
 		if !strings.Contains(routing, want) {
 			t.Fatalf("Routing Smart GeoData contract missing %q", want)
