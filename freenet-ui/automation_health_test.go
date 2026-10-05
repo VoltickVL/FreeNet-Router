@@ -232,36 +232,51 @@ func TestAutomationServicePathHealthRequiresAllBoundedTargets(t *testing.T) {
 	}
 }
 
-func TestAutomationReachableDegradationNeverTriggersRecovery(t *testing.T) {
-	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS+80, 4, 4); got.State != automationHealthUncertain || !got.QualityDegraded {
-		t.Fatalf("high-latency reachable VPN result=%+v want uncertain quality-degraded/no-recovery", got)
+func TestAutomationReachableQualityUsesSeverityWithoutTriggeringRecovery(t *testing.T) {
+	cases := []struct {
+		name        string
+		appMS       int
+		serviceOK   int
+		serviceTotal int
+		wantState   string
+		wantPoints  int
+	}{
+		{"healthy", 180, 4, 4, automationHealthHealthy, 0},
+		{"mild-latency", 235, 4, 4, automationHealthUncertain, 1},
+		{"strong-latency", 398, 4, 4, automationHealthUncertain, 2},
+		{"severe-latency", 830, 4, 4, automationHealthUncertain, 3},
+		{"partial-3-of-4", 180, 3, 4, automationHealthUncertain, 1},
+		{"partial-2-of-4", 180, 2, 4, automationHealthUncertain, 2},
+		{"zero-of-4", 180, 0, 4, automationHealthUncertain, 3},
+		{"stronger-signal-wins", 398, 3, 4, automationHealthUncertain, 2},
 	}
-	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS, 3, 4); got.State != automationHealthUncertain || !got.QualityDegraded {
-		t.Fatalf("partial service degradation result=%+v want uncertain quality-degraded/no-recovery", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyAutomationReachableQuality(tc.appMS, tc.serviceOK, tc.serviceTotal)
+			if got.State != tc.wantState || got.QualityPoints != tc.wantPoints || got.QualityDegraded != (tc.wantPoints > 0) {
+				t.Fatalf("result=%+v want state=%s points=%d", got, tc.wantState, tc.wantPoints)
+			}
+		})
 	}
-	if got := classifyAutomationReachableQuality(bestServerQualityMaxApplicationMS, 4, 4); got.State != automationHealthHealthy || got.QualityDegraded {
-		t.Fatalf("fully healthy VPN result=%+v want healthy/not-degraded", got)
-	}
-	if got := classifyAutomationApplicationFailure(true); got.QualityDegraded {
-		t.Fatalf("ambiguous named-origin failure must not count as a quality strike: %+v", got)
+	if got := classifyAutomationApplicationFailure(true); got.QualityDegraded || got.QualityPoints != 0 {
+		t.Fatalf("ambiguous named-origin failure must not count as quality degradation: %+v", got)
 	}
 }
 
-func TestAutomationQualityOptimizationNeedsThreeStrikesInsideWindow(t *testing.T) {
+func TestAutomationQualityOptimizationUsesWeightedSeverity(t *testing.T) {
 	base := time.Date(2026, 10, 5, 10, 0, 0, 0, time.UTC)
 	state := map[string]string{}
 
-	updates, due := automationQualityOptimizationPlan(state, base, true)
+	updates, due := automationQualityOptimizationPlan(state, base, 1)
 	if due || updates["QUALITY_DEGRADED_COUNT"] != "1" {
-		t.Fatalf("first strike updates=%v due=%v", updates, due)
+		t.Fatalf("first mild point updates=%v due=%v", updates, due)
 	}
 	for k, v := range updates {
 		state[k] = v
 	}
 
-	// A healthy sample between strikes does not erase a recent instability
-	// window; this models HOME where degraded and healthy samples alternated.
-	updates, due = automationQualityOptimizationPlan(state, base.Add(5*time.Minute), false)
+	// Healthy observations do not erase recent degradation inside the window.
+	updates, due = automationQualityOptimizationPlan(state, base.Add(5*time.Minute), 0)
 	if due {
 		t.Fatal("healthy sample unexpectedly triggered optimization")
 	}
@@ -269,32 +284,48 @@ func TestAutomationQualityOptimizationNeedsThreeStrikesInsideWindow(t *testing.T
 		state[k] = v
 	}
 
-	updates, due = automationQualityOptimizationPlan(state, base.Add(10*time.Minute), true)
+	updates, due = automationQualityOptimizationPlan(state, base.Add(10*time.Minute), 1)
 	if due || updates["QUALITY_DEGRADED_COUNT"] != "2" {
-		t.Fatalf("second strike updates=%v due=%v", updates, due)
+		t.Fatalf("second mild point updates=%v due=%v", updates, due)
 	}
 	for k, v := range updates {
 		state[k] = v
 	}
 
-	updates, due = automationQualityOptimizationPlan(state, base.Add(20*time.Minute), true)
+	updates, due = automationQualityOptimizationPlan(state, base.Add(20*time.Minute), 1)
 	if !due {
-		t.Fatalf("third strike inside %s must trigger one optimization: updates=%v", automationQualityStrikeWindow, updates)
+		t.Fatalf("three mild points inside %s must trigger optimization: updates=%v", automationQualityStrikeWindow, updates)
 	}
-	if updates["QUALITY_DEGRADED_COUNT"] != "0" || updates["QUALITY_OPTIMIZATION_LAST"] == "" {
-		t.Fatalf("trigger must reset strikes and stamp attempt: %v", updates)
+
+	state = map[string]string{}
+	updates, due = automationQualityOptimizationPlan(state, base, 2)
+	if due {
+		t.Fatalf("one strong sample must not yet trigger optimization: %v", updates)
+	}
+	for k, v := range updates {
+		state[k] = v
+	}
+	updates, due = automationQualityOptimizationPlan(state, base.Add(5*time.Minute), 2)
+	if !due {
+		t.Fatalf("two strong samples must trigger optimization: %v", updates)
+	}
+
+	state = map[string]string{}
+	updates, due = automationQualityOptimizationPlan(state, base, 3)
+	if !due || updates["QUALITY_OPTIMIZATION_LAST"] == "" {
+		t.Fatalf("one severe sample must trigger accelerated optimization: updates=%v due=%v", updates, due)
 	}
 }
 
-func TestAutomationQualityOptimizationSingleSpikeExpiresAndAttemptCoolsDown(t *testing.T) {
+func TestAutomationQualityOptimizationCooldownDependsOnSeverity(t *testing.T) {
 	base := time.Date(2026, 10, 5, 10, 0, 0, 0, time.UTC)
 	state := map[string]string{
 		"QUALITY_DEGRADED_COUNT": "1",
 		"QUALITY_DEGRADED_SINCE": base.Format(time.RFC3339),
 	}
-	updates, due := automationQualityOptimizationPlan(state, base.Add(automationQualityStrikeWindow+time.Minute), false)
+	updates, due := automationQualityOptimizationPlan(state, base.Add(automationQualityStrikeWindow+time.Minute), 0)
 	if due || updates["QUALITY_DEGRADED_COUNT"] != "0" {
-		t.Fatalf("expired single spike must clear without scan: updates=%v due=%v", updates, due)
+		t.Fatalf("expired mild spike must clear without scan: updates=%v due=%v", updates, due)
 	}
 
 	last := base.Add(-30 * time.Minute)
@@ -303,9 +334,24 @@ func TestAutomationQualityOptimizationSingleSpikeExpiresAndAttemptCoolsDown(t *t
 		"QUALITY_DEGRADED_SINCE": base.Add(-10 * time.Minute).Format(time.RFC3339),
 		"QUALITY_OPTIMIZATION_LAST": last.Format(time.RFC3339),
 	}
-	updates, due = automationQualityOptimizationPlan(state, base, true)
+	updates, due = automationQualityOptimizationPlan(state, base, 1)
 	if due {
-		t.Fatalf("heavy quality scan ignored %s attempt cooldown: %v", automationQualityOptimizationCooldown, updates)
+		t.Fatalf("normal quality scan ignored %s cooldown: %v", automationQualityOptimizationCooldown, updates)
+	}
+
+	state["QUALITY_DEGRADED_COUNT"] = "0"
+	state["QUALITY_DEGRADED_SINCE"] = ""
+	updates, due = automationQualityOptimizationPlan(state, base, 3)
+	if !due {
+		t.Fatalf("severe degradation older than %s must bypass normal cooldown: %v", automationQualitySevereCooldown, updates)
+	}
+
+	state["QUALITY_OPTIMIZATION_LAST"] = base.Add(-5 * time.Minute).Format(time.RFC3339)
+	state["QUALITY_DEGRADED_COUNT"] = "0"
+	state["QUALITY_DEGRADED_SINCE"] = ""
+	updates, due = automationQualityOptimizationPlan(state, base, 3)
+	if due {
+		t.Fatalf("severe degradation must still respect short %s cooldown: %v", automationQualitySevereCooldown, updates)
 	}
 }
 
