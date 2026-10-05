@@ -130,6 +130,14 @@ func TestBestServerQualityMeasuresSharedEndpointLogicalProfilesIndependently(t *
 	}
 }
 
+func TestBestServerQualityScorePrefersStableLatencyOverExtraMbps(t *testing.T) {
+	stable := bestServerQualityScore(160, 10, 80, true)
+	fastButLaggy := bestServerQualityScore(200, 50, 150, true)
+	if stable <= fastButLaggy {
+		t.Fatalf("stability-first score lost to extra Mbps: stable=%d fast-laggy=%d", stable, fastButLaggy)
+	}
+}
+
 func TestBestServerQualityScoreRewardsMeasuredSpeed(t *testing.T) {
 	withSpeed := bestServerQualityScore(250, 20, 100, true)
 	withoutSpeed := bestServerQualityScore(250, 20, 0, false)
