@@ -60,6 +60,15 @@ func TestEligibleAlternativeTargetCountsDistinctLogicalProfiles(t *testing.T) {
 	}
 }
 
+func TestBestServerForeignEligibleTargetCountsFreshCurrentInTop3(t *testing.T) {
+	if got := bestServerForeignEligibleTarget(true); got != 2 {
+		t.Fatalf("fresh eligible current baseline target=%d want 2 alternatives", got)
+	}
+	if got := bestServerForeignEligibleTarget(false); got != 3 {
+		t.Fatalf("missing current baseline target=%d want 3 alternatives", got)
+	}
+}
+
 func TestBestServerCompletionPartialRequiresEligibleTop3(t *testing.T) {
 	current := "203.0.113.9:443"
 	input := []bestServerQualityCandidate{
