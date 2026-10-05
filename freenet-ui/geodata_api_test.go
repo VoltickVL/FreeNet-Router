@@ -57,6 +57,23 @@ func doGeoDataAPIRequest(mux *http.ServeMux, cookie *http.Cookie, rawURL string)
 	return w
 }
 
+func TestGeoDataKindFilenameHintRecognizesXKeenAliases(t *testing.T) {
+	cases := map[string]GeoDataKind{
+		"geosite.dat":        GeoDataSite,
+		"geosite_v2fly.dat":  GeoDataSite,
+		"zkeen.dat":          GeoDataSite,
+		"geoip.dat":          GeoDataIP,
+		"geoip_v2fly.dat":    GeoDataIP,
+		"zkeenip.dat":        GeoDataIP,
+		"custom-rules.dat":   GeoDataUnknown,
+	}
+	for name, want := range cases {
+		if got := geoDataKindFilenameHint(name); got != want {
+			t.Fatalf("name=%s got=%s want=%s", name, got, want)
+		}
+	}
+}
+
 func TestGeoDataAPIRequiresAuthentication(t *testing.T) {
 	_, mux, _, dir := testGeoDataAPIApp(t)
 	writeTestGeoDataFiles(t, dir)
