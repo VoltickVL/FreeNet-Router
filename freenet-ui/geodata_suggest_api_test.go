@@ -287,6 +287,52 @@ func TestGeoDataSuggestPrefixSeekSkipsLargeNestedPayloadIO(t *testing.T) {
 	}
 }
 
+func TestGeoDataSuggestLargeCanonicalGeoSiteEntryRemainsUsable(t *testing.T) {
+	_, mux, cookie, dir := testGeoDataAPIApp(t)
+
+	// A modern GeoSite category can exceed the historical 16 MiB aggregate
+	// entry limit while still consisting entirely of small valid Domain messages.
+	// The parser is streaming/seek-aware, so rejecting the whole entry by aggregate
+	// size is both unnecessary and breaks later canonical categories.
+	largeValue := strings.Repeat("x", int(maxGeoDataStreamValueSize)-128)
+	domains := make([][]byte, 0, 280)
+	for i := 0; i < cap(domains); i++ {
+		domains = append(domains, testDomainRule(3, largeValue))
+	}
+	largeEntry := testGeoSiteEntry("A-LARGE", domains...)
+	if int64(len(largeEntry)) <= maxGeoDataStreamEntrySize {
+		t.Fatalf("fixture did not exceed historical entry guard: %d", len(largeEntry))
+	}
+	data := testGeoSiteList(
+		largeEntry,
+		testGeoSiteEntry("STEAM", testDomainRule(2, "steam.com")),
+	)
+	if err := os.WriteFile(filepath.Join(dir, "geosite.dat"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, rawURL := range []string{
+		"/api/geodata/suggest?kind=geosite&q=steam&mode=prefix",
+		"/api/geodata/suggest?kind=geosite&q=steam.com",
+	} {
+		w := doGeoDataAPIRequest(mux, cookie, rawURL)
+		if w.Code != http.StatusOK {
+			t.Fatalf("url=%s code=%d body=%s", rawURL, w.Code, w.Body.String())
+		}
+		resp := decodeGeoDataSuggest(t, w.Body.Bytes())
+		if !resp.Success || resp.Mutation != "NONE" || len(resp.Suggestions) != 1 {
+			t.Fatalf("url=%s resp=%+v", rawURL, resp)
+		}
+		item := resp.Suggestions[0]
+		if item.File != "geosite.dat" || item.Category != "steam" || item.Selector != "geosite:steam" {
+			t.Fatalf("url=%s item=%+v", rawURL, item)
+		}
+		if len(resp.Warnings) != 0 {
+			t.Fatalf("url=%s warnings=%v", rawURL, resp.Warnings)
+		}
+	}
+}
+
 func TestGeoDataSuggestPrefixFastPathSkipsNestedPayloadOnTypedDAT(t *testing.T) {
 	_, mux, cookie, dir := testGeoDataAPIApp(t)
 
