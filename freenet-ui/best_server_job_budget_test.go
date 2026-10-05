@@ -160,6 +160,24 @@ func TestBestServerBrowserShowsAdaptiveDeepProgress(t *testing.T) {
 }
 
 
+func TestBestServerBrowserExplainsDeepShortlistAndTop3Target(t *testing.T) {
+	data, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	for _, want := range []string{
+		"проверено ${job.completed} из ${job.total} · цель 3 подходящих",
+		"Глубоко проверено ${deepChecked} из ${deepTotal}",
+		"Найдено ${eligibleFound} из ${eligibleTarget} подходящих альтернатив",
+		"Топ-3 альтернативы на основе реальных измерений",
+	} {
+		if !strings.Contains(src, want) {
+			t.Fatalf("Best Server progress/summary contract missing %q", want)
+		}
+	}
+}
+
 func TestBestServerRTTShortlistPromotesLateLowLatencyProfile(t *testing.T) {
 	candidates := make([]bestServerInternalCandidate, 48)
 	items := make([]providerProfileRTTItem, 48)
