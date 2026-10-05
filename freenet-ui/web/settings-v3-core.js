@@ -210,7 +210,7 @@
             <div class="fn3-section-label">Режим работы</div>
             <div class="fn3-mode-list">
               <label class="fn3-mode" data-mode-card="endpoint"><input type="radio" name="fn3Mode" value="endpoint"><span><strong>Только текущий VPN <em class="fn3-mode-badge">Минимум изменений</em></strong><small>Страна и VPN-профиль фиксированы. FreeNet обновляет только endpoint этого же профиля и никогда сам не переключается на другой.</small></span></label>
-              <label class="fn3-mode" data-mode-card="best"><input type="radio" name="fn3Mode" value="best"><span><strong>Полный AUTO VPN <em class="fn3-mode-badge">Автовосстановление</em></strong><small>Сначала восстанавливает текущий endpoint, а при подтверждённом отказе может выбрать полностью проверенную замену.</small></span></label>
+              <label class="fn3-mode" data-mode-card="best"><input type="radio" name="fn3Mode" value="best"><span><strong>Полный AUTO VPN <em class="fn3-mode-badge">Автовосстановление</em></strong><small>Восстанавливает отказавший VPN, а при повторяющейся деградации качества сравнивает проверенные варианты и может перейти на существенно лучший.</small></span></label>
             </div>
             <div id="fn3EndpointSchedule" class="fn3-endpoint-schedule" hidden>
               <div class="fn3-endpoint-copy"><strong>Плановое обновление endpoint</strong><small>Только для текущего логического VPN; неоднозначный или небезопасный результат ничего не меняет.</small></div>
@@ -220,7 +220,7 @@
               <div class="fn3-section-label">Где искать замену VPN</div>
               <div class="fn3-scope-list">
                 <label class="fn3-scope" data-scope-card="current"><input type="radio" name="fn3Scope" value="current"><span><strong>Текущая страна</strong><small>Замена только в той же стране — другой сервер или город.</small></span><span class="fn3-chevron">${svg('chevron')}</span></label>
-                <label class="fn3-scope" data-scope-card="region"><input type="radio" name="fn3Scope" value="region"><span><strong>Лучший отклик <em class="fn3-recommended">Рекомендуется</em></strong><small>FreeNet проверяет доступные VPN без географического ограничения и при подтверждённом отказе выбирает только полностью проверенную замену с лучшим фактическим откликом.</small></span><span class="fn3-chevron">${svg('chevron')}</span></label>
+                <label class="fn3-scope" data-scope-card="region"><input type="radio" name="fn3Scope" value="region"><span><strong>Лучший отклик <em class="fn3-recommended">Рекомендуется</em></strong><small>FreeNet учитывает скорость, отклик и стабильность; после повторяющейся деградации или подтверждённого отказа применяет только полностью измеренный лучший вариант.</small></span><span class="fn3-chevron">${svg('chevron')}</span></label>
                 <label class="fn3-scope" data-scope-card="allowlist"><input type="radio" name="fn3Scope" value="allowlist"><span><strong>Выбранные страны</strong><small>Вы сами выбираете список стран.</small></span><span class="fn3-chevron">${svg('chevron')}</span></label>
               </div>
             </div>
