@@ -10,11 +10,11 @@ func TestBestServerSpeedtestHighSpeedWindowIsLongEnough(t *testing.T) {
 	const lineMbps = 300.0
 	aggregateBytes := float64(bestServerSpeedtestBytes * bestServerMediaChunkRuns)
 	seconds := aggregateBytes * 8 / (lineMbps * 1_000_000)
-	if seconds < 2.0 {
+	if seconds < 4.0 {
 		t.Fatalf("canonical throughput payload is too short for a 300 Mbps path: %.2fs", seconds)
 	}
-	if bestServerSpeedtestRunTimeout < 10*time.Second {
-		t.Fatalf("speedtest timeout=%s want at least 10s", bestServerSpeedtestRunTimeout)
+	if bestServerSpeedtestRunTimeout < 15*time.Second {
+		t.Fatalf("speedtest timeout=%s want at least 15s", bestServerSpeedtestRunTimeout)
 	}
 }
 
@@ -24,7 +24,7 @@ func TestBestServerSpeedtestDownloadURLUsesServerOrigin(t *testing.T) {
 	if !strings.HasPrefix(got, "https://speed.example:8080/download?") {
 		t.Fatalf("unexpected Speedtest download URL: %s", got)
 	}
-	if !strings.Contains(got, "size=20000000") || !strings.Contains(got, "nocache=123") {
+	if !strings.Contains(got, "size=40000000") || !strings.Contains(got, "nocache=123") {
 		t.Fatalf("missing bounded size/nonce: %s", got)
 	}
 	if strings.Contains(got, "upload.php") {
@@ -35,7 +35,7 @@ func TestBestServerSpeedtestDownloadURLUsesServerOrigin(t *testing.T) {
 func TestBestServerSpeedtestDownloadURLFallsBackToHost(t *testing.T) {
 	server := bestServerSpeedtestServer{Host: "speed.example:8080"}
 	got := bestServerSpeedtestDownloadURL(server, 7)
-	if got != "https://speed.example:8080/download?size=20000000&nocache=7" {
+	if got != "https://speed.example:8080/download?size=40000000&nocache=7" {
 		t.Fatalf("unexpected host fallback: %s", got)
 	}
 }
