@@ -209,7 +209,7 @@ func TestGeoDataSuggestFallsBackWhenCanonicalIsMissing(t *testing.T) {
 	}
 }
 
-func TestGeoDataSuggestBrokenCanonicalDoesNotSilentlyUseAlternateSources(t *testing.T) {
+func TestGeoDataSuggestBrokenCanonicalFallsBackToUsableCompatibleSource(t *testing.T) {
 	_, mux, cookie, dir := testGeoDataAPIApp(t)
 
 	if err := os.WriteFile(filepath.Join(dir, "geosite.dat"), []byte("not-a-geodata-file"), 0600); err != nil {
@@ -233,11 +233,15 @@ func TestGeoDataSuggestBrokenCanonicalDoesNotSilentlyUseAlternateSources(t *test
 	if !resp.Success || resp.Mode != "prefix" || resp.Mutation != "NONE" {
 		t.Fatalf("resp=%+v", resp)
 	}
-	if len(resp.Suggestions) != 0 {
-		t.Fatalf("broken canonical DAT must not be masked by alternate suggestions: %+v", resp.Suggestions)
+	if len(resp.Suggestions) != 1 {
+		t.Fatalf("broken canonical DAT must fall back to usable compatible source: %+v", resp.Suggestions)
 	}
-	if len(resp.Warnings) == 0 || !strings.Contains(strings.Join(resp.Warnings, " "), "geosite.dat") {
-		t.Fatalf("broken canonical DAT must surface a warning: %v", resp.Warnings)
+	item := resp.Suggestions[0]
+	if item.File != "geosite_v2fly.dat" || item.Category != "steam" || item.Selector != "ext:geosite_v2fly.dat:steam" {
+		t.Fatalf("fallback suggestion=%+v", item)
+	}
+	if len(resp.Warnings) != 0 {
+		t.Fatalf("successful compatible fallback must suppress broken-canonical scan noise: %v", resp.Warnings)
 	}
 }
 
