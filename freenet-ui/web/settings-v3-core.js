@@ -775,9 +775,11 @@
     renderJournalPageState();
     try {
       const data = await fetchJSON('/api/journal?' + journalQueryString(true), {cache:'no-store'});
-      state.journalEvents = Array.isArray(data.events) ? data.events : [];
+      const rawEvents = Array.isArray(data.events) ? data.events : [];
+      const legacyEventOnlyPayload = data.total == null && data.filtered_total == null && data.stats == null;
+      state.journalEvents = legacyEventOnlyPayload ? filteredJournalEvents(rawEvents) : rawEvents;
       state.journalGeneratedAt = data.generated_at || new Date().toISOString();
-      state.journalTotal = Number(data.total ?? state.journalEvents.length);
+      state.journalTotal = Number(data.total ?? rawEvents.length);
       state.journalFilteredTotal = Number(data.filtered_total ?? state.journalEvents.length);
       state.journalPage = Number(data.page || 1);
       state.journalPages = Number(data.pages || 1);
