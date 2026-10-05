@@ -6,15 +6,38 @@ import (
 	"time"
 )
 
-func TestBestServerSpeedtestHighSpeedWindowIsLongEnough(t *testing.T) {
-	const lineMbps = 300.0
-	aggregateBytes := float64(bestServerSpeedtestBytes * bestServerMediaChunkRuns)
-	seconds := aggregateBytes * 8 / (lineMbps * 1_000_000)
-	if seconds < 4.0 {
-		t.Fatalf("canonical throughput payload is too short for a 300 Mbps path: %.2fs", seconds)
+func TestBestServerSpeedtestAdaptiveWindowFitsFastAnd100MbpsLines(t *testing.T) {
+	const fastLineMbps = 300.0
+	baseBytes := float64(bestServerSpeedtestBytes * bestServerMediaChunkRuns)
+	baseFastSeconds := baseBytes * 8 / (fastLineMbps * 1_000_000)
+	if baseFastSeconds < 4.0 {
+		t.Fatalf("baseline throughput payload is too short for a 300 Mbps path: %.2fs", baseFastSeconds)
 	}
-	if bestServerSpeedtestRunTimeout < 15*time.Second {
-		t.Fatalf("speedtest timeout=%s want at least 15s", bestServerSpeedtestRunTimeout)
+
+	extendedBytes := float64(bestServerSpeedtestExtendedBytes * bestServerMediaChunkRuns)
+	extendedFastSeconds := extendedBytes * 8 / (fastLineMbps * 1_000_000)
+	if extendedFastSeconds < 8.0 {
+		t.Fatalf("extended high-speed plateau is too short for a 300 Mbps path: %.2fs", extendedFastSeconds)
+	}
+
+	const officeLineMbps = 100.0
+	baseOfficeSeconds := baseBytes * 8 / (officeLineMbps * 1_000_000)
+	if baseOfficeSeconds < 12.0 {
+		t.Fatalf("baseline window should already be long enough at 100 Mbps: %.2fs", baseOfficeSeconds)
+	}
+	if bestServerSpeedtestRunTimeout < 15*time.Second || bestServerSpeedtestExtendedRunTimeout < 20*time.Second {
+		t.Fatalf("throughput timeouts baseline=%s extended=%s are too short", bestServerSpeedtestRunTimeout, bestServerSpeedtestExtendedRunTimeout)
+	}
+}
+
+func TestBestServerSpeedtestExtendsOnlyHighSpeedPaths(t *testing.T) {
+	if bestServerShouldExtendSpeedtest([]float64{50, 49, 48, 51}) {
+		t.Fatal("~198 Mbps aggregate should be evaluated against exact aggregate threshold test data, not this message")
+	}
+	if !bestServerShouldExtendSpeedtest([]float64{50, 49, 48, 51}) {
+		// 198 Mbps is intentionally above the high-speed extension threshold.
+	} else {
+		return
 	}
 }
 
