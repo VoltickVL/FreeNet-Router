@@ -30,9 +30,13 @@ const (
 	// bandwidth on a heavy Best Server comparison. A completed optimization
 	// attempt is also cooled down independently from the existing post-switch
 	// cooldown, so a noisy line cannot trigger repeated Top-3 scans.
-	automationQualityStrikeWindow        = 30 * time.Minute
-	automationQualityStrikeThreshold     = 3
-	automationQualityOptimizationCooldown = 1 * time.Hour
+	automationQualityStrikeWindow          = 30 * time.Minute
+	automationQualityStrikeThreshold       = 3
+	automationQualityOptimizationCooldown  = 1 * time.Hour
+	automationQualitySevereCooldown        = 15 * time.Minute
+	automationQualityLatencyMildMS         = 200
+	automationQualityLatencyStrongMS       = 250
+	automationQualityLatencySevereMS       = 500
 )
 
 type automationHealthResult struct {
@@ -45,6 +49,7 @@ type automationHealthProbe struct {
 	State           string
 	Reason          string
 	QualityDegraded bool
+	QualityPoints   int
 }
 
 var automationEndpointCurrentRefresh = func(a *app, ctx context.Context) (int, bestServerRefreshResponse) {
@@ -159,25 +164,58 @@ func automationApplicationPathHealthy(ms int) bool {
 	return ms > 0 && ms <= bestServerQualityMaxApplicationMS
 }
 
-func classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal int) automationHealthProbe {
-	if !automationApplicationPathHealthy(applicationMS) {
-		return automationHealthProbe{
-			State:           automationHealthUncertain,
-			Reason:          fmt.Sprintf("VPN отвечает, но отклик высокий: %d мс. Рабочее подключение сохраняется без переключения.", applicationMS),
-			QualityDegraded: true,
-		}
+func automationApplicationQualityPoints(ms int) int {
+	switch {
+	case ms <= 0:
+		return 0
+	case ms > automationQualityLatencySevereMS:
+		return 3
+	case ms > automationQualityLatencyStrongMS:
+		return 2
+	case ms > automationQualityLatencyMildMS:
+		return 1
+	default:
+		return 0
 	}
-	if !automationServicePathHealthy(serviceOK, serviceTotal) {
-		return automationHealthProbe{
-			State:           automationHealthUncertain,
-			Reason:          fmt.Sprintf("VPN даёт доступ в интернет, но часть сервисных проверок нестабильна: %d/%d. Рабочее подключение сохраняется без переключения.", serviceOK, serviceTotal),
-			QualityDegraded: true,
-		}
-	}
-	return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."}
 }
 
-func automationQualityOptimizationPlan(state map[string]string, now time.Time, degraded bool) (map[string]string, bool) {
+func automationServiceQualityPoints(ok, total int) int {
+	if total < 3 || ok >= total {
+		return 0
+	}
+	if ok <= 0 {
+		return 3
+	}
+	if ok*2 <= total {
+		return 2
+	}
+	return 1
+}
+
+func classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal int) automationHealthProbe {
+	latencyPoints := automationApplicationQualityPoints(applicationMS)
+	servicePoints := automationServiceQualityPoints(serviceOK, serviceTotal)
+	points := latencyPoints
+	if servicePoints > points {
+		points = servicePoints
+	}
+	if points == 0 {
+		return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."}
+	}
+
+	reason := fmt.Sprintf("VPN отвечает, но качество соединения ухудшено: отклик %d мс, сервисы %d/%d. AUTO VPN накапливает подтверждение деградации.", applicationMS, serviceOK, serviceTotal)
+	if points >= automationQualityStrikeThreshold {
+		reason = fmt.Sprintf("VPN отвечает, но качество соединения критически ухудшено: отклик %d мс, сервисы %d/%d. AUTO VPN запускает ускоренную проверку замены.", applicationMS, serviceOK, serviceTotal)
+	}
+	return automationHealthProbe{
+		State:           automationHealthUncertain,
+		Reason:          reason,
+		QualityDegraded: true,
+		QualityPoints:   points,
+	}
+}
+
+func automationQualityOptimizationPlan(state map[string]string, now time.Time, points int) (map[string]string, bool) {
 	updates := map[string]string{}
 	parseStamp := func(key string) time.Time {
 		value := strings.TrimSpace(state[key])
@@ -197,7 +235,7 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, d
 	start := parseStamp("QUALITY_DEGRADED_SINCE")
 	lastOptimization := parseStamp("QUALITY_OPTIMIZATION_LAST")
 
-	if !degraded {
+	if points <= 0 {
 		if !start.IsZero() && (now.Before(start) || now.Sub(start) > automationQualityStrikeWindow) {
 			updates["QUALITY_DEGRADED_COUNT"] = "0"
 			updates["QUALITY_DEGRADED_SINCE"] = ""
@@ -209,11 +247,15 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, d
 		start = now
 		count = 0
 	}
-	count++
+	count += points
 	updates["QUALITY_DEGRADED_COUNT"] = strconv.Itoa(count)
 	updates["QUALITY_DEGRADED_SINCE"] = start.UTC().Format(time.RFC3339)
 
-	if !lastOptimization.IsZero() && now.Before(lastOptimization.Add(automationQualityOptimizationCooldown)) {
+	cooldown := automationQualityOptimizationCooldown
+	if points >= automationQualityStrikeThreshold {
+		cooldown = automationQualitySevereCooldown
+	}
+	if !lastOptimization.IsZero() && now.Before(lastOptimization.Add(cooldown)) {
 		return updates, false
 	}
 	if count < automationQualityStrikeThreshold {
@@ -226,9 +268,9 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, d
 	return updates, true
 }
 
-func automationQualityOptimizationDue(now time.Time, degraded bool) bool {
+func automationQualityOptimizationDue(now time.Time, points int) bool {
 	state := v3ParseState(settingsV3StatePath())
-	updates, due := automationQualityOptimizationPlan(state, now, degraded)
+	updates, due := automationQualityOptimizationPlan(state, now, points)
 	if len(updates) > 0 {
 		_ = v3WriteState(updates)
 	}
@@ -673,16 +715,16 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		return recordAndReturnHealth(guarded, nil)
 	}
 	if first.State == automationHealthHealthy {
-		_ = automationQualityOptimizationDue(time.Now().UTC(), false)
+		_ = automationQualityOptimizationDue(time.Now().UTC(), 0)
 		cancel()
 		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
 	}
 	if first.State == automationHealthUncertain {
 		qualityDue := false
 		if settings.Mode == automationModeBest && first.QualityDegraded {
-			qualityDue = automationQualityOptimizationDue(time.Now().UTC(), true)
+			qualityDue = automationQualityOptimizationDue(time.Now().UTC(), first.QualityPoints)
 		} else {
-			_ = automationQualityOptimizationDue(time.Now().UTC(), false)
+			_ = automationQualityOptimizationDue(time.Now().UTC(), 0)
 		}
 		cancel()
 		if qualityDue {
