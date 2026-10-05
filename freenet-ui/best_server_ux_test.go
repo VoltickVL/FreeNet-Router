@@ -60,12 +60,11 @@ func TestEligibleAlternativeTargetCountsDistinctLogicalProfiles(t *testing.T) {
 	}
 }
 
-func TestBestServerForeignEligibleTargetCountsFreshCurrentInTop3(t *testing.T) {
-	if got := bestServerForeignEligibleTarget(true); got != 2 {
-		t.Fatalf("fresh eligible current baseline target=%d want 2 alternatives", got)
-	}
-	if got := bestServerForeignEligibleTarget(false); got != 3 {
-		t.Fatalf("missing current baseline target=%d want 3 alternatives", got)
+func TestBestServerForeignEligibleTargetAlwaysMeansThreeAlternatives(t *testing.T) {
+	for _, currentBaselineOK := range []bool{false, true} {
+		if got := bestServerForeignEligibleTarget(currentBaselineOK); got != 3 {
+			t.Fatalf("currentBaselineOK=%v target=%d want 3 manual alternatives", currentBaselineOK, got)
+		}
 	}
 }
 
@@ -109,6 +108,15 @@ func TestBestServerCompletionPartialOnlyWhenBudgetBlocksTarget(t *testing.T) {
 	}
 	if bestServerCompletionPartial(false, input, current) {
 		t.Fatal("natural candidate exhaustion below three is complete, not a time-limit partial")
+	}
+}
+
+func TestManualBestServerReserveIsSequentialAndStopsAtThreeAlternatives(t *testing.T) {
+	if bestServerMeasuredBatchSize != 1 {
+		t.Fatalf("deep batch size=%d want 1 so reserve candidates are checked one by one", bestServerMeasuredBatchSize)
+	}
+	if bestServerVisibleAlternatives != 3 {
+		t.Fatalf("manual alternative target=%d want 3", bestServerVisibleAlternatives)
 	}
 }
 
