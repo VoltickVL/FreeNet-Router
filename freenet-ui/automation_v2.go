@@ -72,11 +72,15 @@ func normalizeAutomationPolicy(value string) string {
 	}
 }
 
-// AUTO replacement uses the same fully measured Top-3 target as the manual
-// Best Server flow. Policy still decides *when* alternatives are scanned, but
-// it must not switch on a weaker one-candidate measurement contract.
-func automationBestEligibleTarget(_ string) int {
-	return bestServerVisibleAlternatives
+// Emergency recovery values restoration latency above decorative comparison:
+// after a confirmed outage one fully measured Eligible replacement is enough
+// to restore service. Quality optimization still compares two alternatives
+// against the freshly measured current VPN (measured Top-3 = current + 2).
+func automationBestEligibleTarget(policy string) int {
+	if normalizeAutomationPolicy(policy) == automationPolicyDegraded {
+		return 1
+	}
+	return 2
 }
 
 func automationNeedsForeignScan(policy, currentState string) bool {
@@ -381,6 +385,27 @@ func automationCountryAllowed(settings automationSettings, currentCountry, candi
 	}
 }
 
+func automationClampedRelativeGain(current, candidate, floor float64, lowerIsBetter bool) float64 {
+	if current <= 0 || candidate <= 0 {
+		return 0
+	}
+	denom := current
+	if denom < floor {
+		denom = floor
+	}
+	gain := (candidate - current) / denom
+	if lowerIsBetter {
+		gain = -gain
+	}
+	if gain > 1 {
+		return 1
+	}
+	if gain < -1 {
+		return -1
+	}
+	return gain
+}
+
 func automationMeaningfullyBetter(current, candidate bestServerQualityCandidate) bool {
 	if !candidate.Eligible || !candidate.Available {
 		return false
@@ -391,24 +416,22 @@ func automationMeaningfullyBetter(current, candidate bestServerQualityCandidate)
 	if !current.Eligible || !current.Available {
 		return false
 	}
-	gain := 0.0
-	weight := 0.0
-	if current.DownloadMbps > 0 && candidate.DownloadMbps > 0 {
-		gain += 0.45 * ((candidate.DownloadMbps - current.DownloadMbps) / current.DownloadMbps)
-		weight += 0.45
-	}
-	if current.ApplicationMS > 0 && candidate.ApplicationMS > 0 {
-		gain += 0.35 * (float64(current.ApplicationMS-candidate.ApplicationMS) / float64(current.ApplicationMS))
-		weight += 0.35
-	}
-	if current.JitterMS > 0 && candidate.JitterMS > 0 {
-		gain += 0.20 * (float64(current.JitterMS-candidate.JitterMS) / float64(current.JitterMS))
-		weight += 0.20
-	}
-	if weight < 0.79 {
+	// Stability-first comparison. Once both VPNs already pass strict service,
+	// stall and minimum-throughput gates, extra Mbps is secondary. Application
+	// latency, jitter and confirmed VPN RTT describe the user's "laggy vs smooth"
+	// experience much better and therefore dominate AUTO optimization.
+	if current.DownloadMbps <= 0 || candidate.DownloadMbps <= 0 ||
+		current.ApplicationMS <= 0 || candidate.ApplicationMS <= 0 ||
+		current.JitterMS <= 0 || candidate.JitterMS <= 0 ||
+		current.VPNRTTMS <= 0 || candidate.VPNRTTMS <= 0 {
 		return false
 	}
-	return gain/weight >= 0.10
+
+	gain := 0.10 * automationClampedRelativeGain(current.DownloadMbps, candidate.DownloadMbps, 50, false)
+	gain += 0.35 * automationClampedRelativeGain(float64(current.ApplicationMS), float64(candidate.ApplicationMS), 100, true)
+	gain += 0.35 * automationClampedRelativeGain(float64(current.JitterMS), float64(candidate.JitterMS), 20, true)
+	gain += 0.20 * automationClampedRelativeGain(float64(current.VPNRTTMS), float64(candidate.VPNRTTMS), 100, true)
+	return gain >= 0.10
 }
 
 func automationCurrentQualityState(response bestServerQualityResponse) (bestServerQualityCandidate, string) {
@@ -627,6 +650,13 @@ func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings a
 	}
 	filtered = a.applicationAwareBestServerShortlist(ctx, filtered, currentEndpoint, currentFilter)
 	targetEligible := automationBestEligibleTarget(settings.Policy)
+	if normalizeAutomationPolicy(settings.Policy) == automationPolicyBetter && !currentBaselineOK {
+		// Quality optimization normally has a fresh current baseline from the
+		// immediately preceding current scan. If that evidence disappeared,
+		// fail toward a full three-alternative comparison rather than silently
+		// presenting an incomplete Top-3.
+		targetEligible = bestServerVisibleAlternatives
+	}
 	response := a.rankMeasuredBestServerBatches(ctx, filtered, profilesScanned, truncated, currentEndpoint, currentFilter, targetEligible)
 	if ctx.Err() != nil && len(response.Candidates) == 0 {
 		return bestServerQualityResponse{}, ctx.Err()
@@ -805,8 +835,8 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 		appendAutomationHistoryV2("same", reason)
 		return automationBestCycleResult{Result: "same", Reason: reason, ProfileID: candidate.ID}, nil
 	}
-	if automationCooldownActive(parseAutomationLastSwitch(automationStatePath()), time.Now().UTC()) {
-		reason := "Новый VPN найден, но действует 6-часовая защита от частых переключений."
+	if currentState == "healthy" && automationCooldownActive(parseAutomationLastSwitch(automationStatePath()), time.Now().UTC()) {
+		reason := "Новый VPN найден, но текущий VPN всё ещё исправен и действует 6-часовая защита от лишних переключений."
 		writeAutomationStateV2("cooldown", reason, "no", false)
 		appendAutomationHistoryV2("cooldown", reason)
 		return automationBestCycleResult{Result: "cooldown", Reason: reason, ProfileID: candidate.ID}, nil
