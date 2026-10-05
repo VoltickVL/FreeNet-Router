@@ -28,11 +28,11 @@ const (
 
 	// Reachable quality degradation must be repeated before Full AUTO spends
 	// bandwidth on a heavy Best Server comparison. A completed optimization
-	// attempt is also cooled down independently from the existing 6h switch
+	// attempt is also cooled down independently from the existing post-switch
 	// cooldown, so a noisy line cannot trigger repeated Top-3 scans.
 	automationQualityStrikeWindow        = 30 * time.Minute
 	automationQualityStrikeThreshold     = 3
-	automationQualityOptimizationCooldown = 2 * time.Hour
+	automationQualityOptimizationCooldown = 1 * time.Hour
 )
 
 type automationHealthResult struct {
