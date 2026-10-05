@@ -21,7 +21,7 @@ func TestBestServerQualityBalancesLatencyAndThroughput(t *testing.T) {
 	app := func(_ context.Context, c bestServerInternalCandidate) bestServerQualityApplicationResult {
 		switch c.Profile.ID {
 		case "de":
-			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{150, 160, 170}, Median: 160, Jitter: 20}, DownloadOK: true, DownloadMbps: 120, Media: stableTestMedia(115)}
+			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{150, 155, 160, 165, 170}, Median: 160, Jitter: 20}, DownloadOK: true, DownloadMbps: 120, Media: stableTestMedia(115)}
 		case "pl":
 			return bestServerQualityApplicationResult{OK: true, HTTP: bestServerProbeResult{OK: true, Samples: []int{174, 180, 188}, Median: 180, Jitter: 14}, DownloadOK: true, DownloadMbps: 25, Media: stableTestMedia(24)}
 		default:
