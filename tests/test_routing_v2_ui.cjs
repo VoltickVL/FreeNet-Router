@@ -79,10 +79,12 @@ const server=http.createServer(async(req,res)=>{
         {file:'geosite.dat',kind:'geosite',category:'slow-blur-result',selector:'geosite:slow-blur-result',ext_selector:'ext:geosite.dat:slow-blur-result',match:'category'}
       ],warnings:[]});
     }
+    if(kind==='geosite'&&q==='many') return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:Array.from({length:24},(_,index)=>({
+      file:'geosite.dat',kind:'geosite',category:`many-${String(index+1).padStart(2,'0')}`,selector:`geosite:many-${String(index+1).padStart(2,'0')}`,ext_selector:`ext:geosite.dat:many-${String(index+1).padStart(2,'0')}`,match:'category'
+    })),warnings:[]});
     if(kind==='geosite') return json(res,{success:true,kind,query:q,mode:q.includes('.')?'domain':'prefix',mutation:'NONE',suggestions:[
-      {file:'geosite.dat',kind:'geosite',category:'youtube',selector:'geosite:youtube',ext_selector:'ext:geosite.dat:youtube',match:'category'},
-      {file:'geosite-extra.dat',kind:'geosite',category:'youtube-extra',selector:'ext:geosite-extra.dat:youtube-extra',ext_selector:'ext:geosite-extra.dat:youtube-extra',match:'category'}
-    ],warnings:['broken.dat: geodata file is unreadable or invalid']});
+      {file:'geosite.dat',kind:'geosite',category:'youtube',selector:'geosite:youtube',ext_selector:'ext:geosite.dat:youtube',match:'category'}
+    ],warnings:[]});
     if(kind==='geoip') return json(res,{success:true,kind,query:q,mode:'prefix',mutation:'NONE',suggestions:[
       {file:'geoip.dat',kind:'geoip',category:'private',selector:'geoip:private',ext_selector:'ext:geoip.dat:private',match:'category'}
     ],warnings:[]});
@@ -322,7 +324,7 @@ const server=http.createServer(async(req,res)=>{
     assert.match(await page.locator('#rv2ComposerTitle').textContent(),/Добавить через VPN/);
     assert.match(await page.locator('#rv2ComposerHint').textContent(),/через текущий VPN/);
 
-    // Smart GeoData autocomplete is read-only, debounced and keyboard-selectable; manual search remains fallback.
+    // Smart GeoData autocomplete is the single Rules lookup surface: read-only, debounced, scrollable and keyboard-selectable.
     const geoMutationBefore = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
     await page.locator('#rv2Kind').selectOption('geosite');
 
@@ -342,7 +344,7 @@ const server=http.createServer(async(req,res)=>{
     const delayedRequest = page.waitForRequest(req => req.url().includes('/api/geodata/suggest') && req.url().includes('q=slow-blur'));
     await page.locator('#rv2Value').fill('slow-blur');
     await delayedRequest;
-    await page.locator('#rv2GeoSearch').focus();
+    await page.locator('#rv2AddRule').focus();
     assert.match(await page.locator('#rv2RuleNotice').textContent(),/ищу локальные категории/);
     await page.waitForFunction(() => (document.querySelector('#rv2RuleNotice')?.textContent || '').includes('GeoData: найдено 1'));
     assert.equal(await page.locator('#rv2GeoAutocomplete').isHidden(),true,'blur may hide popup but must not abort lookup completion');
@@ -351,10 +353,30 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
     assert.match(await page.locator('#rv2GeoAutocomplete').innerText(),/slow-blur-result/);
 
+    await page.locator('#rv2Value').fill('many');
+    await page.waitForFunction(() => document.querySelectorAll('#rv2GeoAutocomplete .rv2-autocomplete-item').length === 24);
+    const geoMenu = await page.locator('#rv2GeoAutocomplete').evaluate(el => {
+      const style = getComputedStyle(el);
+      const before = el.scrollTop;
+      el.scrollTop = el.scrollHeight;
+      return {
+        clientHeight: el.clientHeight,
+        scrollHeight: el.scrollHeight,
+        scrolled: el.scrollTop > before,
+        overflowY: style.overflowY
+      };
+    });
+    assert.ok(geoMenu.clientHeight >= 400,'GeoData menu should be materially taller than the old 290px popup');
+    assert.ok(geoMenu.scrollHeight > geoMenu.clientHeight,'GeoData menu must expose overflow when many suggestions exist');
+    assert.equal(geoMenu.overflowY,'auto');
+    assert.equal(geoMenu.scrolled,true,'GeoData menu must actually scroll');
+    assert.equal(await page.locator('#rv2VPNBoard').evaluate(el=>getComputedStyle(el).overflow),'visible','open board must not clip autocomplete');
+    assert.equal(await page.locator('#rv2GeoSearch').count(),0,'redundant manual GeoData button must be removed');
+
     await page.locator('#rv2Value').fill('you');
     await page.waitForSelector('#rv2GeoAutocomplete .rv2-autocomplete-item');
-    assert.equal(await page.locator('#rv2GeoAutocomplete .rv2-autocomplete-item').count(),2);
-    assert.match(await page.locator('#rv2GeoAutocomplete').innerText(),/youtube-extra/);
+    assert.equal(await page.locator('#rv2GeoAutocomplete .rv2-autocomplete-item').count(),1);
+    assert.doesNotMatch(await page.locator('#rv2GeoAutocomplete').innerText(),/youtube-extra/);
     await page.locator('#rv2Value').press('ArrowDown');
     await page.locator('#rv2Value').press('ArrowUp');
     await page.locator('#rv2Value').press('Enter');
@@ -362,14 +384,8 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#rv2GeoAutocomplete').isHidden(),true);
     assert.match(await page.locator('#rv2RuleNotice').textContent(),/Нажмите «Добавить»/);
 
-    await page.locator('#rv2GeoSearch').click();
-    await page.waitForSelector('.rv2-search-result');
-    assert.match(await page.locator('.rv2-search-result').first().textContent(),/GeoSite · youtube/);
-    assert.match(await page.locator('#rv2RuleNotice').textContent(),/broken\.dat/);
     const geoMutationCalls = calls.filter(x => /^POST \/api\/(routing|action|network)/.test(x)).length;
-    assert.equal(geoMutationCalls,geoMutationBefore,'GeoData autocomplete/search must remain fully read-only');
-    await page.locator('.rv2-search-result').first().click();
-    assert.equal(await page.locator('#rv2Value').inputValue(),'youtube');
+    assert.equal(geoMutationCalls,geoMutationBefore,'GeoData autocomplete must remain fully read-only');
 
     // GeoIP accepts a host, resolves it through the bounded backend and exposes A/AAAA evidence without creating a draft.
     await page.locator('#rv2Kind').selectOption('geoip');
