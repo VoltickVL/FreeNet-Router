@@ -291,6 +291,8 @@ Current VPN, ручной selector и первый этап Best Server испо
 
 ## Best Server
 
+Ручной «Подобрать варианты» строит именно **Top-3 альтернатив**, потому что текущий VPN уже показан отдельно в левой части Overview и не занимает место среди вариантов замены.
+
 Алгоритм:
 
 ```text
@@ -298,18 +300,24 @@ fresh subscription snapshot
         ↓
 full quick VPN-ping sweep
         ↓
-shortlist
+hard shortlist до 10 профилей
         ↓
-serial deep checks
+кандидаты 1–5: serial deep checks
         ↓
-до Top-3 полностью Eligible
+3 Eligible уже найдены?
+   ├─ да → STOP
+   └─ нет
         ↓
-сортировка по фактическим метрикам
+reserve 6–10: проверять по одному
+        ↓
+STOP сразу после добора недостающих до 3
 ```
 
-Deep check включает сравнимые application/site RTT, strict speed/throughput и остальные обязательные acceptance criteria.
+Deep check включает сравнимые application/site RTT, strict speed/throughput и остальные обязательные acceptance criteria. Резерв никогда не прогоняется целиком «на всякий случай»: если после первых пяти есть 2 подходящих, из второй пятёрки проверяется только столько профилей, сколько нужно для поиска третьего.
 
-На одном из текущих реальных пулов из 48 профилей полный quick-sweep занимал около 35 секунд, а ручной Best Server до Top-3 — около 52 секунд. Это **наблюдение, а не гарантированное время**: длительность зависит от количества профилей, timeout и сети.
+В UI live-progress показывает, сколько deep-кандидатов уже проверено из shortlist, а итоговая строка — сколько профилей было обнаружено, сколько попало в shortlist, сколько реально глубоко проверено и сколько Eligible найдено из трёх.
+
+Фактическое время зависит от количества профилей, качества сети и того, насколько быстро набираются три Eligible альтернативы; фиксированное время не гарантируется.
 
 ---
 
@@ -344,14 +352,16 @@ VPN восстановлен?
    └─ нет + rollback known-safe
         ↓
 canonical Best Server
-full sweep → Top-3 Eligible
+full sweep → первый fully measured Eligible replacement
         ↓
-apply лучшего measured candidate
+apply measured candidate
         ↓
 post-check
 ```
 
 Если rollback получил `FAILED` или `UNKNOWN`, следующая automatic mutation запрещается.
+
+Quality optimization отделена от аварийного recovery. Для рабочего, но деградирующего VPN FreeNet использует stability-first оценку: strict liveness/service/stall gates обязательны, затем приоритет имеют application RTT, jitter и VPN RTT; дополнительная скорость является вторичным сигналом. Reachable degradation учитывается по severity (RTT/service quality), а не одинаковыми flat-strikes. Тяжёлая деградация может раньше запустить measured comparison, но сама по себе никогда не переключает VPN: новый профиль должен пройти full measurement, Eligibility и materially-better hysteresis.
 
 ---
 

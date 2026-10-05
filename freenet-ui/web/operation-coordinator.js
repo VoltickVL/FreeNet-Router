@@ -549,7 +549,7 @@
     if (!candidate.eligible && latencyOnlyWarning(candidate)) return {kind: 'warning', label: 'Высокий отклик', icon: 'alert'};
     if (!candidate.eligible) return {kind: 'rejected', label: 'Не прошёл проверку', icon: 'alert'};
     if (data && data.recommendation && !data.recommendation.current && sameCandidate(data.recommendation, candidate)) {
-      return {kind: 'best', label: 'Лучший вариант', icon: 'trophy'};
+      return {kind: 'best', label: 'Лучший из альтернатив', icon: 'trophy'};
     }
     return {kind: 'comparison', label: 'Для сравнения', icon: 'compare'};
   }
@@ -566,11 +566,17 @@
     const copy = document.createElement('div'); copy.className = 'summary-copy';
     const main = document.createElement('div'); main.className = 'summary-main';
     const pieces = [];
-    if (best) pieces.push(`${best} подходит`);
+    if (best) pieces.push(`${best} лучший`);
     if (comparisons) pieces.push(`${comparisons} для сравнения`);
     if (warnings) pieces.push(`${warnings} выше целевого отклика`);
     if (rejected) pieces.push(`${rejected} не прошёл проверку`);
-    main.textContent = `Проверено профилей: ${data.profiles_scanned || 0}. Показано ${states.length} вариант${states.length === 1 ? '' : states.length < 5 ? 'а' : 'ов'}: ${pieces.join(', ') || 'нет подходящих'}.`;
+    const deepTotal = Number(data.deep_total || 0);
+    const deepChecked = Number(data.deep_checked || 0);
+    const eligibleTarget = Number(data.eligible_target || 3);
+    const eligibleFound = Number(data.eligible_found || states.length);
+    main.textContent = deepTotal > 0
+      ? `Из ${data.profiles_scanned || 0} профилей в shortlist попало ${deepTotal}. Глубоко проверено ${deepChecked} из ${deepTotal}. Найдено ${eligibleFound} из ${eligibleTarget} подходящих альтернатив: ${pieces.join(', ') || 'нет подходящих'}.`
+      : `Проверено профилей: ${data.profiles_scanned || 0}. Показано ${states.length} вариант${states.length === 1 ? '' : states.length < 5 ? 'а' : 'ов'}: ${pieces.join(', ') || 'нет подходящих'}.`;
     copy.appendChild(main);
     if (data.recommendation && data.recommendation.current) {
       const sub = document.createElement('div'); sub.className = 'summary-sub'; sub.textContent = 'Текущий VPN остаётся предпочтительным.'; copy.appendChild(sub);
@@ -654,7 +660,7 @@
     if (!quick) return null;
     const countries = quick.querySelector('.quick-layout'); if (countries) countries.remove();
     const alternativesTitle = qs('.vpn-section-head h3'); if (alternativesTitle) alternativesTitle.textContent = 'Результаты проверки';
-    const alternativesHint = qs('.vpn-section-head .hint'); if (alternativesHint) alternativesHint.textContent = 'Топ-3 варианта на основе реальных измерений';
+    const alternativesHint = qs('.vpn-section-head .hint'); if (alternativesHint) alternativesHint.textContent = 'Топ-3 альтернативы на основе реальных измерений';
     const profilesList = qs('#profilesList');
     const profileLabel = profilesList && profilesList.querySelector('label[for="profileSearch"]'); if (profileLabel) profileLabel.textContent = 'Поиск по стране или городу';
     const update = qs('#updateBtn'); if (update) { setButtonLabel(update, 'Обновить и проверить', 'refresh'); update.title = 'Получить свежий endpoint текущего профиля и автоматически проверить качество'; update.classList.remove('primary'); update.classList.add('secondary'); }
@@ -743,7 +749,7 @@
         if(job.state==='completed'&&job.result)return new Response(JSON.stringify(job.result),{status:200});
         if(job.state==='failed')return new Response(JSON.stringify({success:false,error:job.error||'Проверка не завершена'}),{status:503});
         if(job.state!=='running')throw new Error('Invalid quality job state');
-        stage.textContent=job.stage==='quality'?`Глубоко проверяем кандидатов · проверено ${job.completed}`:job.stage==='preflight'?`Сравниваем реальный отклик через VPN · завершено ${job.completed} из ${job.total}`:job.stage==='tcp'?'Проверяем доступность серверов…':'Получаем профили подписки…';
+        stage.textContent=job.stage==='quality'?`Глубоко проверяем кандидатов · проверено ${job.completed} из ${job.total} · цель 3 подходящих`:job.stage==='preflight'?`Сравниваем реальный отклик через VPN · завершено ${job.completed} из ${job.total}`:job.stage==='tcp'?'Проверяем доступность серверов…':'Получаем профили подписки…';
         if(job.stage==='preflight'&&job.total>0){progress.max=job.total;progress.value=job.completed}else progress.removeAttribute('value');
         if(Date.now()-started>340000)throw new DOMException('Quality job timeout','TimeoutError');await wait(1000);response=await readState();
       }
