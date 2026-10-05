@@ -354,13 +354,14 @@
     return {text: `на ${Math.abs(diff)} мс ${diff > 0 ? 'быстрее' : 'медленнее'}`, tone: diff > 0 ? 'good' : 'bad'};
   }
 
-  function metricPill(label, value, key, trustedSpeed, delta = null) {
+  function metricPill(label, value, key, trustedSpeed, delta = null, hint = '') {
     const node = document.createElement('div');
     node.className = 'best-v4-pill' + (key === 'speed' && trustedSpeed ? ' speed' : '');
     node.dataset.metric = key;
     node.appendChild(makeIcon(key, 'metric-icon'));
     const copy = document.createElement('div'); copy.className = 'metric-copy';
     const name = document.createElement('span'); name.className = 'metric-label'; name.textContent = label;
+    if (hint) { node.title = hint; name.title = hint; }
     const valueLine = document.createElement('div'); valueLine.className = 'metric-value-line';
     const number = document.createElement('b'); number.textContent = value; valueLine.appendChild(number);
     if (delta && delta.text) {
@@ -374,10 +375,10 @@
     if (!root) return;
     root.textContent = '';
     const strictSpeed = Number(candidate?.download_mbps || 0) > 0 && candidate?.throughput_source === 'strict_aggregate';
-    root.appendChild(metricPill('Скорость VPN', metric(candidate, 'speed'), 'speed', strictSpeed && candidate?.eligible === true));
-    root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline)));
-    root.appendChild(metricPill('VPN-пинг', metric(candidate, 'vpn'), 'tcp', false));
-    root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter'), 'jitter', false));
+    root.appendChild(metricPill('Скорость VPN', metric(candidate, 'speed'), 'speed', strictSpeed && candidate?.eligible === true, null, 'Пропускная способность VPN. После достаточного уровня имеет меньший приоритет, чем задержка и стабильность.'));
+    root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline), 'Медианный HTTPS-отклик реальных сайтов через VPN. Чем меньше, тем отзывчивее веб и приложения.'));
+    root.appendChild(metricPill('VPN-пинг', metric(candidate, 'vpn'), 'tcp', false, null, 'Базовая задержка рабочего VPN-тракта: фиксированный HTTPS RTT через VPN без DNS. Это не ICMP-пинг непосредственно до VPN-сервера.'));
+    root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter'), 'jitter', false, null, 'Разброс серии измерений отклика (джиттер/spread). Чем меньше, тем ровнее соединение.'));
   }
 
   function currentCandidate(data) {
