@@ -65,6 +65,7 @@ jobs:
           sh -n scripts/blanc_xkeen_update_outbounds.sh
           sh -n scripts/migrate_split_dns.sh
           sh -n scripts/bootstrap_entware.sh
+          sh -n scripts/bootstrap_router_ultra.sh
           sh -n scripts/apply_network_profile.sh
           sh -n scripts/apply_provider_profile.sh
           sh -n scripts/finalize_setup.sh
@@ -75,6 +76,7 @@ jobs:
           sh -n tests/test_split_dns_migration.sh
           sh -n tests/test_bootstrap_contract.sh
           sh -n tests/test_product_bootstrap_contract.sh
+          sh -n tests/test_router_stage0_bootstrap.sh
           sh -n tests/test_network_profile_contract.sh
           sh -n tests/test_retired_network_product.sh
           sh -n tests/test_network_jsonc_compat.sh
@@ -100,6 +102,9 @@ jobs:
 
       - name: Product bootstrap contract test
         run: sh tests/test_product_bootstrap_contract.sh
+
+      - name: Router stage-0 bootstrap contract test
+        run: sh tests/test_router_stage0_bootstrap.sh
 
       - name: DNS topology contract test
         run: sh tests/test_network_profile_contract.sh
@@ -187,6 +192,7 @@ jobs:
           grep -q 'cp scripts/vpn_quality_probe.sh dist/vpn_quality_probe.sh' .github/workflows/release.yml
           grep -q 'cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh' .github/workflows/release.yml
           grep -q 'cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/bootstrap_router_ultra.sh dist/bootstrap_router_ultra.sh' .github/workflows/release.yml
           grep -q 'cp scripts/self_update.sh dist/self_update.sh' .github/workflows/release.yml
           grep -q 'cp scripts/legacy_update_bridge.sh dist/legacy_update_bridge.sh' .github/workflows/release.yml
           grep -q 'cp config/upstream-pins.env dist/upstream-pins.env' .github/workflows/release.yml
