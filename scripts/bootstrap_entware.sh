@@ -283,10 +283,14 @@ fetch_ui_asset() {
         err "UI-only fetch is allowed only for MODE=EXISTING_STACK_MISSING_UI (got $MODE)"
         return 1
     }
+    make_stage || return 1
+    if [ "$TEST_MODE" = yes ] && [ -f "$STAGE_DIR/$XKEEN_UI_ASSET" ]; then
+        say '[FreeNet Bootstrap] UI_VERIFIED=TEST'
+        return 0
+    fi
     for T in curl sha256sum sed awk; do
         command -v "$T" >/dev/null 2>&1 || { err "missing tool for UI-only repair: $T"; return 1; }
     done
-    make_stage || return 1
     XKEEN_UI_URL="https://github.com/$XKEEN_UI_REPO/releases/download/$XKEEN_UI_VERSION/$XKEEN_UI_ASSET"
     fetch_one XKeen-UI "$XKEEN_UI_URL" "$XKEEN_UI_SHA256" "$STAGE_DIR/$XKEEN_UI_ASSET" || return 1
     say '[FreeNet Bootstrap] UI_VERIFIED=YES'
