@@ -51,8 +51,8 @@ func TestCanonicalizeControlCenterIndexRemovesLegacyFirstPaint(t *testing.T) {
 	if strings.Contains(html, `<div class="side-bottom">`) {
 		t.Fatal("legacy sidebar footer must not be present in first-paint HTML")
 	}
-	if !strings.Contains(html, `const pageLabels={overview:'Обзор',subscription:'Подписка'};`) {
-		t.Fatal("legacy page labels remain routable during bootstrap")
+	if !strings.Contains(html, `const pageLabels={overview:'Обзор',subscription:'Подписка',settings:'Настройки',network:'Маршрутизация',journal:'Журнал'};`) {
+		t.Fatal("canonical page labels are not final during bootstrap")
 	}
 }
 
@@ -75,6 +75,12 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 		`document.getElementById('freenetAcceptedUXStyles')`,
 		`document.getElementById('freenetFinalShellPolishStyles')`,
 		`document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')`,
+		`const canonicalRoutes = ['overview','subscription','settings','network','journal']`,
+		`document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]')`,
+		`.nav-icon[data-freenet-shell="1"] svg`,
+		`document.querySelector('[data-page-view="settings"]')`,
+		`document.querySelector('[data-page-view="journal"]')`,
+
 		`root.classList.remove('freenet-canonical-boot')`,
 	} {
 		if !strings.Contains(html, want) {
