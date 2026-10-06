@@ -214,6 +214,8 @@ func main() {
 
 	a := &app{cfg: cfg, sem: make(chan struct{}, 1)}
 	reconcileSettingsV3SchedulerOnStartup(a)
+	a.initializeXrayRuntimeIntent()
+	a.startXrayRuntimeWatchdog()
 	a.startAutomationHealthScheduler()
 
 	mux := http.NewServeMux()
