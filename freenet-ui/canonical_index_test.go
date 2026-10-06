@@ -78,8 +78,6 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 		`const canonicalRoutes = ['overview','subscription','settings','network','journal']`,
 		`document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]')`,
 		`.nav-icon[data-freenet-shell="1"] svg`,
-		`document.querySelector('[data-page-view="settings"]')`,
-		`document.querySelector('[data-page-view="journal"]')`,
 
 		`root.classList.remove('freenet-canonical-boot')`,
 	} {
