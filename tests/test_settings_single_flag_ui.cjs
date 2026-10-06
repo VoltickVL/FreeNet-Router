@@ -9,6 +9,7 @@ const http = require('node:http');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui', 'web');
 const scripts = ['settings-v3.js', 'profile-label-hygiene.js'];
+const servedScripts = [...scripts, 'settings-v3-core.js'];
 
 const settings = {
   success:true,
@@ -47,7 +48,7 @@ const server = http.createServer((req, res) => {
     res.end(html);
     return;
   }
-  if (scripts.some(name => url.pathname === `/${name}`)) {
+  if (servedScripts.some(name => url.pathname === `/${name}`)) {
     res.writeHead(200, {'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store'});
     res.end(fs.readFileSync(path.join(web, url.pathname.slice(1)), 'utf8'));
     return;
