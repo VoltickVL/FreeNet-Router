@@ -29,7 +29,10 @@ func prepareXrayServiceTest(t *testing.T, validatorExit int) (*app, string) {
 	t.Setenv("FREENET_XRAY_BIN", validator)
 	t.Setenv("FREENET_ROUTING_CONFIG_DIR", configDir)
 	t.Setenv("FREENET_SETTINGS_V3_HISTORY", filepath.Join(root, "history"))
-	return &app{cfg: config{XKeenPath: xkeen, GeoDataDir: root}, sem: make(chan struct{}, 1)}, marker
+	t.Setenv("FREENET_XRAY_RUNTIME_INTENT", filepath.Join(root, "xray-runtime.intent"))
+	configPath := filepath.Join(root, "freenet.conf")
+	if err := os.WriteFile(configPath, []byte("SETUP_COMPLETE=yes\n"), 0600); err != nil { t.Fatal(err) }
+	return &app{cfg: config{XKeenPath: xkeen, GeoDataDir: root, ConfigPath: configPath, LockPath: filepath.Join(root, "updater.lock"), UpdateLock: filepath.Join(root, "update.lock")}, sem: make(chan struct{}, 1)}, marker
 }
 
 func TestRestartXrayControlledValidatesAndRestartsOnce(t *testing.T) {
