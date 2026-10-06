@@ -45,6 +45,9 @@ func TestCanonicalizeControlCenterIndexRemovesLegacyFirstPaint(t *testing.T) {
 	if got := strings.Count(nav, `<svg viewBox="0 0 24 24"`); got != 5 {
 		t.Fatalf("canonical first-paint navigation must ship five final SVG icons, got %d", got)
 	}
+	if got := strings.Count(nav, `data-freenet-shell="1"`); got != 5 {
+		t.Fatalf("canonical first-paint icons must be marked final before accepted UX mounts, got %d", got)
+	}
 	if strings.Contains(html, `<div class="side-bottom">`) {
 		t.Fatal("legacy sidebar footer must not be present in first-paint HTML")
 	}
