@@ -70,3 +70,22 @@ func TestAutomationEmergencySelectionSummaryDescribesSingleReplacement(t *testin
 		t.Fatalf("emergency selection summary leaked endpoint/credentials: %s", got)
 	}
 }
+
+
+func TestAutomationCooldownReasonShowsCandidateMetricsWithoutSecrets(t *testing.T) {
+	candidate := bestServerQualityCandidate{
+		ID: "aaaaaaaaaaaaaaaa", Name: "CZ Prague, Czechia, Extra",
+		Available: true, Eligible: true, VPNRTTMS: 169, ApplicationMS: 179, DownloadMbps: 283, JitterMS: 10,
+	}
+	got := automationCooldownReason(candidate)
+	for _, want := range []string{"Prague", "VPN 169 мс", "сайты 179 мс", "скорость 283 Мбит/с", "стабильность 10 мс", "6-часовая защита"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("cooldown reason missing %q: %s", want, got)
+		}
+	}
+	for _, forbidden := range []string{":443", "vless://", "publicKey=", "shortId="} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("cooldown reason leaked endpoint/credentials %q: %s", forbidden, got)
+		}
+	}
+}
