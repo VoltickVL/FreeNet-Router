@@ -19,6 +19,13 @@ grep -Fq 'bootstrap_entware.sh" plan' "$BOOT" || fail 'нет read-only core pla
 grep -Fq 'bootstrap_entware.sh" apply' "$BOOT" || fail 'нет apply для чистого Entware'
 grep -Fq 'READY_EXISTING_STACK' "$BOOT" || fail 'нет пути сохранения существующего stack'
 grep -Fq 'NEEDS_REVIEW' "$BOOT" || fail 'нет остановки на частичном stack'
+grep -Fq 'verify_core_ready_after_apply' "$BOOT" || fail 'нет post-apply reclassification acceptance'
+grep -Fq 'expected READY_EXISTING_STACK; app install not started' "$BOOT" || fail 'app phase не блокируется при неполном post-apply core'
+grep -Fq 'XKeen UI is not installed' "$BOOT" || fail 'clean product bootstrap не фиксирует optional XKeen UI'
+grep -Fq 'XKeen UI optional and untouched' "$BOOT" || fail 'existing product bootstrap не сохраняет optional XKeen UI'
+if grep -Fq 'apply-ui' "$BOOT"; then
+    fail 'product bootstrap не должен иметь отдельный XKeen UI apply path'
+fi
 
 # После готового Entware пользователь не должен вручную собирать toolchain.
 # Bootstrap сам ставит только недостающие userland packages и не делает upgrade.
@@ -49,6 +56,7 @@ fi
 
 # Сценарий установки определяется bootstrap-ом автоматически и сохраняется только
 # внутри transactional app-фазы; пользователь не может вручную включить rebuild core.
+grep -Fq 'CORE_INITIAL_MODE' "$BOOT" || fail 'исходная read-only классификация не сохраняется'
 grep -Fq 'READY_EXISTING_STACK) INSTALL_SCENARIO=existing_stack' "$BOOT" || fail 'нет сценария действующего роутера'
 grep -Fq 'ENTWARE_ONLY) INSTALL_SCENARIO=fresh_entware' "$BOOT" || fail 'нет сценария новой установки'
 grep -Fq 'set_config_value INSTALL_SCENARIO "$INSTALL_SCENARIO"' "$BOOT" || fail 'сценарий установки не сохраняется в локальный config'
@@ -134,6 +142,9 @@ fi
 grep -Fq 'ROLLBACK: restoring app files and cron' "$BOOT" || fail 'нет app rollback'
 grep -Fq 'ROLLBACK ERROR: FAILED/UNKNOWN' "$BOOT" || fail 'нет unknown rollback state'
 grep -Fq 'core bootstrap rollback FAILED/UNKNOWN' "$BOOT" || fail 'нет core rollback blocker'
+if grep -Fq 'XKeen UI-only bootstrap' "$BOOT"; then
+    fail 'product bootstrap всё ещё содержит UI-only mutation contract'
+fi
 
 # Глобальный Entware upgrade и отдельный неконтролируемый upstream setup.sh запрещены.
 if grep -E 'opkg[[:space:]]+upgrade' "$BOOT" >/dev/null; then fail 'глобальный opkg upgrade запрещён'; fi

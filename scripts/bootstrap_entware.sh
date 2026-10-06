@@ -2,10 +2,11 @@
 
 # FreeNet P1 Entware bootstrap.
 # plan/fetch are read-only with respect to persistent /opt state.
-# apply provisions targeted dependencies, installs exact pinned XKeen/Xray/
-# XKeen UI on a CLEAN Entware-only router, validates the result and rolls the
-# core stack back on any post-apply failure. Existing/partial stacks are never
-# rebuilt by this path.
+# apply provisions targeted dependencies, installs exact pinned XKeen/Xray on
+# a CLEAN Entware-only router, validates the result and rolls the core stack
+# back on any post-apply failure. XKeen UI is optional and unmanaged by FreeNet:
+# existing UI artifacts are preserved and clean installs do not add them.
+# Existing/partial core stacks are never rebuilt by this path.
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Bootstrap] ERROR: %s\n' "$*" >&2; }
@@ -18,8 +19,6 @@ MODE=""
 ARCH=""
 XRAY_ASSET=""
 XRAY_SHA256=""
-XKEEN_UI_ASSET=""
-XKEEN_UI_SHA256=""
 LAST_DOWNLOAD_ERROR=""
 MUTATED=0
 ROLLBACK_ACTIVE=0
@@ -65,9 +64,7 @@ load_pins() {
     for V in \
         XKEEN_REPO XKEEN_VERSION XKEEN_ASSET XKEEN_SHA256 \
         XRAY_REPO XRAY_VERSION XRAY_ARM64_ASSET XRAY_ARM64_SHA256 \
-        XRAY_MIPS32LE_ASSET XRAY_MIPS32LE_SHA256 XRAY_MIPS32_ASSET XRAY_MIPS32_SHA256 \
-        XKEEN_UI_REPO XKEEN_UI_VERSION XKEEN_UI_ARM64_ASSET XKEEN_UI_ARM64_SHA256 \
-        XKEEN_UI_MIPS32LE_ASSET XKEEN_UI_MIPS32LE_SHA256 XKEEN_UI_MIPS32_ASSET XKEEN_UI_MIPS32_SHA256
+        XRAY_MIPS32LE_ASSET XRAY_MIPS32LE_SHA256 XRAY_MIPS32_ASSET XRAY_MIPS32_SHA256
     do
         eval "VALUE=\${$V:-}"
         [ -n "$VALUE" ] || { err "missing pin: $V"; exit 2; }
@@ -84,22 +81,16 @@ get_arch() {
             ARCH='arm64-v8a'
             XRAY_ASSET="$XRAY_ARM64_ASSET"
             XRAY_SHA256="$XRAY_ARM64_SHA256"
-            XKEEN_UI_ASSET="$XKEEN_UI_ARM64_ASSET"
-            XKEEN_UI_SHA256="$XKEEN_UI_ARM64_SHA256"
             ;;
         *mipsel*)
             ARCH='mips32le'
             XRAY_ASSET="$XRAY_MIPS32LE_ASSET"
             XRAY_SHA256="$XRAY_MIPS32LE_SHA256"
-            XKEEN_UI_ASSET="$XKEEN_UI_MIPS32LE_ASSET"
-            XKEEN_UI_SHA256="$XKEEN_UI_MIPS32LE_SHA256"
             ;;
         *mips*)
             ARCH='mips32'
             XRAY_ASSET="$XRAY_MIPS32_ASSET"
             XRAY_SHA256="$XRAY_MIPS32_SHA256"
-            XKEEN_UI_ASSET="$XKEEN_UI_MIPS32_ASSET"
-            XKEEN_UI_SHA256="$XKEEN_UI_MIPS32_SHA256"
             ;;
         *) ARCH='unknown' ;;
     esac
@@ -108,6 +99,23 @@ get_arch() {
 has_xray_configs() {
     [ -d "$ROOT/etc/xray/configs" ] || return 1
     find "$ROOT/etc/xray/configs" -maxdepth 1 -type f -name '*.json' 2>/dev/null | grep -q .
+}
+
+has_xkeen_init() {
+    [ -f "$ROOT/etc/init.d/S05xkeen" ] || [ -f "$ROOT/etc/init.d/S99xkeen" ]
+}
+
+has_xkeen_ui_init() {
+    [ -f "$ROOT/etc/init.d/S99xkeen-ui" ]
+}
+
+existing_xray_valid() {
+    [ -x "$ROOT/sbin/xray" ] || return 1
+    [ -d "$ROOT/etc/xray/configs" ] || return 1
+    make_stage || return 1
+    XRAY_LOCATION_ASSET="$ROOT/etc/xray/dat" \
+        "$ROOT/sbin/xray" run -test -confdir "$ROOT/etc/xray/configs" \
+        >"$STAGE_DIR/existing-xray-test.log" 2>&1
 }
 
 classify() {
@@ -122,12 +130,20 @@ classify() {
 
     HAS_XKEEN=no; [ -x "$ROOT/sbin/xkeen" ] && HAS_XKEEN=yes
     HAS_XRAY=no; [ -x "$ROOT/sbin/xray" ] && HAS_XRAY=yes
-    HAS_XKEEN_UI=no; [ -x "$ROOT/sbin/xkeen-ui" ] && HAS_XKEEN_UI=yes
     HAS_CONFIGS=no; has_xray_configs && HAS_CONFIGS=yes
+    HAS_XKEEN_INIT=no; has_xkeen_init && HAS_XKEEN_INIT=yes
+    HAS_XKEEN_UI=no; [ -x "$ROOT/sbin/xkeen-ui" ] && HAS_XKEEN_UI=yes
+    HAS_XKEEN_UI_INIT=no; has_xkeen_ui_init && HAS_XKEEN_UI_INIT=yes
+    XRAY_VALID=no
 
-    if [ "$HAS_XKEEN" = yes ] && [ "$HAS_XRAY" = yes ] && [ "$HAS_CONFIGS" = yes ]; then
-        MODE='READY_EXISTING_STACK'
-    elif [ "$HAS_XKEEN" = no ] && [ "$HAS_XRAY" = no ] && [ "$HAS_XKEEN_UI" = no ] && [ "$HAS_CONFIGS" = no ]; then
+    if [ "$HAS_XKEEN" = yes ] && [ "$HAS_XRAY" = yes ] && [ "$HAS_CONFIGS" = yes ] && [ "$HAS_XKEEN_INIT" = yes ]; then
+        if existing_xray_valid; then
+            XRAY_VALID=yes
+            MODE='READY_EXISTING_STACK'
+        else
+            MODE='NEEDS_REVIEW'
+        fi
+    elif [ "$HAS_XKEEN" = no ] && [ "$HAS_XRAY" = no ] && [ "$HAS_CONFIGS" = no ] && [ "$HAS_XKEEN_INIT" = no ] && [ "$HAS_XKEEN_UI" = no ] && [ "$HAS_XKEEN_UI_INIT" = no ]; then
         MODE='ENTWARE_ONLY'
     else
         MODE='NEEDS_REVIEW'
@@ -138,16 +154,25 @@ print_plan() {
     say '========== FreeNet Bootstrap Plan =========='
     say "MODE=$MODE"
     say "ARCH=$ARCH"
+    say "XKEEN_PRESENT=$HAS_XKEEN"
+    say "XRAY_PRESENT=$HAS_XRAY"
+    say "XRAY_CONFIGS_PRESENT=$HAS_CONFIGS"
+    say "XRAY_CONFIG_VALID=$XRAY_VALID"
+    say "XKEEN_INIT_PRESENT=$HAS_XKEEN_INIT"
+    say "XKEEN_UI_OPTIONAL=yes"
+    say "XKEEN_UI_PRESENT=$HAS_XKEEN_UI"
+    say "XKEEN_UI_INIT_PRESENT=$HAS_XKEEN_UI_INIT"
     case "$MODE" in
         ENTWARE_ONLY)
             say "XKEEN=$XKEEN_VERSION/$XKEEN_ASSET"
             say "XRAY=$XRAY_VERSION/$XRAY_ASSET"
-            say "XKEEN_UI=$XKEEN_UI_VERSION/$XKEEN_UI_ASSET"
+            say 'XKEEN_UI_ACTION=not-installed'
             say 'DEPENDENCIES=targeted opkg install only; no global upgrade'
-            say 'APPLY=core stack only; DNS/VPN subscription remain setup-layer decisions'
+            say 'APPLY=core XKeen/Xray only; DNS/VPN subscription remain setup-layer decisions'
             ;;
         READY_EXISTING_STACK)
-            say 'NEXT=preserve existing stack and use FreeNet migration/update path'
+            say 'XKEEN_UI_ACTION=preserve-as-is'
+            say 'NEXT=preserve validated existing XKeen/Xray stack and use FreeNet migration/update path'
             ;;
         NEEDS_REVIEW)
             say 'NEXT=STOP: partial stack/config requires read-only review before mutation'
@@ -248,11 +273,9 @@ fetch_assets() {
 
     XKEEN_URL="https://github.com/$XKEEN_REPO/releases/download/$XKEEN_VERSION/$XKEEN_ASSET"
     XRAY_URL="https://github.com/$XRAY_REPO/releases/download/$XRAY_VERSION/$XRAY_ASSET"
-    XKEEN_UI_URL="https://github.com/$XKEEN_UI_REPO/releases/download/$XKEEN_UI_VERSION/$XKEEN_UI_ASSET"
 
     fetch_one XKeen "$XKEEN_URL" "$XKEEN_SHA256" "$STAGE_DIR/$XKEEN_ASSET" || return 1
     fetch_one Xray "$XRAY_URL" "$XRAY_SHA256" "$STAGE_DIR/$XRAY_ASSET" || return 1
-    fetch_one XKeen-UI "$XKEEN_UI_URL" "$XKEEN_UI_SHA256" "$STAGE_DIR/$XKEEN_UI_ASSET" || return 1
 
     say '[FreeNet Bootstrap] VERIFIED=YES'
 }
@@ -303,11 +326,9 @@ prepare_backup() {
     backup_path "$ROOT/sbin/xkeen" xkeen || return 1
     backup_path "$ROOT/sbin/.xkeen" xkeen-tree || return 1
     backup_path "$ROOT/sbin/xray" xray || return 1
-    backup_path "$ROOT/sbin/xkeen-ui" xkeen-ui || return 1
     backup_path "$ROOT/etc/xray" etc-xray || return 1
     backup_path "$ROOT/etc/xkeen" etc-xkeen || return 1
     backup_path "$ROOT/etc/init.d/S05xkeen" S05xkeen || return 1
-    backup_path "$ROOT/etc/init.d/S99xkeen-ui" S99xkeen-ui || return 1
 }
 
 restore_path() {
@@ -325,18 +346,15 @@ rollback_core() {
     ROLLBACK_ACTIVE=1
     say '[FreeNet Bootstrap] ROLLBACK: restoring pre-bootstrap core stack...'
 
-    [ -x "$ROOT/etc/init.d/S99xkeen-ui" ] && "$ROOT/etc/init.d/S99xkeen-ui" stop >/dev/null 2>&1 || true
     [ -x "$ROOT/etc/init.d/S05xkeen" ] && "$ROOT/etc/init.d/S05xkeen" stop >/dev/null 2>&1 || true
 
     RB=0
     restore_path "$ROOT/sbin/xkeen" xkeen || RB=1
     restore_path "$ROOT/sbin/.xkeen" xkeen-tree || RB=1
     restore_path "$ROOT/sbin/xray" xray || RB=1
-    restore_path "$ROOT/sbin/xkeen-ui" xkeen-ui || RB=1
     restore_path "$ROOT/etc/xray" etc-xray || RB=1
     restore_path "$ROOT/etc/xkeen" etc-xkeen || RB=1
     restore_path "$ROOT/etc/init.d/S05xkeen" S05xkeen || RB=1
-    restore_path "$ROOT/etc/init.d/S99xkeen-ui" S99xkeen-ui || RB=1
 
     ROLLBACK_ACTIVE=0
     [ "$RB" -eq 0 ]
@@ -386,7 +404,6 @@ extract_assets() {
     [ -f "$XRAY_UNPACK/xray" ] || return 1
     [ -f "$XRAY_UNPACK/geoip.dat" ] || return 1
     [ -f "$XRAY_UNPACK/geosite.dat" ] || return 1
-    [ -f "$STAGE_DIR/$XKEEN_UI_ASSET" ] || return 1
 }
 
 stage_core_files() {
@@ -402,8 +419,6 @@ stage_core_files() {
     cp "$XRAY_UNPACK/geoip.dat" "$ROOT/etc/xray/dat/geoip.dat" || return 1
     cp "$XRAY_UNPACK/geosite.dat" "$ROOT/etc/xray/dat/geosite.dat" || return 1
 
-    cp "$STAGE_DIR/$XKEEN_UI_ASSET" "$ROOT/sbin/xkeen-ui" || return 1
-    chmod 755 "$ROOT/sbin/xkeen-ui" || return 1
 }
 
 register_xkeen() {
@@ -450,37 +465,13 @@ validate_xray() {
         }
 }
 
-write_xkeen_ui_init() {
-    cat > "$ROOT/etc/init.d/S99xkeen-ui" <<'EOF'
-#!/bin/sh
-ENABLED=yes
-PROCS=xkeen-ui
-ARGS="-p 1000"
-PREARGS=""
-DESC="$PROCS"
-PATH=/opt/sbin:/opt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-. /opt/etc/init.d/rc.func
-EOF
-    chmod 755 "$ROOT/etc/init.d/S99xkeen-ui"
-}
-
-start_xkeen_ui() {
-    [ "$TEST_MODE" = yes ] && return 0
-    [ -f "$ROOT/etc/init.d/rc.func" ] || return 1
-    "$ROOT/etc/init.d/S99xkeen-ui" stop >/dev/null 2>&1 || true
-    "$ROOT/etc/init.d/S99xkeen-ui" start >/dev/null 2>&1 || return 1
-    sleep 2
-    pidof xkeen-ui >/dev/null 2>&1 || return 1
-    netstat -lntp 2>/dev/null | grep ':1000[[:space:]]' >/dev/null 2>&1 || return 1
-}
-
 write_bootstrap_state() {
     mkdir -p "$ROOT/etc/freenet" || return 1
     cat > "$ROOT/etc/freenet/bootstrap-state" <<EOF
 BOOTSTRAP_SCHEMA=1
 XKEEN_VERSION='$XKEEN_VERSION'
 XRAY_VERSION='$XRAY_VERSION'
-XKEEN_UI_VERSION='$XKEEN_UI_VERSION'
+XKEEN_UI_MANAGED=no
 CORE_READY=yes
 XKEEN_AUTOSTART=off
 PROXY_DNS=off
@@ -506,8 +497,6 @@ apply_core() {
     stage_core_files || fail_apply 'cannot install pinned core files'
     register_xkeen || fail_apply 'pinned XKeen local registration failed'
     validate_xray || fail_apply 'Xray baseline validation failed'
-    write_xkeen_ui_init || fail_apply 'cannot create XKeen UI init script'
-    start_xkeen_ui || fail_apply 'XKeen UI runtime acceptance failed'
     write_bootstrap_state || fail_apply 'cannot write bootstrap state'
 
     MUTATED=0
@@ -515,7 +504,7 @@ apply_core() {
     say "[FreeNet Bootstrap] BACKUP=$BACKUP_DIR"
     say '[FreeNet Bootstrap] XKeen autostart=off (setup wizard must choose network policy first)'
     say '[FreeNet Bootstrap] proxy_dns=off (setup wizard must choose DNS mode first)'
-    say '[FreeNet Bootstrap] XKeen UI=:1000 ready'
+    say '[FreeNet Bootstrap] XKeen UI=optional/unmanaged; not installed by FreeNet bootstrap'
     say '[FreeNet Bootstrap] ROLLBACK=AVAILABLE'
 }
 
