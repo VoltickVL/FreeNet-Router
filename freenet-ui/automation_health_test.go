@@ -607,3 +607,53 @@ func TestEndpointEmergencyConflictAndRollbackUnknownFailClosed(t *testing.T) {
 		t.Fatalf("unknown rollback result=%+v err=%v want critical STOP", result, err)
 	}
 }
+
+
+func TestAutomationQualityOptimizationStartReasonDistinguishesTriggerType(t *testing.T) {
+	severe := automationHealthProbe{
+		QualityDegraded: true,
+		QualityPoints:   automationQualityStrikeThreshold,
+		Reason:          "VPN отвечает, но качество соединения критически ухудшено: отклик 603 мс, сервисы 4/4.",
+	}
+	severeText := automationQualityOptimizationStartReason(severe)
+	for _, want := range []string{"severe-наблюдением", "603 мс", "сервисы 4/4"} {
+		if !strings.Contains(severeText, want) {
+			t.Fatalf("severe start reason missing %q: %s", want, severeText)
+		}
+	}
+	if strings.Contains(severeText, "Последовательная деградация") {
+		t.Fatalf("single severe trigger mislabeled as accumulated: %s", severeText)
+	}
+
+	accumulated := automationHealthProbe{
+		QualityDegraded: true,
+		QualityPoints:   1,
+		Reason:          "VPN отвечает, но качество соединения ухудшено: отклик 170 мс, сервисы 3/4.",
+	}
+	accumulatedText := automationQualityOptimizationStartReason(accumulated)
+	for _, want := range []string{"Последовательная деградация", "mild/strong evidence", "170 мс", "сервисы 3/4"} {
+		if !strings.Contains(accumulatedText, want) {
+			t.Fatalf("accumulated start reason missing %q: %s", want, accumulatedText)
+		}
+	}
+}
+
+func TestEmergencyRecoveryJournalUsesFirstEligibleTargetWording(t *testing.T) {
+	data, err := os.ReadFile("automation_health.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	start := strings.Index(text, "bestSettings.Policy = automationPolicyDegraded")
+	end := strings.Index(text[start:], "best, bestErr := a.runAutomationBestEmergencyCycle")
+	if start < 0 || end < 0 {
+		t.Fatal("emergency candidate-selection segment not found")
+	}
+	segment := text[start : start+end]
+	if !strings.Contains(segment, "ищем первый fully measured Eligible replacement") {
+		t.Fatalf("emergency journal does not expose target=1 semantics: %s", segment)
+	}
+	if strings.Contains(segment, "до Top-3 Eligible") {
+		t.Fatalf("emergency journal still claims decorative Top-3 target: %s", segment)
+	}
+}

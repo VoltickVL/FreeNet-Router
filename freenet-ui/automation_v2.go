@@ -719,6 +719,15 @@ func bestAutomationCandidate(response bestServerQualityResponse) (bestServerQual
 	return bestServerQualityCandidate{}, false
 }
 
+func automationBestEmergencySelectionSummary(selected bestServerQualityCandidate) string {
+	name := profileDisplayName(selected.Name)
+	if name == "" {
+		name = "VPN"
+	}
+	return fmt.Sprintf("AUTO VPN emergency: первый fully measured Eligible replacement — %s [VPN %d мс, сайты %d мс, скорость %.0f Мбит/с, стабильность %d мс].",
+		name, selected.VPNRTTMS, selected.ApplicationMS, selected.DownloadMbps, selected.JitterMS)
+}
+
 func automationBestSelectionSummary(response bestServerQualityResponse, selected bestServerQualityCandidate) string {
 	parts := make([]string, 0, bestServerVisibleAlternatives)
 	for _, candidate := range response.Candidates {

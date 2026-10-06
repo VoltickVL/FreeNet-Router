@@ -282,6 +282,17 @@ func automationQualityOptimizationDue(now time.Time, points int) bool {
 	return due
 }
 
+func automationQualityOptimizationStartReason(probe automationHealthProbe) string {
+	trigger := strings.TrimSpace(probe.Reason)
+	if trigger == "" {
+		trigger = "Текущая quality-проверка не содержит подробностей."
+	}
+	if probe.QualityPoints >= automationQualityStrikeThreshold {
+		return "Критическая деградация качества подтверждена одним severe-наблюдением. Триггер: " + trigger + " Сравниваем текущий VPN с fully measured Top-3."
+	}
+	return "Последовательная деградация качества подтверждена накоплением mild/strong evidence. Триггер: " + trigger + " Сравниваем текущий VPN с fully measured Top-3."
+}
+
 func classifyAutomationApplicationFailure(transportOK bool) automationHealthProbe {
 	if transportOK {
 		return automationHealthProbe{
@@ -470,7 +481,7 @@ func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings a
 		return automationBestCycleResult{Result: "candidate", Reason: reason, ProfileID: candidate.ID}, nil
 	}
 
-	appendAutomationHistoryV2("selection", automationBestSelectionSummary(candidates, candidate))
+	appendAutomationHistoryV2("selection", automationBestEmergencySelectionSummary(candidate))
 	status, applied := a.executeProviderProfileApply(networkApplyRequest{
 		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
 	})
@@ -736,7 +747,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		if qualityDue {
 			qualitySettings := settings
 			qualitySettings.Policy = automationPolicyBetter
-			appendAutomationRecoveryStage("quality_optimization", "start", "Повторяющаяся деградация качества подтверждена; сравниваем текущий VPN с fully measured Top-3.")
+			appendAutomationRecoveryStage("quality_optimization", "start", automationQualityOptimizationStartReason(first))
 			best, bestErr := a.runAutomationBestCycleWithSettings(parent, qualitySettings, false)
 			appendAutomationRecoveryStage("quality_optimization", best.Result, best.Reason)
 			return recordAndReturnHealth(automationHealthResult{State: best.Result, Reason: best.Reason, Mutated: best.Mutated}, bestErr)
@@ -819,7 +830,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	bestSettings.Mode = automationModeBest
 	bestSettings.Policy = automationPolicyDegraded
 	bestSettings.AutoApply = true
-	appendAutomationRecoveryStage("candidate_selection", "start", "Endpoint fast-path не восстановил VPN; запускаем canonical Best Server до Top-3 Eligible.")
+	appendAutomationRecoveryStage("candidate_selection", "start", "Endpoint fast-path не восстановил VPN; ищем первый fully measured Eligible replacement.")
 	best, bestErr := a.runAutomationBestEmergencyCycle(parent, bestSettings)
 	appendAutomationRecoveryStage("apply", best.Result, best.Reason)
 	if best.RollbackState != "" && best.RollbackState != "NOT_NEEDED" && best.RollbackState != "yes" {
