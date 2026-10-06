@@ -557,8 +557,8 @@ FreeNet не должен:
 | --- | --- |
 | `/opt/sbin/xray` | Xray engine |
 | `/opt/sbin/xkeen` | XKeen |
-| `/opt/sbin/xkeen-ui` | XKeen UI |
 | `/opt/sbin/freenet-ui` | FreeNet Control Center backend/UI |
+| `/opt/sbin/xkeen-ui` | необязательный existing XKeen UI; FreeNet его не устанавливает |
 | `/opt/etc/xray/configs/` | Xray config set |
 | `/opt/etc/freenet/freenet.conf` | несекретные настройки FreeNet |
 | `/opt/etc/xray/blanc_subscription.url` | локальный subscription secret |
