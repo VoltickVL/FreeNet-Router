@@ -53,72 +53,58 @@ echo "$OUT" | grep -Fq 'ARCH=arm64-v8a' || fail 'ARM64 mapping failed'
 echo "$OUT" | grep -Fq 'Xray-linux-arm64-v8a.zip' || fail 'ARM64 Xray asset mapping failed'
 echo "$OUT" | grep -Fq 'MUTATION=NONE' || fail 'plan must be read-only'
 
-# Existing binaries/configs without registered XKeen init are not a complete
-# working stack and must STOP rather than silently invent registration state.
+# A usable existing core means registered XKeen + Xray + configs + successful
+# Xray validation. XKeen UI is optional and must not affect readiness.
 printf '#!/bin/sh\nexit 0\n' > "$R1/sbin/xkeen"
 printf '#!/bin/sh\nexit 0\n' > "$R1/sbin/xray"
 chmod +x "$R1/sbin/xkeen" "$R1/sbin/xray"
 mkdir -p "$R1/etc/xray/configs" "$R1/etc/init.d"
 printf '{}\n' > "$R1/etc/xray/configs/01_log.json"
-OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
-echo "$OUT" | grep -Fq 'MODE=NEEDS_REVIEW' || fail 'existing core without XKeen init must classify NEEDS_REVIEW'
-echo "$OUT" | grep -Fq 'XKEEN_INIT_PRESENT=no' || fail 'plan must expose missing XKeen init fact'
-
-# A validated registered XKeen/Xray stack with both XKeen UI binary and init
-# absent is the one supported additive completion path.
-printf '#!/bin/sh\nstart_auto="on"\nexit 0\n' > "$R1/etc/init.d/S05xkeen"
+printf '#!/bin/sh\nexit 0\n' > "$R1/etc/init.d/S05xkeen"
 chmod +x "$R1/etc/init.d/S05xkeen"
-OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
-echo "$OUT" | grep -Fq 'MODE=EXISTING_STACK_MISSING_UI' || fail 'working registered core without XKeen UI must classify EXISTING_STACK_MISSING_UI'
-echo "$OUT" | grep -Fq 'XKEEN_INIT_PRESENT=yes' || fail 'registered XKeen init fact missing'
-echo "$OUT" | grep -Fq 'install only missing pinned XKeen UI' || fail 'missing UI plan must describe additive completion'
 
-# Exercise UI-only apply deterministically. It may add only xkeen-ui + its init;
-# existing XKeen, Xray and Xray configs must remain byte-identical.
-XKEEN_BEFORE="$(sha256sum "$R1/sbin/xkeen" | awk '{print $1}')"
-XRAY_BEFORE="$(sha256sum "$R1/sbin/xray" | awk '{print $1}')"
-CONFIG_BEFORE="$(sha256sum "$R1/etc/xray/configs/01_log.json" | awk '{print $1}')"
-UI_STAGE="$TMP/ui-stage"
-mkdir -p "$UI_STAGE"
-printf '#!/bin/sh\nexit 0\n' > "$UI_STAGE/xkeen-ui-arm64-v8a"
-chmod +x "$UI_STAGE/xkeen-ui-arm64-v8a"
-OUT="$(FREENET_ROOT="$R1" FREENET_PIN_FILE="$PINS" FREENET_ARCH_RAW='aarch64-3.10 150' FREENET_STAGE_DIR="$UI_STAGE" FREENET_BOOTSTRAP_TEST_MODE=yes sh "$BOOT" apply-ui)"
-echo "$OUT" | grep -Fq 'UI_APPLY=SUCCESS' || fail 'UI-only apply did not report success'
-echo "$OUT" | grep -Fq 'CORE_DELTA=XKeen/Xray/configs unchanged' || fail 'UI-only apply does not declare core no-delta'
-[ -x "$R1/sbin/xkeen-ui" ] || fail 'UI-only apply did not install XKeen UI'
-[ -x "$R1/etc/init.d/S99xkeen-ui" ] || fail 'UI-only apply did not install XKeen UI init'
-[ "$(sha256sum "$R1/sbin/xkeen" | awk '{print $1}')" = "$XKEEN_BEFORE" ] || fail 'UI-only apply changed XKeen'
-[ "$(sha256sum "$R1/sbin/xray" | awk '{print $1}')" = "$XRAY_BEFORE" ] || fail 'UI-only apply changed Xray'
-[ "$(sha256sum "$R1/etc/xray/configs/01_log.json" | awk '{print $1}')" = "$CONFIG_BEFORE" ] || fail 'UI-only apply changed Xray configs'
-
-# Complete validated existing stack including XKeen UI is preserved.
 OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
-echo "$OUT" | grep -Fq 'MODE=READY_EXISTING_STACK' || fail 'complete validated stack must be READY_EXISTING_STACK'
-echo "$OUT" | grep -Fq 'XKEEN_UI_INIT_PRESENT=yes' || fail 'complete stack must expose XKeen UI init'
+echo "$OUT" | grep -Fq 'MODE=READY_EXISTING_STACK' || fail 'validated existing core without XKeen UI must be READY'
+echo "$OUT" | grep -Fq 'XKEEN_UI_OPTIONAL=yes' || fail 'plan must declare XKeen UI optional'
+echo "$OUT" | grep -Fq 'XKEEN_UI_PRESENT=no' || fail 'plan must report absent optional XKeen UI'
+echo "$OUT" | grep -Fq 'XKEEN_UI_ACTION=preserve-as-is' || fail 'existing path must preserve optional XKeen UI state'
 
-# A half-present UI is contradictory: do not overwrite a possibly user-managed
-# binary or invent its startup contract.
-rm -f "$R1/etc/init.d/S99xkeen-ui"
+# Optional XKeen UI artifacts, even if only partially present, are preserved as-is
+# and do not redefine the core readiness contract.
+printf '#!/bin/sh\nexit 0\n' > "$R1/sbin/xkeen-ui"
+chmod +x "$R1/sbin/xkeen-ui"
 OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
-echo "$OUT" | grep -Fq 'MODE=NEEDS_REVIEW' || fail 'UI binary without UI init must classify NEEDS_REVIEW'
+echo "$OUT" | grep -Fq 'MODE=READY_EXISTING_STACK' || fail 'optional UI binary must not block valid core'
+echo "$OUT" | grep -Fq 'XKEEN_UI_PRESENT=yes' || fail 'optional UI binary fact missing'
+echo "$OUT" | grep -Fq 'XKEEN_UI_INIT_PRESENT=no' || fail 'optional UI init fact missing'
+
 cat > "$R1/etc/init.d/S99xkeen-ui" <<'EOF'
 #!/bin/sh
 exit 0
 EOF
 chmod +x "$R1/etc/init.d/S99xkeen-ui"
+OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
+echo "$OUT" | grep -Fq 'MODE=READY_EXISTING_STACK' || fail 'complete optional UI must not change core readiness'
 
-# Existing files are not enough: invalid Xray runtime/config validation must STOP.
+# Missing XKeen registration is core partial state and must STOP.
+rm -f "$R1/etc/init.d/S05xkeen"
+OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
+echo "$OUT" | grep -Fq 'MODE=NEEDS_REVIEW' || fail 'existing core without XKeen init must classify NEEDS_REVIEW'
+printf '#!/bin/sh\nexit 0\n' > "$R1/etc/init.d/S05xkeen"
+chmod +x "$R1/etc/init.d/S05xkeen"
+
+# Invalid Xray runtime/config validation must STOP.
 printf '#!/bin/sh\nexit 1\n' > "$R1/sbin/xray"
 chmod +x "$R1/sbin/xray"
 OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
 echo "$OUT" | grep -Fq 'MODE=NEEDS_REVIEW' || fail 'invalid existing Xray must classify NEEDS_REVIEW'
-
-# Any other partial stack/config must STOP instead of guessing.
 printf '#!/bin/sh\nexit 0\n' > "$R1/sbin/xray"
 chmod +x "$R1/sbin/xray"
+
+# Other partial core states must STOP instead of guessing.
 rm -f "$R1/sbin/xray"
 OUT="$(run_plan "$R1" 'aarch64-3.10 150')"
-echo "$OUT" | grep -Fq 'MODE=NEEDS_REVIEW' || fail 'partial stack must classify NEEDS_REVIEW'
+echo "$OUT" | grep -Fq 'MODE=NEEDS_REVIEW' || fail 'partial core must classify NEEDS_REVIEW'
 
 # Architecture mappings are explicit.
 R2="$TMP/mipsle"
@@ -147,22 +133,22 @@ grep -Fq 'CORE_APPLY=SUCCESS' "$BOOT" || fail 'success marker missing'
 grep -Fq 'XKEEN_AUTOSTART=off' "$BOOT" || fail 'bootstrap state must require setup wizard before XKeen autostart'
 grep -Fq 'PROXY_DNS=off' "$BOOT" || fail 'bootstrap state must require setup wizard before DNS policy'
 
-# Existing-stack completion is deliberately narrow: only missing XKeen UI may be
-# added; the existing core must validate first and the UI delta has its own rollback.
-grep -Fq "MODE='EXISTING_STACK_MISSING_UI'" "$BOOT" || fail 'missing-UI classification is absent'
-grep -Fq 'existing_xray_valid' "$BOOT" || fail 'existing stack is not runtime-validated'
-grep -Fq 'has_xkeen_init' "$BOOT" || fail 'existing stack does not require registered XKeen init'
-grep -Fq 'has_xkeen_ui_init' "$BOOT" || fail 'complete stack does not require XKeen UI init'
-grep -Fq 'XKEEN_INIT_PRESENT=' "$BOOT" || fail 'plan does not expose XKeen init fact'
-grep -Fq 'XKEEN_UI_INIT_PRESENT=' "$BOOT" || fail 'plan does not expose XKeen UI init fact'
-grep -Fq 'apply-ui requires MODE=EXISTING_STACK_MISSING_UI' "$BOOT" || fail 'UI-only apply is not mode-gated'
-grep -Fq 'fetch_one XKeen-UI "$XKEEN_UI_URL" "$XKEEN_UI_SHA256"' "$BOOT" || fail 'UI-only apply does not verify pinned XKeen UI digest'
-grep -Fq 'ROLLBACK: restoring XKeen UI-only delta' "$BOOT" || fail 'UI-only rollback is missing'
-grep -Fq 'UI_APPLY=SUCCESS' "$BOOT" || fail 'UI-only success marker is missing'
-grep -Fq 'CORE_DELTA=XKeen/Xray/configs unchanged' "$BOOT" || fail 'UI-only no-core-delta marker is missing'
-UI_APPLY_BLOCK="$(sed -n '/^apply_missing_ui() {/,/^}/p' "$BOOT")"
-if printf '%s\n' "$UI_APPLY_BLOCK" | grep -Eq 'stage_core_files|register_xkeen|etc/xray/configs'; then
-    fail 'UI-only apply contains forbidden XKeen/Xray/config mutation path'
+# XKeen UI is explicitly optional/unmanaged. Clean bootstrap must not fetch,
+# install, start or roll it back; existing artifacts are informational only.
+grep -Fq 'XKEEN_UI_OPTIONAL=yes' "$BOOT" || fail 'XKeen UI optional contract missing'
+grep -Fq 'XKEEN_UI_ACTION=not-installed' "$BOOT" || fail 'clean install does not state no XKeen UI install'
+grep -Fq 'XKEEN_UI_ACTION=preserve-as-is' "$BOOT" || fail 'existing stack does not preserve XKeen UI'
+grep -Fq 'XKEEN_UI_MANAGED=no' "$BOOT" || fail 'bootstrap state does not mark XKeen UI unmanaged'
+grep -Fq 'existing_xray_valid' "$BOOT" || fail 'existing Xray is not validated'
+grep -Fq 'has_xkeen_init' "$BOOT" || fail 'existing XKeen registration is not validated'
+if grep -Fq 'fetch_one XKeen-UI' "$BOOT"; then
+    fail 'clean bootstrap must not fetch XKeen UI'
+fi
+if grep -Fq 'write_xkeen_ui_init' "$BOOT" || grep -Fq 'start_xkeen_ui' "$BOOT"; then
+    fail 'bootstrap must not create/start XKeen UI'
+fi
+if grep -Fq 'cp "$STAGE_DIR/$XKEEN_UI_ASSET"' "$BOOT"; then
+    fail 'bootstrap must not install XKeen UI binary'
 fi
 
 # Core bootstrap never receives VPN credentials/provider data.
