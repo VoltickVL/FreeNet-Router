@@ -719,6 +719,15 @@ func bestAutomationCandidate(response bestServerQualityResponse) (bestServerQual
 	return bestServerQualityCandidate{}, false
 }
 
+func automationCooldownReason(candidate bestServerQualityCandidate) string {
+	name := profileDisplayName(candidate.Name)
+	if name == "" {
+		name = "VPN"
+	}
+	return fmt.Sprintf("Новый VPN найден: %s [VPN %d мс, сайты %d мс, скорость %.0f Мбит/с, стабильность %d мс], но текущий VPN всё ещё исправен и действует 6-часовая защита от лишних переключений.",
+		name, candidate.VPNRTTMS, candidate.ApplicationMS, candidate.DownloadMbps, candidate.JitterMS)
+}
+
 func automationBestEmergencySelectionSummary(selected bestServerQualityCandidate) string {
 	name := profileDisplayName(selected.Name)
 	if name == "" {
@@ -870,7 +879,7 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 		return automationBestCycleResult{Result: "same", Reason: reason, ProfileID: candidate.ID}, nil
 	}
 	if currentState == "healthy" && automationCooldownActive(parseAutomationLastSwitch(automationStatePath()), time.Now().UTC()) {
-		reason := "Новый VPN найден, но текущий VPN всё ещё исправен и действует 6-часовая защита от лишних переключений."
+		reason := automationCooldownReason(candidate)
 		writeAutomationStateV2("cooldown", reason, "no", false)
 		appendAutomationHistoryV2("cooldown", reason)
 		return automationBestCycleResult{Result: "cooldown", Reason: reason, ProfileID: candidate.ID}, nil
