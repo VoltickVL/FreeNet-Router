@@ -275,26 +275,34 @@ func TestAutomationQualityOptimizationUsesWeightedSeverity(t *testing.T) {
 		state[k] = v
 	}
 
-	// Healthy observations do not erase recent degradation inside the window.
+	// A confirmed healthy observation must break the degradation sequence.
 	updates, due = automationQualityOptimizationPlan(state, base.Add(5*time.Minute), 0)
-	if due {
-		t.Fatal("healthy sample unexpectedly triggered optimization")
+	if due || updates["QUALITY_DEGRADED_COUNT"] != "0" || updates["QUALITY_DEGRADED_SINCE"] != "" {
+		t.Fatalf("healthy sample must clear pending mild evidence: updates=%v due=%v", updates, due)
 	}
 	for k, v := range updates {
 		state[k] = v
 	}
 
 	updates, due = automationQualityOptimizationPlan(state, base.Add(10*time.Minute), 1)
-	if due || updates["QUALITY_DEGRADED_COUNT"] != "2" {
-		t.Fatalf("second mild point updates=%v due=%v", updates, due)
+	if due || updates["QUALITY_DEGRADED_COUNT"] != "1" {
+		t.Fatalf("first mild point after healthy reset updates=%v due=%v", updates, due)
 	}
 	for k, v := range updates {
 		state[k] = v
 	}
 
 	updates, due = automationQualityOptimizationPlan(state, base.Add(20*time.Minute), 1)
+	if due || updates["QUALITY_DEGRADED_COUNT"] != "2" {
+		t.Fatalf("second consecutive mild point updates=%v due=%v", updates, due)
+	}
+	for k, v := range updates {
+		state[k] = v
+	}
+
+	updates, due = automationQualityOptimizationPlan(state, base.Add(25*time.Minute), 1)
 	if !due {
-		t.Fatalf("three mild points inside %s must trigger optimization: updates=%v", automationQualityStrikeWindow, updates)
+		t.Fatalf("three consecutive mild points inside %s must trigger optimization: updates=%v", automationQualityStrikeWindow, updates)
 	}
 
 	state = map[string]string{}

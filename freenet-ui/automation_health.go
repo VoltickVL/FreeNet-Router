@@ -236,7 +236,12 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, p
 	lastOptimization := parseStamp("QUALITY_OPTIMIZATION_LAST")
 
 	if points <= 0 {
-		if !start.IsZero() && (now.Before(start) || now.Sub(start) > automationQualityStrikeWindow) {
+		// A confirmed healthy observation breaks the degradation sequence.
+		// Runtime v0.5.0 evidence showed that carrying mild strikes across an
+		// intervening healthy sample caused expensive Top-3 scans for transient
+		// 3/4 or short latency spikes. Keep the optimization cooldown, but clear
+		// only the pending quality evidence.
+		if count != 0 || !start.IsZero() {
 			updates["QUALITY_DEGRADED_COUNT"] = "0"
 			updates["QUALITY_DEGRADED_SINCE"] = ""
 		}
@@ -723,9 +728,10 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		qualityDue := false
 		if settings.Mode == automationModeBest && first.QualityDegraded {
 			qualityDue = automationQualityOptimizationDue(time.Now().UTC(), first.QualityPoints)
-		} else {
-			_ = automationQualityOptimizationDue(time.Now().UTC(), 0)
 		}
+		// A non-quality uncertain probe is not proof of recovery and must not
+		// clear pending quality evidence. Only a confirmed healthy probe resets
+		// the mild/strong strike sequence.
 		cancel()
 		if qualityDue {
 			qualitySettings := settings
