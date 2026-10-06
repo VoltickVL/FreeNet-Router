@@ -24,7 +24,6 @@ FreeNet Stage-0
 FreeNet bootstrap
         ├─ clean Entware → pinned XKeen + Xray
         ├─ existing valid XKeen/Xray → preserve
-        ├─ XKeen UI → optional/unmanaged, не устанавливается FreeNet
         └─ partial/unknown core → STOP без догадок
         ↓
 FreeNet Control Center в браузере
@@ -65,21 +64,6 @@ FreeNet использует pinned-версию Xray и проверяет за
 [XKeen](https://github.com/jameszeroX/XKeen) интегрирует Xray с Keenetic/Netcraze: сервис, запуск, DNS/proxy integration и окружение роутера.
 
 На clean install FreeNet регистрирует XKeen в безопасном pre-setup состоянии: autostart и proxy-DNS не включаются до того, как Browser Setup примет сетевую политику.
-
-### XKeen UI — необязательный
-
-[XKeen UI](https://github.com/zxc-rv/XKeen-UI) **не является обязательной частью FreeNet**.
-
-Контракт начиная с v0.6.3:
-
-- clean install **не скачивает и не устанавливает XKeen UI**;
-- отсутствие XKeen UI не мешает установке FreeNet;
-- если XKeen UI уже установлен, FreeNet сохраняет его as-is;
-- FreeNet не становится lifecycle owner XKeen UI.
-
-Основной эксплуатационный интерфейс — **FreeNet Control Center** на `http://<LAN-IP>:1001/`.
-
-Если сторонний XKeen UI уже существует, его обычный локальный порт может оставаться `:1000`, но это не часть FreeNet install contract.
 
 ---
 
@@ -195,7 +179,7 @@ curl -fsSL https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/
 10. Скачивает опубликованный `bootstrap.sh` FreeNet.
 11. Обычный FreeNet bootstrap устанавливает/сохраняет XKeen + Xray, ставит FreeNet и запускает Control Center.
 
-Stage-0 не выполняет global `opkg upgrade` и не устанавливает XKeen UI.
+Stage-0 не выполняет global `opkg upgrade`.
 
 ### Когда Stage-0 остановится
 
@@ -253,13 +237,11 @@ FreeNet:
 8. повторно делает read-only classification;
 9. только после `READY_EXISTING_STACK` устанавливает FreeNet app/helper layer.
 
-**XKeen UI не устанавливается.**
 
 ### `READY_EXISTING_STACK`
 
 Есть зарегистрированный XKeen, Xray, Xray configs и successful `xray run -test`.
 
-XKeen UI для этого режима **не нужен**. Если он уже существует, FreeNet не меняет его.
 
 FreeNet не должен сбрасывать:
 
@@ -558,7 +540,6 @@ FreeNet не должен:
 | `/opt/sbin/xray` | Xray engine |
 | `/opt/sbin/xkeen` | XKeen |
 | `/opt/sbin/freenet-ui` | FreeNet Control Center backend/UI |
-| `/opt/sbin/xkeen-ui` | необязательный existing XKeen UI; FreeNet его не устанавливает |
 | `/opt/etc/xray/configs/` | Xray config set |
 | `/opt/etc/freenet/freenet.conf` | несекретные настройки FreeNet |
 | `/opt/etc/xray/blanc_subscription.url` | локальный subscription secret |
