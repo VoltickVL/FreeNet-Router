@@ -28,10 +28,21 @@ const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
 (() => {
   const root = document.documentElement;
   let frames = 0;
+  const canonicalRoutes = ['overview','subscription','settings','network','journal'];
+  const canonicalNavReady = () => {
+    const buttons = Array.from(document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]'));
+    return buttons.length === canonicalRoutes.length && buttons.every((button, index) =>
+      button.dataset.page === canonicalRoutes[index] &&
+      !!button.querySelector('.nav-icon[data-freenet-shell="1"] svg')
+    );
+  };
   const canonicalReady = () => !!(
     document.getElementById('freenetAcceptedUXStyles') &&
     document.getElementById('freenetFinalShellPolishStyles') &&
-    document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')
+    document.querySelector('.sidebar>.brand .fn-brand-lockup-svg') &&
+    canonicalNavReady() &&
+    document.querySelector('[data-page-view="settings"]') &&
+    document.querySelector('[data-page-view="journal"]')
   );
   const release = () => {
     if (canonicalReady()) {
@@ -102,9 +113,10 @@ let localPending=`
 		return "", errors.New("page label end marker is missing")
 	}
 	labelsEndAt := labelsAt + labelsTail
-	// Only pages that physically exist in the initial document are routable here.
-	// The canonical bootstrap later adds Settings/Routing/Journal and their labels.
-	canonicalLabels := `const pageLabels={overview:'Обзор',subscription:'Подписка'}`
+	// The route catalog is final from the first HTML response. Settings and Journal
+	// mount progressively behind the boot gate, while Routing keeps its established
+	// internal "network" anchor. Retired routes are never reintroduced.
+	canonicalLabels := `const pageLabels={overview:'Обзор',subscription:'Подписка',settings:'Настройки',network:'Маршрутизация',journal:'Журнал'}`
 	raw = raw[:labelsAt] + canonicalLabels + raw[labelsEndAt:]
 
 	// Settings DNS, Routing v2, Config Studio parity, VPN-state reconciliation,
