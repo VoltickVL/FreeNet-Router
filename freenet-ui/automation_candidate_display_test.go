@@ -50,3 +50,23 @@ func TestAutomationSelectionSummaryExplainsTopThreeWithoutEndpointSecrets(t *tes
 		t.Fatalf("selection summary leaked endpoint/credentials: %s", got)
 	}
 }
+
+
+func TestAutomationEmergencySelectionSummaryDescribesSingleReplacement(t *testing.T) {
+	selected := bestServerQualityCandidate{
+		ID: "aaaaaaaaaaaaaaaa", Name: "CZ Prague, Czechia, Extra",
+		Available: true, Eligible: true, VPNRTTMS: 174, ApplicationMS: 173, DownloadMbps: 97, JitterMS: 25,
+	}
+	got := automationBestEmergencySelectionSummary(selected)
+	for _, want := range []string{"первый fully measured Eligible replacement", "Prague", "VPN 174 мс", "сайты 173 мс", "скорость 97 Мбит/с", "стабильность 25 мс"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("emergency selection summary missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "Top-3") {
+		t.Fatalf("single emergency replacement mislabeled as Top-3: %s", got)
+	}
+	if strings.Contains(got, ":443") || strings.Contains(got, "vless://") {
+		t.Fatalf("emergency selection summary leaked endpoint/credentials: %s", got)
+	}
+}
