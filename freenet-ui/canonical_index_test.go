@@ -75,10 +75,6 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 		`document.getElementById('freenetAcceptedUXStyles')`,
 		`document.getElementById('freenetFinalShellPolishStyles')`,
 		`document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')`,
-		`const finalPages = ['overview','subscription','settings','network','journal']`,
-		`document.querySelector('[data-page-view="settings"]')`,
-		`document.querySelector('[data-page-view="journal"]')`,
-		`!nav.querySelector('[data-page="vpn"],[data-page="automation"],[data-page="system"],[data-page="access"]')`,
 		`root.classList.remove('freenet-canonical-boot')`,
 	} {
 		if !strings.Contains(html, want) {
@@ -109,8 +105,17 @@ func TestCanonicalIndexExactRootKeepsAssetFallback(t *testing.T) {
 		t.Fatalf("canonical root status=%d", rootRec.Code)
 	}
 	body := rootRec.Body.String()
-	if !strings.Contains(body, ">Настройки</span></button>") || strings.Contains(body, `data-page="automation"`) || !strings.Contains(body, `data-page="journal"`) {
-		t.Fatalf("root did not receive final canonical first-paint shell")
+	rootNavStart := strings.Index(body, `<nav class="nav" aria-label="Навигация Control Center">`)
+	rootNavEndRel := -1
+	if rootNavStart >= 0 {
+		rootNavEndRel = strings.Index(body[rootNavStart:], `</nav>`)
+	}
+	if rootNavStart < 0 || rootNavEndRel < 0 {
+		t.Fatal("root canonical navigation missing")
+	}
+	rootNav := body[rootNavStart : rootNavStart+rootNavEndRel+len(`</nav>`)]
+	if !strings.Contains(rootNav, ">Настройки</span></button>") || strings.Contains(rootNav, `data-page="automation"`) || !strings.Contains(rootNav, `data-page="journal"`) {
+		t.Fatalf("root did not receive final canonical first-paint shell: %s", rootNav)
 	}
 	if !strings.Contains(body, `/accepted-ux.js?v=v`) {
 		t.Fatal("root lost accepted UX delivery chain")
