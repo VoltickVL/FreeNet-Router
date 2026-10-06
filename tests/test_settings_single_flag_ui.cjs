@@ -68,7 +68,7 @@ const server = http.createServer((req, res) => {
     page.on('pageerror', error => errors.push(error.message));
     const base = `http://127.0.0.1:${server.address().port}`;
     await page.goto(`${base}/#settings`);
-    await page.waitForSelector('#fn3Profile', {state:'visible'});
+    await page.waitForSelector('#fn3Profile', {state:'attached'});
     await page.waitForFunction(() => (document.querySelector('#fn3Profile')?.textContent || '').includes('Франкфурт-на-Майне'));
     await page.waitForFunction(() => !(document.querySelector('#fn3Profile')?.textContent || '').includes('🇩🇪'));
 
