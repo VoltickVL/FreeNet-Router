@@ -112,12 +112,18 @@ detect_single_ext4() {
 
 wait_for_entware() {
     ELAPSED=0
-    while [ ! -x "$OPKG" ]; do
-        [ "$ELAPSED" -lt "$WAIT_SECONDS" ] || stop "Entware did not expose $OPKG within $WAIT_SECONDS seconds"
+    while :; do
+        if [ -x "$OPKG" ] && "$OPKG" print-architecture >/tmp/freenet-stage0-arch.log 2>/dev/null; then
+            say "[FreeNet Stage-0] ENTWARE_READY=yes"
+            return 0
+        fi
+        [ "$ELAPSED" -lt "$WAIT_SECONDS" ] || {
+            tail -n 20 /tmp/freenet-stage0-arch.log 2>/dev/null || true
+            stop "Entware did not become ready within $WAIT_SECONDS seconds"
+        }
         sleep "$WAIT_STEP"
         ELAPSED=$((ELAPSED + WAIT_STEP))
     done
-    say "[FreeNet Stage-0] ENTWARE_READY=yes"
 }
 
 verify_entware_arch() {
