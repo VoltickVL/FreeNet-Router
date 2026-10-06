@@ -40,9 +40,7 @@ const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
     document.getElementById('freenetAcceptedUXStyles') &&
     document.getElementById('freenetFinalShellPolishStyles') &&
     document.querySelector('.sidebar>.brand .fn-brand-lockup-svg') &&
-    canonicalNavReady() &&
-    document.querySelector('[data-page-view="settings"]') &&
-    document.querySelector('[data-page-view="journal"]')
+    canonicalNavReady()
   );
   const release = () => {
     if (canonicalReady()) {
