@@ -26,6 +26,13 @@ MUTATED=0
 ROLLBACK_ACTIVE=0
 BACKUP_DIR=""
 UI_WAS_RUNNING=0
+HAS_XKEEN=unknown
+HAS_XRAY=unknown
+HAS_XKEEN_UI=unknown
+HAS_XKEEN_INIT=unknown
+HAS_XKEEN_UI_INIT=unknown
+HAS_CONFIGS=unknown
+XRAY_VALID=unknown
 TEST_MODE="${FREENET_BOOTSTRAP_TEST_MODE:-no}"
 
 cleanup_stage() {
@@ -112,6 +119,14 @@ has_xray_configs() {
     find "$ROOT/etc/xray/configs" -maxdepth 1 -type f -name '*.json' 2>/dev/null | grep -q .
 }
 
+has_xkeen_init() {
+    [ -f "$ROOT/etc/init.d/S05xkeen" ] || [ -f "$ROOT/etc/init.d/S99xkeen" ]
+}
+
+has_xkeen_ui_init() {
+    [ -f "$ROOT/etc/init.d/S99xkeen-ui" ]
+}
+
 existing_xray_valid() {
     [ -x "$ROOT/sbin/xray" ] || return 1
     [ -d "$ROOT/etc/xray/configs" ] || return 1
@@ -134,17 +149,25 @@ classify() {
     HAS_XKEEN=no; [ -x "$ROOT/sbin/xkeen" ] && HAS_XKEEN=yes
     HAS_XRAY=no; [ -x "$ROOT/sbin/xray" ] && HAS_XRAY=yes
     HAS_XKEEN_UI=no; [ -x "$ROOT/sbin/xkeen-ui" ] && HAS_XKEEN_UI=yes
+    HAS_XKEEN_INIT=no; has_xkeen_init && HAS_XKEEN_INIT=yes
+    HAS_XKEEN_UI_INIT=no; has_xkeen_ui_init && HAS_XKEEN_UI_INIT=yes
     HAS_CONFIGS=no; has_xray_configs && HAS_CONFIGS=yes
+    XRAY_VALID=no
 
-    if [ "$HAS_XKEEN" = yes ] && [ "$HAS_XRAY" = yes ] && [ "$HAS_CONFIGS" = yes ]; then
-        if ! existing_xray_valid; then
-            MODE='NEEDS_REVIEW'
-        elif [ "$HAS_XKEEN_UI" = yes ]; then
-            MODE='READY_EXISTING_STACK'
+    if [ "$HAS_XKEEN" = yes ] && [ "$HAS_XRAY" = yes ] && [ "$HAS_CONFIGS" = yes ] && [ "$HAS_XKEEN_INIT" = yes ]; then
+        if existing_xray_valid; then
+            XRAY_VALID=yes
+            if [ "$HAS_XKEEN_UI" = yes ] && [ "$HAS_XKEEN_UI_INIT" = yes ]; then
+                MODE='READY_EXISTING_STACK'
+            elif [ "$HAS_XKEEN_UI" = no ] && [ "$HAS_XKEEN_UI_INIT" = no ]; then
+                MODE='EXISTING_STACK_MISSING_UI'
+            else
+                MODE='NEEDS_REVIEW'
+            fi
         else
-            MODE='EXISTING_STACK_MISSING_UI'
+            MODE='NEEDS_REVIEW'
         fi
-    elif [ "$HAS_XKEEN" = no ] && [ "$HAS_XRAY" = no ] && [ "$HAS_XKEEN_UI" = no ] && [ "$HAS_CONFIGS" = no ]; then
+    elif [ "$HAS_XKEEN" = no ] && [ "$HAS_XRAY" = no ] && [ "$HAS_XKEEN_UI" = no ] && [ "$HAS_XKEEN_INIT" = no ] && [ "$HAS_XKEEN_UI_INIT" = no ] && [ "$HAS_CONFIGS" = no ]; then
         MODE='ENTWARE_ONLY'
     else
         MODE='NEEDS_REVIEW'
@@ -155,6 +178,13 @@ print_plan() {
     say '========== FreeNet Bootstrap Plan =========='
     say "MODE=$MODE"
     say "ARCH=$ARCH"
+    say "XKEEN_PRESENT=$HAS_XKEEN"
+    say "XRAY_PRESENT=$HAS_XRAY"
+    say "XRAY_CONFIGS_PRESENT=$HAS_CONFIGS"
+    say "XRAY_CONFIG_VALID=$XRAY_VALID"
+    say "XKEEN_INIT_PRESENT=$HAS_XKEEN_INIT"
+    say "XKEEN_UI_PRESENT=$HAS_XKEEN_UI"
+    say "XKEEN_UI_INIT_PRESENT=$HAS_XKEEN_UI_INIT"
     case "$MODE" in
         ENTWARE_ONLY)
             say "XKEEN=$XKEEN_VERSION/$XKEEN_ASSET"
