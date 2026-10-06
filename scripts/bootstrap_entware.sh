@@ -4,8 +4,9 @@
 # plan/fetch are read-only with respect to persistent /opt state.
 # apply provisions targeted dependencies, installs exact pinned XKeen/Xray/
 # XKeen UI on a CLEAN Entware-only router, validates the result and rolls the
-# core stack back on any post-apply failure. Existing/partial stacks are never
-# rebuilt by this path.
+# core stack back on any post-apply failure. apply-ui is the only additive
+# existing-stack repair: when XKeen + Xray + configs are valid and only XKeen UI
+# is absent, it installs just the pinned UI. Any other partial state stops.
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Bootstrap] ERROR: %s\n' "$*" >&2; }
@@ -24,6 +25,7 @@ LAST_DOWNLOAD_ERROR=""
 MUTATED=0
 ROLLBACK_ACTIVE=0
 BACKUP_DIR=""
+UI_WAS_RUNNING=0
 TEST_MODE="${FREENET_BOOTSTRAP_TEST_MODE:-no}"
 
 cleanup_stage() {
@@ -110,6 +112,15 @@ has_xray_configs() {
     find "$ROOT/etc/xray/configs" -maxdepth 1 -type f -name '*.json' 2>/dev/null | grep -q .
 }
 
+existing_xray_valid() {
+    [ -x "$ROOT/sbin/xray" ] || return 1
+    [ -d "$ROOT/etc/xray/configs" ] || return 1
+    make_stage || return 1
+    XRAY_LOCATION_ASSET="$ROOT/etc/xray/dat" \
+        "$ROOT/sbin/xray" run -test -confdir "$ROOT/etc/xray/configs" \
+        >"$STAGE_DIR/existing-xray-test.log" 2>&1
+}
+
 classify() {
     [ -d "$ROOT" ] || { MODE='NO_ENTWARE'; return; }
     if [ ! -x "$ROOT/bin/opkg" ] && ! command -v opkg >/dev/null 2>&1; then
@@ -126,7 +137,13 @@ classify() {
     HAS_CONFIGS=no; has_xray_configs && HAS_CONFIGS=yes
 
     if [ "$HAS_XKEEN" = yes ] && [ "$HAS_XRAY" = yes ] && [ "$HAS_CONFIGS" = yes ]; then
-        MODE='READY_EXISTING_STACK'
+        if ! existing_xray_valid; then
+            MODE='NEEDS_REVIEW'
+        elif [ "$HAS_XKEEN_UI" = yes ]; then
+            MODE='READY_EXISTING_STACK'
+        else
+            MODE='EXISTING_STACK_MISSING_UI'
+        fi
     elif [ "$HAS_XKEEN" = no ] && [ "$HAS_XRAY" = no ] && [ "$HAS_XKEEN_UI" = no ] && [ "$HAS_CONFIGS" = no ]; then
         MODE='ENTWARE_ONLY'
     else
@@ -147,7 +164,11 @@ print_plan() {
             say 'APPLY=core stack only; DNS/VPN subscription remain setup-layer decisions'
             ;;
         READY_EXISTING_STACK)
-            say 'NEXT=preserve existing stack and use FreeNet migration/update path'
+            say 'NEXT=preserve validated existing XKeen/Xray/XKeen UI stack and use FreeNet migration/update path'
+            ;;
+        EXISTING_STACK_MISSING_UI)
+            say "XKEEN_UI=$XKEEN_UI_VERSION/$XKEEN_UI_ASSET"
+            say 'NEXT=install only missing pinned XKeen UI; preserve XKeen/Xray/configs'
             ;;
         NEEDS_REVIEW)
             say 'NEXT=STOP: partial stack/config requires read-only review before mutation'
@@ -257,6 +278,20 @@ fetch_assets() {
     say '[FreeNet Bootstrap] VERIFIED=YES'
 }
 
+fetch_ui_asset() {
+    [ "$MODE" = 'EXISTING_STACK_MISSING_UI' ] || {
+        err "UI-only fetch is allowed only for MODE=EXISTING_STACK_MISSING_UI (got $MODE)"
+        return 1
+    }
+    for T in curl sha256sum sed awk; do
+        command -v "$T" >/dev/null 2>&1 || { err "missing tool for UI-only repair: $T"; return 1; }
+    done
+    make_stage || return 1
+    XKEEN_UI_URL="https://github.com/$XKEEN_UI_REPO/releases/download/$XKEEN_UI_VERSION/$XKEEN_UI_ASSET"
+    fetch_one XKeen-UI "$XKEEN_UI_URL" "$XKEEN_UI_SHA256" "$STAGE_DIR/$XKEEN_UI_ASSET" || return 1
+    say '[FreeNet Bootstrap] UI_VERIFIED=YES'
+}
+
 ensure_dependencies() {
     [ "$MODE" = 'ENTWARE_ONLY' ] || return 1
     say '[FreeNet Bootstrap] Targeted Entware dependencies...'
@@ -292,6 +327,50 @@ backup_path() {
     else
         echo no > "$BACKUP_DIR/$KEY.exists"
     fi
+}
+
+prepare_ui_backup() {
+    STAMP="$(date +%Y%m%d-%H%M%S 2>/dev/null)"
+    [ -n "$STAMP" ] || STAMP="$$"
+    BACKUP_DIR="$ROOT/backups/freenet-bootstrap-ui-$STAMP"
+    mkdir -p "$BACKUP_DIR" || return 1
+    pidof xkeen-ui >/dev/null 2>&1 && UI_WAS_RUNNING=1 || UI_WAS_RUNNING=0
+    backup_path "$ROOT/sbin/xkeen-ui" xkeen-ui || return 1
+    backup_path "$ROOT/etc/init.d/S99xkeen-ui" S99xkeen-ui || return 1
+}
+
+rollback_ui() {
+    [ "$MUTATED" = 1 ] || return 0
+    [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] || return 1
+    ROLLBACK_ACTIVE=1
+    say '[FreeNet Bootstrap] ROLLBACK: restoring XKeen UI-only delta...'
+    [ -x "$ROOT/etc/init.d/S99xkeen-ui" ] && "$ROOT/etc/init.d/S99xkeen-ui" stop >/dev/null 2>&1 || true
+    killall xkeen-ui >/dev/null 2>&1 || true
+    RB=0
+    restore_path "$ROOT/sbin/xkeen-ui" xkeen-ui || RB=1
+    restore_path "$ROOT/etc/init.d/S99xkeen-ui" S99xkeen-ui || RB=1
+    if [ "$UI_WAS_RUNNING" = 1 ] && [ -x "$ROOT/etc/init.d/S99xkeen-ui" ]; then
+        "$ROOT/etc/init.d/S99xkeen-ui" start >/dev/null 2>&1 || RB=1
+    fi
+    ROLLBACK_ACTIVE=0
+    [ "$RB" -eq 0 ]
+}
+
+fail_ui_apply() {
+    MESSAGE="$1"
+    err "$MESSAGE"
+    if [ "$MUTATED" = 1 ] && [ "$ROLLBACK_ACTIVE" = 0 ]; then
+        if rollback_ui; then
+            say '[FreeNet Bootstrap] ROLLBACK: SUCCESS'
+            cleanup_stage
+            exit 1
+        fi
+        say '[FreeNet Bootstrap] ROLLBACK ERROR: FAILED/UNKNOWN' >&2
+        cleanup_stage
+        exit 2
+    fi
+    cleanup_stage
+    exit 1
 }
 
 prepare_backup() {
@@ -474,6 +553,30 @@ start_xkeen_ui() {
     netstat -lntp 2>/dev/null | grep ':1000[[:space:]]' >/dev/null 2>&1 || return 1
 }
 
+apply_missing_ui() {
+    [ "$MODE" = EXISTING_STACK_MISSING_UI ] || fail_ui_apply "apply-ui requires MODE=EXISTING_STACK_MISSING_UI; got $MODE"
+    for T in curl sha256sum sed awk cp; do
+        command -v "$T" >/dev/null 2>&1 || fail_ui_apply "required UI-only bootstrap tool missing: $T"
+    done
+    fetch_ui_asset || fail_ui_apply 'pinned XKeen UI fetch/verification failed'
+    prepare_ui_backup || fail_ui_apply 'cannot create XKeen UI-only backup'
+
+    MUTATED=1
+    mkdir -p "$ROOT/sbin" "$ROOT/etc/init.d" || fail_ui_apply 'cannot prepare XKeen UI paths'
+    cp "$STAGE_DIR/$XKEEN_UI_ASSET" "$ROOT/sbin/xkeen-ui" || fail_ui_apply 'cannot install pinned XKeen UI binary'
+    chmod 755 "$ROOT/sbin/xkeen-ui" || fail_ui_apply 'cannot set XKeen UI permissions'
+    write_xkeen_ui_init || fail_ui_apply 'cannot create XKeen UI init script'
+    start_xkeen_ui || fail_ui_apply 'XKeen UI runtime acceptance failed'
+
+    HAS_XKEEN_UI=yes
+    MODE='READY_EXISTING_STACK'
+    MUTATED=0
+    say '[FreeNet Bootstrap] UI_APPLY=SUCCESS'
+    say "[FreeNet Bootstrap] BACKUP=$BACKUP_DIR"
+    say '[FreeNet Bootstrap] CORE_DELTA=XKeen/Xray/configs unchanged'
+    say '[FreeNet Bootstrap] ROLLBACK=AVAILABLE'
+}
+
 write_bootstrap_state() {
     mkdir -p "$ROOT/etc/freenet" || return 1
     cat > "$ROOT/etc/freenet/bootstrap-state" <<EOF
@@ -541,8 +644,14 @@ case "${1:-plan}" in
         apply_core
         cleanup_stage
         ;;
+    apply-ui)
+        print_plan
+        trap 'if [ "$MUTATED" = 1 ] && [ "$ROLLBACK_ACTIVE" = 0 ]; then rollback_ui || true; fi; cleanup_stage; exit 130' 1 2 15
+        apply_missing_ui
+        cleanup_stage
+        ;;
     *)
-        err 'usage: bootstrap_entware.sh [plan|fetch|apply]'
+        err 'usage: bootstrap_entware.sh [plan|fetch|apply|apply-ui]'
         cleanup_stage
         exit 2
         ;;
