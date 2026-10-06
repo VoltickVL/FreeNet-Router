@@ -28,26 +28,11 @@ const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
 (() => {
   const root = document.documentElement;
   let frames = 0;
-  const canonicalReady = () => {
-    const nav = document.querySelector('.sidebar>.nav');
-    if (!nav) return false;
-    const finalPages = ['overview','subscription','settings','network','journal'];
-    const buttons = Array.from(nav.querySelectorAll(':scope > .nav-btn[data-page]'));
-    const pages = buttons.map(button => button.dataset.page || '');
-    const finalNavigation =
-      buttons.length === finalPages.length &&
-      finalPages.every((page, index) => pages[index] === page) &&
-      buttons.every(button => !!button.querySelector('.nav-icon svg')) &&
-      !nav.querySelector('[data-page="vpn"],[data-page="automation"],[data-page="system"],[data-page="access"]');
-    return !!(
-      finalNavigation &&
-      document.querySelector('[data-page-view="settings"]') &&
-      document.querySelector('[data-page-view="journal"]') &&
-      document.getElementById('freenetAcceptedUXStyles') &&
-      document.getElementById('freenetFinalShellPolishStyles') &&
-      document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')
-    );
-  };
+  const canonicalReady = () => !!(
+    document.getElementById('freenetAcceptedUXStyles') &&
+    document.getElementById('freenetFinalShellPolishStyles') &&
+    document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')
+  );
   const release = () => {
     if (canonicalReady()) {
       requestAnimationFrame(() => requestAnimationFrame(() => {
