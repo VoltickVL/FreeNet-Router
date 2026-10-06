@@ -214,13 +214,8 @@ if grep -Ei 'XKEEN_UI_REPO|fetch_one XKeen-UI|cp .*xkeen-ui|write_xkeen_ui_init|
     fail 'stage-0 must not manage XKeen UI'
 fi
 README="$ROOT_DIR/README.md"
-grep -Fq 'XKeen UI — необязательный' "$README" || fail 'README does not mark XKeen UI optional'
-grep -Fq 'clean install **не скачивает и не устанавливает XKeen UI**' "$README" || fail 'README clean-install UI contract missing'
-if grep -Fq 'ставит pinned XKeen + Xray + XKeen UI' "$README"; then
-    fail 'README still claims clean install adds XKeen UI'
-fi
-if grep -Fq 'скачивает **pinned** XKeen, Xray и XKeen UI' "$README"; then
-    fail 'README still contains stale XKeen UI bootstrap wording'
+if grep -Ei 'XKeen[[:space:]-]*UI|xkeen-ui' "$README" >/dev/null; then
+    fail 'README must not mention XKeen UI'
 fi
 grep -Fq 'more than one mounted EXT4 partition found; refusing to guess' "$BOOT" || fail 'multiple-disk STOP contract missing'
 grep -Fq "Ultra (KN-1811)" "$BOOT" || fail 'KN-1811 mapping missing'
