@@ -28,14 +28,22 @@ func TestCanonicalizeControlCenterIndexRemovesLegacyFirstPaint(t *testing.T) {
 	nav := html[navStart : navStart+navEndRel+len(`</nav>`)]
 
 	for _, want := range []string{"Обзор", "Подписка", "Настройки", "Маршрутизация", "Журнал"} {
-		if !strings.Contains(nav, ">"+want+"</button>") {
+		if !strings.Contains(nav, ">"+want+"</span></button>") {
 			t.Fatalf("canonical first-paint navigation missing %q", want)
 		}
 	}
-	for _, retired := range []string{">VPN</button>", ">Сеть</button>", ">Автоматизация</button>", ">Система</button>", ">Доступ и безопасность</button>"} {
-		if strings.Contains(nav, retired) {
-			t.Fatalf("retired first-paint navigation leaked %q", retired)
+	for _, want := range []string{`data-page="overview"`, `data-page="subscription"`, `data-page="settings"`, `data-page="network"`, `data-page="journal"`} {
+		if !strings.Contains(nav, want) {
+			t.Fatalf("canonical first-paint route missing %q", want)
 		}
+	}
+	for _, retired := range []string{`data-page="vpn"`, `data-page="automation"`, `data-page="system"`, `data-page="access"`} {
+		if strings.Contains(nav, retired) {
+			t.Fatalf("retired first-paint navigation route leaked %q", retired)
+		}
+	}
+	if got := strings.Count(nav, `<svg viewBox="0 0 24 24"`); got != 5 {
+		t.Fatalf("canonical first-paint navigation must ship five final SVG icons, got %d", got)
 	}
 	if strings.Contains(html, `<div class="side-bottom">`) {
 		t.Fatal("legacy sidebar footer must not be present in first-paint HTML")
@@ -64,6 +72,10 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 		`document.getElementById('freenetAcceptedUXStyles')`,
 		`document.getElementById('freenetFinalShellPolishStyles')`,
 		`document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')`,
+		`const finalPages = ['overview','subscription','settings','network','journal']`,
+		`document.querySelector('[data-page-view="settings"]')`,
+		`document.querySelector('[data-page-view="journal"]')`,
+		`!nav.querySelector('[data-page="vpn"],[data-page="automation"],[data-page="system"],[data-page="access"]')`,
 		`root.classList.remove('freenet-canonical-boot')`,
 	} {
 		if !strings.Contains(html, want) {
@@ -94,8 +106,8 @@ func TestCanonicalIndexExactRootKeepsAssetFallback(t *testing.T) {
 		t.Fatalf("canonical root status=%d", rootRec.Code)
 	}
 	body := rootRec.Body.String()
-	if !strings.Contains(body, ">Настройки</button>") || strings.Contains(body, ">Автоматизация</button>") {
-		t.Fatalf("root did not receive canonical first-paint shell")
+	if !strings.Contains(body, ">Настройки</span></button>") || strings.Contains(body, `data-page="automation"`) || !strings.Contains(body, `data-page="journal"`) {
+		t.Fatalf("root did not receive final canonical first-paint shell")
 	}
 	if !strings.Contains(body, `/accepted-ux.js?v=v`) {
 		t.Fatal("root lost accepted UX delivery chain")
