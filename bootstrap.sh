@@ -283,7 +283,7 @@ classify_core() {
     CORE_MODE="$(sed -n 's/^MODE=//p' "$TMP_DIR/core-plan.txt" | head -n 1)"
     [ -n "$CORE_INITIAL_MODE" ] || CORE_INITIAL_MODE="$CORE_MODE"
     case "$CORE_MODE" in
-        ENTWARE_ONLY|READY_EXISTING_STACK|EXISTING_STACK_MISSING_UI) ;;
+        ENTWARE_ONLY|READY_EXISTING_STACK) ;;
         NEEDS_REVIEW|NO_ENTWARE|UNSUPPORTED_ARCH|'')
             cat "$TMP_DIR/core-plan.txt"
             err "core state $CORE_MODE requires review; no app mutation started"
@@ -310,42 +310,21 @@ verify_core_ready_after_apply() {
 }
 
 ensure_core() {
-    case "$CORE_MODE" in
-        READY_EXISTING_STACK)
-            ok 'validated existing XKeen/Xray/XKeen UI stack preserved'
-            return 0
-            ;;
-        EXISTING_STACK_MISSING_UI)
-            info 'Validated existing XKeen/Xray stack detected. Installing only missing pinned XKeen UI...'
-            FREENET_PIN_FILE="$TMP_DIR/upstream-pins.env" sh "$TMP_DIR/bootstrap_entware.sh" apply-ui
-            RC=$?
-            if [ "$RC" -eq 2 ]; then
-                err 'XKeen UI-only bootstrap rollback FAILED/UNKNOWN; stop all mutation and inspect runtime'
-                exit 2
-            fi
-            [ "$RC" -eq 0 ] || { err 'XKeen UI-only bootstrap failed/rolled back; app install not started'; exit 1; }
-            verify_core_ready_after_apply
-            ok 'missing XKeen UI installed; XKeen/Xray/configs preserved'
-            return 0
-            ;;
-        ENTWARE_ONLY)
-            info 'Clean Entware detected. Installing pinned XKeen/Xray/XKeen UI core...'
-            FREENET_PIN_FILE="$TMP_DIR/upstream-pins.env" sh "$TMP_DIR/bootstrap_entware.sh" apply
-            RC=$?
-            if [ "$RC" -eq 2 ]; then
-                err 'core bootstrap rollback FAILED/UNKNOWN; stop all mutation and inspect runtime'
-                exit 2
-            fi
-            [ "$RC" -eq 0 ] || { err 'core bootstrap failed/rolled back; app install not started'; exit 1; }
-            verify_core_ready_after_apply
-            ok 'pinned core bootstrap'
-            return 0
-            ;;
-        *)
-            err "unexpected core state before apply: $CORE_MODE"
-            exit 1
-            ;;
-    esac
+    if [ "$CORE_MODE" = READY_EXISTING_STACK ]; then
+        ok 'validated existing XKeen/Xray stack preserved; XKeen UI optional and untouched'
+        return 0
+    fi
+
+    info 'Clean Entware detected. Installing pinned XKeen/Xray core; XKeen UI is not installed...'
+    FREENET_PIN_FILE="$TMP_DIR/upstream-pins.env" sh "$TMP_DIR/bootstrap_entware.sh" apply
+    RC=$?
+    if [ "$RC" -eq 2 ]; then
+        err 'core bootstrap rollback FAILED/UNKNOWN; stop all mutation and inspect runtime'
+        exit 2
+    fi
+    [ "$RC" -eq 0 ] || { err 'core bootstrap failed/rolled back; app install not started'; exit 1; }
+    verify_core_ready_after_apply
+    ok 'pinned XKeen/Xray core bootstrap'
 }
 
 backup_one() {
@@ -485,10 +464,10 @@ write_config_if_missing() {
     fi
 
     # Пользователь не выбирает тип установки вручную. Сценарий определяется
-    # по исходному read-only core plan: UI-only completion остаётся existing_stack,
-    # а clean ENTWARE_ONLY — fresh_entware даже после post-apply READY acceptance.
+    # по исходному read-only core plan; post-apply READY не должен превратить
+    # свежую Entware-установку в existing_stack.
     case "$CORE_INITIAL_MODE" in
-        READY_EXISTING_STACK|EXISTING_STACK_MISSING_UI) INSTALL_SCENARIO=existing_stack ;;
+        READY_EXISTING_STACK) INSTALL_SCENARIO=existing_stack ;;
         ENTWARE_ONLY) INSTALL_SCENARIO=fresh_entware ;;
         *) return 1 ;;
     esac
