@@ -9,11 +9,11 @@ import (
 )
 
 const canonicalFirstPaintNav = `<nav class="nav" aria-label="Навигация Control Center">
-      <button class="nav-btn active" data-page="overview"><span class="nav-icon">⌂</span>Обзор</button>
-      <button class="nav-btn" data-page="subscription"><span class="nav-icon">◎</span>Подписка</button>
-      <button class="nav-btn" data-page="automation"><span class="nav-icon">⚙</span>Настройки</button>
-      <button class="nav-btn" data-page="network"><span class="nav-icon">⇄</span>Маршрутизация</button>
-      <button class="nav-btn" data-page="access"><span class="nav-icon">☷</span>Журнал</button>
+      <button class="nav-btn active" data-page="overview"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-8Z"/><path d="M9.5 20v-6h5v6"/></svg></span><span>Обзор</span></button>
+      <button class="nav-btn" data-page="subscription"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 3.5v2M20.5 12h-2M12 20.5v-2M3.5 12h2"/></svg></span><span>Подписка</span></button>
+      <button class="nav-btn" data-page="settings"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21H10v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg></span><span>Настройки</span></button>
+      <button class="nav-btn" data-page="network"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h14m0 0-3-3m3 3-3 3M20 16H6m0 0 3-3m-3 3 3 3"/></svg></span><span>Маршрутизация</span></button>
+      <button class="nav-btn" data-page="journal"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg></span><span>Журнал</span></button>
     </nav>`
 
 const canonicalBootStyle = `<style id="freenetCanonicalBootStyle">
@@ -28,10 +28,19 @@ const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
 (() => {
   const root = document.documentElement;
   let frames = 0;
+  const canonicalRoutes = ['overview','subscription','settings','network','journal'];
+  const canonicalNavReady = () => {
+    const buttons = Array.from(document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]'));
+    return buttons.length === canonicalRoutes.length && buttons.every((button, index) =>
+      button.dataset.page === canonicalRoutes[index] &&
+      !!button.querySelector('.nav-icon[data-freenet-shell="1"] svg')
+    );
+  };
   const canonicalReady = () => !!(
     document.getElementById('freenetAcceptedUXStyles') &&
     document.getElementById('freenetFinalShellPolishStyles') &&
-    document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')
+    document.querySelector('.sidebar>.brand .fn-brand-lockup-svg') &&
+    canonicalNavReady()
   );
   const release = () => {
     if (canonicalReady()) {
@@ -50,11 +59,9 @@ const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
 })();
 </script>`
 
-// The three compatibility data-page values above are deliberately internal only.
-// Existing scripts still use those DOM anchors while Settings/Routing/Journal are
-// mounted. Their legacy labels are never sent to the browser and pageLabels does
-// not expose the old routes, so an old hash safely falls back to Overview during
-// bootstrap instead of painting a retired page.
+// The first visible shell already uses final Settings/Journal routes. Routing keeps
+// the historical internal "network" anchor because Routing v2 owns that page, but
+// no retired navigation item is ever sent as part of the canonical first paint.
 func canonicalizeControlCenterIndex(raw string) (string, error) {
 	const htmlStart = `<html lang="ru">`
 	const headStart = `<head>`
@@ -104,9 +111,10 @@ let localPending=`
 		return "", errors.New("page label end marker is missing")
 	}
 	labelsEndAt := labelsAt + labelsTail
-	// Only pages that physically exist in the initial document are routable here.
-	// The canonical bootstrap later adds Settings/Routing/Journal and their labels.
-	canonicalLabels := `const pageLabels={overview:'Обзор',subscription:'Подписка'}`
+	// The route catalog is final from the first HTML response. Settings and Journal
+	// mount progressively behind the boot gate, while Routing keeps its established
+	// internal "network" anchor. Retired routes are never reintroduced.
+	canonicalLabels := `const pageLabels={overview:'Обзор',subscription:'Подписка',settings:'Настройки',network:'Маршрутизация',journal:'Журнал'}`
 	raw = raw[:labelsAt] + canonicalLabels + raw[labelsEndAt:]
 
 	// Settings DNS, Routing v2, Config Studio parity, VPN-state reconciliation,

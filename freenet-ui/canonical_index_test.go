@@ -28,20 +28,31 @@ func TestCanonicalizeControlCenterIndexRemovesLegacyFirstPaint(t *testing.T) {
 	nav := html[navStart : navStart+navEndRel+len(`</nav>`)]
 
 	for _, want := range []string{"Обзор", "Подписка", "Настройки", "Маршрутизация", "Журнал"} {
-		if !strings.Contains(nav, ">"+want+"</button>") {
+		if !strings.Contains(nav, ">"+want+"</span></button>") {
 			t.Fatalf("canonical first-paint navigation missing %q", want)
 		}
 	}
-	for _, retired := range []string{">VPN</button>", ">Сеть</button>", ">Автоматизация</button>", ">Система</button>", ">Доступ и безопасность</button>"} {
-		if strings.Contains(nav, retired) {
-			t.Fatalf("retired first-paint navigation leaked %q", retired)
+	for _, want := range []string{`data-page="overview"`, `data-page="subscription"`, `data-page="settings"`, `data-page="network"`, `data-page="journal"`} {
+		if !strings.Contains(nav, want) {
+			t.Fatalf("canonical first-paint route missing %q", want)
 		}
+	}
+	for _, retired := range []string{`data-page="vpn"`, `data-page="automation"`, `data-page="system"`, `data-page="access"`} {
+		if strings.Contains(nav, retired) {
+			t.Fatalf("retired first-paint navigation route leaked %q", retired)
+		}
+	}
+	if got := strings.Count(nav, `<svg viewBox="0 0 24 24"`); got != 5 {
+		t.Fatalf("canonical first-paint navigation must ship five final SVG icons, got %d", got)
+	}
+	if got := strings.Count(nav, `data-freenet-shell="1"`); got != 5 {
+		t.Fatalf("canonical first-paint icons must be marked final before accepted UX mounts, got %d", got)
 	}
 	if strings.Contains(html, `<div class="side-bottom">`) {
 		t.Fatal("legacy sidebar footer must not be present in first-paint HTML")
 	}
-	if !strings.Contains(html, `const pageLabels={overview:'Обзор',subscription:'Подписка'};`) {
-		t.Fatal("legacy page labels remain routable during bootstrap")
+	if !strings.Contains(html, `const pageLabels={overview:'Обзор',subscription:'Подписка',settings:'Настройки',network:'Маршрутизация',journal:'Журнал'};`) {
+		t.Fatal("canonical page labels are not final during bootstrap")
 	}
 }
 
@@ -64,6 +75,10 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 		`document.getElementById('freenetAcceptedUXStyles')`,
 		`document.getElementById('freenetFinalShellPolishStyles')`,
 		`document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')`,
+		`const canonicalRoutes = ['overview','subscription','settings','network','journal']`,
+		`document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]')`,
+		`.nav-icon[data-freenet-shell="1"] svg`,
+
 		`root.classList.remove('freenet-canonical-boot')`,
 	} {
 		if !strings.Contains(html, want) {
@@ -94,8 +109,17 @@ func TestCanonicalIndexExactRootKeepsAssetFallback(t *testing.T) {
 		t.Fatalf("canonical root status=%d", rootRec.Code)
 	}
 	body := rootRec.Body.String()
-	if !strings.Contains(body, ">Настройки</button>") || strings.Contains(body, ">Автоматизация</button>") {
-		t.Fatalf("root did not receive canonical first-paint shell")
+	rootNavStart := strings.Index(body, `<nav class="nav" aria-label="Навигация Control Center">`)
+	rootNavEndRel := -1
+	if rootNavStart >= 0 {
+		rootNavEndRel = strings.Index(body[rootNavStart:], `</nav>`)
+	}
+	if rootNavStart < 0 || rootNavEndRel < 0 {
+		t.Fatal("root canonical navigation missing")
+	}
+	rootNav := body[rootNavStart : rootNavStart+rootNavEndRel+len(`</nav>`)]
+	if !strings.Contains(rootNav, ">Настройки</span></button>") || strings.Contains(rootNav, `data-page="automation"`) || !strings.Contains(rootNav, `data-page="journal"`) {
+		t.Fatalf("root did not receive final canonical first-paint shell: %s", rootNav)
 	}
 	if !strings.Contains(body, `/accepted-ux.js?v=v`) {
 		t.Fatal("root lost accepted UX delivery chain")

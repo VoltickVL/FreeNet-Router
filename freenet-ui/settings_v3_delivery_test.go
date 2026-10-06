@@ -66,6 +66,8 @@ func TestSettingsV3IsDeliveredByCanonicalAutomationPipeline(t *testing.T) {
 		"ensureSettingsPage()",
 		"ensureSettingsNav()",
 		"page.dataset.pageView = 'settings'",
+		"journal.dataset.freenetJournalBound !== '1'",
+		"journal.dataset.freenetJournalBound = '1'",
 		"q('#fn3AllEvents').onclick = () => window.openFreeNetJournal('all')",
 		"window.openFreeNetJournal = filter =>",
 		"data-journal-filter",
