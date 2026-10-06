@@ -100,6 +100,9 @@
       journal.dataset.page = 'journal';
       journal.innerHTML = `<span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg></span><span>Журнал</span>`;
       nav.appendChild(journal);
+    }
+    if (journal.dataset.freenetJournalBound !== '1') {
+      journal.dataset.freenetJournalBound = '1';
       journal.addEventListener('click', () => {
         if (typeof window.setPage === 'function') window.setPage('journal');
         mountJournalPage();
