@@ -68,6 +68,15 @@ const server = http.createServer((req, res) => {
     page.on('pageerror', error => errors.push(error.message));
     const base = `http://127.0.0.1:${server.address().port}`;
     await page.goto(`${base}/#settings`);
+    await page.waitForTimeout(750);
+    const boot = await page.evaluate(() => ({
+      readyState: document.readyState,
+      hash: location.hash,
+      coreLoaded: !!window.__freenetSettingsV3Loaded,
+      settingsPage: !!document.querySelector('[data-page-view="settings"]'),
+      scripts: Array.from(document.scripts).map(script => script.src || '[inline]')
+    }));
+    console.log('SETTINGS_BOOT_DEBUG', JSON.stringify(boot), 'PAGE_ERRORS', JSON.stringify(errors));
     await page.waitForSelector('#fn3Profile', {state:'attached'});
     await page.waitForFunction(() => (document.querySelector('#fn3Profile')?.textContent || '').includes('Франкфурт-на-Майне'));
     await page.waitForFunction(() => !(document.querySelector('#fn3Profile')?.textContent || '').includes('🇩🇪'));
