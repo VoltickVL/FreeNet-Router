@@ -1,33 +1,42 @@
 # FreeNet Router
 
-**FreeNet Router** — локальный Control Center для Keenetic/Netcraze с Entware, XKeen и Xray. Он управляет VPN, DNS, маршрутизацией, автоматическим восстановлением VPN, подпиской и обновлениями через браузер, а SSH оставляет только для первичной установки Entware и аварийной диагностики.
+**FreeNet Router** — локальный Control Center для Keenetic/Netcraze с Entware, XKeen и Xray. Он управляет VPN, DNS, маршрутизацией, автоматическим восстановлением VPN, подпиской и обновлениями через браузер. SSH нужен только для первичного bootstrap или аварийной диагностики.
 
-Целевой пользовательский путь:
+Целевой путь для нового Ultra:
 
 ```text
 Keenetic / Netcraze
         ↓
-USB-накопитель с EXT4
+веб-интерфейс роутера
         ↓
-Entware / OPKG
+один USB-раздел → штатно форматируем в EXT4
         ↓
-ОДНА команда FreeNet bootstrap
+системные компоненты: EXT + Open Package support + SSH server
         ↓
-FreeNet сам определяет состояние роутера
-        ├─ чистый Entware → ставит pinned XKeen + Xray + XKeen UI
-        ├─ рабочий XKeen/Xray → сохраняет существующий стек
-        └─ partial/unknown → STOP без догадок
+ОДНА команда с компьютера через stock SSH
+        ↓
+FreeNet Stage-0
+        ├─ определяет Ultra/архитектуру
+        ├─ находит ровно один mounted EXT4
+        ├─ онлайн устанавливает Entware
+        └─ передаёт управление обычному FreeNet bootstrap
+        ↓
+FreeNet bootstrap
+        ├─ clean Entware → pinned XKeen + Xray
+        ├─ existing valid XKeen/Xray → preserve
+        ├─ XKeen UI → optional/unmanaged, не устанавливается FreeNet
+        └─ partial/unknown core → STOP без догадок
         ↓
 FreeNet Control Center в браузере
         ↓
 Subscription → VPN → DNS → Routing → Automation → Acceptance
 ```
 
-> **На USB не ставится отдельная операционная система.** Роутер продолжает работать под KeeneticOS/Netcraze OS. Накопитель используется для Entware и каталога `/opt`, где затем находятся Xray/XKeen/FreeNet и их локальные данные.
+> **На USB не ставится отдельная операционная система.** Роутер продолжает работать под KeeneticOS/Netcraze OS. Накопитель используется для Entware и каталога `/opt`, где затем находятся XKeen, Xray, FreeNet и их локальные данные.
 
 ---
 
-## 1. Что именно устанавливается
+## 1. Что именно устанавливает FreeNet
 
 ### FreeNet
 
@@ -47,7 +56,7 @@ FreeNet — верхний уровень управления. Он отвеч�
 
 ### Xray
 
-[Xray-core](https://github.com/XTLS/Xray-core) — непосредственно VPN/proxy engine. Он обрабатывает VLESS/Reality, outbounds, DNS-out и routing-конфигурацию.
+[Xray-core](https://github.com/XTLS/Xray-core) — VPN/proxy engine. Он обрабатывает VLESS/Reality, outbounds, DNS-out и routing-конфигурацию.
 
 FreeNet использует pinned-версию Xray и проверяет загружаемый upstream-артефакт по SHA-256. Актуальный pin находится в [`config/upstream-pins.env`](config/upstream-pins.env).
 
@@ -55,146 +64,178 @@ FreeNet использует pinned-версию Xray и проверяет за
 
 [XKeen](https://github.com/jameszeroX/XKeen) интегрирует Xray с Keenetic/Netcraze: сервис, запуск, DNS/proxy integration и окружение роутера.
 
-На чистой установке FreeNet регистрирует XKeen в безопасном pre-setup состоянии: autostart и proxy-DNS не включаются до того, как Browser Setup примет соответствующую сетевую политику.
+На clean install FreeNet регистрирует XKeen в безопасном pre-setup состоянии: autostart и proxy-DNS не включаются до того, как Browser Setup примет сетевую политику.
 
-### XKeen UI
+### XKeen UI — необязательный
 
-[XKeen UI](https://github.com/zxc-rv/XKeen-UI) — upstream-интерфейс XKeen. FreeNet устанавливает его как часть поддерживаемого core stack. Основной эксплуатационный интерфейс проекта — **FreeNet Control Center**, а не XKeen UI.
+[XKeen UI](https://github.com/zxc-rv/XKeen-UI) **не является обязательной частью FreeNet**.
 
-Типичные локальные порты после установки:
+Контракт начиная с v0.6.3:
 
-- XKeen UI: `http://<LAN-IP>:1000/`;
-- FreeNet Control Center: `http://<LAN-IP>:1001/`.
+- clean install **не скачивает и не устанавливает XKeen UI**;
+- отсутствие XKeen UI не мешает установке FreeNet;
+- если XKeen UI уже установлен, FreeNet сохраняет его as-is;
+- FreeNet не становится lifecycle owner XKeen UI.
 
-FreeNet Control Center слушает LAN-адрес, а не wildcard `0.0.0.0`.
+Основной эксплуатационный интерфейс — **FreeNet Control Center** на `http://<LAN-IP>:1001/`.
 
----
-
-# Установка с нуля
-
-## 2. Что понадобится
-
-Нужны:
-
-- совместимый Keenetic или Netcraze с USB;
-- USB-флешка, SSD или другой надёжный USB-накопитель;
-- доступ к веб-интерфейсу роутера;
-- один SSH-сеанс для установки Entware и запуска FreeNet bootstrap;
-- интернет на роутере.
-
-FreeNet сейчас собирается для Entware-архитектур:
-
-- AArch64 → `arm64-v8a`;
-- MIPSel → `mips32le`;
-- MIPS → `mips32`.
-
-Архитектуру **не надо угадывать**: Entware ставится по официальной инструкции именно для вашей модели, а FreeNet затем сам читает `opkg print-architecture`.
+Если сторонний XKeen UI уже существует, его обычный локальный порт может оставаться `:1000`, но это не часть FreeNet install contract.
 
 ---
 
-## 3. Подготовка USB
+# Установка с нуля — Ultra
 
-### Рекомендуемая файловая система — EXT4
+## 2. Модели первого acceptance
 
-Для Entware используйте отдельный раздел EXT4. Keenetic и Netcraze в своих инструкциях также рекомендуют EXT4 для OPKG/Entware.
+Stage-0 автоматически поддерживает:
 
-**Форматирование уничтожит данные на выбранном разделе.** Если на накопителе что-то нужно сохранить — сначала сделайте копию.
+| Модель | Архитектура Entware | Installer |
+| --- | --- | --- |
+| **Keenetic Ultra KN-1811** | AArch64 | `aarch64-k3.10` |
+| **Netcraze Ultra NC-1812** | AArch64 | `aarch64-k3.10` |
+| Keenetic Ultra KN-1810 | MIPSel | `mipselsf-k3.4` |
 
-### Вариант A — форматирование прямо на роутере
+Для неизвестной модели Stage-0 **STOP**, а не пытается угадать архитектуру.
 
-На современных версиях KeeneticOS, где доступен раздел **Storage & Devices / Накопители и принтеры**, накопитель можно инициализировать/форматировать в EXT4 из веб-интерфейса после установки компонента поддержки EXT-файловых систем.
-
-Официальная инструкция Keenetic:
-
-- [Formatting and checking a file system on a USB drive](https://support.keenetic.com/titan/kn-1811/en/100924-formatting-and-checking-a-file-system-on-a-usb-drive.html)
-
-### Вариант B — форматирование на компьютере
-
-Удобнее всего использовать Linux/GParted или другой инструмент, умеющий корректно создавать EXT4.
-
-Официальная инструкция Keenetic по EXT4:
-
-- [Using the ext4 file system on USB drives](https://support.keenetic.com/hero/kn-1011/en/21024-using-the-ext4-file-system-on-usb-drives.html)
-
-Windows штатно не работает с EXT4 как с обычным диском, поэтому если форматирование выполняется с Windows, используйте подходящий partition manager либо форматирование средствами самого роутера.
-
-### Компоненты роутера
-
-В компонентах KeeneticOS/Netcraze OS должны быть установлены:
-
-1. поддержка файловой системы EXT;
-2. **Open Package support / Поддержка открытых пакетов (OPKG)**.
-
-SMB нужен только если вы копируете Entware installer на USB по сети; для работы FreeNet сам по себе SMB не требуется.
+Online-install через `opkg disk <disk> <url>` требует актуальной KeeneticOS/Netcraze OS с CLI URL option (ветка 4.2+). На первом реальном acceptance используем текущую стабильную прошивку.
 
 ---
 
-## 4. Установка Entware / OPKG
+## 3. Что сделать в веб-интерфейсе роутера
 
-Entware устанавливается **до FreeNet**, потому что он создаёт `/opt` и пакетный менеджер `opkg`.
+Перед командой FreeNet:
 
-Официальные инструкции:
+1. Подключить USB-флешку/SSD к роутеру.
+2. В **Компоненты системы** установить:
+   - поддержку файловых систем EXT;
+   - **Open Package support / Поддержка открытых пакетов (OPKG)**;
+   - **SSH server / Сервер SSH**.
+3. В разделе накопителей выбрать нужную флешку и **штатно отформатировать один раздел в EXT4**.
+4. После форматирования убедиться, что EXT4-раздел смонтирован.
+5. На время первой установки желательно иметь **ровно один mounted EXT4-раздел**. Если их несколько, FreeNet Stage-0 остановится и ничего не выберет сам.
+6. Убедиться, что локальная учётная запись администратора имеет доступ к CLI.
 
-- Keenetic: [Installing the Entware repository on a USB drive](https://support.keenetic.com/titan/kn-1811/en/20980-installing-the-entware-repository-on-a-usb-drive.html)
-- Netcraze: [Установка репозитория Entware на USB-накопитель](https://support.netcraze.ru/giga/nc-1012/ru/20980-installing-the-entware-repository-on-a-usb-drive.html)
+**Форматирование удаляет данные на выбранном разделе.**
 
-В примерах по ссылкам указаны конкретные модели. Для своего роутера выберите инструкцию именно своей модели на сайте поддержки: архив Entware зависит от CPU (`aarch64 / mipsel / mips`).
+Для обычной установки больше не нужно вручную скачивать Entware archive, создавать каталог `install`, включать SMB или копировать installer на USB.
 
-Общая последовательность:
+Официальные справочные страницы:
 
-1. Подготовить EXT4-раздел.
-2. Установить компонент **Open Package support**.
-3. Скачать Entware installer, соответствующий архитектуре вашего роутера.
-4. Создать на USB каталог `install` и поместить туда installer archive так, как указано в официальной инструкции.
-5. В веб-интерфейсе выбрать подготовленный EXT4-накопитель для OPKG и дать нужному локальному пользователю доступ к OPKG.
-6. Дождаться установки Entware по системному журналу.
-7. Подключиться к Entware shell по SSH согласно инструкции вашей модели.
-8. Проверить:
+- Netcraze Ultra NC-1812: [Entware на USB](https://support.netcraze.ru/ultra/nc-1812/en/20980-installing-the-entware-repository-on-a-usb-drive.html);
+- KeeneticOS 4.2: CLI `opkg disk ... <url>` поддерживает загрузку remote OPKG installer;
+- форматирование EXT4 можно выполнить штатно в интерфейсе роутера.
 
-```sh
-/opt/bin/opkg update
-/opt/bin/opkg print-architecture
+---
+
+## 4. Первый SSH: какой логин и пароль
+
+### Это SSH самого роутера, а не Entware
+
+До установки Entware подключаемся к **SSH server KeeneticOS/Netcraze OS**:
+
+- адрес по умолчанию в домашней сети обычно `192.168.1.1`;
+- порт stock SSH по умолчанию — `22`, если вы его не меняли;
+- логин — **ваша локальная учётная запись администратора роутера** (часто `admin`);
+- пароль — **пароль этой учётной записи, который вы сами задали в роутере**.
+
+Пример обычного подключения:
+
+```powershell
+ssh admin@192.168.1.1
 ```
 
-Если `/opt/bin/opkg` отсутствует или `opkg update` не работает — **FreeNet пока не запускать**. Сначала должна быть исправна сама установка Entware.
+После успешного входа stock CLI выглядит примерно так:
+
+```text
+(config)>
+```
+
+**Не используйте `root / keenetic` для первого stock SSH.** Эти данные относятся к Entware shell после его установки, а не к административному SSH роутера.
 
 ---
 
-# 5. Установка FreeNet одной командой
+## 5. Рекомендуемый вариант: одна команда с компьютера
 
-После рабочего Entware вручную ставить `jq`, `unzip`, Xray, XKeen или XKeen UI **не нужно**.
+Команда ниже сама скачивает маленький Stage-0 helper **на компьютере** и передаёт его по SSH в stock shell роутера. Поэтому до Entware на самом роутере не нужен `curl`.
 
-Скопируйте в SSH целиком одну строку:
+### Windows 10/11 — PowerShell / Windows Terminal
+
+Если IP роутера `192.168.1.1`, stock SSH работает на `22`, а администратор называется `admin`:
+
+```powershell
+curl.exe -fsSL https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap_router_ultra.sh | ssh -tt admin@192.168.1.1 "exec /bin/sh"
+```
+
+SSH спросит **пароль администратора роутера**. После этого всё остальное выполняется в том же сеансе.
+
+Если у вас другой логин, IP или SSH-порт:
+
+```powershell
+curl.exe -fsSL https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap_router_ultra.sh | ssh -tt -p 2022 МОЙ_ЛОГИН@МОЙ_IP "exec /bin/sh"
+```
+
+### macOS / Linux
+
+```sh
+curl -fsSL https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap_router_ultra.sh | ssh -tt admin@192.168.1.1 'exec /bin/sh'
+```
+
+### Что делает Stage-0
+
+1. Если `/opt/bin/opkg` уже существует — **не переустанавливает Entware**, а сразу передаёт работу FreeNet bootstrap.
+2. Читает модель через router CLI.
+3. Для KN-1811 / NC-1812 выбирает AArch64; для KN-1810 — MIPSel.
+4. Читает `show media`.
+5. Требует **ровно один mounted EXT4** и использует его UUID как OPKG target.
+6. Вызывает штатный online installer:
+   `opkg disk <UUID>:/ <официальный Entware URL>`.
+7. Ждёт, пока `/opt/bin/opkg` станет реально работоспособным.
+8. Проверяет Entware architecture.
+9. Ставит только `ca-bundle` и `curl` для handoff.
+10. Скачивает опубликованный `bootstrap.sh` FreeNet.
+11. Обычный FreeNet bootstrap устанавливает/сохраняет XKeen + Xray, ставит FreeNet и запускает Control Center.
+
+Stage-0 не выполняет global `opkg upgrade` и не устанавливает XKeen UI.
+
+### Когда Stage-0 остановится
+
+Без mutation FreeNet остановится, если:
+
+- модель не входит в поддержанный Ultra mapping;
+- EXT4 не найден;
+- одновременно найдено больше одного mounted EXT4;
+- router CLI отверг online Entware install;
+- Entware не стал ready за bounded timeout;
+- фактическая architecture Entware не совпала с моделью.
+
+---
+
+## 6. Если Entware уже установлен
+
+Можно использовать ту же команду из раздела 5. Stage-0 увидит существующий `/opt/bin/opkg` и **не станет повторно устанавливать Entware**.
+
+Если вы уже вручную вошли именно в Entware shell, прямой FreeNet handoff остаётся таким:
 
 ```sh
 /opt/bin/opkg update && /opt/bin/opkg install ca-bundle curl && /opt/bin/curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh -o /tmp/freenet-bootstrap.sh && /opt/bin/sh /tmp/freenet-bootstrap.sh
 ```
 
-Что делает эта команда:
+### Entware SSH — только если он действительно нужен вручную
 
-1. обновляет список пакетов Entware;
-2. гарантирует наличие HTTPS CA bundle и `curl`, необходимых для первичного получения bootstrap;
-3. скачивает текущий опубликованный `bootstrap.sh` во временный файл;
-4. запускает его в Entware shell.
+После установки Entware отдельный Linux shell обычно использует:
 
-После запуска сам FreeNet bootstrap:
+- логин: `root`;
+- первоначальный пароль: `keenetic`;
+- если stock SSH server занимает порт `22`, Entware SSH обычно доступен на `222`;
+- если stock SSH server не установлен/не занимает `22`, Entware может использовать `22`.
 
-- проверяет `/opt` и `opkg`;
-- определяет архитектуру;
-- **сам устанавливает только недостающие userland-инструменты** через targeted `opkg install`;
-- никогда не делает глобальный `opkg upgrade`;
-- загружает FreeNet release assets;
-- проверяет их по `SHA256SUMS`;
-- классифицирует существующий core stack;
-- либо сохраняет исправный XKeen/Xray, либо ставит pinned core на чистый Entware;
-- делает backup перед mutation;
-- устанавливает FreeNet и helpers;
-- проверяет запуск и LAN-only Control Center;
-- при ошибке после mutation запускает rollback и отдельно сообщает его результат.
+При ручном входе первоначальный пароль следует сразу сменить командой `passwd`.
+
+Для нормальной установки FreeNet второй SSH-сеанс **не требуется**.
 
 ---
 
-## 6. Как FreeNet определяет состояние роутера
+## 6.1. Как FreeNet классифицирует core после Entware
 
 ### `ENTWARE_ONLY`
 
@@ -203,38 +244,40 @@ Entware устанавливается **до FreeNet**, потому что о�
 FreeNet:
 
 1. ставит только необходимые Entware dependencies;
-2. скачивает **pinned** XKeen, Xray и XKeen UI;
+2. скачивает pinned XKeen и Xray;
 3. проверяет upstream SHA-256;
 4. делает backup;
 5. устанавливает core;
 6. регистрирует XKeen с безопасными pre-setup defaults;
 7. валидирует Xray;
-8. запускает XKeen UI;
-9. устанавливает FreeNet.
+8. повторно делает read-only classification;
+9. только после `READY_EXISTING_STACK` устанавливает FreeNet app/helper layer.
+
+**XKeen UI не устанавливается.**
 
 ### `READY_EXISTING_STACK`
 
-XKeen/Xray уже установлены и состояние выглядит полным.
+Есть зарегистрированный XKeen, Xray, Xray configs и successful `xray run -test`.
 
-FreeNet **не переустанавливает исправный core** и не должен сбрасывать:
+XKeen UI для этого режима **не нужен**. Если он уже существует, FreeNet не меняет его.
+
+FreeNet не должен сбрасывать:
 
 - текущие VLESS/Reality credentials;
 - subscription secret;
 - Xray-конфиги;
 - выбранный VPN;
-- чужие cron-задачи.
-
-Он добавляет/обновляет только собственные FreeNet-компоненты и далее передаёт работу Browser Setup.
+- посторонние cron-задачи.
 
 ### `NEEDS_REVIEW`
 
-Обнаружен частичный или противоречивый stack: например, XKeen есть, а Xray нет, либо присутствуют неполные конфиги.
+Обнаружен реальный partial/contradictory **core**: например, нет XKeen init, отсутствует Xray или его configs не проходят validation.
 
-Это **STOP**. FreeNet не пытается угадать, что «доставить вручную», и не выполняет опасную mutation.
+Это **STOP**. FreeNet не пытается «доделать на глаз».
 
 ### `NO_ENTWARE` / `UNSUPPORTED_ARCH`
 
-Установка не начинается.
+Обычный Entware-level bootstrap не начинается. Для Ultra clean install этот слой теперь закрывает Stage-0 из раздела 5.
 
 ---
 
@@ -514,8 +557,8 @@ FreeNet не должен:
 | --- | --- |
 | `/opt/sbin/xray` | Xray engine |
 | `/opt/sbin/xkeen` | XKeen |
-| `/opt/sbin/xkeen-ui` | XKeen UI |
 | `/opt/sbin/freenet-ui` | FreeNet Control Center backend/UI |
+| `/opt/sbin/xkeen-ui` | необязательный existing XKeen UI; FreeNet его не устанавливает |
 | `/opt/etc/xray/configs/` | Xray config set |
 | `/opt/etc/freenet/freenet.conf` | несекретные настройки FreeNet |
 | `/opt/etc/xray/blanc_subscription.url` | локальный subscription secret |

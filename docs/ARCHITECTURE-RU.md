@@ -21,9 +21,8 @@ Keenetic / Netcraze firmware
                 ├─ Xray lifecycle
                 ├─ GeoIP / GeoSite
                 │
-                ├──────────────┐
-                ▼              ▼
-              Xray          XKeen UI
+                ▼
+              Xray
                 │
                 ▼
           FreeNet provider/updater
@@ -52,7 +51,7 @@ Xray — data plane VPN. FreeNet управляет конфигурацией �
 
 ### XKeen UI
 
-XKeen UI — low-level control/config interface. FreeNet не заменяет его полностью: продвинутый пользователь может открыть XKeen UI отдельно.
+XKeen UI — необязательный сторонний low-level interface. FreeNet его не устанавливает, не требует для readiness и не становится его lifecycle owner. Если XKeen UI уже есть на existing router, он сохраняется as-is.
 
 ### FreeNet
 
@@ -128,7 +127,7 @@ Credential fields не возвращаются через обычный status
 ## Source of truth
 
 - GitHub FreeNet-Router — код, release, templates, docs.
-- Upstream XKeen/XKeen UI — их binaries/install semantics.
+- Upstream XKeen — binary/install semantics обязательного router core; XKeen UI учитывается только как необязательный existing компонент.
 - Router runtime — фактическое состояние процессов/config/ports.
 - Provider subscription — доступные VPN profiles.
 
