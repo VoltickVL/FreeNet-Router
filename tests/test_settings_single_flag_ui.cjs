@@ -1,4 +1,4 @@
-// Browser regression for Settings Current VPN single-flag presentation.
+// Browser regression for the canonical Settings shell after Settings v3 split.
 // Uses documentation-only fixtures; no router or live VPN is contacted.
 const {chromium} = require('playwright');
 const assert = require('node:assert/strict');
@@ -68,39 +68,27 @@ const server = http.createServer((req, res) => {
     page.on('pageerror', error => errors.push(error.message));
     const base = `http://127.0.0.1:${server.address().port}`;
     await page.goto(`${base}/#settings`);
-    await page.waitForTimeout(750);
-    const boot = await page.evaluate(() => ({
-      readyState: document.readyState,
-      hash: location.hash,
-      coreLoaded: !!window.__freenetSettingsV3Loaded,
-      settingsPage: !!document.querySelector('[data-page-view="settings"]'),
-      scripts: Array.from(document.scripts).map(script => script.src || '[inline]')
-    }));
-    console.log('SETTINGS_BOOT_DEBUG', JSON.stringify(boot), 'PAGE_ERRORS', JSON.stringify(errors));
-    await page.waitForSelector('#fn3Profile', {state:'attached'});
-    await page.waitForFunction(() => (document.querySelector('#fn3Profile')?.textContent || '').includes('Франкфурт-на-Майне'));
-    await page.waitForFunction(() => !(document.querySelector('#fn3Profile')?.textContent || '').includes('🇩🇪'));
+    await page.waitForSelector('[data-page-view="settings"][data-settings-v3="1"]', {state:'attached'});
+    await page.waitForSelector('#fn3AutoEnabled', {state:'attached'});
 
     const runtime = await page.evaluate(() => ({
-      profile: document.querySelector('#fn3Profile')?.textContent || '',
-      profileSmall: document.querySelector('#fn3ProfileSmall')?.textContent || '',
-      flagText: document.querySelector('#fn3Flag')?.textContent || '',
-      flagClass: document.querySelector('#fn3Flag')?.className || '',
-      visualFlagCount: document.querySelectorAll('.fn3-profile-top .flag-icon').length,
-      loaded: !!window.__freenetProfileLabelHygieneLoaded
+      coreLoaded: !!window.__freenetSettingsV3Loaded,
+      settingsMounted: !!document.querySelector('[data-page-view="settings"][data-settings-v3="1"]'),
+      autoControl: !!document.querySelector('#fn3AutoEnabled'),
+      settingsNavCount: document.querySelectorAll('.nav-btn[data-page="settings"]').length,
+      retiredAutomationNavCount: document.querySelectorAll('.nav-btn[data-page="automation"]').length,
+      retiredCurrentVPNNodes: document.querySelectorAll('#fn3Profile,#fn3ProfileSmall,#fn3Flag').length
     }));
 
     assert.equal(errors.length, 0, errors.join('\n'));
-    assert.equal(runtime.loaded, true, JSON.stringify(runtime));
-    assert.equal(runtime.visualFlagCount, 1, `Current VPN must have one canonical flag: ${JSON.stringify(runtime)}`);
-    assert.match(runtime.flagClass, /\bflag-de\b/, `German canonical flag missing: ${runtime.flagClass}`);
-    assert.equal(runtime.flagText, '', `canonical CSS flag must not contain platform emoji: ${runtime.flagText}`);
-    assert.equal(runtime.profile, 'Франкфурт-на-Майне, Германия, Extra');
-    assert.equal(runtime.profileSmall, 'Франкфурт-на-Майне, Германия, Extra');
-    assert.doesNotMatch(runtime.profile + runtime.profileSmall, /[🇦-🇿]/u, 'profile text still contains regional-indicator flag decoration');
-    assert.doesNotMatch(runtime.profile + runtime.profileSmall, /^(?:DE|de)\b/, 'profile text still contains ISO prefix');
+    assert.equal(runtime.coreLoaded, true, JSON.stringify(runtime));
+    assert.equal(runtime.settingsMounted, true, JSON.stringify(runtime));
+    assert.equal(runtime.autoControl, true, JSON.stringify(runtime));
+    assert.equal(runtime.settingsNavCount, 1, `Settings navigation must have one canonical owner: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.retiredAutomationNavCount, 0, `legacy automation navigation leaked: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.retiredCurrentVPNNodes, 0, `retired duplicated Settings Current VPN surface leaked: ${JSON.stringify(runtime)}`);
 
-    console.log('SETTINGS_SINGLE_FLAG_RUNTIME', JSON.stringify(runtime));
+    console.log('SETTINGS_CANONICAL_SHELL_RUNTIME', JSON.stringify(runtime));
   } finally {
     await browser.close();
     await new Promise(resolve => server.close(resolve));
