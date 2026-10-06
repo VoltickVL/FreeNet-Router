@@ -103,7 +103,7 @@ run_case() {
     export FAKE_COMMAND_LOG="$CASE_DIR/command.log"
     export FAKE_BOOTSTRAP_SOURCE="$CASE_DIR/freenet-bootstrap.sh"
     export FAKE_BOOTSTRAP_MARKER="$CASE_DIR/bootstrap.marker"
-    PATH="$CASE_DIR/bin:/bin:/usr/bin" "$BOOT"
+    PATH="$CASE_DIR/bin:/bin:/usr/bin" sh "$BOOT"
 }
 
 # Netcraze Ultra NC-1812: AArch64 + one EXT4 -> online Entware + FreeNet handoff.
@@ -201,7 +201,7 @@ rm -f "$C7/bin/ndmc" "$C7/bootstrap.marker"
 export FREENET_NDMC="$C7/bin/ndmc"
 export FREENET_RELEASE_BASE='https://example.invalid/freenet'
 export FREENET_TMP_BOOTSTRAP="$C7/downloaded-bootstrap.sh"
-PATH="/bin:/usr/bin" "$BOOT" > "$C7/out"
+PATH="/bin:/usr/bin" sh "$BOOT" > "$C7/out"
 grep -Fq 'ENTWARE=existing' "$C7/out" || fail 'existing Entware path not detected'
 [ -f "$C7/bootstrap.marker" ] || fail 'existing Entware did not hand off to FreeNet'
 [ ! -f "$C7/command.log" ] || fail 'existing Entware attempted router OPKG mutation'
