@@ -876,12 +876,12 @@
     if (page.dataset.journalV4 !== '1') {
       page.dataset.journalV4 = '1';
       page.innerHTML = `<section class="fn3-journal-hero">
-        <div class="fn3-journal-kicker">OBSERVABILITY</div>
+        <div class="fn3-journal-kicker">СОБЫТИЯ И ДИАГНОСТИКА</div>
         <h1>Журнал</h1>
-        <p>История значимых событий FreeNet: VPN, AUTO VPN, обновления и системные действия. Повторяющиеся штатные проверки агрегируются, а инциденты и recovery сохраняются подробно.</p>
+        <p>История значимых событий FreeNet: VPN, AUTO VPN, обновления и системные действия. Повторяющиеся штатные проверки агрегируются, а инциденты и этапы восстановления сохраняются подробно.</p>
         <div class="fn3-journal-policy">
           <span>До 15 000 значимых событий</span>
-          <span class="healthy">Routine heartbeat — не чаще 1 раза в 6 часов</span>
+          <span class="healthy">Штатная отметка — не чаще 1 раза в 6 часов</span>
           <span id="fn3JournalRetentionRange">Архив загружается…</span>
         </div>
       </section>
@@ -898,8 +898,8 @@
       <section class="fn3-journal-stream-card">
         <div class="fn3-journal-stream-head"><div><h2>События</h2><p>Новое сверху · подробные этапы инцидента сохраняются без агрегации</p></div></div>
         <div id="fn3JournalFull" class="fn3-journal-event-list"></div>
-        <div class="fn3-journal-pager"><span class="fn3-journal-retention">Raw history автоматически ограничен 20 000 строками на файл; старые записи удаляются без ручной очистки.</span><div class="fn3-journal-pager-controls"><label class="fn3-journal-page-label">На странице <select id="fn3JournalPageSize" class="fn3-journal-page-size"><option>50</option><option selected>100</option><option>200</option><option>500</option></select></label><button id="fn3JournalPrev" class="fn3-journal-page-btn" type="button">← Назад</button><span id="fn3JournalPageLabel" class="fn3-journal-page-label">Страница 1 из 1</span><button id="fn3JournalNext" class="fn3-journal-page-btn" type="button">Вперёд →</button></div></div>
-      </section>`
+        <div class="fn3-journal-pager"><span class="fn3-journal-retention">Исходная история автоматически ограничена 20 000 строками на файл; старые записи удаляются без ручной очистки.</span><div class="fn3-journal-pager-controls"><label class="fn3-journal-page-label">На странице <select id="fn3JournalPageSize" class="fn3-journal-page-size"><option>50</option><option selected>100</option><option>200</option><option>500</option></select></label><button id="fn3JournalPrev" class="fn3-journal-page-btn" type="button">← Назад</button><span id="fn3JournalPageLabel" class="fn3-journal-page-label">Страница 1 из 1</span><button id="fn3JournalNext" class="fn3-journal-page-btn" type="button">Вперёд →</button></div></div>
+      </section>`;
 
       qa('[data-journal-filter]', page).forEach(button => button.onclick = () => {
         state.journalFilter = button.dataset.journalFilter || 'all';
