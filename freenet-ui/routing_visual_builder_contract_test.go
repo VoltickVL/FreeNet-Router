@@ -169,12 +169,19 @@ func TestRoutingWorkspaceHasFirstClassXrayTab(t *testing.T) {
 		`id="rv2XrayStop"`,
 		`id="rv2XrayRestart"`,
 		`id="rv2XrayVersions"`,
-		`id="rv2XrayJournal"`,
 		"freenet:xray-service-changed",
 		"FreeNetXrayControl",
 	} {
 		if !strings.Contains(routing, want) {
 			t.Fatalf("embedded Xray workspace missing %q", want)
+		}
+	}
+	for _, obsolete := range []string{
+		`id="rv2XrayJournal"`,
+		`id="rv2XrayRefresh"`,
+	} {
+		if strings.Contains(routing, obsolete) {
+			t.Fatalf("embedded Xray workspace still contains redundant action %q", obsolete)
 		}
 	}
 	for _, want := range []string{
