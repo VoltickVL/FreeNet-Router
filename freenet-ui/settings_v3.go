@@ -963,16 +963,118 @@ func (a *app) handleJournalGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+func journalCSVCategoryLabel(event automationEvent) string {
+	switch journalEventCategory(event) {
+	case "vpn":
+		return "VPN"
+	case "auto":
+		return "AUTO VPN"
+	case "subscription":
+		return "Подписка"
+	default:
+		return "Система"
+	}
+}
+
+func journalCSVStageLabel(event automationEvent) string {
+	category := journalEventCategory(event)
+	kind := strings.ToLower(strings.TrimSpace(event.Kind))
+	if category == "auto" {
+		raw := strings.ToLower(strings.TrimSpace(event.Result))
+		stage := raw
+		if raw == "selection" {
+			stage = "selection"
+		} else if index := strings.Index(raw, ":"); index > 0 {
+			stage = strings.TrimSpace(raw[:index])
+		} else {
+			stage = ""
+		}
+		if label, ok := map[string]string{
+			"detect": "Проверка",
+			"wan": "Обычный интернет",
+			"confirm": "Подтверждение",
+			"endpoint_refresh": "Endpoint",
+			"candidate_selection": "Подбор",
+			"candidate_scan": "Проверка кандидатов",
+			"selection": "Решение",
+			"apply": "Применение",
+			"post_check": "Проверка после применения",
+			"rollback": "Откат",
+			"post_update_guard": "После обновления",
+			"rollback_guard": "Защита отката",
+			"incident": "Инцидент",
+			"single_flight": "Защита параллельного восстановления",
+		}[stage]; ok {
+			return label
+		}
+		return "AUTO VPN"
+	}
+	if category == "vpn" {
+		return "VPN"
+	}
+	if category == "subscription" {
+		return "Подписка"
+	}
+	switch kind {
+	case "geodata":
+		return "GeoData / GeoIP"
+	case "freenet":
+		return "FreeNet"
+	case "freenet_release_catalog":
+		return "Каталог FreeNet"
+	case "freenet_update", "freenet_update_recovery":
+		return "Обновление FreeNet"
+	case "backup":
+		return "Резервная копия"
+	case "xray_runtime":
+		return "Xray runtime"
+	}
+	if value := strings.TrimSpace(event.Kind); value != "" {
+		return value
+	}
+	return "Система"
+}
+
+func journalCSVResultLabel(event automationEvent) string {
+	switch journalEventResultClass(event) {
+	case "ok":
+		return "Успешно"
+	case "bad":
+		return "Ошибка"
+	default:
+		return "Служебное / без изменений"
+	}
+}
+
+func journalCSVDateTime(raw string) (string, string) {
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+	if err != nil {
+		return strings.TrimSpace(raw), ""
+	}
+	at = at.UTC()
+	return at.Format("02.01.2006"), at.Format("15:04:05")
+}
+
 func journalCSV(events []automationEvent) ([]byte, error) {
 	var buffer bytes.Buffer
 	buffer.Write([]byte{0xEF, 0xBB, 0xBF})
 	writer := csv.NewWriter(&buffer)
-	if err := writer.Write([]string{"timestamp", "category", "kind", "result", "message"}); err != nil {
+	writer.Comma = ';'
+	writer.UseCRLF = true
+	if err := writer.Write([]string{"Дата (UTC)", "Время (UTC)", "Категория", "Событие / этап", "Результат", "Описание"}); err != nil {
 		return nil, err
 	}
 	for index := len(events) - 1; index >= 0; index-- {
 		event := events[index]
-		if err := writer.Write([]string{event.At, journalEventCategory(event), event.Kind, event.Result, event.Message}); err != nil {
+		date, clock := journalCSVDateTime(event.At)
+		if err := writer.Write([]string{
+			date,
+			clock,
+			journalCSVCategoryLabel(event),
+			journalCSVStageLabel(event),
+			journalCSVResultLabel(event),
+			event.Message,
+		}); err != nil {
 			return nil, err
 		}
 	}

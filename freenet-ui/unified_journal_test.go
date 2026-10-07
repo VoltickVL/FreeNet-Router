@@ -17,6 +17,7 @@ func TestUnifiedJournalUIHasCanonicalFiltersAndCategories(t *testing.T) {
 		"journalResultFilter: 'all'",
 		"journalQuery: ''",
 		"journalLive: true",
+		"journalFiltersOpen: false",
 		"['all','Все']",
 		"['vpn','VPN']",
 		"['auto','AUTO VPN']",
@@ -37,6 +38,12 @@ func TestUnifiedJournalUIHasCanonicalFiltersAndCategories(t *testing.T) {
 		"journalPageActive() && state.journalLive",
 		"data-journal-result",
 		"id=\"fn3JournalSearch\"",
+		"id=\"fn3JournalFiltersToggle\"",
+		"id=\"fn3JournalAdvancedFilters\"",
+		"state.journalFiltersOpen = false",
+		"state.journalFiltersOpen = !state.journalFiltersOpen",
+		"Пауза",
+		"Возобновить",
 		"До 15 000 значимых событий",
 		"Штатная отметка — не чаще 1 раза в 6 часов",
 		"id=\"fn3JournalRetentionRange\"",
@@ -48,6 +55,11 @@ func TestUnifiedJournalUIHasCanonicalFiltersAndCategories(t *testing.T) {
 	}
 	if strings.Contains(source, ": 'AUTO VPN';") {
 		t.Fatal("unknown event kinds must not default to AUTO VPN")
+	}
+	for _, obsolete := range []string{"Авто · 5 с", "Авто выключено"} {
+		if strings.Contains(source, obsolete) {
+			t.Fatalf("Journal primary UI still exposes technical live-refresh copy %q", obsolete)
+		}
 	}
 }
 
@@ -116,6 +128,10 @@ func TestUnifiedJournalBackendHasReadOnlyEndpointAndSemanticDedupe(t *testing.T)
 		"func appendBoundedJournalLine(path, line string)",
 		"all := canonicalJournalEvents(journalCanonicalRetentionLimit, a.cfg.UpdateState)",
 		`mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))`,
+		"writer.Comma = ';'",
+		"writer.UseCRLF = true",
+		"Дата (UTC)",
+		"Событие / этап",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("Journal backend contract missing %q", want)

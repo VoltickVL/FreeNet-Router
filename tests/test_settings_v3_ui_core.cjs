@@ -478,7 +478,10 @@ const server = http.createServer((req, res) => {
       badBadges: document.querySelectorAll('#fn3JournalFull .fn3-result.bad').length,
       copy: document.querySelector('#fn3JournalFull')?.textContent || '',
       searchVisible: !!document.querySelector('#fn3JournalSearch')?.getClientRects().length,
-      live: document.querySelector('#fn3JournalLive')?.getAttribute('aria-pressed')
+      live: document.querySelector('#fn3JournalLive')?.getAttribute('aria-pressed'),
+      liveText: document.querySelector('#fn3JournalLive')?.textContent?.trim() || '',
+      filtersHidden: document.querySelector('#fn3JournalAdvancedFilters')?.hidden,
+      filtersExpanded: document.querySelector('#fn3JournalFiltersToggle')?.getAttribute('aria-expanded')
     }));
     assert.equal(journalPage.rows, 8, `full Journal must show all canonical fixture events: ${JSON.stringify(journalPage)}`);
     assert.deepEqual(journalPage.stats, ['8','5','2','1'], `Journal summary counts are wrong: ${JSON.stringify(journalPage)}`);
@@ -490,9 +493,17 @@ const server = http.createServer((req, res) => {
     assert.equal(journalPage.badBadges, 1, 'failed Journal event must use error treatment');
     assert.equal(journalPage.searchVisible, true, 'Journal search must be visible');
     assert.equal(journalPage.live, 'true', 'Journal live refresh must start enabled');
+    assert.equal(journalPage.liveText, 'Пауза', 'Journal live CTA must expose an action, not polling frequency');
+    assert.doesNotMatch(journalPage.liveText, /5\s*с/i, 'Journal live CTA must not expose technical polling frequency');
+    assert.equal(journalPage.filtersHidden, true, 'Journal advanced filters must start collapsed');
+    assert.equal(journalPage.filtersExpanded, 'false', 'Journal filters toggle must expose collapsed aria state');
     assert.match(journalPage.copy, /AUTO VPN · Подбор/, 'recovery stage must be readable');
     assert.match(journalPage.copy, /AUTO VPN · Решение/, 'Top-3 decision must have an explicit stage');
     assert.match(journalPage.copy, /VPN 175 мс/, 'Top-3 decision metrics must remain visible');
+
+    await page.locator('#fn3JournalFiltersToggle').click();
+    await page.waitForFunction(() => document.querySelector('#fn3JournalAdvancedFilters')?.hidden === false);
+    assert.equal(await page.locator('#fn3JournalFiltersToggle').getAttribute('aria-expanded'), 'true');
 
     await page.locator('#fn3JournalSearch').fill('Франкфурт');
     await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 1);
@@ -507,12 +518,27 @@ const server = http.createServer((req, res) => {
     await page.locator('[data-journal-filter="auto"]').click();
     await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 3);
     assert.equal(await page.locator('#fn3JournalFull .fn3-kind').count(), 3);
+    await page.locator('#fn3JournalFiltersToggle').click();
+    assert.equal(await page.locator('#fn3JournalAdvancedFilters').isHidden(), true, 'collapsing filters must hide advanced controls');
+    await page.locator('#fn3JournalFiltersToggle').click();
+    assert.equal(await page.locator('[data-journal-filter="auto"]').evaluate(el => el.classList.contains('active')), true, 'collapse/expand must preserve filter state');
 
     await page.locator('[data-journal-filter="all"]').click();
-    const journalGetsBeforeLive = journalGets;
+    await page.locator('#fn3JournalLive').click();
+    await page.waitForFunction(() => document.querySelector('#fn3JournalLive')?.getAttribute('aria-pressed') === 'false');
+    assert.equal((await page.locator('#fn3JournalLive').textContent()).trim(), 'Возобновить');
+    const journalGetsWhilePaused = journalGets;
     settings.events.unshift({at:'2026-09-12T11:36:00Z',kind:'subscription',result:'success',message:'LIVE_EVENT подписка обновилась.'});
+    await page.waitForTimeout(5200);
+    assert.equal(journalGets, journalGetsWhilePaused, 'paused Journal must stop polling');
+    assert.doesNotMatch((await page.locator('#fn3JournalFull').textContent()) || '', /LIVE_EVENT/, 'paused Journal must not update itself');
+
+    const journalGetsBeforeLive = journalGets;
+    await page.locator('#fn3JournalLive').click();
+    await page.waitForFunction(() => document.querySelector('#fn3JournalLive')?.getAttribute('aria-pressed') === 'true');
     await page.waitForFunction(() => (document.querySelector('#fn3JournalFull')?.textContent || '').includes('LIVE_EVENT'), null, {timeout:7000});
-    assert.ok(journalGets > journalGetsBeforeLive, 'open Journal must refresh through read-only /api/journal polling');
+    assert.ok(journalGets > journalGetsBeforeLive, 'resume must restore read-only /api/journal polling');
+    assert.equal((await page.locator('#fn3JournalLive').textContent()).trim(), 'Пауза');
     assert.equal(await page.locator('#fn3JournalSearch').inputValue(), '', 'live refresh must preserve search state');
 
     await page.locator('.nav-btn[data-page="settings"]').click();
