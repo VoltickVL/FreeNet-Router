@@ -185,6 +185,7 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#rv2XrayStatus')?.textContent==='Работает');
     assert.deepEqual(xrayActions,['restart','stop','start']);
 
+    assert.equal((await page.locator('#rv2XrayVersions').textContent()).trim(),'Обновить','Routing Xray action must use update wording');
     await page.locator('#rv2XrayVersions').click();
     await page.waitForFunction(()=>document.querySelector('#xrayCoreManager') && !document.querySelector('#xrayCoreManager').hidden && (document.querySelector('#xrayCoreManager')?.innerText||'').includes('v26.10.1'));
     assert.equal(xrayCatalogGets,1,'Versions must reuse the existing lazy Xray Core Manager');
