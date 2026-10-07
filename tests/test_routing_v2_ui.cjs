@@ -240,6 +240,10 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,0,'live visualization must be read-only');
 
     // Categories are aggregated by type rather than repeated as Xray rule rows.
+    // The board intentionally starts collapsed, so expand it before testing
+    // visible chip density and the local "more" interaction.
+    await page.locator('#rv2DirectBoard .rv4-board-collapse').click();
+    assert.equal(await page.locator('#rv2DirectBoard').evaluate(el=>el.classList.contains('collapsed')),false,'manual expand must reveal DIRECT details');
     assert.equal(await page.locator('#rv2DirectContent .rv4-type').count(),3,'DIRECT board should aggregate GeoSite/Sites/GeoIP');
     const geositeGroup=page.locator('#rv2DirectContent .rv4-type').first();
     assert.match(await geositeGroup.locator('.rv4-type-head').innerText(),/GeoSite/);
