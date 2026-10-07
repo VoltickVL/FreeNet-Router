@@ -1333,7 +1333,7 @@
             <button id="rv2XrayStart" class="btn primary" type="button" hidden>Запустить Xray</button>
             <button id="rv2XrayRestart" class="btn secondary" type="button" hidden>Перезапустить</button>
             <button id="rv2XrayStop" class="btn secondary" type="button" hidden>Остановить</button>
-            <button id="rv2XrayVersions" class="btn secondary" type="button" hidden>Версии</button>
+            <button id="rv2XrayVersions" class="btn secondary" type="button" hidden>Обновить</button>
             <button id="rv2XrayJournal" class="btn secondary" type="button">Журнал</button>
             <button id="rv2XrayRefresh" class="btn secondary" type="button">Проверить состояние</button>
           </div>

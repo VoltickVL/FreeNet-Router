@@ -147,7 +147,7 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => {
       const root = document.querySelector('#xrayCoreManager');
       const text = root?.innerText || '';
-      return root && !root.hidden && text.includes('Работает') && text.includes('Перезапустить') && text.includes('Остановить') && text.includes('Версии');
+      return root && !root.hidden && text.includes('Работает') && text.includes('Перезапустить') && text.includes('Остановить') && text.includes('Обновить');
     });
     assert.equal(catalogGets, 0, 'opening Xray control must not fetch the version catalog');
     assert.deepEqual(serviceActions, [], 'opening Xray control must stay read-only');
@@ -184,7 +184,7 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Остановлен'));
     assert.deepEqual(serviceActions, ['restart','stop']);
     assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Остановлен');
-    assert.equal(await manager.getByRole('button', {name:'Версии'}).count(), 0, 'stopped Xray must not expose a version mutation that could start it implicitly');
+    assert.equal(await manager.getByRole('button', {name:'Обновить'}).count(), 0, 'stopped Xray must not expose a version mutation that could start it implicitly');
     assert.equal(catalogGets, 0, 'Stop must not fetch version catalog');
 
     // Stopped -> Start must return to running without a separate control path.
@@ -203,7 +203,7 @@ const server = http.createServer((req, res) => {
     // Version management remains explicit and lazy-loaded from the same surface.
     await page.locator('#xrayTopbarChip').click();
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager') && !document.querySelector('#xrayCoreManager').hidden);
-    await manager.getByRole('button', {name:'Версии'}).click();
+    await manager.getByRole('button', {name:'Обновить'}).click();
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.10.1'));
     assert.equal(catalogGets, 1, 'explicit Versions action should load catalog once');
     assert.equal(applyPosts, 0, 'catalog load must be read-only');
