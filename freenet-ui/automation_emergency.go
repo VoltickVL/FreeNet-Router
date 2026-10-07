@@ -26,6 +26,8 @@ type automationEmergencyScanResult struct {
 	Checked         int
 	Reachable       int
 	ApplicationMS   int
+	ScanDuration    time.Duration
+	ApplyDuration   time.Duration
 }
 
 type automationRecoveryIncident struct {
@@ -330,7 +332,9 @@ func (a *app) runAutomationBestEmergencyCycleLocked(parent context.Context, sett
 		return automationBestCycleResult{Result: "uncertain", Reason: reason}, automationEmergencyScanResult{}, nil
 	}
 
+	scanStarted := time.Now()
 	scan, err := a.scanAutomationEmergencyReplacement(parent, settings, currentCountry)
+	scan.ScanDuration = time.Since(scanStarted).Round(time.Millisecond)
 	if err != nil {
 		reason := "Аварийный fast-path не завершил безопасную проверку replacement; текущие настройки сохранены."
 		writeAutomationStateV2("failed", reason, "no", false)
@@ -365,9 +369,11 @@ func (a *app) runAutomationBestEmergencyCycleLocked(parent context.Context, sett
 	}
 
 	appendAutomationHistoryV2("selection", automationEmergencySelectionSummary(scan))
+	applyStarted := time.Now()
 	status, applied := a.executeProviderProfileApply(networkApplyRequest{
 		Operation: "provider", ProfileID: scan.Candidate.Profile.ID, SelectionToken: token, Confirm: true,
 	})
+	scan.ApplyDuration = time.Since(applyStarted).Round(time.Millisecond)
 	if status < 200 || status >= 300 || !applied.Success {
 		reason := "Аварийный replacement не применён: " + strings.TrimSpace(applied.Error)
 		rollback := strings.TrimSpace(applied.RollbackState)
