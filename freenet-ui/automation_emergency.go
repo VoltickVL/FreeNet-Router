@@ -12,22 +12,28 @@ import (
 )
 
 const (
-	automationEmergencyCandidateLimit   = 8
-	automationEmergencyCandidateTimeout = 7 * time.Second
-	automationEmergencyScanTimeout      = 32 * time.Second
-	automationEmergencyProbeWorkers     = 2
+	automationEmergencyCandidateLimit       = 8
+	automationEmergencyRTTCandidateTimeout  = 3 * time.Second
+	automationEmergencyRTTSweepTimeout      = 12 * time.Second
+	automationEmergencyCandidateTimeout     = 7 * time.Second
+	automationEmergencyScanTimeout          = 32 * time.Second
+	automationEmergencyProbeWorkers         = 2
 )
 
 type automationEmergencyScanResult struct {
-	Candidate       bestServerInternalCandidate
-	CurrentEndpoint string
-	CurrentFilter   string
-	Total           int
-	Checked         int
-	Reachable       int
-	ApplicationMS   int
-	ScanDuration    time.Duration
-	ApplyDuration   time.Duration
+	Candidate            bestServerInternalCandidate
+	CurrentEndpoint      string
+	CurrentFilter        string
+	Total                int
+	RTTChecked           int
+	RTTReachable         int
+	BestRTTMS            int
+	RTTPrefilterDuration time.Duration
+	Checked              int
+	Reachable            int
+	ApplicationMS        int
+	ScanDuration         time.Duration
+	ApplyDuration        time.Duration
 }
 
 type automationRecoveryIncident struct {
@@ -43,6 +49,13 @@ var automationEmergencyCandidateProbe = func(a *app, ctx context.Context, candid
 		return bestServerProbeResult{}
 	}
 	return a.probeBestServerApplicationPreflight(ctx, candidate)
+}
+
+var automationEmergencyRTTProbe = func(a *app, ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+	if a == nil {
+		return bestServerProbeResult{}
+	}
+	return a.probeBestServerProfilePing(ctx, candidate)
 }
 
 var automationEmergencyDiscoverCandidates = func(a *app, ctx context.Context) ([]bestServerInternalCandidate, bool, error) {
@@ -133,6 +146,67 @@ func automationEmergencyOrderedCandidates(candidates []bestServerInternalCandida
 	return out
 }
 
+func automationEmergencyFreshRTTOrder(parent context.Context, a *app, candidates []bestServerInternalCandidate) ([]bestServerInternalCandidate, int, int, int) {
+	if len(candidates) == 0 {
+		return nil, 0, 0, 0
+	}
+	rttCtx, cancel := context.WithTimeout(parent, automationEmergencyRTTSweepTimeout)
+	items := measureProviderProfileRTTWithTimeout(
+		rttCtx,
+		candidates,
+		func(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+			return automationEmergencyRTTProbe(a, ctx, candidate)
+		},
+		automationEmergencyRTTCandidateTimeout,
+	)
+	cancel()
+	storeProviderProfileRTTCache(candidates, items)
+
+	byID := make(map[string]bestServerInternalCandidate, len(candidates))
+	for _, candidate := range candidates {
+		if id := strings.TrimSpace(candidate.Profile.ID); id != "" {
+			byID[id] = candidate
+		}
+	}
+	ordered := make([]bestServerInternalCandidate, 0, len(candidates))
+	seen := make(map[string]bool, len(candidates))
+	checked, reachable, bestRTT := 0, 0, 0
+	for _, item := range items {
+		id := strings.TrimSpace(item.ProfileID)
+		candidate, ok := byID[id]
+		if !ok || seen[id] {
+			continue
+		}
+		if item.Attempted {
+			checked++
+		}
+		if !item.Reachable || item.RTTMS <= 0 {
+			continue
+		}
+		reachable++
+		if bestRTT == 0 || item.RTTMS < bestRTT {
+			bestRTT = item.RTTMS
+		}
+		candidate.VPNRTTMS = item.RTTMS
+		candidate.VPNJitterMS = item.JitterMS
+		ordered = append(ordered, candidate)
+		seen[id] = true
+	}
+
+	// Fresh canonical VPN RTT decides the priority. UNKNOWN/unreachable rows are
+	// fallback only: a quick RTT miss is not enough evidence to discard a
+	// candidate that may still pass the named-HTTPS application gate.
+	for _, candidate := range candidates {
+		id := strings.TrimSpace(candidate.Profile.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		ordered = append(ordered, candidate)
+		seen[id] = true
+	}
+	return ordered, checked, reachable, bestRTT
+}
+
 func automationEmergencyScanCursor(total int) int {
 	if total <= 0 {
 		return 0
@@ -193,102 +267,78 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 		return result, nil
 	}
 
-	ordered := automationEmergencyOrderedCandidates(filtered)
-	cursor := automationEmergencyScanCursor(len(ordered))
-	ordered = rotateAutomationEmergencyCandidates(ordered, cursor)
-	if len(ordered) > automationEmergencyCandidateLimit {
-		ordered = ordered[:automationEmergencyCandidateLimit]
+	// Cache/country diversity only builds the bounded cohort. Every emergency
+	// cycle then refreshes canonical logical-VPN RTT for that cohort before any
+	// named-HTTPS acceptance. Fresh VPN ping, not country ordering, determines
+	// which candidate receives the application gate first.
+	cohort := automationEmergencyOrderedCandidates(filtered)
+	cursor := automationEmergencyScanCursor(len(cohort))
+	cohort = rotateAutomationEmergencyCandidates(cohort, cursor)
+	if len(cohort) > automationEmergencyCandidateLimit {
+		cohort = cohort[:automationEmergencyCandidateLimit]
 	}
 
 	scanCtx, cancelScan := context.WithTimeout(parent, automationEmergencyScanTimeout)
 	defer cancelScan()
-	type probeResult struct {
-		candidate bestServerInternalCandidate
-		probe     bestServerProbeResult
+
+	rttStarted := time.Now()
+	ordered, rttChecked, rttReachable, bestRTT := automationEmergencyFreshRTTOrder(scanCtx, a, cohort)
+	result.RTTPrefilterDuration = time.Since(rttStarted).Round(time.Millisecond)
+	result.RTTChecked = rttChecked
+	result.RTTReachable = rttReachable
+	result.BestRTTMS = bestRTT
+	if len(ordered) == 0 {
+		advance := len(cohort)
+		if advance < 1 {
+			advance = 1
+		}
+		setAutomationEmergencyScanCursor(cursor+advance, len(filtered))
+		return result, nil
 	}
-	success := make(chan probeResult, 1)
-	jobs := make(chan bestServerInternalCandidate)
+
+	// Application acceptance runs in RTT-priority batches. Two candidates may
+	// be probed in parallel for latency, but a higher-RTT candidate cannot beat
+	// a lower-RTT successful candidate from the same batch.
 	workers := automationEmergencyProbeWorkers
-	if workers > len(ordered) {
-		workers = len(ordered)
+	if workers < 1 {
+		workers = 1
 	}
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	checked := 0
-	reachable := 0
-	for worker := 0; worker < workers; worker++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for candidate := range jobs {
+	for offset := 0; offset < len(ordered) && scanCtx.Err() == nil; offset += workers {
+		end := offset + workers
+		if end > len(ordered) {
+			end = len(ordered)
+		}
+		batch := ordered[offset:end]
+		probes := make([]bestServerProbeResult, len(batch))
+		var wg sync.WaitGroup
+		for index := range batch {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
 				if scanCtx.Err() != nil {
 					return
 				}
 				probeCtx, cancel := context.WithTimeout(scanCtx, automationEmergencyCandidateTimeout)
-				probe := automationEmergencyCandidateProbe(a, probeCtx, candidate)
+				probes[i] = automationEmergencyCandidateProbe(a, probeCtx, batch[i])
 				cancel()
-
-				mu.Lock()
-				checked++
-				if probe.OK {
-					reachable++
-				}
-				mu.Unlock()
-
-				if !probe.OK {
-					continue
-				}
-				select {
-				case success <- probeResult{candidate: candidate, probe: probe}:
-					cancelScan()
-					return
-				default:
-					return
-				}
-			}
-		}()
-	}
-	go func() {
-		defer close(jobs)
-		for _, candidate := range ordered {
-			select {
-			case jobs <- candidate:
-			case <-scanCtx.Done():
-				return
-			}
+			}(index)
 		}
-	}()
-
-	done := make(chan struct{})
-	go func() {
 		wg.Wait()
-		close(done)
-	}()
 
-	var winner probeResult
-	found := false
-	select {
-	case winner = <-success:
-		found = true
-		<-done
-	case <-done:
-	case <-parent.Done():
-		cancelScan()
-		<-done
-	}
-	mu.Lock()
-	result.Checked = checked
-	result.Reachable = reachable
-	mu.Unlock()
-
-	if found {
-		result.Candidate = winner.candidate
-		result.ApplicationMS = winner.probe.Median
-		setAutomationEmergencyScanCursor(0, len(filtered))
-		return result, nil
+		for index, probe := range probes {
+			result.Checked++
+			if !probe.OK {
+				continue
+			}
+			result.Reachable++
+			result.Candidate = batch[index]
+			result.ApplicationMS = probe.Median
+			setAutomationEmergencyScanCursor(0, len(filtered))
+			return result, nil
+		}
 	}
 
-	advance := len(ordered)
+	advance := len(cohort)
 	if advance < 1 {
 		advance = 1
 	}
@@ -307,7 +357,9 @@ func (a *app) storeAutomationEmergencySelectionSnapshot(scan automationEmergency
 	measured := []bestServerQualityCandidate{{
 		Tested: true, Available: true, Eligible: true,
 		ID: candidate.Profile.ID, Name: candidate.Profile.Name, CountryCode: candidate.Profile.CountryCode,
-		Endpoint: profileEndpoint(candidate.Profile), ApplicationMS: scan.ApplicationMS,
+		Endpoint: profileEndpoint(candidate.Profile),
+		VPNRTTMS: candidate.VPNRTTMS, VPNJitterMS: candidate.VPNJitterMS,
+		ApplicationMS: scan.ApplicationMS,
 	}}
 	return a.storeBestServerSelectionSnapshot(
 		scan.CurrentEndpoint,
@@ -323,8 +375,8 @@ func automationEmergencySelectionSummary(scan automationEmergencyScanResult) str
 		name = "VPN"
 	}
 	return fmt.Sprintf(
-		"AUTO VPN emergency fast-path: application-ready replacement — %s [сайты %d мс]; pool=%d; checked=%d; reachable=%d; full quality scan отложен до восстановления интернета.",
-		name, scan.ApplicationMS, scan.Total, scan.Checked, scan.Reachable,
+		"AUTO VPN emergency fast-path: fresh VPN-ping → application-ready replacement — %s [VPN %d мс; сайты %d мс]; pool=%d; rtt_checked=%d; rtt_reachable=%d; app_checked=%d; app_reachable=%d; full quality scan отложен до восстановления интернета.",
+		name, scan.Candidate.VPNRTTMS, scan.ApplicationMS, scan.Total, scan.RTTChecked, scan.RTTReachable, scan.Checked, scan.Reachable,
 	)
 }
 
@@ -351,8 +403,8 @@ func (a *app) runAutomationBestEmergencyCycleLocked(parent context.Context, sett
 	}
 	if strings.TrimSpace(scan.Candidate.Profile.ID) == "" {
 		reason := fmt.Sprintf(
-			"В аварийном fast-path пока нет application-ready replacement: pool=%d; checked=%d; reachable=%d. Следующий цикл продолжит с другого участка пула.",
-			scan.Total, scan.Checked, scan.Reachable,
+			"В аварийном fast-path пока нет application-ready replacement: pool=%d; rtt_checked=%d; rtt_reachable=%d; app_checked=%d; app_reachable=%d. Следующий цикл продолжит с другого участка пула.",
+			scan.Total, scan.RTTChecked, scan.RTTReachable, scan.Checked, scan.Reachable,
 		)
 		writeAutomationStateV2("failed", reason, "no", false)
 		appendAutomationHistoryV2("failed", reason)

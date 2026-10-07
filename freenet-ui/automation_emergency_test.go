@@ -63,9 +63,11 @@ func TestEmergencyScanUsesBoundedApplicationReadyCohort(t *testing.T) {
 
 	oldDiscover := automationEmergencyDiscoverCandidates
 	oldProbe := automationEmergencyCandidateProbe
+	oldRTTProbe := automationEmergencyRTTProbe
 	t.Cleanup(func() {
 		automationEmergencyDiscoverCandidates = oldDiscover
 		automationEmergencyCandidateProbe = oldProbe
+		automationEmergencyRTTProbe = oldRTTProbe
 	})
 
 	candidates := []bestServerInternalCandidate{
@@ -82,6 +84,9 @@ func TestEmergencyScanUsesBoundedApplicationReadyCohort(t *testing.T) {
 	}
 	automationEmergencyDiscoverCandidates = func(*app, context.Context) ([]bestServerInternalCandidate, bool, error) {
 		return candidates, false, nil
+	}
+	automationEmergencyRTTProbe = func(_ *app, _ context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{100}, Median: 100}
 	}
 
 	var mu sync.Mutex
@@ -115,6 +120,9 @@ func TestEmergencyScanUsesBoundedApplicationReadyCohort(t *testing.T) {
 	if scan.Total != len(candidates) {
 		t.Fatalf("pool=%d want %d", scan.Total, len(candidates))
 	}
+	if scan.RTTChecked < 1 || scan.RTTChecked > automationEmergencyCandidateLimit || scan.RTTReachable < 1 {
+		t.Fatalf("fresh RTT prefilter checked=%d reachable=%d", scan.RTTChecked, scan.RTTReachable)
+	}
 	mu.Lock()
 	count := len(probed)
 	mu.Unlock()
@@ -131,9 +139,11 @@ func TestEmergencyScanAdvancesCursorWhenCohortHasNoReplacement(t *testing.T) {
 
 	oldDiscover := automationEmergencyDiscoverCandidates
 	oldProbe := automationEmergencyCandidateProbe
+	oldRTTProbe := automationEmergencyRTTProbe
 	t.Cleanup(func() {
 		automationEmergencyDiscoverCandidates = oldDiscover
 		automationEmergencyCandidateProbe = oldProbe
+		automationEmergencyRTTProbe = oldRTTProbe
 	})
 
 	candidates := make([]bestServerInternalCandidate, 0, 12)
@@ -143,6 +153,9 @@ func TestEmergencyScanAdvancesCursorWhenCohortHasNoReplacement(t *testing.T) {
 	}
 	automationEmergencyDiscoverCandidates = func(*app, context.Context) ([]bestServerInternalCandidate, bool, error) {
 		return candidates, false, nil
+	}
+	automationEmergencyRTTProbe = func(_ *app, _ context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{120}, Median: 120}
 	}
 	automationEmergencyCandidateProbe = func(*app, context.Context, bestServerInternalCandidate) bestServerProbeResult {
 		return bestServerProbeResult{}
@@ -164,6 +177,74 @@ func TestEmergencyScanAdvancesCursorWhenCohortHasNoReplacement(t *testing.T) {
 	state := v3ParseState(statePath)
 	if strings.TrimSpace(state["EMERGENCY_SCAN_CURSOR"]) == "" || state["EMERGENCY_SCAN_CURSOR"] == "0" {
 		t.Fatalf("failed cohort did not advance cursor: %v", state)
+	}
+}
+
+func TestEmergencyFreshVPNPingRanksApplicationReadyCandidates(t *testing.T) {
+	resetEmergencyRTTCache(t)
+	dir := t.TempDir()
+	t.Setenv("FREENET_SETTINGS_V3_STATE", filepath.Join(dir, "settings.state"))
+
+	oldDiscover := automationEmergencyDiscoverCandidates
+	oldProbe := automationEmergencyCandidateProbe
+	oldRTTProbe := automationEmergencyRTTProbe
+	t.Cleanup(func() {
+		automationEmergencyDiscoverCandidates = oldDiscover
+		automationEmergencyCandidateProbe = oldProbe
+		automationEmergencyRTTProbe = oldRTTProbe
+	})
+
+	candidates := []bestServerInternalCandidate{
+		emergencyTestCandidate("de1", "de"),
+		emergencyTestCandidate("fr1", "fr"),
+		emergencyTestCandidate("nl1", "nl"),
+	}
+	automationEmergencyDiscoverCandidates = func(*app, context.Context) ([]bestServerInternalCandidate, bool, error) {
+		return candidates, false, nil
+	}
+	rtt := map[string]int{"de1": 90, "fr1": 30, "nl1": 60}
+	var rttMu sync.Mutex
+	rttCalls := 0
+	automationEmergencyRTTProbe = func(_ *app, _ context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+		rttMu.Lock()
+		rttCalls++
+		rttMu.Unlock()
+		value := rtt[candidate.Profile.ID]
+		return bestServerProbeResult{OK: true, Samples: []int{value}, Median: value}
+	}
+	automationEmergencyCandidateProbe = func(_ *app, _ context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+		switch candidate.Profile.ID {
+		case "fr1", "nl1":
+			return bestServerProbeResult{OK: true, Samples: []int{140}, Median: 140}
+		default:
+			return bestServerProbeResult{}
+		}
+	}
+
+	a := &app{cfg: config{
+		OutPath: filepath.Join(dir, "04_outbounds.json"),
+		FilterPath: filepath.Join(dir, "provider.filter"),
+	}}
+	scan, err := a.scanAutomationEmergencyReplacement(context.Background(), automationSettings{
+		Mode: automationModeBest, Policy: automationPolicyDegraded, CountryScope: automationCountryRegion,
+	}, "de")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scan.Candidate.Profile.ID != "fr1" {
+		t.Fatalf("winner=%q want lowest fresh VPN RTT application-ready fr1", scan.Candidate.Profile.ID)
+	}
+	if scan.Candidate.VPNRTTMS != 30 || scan.BestRTTMS != 30 {
+		t.Fatalf("winner RTT=%d best=%d want 30", scan.Candidate.VPNRTTMS, scan.BestRTTMS)
+	}
+	if scan.RTTChecked != 3 || scan.RTTReachable != 3 {
+		t.Fatalf("fresh RTT evidence checked=%d reachable=%d want 3/3", scan.RTTChecked, scan.RTTReachable)
+	}
+	rttMu.Lock()
+	calls := rttCalls
+	rttMu.Unlock()
+	if calls != 3 {
+		t.Fatalf("fresh RTT calls=%d want 3", calls)
 	}
 }
 
@@ -197,6 +278,9 @@ func TestEmergencyRecoveryDoesNotUseFullQualityPipeline(t *testing.T) {
 		if !strings.Contains(body, required) {
 			t.Fatalf("emergency recovery missing %s", required)
 		}
+	}
+	if !strings.Contains(text, "automationEmergencyFreshRTTOrder(scanCtx, a, cohort)") {
+		t.Fatal("emergency scan must run fresh VPN RTT prefilter")
 	}
 }
 
