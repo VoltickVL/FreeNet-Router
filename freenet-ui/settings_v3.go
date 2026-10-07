@@ -29,6 +29,7 @@ const (
 	journalDefaultPageSize          = 100
 	journalMaxPageSize              = 500
 	journalSemanticDedupeWindow     = 15 * time.Second
+	journalRoutineHeartbeatWindow   = 6 * time.Hour
 )
 
 var journalHistoryMu sync.Mutex
@@ -591,6 +592,59 @@ func dedupeCanonicalJournalEvents(events []automationEvent) []automationEvent {
 	return out
 }
 
+func journalEventIsRoutineAutoNoise(event automationEvent) bool {
+	if canonicalJournalKindKey(event.Kind) != "auto_vpn" {
+		return false
+	}
+	result := strings.ToLower(strings.TrimSpace(event.Result))
+	// Recovery stages are deliberately verbose and must never be compacted.
+	if strings.Contains(result, ":") {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(event.Message))
+	switch result {
+	case "same":
+		return true
+	case "cooldown":
+		return true
+	case "healthy", "success":
+		return strings.Contains(message, "работают стабильно") ||
+			strings.Contains(message, "подтверждён как рабочий") ||
+			strings.Contains(message, "не требует смены") ||
+			strings.Contains(message, "не требует поиска замены")
+	default:
+		return false
+	}
+}
+
+func compactRoutineJournalEvents(events []automationEvent) []automationEvent {
+	out := make([]automationEvent, 0, len(events))
+	lastByKey := map[string]time.Time{}
+	for _, event := range events {
+		if !journalEventIsRoutineAutoNoise(event) {
+			out = append(out, event)
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, strings.TrimSpace(event.At))
+		if err != nil {
+			out = append(out, event)
+			continue
+		}
+		key := canonicalJournalKindKey(event.Kind) + "\x00" +
+			strings.ToLower(strings.TrimSpace(event.Result)) + "\x00" +
+			canonicalJournalMessageKey(event.Message)
+		if newer, ok := lastByKey[key]; ok {
+			delta := newer.Sub(at)
+			if delta >= 0 && delta < journalRoutineHeartbeatWindow {
+				continue
+			}
+		}
+		lastByKey[key] = at
+		out = append(out, event)
+	}
+	return out
+}
+
 func canonicalJournalEvents(limit int, updateStatePath ...string) []automationEvent {
 	if limit <= 0 || limit > journalCanonicalRetentionLimit {
 		limit = journalCanonicalRetentionLimit
@@ -621,6 +675,7 @@ func canonicalJournalEvents(limit int, updateStatePath ...string) []automationEv
 	}
 	merged := v3MergeEvents(0, groups...)
 	merged = dedupeCanonicalJournalEvents(merged)
+	merged = compactRoutineJournalEvents(merged)
 	if len(merged) > limit {
 		merged = merged[:limit]
 	}
