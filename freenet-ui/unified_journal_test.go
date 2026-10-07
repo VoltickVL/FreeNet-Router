@@ -37,7 +37,10 @@ func TestUnifiedJournalUIHasCanonicalFiltersAndCategories(t *testing.T) {
 		"journalPageActive() && state.journalLive",
 		"data-journal-result",
 		"id=\"fn3JournalSearch\"",
-		"Храним до 15 000 canonical событий",
+		"До 15 000 значимых событий",
+		"Штатная отметка — не чаще 1 раза в 6 часов",
+		"id=\"fn3JournalRetentionRange\"",
+		"class=\"fn3-journal-event-list\"",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("unified Journal UI contract missing %q", want)
@@ -106,7 +109,10 @@ func TestUnifiedJournalBackendHasReadOnlyEndpointAndSemanticDedupe(t *testing.T)
 		"journalHistoryFileLimit         = 20000",
 		"journalCanonicalRetentionLimit  = 15000",
 		"journalSemanticDedupeWindow     = 15 * time.Second",
+		"journalRoutineHeartbeatWindow   = 6 * time.Hour",
 		"func dedupeCanonicalJournalEvents(events []automationEvent)",
+		"func compactRoutineJournalEvents(events []automationEvent)",
+		"merged = compactRoutineJournalEvents(merged)",
 		"func appendBoundedJournalLine(path, line string)",
 		"all := canonicalJournalEvents(journalCanonicalRetentionLimit, a.cfg.UpdateState)",
 		`mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))`,
