@@ -527,10 +527,13 @@ const server = http.createServer((req, res) => {
     await page.locator('#fn3JournalLive').click();
     await page.waitForFunction(() => document.querySelector('#fn3JournalLive')?.getAttribute('aria-pressed') === 'false');
     assert.equal((await page.locator('#fn3JournalLive').textContent()).trim(), 'Возобновить');
+    // A read-only GET may already be in flight when Pause is clicked. Let that
+    // request settle, then prove that no new 5-second polling tick is scheduled.
+    await page.waitForTimeout(750);
     const journalGetsWhilePaused = journalGets;
     settings.events.unshift({at:'2026-09-12T11:36:00Z',kind:'subscription',result:'success',message:'LIVE_EVENT подписка обновилась.'});
     await page.waitForTimeout(5200);
-    assert.equal(journalGets, journalGetsWhilePaused, 'paused Journal must stop polling');
+    assert.equal(journalGets, journalGetsWhilePaused, 'paused Journal must stop new polling ticks');
     assert.doesNotMatch((await page.locator('#fn3JournalFull').textContent()) || '', /LIVE_EVENT/, 'paused Journal must not update itself');
 
     const journalGetsBeforeLive = journalGets;
