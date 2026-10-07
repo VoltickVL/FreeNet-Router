@@ -439,69 +439,13 @@ func automationCurrentCountry(a *app) string {
 }
 
 func (a *app) runAutomationBestEmergencyCycle(parent context.Context, settings automationSettings) (automationBestCycleResult, error) {
-	if settings.Mode != automationModeBest {
-		return automationBestCycleResult{Result: "same", Reason: "Автоматический поиск замены не применим к текущему режиму."}, nil
-	}
 	release, err := acquireAutomationBestLock()
 	if err != nil {
-		return automationBestCycleResult{Result: "busy", Reason: "Поиск замены пропущен: другая AUTO VPN операция уже выполняется."}, nil
+		return automationBestCycleResult{Result: "busy", Reason: "Поиск аварийной замены пропущен: другая Best Server / recovery операция уже выполняется."}, nil
 	}
 	defer release()
-
-	ctx, cancel := context.WithTimeout(parent, automationBestForeignTimeout(automationPolicyDegraded))
-	defer cancel()
-	currentCountry := automationCurrentCountry(a)
-	if currentCountry == "" {
-		reason := "Страна текущего VPN не подтверждена; автоматическая замена отменена."
-		writeAutomationStateV2("uncertain", reason, "no", false)
-		appendAutomationHistoryV2("uncertain", reason)
-		return automationBestCycleResult{Result: "uncertain", Reason: reason}, nil
-	}
-	candidates, err := a.scanBestServerForeignForAutomation(ctx, settings, currentCountry)
-	if err != nil {
-		reason := "Не удалось завершить безопасный поиск проверенной замены; текущие настройки сохранены."
-		writeAutomationStateV2("failed", reason, "no", false)
-		appendAutomationHistoryV2("failed", reason)
-		return automationBestCycleResult{Result: "failed", Reason: reason}, err
-	}
-	candidate, ok := bestAutomationCandidate(candidates)
-	if !ok {
-		reason := "Подходящей полностью проверенной замены сейчас нет."
-		writeAutomationStateV2("same", reason, "no", false)
-		appendAutomationHistoryV2("same", reason)
-		return automationBestCycleResult{Result: "same", Reason: reason}, nil
-	}
-	if !validBestServerSelectionToken(candidates.SelectionToken) {
-		reason := "Проверенная замена найдена, но её точный измеренный snapshot не сохранён; AUTO VPN не выполняет mutation."
-		writeAutomationStateV2("failed", reason, "no", false)
-		appendAutomationHistoryV2("failed", reason)
-		return automationBestCycleResult{Result: "failed", Reason: reason, ProfileID: candidate.ID}, errors.New("AUTO VPN measured selection snapshot unavailable")
-	}
-	if !settings.AutoApply {
-		reason := "Найдена проверенная замена, но автоматическое применение выключено."
-		writeAutomationStateV2("candidate", reason, "no", false)
-		appendAutomationHistoryV2("candidate", reason)
-		return automationBestCycleResult{Result: "candidate", Reason: reason, ProfileID: candidate.ID}, nil
-	}
-
-	appendAutomationHistoryV2("selection", automationBestEmergencySelectionSummary(candidate))
-	status, applied := a.executeProviderProfileApply(networkApplyRequest{
-		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
-	})
-	if status < 200 || status >= 300 || !applied.Success {
-		reason := "Проверенная замена VPN не применена: " + strings.TrimSpace(applied.Error)
-		rollback := applied.RollbackState
-		if rollback == "" {
-			rollback = "unknown"
-		}
-		writeAutomationStateV2("failed", reason, rollback, false)
-		appendAutomationHistoryV2("failed", reason+"; rollback="+rollback)
-		return automationBestCycleResult{Result: "failed", Reason: reason, RollbackState: rollback, ProfileID: candidate.ID}, errors.New("AUTO VPN emergency apply failed")
-	}
-	reason := "Текущий VPN заменён на проверенный вариант: " + candidate.Name
-	writeAutomationStateV2("switched", reason, "yes", true)
-	appendAutomationHistoryV2("success", reason)
-	return automationBestCycleResult{Result: "switched", Reason: reason, Mutated: true, RollbackState: applied.RollbackState, ProfileID: candidate.ID}, nil
+	result, _, runErr := a.runAutomationBestEmergencyCycleLocked(parent, settings)
+	return result, runErr
 }
 
 func (a *app) runAutomationEndpointEmergency(parent context.Context, settings automationSettings) (automationHealthResult, error) {
@@ -798,46 +742,125 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		return recordAndReturnHealth(automationHealthResult{State: decision.State, Reason: decision.Reason}, nil)
 	}
 
-	// Canonical AUTO recovery order: first try one bounded fresh endpoint for
-	// the exact current logical VPN. If that fast-path does not restore service,
-	// reuse the same full quick-sweep -> deep Top-3 Best Server pipeline that the
-	// manual "Подобрать варианты" flow uses.
+	// Critical recovery is single-flight across the entire endpoint + replacement
+	// sequence. Acquire the Best/replacement fence before any endpoint mutation,
+	// so a competing manual/quality scan cannot make every 30-second health tick
+	// repeat the same endpoint refresh while replacement selection is busy.
+	incident := newAutomationRecoveryIncident(a, time.Now().UTC())
+	appendAutomationRecoveryIncidentStage(
+		incident, "incident", "start",
+		"wan=healthy; double_vpn_fail=confirmed; recovery=single-flight", time.Now().UTC(),
+	)
+
+	releaseBest, bestLockErr := acquireAutomationBestLock()
+	if bestLockErr != nil {
+		reason := "Аварийное восстановление ждёт завершения другой Best Server / replacement операции; endpoint refresh и новый foreign scan не повторяются."
+		appendAutomationRecoveryIncidentStage(incident, "single_flight", "busy", reason, time.Now().UTC())
+		return recordAndReturnHealth(automationHealthResult{State: "busy", Reason: reason}, nil)
+	}
+	defer releaseBest()
+	appendAutomationRecoveryIncidentStage(incident, "single_flight", "acquired", "exclusive recovery fence acquired", time.Now().UTC())
+
+	// First keep the exact current logical VPN if one bounded fresh endpoint can
+	// restore service. This remains transactional and precedes any profile swap.
 	endpointSettings := settings
 	endpointSettings.Mode = automationModeEndpoint
 	endpointSettings.AutoApply = true
-	appendAutomationRecoveryStage("endpoint_refresh", "start", "Пробуем штатно обновить текущий VPN перед заменой сервера.")
+	endpointStarted := time.Now()
+	appendAutomationRecoveryIncidentStage(incident, "endpoint_refresh", "start", "Пробуем один bounded fresh endpoint текущего VPN.", endpointStarted)
 	endpointResult, endpointErr := a.runAutomationEndpointEmergency(parent, endpointSettings)
+	endpointDuration := time.Since(endpointStarted).Round(time.Millisecond)
 	appendAutomationRecoveryStage("endpoint_refresh", endpointResult.State, endpointResult.Reason)
+	appendAutomationRecoveryIncidentStage(
+		incident, "endpoint_refresh", endpointResult.State,
+		fmt.Sprintf("duration=%s; %s", endpointDuration, endpointResult.Reason), time.Now().UTC(),
+	)
 	if endpointErr == nil && endpointResult.State == automationHealthHealthy {
 		appendAutomationRecoveryStage("post_check", "success", endpointResult.Reason)
+		appendAutomationRecoveryIncidentStage(
+			incident, "incident", "recovered",
+			"method=current-endpoint; total_downtime_since_detection="+time.Since(incident.StartedAt).Round(time.Second).String(),
+			time.Now().UTC(),
+		)
 		return recordAndReturnHealth(endpointResult, nil)
 	}
 	if endpointResult.State == automationHealthUncertain {
 		appendAutomationRecoveryStage("post_check", automationHealthUncertain, endpointResult.Reason)
+		appendAutomationRecoveryIncidentStage(incident, "incident", "uncertain", endpointResult.Reason, time.Now().UTC())
 		return recordAndReturnHealth(endpointResult, endpointErr)
 	}
 	if automationMutationBlockedState() {
 		endpointResult.State = automationHealthCritical
 		appendAutomationRecoveryStage("rollback", "failed", "Rollback не подтверждён; persistent AUTO mutation block активирован.")
+		appendAutomationRecoveryIncidentStage(
+			incident, "rollback", "failed",
+			"PRIMARY ERROR: rollback не подтверждён; дальнейшая mutation остановлена", time.Now().UTC(),
+		)
 		return recordAndReturnHealth(endpointResult, endpointErr)
 	}
 
 	if settings.Mode == automationModeEndpoint {
 		reason := "Режим «Только текущий VPN»: endpoint текущего профиля не восстановил соединение; автоматическая смена страны или VPN-профиля запрещена."
 		appendAutomationRecoveryStage("candidate_selection", "blocked", reason)
+		appendAutomationRecoveryIncidentStage(incident, "candidate_selection", "blocked", reason, time.Now().UTC())
 		result := automationHealthResult{State: automationHealthCritical, Reason: reason, Mutated: endpointResult.Mutated}
 		return recordAndReturnHealth(result, endpointErr)
 	}
 
+	// Emergency recovery deliberately does not run full throughput/stability
+	// Best Server quality. It validates a small, country-diverse cohort through
+	// real application HTTPS, then relies on the existing transactional provider
+	// plan/apply/post-check contract. Full quality optimization remains separate.
 	bestSettings := settings
 	bestSettings.Mode = automationModeBest
 	bestSettings.Policy = automationPolicyDegraded
 	bestSettings.AutoApply = true
-	appendAutomationRecoveryStage("candidate_selection", "start", "Endpoint fast-path не восстановил VPN; ищем первый fully measured Eligible replacement.")
-	best, bestErr := a.runAutomationBestEmergencyCycle(parent, bestSettings)
+	appendAutomationRecoveryStage("candidate_selection", "start", "Endpoint fast-path не восстановил VPN; запускаем bounded application-ready emergency replacement.")
+	appendAutomationRecoveryIncidentStage(
+		incident, "candidate_selection", "start",
+		fmt.Sprintf("budget=%s; cohort_limit=%d", automationEmergencyScanTimeout, automationEmergencyCandidateLimit),
+		time.Now().UTC(),
+	)
+	best, scan, bestErr := a.runAutomationBestEmergencyCycleLocked(parent, bestSettings)
+	selected := "none"
+	if name := profileDisplayName(scan.Candidate.Profile.Name); name != "" {
+		selected = name
+	}
+	appendAutomationRecoveryIncidentStage(
+		incident, "candidate_scan", best.Result,
+		fmt.Sprintf(
+			"duration=%s; pool=%d; checked=%d; reachable=%d; selected=%s",
+			scan.ScanDuration, scan.Total, scan.Checked, scan.Reachable, selected,
+		),
+		time.Now().UTC(),
+	)
+	if scan.ApplyDuration > 0 {
+		appendAutomationRecoveryIncidentStage(
+			incident, "apply", best.Result,
+			fmt.Sprintf("duration=%s; rollback=%s; %s", scan.ApplyDuration, strings.TrimSpace(best.RollbackState), best.Reason),
+			time.Now().UTC(),
+		)
+	}
 	appendAutomationRecoveryStage("apply", best.Result, best.Reason)
 	if best.RollbackState != "" && best.RollbackState != "NOT_NEEDED" && best.RollbackState != "yes" {
 		appendAutomationRecoveryStage("rollback", best.RollbackState, best.Reason)
+		appendAutomationRecoveryIncidentStage(
+			incident, "rollback", best.RollbackState,
+			"PRIMARY ERROR: "+best.Reason, time.Now().UTC(),
+		)
+	}
+	if best.Mutated && best.Result == "switched" {
+		appendAutomationRecoveryIncidentStage(
+			incident, "incident", "recovered",
+			"method=emergency-replacement; total_downtime_since_detection="+time.Since(incident.StartedAt).Round(time.Second).String(),
+			time.Now().UTC(),
+		)
+	} else if bestErr != nil {
+		appendAutomationRecoveryIncidentStage(
+			incident, "incident", "failed",
+			"PRIMARY ERROR: "+best.Reason+"; total_elapsed="+time.Since(incident.StartedAt).Round(time.Second).String(),
+			time.Now().UTC(),
+		)
 	}
 	result := automationHealthResult{State: best.Result, Reason: best.Reason, Mutated: best.Mutated}
 	return recordAndReturnHealth(result, bestErr)
