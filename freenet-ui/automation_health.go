@@ -322,6 +322,9 @@ func probeAutomationWAN(ctx context.Context) bool {
 }
 
 func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthProbe {
+	if runtimeGate, blocked := a.xrayRuntimeHealthGate(); blocked {
+		return runtimeGate
+	}
 	outbound, activeEndpoint, ok := readBestServerActiveOutbound(a.cfg.OutPath)
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	if !ok || currentEndpoint == "" || !endpointsEqual(activeEndpoint, currentEndpoint) {

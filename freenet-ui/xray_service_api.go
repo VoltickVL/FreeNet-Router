@@ -18,12 +18,14 @@ type xrayServiceActionRequest struct {
 }
 
 type xrayServiceResponse struct {
-	Success bool              `json:"success"`
-	Online  bool              `json:"online"`
-	Version string            `json:"version,omitempty"`
-	Message string            `json:"message,omitempty"`
-	Events  []automationEvent `json:"events"`
-	Error   string            `json:"error,omitempty"`
+	Success      bool              `json:"success"`
+	Online       bool              `json:"online"`
+	Version      string            `json:"version,omitempty"`
+	DesiredState string            `json:"desired_state"`
+	AutoRecovery bool              `json:"auto_recovery"`
+	Message      string            `json:"message,omitempty"`
+	Events       []automationEvent `json:"events"`
+	Error        string            `json:"error,omitempty"`
 }
 
 func registerXrayServiceAPI(mux *http.ServeMux, a *app) {
@@ -38,7 +40,7 @@ func xrayServiceEvents(limit int) []automationEvent {
 	out := make([]automationEvent, 0, limit)
 	for _, event := range all {
 		kind := strings.ToLower(strings.TrimSpace(event.Kind))
-		if kind != "xray" && kind != "config_studio" {
+		if kind != "xray" && kind != "xray_runtime" && kind != "config_studio" {
 			continue
 		}
 		out = append(out, event)
@@ -51,7 +53,12 @@ func xrayServiceEvents(limit int) []automationEvent {
 
 func (a *app) xrayServiceSnapshot(ctx context.Context) xrayServiceResponse {
 	status := a.configStudioXrayStatus(ctx)
-	return xrayServiceResponse{Success: true, Online: status.Online, Version: status.Version, Events: xrayServiceEvents(8)}
+	desired := a.xrayRuntimeDesiredState()
+	return xrayServiceResponse{
+		Success: true, Online: status.Online, Version: status.Version,
+		DesiredState: desired, AutoRecovery: desired == xrayRuntimeDesiredRunning,
+		Events: xrayServiceEvents(8),
+	}
 }
 
 func (a *app) handleXrayServiceGet(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +208,21 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, xrayServiceResponse{Success: false, Events: xrayServiceEvents(8), Error: "другая операция FreeNet уже выполняется"})
 		return
 	}
+
+	desired := xrayRuntimeDesiredRunning
+	if action == "stop" {
+		desired = xrayRuntimeDesiredStopped
+	}
+	if err := a.setXrayRuntimeDesiredState(desired); err != nil {
+		message := "Не удалось сохранить ручной desired state Xray; действие отменено без runtime mutation."
+		v3AppendEvent("xray_runtime", "failed", message)
+		resp := a.xrayServiceSnapshot(r.Context())
+		resp.Success = false
+		resp.Error = message
+		writeJSON(w, http.StatusInternalServerError, resp)
+		return
+	}
+
 	wasOnline := xrayServiceProcessRunning("xray")
 	changed, err := a.controlXrayService(r.Context(), action)
 	if err != nil {
@@ -218,22 +240,22 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 	case "start":
 		if !changed && wasOnline {
 			resp.Message = "Xray уже работает; запуск не требовался."
-			v3AppendEvent("xray", "success", resp.Message)
+			v3AppendEvent("xray", "success", "Xray уже работает; desired=running; аварийный автоподъём включён.")
 		} else {
 			resp.Message = "Xray запущен и работает."
-			v3AppendEvent("xray", "success", "Xray запущен через FreeNet.")
+			v3AppendEvent("xray", "success", "Xray запущен через FreeNet; desired=running; аварийный автоподъём включён.")
 		}
 	case "stop":
 		if !changed && !wasOnline {
 			resp.Message = "Xray уже остановлен."
-			v3AppendEvent("xray", "success", resp.Message)
+			v3AppendEvent("xray", "success", "Xray оставлен остановленным вручную; desired=stopped; автоподъём отключён до Start/Restart.")
 		} else {
 			resp.Message = "Xray остановлен."
-			v3AppendEvent("xray", "success", "Xray остановлен через FreeNet.")
+			v3AppendEvent("xray", "success", "Xray остановлен вручную через FreeNet; desired=stopped; автоподъём отключён до Start/Restart.")
 		}
 	default:
 		resp.Message = "Xray перезапущен и снова работает."
-		v3AppendEvent("xray", "success", "Xray перезапущен через FreeNet.")
+		v3AppendEvent("xray", "success", "Xray перезапущен через FreeNet; desired=running; аварийный автоподъём включён.")
 	}
 	resp.Events = xrayServiceEvents(8)
 	writeJSON(w, http.StatusOK, resp)
