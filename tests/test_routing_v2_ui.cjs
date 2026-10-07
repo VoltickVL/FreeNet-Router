@@ -218,6 +218,13 @@ const server=http.createServer(async(req,res)=>{
     assert.equal(await page.locator('#rv2DirectCount').textContent(),'23');
     assert.equal(await page.locator('#rv2VPNCount').textContent(),'4');
     assert.equal(await page.locator('#rv2BlockCount').textContent(),'0');
+    for (const id of ['#rv2DirectBoard','#rv2VPNBoard','#rv2BlockBoard']) {
+      assert.equal(await page.locator(id).evaluate(el=>el.classList.contains('collapsed')),true,id+' must start collapsed');
+      assert.equal(await page.locator(id+' .rv4-board-collapse').getAttribute('aria-expanded'),'false',id+' must expose collapsed aria state');
+    }
+    assert.equal(await page.locator('#rv2DirectContent').isHidden(),true,'DIRECT content must start hidden');
+    assert.equal(await page.locator('#rv2VPNContent').isHidden(),true,'VPN content must start hidden');
+    assert.equal(await page.locator('#rv2BlockContent').isHidden(),true,'BLOCK content must start hidden');
 
     const directText=await page.locator('#rv2DirectContent').innerText();
     const vpnText=await page.locator('#rv2VPNContent').innerText();
@@ -311,11 +318,10 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#rv2DirectCount')?.textContent==='23');
     assert.equal(dialogCount,directDialogsBefore,'Rules deletion must not open a browser confirm dialog');
 
-    // Boards collapse independently; Add expands only the selected board.
-    await page.locator('#rv2VPNBoard .rv4-board-collapse').click();
+    // Boards start collapsed independently; Add expands only the selected board.
     assert.equal(await page.locator('#rv2VPNBoard').evaluate(el=>el.classList.contains('collapsed')),true);
     assert.equal(await page.locator('#rv2VPNContent').isHidden(),true);
-    assert.equal(await page.locator('#rv2DirectContent').isVisible(),true);
+    assert.equal(await page.locator('#rv2DirectContent').isVisible(),true,'DIRECT stays expanded after its Add/Edit workflow');
 
     // Add from the VPN board: action is contextual, no separate DIRECT/VPN/BLOCK switch is required.
     await page.locator('.rv4-board-add[data-add-action="VPN"]').click();
