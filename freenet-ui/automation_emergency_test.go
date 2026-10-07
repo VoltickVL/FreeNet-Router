@@ -272,13 +272,15 @@ func TestEmergencyRecoveryDoesNotUseFullQualityPipeline(t *testing.T) {
 	}
 	for _, required := range []string{
 		"scanAutomationEmergencyReplacement",
-		"automationEmergencyFreshRTTOrder",
 		"storeAutomationEmergencySelectionSnapshot",
 		"executeProviderProfileApply",
 	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("emergency recovery missing %s", required)
 		}
+	}
+	if !strings.Contains(text, "automationEmergencyFreshRTTOrder(scanCtx, a, cohort)") {
+		t.Fatal("emergency scan must run fresh VPN RTT prefilter")
 	}
 }
 
