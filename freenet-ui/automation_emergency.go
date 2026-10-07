@@ -45,6 +45,14 @@ var automationEmergencyCandidateProbe = func(a *app, ctx context.Context, candid
 	return a.probeBestServerApplicationPreflight(ctx, candidate)
 }
 
+var automationEmergencyDiscoverCandidates = func(a *app, ctx context.Context) ([]bestServerInternalCandidate, bool, error) {
+	if a == nil {
+		return nil, false, errors.New("FreeNet app is unavailable")
+	}
+	all, _, truncated, err := a.discoverBestServerCandidates(ctx)
+	return all, truncated, err
+}
+
 func automationEmergencyRoundRobinByCountry(candidates []bestServerInternalCandidate) []bestServerInternalCandidate {
 	if len(candidates) <= 1 {
 		return append([]bestServerInternalCandidate(nil), candidates...)
@@ -168,7 +176,7 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 		CurrentEndpoint: readBestServerCurrentEndpoint(a.cfg.OutPath),
 		CurrentFilter:   readBestServerCurrentFilter(a.cfg.FilterPath),
 	}
-	all, _, _, err := a.discoverBestServerCandidates(parent)
+	all, _, err := automationEmergencyDiscoverCandidates(a, parent)
 	if err != nil {
 		return result, err
 	}
