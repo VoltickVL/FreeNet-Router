@@ -32,7 +32,7 @@
     liveRules: [],
     liveComplexCount: 0,
     removals: [],
-    collapsed: {DIRECT:false, VPN:false, BLOCK:false}
+    collapsed: {DIRECT:true, VPN:true, BLOCK:true}
   };
 
   function installStyles() {
@@ -1353,7 +1353,7 @@
           </div>
 
           <div class="rv4-board-grid">
-            <section id="rv2DirectBoard" class="rv4-board direct">
+            <section id="rv2DirectBoard" class="rv4-board direct collapsed">
               <div class="rv4-board-head">
                 <div class="rv4-board-title">
                   <div class="rv4-board-title-line"><span class="rv4-board-dot"></span><strong>Напрямую</strong></div>
@@ -1362,14 +1362,14 @@
                 <div class="rv4-board-head-actions">
                   <span id="rv2DirectCount" class="rv4-board-count">0</span>
                   <button type="button" class="rv4-board-add" data-add-action="DIRECT"><span>+</span> Добавить</button>
-                  <button type="button" class="rv4-board-collapse" data-collapse-action="DIRECT" aria-expanded="true" title="Свернуть блок">⌃</button>
+                  <button type="button" class="rv4-board-collapse" data-collapse-action="DIRECT" aria-expanded="false" title="Развернуть блок">⌄</button>
                 </div>
               </div>
               <div id="rv2DirectContent" class="rv4-board-body"></div>
               <div id="rv2DirectComposerSlot" class="rv4-composer-slot"></div>
             </section>
 
-            <section id="rv2VPNBoard" class="rv4-board vpn">
+            <section id="rv2VPNBoard" class="rv4-board vpn collapsed">
               <div class="rv4-board-head">
                 <div class="rv4-board-title">
                   <div class="rv4-board-title-line"><span class="rv4-board-dot"></span><strong>Через VPN</strong></div>
@@ -1378,14 +1378,14 @@
                 <div class="rv4-board-head-actions">
                   <span id="rv2VPNCount" class="rv4-board-count">0</span>
                   <button type="button" class="rv4-board-add" data-add-action="VPN"><span>+</span> Добавить</button>
-                  <button type="button" class="rv4-board-collapse" data-collapse-action="VPN" aria-expanded="true" title="Свернуть блок">⌃</button>
+                  <button type="button" class="rv4-board-collapse" data-collapse-action="VPN" aria-expanded="false" title="Развернуть блок">⌄</button>
                 </div>
               </div>
               <div id="rv2VPNContent" class="rv4-board-body"></div>
               <div id="rv2VPNComposerSlot" class="rv4-composer-slot"></div>
             </section>
 
-            <section id="rv2BlockBoard" class="rv4-board block">
+            <section id="rv2BlockBoard" class="rv4-board block collapsed">
               <div class="rv4-board-head">
                 <div class="rv4-board-title">
                   <div class="rv4-board-title-line"><span class="rv4-board-dot"></span><strong>Блокировать</strong></div>
@@ -1394,7 +1394,7 @@
                 <div class="rv4-board-head-actions">
                   <span id="rv2BlockCount" class="rv4-board-count">0</span>
                   <button type="button" class="rv4-board-add" data-add-action="BLOCK"><span>+</span> Добавить</button>
-                  <button type="button" class="rv4-board-collapse" data-collapse-action="BLOCK" aria-expanded="true" title="Свернуть блок">⌃</button>
+                  <button type="button" class="rv4-board-collapse" data-collapse-action="BLOCK" aria-expanded="false" title="Развернуть блок">⌄</button>
                 </div>
               </div>
               <div id="rv2BlockContent" class="rv4-board-body"></div>
