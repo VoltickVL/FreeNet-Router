@@ -492,39 +492,38 @@ func TestHealthRecoveryStopsSameCycleWhenRollbackLatchIsSet(t *testing.T) {
 	}
 	text := string(data)
 	start := strings.Index(text, "endpointResult, endpointErr := a.runAutomationEndpointEmergency")
-	best := strings.Index(text[start:], "best, bestErr := a.runAutomationBestEmergencyCycle")
+	best := strings.Index(text[start:], "best, scan, bestErr := a.runAutomationBestEmergencyCycleLocked")
 	if start < 0 || best < 0 {
-		t.Fatal("health recovery endpoint/Best stages not found")
+		t.Fatal("health recovery endpoint/fast-replacement stages not found")
 	}
 	between := text[start : start+best]
 	if !strings.Contains(between, "if automationMutationBlockedState()") {
-		t.Fatal("health recovery must STOP before Best fallback when endpoint rollback latch is active")
+		t.Fatal("health recovery must STOP before replacement fallback when endpoint rollback latch is active")
 	}
 }
-
 func TestEmergencyBestApplyCannotBypassMeasuredSelectionSnapshot(t *testing.T) {
-	data, err := os.ReadFile("automation_health.go")
+	data, err := os.ReadFile("automation_emergency.go")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(data)
-	start := strings.Index(text, "func (a *app) runAutomationBestEmergencyCycle")
-	end := strings.Index(text, "func (a *app) runAutomationEndpointEmergency")
-	if start < 0 || end <= start {
-		t.Fatal("emergency Best cycle contract is missing")
+	start := strings.Index(text, "func (a *app) runAutomationBestEmergencyCycleLocked")
+	end := strings.Index(text[start:], "func newAutomationRecoveryIncident")
+	if start < 0 || end <= 0 {
+		t.Fatal("emergency fast-path contract is missing")
 	}
-	segment := text[start:end]
-	tokenCheck := strings.Index(segment, "validBestServerSelectionToken(candidates.SelectionToken)")
+	segment := text[start : start+end]
+	tokenStore := strings.Index(segment, "storeAutomationEmergencySelectionSnapshot(scan)")
+	tokenCheck := strings.Index(segment, "validBestServerSelectionToken(token)")
 	applyCall := strings.Index(segment, "a.executeProviderProfileApply")
-	tokenPass := strings.Index(segment, "SelectionToken: candidates.SelectionToken")
-	if tokenCheck < 0 || applyCall < 0 || tokenPass < 0 {
-		t.Fatalf("AUTO measured-snapshot contract incomplete: check=%d apply=%d pass=%d", tokenCheck, applyCall, tokenPass)
+	tokenPass := strings.Index(segment, "SelectionToken: token")
+	if tokenStore < 0 || tokenCheck < 0 || applyCall < 0 || tokenPass < 0 {
+		t.Fatalf("AUTO emergency snapshot contract incomplete: store=%d check=%d apply=%d pass=%d", tokenStore, tokenCheck, applyCall, tokenPass)
 	}
-	if !(tokenCheck < applyCall && tokenPass > applyCall) {
-		t.Fatalf("AUTO provider mutation is not gated by measured selection token: check=%d apply=%d pass=%d", tokenCheck, applyCall, tokenPass)
+	if !(tokenStore < tokenCheck && tokenCheck < applyCall && tokenPass > applyCall) {
+		t.Fatalf("AUTO emergency mutation is not gated by local measured selection token: store=%d check=%d apply=%d pass=%d", tokenStore, tokenCheck, applyCall, tokenPass)
 	}
 }
-
 func TestEndpointEmergencyUsesCanonicalCurrentProfileRefresh(t *testing.T) {
 	data, err := os.ReadFile("automation_health.go")
 	if err != nil {
@@ -645,15 +644,19 @@ func TestEmergencyRecoveryJournalUsesFirstEligibleTargetWording(t *testing.T) {
 	}
 	text := string(data)
 	start := strings.Index(text, "bestSettings.Policy = automationPolicyDegraded")
-	end := strings.Index(text[start:], "best, bestErr := a.runAutomationBestEmergencyCycle")
+	end := strings.Index(text[start:], "best, scan, bestErr := a.runAutomationBestEmergencyCycleLocked")
 	if start < 0 || end < 0 {
 		t.Fatal("emergency candidate-selection segment not found")
 	}
 	segment := text[start : start+end]
-	if !strings.Contains(segment, "ищем первый fully measured Eligible replacement") {
-		t.Fatalf("emergency journal does not expose target=1 semantics: %s", segment)
+	for _, want := range []string{"bounded application-ready emergency replacement", "budget=", "cohort_limit="} {
+		if !strings.Contains(segment, want) {
+			t.Fatalf("emergency journal missing %q: %s", want, segment)
+		}
 	}
-	if strings.Contains(segment, "до Top-3 Eligible") {
-		t.Fatalf("emergency journal still claims decorative Top-3 target: %s", segment)
+	for _, forbidden := range []string{"fully measured Eligible replacement", "Top-3 Eligible"} {
+		if strings.Contains(segment, forbidden) {
+			t.Fatalf("emergency journal still describes full quality scan %q: %s", forbidden, segment)
+		}
 	}
 }
