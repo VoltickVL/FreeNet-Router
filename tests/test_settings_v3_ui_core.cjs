@@ -466,11 +466,13 @@ const server = http.createServer((req, res) => {
     await page.locator('#fn3AllEvents').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
     await page.waitForSelector('#fn3JournalSummary');
-    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull tr').length === 8);
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 8);
     const journalPage = await page.evaluate(() => ({
-      rows: document.querySelectorAll('#fn3JournalFull tr').length,
+      rows: document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length,
       stats: [...document.querySelectorAll('#fn3JournalSummary .fn3-journal-stat strong')].map(node => node.textContent.trim()),
-      tableFont: parseFloat(getComputedStyle(document.querySelector('.fn3-journal-page .fn3-table')).fontSize),
+      messageFont: parseFloat(getComputedStyle(document.querySelector('#fn3JournalFull .fn3-journal-event-message')).fontSize),
+      heroVisible: !!document.querySelector('.fn3-journal-hero')?.getClientRects().length,
+      retentionCopy: document.querySelector('#fn3JournalRetentionRange')?.textContent || '',
       kindBadges: document.querySelectorAll('#fn3JournalFull .fn3-kind').length,
       resultBadges: document.querySelectorAll('#fn3JournalFull .fn3-result').length,
       badBadges: document.querySelectorAll('#fn3JournalFull .fn3-result.bad').length,
@@ -480,7 +482,9 @@ const server = http.createServer((req, res) => {
     }));
     assert.equal(journalPage.rows, 8, `full Journal must show all canonical fixture events: ${JSON.stringify(journalPage)}`);
     assert.deepEqual(journalPage.stats, ['8','5','2','1'], `Journal summary counts are wrong: ${JSON.stringify(journalPage)}`);
-    assert.ok(journalPage.tableFont >= 13.5, `full Journal typography is still too small: ${journalPage.tableFont}px`);
+    assert.ok(journalPage.messageFont >= 12, `Journal event typography is still too small: ${journalPage.messageFont}px`);
+    assert.equal(journalPage.heroVisible, true, 'Journal product hero must be visible');
+    assert.match(journalPage.retentionCopy, /Архив:/, 'Journal must expose retained range');
     assert.equal(journalPage.kindBadges, 8, 'Journal event kinds must use badges');
     assert.equal(journalPage.resultBadges, 8, 'Journal results must use badges');
     assert.equal(journalPage.badBadges, 1, 'failed Journal event must use error treatment');
@@ -491,17 +495,17 @@ const server = http.createServer((req, res) => {
     assert.match(journalPage.copy, /VPN 175 мс/, 'Top-3 decision metrics must remain visible');
 
     await page.locator('#fn3JournalSearch').fill('Франкфурт');
-    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull tr').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 1);
     assert.match((await page.locator('#fn3JournalFull').textContent()) || '', /Выбран: Франкфурт/);
     assert.deepEqual(await page.locator('#fn3JournalSummary .fn3-journal-stat strong').allTextContents(), ['1','0','1','0']);
 
     await page.locator('#fn3JournalSearch').fill('');
     await page.locator('[data-journal-result="bad"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull tr').length === 1);
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 1);
     assert.match((await page.locator('#fn3JournalFull').textContent()) || '', /ошибкой/i);
     await page.locator('[data-journal-result="all"]').click();
     await page.locator('[data-journal-filter="auto"]').click();
-    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull tr').length === 3);
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 3);
     assert.equal(await page.locator('#fn3JournalFull .fn3-kind').count(), 3);
 
     await page.locator('[data-journal-filter="all"]').click();
