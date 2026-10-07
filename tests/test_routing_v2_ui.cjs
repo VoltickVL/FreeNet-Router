@@ -169,6 +169,8 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#rv2XrayStatus')?.textContent==='Работает');
     assert.equal(await page.locator('#rv2XrayVersion').textContent(),'v26.9.9');
     assert.match(await page.locator('#rv2XrayEvents').innerText(),/Xray запущен через FreeNet/);
+    assert.equal(await page.locator('#rv2XrayJournal').count(),0,'embedded Xray surface must not duplicate the full Journal action');
+    assert.equal(await page.locator('#rv2XrayRefresh').count(),0,'embedded Xray surface must not expose redundant manual status refresh');
     assert.equal(xrayActions.length,0,'opening Xray tab must remain read-only');
 
     await page.locator('#rv2XrayRestart').click();
