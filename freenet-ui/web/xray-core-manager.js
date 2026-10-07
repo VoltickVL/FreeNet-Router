@@ -452,7 +452,7 @@
     if (serviceState.online) {
       addButton(controls, 'Перезапустить', '', () => controlService('restart'));
       addButton(controls, 'Остановить', '', () => controlService('stop'));
-      addButton(controls, 'Версии', '', loadCatalog);
+      addButton(controls, 'Обновить', '', loadCatalog);
     } else {
       addButton(controls, 'Запустить Xray', 'primary', () => controlService('start'));
     }
