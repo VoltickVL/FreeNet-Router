@@ -8,7 +8,7 @@
   const state = {
     data: null, status: null, baseline: '', dirty: false, saving: false, checking: false, controlsBusy: false,
     countries: [], countryCatalog: [], countryCatalogFresh: false, countryCatalogLoading: false, countryCatalogWarning: '',
-    journalFilter: 'all', journalResultFilter: 'all', journalQuery: '', journalEvents: [], journalLive: true,
+    journalFilter: 'all', journalResultFilter: 'all', journalQuery: '', journalEvents: [], journalLive: true, journalFiltersOpen: false,
     journalRefreshing: false, journalGeneratedAt: '', journalError: '', journalTimer: null,
     journalPage: 1, journalPages: 1, journalPageSize: 100, journalTotal: 0, journalFilteredTotal: 0,
     journalStats: {total:0,success:0,neutral:0,errors:0}, journalRetainedFrom: '', journalRetainedTo: '',
@@ -71,9 +71,10 @@
       .fn3-journal-search{height:42px;border:1px solid #315777;border-radius:11px;background:#071827;color:#eef5ff;padding:0 13px;font:600 12px/1.2 inherit;outline:none}
       .fn3-journal-search:focus{border-color:#438ff0;box-shadow:0 0 0 3px rgba(47,140,248,.14)}
       .fn3-journal-actions{display:flex;align-items:center;gap:8px}
-      .fn3-journal-live,.fn3-journal-refresh,.fn3-journal-export{min-height:38px;padding:7px 12px;border:1px solid #315777;border-radius:10px;background:#0a1d31;color:#c5d7e9;font:750 11px/1.2 inherit;cursor:pointer}
+      .fn3-journal-live,.fn3-journal-refresh,.fn3-journal-export,.fn3-journal-filter-toggle{min-height:38px;padding:7px 12px;border:1px solid #315777;border-radius:10px;background:#0a1d31;color:#c5d7e9;font:750 11px/1.2 inherit;cursor:pointer}
       .fn3-journal-export{border-color:#2b70ba;background:#0d3155;color:#d8ecff}
       .fn3-journal-live.active{border-color:#198563;color:#6aebba;background:#07382e}
+      .fn3-journal-filter-toggle.active{border-color:#347fd0;background:#11365b;color:#f0f7ff}.fn3-journal-filter-count{display:inline-grid;place-items:center;min-width:18px;height:18px;margin-left:6px;padding:0 5px;border-radius:999px;background:#2f8cf8;color:#fff;font-size:9px;font-weight:900}.fn3-journal-filter-groups[hidden]{display:none!important}
       .fn3-journal-live-dot{display:inline-block;width:7px;height:7px;margin-right:6px;border-radius:50%;background:currentColor;vertical-align:1px}
       .fn3-journal-meta{margin-top:8px;color:#7e98b4;font-size:10.5px;line-height:1.45}.fn3-journal-meta.bad{color:#ff9da7}
       .fn3-journal-filter-groups{display:grid;gap:8px;margin-top:13px;padding-top:12px;border-top:1px solid #203f5c}
@@ -792,11 +793,27 @@
     if (custom) custom.hidden = state.journalDatePreset !== 'custom';
     const search = q('#fn3JournalSearch', page);
     if (search && document.activeElement !== search && search.value !== state.journalQuery) search.value = state.journalQuery;
+    const advanced = q('#fn3JournalAdvancedFilters', page);
+    if (advanced) advanced.hidden = !state.journalFiltersOpen;
+    const activeFilterCount = [
+      state.journalDatePreset !== '24h',
+      state.journalFilter !== 'all',
+      state.journalResultFilter !== 'all'
+    ].filter(Boolean).length;
+    const filterToggle = q('#fn3JournalFiltersToggle', page);
+    if (filterToggle) {
+      filterToggle.classList.toggle('active', state.journalFiltersOpen || activeFilterCount > 0);
+      filterToggle.setAttribute('aria-expanded', state.journalFiltersOpen ? 'true' : 'false');
+      filterToggle.innerHTML = `Фильтры${activeFilterCount ? `<span class="fn3-journal-filter-count">${activeFilterCount}</span>` : ''}`;
+    }
     const live = q('#fn3JournalLive', page);
     if (live) {
       live.classList.toggle('active', state.journalLive);
       live.setAttribute('aria-pressed', state.journalLive ? 'true' : 'false');
-      live.innerHTML = `<span class="fn3-journal-live-dot"></span>${state.journalLive ? 'Авто · 5 с' : 'Авто выключено'}`;
+      live.setAttribute('title', state.journalLive ? 'Остановить автообновление журнала' : 'Возобновить автообновление журнала');
+      live.innerHTML = state.journalLive
+        ? '<span class="fn3-journal-live-dot"></span>Пауза'
+        : 'Возобновить';
     }
     const meta = q('#fn3JournalMeta', page);
     if (meta) {
@@ -870,6 +887,7 @@
 
   function mountJournalPage() {
     const page = q('[data-page-view="journal"]'); if (!page) return;
+    state.journalFiltersOpen = false;
     const filters = [['all','Все'],['vpn','VPN'],['auto','AUTO VPN'],['subscription','Подписка'],['system','Система']];
     const results = [['all','Все результаты'],['ok','Успешно'],['neutral','Служебные / без изменений'],['bad','Ошибки']];
     const ranges = [['today','Сегодня'],['24h','24 часа'],['7d','7 дней'],['custom','Интервал']];
@@ -886,9 +904,9 @@
         </div>
       </section>
       <section class="fn3-journal-control-card">
-        <div class="fn3-journal-toolbar"><input id="fn3JournalSearch" class="fn3-journal-search" type="search" autocomplete="off" placeholder="Поиск: сервер, AUTO, ошибка, обновление, 189 мс…"><div class="fn3-journal-actions"><button id="fn3JournalExport" class="fn3-journal-export" type="button">Экспорт CSV</button><button id="fn3JournalLive" class="fn3-journal-live active" type="button" aria-pressed="true"><span class="fn3-journal-live-dot"></span>Авто · 5 с</button><button id="fn3JournalRefresh" class="fn3-journal-refresh" type="button">Обновить</button></div></div>
+        <div class="fn3-journal-toolbar"><input id="fn3JournalSearch" class="fn3-journal-search" type="search" autocomplete="off" placeholder="Поиск: сервер, AUTO, ошибка, обновление, 189 мс…"><div class="fn3-journal-actions"><button id="fn3JournalFiltersToggle" class="fn3-journal-filter-toggle" type="button" aria-expanded="false">Фильтры</button><button id="fn3JournalExport" class="fn3-journal-export" type="button">Экспорт CSV</button><button id="fn3JournalLive" class="fn3-journal-live active" type="button" aria-pressed="true" title="Остановить автообновление журнала"><span class="fn3-journal-live-dot"></span>Пауза</button><button id="fn3JournalRefresh" class="fn3-journal-refresh" type="button">Обновить</button></div></div>
         <div id="fn3JournalMeta" class="fn3-journal-meta">Read-only журнал готов к обновлению.</div>
-        <div class="fn3-journal-filter-groups">
+        <div id="fn3JournalAdvancedFilters" class="fn3-journal-filter-groups" hidden>
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Период</span><div class="fn3-journal-range">${ranges.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-range="${key}">${label}</button>`).join('')}<span id="fn3JournalCustomRange" class="fn3-journal-custom" hidden><input id="fn3JournalFrom" type="datetime-local" aria-label="Начало периода"><input id="fn3JournalTo" type="datetime-local" aria-label="Конец периода"></span></div></div>
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Событие</span><div class="fn3-journal-filters">${filters.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-filter="${key}">${label}</button>`).join('')}</div></div>
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Результат</span><div class="fn3-journal-filters">${results.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-result="${key}">${label}</button>`).join('')}</div></div>
@@ -923,6 +941,11 @@
         state.journalQuery = search.value || '';
         window.clearTimeout(state.journalSearchTimer);
         state.journalSearchTimer = window.setTimeout(resetJournalPageAndLoad, 300);
+      };
+      const filtersToggle = q('#fn3JournalFiltersToggle', page);
+      if (filtersToggle) filtersToggle.onclick = () => {
+        state.journalFiltersOpen = !state.journalFiltersOpen;
+        renderJournalPageState();
       };
       const live = q('#fn3JournalLive', page);
       if (live) live.onclick = () => {
