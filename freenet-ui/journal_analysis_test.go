@@ -82,19 +82,31 @@ func TestJournalRoutineClassifierDoesNotHideManualOrMutationEvents(t *testing.T)
 	}
 }
 
-func TestJournalCSVIsChronologicalAndEscaped(t *testing.T) {
+func TestJournalCSVIsChronologicalAndExcelFriendly(t *testing.T) {
 	events := []automationEvent{
-		{At:"2026-10-05T10:02:00Z", Kind:"auto_vpn", Result:"healthy", Message:"new, value"},
+		{At:"2026-10-05T10:02:00Z", Kind:"auto_vpn", Result:"candidate_selection:start", Message:"new; value"},
 		{At:"2026-10-05T10:01:00Z", Kind:"freenet_update", Result:"start", Message:"old"},
 	}
 	payload, err := journalCSV(events)
 	if err != nil { t.Fatal(err) }
-	text := string(payload)
-	if !strings.Contains(text, "\"new, value\"") {
-		t.Fatalf("csv comma escaping missing: %q", text)
+	if !bytes.HasPrefix(payload, []byte{0xEF, 0xBB, 0xBF}) {
+		t.Fatalf("csv must keep UTF-8 BOM: %v", payload[:min(3,len(payload))])
 	}
-	if strings.Index(text, "10:01:00Z") > strings.Index(text, "10:02:00Z") {
+	text := string(payload)
+	for _, want := range []string{
+		"Дата (UTC);Время (UTC);Категория;Событие / этап;Результат;Описание\r\n",
+		"05.10.2026;10:01:00;Система;Обновление FreeNet;Служебное / без изменений;old",
+		"05.10.2026;10:02:00;AUTO VPN;Подбор;Служебное / без изменений;\"new; value\"",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("human CSV missing %q: %q", want, text)
+		}
+	}
+	if strings.Index(text, "10:01:00") > strings.Index(text, "10:02:00") {
 		t.Fatalf("export must be chronological oldest->newest: %q", text)
+	}
+	if strings.Contains(text, "timestamp,category,kind,result,message") {
+		t.Fatalf("technical CSV headers must be gone: %q", text)
 	}
 }
 
