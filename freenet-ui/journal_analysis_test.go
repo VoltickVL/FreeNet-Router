@@ -41,6 +41,47 @@ func TestJournalFilterPaginationAndStats(t *testing.T) {
 	}
 }
 
+func TestJournalCompactsRoutineAutoNoiseButKeepsHeartbeat(t *testing.T) {
+	events := []automationEvent{
+		{At:"2026-10-07T12:00:00Z", Kind:"auto_vpn", Result:"success", Message:"Текущий VPN и сервисные маршруты работают стабильно."},
+		{At:"2026-10-07T11:30:00Z", Kind:"auto_vpn", Result:"success", Message:"Текущий VPN и сервисные маршруты работают стабильно."},
+		{At:"2026-10-07T05:59:59Z", Kind:"auto_vpn", Result:"success", Message:"Текущий VPN и сервисные маршруты работают стабильно."},
+	}
+	got := compactRoutineJournalEvents(events)
+	if len(got) != 2 {
+		t.Fatalf("compacted routine rows=%d want 2: %+v", len(got), got)
+	}
+	if got[0].At != "2026-10-07T12:00:00Z" || got[1].At != "2026-10-07T05:59:59Z" {
+		t.Fatalf("heartbeat retention mismatch: %+v", got)
+	}
+}
+
+func TestJournalNeverCompactsIncidentRecoveryStages(t *testing.T) {
+	events := []automationEvent{
+		{At:"2026-10-07T12:00:00Z", Kind:"AUTO VPN", Result:"incident:recovered", Message:"incident=abc; recovered"},
+		{At:"2026-10-07T11:59:30Z", Kind:"AUTO VPN", Result:"incident:recovered", Message:"incident=abc; recovered"},
+		{At:"2026-10-07T11:59:00Z", Kind:"AUTO VPN", Result:"failed", Message:"PRIMARY ERROR: transport failed"},
+	}
+	got := compactRoutineJournalEvents(events)
+	if len(got) != len(events) {
+		t.Fatalf("incident/recovery rows were compacted: got=%d want=%d", len(got), len(events))
+	}
+}
+
+func TestJournalRoutineClassifierDoesNotHideManualOrMutationEvents(t *testing.T) {
+	cases := []automationEvent{
+		{Kind:"VPN", Result:"success", Message:"Текущий VPN и сервисные маршруты работают стабильно."},
+		{Kind:"auto_vpn", Result:"success", Message:"VPN-интернет восстановлен через аварийный fast-path: Париж"},
+		{Kind:"auto_vpn", Result:"selection", Message:"AUTO VPN Top-3: ..."},
+		{Kind:"auto_vpn", Result:"apply:success", Message:"Изменения применены."},
+	}
+	for _, event := range cases {
+		if journalEventIsRoutineAutoNoise(event) {
+			t.Fatalf("event must stay visible: %+v", event)
+		}
+	}
+}
+
 func TestJournalCSVIsChronologicalAndEscaped(t *testing.T) {
 	events := []automationEvent{
 		{At:"2026-10-05T10:02:00Z", Kind:"auto_vpn", Result:"healthy", Message:"new, value"},
