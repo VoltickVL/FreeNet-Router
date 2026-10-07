@@ -818,7 +818,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	appendAutomationRecoveryStage("candidate_selection", "start", "Endpoint fast-path не восстановил VPN; запускаем bounded application-ready emergency replacement.")
 	appendAutomationRecoveryIncidentStage(
 		incident, "candidate_selection", "start",
-		fmt.Sprintf("budget=%s; cohort_limit=%d", automationEmergencyScanTimeout, automationEmergencyCandidateLimit),
+		fmt.Sprintf("budget=%s; cohort_limit=%d; fresh_rtt_budget=%s; fresh_rtt_per_candidate=%s", automationEmergencyScanTimeout, automationEmergencyCandidateLimit, automationEmergencyRTTSweepTimeout, automationEmergencyRTTCandidateTimeout),
 		time.Now().UTC(),
 	)
 	best, scan, bestErr := a.runAutomationBestEmergencyCycleLocked(parent, bestSettings)
@@ -829,8 +829,8 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	appendAutomationRecoveryIncidentStage(
 		incident, "candidate_scan", best.Result,
 		fmt.Sprintf(
-			"duration=%s; pool=%d; checked=%d; reachable=%d; selected=%s",
-			scan.ScanDuration, scan.Total, scan.Checked, scan.Reachable, selected,
+			"duration=%s; rtt_prefilter=%s; pool=%d; rtt_checked=%d; rtt_reachable=%d; best_rtt_ms=%d; app_checked=%d; app_reachable=%d; selected=%s",
+			scan.ScanDuration, scan.RTTPrefilterDuration, scan.Total, scan.RTTChecked, scan.RTTReachable, scan.BestRTTMS, scan.Checked, scan.Reachable, selected,
 		),
 		time.Now().UTC(),
 	)
