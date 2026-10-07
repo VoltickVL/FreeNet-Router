@@ -1334,8 +1334,6 @@
             <button id="rv2XrayRestart" class="btn secondary" type="button" hidden>Перезапустить</button>
             <button id="rv2XrayStop" class="btn secondary" type="button" hidden>Остановить</button>
             <button id="rv2XrayVersions" class="btn secondary" type="button" hidden>Обновить</button>
-            <button id="rv2XrayJournal" class="btn secondary" type="button">Журнал</button>
-            <button id="rv2XrayRefresh" class="btn secondary" type="button">Проверить состояние</button>
           </div>
           <div class="rv2-card-head" style="margin-top:16px"><div><h2>Последние действия Xray</h2></div></div>
           <div id="rv2XrayEvents" class="rv2-xray-events"></div>
@@ -1453,9 +1451,7 @@
     qs('#rv2XrayStart')?.addEventListener('click', () => runXrayAction('start'));
     qs('#rv2XrayStop')?.addEventListener('click', () => runXrayAction('stop'));
     qs('#rv2XrayRestart')?.addEventListener('click', () => runXrayAction('restart'));
-    qs('#rv2XrayRefresh')?.addEventListener('click', loadXraySurface);
     qs('#rv2XrayVersions')?.addEventListener('click', () => window.FreeNetXrayControl?.openVersions?.());
-    qs('#rv2XrayJournal')?.addEventListener('click', () => window.FreeNetXrayControl?.openJournal?.());
     qsa('.rv4-board-add').forEach(button => button.addEventListener('click', () => openInlineComposer(button.dataset.addAction || 'DIRECT')));
     qsa('.rv4-board-collapse').forEach(button => button.addEventListener('click', () => toggleBoard(button.dataset.collapseAction || 'DIRECT')));
     qs('#rv2ComposerClose')?.addEventListener('click', () => closeInlineComposer(true));
