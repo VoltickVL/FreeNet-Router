@@ -317,8 +317,26 @@ const server = http.createServer((req, res) => {
     const autoHeader = settingsPage.locator('#fn3AutoCard .fn3-card-head');
     await autoHeader.click({position:{x:20,y:20}});
     assert.equal(await settingsPage.locator('#fn3Check').isHidden(), true, 'AUTO VPN header click must collapse controls');
+    const autoCollapsedHeight = await settingsPage.locator('#fn3AutoCard').evaluate(el => el.getBoundingClientRect().height);
+    assert(autoCollapsedHeight < 140, 'collapsed AUTO VPN must occupy header-height only, not an empty panel: '+autoCollapsedHeight);
     await autoHeader.click({position:{x:20,y:20}});
     assert.equal(await settingsPage.locator('#fn3Check').isVisible(), true, 'second click must reopen AUTO VPN');
+    const autoExpandedHeight = await settingsPage.locator('#fn3AutoCard').evaluate(el => el.getBoundingClientRect().height);
+    assert(autoExpandedHeight > autoCollapsedHeight + 160, 'AUTO VPN reopening must restore original content height');
+    const maintenanceHead = settingsPage.locator('.fn3-extra-title');
+    await maintenanceHead.click();
+    assert.equal(await settingsPage.locator('.fn3-extra-grid').isHidden(), true, 'maintenance heading must hide nested controls');
+    const maintenanceCollapsedHeight=await settingsPage.locator('.fn3-extra').evaluate(el=>el.getBoundingClientRect().height);
+    assert(maintenanceCollapsedHeight < 120, 'collapsed System maintenance must not keep a large empty body: '+maintenanceCollapsedHeight);
+    await maintenanceHead.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await settingsPage.locator('.fn3-extra-grid').isVisible(), true, 'Enter must reopen System maintenance');
+    const typography=await settingsPage.evaluate(el=>({
+      subscription:getComputedStyle(el.querySelector('#fn3SubscriptionMount h2')).fontSize,
+      auto:getComputedStyle(el.querySelector('#fn3AutoCard h2')).fontSize
+    }));
+    assert.equal(typography.subscription,typography.auto,'subscription headline must match the other Settings sections');
+
     assert.equal(await page.locator('#fn3AutoEnabled').isChecked(), true, 'collapsing must not mutate AUTO VPN settings');
     assert.equal(await settingsPage.getByText('Интернет и DNS', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
