@@ -11,7 +11,7 @@
     journalFilter: 'all', journalResultFilter: 'all', journalQuery: '', journalEvents: [], journalLive: true, journalFiltersOpen: false,
     journalRefreshing: false, journalGeneratedAt: '', journalError: '', journalTimer: null,
     journalPage: 1, journalPages: 1, journalPageSize: 100, journalTotal: 0, journalFilteredTotal: 0,
-    journalStats: {total:0,success:0,neutral:0,errors:0}, journalRetainedFrom: '', journalRetainedTo: '',
+    journalStats: {total:0,success:0,neutral:0,errors:0}, journalRetainedFrom: '', journalRetainedTo: '', journalHealth: null,
     journalDatePreset: '24h', journalCustomFrom: '', journalCustomTo: '', journalSearchTimer: null
   };
 
@@ -84,6 +84,11 @@
       .fn3-journal-policy span{display:inline-flex;align-items:center;gap:7px;min-height:30px;padding:6px 10px;border:1px solid #315675;border-radius:999px;background:rgba(5,19,33,.72);color:#b8cbe0;font-size:10.5px;font-weight:750}
       .fn3-journal-policy span:before{content:'';width:6px;height:6px;border-radius:50%;background:#5f9eff}
       .fn3-journal-policy .healthy:before{background:#47dca2}
+      .fn3-journal-policy .fn3-journal-health{border-color:#3c6084;background:#0d263d;color:#d6e5f5}
+      .fn3-journal-policy .fn3-journal-health.fresh:before{background:#47dca2}
+      .fn3-journal-policy .fn3-journal-health.stale{border-color:#b75d54;color:#ffc6b6;background:#382126}
+      .fn3-journal-policy .fn3-journal-health.stale:before{background:#ff7878}
+      .fn3-journal-policy .fn3-journal-health.disabled:before{background:#8796a8}
       .fn3-journal-control-card{margin-top:14px;border:1px solid #284b6b;border-radius:16px;background:linear-gradient(180deg,rgba(10,29,48,.98),rgba(7,22,37,.99));padding:14px 15px;box-shadow:0 14px 36px rgba(0,0,0,.12)}
       .fn3-journal-toolbar{display:grid;grid-template-columns:minmax(300px,1fr) auto;gap:10px;align-items:center}
       .fn3-journal-search{height:42px;border:1px solid #315777;border-radius:11px;background:#071827;color:#eef5ff;padding:0 13px;font:600 12px/1.2 inherit;outline:none}
@@ -885,6 +890,30 @@
             ? `Сохранено ${state.journalTotal} событий · выбрано ${state.journalFilteredTotal}${retained} · read-only`
             : 'Read-only журнал готов к обновлению.';
     }
+    // The last canonical event is not the last completed health check.
+    // A compacted/no-change Journal must never silently imply a live watchdog.
+    const monitor = q('#fn3JournalHealth', page);
+    if (monitor) {
+      const health = state.journalHealth;
+      const freshness = health?.freshness || 'unknown';
+      monitor.classList.toggle('fresh', freshness === 'fresh');
+      monitor.classList.toggle('stale', freshness === 'stale');
+      monitor.classList.toggle('disabled', freshness === 'disabled');
+      const last = health?.last_completed ? formatDate(health.last_completed) : 'нет записи';
+      const result = ({
+        healthy: 'норма по тесту', success: 'норма по тесту',
+        failed: 'отказ', critical: 'отказ', uncertain: 'не подтверждено',
+        switched: 'переключено', updated: 'обновлено'
+      })[health?.result] || 'неизвестно';
+      monitor.textContent = freshness === 'disabled'
+        ? 'AUTO VPN: выключен'
+        : freshness === 'stale'
+          ? `AUTO VPN: нет свежей завершённой проверки (последняя: ${last})`
+          : freshness === 'fresh'
+            ? `AUTO VPN: проверка ${last} · ${result}`
+            : 'AUTO VPN: время последней проверки неизвестно';
+      monitor.title = 'Завершённая диагностическая проверка AUTO VPN, не проверка клиентского UDP-трафика. Архив событий агрегируется отдельно.';
+    }
     const retention = q('#fn3JournalRetentionRange', page);
     if (retention) {
       retention.textContent = state.journalRetainedFrom && state.journalRetainedTo
@@ -921,6 +950,7 @@
       state.journalStats = data.stats || journalStatsFallback(state.journalEvents);
       state.journalRetainedFrom = data.retained_from || '';
       state.journalRetainedTo = data.retained_to || '';
+      state.journalHealth = data.health && typeof data.health === 'object' ? data.health : null;
     } catch (err) {
       state.journalError = err?.message || 'неизвестная ошибка чтения';
     } finally {
@@ -957,6 +987,7 @@
           <span>До 15 000 значимых событий</span>
           <span class="healthy">Штатная отметка — не чаще 1 раза в 6 часов</span>
           <span id="fn3JournalRetentionRange">Архив загружается…</span>
+          <span id="fn3JournalHealth" class="fn3-journal-health" role="status" aria-live="polite">AUTO VPN: проверяем время последней проверки…</span>
         </div>
       </section>
       <section class="fn3-journal-control-card">
