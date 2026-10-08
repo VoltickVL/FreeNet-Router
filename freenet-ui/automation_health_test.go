@@ -247,7 +247,7 @@ func TestAutomationReachableQualityUsesSeverityWithoutTriggeringRecovery(t *test
 		{"severe-latency", 830, 4, 4, automationHealthUncertain, 3},
 		{"partial-3-of-4", 180, 3, 4, automationHealthUncertain, 1},
 		{"partial-2-of-4", 180, 2, 4, automationHealthUncertain, 2},
-		{"zero-of-4", 180, 0, 4, automationHealthUncertain, 3},
+		{"zero-of-4", 180, 0, 4, automationHealthFailed, 0},
 		{"stronger-signal-wins", 398, 3, 4, automationHealthUncertain, 2},
 	}
 	for _, tc := range cases {
@@ -360,6 +360,27 @@ func TestAutomationQualityOptimizationCooldownDependsOnSeverity(t *testing.T) {
 	updates, due = automationQualityOptimizationPlan(state, base, 3)
 	if due {
 		t.Fatalf("severe degradation must still respect short %s cooldown: %v", automationQualitySevereCooldown, updates)
+	}
+}
+
+func TestAutomationAllIndependentServicesDownNeedsTwoFailuresAndWAN(t *testing.T) {
+	failed := classifyAutomationReachableQuality(178, 0, 4)
+	if failed.State != automationHealthFailed || failed.QualityDegraded {
+		t.Fatalf("0/4 independent services must be confirmable outage, not weak optimization: %+v", failed)
+	}
+	if got := classifyAutomationHealth(failed, true, automationHealthProbe{State: automationHealthHealthy}); got.State != automationHealthHealthy {
+		t.Fatalf("one transient 0/4 must not switch a recovered VPN: %+v", got)
+	}
+	if got := classifyAutomationHealth(failed, false, failed); got.State != automationHealthUncertain {
+		t.Fatalf("failed WAN must prevent VPN switch: %+v", got)
+	}
+	if got := classifyAutomationHealth(failed, true, failed); got.State != automationHealthCritical {
+		t.Fatalf("two independent 0/4 observations with healthy WAN must trigger recovery: %+v", got)
+	}
+	for _, ok := range []int{1,2,3} {
+		if got := classifyAutomationReachableQuality(180, ok, 4); got.State == automationHealthFailed {
+			t.Fatalf("%d/4 partial service health must remain quality-only, got %+v", ok, got)
+		}
 	}
 }
 
