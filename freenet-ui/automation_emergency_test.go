@@ -56,6 +56,36 @@ func TestEmergencyCandidateOrderDiversifiesCountries(t *testing.T) {
 	}
 }
 
+func TestEmergencyEmptyAllowedPoolPreservesStageCounts(t *testing.T) {
+	oldDiscover := automationEmergencyDiscoverCandidates
+	t.Cleanup(func() { automationEmergencyDiscoverCandidates = oldDiscover })
+	automationEmergencyDiscoverCandidates = func(*app, context.Context) ([]bestServerInternalCandidate, bool, error) {
+		return []bestServerInternalCandidate{
+			emergencyTestCandidate("de1", "de"),
+			emergencyTestCandidate("fr1", "fr"),
+		}, false, nil
+	}
+	dir := t.TempDir()
+	a := &app{cfg: config{
+		OutPath: filepath.Join(dir, "outbounds.json"),
+		FilterPath: filepath.Join(dir, "provider.filter"),
+	}}
+	// A restrictive country policy may exclude all discovered foreign
+	// profiles, and must not be reported as an empty subscription or mutated.
+	scan, err := a.scanAutomationEmergencyReplacement(context.Background(), automationSettings{
+		Mode: automationModeBest, CountryScope: automationCountryCurrent,
+	}, "se")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scan.Discovered != 2 || scan.AfterCurrent != 2 || scan.Foreign != 2 || scan.Total != 0 {
+		t.Fatalf("empty pool must keep diagnostic filter counts without changing policy: %+v", scan)
+	}
+	if scan.Checked != 0 || scan.RTTChecked != 0 || scan.Candidate.Profile.ID != "" {
+		t.Fatalf("no verified candidate means no emergency replacement: %+v", scan)
+	}
+}
+
 func TestEmergencyScanUsesBoundedApplicationReadyCohort(t *testing.T) {
 	resetEmergencyRTTCache(t)
 	dir := t.TempDir()
