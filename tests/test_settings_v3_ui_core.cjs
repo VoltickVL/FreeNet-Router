@@ -47,7 +47,7 @@ const settings = {
     {at:'2026-09-12T11:35:00Z',kind:'auto_vpn',result:'success',message:'Текущий VPN работает нормально, смена не требуется.'},
     {at:'2026-09-12T11:34:30Z',kind:'auto_vpn',result:'candidate_selection:start',message:'Endpoint fast-path не восстановил VPN; запускаем canonical Best Server до Top-3 проверенных.'},
     {at:'2026-09-12T11:34:00Z',kind:'AUTO VPN',result:'selection',message:'AUTO VPN Top-3: Франкфурт [VPN 175 мс, сайты 177 мс, скорость 151 Мбит/с, стабильность 17 мс]; Цюрих [VPN 188 мс, сайты 191 мс, скорость 159 Мбит/с, стабильность 8 мс]. Выбран: Франкфурт.'},
-    {at:'2026-09-12T10:35:00Z',kind:'VPN',result:'success',message:'Ручная проверка текущего VPN завершена.'},
+    {at:'2026-09-12T10:35:00Z',kind:'vpn_manual',result:'success',message:'Сервер: Германия, Франкфурт | Итог: VPN подключён | Откат: NOT_NEEDED'},
     {at:'2026-09-12T09:35:00Z',kind:'geodata',result:'updated',message:'GeoData / GeoIP обновлены.'},
     {at:'2026-09-12T08:35:00Z',kind:'backup',result:'success',message:'Резервная копия FreeNet создана.'},
     {at:'2026-09-12T07:35:00Z',kind:'freenet',result:'failed',message:'Проверка обновления FreeNet завершилась ошибкой.'},
@@ -563,6 +563,11 @@ const server = http.createServer((req, res) => {
     assert.equal(journalPage.heroVisible, true, 'Journal product hero must be visible');
     assert.match(journalPage.retentionCopy, /Архив:/, 'Journal must expose retained range');
     assert.equal(journalPage.kindBadges, 8, 'Journal event kinds must use badges');
+    const manualJournal = page.locator('#fn3JournalFull .fn3-journal-event').filter({has: page.locator('.fn3-kind.manual')});
+    assert.equal(await manualJournal.count(),1,'manual VPN must have a distinct kind');
+    assert.equal((await manualJournal.locator('.fn3-kind').textContent()).trim(),'Ручной');
+    assert.match(await manualJournal.locator('.fn3-journal-manual').innerText(),/Сервер.*Германия, Франкфурт/);
+    assert.match(await manualJournal.locator('.fn3-journal-manual').innerText(),/Откат.*не требуется/);
     assert.equal(journalPage.resultBadges, 8, 'Journal results must use badges');
     assert.equal(journalPage.badBadges, 1, 'failed Journal event must use error treatment');
     assert.equal(journalPage.searchVisible, true, 'Journal search must be visible');
