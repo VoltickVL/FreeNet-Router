@@ -235,6 +235,22 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    await page.waitForSelector('#fn3AutoEnabled', {state:'attached'});
+    const initialFolded = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('[data-page-view="settings"] .fn3-card,[data-page-view="settings"] .fn3-extra-card')];
+      return {total:cards.length, folded:cards.every(card => card.classList.contains('fn3-section-collapsed') &&
+        card.querySelector('[role="button"][aria-expanded]')?.getAttribute('aria-expanded') === 'false')};
+    });
+    assert.ok(initialFolded.total >= 7 && initialFolded.folded,
+      'Settings must enter with all sections, including nested maintenance and DNS, collapsed: ' + JSON.stringify(initialFolded));
+    // Expand the baseline fixture to exercise the existing forms and folding tests.
+    await page.evaluate(() => {
+      for (const selector of ['#fn3SubscriptionMount .fn3-subscription-head','#fn3AutoCard .fn3-card-head',
+        'section.fn3-extra .fn3-extra-title','#fn3DnsCard .fn3-dns-head']) {
+        document.querySelector(selector)?.click();
+      }
+      document.querySelectorAll('.fn3-extra-card .fn3-extra-head').forEach(header => header.click());
+    });
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
 
     const runtime = await page.evaluate(() => ({
