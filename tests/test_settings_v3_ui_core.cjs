@@ -501,7 +501,7 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
-    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true);
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), false);
 
     await page.locator('.nav-btn[data-page="routing"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
@@ -512,17 +512,20 @@ const server = http.createServer((req, res) => {
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки');
-    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive Routing -> Settings navigation');
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), false, 'Settings v3 did not survive Routing -> Settings navigation');
 
     await page.locator('.nav-btn[data-page="overview"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки');
-    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive repeated canonical navigation');
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), false, 'Settings v3 did not survive repeated canonical navigation');
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    assert.equal(await settingsPage.locator('#fn3AutoCard .fn3-card-head').getAttribute('aria-expanded'), 'false',
+      'returning to Settings must re-collapse the AUTO VPN section');
+    await settingsPage.locator('#fn3AutoCard .fn3-card-head').click({position:{x:20,y:20}});
     await page.locator('#fn3AllEvents').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
     await page.waitForSelector('#fn3JournalSummary');
