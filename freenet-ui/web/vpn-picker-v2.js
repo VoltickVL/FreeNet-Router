@@ -173,7 +173,30 @@
       #fnVpnPickerV2Resize{position:absolute;right:5px;bottom:5px;width:17px;height:17px;cursor:ns-resize;touch-action:none;opacity:.5;z-index:4}
       #fnVpnPickerV2Resize::before,#fnVpnPickerV2Resize::after{content:'';position:absolute;right:1px;bottom:2px;width:11px;height:1px;background:#7694b5;transform:rotate(-45deg);transform-origin:right center}
       #fnVpnPickerV2Resize::after{width:7px;bottom:6px}
-      @media(max-width:760px){html body .topbar.overview-approved{height:70px!important;min-height:70px!important;flex-wrap:nowrap!important;padding:0 14px!important;overflow:hidden!important}html body .topbar.overview-approved #overviewApprovedTop{display:flex!important;flex:0 1 auto!important;width:auto!important;min-width:0!important;max-width:calc(100% - 58px)!important;margin-left:auto!important;flex-wrap:nowrap!important;justify-content:flex-end!important;gap:0!important;overflow:hidden!important}html body .topbar.overview-approved #overviewApprovedTop>:not(#fnVpnPickerV2Host){display:none!important}#fnVpnPickerV2Host{min-width:0!important;max-width:100%!important}#fnVpnPickerV2Toggle{width:min(174px,100%)!important;max-width:100%!important}#fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;height:auto!important;min-height:0!important;max-height:calc(100dvh - 24px)}#fnVpnPickerV2Resize{display:none!important}#fnVpnPickerV2Results{max-height:32dvh;flex:1 1 32dvh}#fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}}
+      /* Keep the entire canonical control strip accessible on a phone:
+         Xray | VPN | DNS | FreeNet, rather than hiding three states. */
+      @media(max-width:760px){
+        html body .topbar.overview-approved{height:auto!important;min-height:0!important;flex-direction:column!important;align-items:stretch!important;flex-wrap:nowrap!important;gap:6px!important;padding:7px 11px 9px!important;overflow:visible!important}
+        html body .topbar.overview-approved .top-left{width:100%!important;min-height:28px!important}
+        html body .topbar.overview-approved #overviewApprovedTop{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-auto-flow:row!important;flex:0 0 auto!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;gap:6px!important;overflow:visible!important;align-items:stretch!important;justify-content:stretch!important}
+        html body .topbar.overview-approved #overviewApprovedTop>:not(#fnVpnPickerV2Host){display:none!important}
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar{display:grid!important}
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns{display:flex!important}
+        html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate{display:flex!important}
+        html body .topbar.overview-approved #overviewApprovedTop>#fnVpnPickerV2Host{display:block!important;min-width:0!important;width:100%!important;max-width:100%!important}
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar,
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns,
+        html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate{box-sizing:border-box!important;min-width:0!important;max-width:100%!important;width:100%!important;height:49px!important;min-height:49px!important;padding:6px 9px!important;gap:6px!important}
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar{grid-template-columns:24px minmax(0,1fr)!important;column-gap:6px!important}
+        html body .topbar.overview-approved #overviewApprovedTop .fn-xray-topbar-icon,
+        html body .topbar.overview-approved #overviewApprovedTop .fn-top-fact-icon,
+        html body .topbar.overview-approved #overviewApprovedTop .fn-version-icon{width:24px!important;min-width:24px!important;flex-basis:24px!important}
+        html body .topbar.overview-approved #fnVpnPickerV2Toggle{width:100%!important;min-width:0!important;max-width:100%!important;height:49px!important;padding:6px 9px!important;gap:6px!important}
+        #fnVpnPickerV2Panel{left:12px!important;right:12px!important;bottom:12px!important;top:auto!important;width:auto;height:auto!important;min-height:0!important;max-height:calc(100dvh - 24px)}
+        #fnVpnPickerV2Resize{display:none!important}
+        #fnVpnPickerV2Results{max-height:32dvh;flex:1 1 32dvh}
+        #fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}
+      }
       @media(max-height:580px){#fnVpnPickerV2Panel{top:12px!important;bottom:12px!important;height:calc(100dvh - 24px)!important;min-height:0!important;max-height:calc(100dvh - 24px)!important}#fnVpnPickerV2Resize{display:none!important}#fnVpnPickerV2Panel .fnv2-head{padding:8px 12px}#fnVpnPickerV2Panel h2{font-size:15px}#fnVpnPickerV2Panel .fnv2-subtitle{display:none}#fnVpnPickerV2Panel .fnv2-current{padding:5px 12px}#fnVpnPickerV2Panel .fnv2-current-copy span{display:none}#fnVpnPickerV2Panel .fnv2-search-wrap{padding:0 12px 5px}#fnVpnPickerV2Search{height:36px}#fnVpnPickerV2RTTState{margin:0 12px 4px}#fnVpnPickerV2Results{min-height:48px}#fnVpnPickerV2Footer{padding:5px 12px 6px;gap:4px;margin-top:4px}#fnVpnPickerV2Footer .fnv2-validation{min-height:38px;padding:5px 8px;gap:2px}#fnVpnPickerV2Footer button{height:36px}}
     `;
     document.head.appendChild(style);
@@ -252,6 +275,7 @@
     const summary = q('#overviewApprovedTop'), xray = q('.fn-xray-topbar'), freenet = q('#topFreenetUpdate');
     const dns = summary && Array.from(summary.querySelectorAll('.overview-approved-fact')).find(n => /DNS/i.test(n.textContent || ''));
     if (!summary || !host || !xray || !dns || !freenet) return;
+    dns.classList.add('fn-shell-dns');
     const nodes = [xray,host,dns,freenet];
     if (nodes.some((n,i)=>summary.children[i]!==n)) nodes.forEach(n=>summary.appendChild(n));
     summary.dataset.vpnOrder = 'xray-vpn-dns-freenet';
