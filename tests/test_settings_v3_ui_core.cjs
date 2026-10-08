@@ -327,13 +327,16 @@ const server = http.createServer((req, res) => {
         let rules; try {rules=sheet.cssRules;} catch(_) {continue;}
         const scan=(entries)=>{
           for(const rule of entries){
-            if(rule.cssRules){scan(rule.cssRules);continue;}
-            if(!rule.selectorText || !rule.style?.getPropertyValue('min-height'))continue;
-            try{if(n.matches(rule.selectorText))matches.push({rule:rule.selectorText,minHeight:rule.style.getPropertyValue('min-height'),priority:rule.style.getPropertyPriority('min-height')});}catch(_){}
+            if(rule.selectorText && rule.style) {
+              const props=['min-height','height','display','align-self','flex','flex-grow'];
+              const present=props.filter(k=>rule.style.getPropertyValue(k));
+              try{if(present.length && n.matches(rule.selectorText))matches.push({rule:rule.selectorText,declarations:present.map(k=>k+':'+rule.style.getPropertyValue(k)+(rule.style.getPropertyPriority(k)==='important'?' !important':''))});}catch(_){}
+            }
+            if(rule.cssRules && rule.cssRules.length)scan(rule.cssRules);
           }
         };scan(rules);
       }
-      return {height:n.getBoundingClientRect().height,header:header?.getBoundingClientRect().height,display:style.display,minHeight:style.minHeight,flex:style.flex,alignSelf:style.alignSelf,styleAttr:n.getAttribute('style'),body:document.body.className,page:n.closest('[data-page-view]')?.className,matchingMinHeight:matches,children};
+      return {className:n.className,height:n.getBoundingClientRect().height,header:header?.getBoundingClientRect().height,display:style.display,minHeight:style.minHeight,flex:style.flex,alignSelf:style.alignSelf,styleAttr:n.getAttribute('style'),body:document.body.className,page:n.closest('[data-page-view]')?.className,matchingRules:matches,children};
     });
     assert.ok(autoFoldGeometry.height < 120,'collapsed AUTO VPN must not stretch into a large empty panel: '+JSON.stringify(autoFoldGeometry));
     await autoHeader.click({position:{x:20,y:20}});
