@@ -584,7 +584,7 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => document.querySelector('#fn3JournalAdvancedFilters')?.hidden === false);
     assert.equal(await page.locator('#fn3JournalFiltersToggle').getAttribute('aria-expanded'), 'true');
 
-    await page.locator('#fn3JournalSearch').fill('Франкфурт');
+    await page.locator('#fn3JournalSearch').fill('Выбран: Франкфурт');
     await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 1);
     assert.match((await page.locator('#fn3JournalFull').textContent()) || '', /Выбран: Франкфурт/);
     assert.deepEqual(await page.locator('#fn3JournalSummary .fn3-journal-stat strong').allTextContents(), ['1','0','1','0']);
