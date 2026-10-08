@@ -88,12 +88,9 @@ const server = http.createServer((req, res) => {
   const page = await browser.newPage();
   try {
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.waitForSelector('#csServiceVersion');
-    await page.waitForFunction(() => document.querySelector('#csServiceVersion')?.textContent.includes('26.9.9'));
-    await page.evaluate(() => {
-      window.__xrayOwnerClicks = 0;
-      document.querySelector('#xrayTopbarChip')?.addEventListener('click', () => { window.__xrayOwnerClicks += 1; });
-    });
+    await page.waitForFunction(() => document.querySelector('.cs-title h2')?.textContent === 'Конфигурация Xray');
+    assert.equal(await page.locator('#csService').count(), 0, 'Config Studio must not duplicate the Xray tab');
+    assert.equal(await page.locator('#csXray').count(), 0, 'legacy Xray badge must be removed');
 
     const browserAlive = await Promise.race([
       page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('alive'), 60))),
@@ -117,7 +114,6 @@ const server = http.createServer((req, res) => {
       const lists = document.querySelector('#csTabsLists');
       const mainLabel = getComputedStyle(main, '::before');
       const listLabel = getComputedStyle(lists, '::before');
-      const restart = getComputedStyle(document.querySelector('#csRestartXray'));
       const format = getComputedStyle(document.querySelector('#csFormat'));
       const reset = getComputedStyle(document.querySelector('#csReset'));
       const apply = getComputedStyle(document.querySelector('#csApply'));
@@ -128,7 +124,6 @@ const server = http.createServer((req, res) => {
         listLabelColor: listLabel.color,
         mainLabelBackground: mainLabel.backgroundImage,
         listLabelBackground: listLabel.backgroundImage,
-        restartBackground: restart.backgroundImage,
         formatBackground: format.backgroundImage,
         formatColor: format.color,
         resetBackground: reset.backgroundImage,
@@ -142,13 +137,12 @@ const server = http.createServer((req, res) => {
     assert.notEqual(visual.mainLabelColor, visual.listLabelColor, 'Xray and XKeen group labels need distinct accents');
     assert.match(visual.mainLabelBackground, /gradient/i);
     assert.match(visual.listLabelBackground, /gradient/i);
-    assert.equal(visual.restartBackground, 'none', 'Xray operational controls should use the neutral treatment');
     assert.equal(visual.formatBackground, 'none', 'Format must be a tertiary action, not another blue primary');
     assert.equal(visual.resetBackground, 'none', 'Reset must use its own neutral/warn treatment');
     assert.notEqual(visual.formatColor, visual.resetColor, 'Format and reset need distinct visual meaning');
     assert.match(visual.applyBackground, /gradient/i, 'Apply must remain the only primary blue editor action');
     assert.equal(visual.toolbarBorder, 'solid', 'Editor footer actions need a separator below the editor body');
-    assert(visibleText.includes('v26.9.9'));
+    assert(!visibleText.includes('v26.9.9'), 'Xray version belongs only to the canonical Xray tab/topbar');
     assert.equal(await page.locator('#csFormat').textContent(), 'Форматировать');
     assert.equal(await page.locator('#csValidate').count(), 0, 'manual validation control must be removed');
     assert.equal(await page.locator('#csReset').textContent(), 'Отменить');
@@ -169,12 +163,10 @@ const server = http.createServer((req, res) => {
     });
     await page.waitForFunction(() => document.querySelector('.cs-shell')?.classList.contains('cs-list-view'));
 
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray');
-    await page.locator('#csRestartXray').click();
-    assert.equal(await page.evaluate(() => window.__xrayOwnerClicks), 1, 'Config Studio Xray button must delegate to the canonical topbar owner');
+    assert.equal(await page.locator('#csRestartXray').count(), 0, 'Config Studio must not duplicate Open Xray action');
+    assert.equal(await page.locator('#csServiceVersion').count(), 0, 'Config Studio must not duplicate Xray version');
     assert.equal(restartPosts, 0, 'Config Studio must not own a separate restart mutation path');
     assert.equal(startPosts, 0, 'Config Studio must not own a separate start mutation path');
-    assert((await page.locator('#csServiceStatus').innerText()).includes('Работает'));
 
     const afterMutationAlive = await Promise.race([
       page.evaluate(() => new Promise(resolve => {
@@ -190,12 +182,12 @@ const server = http.createServer((req, res) => {
 
     serviceOnline = false;
     await page.reload();
-    await page.waitForFunction(() => document.querySelector('#csServiceStatus')?.textContent.includes('Остановлен'));
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray', 'offline state must still use the same canonical Xray owner');
+    await page.waitForFunction(() => document.querySelector('.cs-title h2')?.textContent === 'Конфигурация Xray');
+    assert.equal(await page.locator('#csService').count(), 0, 'offline Xray must not recreate a second surface');
     assert.equal(startPosts, 0, 'Config Studio must not start stopped Xray by itself');
     assert.equal(restartPosts, 0, 'Config Studio must not restart stopped Xray by itself');
 
-    console.log('Config Studio compact Xray status delegates lifecycle to canonical owner: OK');
+    console.log('Config Studio has no duplicate Xray status, version or lifecycle controls: OK');
   } finally {
     await browser.close();
     server.close();
