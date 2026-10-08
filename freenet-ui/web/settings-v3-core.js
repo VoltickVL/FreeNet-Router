@@ -134,6 +134,7 @@
       .fn3-journal-event-rail{display:flex;flex-direction:column;align-items:center;padding-top:5px}.fn3-journal-event-dot{width:8px;height:8px;border-radius:50%;background:#7892ad;box-shadow:0 0 0 4px rgba(120,146,173,.08)}.fn3-journal-event.ok .fn3-journal-event-dot{background:#45dba1}.fn3-journal-event.bad .fn3-journal-event-dot{background:#ff7583}
       .fn3-journal-event-main{min-width:0}.fn3-journal-event-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.fn3-journal-event-tags{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.fn3-journal-event-time{flex:0 0 auto;color:#7892ad;font-size:10.5px;font-weight:700;white-space:nowrap}
       .fn3-journal-event-message{margin-top:8px;color:#d9e5ef;font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
+      .fn3-journal-manual{display:grid;gap:5px;margin-top:9px;padding:9px 11px;border:1px solid #234a6b;border-radius:9px;background:#081d30}.fn3-journal-manual-row{display:grid;grid-template-columns:90px minmax(0,1fr);gap:12px;align-items:baseline;font-size:11.5px;line-height:1.45}.fn3-journal-manual-row span{color:#87a2be;font-weight:760}.fn3-journal-manual-row strong{color:#e4f0fc;font-size:11.5px;font-weight:680;overflow-wrap:anywhere}.fn3-kind.manual{border-color:#427aa9;background:#102d45;color:#d0e7ff}
       .fn3-kind{display:inline-flex;align-items:center;min-height:24px;padding:3px 8px;border:1px solid #355878;border-radius:999px;background:#0a2035;color:#bdd0e4;font-size:10px;font-weight:800;white-space:nowrap}.fn3-kind.auto{border-color:#2e679a;color:#a9cfff;background:#0b2947}.fn3-kind.system{border-color:#41627f;color:#c4d1df;background:#112339}.fn3-kind.vpn{border-color:#356c9e;color:#b8d7f7;background:#0b2946}
       .fn3-result{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:3px 8px;border:1px solid rgba(82,228,168,.26);border-radius:999px;background:rgba(35,124,90,.16);color:#52e4a8;font-size:10px;font-weight:780;white-space:nowrap}.fn3-result.neutral{border-color:#3c5875;background:#102239;color:#c4d0dc}.fn3-result.bad{border-color:rgba(255,103,115,.4);background:rgba(102,34,45,.24);color:#ff9da7}.fn3-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
       .fn3-journal-empty{padding:34px 18px;text-align:center;border:1px dashed #31526f;border-radius:12px;color:#8198b2;background:#071726;font-size:12px}
@@ -499,7 +500,7 @@
 
   function journalCategory(event) {
     const kind = String(event?.kind || '').trim().toLowerCase();
-    if (kind === 'vpn') return 'vpn';
+    if (kind === 'vpn' || kind === 'vpn_manual') return 'vpn';
     if (kind === 'auto vpn' || kind === 'auto_vpn') return 'auto';
     if (kind === 'subscription') return 'subscription';
     return 'system';
@@ -532,6 +533,7 @@
   function journalKind(event) {
     const kind = String(event?.kind || '').trim();
     const category = journalCategory(event);
+    if (kind.toLowerCase() === 'vpn_manual') return ['Ручной', 'vpn manual'];
     if (category === 'vpn') return ['VPN', 'vpn'];
     if (category === 'auto') {
       const stage = journalStageLabel(journalStage(event));
@@ -572,6 +574,24 @@
     return rows;
   }
 
+  function manualJournalMarkup(message) {
+    const rows = String(message || '').split(/\s+\|\s+/).map(x => x.trim()).filter(Boolean);
+    if (!rows.length) return '<div class="fn3-journal-event-message">Нет подробностей.</div>';
+    const rollbackLabels = {
+      NOT_NEEDED:'не требуется', NOT_APPLIED:'ничего не изменено',
+      ROLLED_BACK:'выполнен', ROLLBACK_SUCCESS:'выполнен',
+      ROLLBACK_FAILED:'ошибка отката', ROLLBACK_UNKNOWN:'состояние неизвестно'
+    };
+    return '<div class="fn3-journal-manual">' + rows.map(field => {
+      const split = field.indexOf(':');
+      const label = split < 1 ? 'Событие' : field.slice(0, split).trim();
+      const raw = split < 1 ? field : field.slice(split + 1).trim();
+      const value = label === 'Откат' ? (rollbackLabels[raw] || raw) : raw;
+      return '<div class="fn3-journal-manual-row"><span>' + escapeHTML(label) +
+        '</span><strong>' + escapeHTML(value || '—') + '</strong></div>';
+    }).join('') + '</div>';
+  }
+
   function renderJournal(events, target = '#fn3JournalFull') {
     const body = q(target); if (!body) return;
     const source = Array.isArray(events) ? events : [];
@@ -583,6 +603,7 @@
     body.innerHTML = filtered.map(e => {
       const [result, msg, tone] = humanResult(e.result, e.message);
       const [kind, kindClass] = journalKind(e);
+      const messageMarkup = String(e.kind || '').trim().toLowerCase() === 'vpn_manual' ? manualJournalMarkup(msg) : `<div class="fn3-journal-event-message">${escapeHTML(msg)}</div>`;
       const toneClass = tone === 'ok' ? 'ok' : tone === 'bad' ? 'bad' : 'neutral';
       const resultClass = tone === 'ok' ? '' : tone === 'bad' ? 'bad' : 'neutral';
       return `<article class="fn3-journal-event ${toneClass}">
@@ -592,7 +613,7 @@
             <div class="fn3-journal-event-tags"><span class="fn3-kind ${kindClass}">${escapeHTML(kind)}</span><span class="fn3-result ${resultClass}"><i class="fn3-dot"></i>${escapeHTML(result)}</span></div>
             <time class="fn3-journal-event-time">${formatDate(e.at)}</time>
           </div>
-          <div class="fn3-journal-event-message">${escapeHTML(msg)}</div>
+          ${messageMarkup}
         </div>
       </article>`;
     }).join('');
