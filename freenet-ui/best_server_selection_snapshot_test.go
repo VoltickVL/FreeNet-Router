@@ -199,3 +199,91 @@ func TestMeasuredSelectionSnapshotExpiresAndIsSourceBound(t *testing.T) {
 		t.Fatalf("expired snapshot was not rejected safely: %v", err)
 	}
 }
+
+func TestManualRTTSelectionSkipsDuplicateProviderPlan(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FREENET_BEST_SELECTION_DIR", filepath.Join(dir, "selections"))
+	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))
+	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
+
+	subPath := filepath.Join(dir, "subscription.url")
+	if err := os.WriteFile(subPath, []byte("https://provider.example.invalid/subscription-token\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	raw := strings.Split(strings.TrimSpace(testSubscriptionPlain), "\n")[0]
+	profile, ok := parseSafeVLESSProfile(raw)
+	if !ok {
+		t.Fatal("fixture VLESS profile rejected")
+	}
+	a := testNetworkApp(t, "DNS_MODE=firmware\n")
+	a.cfg.SubPath = subPath
+	a.cfg.OutPath = filepath.Join(dir, "04_outbounds.json")
+	a.cfg.FilterPath = filepath.Join(dir, "profile.filter")
+	const previous = "192.0.2.99:443"
+	if err := os.WriteFile(a.cfg.OutPath, []byte(`{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"192.0.2.99","port":443}]}}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(a.cfg.FilterPath, []byte("^previous$\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	internal := []bestServerInternalCandidate{{Profile: profile, Raw: raw}}
+	items := []providerProfileRTTItem{{ProfileID: profile.ID, Endpoint: profileEndpoint(profile), Attempted: true, Reachable: true, RTTMS: 104, Status: "reachable"}}
+	token, err := a.storeProviderRTTSelectionSnapshot(internal, items)
+	if err != nil || !validBestServerSelectionToken(token) {
+		t.Fatalf("manual RTT token unavailable: %v", err)
+	}
+	selected, isManual, err := a.loadBestServerSelectionCandidateWithPurpose(token, profile.ID, previous, "^previous$")
+	if err != nil || !isManual || selected.Raw != raw {
+		t.Fatalf("manual RTT snapshot lost exact candidate or purpose: isManual=%v err=%v", isManual, err)
+	}
+	if _, _, err := a.loadBestServerSelectionCandidateWithPurpose(token, profile.ID, previous, "^modified$"); err == nil {
+		t.Fatal("manual selection accepted a changed current VPN filter")
+	}
+	unreachableToken, err := a.storeProviderRTTSelectionSnapshot(internal, []providerProfileRTTItem{{
+		ProfileID: profile.ID, Endpoint: profileEndpoint(profile), Attempted: true, Reachable: false, Status: "unreachable",
+	}})
+	if err != nil || unreachableToken != "" {
+		t.Fatalf("unreachable VPN must not get a manual selection token: token=%q err=%v", unreachableToken, err)
+	}
+
+	marker := filepath.Join(dir, "manual-apply")
+	provider := writeFakeNetworkHelper(t, `
+[ "$1" = apply ] || { echo 'duplicate plan is forbidden' >&2; exit 31; }
+[ "$FREENET_PROVIDER_RTT_MANUAL" = 1 ] || { echo 'manual RTT mode missing' >&2; exit 32; }
+grep -F 'TEST-ID-A@203.0.113.10:443' "$FREENET_PROVIDER_SUBSCRIPTION_CACHE" >/dev/null || exit 33
+cat > "$FREENET_TEST_OUT_PATH" <<'EOF'
+{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"203.0.113.10","port":443}]}}]}
+EOF
+cat <<EOF
+========== FreeNet Provider Plan ==========
+PROFILE_ID=$2
+PROFILE_NAME=Frankfurt, Germany, Extra
+ENDPOINT=203.0.113.10:443
+CURRENT_OUTBOUND=present
+XRAY_RUNNING=yes
+CANDIDATE_XRAY_VALID=yes
+CANDIDATE_ROUTE_OK=skipped
+MUTATION=PENDING
+========== END ==========
+EOF
+echo applied > "`+marker+`"
+echo '[FreeNet Provider] RESULT=SUCCESS'
+exit 0`)
+	network := writeFakeNetworkHelper(t, "[ \"$1\" = plan ] || exit 9\ncat <<'EOF'\n"+supportedPlanOutput()+"\nEOF")
+	t.Setenv("FREENET_PROVIDER_HELPER", provider)
+	t.Setenv("FREENET_NETWORK_HELPER", network)
+	t.Setenv("FREENET_TEST_OUT_PATH", a.cfg.OutPath)
+
+	status, response := a.executeProviderProfileApply(networkApplyRequest{
+		Operation: "provider", ProfileID: profile.ID, SelectionToken: token, Confirm: true,
+	})
+	if status != http.StatusOK || !response.Success || !response.Applied {
+		t.Fatalf("manual RTT must apply without another provider plan: status=%d response=%+v", status, response)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("manual RTT helper did not apply: %v", err)
+	}
+	if _, err := a.loadBestServerSelectionCandidate(token, profile.ID, previous, "^previous$"); err == nil {
+		t.Fatal("manual RTT token was not consumed after apply")
+	}
+}
