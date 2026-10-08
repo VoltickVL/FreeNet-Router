@@ -344,17 +344,12 @@ const server = http.createServer((req, res) => {
     assert.equal(await page.locator('#fn3AutoEnabled').isChecked(), true, 'collapsing must not mutate AUTO VPN settings');
     const maintenanceHeader = settingsPage.locator('.fn3-extra-title');
     await maintenanceHeader.click();
-    const maintenanceFold = await settingsPage.locator('section.fn3-extra').evaluate(n=>{
-      const button=n.querySelector('#fn3MaintenanceSave'),head=n.querySelector('.fn3-extra-title');
-      const row=button?.parentElement;
-      const direct=Array.from(n.children).map(el=>({cls:el.className,display:getComputedStyle(el).display}));
-      return {className:n.className,headerExpanded:head?.getAttribute('aria-expanded'),rowDisplay:row&&getComputedStyle(row).display,buttonDisplay:button&&getComputedStyle(button).display,direct};
-    });
-    assert.equal(await settingsPage.locator('#fn3MaintenanceSave').isHidden(), true,'maintenance body hides on header click: '+JSON.stringify(maintenanceFold));
+    assert.equal(await settingsPage.locator('section.fn3-extra .fn3-extra-grid').isHidden(), true,
+      'maintenance section body must hide; the unified Save control may be mounted outside this section');
     assert.ok(await compactHeight('section.fn3-extra') < 110,'maintenance must shrink to header without empty space');
     await maintenanceHeader.focus();
     await page.keyboard.press('Enter');
-    assert.equal(await settingsPage.locator('#fn3MaintenanceSave').isVisible(), true,'keyboard Enter reopens maintenance');
+    assert.equal(await settingsPage.locator('section.fn3-extra .fn3-extra-grid').isVisible(), true,'keyboard Enter reopens maintenance contents');
     const dnsHeader = settingsPage.locator('#fn3DnsCard .fn3-dns-head');
     await dnsHeader.click();
     assert.equal(await settingsPage.locator('#fn3DnsCard .fn3-dns-layout').isHidden(),true,'DNS contents hide on heading click');
