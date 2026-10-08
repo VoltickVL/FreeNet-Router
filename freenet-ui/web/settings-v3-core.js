@@ -57,7 +57,14 @@
       .fn3-subscription-title h2{margin:0;font-size:19px}.fn3-subscription-title p{margin:3px 0 0;color:#8fa6c0;font-size:12px}
       .fn3-subscription-body{margin-top:13px}.fn3-subscription-facts{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:12px}
       .fn3-subscription-fact{display:flex;align-items:center;gap:8px;border:1px solid #2c5274;border-radius:10px;background:#081b2f;padding:10px 12px;color:#a8bed9;font-size:12px}
-      .fn3-subscription-fact strong{font-size:13px;color:#eef5ff;font-weight:800}.fn3-subscription-fact .fn-sub-value.ok{color:#5de5ad}
+      .fn3-subscription-fact strong{font-size:13px;color:#eef5ff;font-weight:750}
+      /* Compact Settings facts must not inherit 23px typography of the
+         former full-screen Subscription stats. */
+      .fn3-subscription-card .fn3-subscription-fact .fn-sub-value,
+      .fn3-subscription-card .fn3-subscription-fact strong{font-size:13px!important;line-height:1.25!important;font-weight:750!important;letter-spacing:0!important;margin:0!important}
+      .fn3-subscription-card .fn3-subscription-fact .fn-sub-value.ok{color:#5de5ad!important}
+      .fn3-subscription-card .fn3-subscription-fact .fn-sub-status-dot{width:7px!important;height:7px!important;margin-right:5px!important}
+      .fn3-section-collapsed>.fn3-extra-title{margin-bottom:0!important}
       .fn3-subscription-card .fn-sub-key{margin:0;border:1px solid #294866;border-radius:12px;box-shadow:none;background:#081b2f}
       .fn3-subscription-card .fn-sub-key-main{padding:14px 16px}.fn3-subscription-card .fn-sub-key-actions{padding:14px 16px}
       .fn3-subscription-card .fn-sub-key-actions .btn{min-height:42px}
