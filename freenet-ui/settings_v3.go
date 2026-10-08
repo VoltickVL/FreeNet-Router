@@ -28,8 +28,9 @@ const (
 	journalCanonicalRetentionLimit  = 15000
 	journalDefaultPageSize          = 100
 	journalMaxPageSize              = 500
-	journalSemanticDedupeWindow     = 15 * time.Second
-	journalRoutineHeartbeatWindow   = 6 * time.Hour
+	journalSemanticDedupeWindow          = 15 * time.Second
+	journalRoutineHeartbeatWindow        = 6 * time.Hour
+	journalPendingQualityHeartbeatWindow = 6 * time.Hour
 )
 
 var journalHistoryMu sync.Mutex
@@ -617,6 +618,68 @@ func journalEventIsRoutineAutoNoise(event automationEvent) bool {
 	}
 }
 
+func journalEventIsPendingQualityObservation(event automationEvent) bool {
+	if canonicalJournalKindKey(event.Kind) != "auto_vpn" {
+		return false
+	}
+	if strings.ToLower(strings.TrimSpace(event.Result)) != "uncertain" {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(event.Message))
+	return strings.Contains(message, "vpn отвечает, но качество соединения ухудшено:") &&
+		strings.Contains(message, "auto vpn накапливает подтверждение деградации")
+}
+
+func compactPendingQualityJournalEvents(events []automationEvent) []automationEvent {
+	if len(events) < 2 {
+		return events
+	}
+	keep := make([]bool, len(events))
+	pendingRun := false
+	lastKept := time.Time{}
+
+	// v3MergeEvents returns newest-first. Walk oldest->newest so the first
+	// observation of each pending degradation run is always retained.
+	for i := len(events) - 1; i >= 0; i-- {
+		event := events[i]
+		if !journalEventIsPendingQualityObservation(event) {
+			keep[i] = true
+			// Only another AUTO VPN state/stage ends the pending-quality run.
+			// Unrelated system/subscription events must not create a fresh row.
+			if canonicalJournalKindKey(event.Kind) == "auto_vpn" {
+				pendingRun = false
+				lastKept = time.Time{}
+			}
+			continue
+		}
+		at, err := time.Parse(time.RFC3339, strings.TrimSpace(event.At))
+		if err != nil {
+			keep[i] = true
+			pendingRun = false
+			lastKept = time.Time{}
+			continue
+		}
+		if !pendingRun {
+			keep[i] = true
+			pendingRun = true
+			lastKept = at
+			continue
+		}
+		if at.Sub(lastKept) >= journalPendingQualityHeartbeatWindow {
+			keep[i] = true
+			lastKept = at
+		}
+	}
+
+	out := make([]automationEvent, 0, len(events))
+	for i, event := range events {
+		if keep[i] {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
 func compactRoutineJournalEvents(events []automationEvent) []automationEvent {
 	out := make([]automationEvent, 0, len(events))
 	lastByKey := map[string]time.Time{}
@@ -675,6 +738,7 @@ func canonicalJournalEvents(limit int, updateStatePath ...string) []automationEv
 	}
 	merged := v3MergeEvents(0, groups...)
 	merged = dedupeCanonicalJournalEvents(merged)
+	merged = compactPendingQualityJournalEvents(merged)
 	merged = compactRoutineJournalEvents(merged)
 	if len(merged) > limit {
 		merged = merged[:limit]
