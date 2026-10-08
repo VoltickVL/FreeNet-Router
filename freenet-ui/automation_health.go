@@ -193,6 +193,17 @@ func automationServiceQualityPoints(ok, total int) int {
 }
 
 func classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal int) automationHealthProbe {
+	// These are four independent user-facing services, not just a single
+	// provider heartbeat. When ALL fail while generic HTTPS is still alive,
+	// the VPN is not usable for the configured application traffic. Mark one
+	// read-only FAIL, never mutate from this observation alone: the health
+	// machine still requires a fenced second FAIL and healthy DIRECT WAN.
+	if serviceTotal >= 3 && serviceOK == 0 {
+		return automationHealthProbe{
+			State: automationHealthFailed,
+			Reason: fmt.Sprintf("VPN-транспорт и технический HTTPS отвечают, но прикладные сервисы недоступны (%d/%d). Требуются повторная read-only проверка и рабочий обычный интернет.", serviceOK, serviceTotal),
+		}
+	}
 	latencyPoints := automationApplicationQualityPoints(applicationMS)
 	servicePoints := automationServiceQualityPoints(serviceOK, serviceTotal)
 	points := latencyPoints
