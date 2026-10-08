@@ -15,6 +15,8 @@ func TestMeasuredSelectionApplyUsesExactSnapshotWithoutFreshRediscovery(t *testi
 	t.Setenv("FREENET_BEST_SELECTION_DIR", filepath.Join(dir, "selections"))
 	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))
 	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
+	manualHistory := filepath.Join(dir, "settings.history")
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", manualHistory)
 
 	subPath := filepath.Join(dir, "subscription.url")
 	if err := os.WriteFile(subPath, []byte("https://provider.example.invalid/subscription-token\n"), 0600); err != nil {
@@ -75,7 +77,7 @@ EXPECTED_NO_DELTA=ISP/DNS/routing unchanged
 MUTATION=NONE
 ========== END ==========
 EOF
-if [ "$1" = apply ]; then
+if [ "$1" = apply-core ] && [ "$FREENET_PROVIDER_RTT_MANUAL" = 0 ]; then
   cat > "$FREENET_TEST_OUT_PATH" <<'EOF'
 {"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"203.0.113.10","port":443}]}}]}
 EOF
@@ -98,7 +100,10 @@ exit 0`)
 		t.Fatalf("apply did not report the exact measured candidate: %+v", result.ProviderPlan)
 	}
 	if _, err := os.Stat(marker); err != nil {
-		t.Fatalf("provider apply did not use staged measured snapshot: %v", err)
+		t.Fatalf("provider apply did not use staged measured snapshot via apply-core: %v", err)
+	}
+	if _, err := os.Stat(manualHistory); !os.IsNotExist(err) {
+		t.Fatalf("internal AUTO/Best apply must not create manual journal events: %v", err)
 	}
 	if _, err := a.loadBestServerSelectionCandidate(token, profile.ID, currentEndpoint, currentFilter); err == nil {
 		t.Fatal("successful apply did not consume one-time selection snapshot")
