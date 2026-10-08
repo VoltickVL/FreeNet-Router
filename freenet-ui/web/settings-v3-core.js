@@ -772,6 +772,7 @@
     page.classList.add('fn3-page');
     page.innerHTML = pageMarkup();
     bindSettingsSectionFolding(page);
+    document.dispatchEvent(new CustomEvent('freenet:settings-v3-mounted'));
     bind(); load();
     return true;
   }
