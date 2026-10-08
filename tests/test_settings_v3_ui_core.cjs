@@ -311,15 +311,40 @@ const server = http.createServer((req, res) => {
     const subHeader = settingsPage.locator('#fn3SubscriptionMount .fn3-subscription-head');
     await subHeader.click();
     assert.equal(await settingsPage.locator('#subscriptionInput').isHidden(), true, 'clicking subscription header must fold its controls');
+    const compactHeight = async selector => (await settingsPage.locator(selector).boundingBox())?.height || 9999;
+    assert.ok(await compactHeight('#fn3SubscriptionMount') < 120,'collapsed Subscription must not retain a tall blank panel');
     await subHeader.focus();
     await page.keyboard.press('Enter');
     assert.equal(await settingsPage.locator('#subscriptionInput').isVisible(), true, 'Enter on section header must reopen its controls');
     const autoHeader = settingsPage.locator('#fn3AutoCard .fn3-card-head');
     await autoHeader.click({position:{x:20,y:20}});
     assert.equal(await settingsPage.locator('#fn3Check').isHidden(), true, 'AUTO VPN header click must collapse controls');
+    const autoCollapsedHeight = await compactHeight('#fn3AutoCard');
+    assert.ok(autoCollapsedHeight < 120,'folded AUTO VPN height must stay under 120px; actual='+autoCollapsedHeight);
     await autoHeader.click({position:{x:20,y:20}});
     assert.equal(await settingsPage.locator('#fn3Check').isVisible(), true, 'second click must reopen AUTO VPN');
     assert.equal(await page.locator('#fn3AutoEnabled').isChecked(), true, 'collapsing must not mutate AUTO VPN settings');
+    const maintenanceHeader = settingsPage.locator('.fn3-extra-title');
+    await maintenanceHeader.click();
+    assert.equal(await settingsPage.locator('section.fn3-extra .fn3-extra-grid').isHidden(), true,
+      'maintenance section body must hide; the unified Save control may be mounted outside this section');
+    assert.ok(await compactHeight('section.fn3-extra') < 110,'maintenance must shrink to header without empty space');
+    await maintenanceHeader.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await settingsPage.locator('section.fn3-extra .fn3-extra-grid').isVisible(), true,'keyboard Enter reopens maintenance contents');
+    // This Settings core fixture may not mount the optional DNS extension.
+    // Exercise the fold contract when DNS is present; its dedicated browser
+    // acceptance separately checks the real DNS panel.
+    const dnsHeader = settingsPage.locator('#fn3DnsCard .fn3-dns-head');
+    if (await dnsHeader.count()) {
+      await dnsHeader.click();
+      assert.equal(await settingsPage.locator('#fn3DnsCard .fn3-dns-layout').isHidden(),true,'DNS contents hide on heading click');
+      assert.ok(await compactHeight('#fn3DnsCard') < 125,'collapsed DNS must stay compact');
+      await dnsHeader.click();
+      assert.equal(await settingsPage.locator('#fn3DnsCard .fn3-dns-layout').isVisible(),true,'second DNS click reopens controls');
+    }
+    const statusSize = await settingsPage.locator('#fn3SubStatusMount #subscriptionState').evaluate(n=>getComputedStyle(n).fontSize);
+    assert.equal(statusSize,'13px','compact Subscription state must not inherit oversized full-page badge text');
     assert.equal(await settingsPage.getByText('Интернет и DNS', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Лучший VPN автоматически', {exact:true}).count(), 0);
