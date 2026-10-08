@@ -296,6 +296,13 @@ func (a *app) materializeBestServerSelectionProviderCache(candidate bestServerIn
 }
 
 func (a *app) runProviderSelectionCommand(ctx context.Context, mode string, candidate bestServerInternalCandidate) ([]byte, error) {
+	return a.runProviderSelectionCommandWithRTTMode(ctx, mode, candidate, false)
+}
+
+// Manual RTT applies reuse measured credentials and skip only a duplicate
+// isolated preflight. Candidate Xray validation, backup, live acceptance and
+// rollback remain mandatory in the provider helper.
+func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode string, candidate bestServerInternalCandidate, manualRTT bool) ([]byte, error) {
 	cachePath, sourcePath, cleanup, err := a.materializeBestServerSelectionProviderCache(candidate)
 	if err != nil {
 		return nil, err
@@ -308,7 +315,11 @@ func (a *app) runProviderSelectionCommand(ctx context.Context, mode string, cand
 		"FREENET_SUB_FILE="+a.cfg.SubPath,
 		"FREENET_PROVIDER_SUBSCRIPTION_CACHE="+cachePath,
 		"FREENET_PROVIDER_SUBSCRIPTION_SOURCE="+sourcePath,
+		"FREENET_PROVIDER_RTT_MANUAL=0",
 	)
+	if manualRTT && mode == "apply" {
+		cmd.Env = append(cmd.Env, "FREENET_PROVIDER_RTT_MANUAL=1")
+	}
 	cmd.WaitDelay = 2 * time.Second
 	output, err := cmd.CombinedOutput()
 	if errors.Is(err, exec.ErrWaitDelay) && ctx.Err() == nil {
