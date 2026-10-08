@@ -151,6 +151,8 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 	automationState := filepath.Join(dir, "automation.state")
 	updateState := filepath.Join(dir, "self-update.state")
 	t.Setenv("FREENET_AUTOMATION_STATE", automationState)
+	manualHistory := filepath.Join(dir, "settings.history")
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", manualHistory)
 	if err := os.WriteFile(automationState, []byte("LAST_RUN=2026-10-03T08:00:00Z\nROLLBACK_READY=no\nMUTATION_BLOCKED=yes\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -207,6 +209,14 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 	}
 	if got := parseAutomationState(automationState)["POST_UPDATE_ACK"]; got != "v"+version {
 		t.Fatalf("accepted manual VPN switch did not acknowledge post-update hold: %q", got)
+	}
+	history, err := os.ReadFile(manualHistory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(history), "\tvpn_manual\tstart\t") != 1 ||
+		strings.Count(string(history), "\tvpn_manual\tsuccess\t") != 1 {
+		t.Fatalf("manual HTTP apply must journal exactly one start and success: %q", history)
 	}
 }
 
