@@ -248,7 +248,7 @@ func TestManualRTTSelectionSkipsDuplicateProviderPlan(t *testing.T) {
 
 	marker := filepath.Join(dir, "manual-apply")
 	provider := writeFakeNetworkHelper(t, `
-[ "$1" = apply ] || { echo 'duplicate plan is forbidden' >&2; exit 31; }
+[ "$1" = apply-core ] || { echo 'manual RTT requires core-only safe cutover' >&2; exit 31; }
 [ "$FREENET_PROVIDER_RTT_MANUAL" = 1 ] || { echo 'manual RTT mode missing' >&2; exit 32; }
 grep -F 'TEST-ID-A@203.0.113.10:443' "$FREENET_PROVIDER_SUBSCRIPTION_CACHE" >/dev/null || exit 33
 cat > "$FREENET_TEST_OUT_PATH" <<'EOF'
