@@ -785,7 +785,7 @@ validate_candidate || { err 'candidate Xray configuration validation failed'; ex
 # The Xray config test above, state snapshot, live post-check and rollback
 # below remain mandatory and are never bypassed.
 CANDIDATE_ROUTE_STATUS=yes
-if [ "$MODE" = apply ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
+if [ "$MODE" = apply-core ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
     CANDIDATE_ROUTE_STATUS=skipped
 else
     provider_route_probe "$CANDIDATE_OUT" || { err 'candidate VPN application route validation failed'; exit 1; }
