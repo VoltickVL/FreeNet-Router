@@ -20,10 +20,9 @@ func TestTopbarSettingsProfileCacheContract(t *testing.T) {
 		"sidebar>.brand",
 		"freenet:settings-v3-updated",
 		"fn-sub-next",
-		"fn3-auto-actions",
-		"fn3-left>.fn3-card",
-		"fn3-backup-actions .btn",
-		"height:56px!important",
+		"fn3-grid{align-items:start!important",
+		"fn3-left{display:grid!important",
+		"fn3-left>.fn3-card{flex:none!important",
 	} {
 		if !strings.Contains(ux, required) {
 			t.Fatalf("topbar/settings profile cache contract missing %q", required)
@@ -38,6 +37,9 @@ func TestTopbarSettingsProfileCacheContract(t *testing.T) {
 		"fnVpnPickerHost",
 		"fnVpnPickerToggle",
 		"freenetIssue601Styles",
+		"fn3-left>.fn3-card{flex:1 1 auto!important",
+		"min-height:100%!important",
+		"fn3-extra-grid{align-items:stretch!important",
 	} {
 		if strings.Contains(ux, forbidden) {
 			t.Fatalf("topbar/settings cache patch must stay data/presentation-only without legacy picker: found %q", forbidden)
