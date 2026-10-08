@@ -161,3 +161,16 @@ func TestUnifiedJournalReleaseCatalogSuppressesOnlyCanceledBrowserRequests(t *te
 		}
 	}
 }
+
+func TestManualVPNJournalUsesVPNCategoryWithDistinctLabel(t *testing.T) {
+	event := automationEvent{Kind: "vpn_manual", Result: "success", Message: "Сервер: тестовый | Итог: VPN подключён"}
+	if got := journalEventCategory(event); got != "vpn" {
+		t.Fatalf("manual VPN must pass server-side VPN filter; category=%q", got)
+	}
+	if got := canonicalJournalKindKey(event.Kind); got != "vpn_manual" {
+		t.Fatalf("manual VPN must remain separate from regular VPN; kind=%q", got)
+	}
+	if got := journalCSVStageLabel(event); got != "Ручной" {
+		t.Fatalf("manual VPN export needs a dedicated label; label=%q", got)
+	}
+}
