@@ -51,6 +51,12 @@
       .fn3-card-head[role="button"]:focus-visible,.fn3-extra-title[role="button"]:focus-visible,.fn3-extra-head[role="button"]:focus-visible,.fn3-dns-head[role="button"]:focus-visible,.fn3-subscription-head[role="button"]:focus-visible{outline:2px solid #80adff;outline-offset:3px;border-radius:8px}
       .fn3-section-collapsed>:not(.fn3-card-head):not(.fn3-extra-title):not(.fn3-extra-head):not(.fn3-dns-head):not(.fn3-subscription-head){display:none!important}
       .fn3-section-collapsed{min-height:0!important}
+      /* A legacy accepted-layout rule sets a 518px !important min-height
+         on the first Settings card. Folded panels must override it by ID. */
+      html body.fn-settings-accepted #fn3AutoCard.fn3-section-collapsed{min-height:0!important;height:auto!important;align-self:start!important;flex:0 0 auto!important}
+      html body.fn-settings-accepted #fn3DnsCard.fn3-section-collapsed,
+      html body.fn-settings-accepted #fn3SubscriptionMount.fn3-section-collapsed,
+      html body.fn-settings-accepted section.fn3-extra.fn3-section-collapsed{min-height:0!important;height:auto!important;align-self:start!important}
       .fn3-subscription-card{grid-column:1/-1;padding:15px 17px!important;border-color:#28577e!important;background:linear-gradient(180deg,rgba(10,35,60,.99),rgba(7,25,44,.99))!important}
       .fn3-subscription-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
       .fn3-subscription-title{display:flex;align-items:center;gap:12px}.fn3-subscription-title .fn3-icon{background:linear-gradient(180deg,#1754a1,#123d7a)}
