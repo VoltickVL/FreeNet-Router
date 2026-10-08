@@ -403,6 +403,42 @@
     document.addEventListener('freenet:controls-busy', syncSubscriptionPage);
   }
 
+  // Move the existing credential-bearing form and its original event handlers.
+  // Do not clone a subscription key, create a second save path, or expose it in state.
+  function relocateSubscriptionToSettings() {
+    if (!subscriptionMounted) return false;
+    const host = qs('#fn3SubscriptionMount');
+    const legacy = qs('[data-page-view="subscription"]');
+    if (!host || !legacy) return false;
+    if (host.dataset.subscriptionIntegrated === '1') return true;
+    const mounts = ['fn3SubStatusMount','fn3SubCountMount','fn3SubUpdateMount','fn3SubKeyMount','fn3SubJournalMount'].map(id => qs('#' + id, host));
+    const [status, count, updater, keySection, journal] = [
+      qs('#subscriptionState'), qs('#extraCount'), qs('#subscriptionUpdaterState'),
+      qs('.fn-sub-key', legacy), qs('#fnSubscriptionJournalBtn')
+    ];
+    if (mounts.some(node => !node) || [status,count,updater,keySection,journal].some(node => !node)) return false;
+    mounts[0].appendChild(status);
+    mounts[1].appendChild(count);
+    mounts[2].appendChild(updater);
+    mounts[3].appendChild(keySection);
+    mounts[4].appendChild(journal);
+    host.dataset.subscriptionIntegrated = '1';
+    syncSubscriptionPage();
+    return true;
+  }
+
+  function ensureSubscriptionSettingsMount() {
+    if (relocateSubscriptionToSettings()) return;
+    // Settings may mount after the legacy form: stop observing as soon as the
+    // real form moves, so the page has no perpetual DOM observer.
+    const container = qs('.content');
+    if (!container) return;
+    const observer = new MutationObserver(() => {
+      if (relocateSubscriptionToSettings()) observer.disconnect();
+    });
+    observer.observe(container, {childList:true, subtree:true});
+  }
+
   function ensurePopover() {
     let root = qs('#freenetUpdatePopover');
     if (root) return root;
@@ -638,6 +674,7 @@
     requestAnimationFrame(mountShellChrome);
     mountRememberMe();
     mountSubscriptionPage();
+    ensureSubscriptionSettingsMount();
     ensurePopover();
     bindUpdateControl();
   }
