@@ -310,16 +310,17 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 	defer cleanup()
 
 	cmd := exec.CommandContext(ctx, providerHelperPath(), mode, candidate.Profile.ID)
+	rttFlag := "0"
+	if manualRTT && mode == "apply-core" {
+		rttFlag = "1"
+	}
 	cmd.Env = append(os.Environ(),
 		"PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin",
 		"FREENET_SUB_FILE="+a.cfg.SubPath,
 		"FREENET_PROVIDER_SUBSCRIPTION_CACHE="+cachePath,
 		"FREENET_PROVIDER_SUBSCRIPTION_SOURCE="+sourcePath,
-		"FREENET_PROVIDER_RTT_MANUAL=0",
+		"FREENET_PROVIDER_RTT_MANUAL="+rttFlag,
 	)
-	if manualRTT && mode == "apply" {
-		cmd.Env = append(cmd.Env, "FREENET_PROVIDER_RTT_MANUAL=1")
-	}
 	cmd.WaitDelay = 2 * time.Second
 	output, err := cmd.CombinedOutput()
 	if errors.Is(err, exec.ErrWaitDelay) && ctx.Err() == nil {
