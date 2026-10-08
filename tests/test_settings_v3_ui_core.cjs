@@ -501,7 +501,8 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
-    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), false);
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'master toggle remains accessible in a folded section header');
+    assert.equal(await page.locator('#fn3Check').isVisible(), false, 'return to Settings must fold AUTO VPN body');
 
     await page.locator('.nav-btn[data-page="routing"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
@@ -512,14 +513,14 @@ const server = http.createServer((req, res) => {
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки');
-    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), false, 'Settings v3 did not survive Routing -> Settings navigation');
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive Routing -> Settings navigation');
 
     await page.locator('.nav-btn[data-page="overview"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки');
-    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), false, 'Settings v3 did not survive repeated canonical navigation');
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive repeated canonical navigation');
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
