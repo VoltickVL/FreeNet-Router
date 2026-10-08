@@ -276,15 +276,12 @@
 
 
       #profilesMenu .fn-selector-cache-note{padding:10px 12px!important;margin:0 0 8px!important;border:1px solid rgba(241,184,75,.32)!important;border-radius:10px!important;background:rgba(100,72,18,.22)!important;color:#ffd98a!important;font-size:11.5px!important;line-height:1.35!important}
-      body:has([data-page-view="settings"].active) .fn3-grid{align-items:stretch!important}
-      body:has([data-page-view="settings"].active) .fn3-left{display:flex!important;flex-direction:column!important;min-height:100%!important}
-      body:has([data-page-view="settings"].active) .fn3-left>.fn3-card{flex:1 1 auto!important;min-height:0!important}
-      body:has([data-page-view="settings"].active) .fn3-extra-grid{align-items:stretch!important}
-      body:has([data-page-view="settings"].active) .fn3-extra-card{display:flex!important;flex-direction:column!important;min-height:0!important}
-      body:has([data-page-view="settings"].active) .fn3-extra-action,body:has([data-page-view="settings"].active) .fn3-backup-actions .btn{height:56px!important;min-height:56px!important;display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;line-height:1.16!important}
-      body:has([data-page-view="settings"].active) .fn3-backup-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important;margin-top:auto!important;align-items:stretch!important}
-      body:has([data-page-view="settings"].active) .fn3-extra-card .fn3-extra-action{margin-top:auto!important;width:100%!important}
-      @media(max-width:900px){}
+      /* Section heights belong to Settings layout, not to old stretch/flex overrides.
+         Closed sections must shrink to their header instead of keeping empty space. */
+      body:has([data-page-view="settings"].active) .fn3-grid{align-items:start!important}
+      body:has([data-page-view="settings"].active) .fn3-left{display:grid!important;min-height:0!important;align-self:start!important}
+      body:has([data-page-view="settings"].active) .fn3-left>.fn3-card{flex:none!important;min-height:0!important}
+      body:has([data-page-view="settings"].active) .fn3-extra-grid{align-items:start!important}
     `;
     document.head.appendChild(style);
   }
@@ -328,12 +325,11 @@
       .fn-xray-topbar-icon,.fn-shell-fact>.fn-top-fact-icon,.fn-version-icon{display:grid!important;place-items:center!important;flex:0 0 30px!important;width:30px!important;height:30px!important;color:#67a3ff!important}
       .fn-xray-topbar-icon svg,.fn-shell-fact>.fn-top-fact-icon svg{width:23px!important;height:23px!important}
       .fn-shell-fact-copy,.fn-version-copy{display:flex!important;flex-direction:column!important;justify-content:center!important;gap:2px!important;min-width:0!important;text-align:left!important}
-      .fn-xray-chip small,.fn-shell-fact-copy>span,.fn-version-copy small{font-size:11px!important;line-height:1.05!important;color:#8da4c2!important;font-weight:720!important;letter-spacing:0!important;text-transform:none!important;white-space:nowrap!important}
-      .fn-xray-chip strong,.fn-shell-fact-copy>strong,.fn-version-copy strong{font-size:14.5px!important;line-height:1.1!important;color:#f5f8ff!important;font-weight:800!important;white-space:nowrap!important}
-      /* Exactly one desktop type scale for all four topbar cards. */
-      #xrayTopbarChip #xrayTopbarVersion,#overviewApprovedTop .fn-shell-fact-copy>strong,#topFreenetUpdate .fn-version-copy strong{font-size:14.5px!important;line-height:1.1!important;font-weight:800!important;letter-spacing:0!important}
-      #xrayTopbarChip .fn-xray-chip small,#overviewApprovedTop .fn-shell-fact-copy>span,#topFreenetUpdate .fn-version-copy small{font-size:11px!important;line-height:1.05!important;font-weight:720!important}
-      @media(max-width:1180px){#xrayTopbarChip #xrayTopbarVersion,#overviewApprovedTop .fn-shell-fact-copy>strong,#topFreenetUpdate .fn-version-copy strong{font-size:13px!important}}
+      /* The current VPN chip (Belgium) is the typography baseline for all four cards. */
+      .fn-xray-chip small,.fn-shell-fact-copy>span,.fn-version-copy small{font-size:9px!important;line-height:1.1!important;color:#8da4c2!important;font-weight:750!important;letter-spacing:0!important;text-transform:none!important;white-space:nowrap!important}
+      .fn-xray-chip strong,.fn-shell-fact-copy>strong,.fn-version-copy strong{font-size:12px!important;line-height:1.25!important;color:#f3f7ff!important;font-weight:750!important;white-space:nowrap!important}
+      #xrayTopbarChip #xrayTopbarVersion,#overviewApprovedTop .fn-shell-fact-copy>strong,#topFreenetUpdate .fn-version-copy strong{font-size:12px!important;line-height:1.25!important;font-weight:750!important;letter-spacing:0!important;color:#f3f7ff!important}
+      #xrayTopbarChip .fn-xray-chip small,#overviewApprovedTop .fn-shell-fact-copy>span,#topFreenetUpdate .fn-version-copy small{font-size:9px!important;line-height:1.1!important;font-weight:750!important}
       .fn-xray-topbar{display:grid!important;grid-template-columns:30px minmax(0,1fr)!important;grid-template-rows:1fr!important;column-gap:11px!important;align-items:center!important;min-width:148px!important;width:148px!important;padding:9px 14px!important;text-align:left!important}
       .fn-xray-topbar-icon{grid-row:auto!important}
       .overview-approved-fact.fn-shell-fact{min-width:166px!important;max-width:180px!important;padding:9px 14px!important}
@@ -342,14 +338,7 @@
       .sidebar>.brand{cursor:pointer!important;user-select:none!important;border-radius:10px!important}
       .sidebar>.brand:focus-visible{outline:2px solid #5b8cff!important;outline-offset:2px!important}
 
-      body.fn-settings-accepted .fn3-left>.fn3-card:first-child{display:flex!important;flex-direction:column!important}
-      body.fn-settings-accepted .fn3-auto-actions{margin-top:auto!important;padding-top:24px!important}
-      body.fn-settings-accepted .fn3-extra-card{display:flex!important;flex-direction:column!important}
-      body.fn-settings-accepted .fn3-extra-card .fn3-extra-meta{margin-bottom:18px!important}
-      body.fn-settings-accepted .fn3-extra-card .fn3-extra-action{margin-top:auto!important;height:56px!important;min-height:56px!important}
-      body.fn-settings-accepted .fn3-backup-actions{margin-top:auto!important;display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important}
-      body.fn-settings-accepted .fn3-backup-actions .btn{height:56px!important;min-height:56px!important;align-items:center!important;justify-content:center!important}
-      body.fn-settings-accepted .fn3-extra-grid{align-items:stretch!important}
+      /* Legacy card stretching removed: accordion sections follow content height. */
 
     `;
     document.head.appendChild(style);
