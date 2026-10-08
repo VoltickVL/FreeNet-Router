@@ -14,7 +14,9 @@ func TestCanonicalRoutingV2UsesRowBoardPolish(t *testing.T) {
 		".rv4-board-title-line strong{white-space:normal!important;overflow:visible!important;text-overflow:clip!important",
 		".rv4-board-head{min-height:auto!important;border-right:0!important;border-bottom:1px solid #203650!important",
 		"collapsed: {DIRECT:true, VPN:true, BLOCK:true}",
-		"aria-expanded=\"false\" title=\"Развернуть блок\">⌄</button>",
+		`data-board-toggle="DIRECT" aria-expanded="false"`,
+		`data-board-toggle="VPN" aria-expanded="false"`,
+		`data-board-toggle="BLOCK" aria-expanded="false"`,
 	}
 	for _, want := range checks {
 		if !strings.Contains(script, want) {

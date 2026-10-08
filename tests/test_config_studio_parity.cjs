@@ -179,8 +179,8 @@ const server = http.createServer(async (req, res) => {
     assert.deepEqual(mainLabels, ['01_log','02_dns','03_inbounds','04_outbounds','05_routing','06_policy']);
     assert.deepEqual(listLabels, ['ip_exclude','port_exclude','port_proxying']);
     assert.doesNotMatch(await page.locator('#rv2ConfigPanel').textContent(), /PROTECTED/);
-    assert.match(await page.locator('#csXray').textContent(), /Xray запущен/);
-    assert.match(await page.locator('#csXray').textContent(), /26\.9\.9/);
+    assert.equal(await page.locator('#csXray').count(), 0, 'Xray status and version belong to the dedicated Xray tab');
+    assert.equal(await page.locator('#csService').count(), 0, 'Config Studio does not duplicate Xray lifecycle controls');
 
     // Authenticated owner sees raw 04_outbounds in the editor and can validate/apply it.
     await page.locator('.cs-tab[data-tab="04_outbounds"]').click();

@@ -216,13 +216,14 @@ const server=http.createServer(async(req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#rv2LiveState')?.textContent.includes('4 пользовательских'));
     assert.equal(await page.locator('.rv4-board').count(),3,'DIRECT/VPN/BLOCK boards must always be visible');
     assert.equal(await page.locator('.rv4-board-add').count(),3,'each destination board must own its add action');
+    assert.equal(await page.locator('.rv4-board-collapse').count(),0,'separate collapse arrows must be absent');
     assert.equal(await page.locator('.rv2-add-card').count(),0,'global add card must be gone');
     assert.equal(await page.locator('#rv2DirectCount').textContent(),'23');
     assert.equal(await page.locator('#rv2VPNCount').textContent(),'4');
     assert.equal(await page.locator('#rv2BlockCount').textContent(),'0');
     for (const id of ['#rv2DirectBoard','#rv2VPNBoard','#rv2BlockBoard']) {
       assert.equal(await page.locator(id).evaluate(el=>el.classList.contains('collapsed')),true,id+' must start collapsed');
-      assert.equal(await page.locator(id+' .rv4-board-collapse').getAttribute('aria-expanded'),'false',id+' must expose collapsed aria state');
+      assert.equal(await page.locator(id+' .rv4-board-head').getAttribute('aria-expanded'),'false',id+' must expose collapsed aria state');
     }
     assert.equal(await page.locator('#rv2DirectContent').isHidden(),true,'DIRECT content must start hidden');
     assert.equal(await page.locator('#rv2VPNContent').isHidden(),true,'VPN content must start hidden');
@@ -244,8 +245,17 @@ const server=http.createServer(async(req,res)=>{
     // Categories are aggregated by type rather than repeated as Xray rule rows.
     // The board intentionally starts collapsed, so expand it before testing
     // visible chip density and the local "more" interaction.
-    await page.locator('#rv2DirectBoard .rv4-board-collapse').click();
+    await page.locator('#rv2DirectBoard .rv4-board-head').click();
     assert.equal(await page.locator('#rv2DirectBoard').evaluate(el=>el.classList.contains('collapsed')),false,'manual expand must reveal DIRECT details');
+    await page.locator('#rv2DirectBoard .rv4-board-head').click();
+    assert.equal(await page.locator('#rv2DirectContent').isHidden(),true,'second header click must collapse DIRECT');
+    await page.locator('#rv2DirectBoard .rv4-board-head').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#rv2DirectContent').isVisible(),true,'keyboard Enter must expand DIRECT');
+    await page.locator('#rv2DirectBoard .rv4-board-add').click();
+    assert.equal(await page.locator('#rv2DirectContent').isVisible(),true,'Add must not collapse the board');
+    await page.locator('#rv2ComposerClose').click();
+
     assert.equal(await page.locator('#rv2DirectContent .rv4-type').count(),3,'DIRECT board should aggregate GeoSite/Sites/GeoIP');
     const geositeGroup=page.locator('#rv2DirectContent .rv4-type').first();
     assert.match(await geositeGroup.locator('.rv4-type-head').innerText(),/GeoSite/);

@@ -18,7 +18,6 @@ func TestControlCenter2ShellNavigationContract(t *testing.T) {
 		`id="mobileMenuBtn"`,
 		`.sidebar.open`,
 		`data-page="overview"`,
-		`data-page="subscription"`,
 		`data-page="settings"`,
 		`data-page="network"`,
 		`data-page="journal"`,
@@ -46,13 +45,13 @@ func TestControlCenter2ShellNavigationContract(t *testing.T) {
 		t.Fatal("canonical source navigation end missing")
 	}
 	nav := ui[navStart : navStart+navEndRel+len(`</nav>`)]
-	for _, retired := range []string{`data-page="vpn"`, `data-page="automation"`, `data-page="system"`, `data-page="access"`} {
+	for _, retired := range []string{`data-page="vpn"`, `data-page="subscription"`, `data-page="automation"`, `data-page="system"`, `data-page="access"`} {
 		if strings.Contains(nav, retired) {
 			t.Fatalf("retired navigation route leaked into source shell: %s", retired)
 		}
 	}
-	if got := strings.Count(nav, `data-freenet-shell="1"`); got != 5 {
-		t.Fatalf("source shell must ship five final navigation icons, got %d", got)
+	if got := strings.Count(nav, `data-freenet-shell="1"`); got != 4 {
+		t.Fatalf("source shell must ship four final navigation icons, got %d", got)
 	}
 }
 

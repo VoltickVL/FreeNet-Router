@@ -118,9 +118,8 @@ const server = http.createServer((req, res) => {
   const page = await browser.newPage();
   try {
     await page.goto(`http://127.0.0.1:${port}/`);
-    await page.waitForFunction(() => document.querySelector('#csServiceVersion')?.textContent.includes('v26.9.9'));
     await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.includes('v26.9.9'));
-    assert.equal((await page.locator('#csServiceVersion').textContent()).trim(), 'v26.9.9 ▾', 'Config Studio compatibility version chip must stay compact');
+    assert.equal(await page.locator('#csServiceVersion').count(), 0, 'version has one canonical owner, not a Config Studio duplicate');
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'topbar Xray version must be compact');
     assert.equal(await page.locator('#overviewApprovedTop > :first-child').getAttribute('id'), 'xrayTopbarChip', 'Xray must appear before DNS / FreeNet facts in the topbar');
     assert.equal(await page.locator('#csValidate').count(), 0, 'manual validation control must be removed');
@@ -135,15 +134,15 @@ const server = http.createServer((req, res) => {
     assert.equal(catalogGets, 0, 'catalog must not load until explicit Versions action');
     assert.equal(applyPosts, 0, 'page load must not mutate Xray');
     assert.deepEqual(serviceActions, [], 'page load must not control Xray');
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray', 'Config Studio must point to the canonical Xray owner');
+    assert.equal(await page.locator('#csRestartXray').count(), 0, 'Config Studio must not duplicate Xray control');
 
     await page.evaluate(() => {
       window.__xrayJournalClicks = 0;
       document.querySelector('#journalNav')?.addEventListener('click', () => { window.__xrayJournalClicks += 1; });
     });
 
-    // Config Studio and topbar use one canonical Xray control surface.
-    await page.locator('#csRestartXray').click();
+    // The topbar invokes the canonical Xray surface; Config Studio has none.
+    await page.locator('#xrayTopbarChip').click();
     await page.waitForFunction(() => {
       const root = document.querySelector('#xrayCoreManager');
       const text = root?.innerText || '';
@@ -175,15 +174,12 @@ const server = http.createServer((req, res) => {
     await manager.getByRole('button', {name:'Перезапустить'}).click();
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Xray перезапущен и снова работает'));
     assert.deepEqual(serviceActions, ['restart']);
-    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает');
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray');
 
     // Running -> Stop must truthfully reconcile every surface and hide version mutation while stopped.
     await manager.getByRole('button', {name:'Остановить'}).click();
     await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.trim() === 'остановлен');
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Остановлен'));
     assert.deepEqual(serviceActions, ['restart','stop']);
-    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Остановлен');
     assert.equal(await manager.getByRole('button', {name:'Обновить'}).count(), 0, 'stopped Xray must not expose a version mutation that could start it implicitly');
     assert.equal(catalogGets, 0, 'Stop must not fetch version catalog');
 
@@ -192,8 +188,6 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Xray запущен и работает'));
     await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.trim() === 'v26.9.9');
     assert.deepEqual(serviceActions, ['restart','stop','start']);
-    assert.equal((await page.locator('#csServiceStatus').textContent()).trim(), 'Работает');
-    assert.equal((await page.locator('#csRestartXray').textContent()).trim(), 'Открыть Xray');
 
     // Journal is part of the same surface and navigates to the existing full Journal.
     await manager.getByRole('button', {name:'Журнал'}).click();
@@ -230,7 +224,6 @@ const server = http.createServer((req, res) => {
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'successful Xray apply must update topbar version immediately');
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.8.1') && (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Работает'));
     assert.match(await manager.innerText(),/Xray переключён: v26\.9\.9 → v26\.8\.1/);
-    assert.equal((await page.locator('#csServiceVersion').textContent()).trim(), 'v26.8.1 ▾', 'Config Studio version must reconcile without page reload');
 
     await page.locator('#xcmClose').click();
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.hidden === true);

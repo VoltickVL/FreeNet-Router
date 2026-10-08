@@ -330,6 +330,10 @@
       .fn-shell-fact-copy,.fn-version-copy{display:flex!important;flex-direction:column!important;justify-content:center!important;gap:2px!important;min-width:0!important;text-align:left!important}
       .fn-xray-chip small,.fn-shell-fact-copy>span,.fn-version-copy small{font-size:11px!important;line-height:1.05!important;color:#8da4c2!important;font-weight:720!important;letter-spacing:0!important;text-transform:none!important;white-space:nowrap!important}
       .fn-xray-chip strong,.fn-shell-fact-copy>strong,.fn-version-copy strong{font-size:14.5px!important;line-height:1.1!important;color:#f5f8ff!important;font-weight:800!important;white-space:nowrap!important}
+      /* Exactly one desktop type scale for all four topbar cards. */
+      #xrayTopbarChip #xrayTopbarVersion,#overviewApprovedTop .fn-shell-fact-copy>strong,#topFreenetUpdate .fn-version-copy strong{font-size:14.5px!important;line-height:1.1!important;font-weight:800!important;letter-spacing:0!important}
+      #xrayTopbarChip .fn-xray-chip small,#overviewApprovedTop .fn-shell-fact-copy>span,#topFreenetUpdate .fn-version-copy small{font-size:11px!important;line-height:1.05!important;font-weight:720!important}
+      @media(max-width:1180px){#xrayTopbarChip #xrayTopbarVersion,#overviewApprovedTop .fn-shell-fact-copy>strong,#topFreenetUpdate .fn-version-copy strong{font-size:13px!important}}
       .fn-xray-topbar{display:grid!important;grid-template-columns:30px minmax(0,1fr)!important;grid-template-rows:1fr!important;column-gap:11px!important;align-items:center!important;min-width:148px!important;width:148px!important;padding:9px 14px!important;text-align:left!important}
       .fn-xray-topbar-icon{grid-row:auto!important}
       .overview-approved-fact.fn-shell-fact{min-width:166px!important;max-width:180px!important;padding:9px 14px!important}

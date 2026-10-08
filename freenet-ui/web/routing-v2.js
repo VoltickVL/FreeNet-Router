@@ -64,7 +64,7 @@
       .rv4-board-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(270px,1fr) minmax(240px,.85fr);gap:12px;margin-top:15px;align-items:start}
       .rv4-board{--accent:#8aa2bf;border:1px solid #28415e;border-radius:16px;background:#081522;overflow:visible;box-shadow:0 8px 24px rgba(0,0,0,.08)}
       .rv4-board.direct{--accent:#42df9c}.rv4-board.vpn{--accent:#6fa2ff}.rv4-board.block{--accent:#ff7f88}
-      .rv4-board-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:15px 15px 13px;border-bottom:1px solid #203650;background:linear-gradient(180deg,rgba(18,40,65,.72),rgba(10,25,42,.45))}
+      .rv4-board-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:15px 15px 13px;border-bottom:1px solid #203650;background:linear-gradient(180deg,rgba(18,40,65,.72),rgba(10,25,42,.45));cursor:pointer}.rv4-board-head:hover{background:linear-gradient(180deg,rgba(25,53,81,.85),rgba(12,33,54,.62))}.rv4-board-head:focus-visible{outline:2px solid #76abff;outline-offset:-3px;border-radius:12px}
       .rv4-board-title{min-width:0}.rv4-board-title-line{display:flex;align-items:center;gap:9px}.rv4-board-dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 12%,transparent)}.rv4-board-title strong{font-size:17px;color:#f2f7ff}.rv4-board-sub{margin-top:4px;color:#8fa4bf;font-size:12.5px;line-height:1.35}
       .rv4-board-head-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}.rv4-board-count{min-width:32px;padding:5px 8px;border-radius:999px;background:#10243a;color:#b8cae1;text-align:center;font-size:12.5px;font-weight:850}
       .rv4-board-add{appearance:none;display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:6px 10px;border:1px solid color-mix(in srgb,var(--accent) 55%,#304762);border-radius:10px;background:color-mix(in srgb,var(--accent) 10%,#0b1b2d);color:#eef6ff;font:inherit;font-size:12.5px;font-weight:800;cursor:pointer}.rv4-board-add:hover{background:color-mix(in srgb,var(--accent) 17%,#0b1b2d);border-color:var(--accent)}.rv4-board-add span{font-size:16px;line-height:1;color:var(--accent)}.rv4-board-collapse{appearance:none;display:grid;place-items:center;width:34px;height:34px;border:1px solid #304966;border-radius:10px;background:#0b1c2f;color:#9db1ca;font:inherit;font-size:16px;font-weight:900;cursor:pointer}.rv4-board-collapse:hover{border-color:var(--accent);color:#fff;background:#132a44}.rv4-board.collapsed .rv4-board-body,.rv4-board.collapsed .rv4-composer-slot{display:none!important}.rv4-board.collapsed .rv4-board-head{border-bottom-color:transparent!important}
@@ -415,12 +415,11 @@
     const normalized = ['DIRECT','VPN','BLOCK'].includes(action) ? action : 'DIRECT';
     state.collapsed[normalized] = !!collapsed;
     const board = boardForAction(normalized);
-    const button = board?.querySelector('.rv4-board-collapse');
+    const header = board?.querySelector('[data-board-toggle]');
     board?.classList.toggle('collapsed', !!collapsed);
-    if (button) {
-      button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      button.textContent = collapsed ? '⌄' : '⌃';
-      button.title = collapsed ? 'Развернуть блок' : 'Свернуть блок';
+    if (header) {
+      header.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      header.title = collapsed ? 'Раскрыть правила' : 'Скрыть правила';
     }
   }
 
@@ -1352,7 +1351,7 @@
 
           <div class="rv4-board-grid">
             <section id="rv2DirectBoard" class="rv4-board direct collapsed">
-              <div class="rv4-board-head">
+              <div class="rv4-board-head" role="button" tabindex="0" data-board-toggle="DIRECT" aria-expanded="false" aria-controls="rv2DirectContent" aria-label="Напрямую: раскрыть или скрыть правила">
                 <div class="rv4-board-title">
                   <div class="rv4-board-title-line"><span class="rv4-board-dot"></span><strong>Напрямую</strong></div>
                   <div class="rv4-board-sub">Без VPN · через провайдера</div>
@@ -1360,7 +1359,6 @@
                 <div class="rv4-board-head-actions">
                   <span id="rv2DirectCount" class="rv4-board-count">0</span>
                   <button type="button" class="rv4-board-add" data-add-action="DIRECT"><span>+</span> Добавить</button>
-                  <button type="button" class="rv4-board-collapse" data-collapse-action="DIRECT" aria-expanded="false" title="Развернуть блок">⌄</button>
                 </div>
               </div>
               <div id="rv2DirectContent" class="rv4-board-body"></div>
@@ -1368,7 +1366,7 @@
             </section>
 
             <section id="rv2VPNBoard" class="rv4-board vpn collapsed">
-              <div class="rv4-board-head">
+              <div class="rv4-board-head" role="button" tabindex="0" data-board-toggle="VPN" aria-expanded="false" aria-controls="rv2VPNContent" aria-label="Через VPN: раскрыть или скрыть правила">
                 <div class="rv4-board-title">
                   <div class="rv4-board-title-line"><span class="rv4-board-dot"></span><strong>Через VPN</strong></div>
                   <div class="rv4-board-sub">Текущий VPN-профиль</div>
@@ -1376,7 +1374,6 @@
                 <div class="rv4-board-head-actions">
                   <span id="rv2VPNCount" class="rv4-board-count">0</span>
                   <button type="button" class="rv4-board-add" data-add-action="VPN"><span>+</span> Добавить</button>
-                  <button type="button" class="rv4-board-collapse" data-collapse-action="VPN" aria-expanded="false" title="Развернуть блок">⌄</button>
                 </div>
               </div>
               <div id="rv2VPNContent" class="rv4-board-body"></div>
@@ -1384,7 +1381,7 @@
             </section>
 
             <section id="rv2BlockBoard" class="rv4-board block collapsed">
-              <div class="rv4-board-head">
+              <div class="rv4-board-head" role="button" tabindex="0" data-board-toggle="BLOCK" aria-expanded="false" aria-controls="rv2BlockContent" aria-label="Блокировать: раскрыть или скрыть правила">
                 <div class="rv4-board-title">
                   <div class="rv4-board-title-line"><span class="rv4-board-dot"></span><strong>Блокировать</strong></div>
                   <div class="rv4-board-sub">Запретить доступ</div>
@@ -1392,7 +1389,6 @@
                 <div class="rv4-board-head-actions">
                   <span id="rv2BlockCount" class="rv4-board-count">0</span>
                   <button type="button" class="rv4-board-add" data-add-action="BLOCK"><span>+</span> Добавить</button>
-                  <button type="button" class="rv4-board-collapse" data-collapse-action="BLOCK" aria-expanded="false" title="Развернуть блок">⌄</button>
                 </div>
               </div>
               <div id="rv2BlockContent" class="rv4-board-body"></div>
@@ -1453,7 +1449,19 @@
     qs('#rv2XrayRestart')?.addEventListener('click', () => runXrayAction('restart'));
     qs('#rv2XrayVersions')?.addEventListener('click', () => window.FreeNetXrayControl?.openVersions?.());
     qsa('.rv4-board-add').forEach(button => button.addEventListener('click', () => openInlineComposer(button.dataset.addAction || 'DIRECT')));
-    qsa('.rv4-board-collapse').forEach(button => button.addEventListener('click', () => toggleBoard(button.dataset.collapseAction || 'DIRECT')));
+    qsa('[data-board-toggle]').forEach(header => {
+      const toggle = event => {
+        // The independent Add action must not toggle or close the board.
+        if (event.target.closest?.('button,a,input,select,textarea,label')) return;
+        toggleBoard(header.dataset.boardToggle || 'DIRECT');
+      };
+      header.addEventListener('click', toggle);
+      header.addEventListener('keydown', event => {
+        if (event.target !== header || !['Enter', ' '].includes(event.key)) return;
+        event.preventDefault();
+        toggleBoard(header.dataset.boardToggle || 'DIRECT');
+      });
+    });
     qs('#rv2ComposerClose')?.addEventListener('click', () => closeInlineComposer(true));
     qs('#rv2Kind')?.addEventListener('change', event => {
       state.kind = String(event.target.value || 'domain');

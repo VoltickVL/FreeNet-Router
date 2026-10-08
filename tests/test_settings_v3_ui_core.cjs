@@ -279,7 +279,7 @@ const server = http.createServer((req, res) => {
     assert.equal(runtime.maintenanceSaveDisabled, true, `maintenance save baseline not settled: ${JSON.stringify(runtime)}`);
     assert.equal(runtime.maintenanceSaveVisible, true, `maintenance save must be visible inside System maintenance: ${JSON.stringify(runtime)}`);
     assert.match(runtime.maintenanceSaveText, /Сохранено/);
-    assert.deepEqual(runtime.nav, ['Обзор','Подписка','Настройки','Маршрутизация','Журнал']);
+    assert.deepEqual(runtime.nav, ['Обзор','Настройки','Маршрутизация','Журнал']);
     assert.ok(runtime.svgWidths.every(width => width > 0 && width <= 24), `oversized action icon detected: ${runtime.svgWidths}`);
     assert.ok(runtime.saveHeight >= 34 && runtime.saveHeight <= 48, `header save has wrong height: ${runtime.saveHeight}`);
     assert.ok(runtime.maintenanceSaveHeight >= 32 && runtime.maintenanceSaveHeight <= 44, `maintenance save has wrong height: ${runtime.maintenanceSaveHeight}`);
@@ -300,7 +300,25 @@ const server = http.createServer((req, res) => {
     assert.match(runtime.backupLast, /Снимок создан/, `backup schedule must explain success: ${runtime.backupLast}`);
 
     const settingsPage = page.locator('[data-page-view="settings"]');
-    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
+    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки');
+    await page.waitForFunction(() => document.querySelector('#fn3SubscriptionMount')?.dataset.subscriptionIntegrated === '1');
+    assert.equal(await page.locator('.nav-btn[data-page="subscription"]').count(), 0, 'subscription no longer has a separate navigation entry');
+    assert.equal(await settingsPage.locator('#subscriptionInput').count(), 1, 'real credential input must move into Settings, not be cloned');
+    assert.equal(await page.locator('[data-page-view="subscription"] #subscriptionInput').count(), 0);
+    assert.equal(await settingsPage.locator('#checkSubscriptionBtn').count(), 1, 'manual subscription check remains available');
+    assert.equal(await settingsPage.locator('#fnSubscriptionJournalBtn').count(), 1, 'subscription-filtered journal remains reachable');
+    const subHeader = settingsPage.locator('#fn3SubscriptionMount .fn3-subscription-head');
+    await subHeader.click();
+    assert.equal(await settingsPage.locator('#subscriptionInput').isHidden(), true, 'clicking subscription header must fold its controls');
+    await subHeader.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await settingsPage.locator('#subscriptionInput').isVisible(), true, 'Enter on section header must reopen its controls');
+    const autoHeader = settingsPage.locator('#fn3AutoCard .fn3-card-head');
+    await autoHeader.click({position:{x:20,y:20}});
+    assert.equal(await settingsPage.locator('#fn3Check').isHidden(), true, 'AUTO VPN header click must collapse controls');
+    await autoHeader.click({position:{x:20,y:20}});
+    assert.equal(await settingsPage.locator('#fn3Check').isVisible(), true, 'second click must reopen AUTO VPN');
+    assert.equal(await page.locator('#fn3AutoEnabled').isChecked(), true, 'collapsing must not mutate AUTO VPN settings');
     assert.equal(await settingsPage.getByText('Интернет и DNS', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Только endpoint', {exact:true}).count(), 0);
     assert.equal(await settingsPage.getByText('Лучший VPN автоматически', {exact:true}).count(), 0);
@@ -451,14 +469,14 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
-    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
+    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки');
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive Routing -> Settings navigation');
 
     await page.locator('.nav-btn[data-page="overview"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="overview"]')?.classList.contains('active'));
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
-    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки / Система');
+    assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки');
     assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'Settings v3 did not survive repeated canonical navigation');
 
     await page.locator('.nav-btn[data-page="settings"]').click();
