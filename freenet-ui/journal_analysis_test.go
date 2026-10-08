@@ -57,6 +57,57 @@ func TestJournalCompactsRoutineAutoNoiseButKeepsHeartbeat(t *testing.T) {
 	}
 }
 
+func TestJournalCompactsPendingQualityAcrossChangingMetrics(t *testing.T) {
+	events := []automationEvent{
+		{At:"2026-10-08T12:00:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 204 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+		{At:"2026-10-08T11:30:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 203 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+		{At:"2026-10-08T11:10:00Z", Kind:"subscription", Result:"success", Message:"Подписка проверена."},
+		{At:"2026-10-08T11:00:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 202 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+		{At:"2026-10-08T10:59:00Z", Kind:"auto_vpn", Result:"success", Message:"Текущий VPN и сервисные маршруты работают стабильно."},
+		{At:"2026-10-08T10:30:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 205 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+		{At:"2026-10-08T10:00:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 201 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+	}
+	got := compactPendingQualityJournalEvents(events)
+	if len(got) != 4 {
+		t.Fatalf("pending quality compaction rows=%d want 4: %+v", len(got), got)
+	}
+	pending := []string{}
+	for _, event := range got {
+		if journalEventIsPendingQualityObservation(event) {
+			pending = append(pending, event.At)
+		}
+	}
+	if len(pending) != 2 || pending[0] != "2026-10-08T11:00:00Z" || pending[1] != "2026-10-08T10:00:00Z" {
+		t.Fatalf("pending state transitions mismatch: %+v", pending)
+	}
+}
+
+func TestJournalPendingQualityKeepsBoundedHeartbeat(t *testing.T) {
+	events := []automationEvent{
+		{At:"2026-10-08T18:01:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 204 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+		{At:"2026-10-08T12:00:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 203 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+		{At:"2026-10-08T10:00:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 201 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+	}
+	got := compactPendingQualityJournalEvents(events)
+	if len(got) != 2 || got[0].At != "2026-10-08T18:01:00Z" || got[1].At != "2026-10-08T10:00:00Z" {
+		t.Fatalf("pending heartbeat mismatch: %+v", got)
+	}
+}
+
+func TestJournalPendingQualityNeverHidesTriggerOrRecovery(t *testing.T) {
+	events := []automationEvent{
+		{At:"2026-10-08T11:00:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 204 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+		{At:"2026-10-08T10:30:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения критически ухудшено: отклик 520 мс, сервисы 2/4. AUTO VPN запускает ускоренную проверку замены."},
+		{At:"2026-10-08T10:20:00Z", Kind:"auto_vpn", Result:"quality_optimization:start", Message:"Критическая деградация качества подтверждена одним severe-наблюдением."},
+		{At:"2026-10-08T10:10:00Z", Kind:"auto_vpn", Result:"apply:success", Message:"Изменения применены."},
+		{At:"2026-10-08T10:00:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 201 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
+	}
+	got := compactPendingQualityJournalEvents(events)
+	if len(got) != len(events) {
+		t.Fatalf("trigger/recovery rows were compacted: got=%d want=%d: %+v", len(got), len(events), got)
+	}
+}
+
 func TestJournalNeverCompactsIncidentRecoveryStages(t *testing.T) {
 	events := []automationEvent{
 		{At:"2026-10-07T12:00:00Z", Kind:"AUTO VPN", Result:"incident:recovered", Message:"incident=abc; recovered"},
