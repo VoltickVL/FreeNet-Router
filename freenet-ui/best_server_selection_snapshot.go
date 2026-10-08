@@ -29,6 +29,7 @@ type bestServerSelectionEntry struct {
 type bestServerSelectionSnapshot struct {
 	Schema            int                        `json:"schema"`
 	Token             string                     `json:"token"`
+	Purpose           string                     `json:"purpose,omitempty"`
 	CreatedAt         string                     `json:"created_at"`
 	SourceFingerprint string                     `json:"source_fingerprint"`
 	CurrentEndpoint   string                     `json:"current_endpoint"`
@@ -119,6 +120,10 @@ func cleanupBestServerSelectionSnapshots(now time.Time) {
 }
 
 func (a *app) storeBestServerSelectionSnapshot(currentEndpoint, currentFilter string, internal []bestServerInternalCandidate, measured []bestServerQualityCandidate) (string, error) {
+	return a.storeBestServerSelectionSnapshotWithPurpose(currentEndpoint, currentFilter, internal, measured, "")
+}
+
+func (a *app) storeBestServerSelectionSnapshotWithPurpose(currentEndpoint, currentFilter string, internal []bestServerInternalCandidate, measured []bestServerQualityCandidate, purpose string) (string, error) {
 	eligible := make(map[string]struct{})
 	for _, candidate := range measured {
 		id := strings.TrimSpace(candidate.ID)
@@ -165,6 +170,7 @@ func (a *app) storeBestServerSelectionSnapshot(currentEndpoint, currentFilter st
 	snapshot := bestServerSelectionSnapshot{
 		Schema:            bestServerSelectionSnapshotSchema,
 		Token:             token,
+		Purpose:           purpose,
 		CreatedAt:         time.Now().UTC().Format(time.RFC3339),
 		SourceFingerprint: sourceFingerprint,
 		CurrentEndpoint:   strings.TrimSpace(currentEndpoint),
@@ -202,36 +208,41 @@ func (a *app) attachBestServerSelectionSnapshot(response *bestServerQualityRespo
 }
 
 func (a *app) loadBestServerSelectionCandidate(token, profileID, currentEndpoint, currentFilter string) (bestServerInternalCandidate, error) {
+	candidate, _, err := a.loadBestServerSelectionCandidateWithPurpose(token, profileID, currentEndpoint, currentFilter)
+	return candidate, err
+}
+
+func (a *app) loadBestServerSelectionCandidateWithPurpose(token, profileID, currentEndpoint, currentFilter string) (bestServerInternalCandidate, bool, error) {
 	token = strings.TrimSpace(token)
 	profileID = strings.TrimSpace(profileID)
 	if !validBestServerSelectionToken(token) || !validProfileID(profileID) {
-		return bestServerInternalCandidate{}, errors.New("invalid VPN selection snapshot")
+		return bestServerInternalCandidate{}, false, errors.New("invalid VPN selection snapshot")
 	}
 	path := bestServerSelectionSnapshotPath(token)
 	if path == "" {
-		return bestServerInternalCandidate{}, errors.New("invalid VPN selection snapshot")
+		return bestServerInternalCandidate{}, false, errors.New("invalid VPN selection snapshot")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil || len(data) == 0 || len(data) > maxSubscriptionBytes {
-		return bestServerInternalCandidate{}, errors.New("VPN selection snapshot is unavailable; run Best Server again")
+		return bestServerInternalCandidate{}, false, errors.New("VPN selection snapshot is unavailable; run Best Server again")
 	}
 	var snapshot bestServerSelectionSnapshot
 	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return bestServerInternalCandidate{}, errors.New("VPN selection snapshot is invalid; run Best Server again")
+		return bestServerInternalCandidate{}, false, errors.New("VPN selection snapshot is invalid; run Best Server again")
 	}
 	if snapshot.Schema != bestServerSelectionSnapshotSchema || snapshot.Token != token {
-		return bestServerInternalCandidate{}, errors.New("VPN selection snapshot was replaced; run Best Server again")
+		return bestServerInternalCandidate{}, false, errors.New("VPN selection snapshot was replaced; run Best Server again")
 	}
 	createdAt, err := time.Parse(time.RFC3339, strings.TrimSpace(snapshot.CreatedAt))
 	if err != nil || time.Since(createdAt) < -time.Minute || time.Since(createdAt) > bestServerSelectionSnapshotTTL {
-		return bestServerInternalCandidate{}, errors.New("VPN selection snapshot expired; run Best Server again")
+		return bestServerInternalCandidate{}, false, errors.New("VPN selection snapshot expired; run Best Server again")
 	}
 	sourceFingerprint, err := a.bestServerSelectionSourceFingerprint()
 	if err != nil || snapshot.SourceFingerprint != sourceFingerprint {
-		return bestServerInternalCandidate{}, errors.New("VPN subscription changed after Best Server scan; run Best Server again")
+		return bestServerInternalCandidate{}, false, errors.New("VPN subscription changed after Best Server scan; run Best Server again")
 	}
 	if !endpointsEqual(snapshot.CurrentEndpoint, currentEndpoint) || snapshot.CurrentFilterHash != bestServerSelectionFilterHash(currentFilter) {
-		return bestServerInternalCandidate{}, errors.New("current VPN changed after Best Server scan; run Best Server again")
+		return bestServerInternalCandidate{}, false, errors.New("current VPN changed after Best Server scan; run Best Server again")
 	}
 	for _, entry := range snapshot.Candidates {
 		if entry.ID != profileID {
@@ -240,11 +251,11 @@ func (a *app) loadBestServerSelectionCandidate(token, profileID, currentEndpoint
 		raw := strings.TrimSpace(entry.Raw)
 		profile, ok := parseSafeVLESSProfile(raw)
 		if !ok || profile.ID != profileID {
-			return bestServerInternalCandidate{}, errors.New("stored VPN selection candidate is invalid")
+			return bestServerInternalCandidate{}, false, errors.New("stored VPN selection candidate is invalid")
 		}
-		return bestServerInternalCandidate{Profile: profile, Raw: raw}, nil
+		return bestServerInternalCandidate{Profile: profile, Raw: raw}, snapshot.Purpose == "manual_rtt", nil
 	}
-	return bestServerInternalCandidate{}, errors.New("selected VPN was not part of the measured Best Server snapshot")
+	return bestServerInternalCandidate{}, false, errors.New("selected VPN was not part of the measured Best Server snapshot")
 }
 
 func consumeBestServerSelectionSnapshot(token string) {
