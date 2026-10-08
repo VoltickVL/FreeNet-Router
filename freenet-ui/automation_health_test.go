@@ -247,7 +247,7 @@ func TestAutomationReachableQualityUsesSeverityWithoutTriggeringRecovery(t *test
 		{"severe-latency", 830, 4, 4, automationHealthUncertain, 3},
 		{"partial-3-of-4", 180, 3, 4, automationHealthUncertain, 1},
 		{"partial-2-of-4", 180, 2, 4, automationHealthUncertain, 2},
-		{"zero-of-4", 180, 0, 4, automationHealthUncertain, 3},
+		{"zero-of-4", 180, 0, 4, automationHealthFailed, 0},
 		{"stronger-signal-wins", 398, 3, 4, automationHealthUncertain, 2},
 	}
 	for _, tc := range cases {
@@ -258,7 +258,7 @@ func TestAutomationReachableQualityUsesSeverityWithoutTriggeringRecovery(t *test
 			}
 		})
 	}
-	if got := classifyAutomationApplicationFailure(true); got.QualityDegraded || got.QualityPoints != 0 {
+	if got := classifyAutomationApplicationFailure(true, true); got.QualityDegraded || got.QualityPoints != 0 {
 		t.Fatalf("ambiguous named-origin failure must not count as quality degradation: %+v", got)
 	}
 }
@@ -363,12 +363,86 @@ func TestAutomationQualityOptimizationCooldownDependsOnSeverity(t *testing.T) {
 	}
 }
 
-func TestAutomationSingleOriginFailureCannotTriggerRecovery(t *testing.T) {
-	if got := classifyAutomationApplicationFailure(true); got.State != automationHealthUncertain {
-		t.Fatalf("working VPN transport with named-origin failure state=%q want uncertain/no-mutation", got.State)
+func TestAutomationAllIndependentServicesDownNeedsTwoFailuresAndWAN(t *testing.T) {
+	failed := classifyAutomationReachableQuality(178, 0, 4)
+	if failed.State != automationHealthFailed || failed.QualityDegraded {
+		t.Fatalf("0/4 independent services must be confirmable outage, not weak optimization: %+v", failed)
 	}
-	if got := classifyAutomationApplicationFailure(false); got.State != automationHealthFailed {
-		t.Fatalf("multi-origin plus transport failure state=%q want failed", got.State)
+	if got := classifyAutomationHealth(failed, true, automationHealthProbe{State: automationHealthHealthy}); got.State != automationHealthHealthy {
+		t.Fatalf("one transient 0/4 must not switch a recovered VPN: %+v", got)
+	}
+	if got := classifyAutomationHealth(failed, false, failed); got.State != automationHealthUncertain {
+		t.Fatalf("failed WAN must prevent VPN switch: %+v", got)
+	}
+	if got := classifyAutomationHealth(failed, true, failed); got.State != automationHealthCritical {
+		t.Fatalf("two independent 0/4 observations with healthy WAN must trigger recovery: %+v", got)
+	}
+	for _, ok := range []int{1,2,3} {
+		if got := classifyAutomationReachableQuality(180, ok, 4); got.State == automationHealthFailed {
+			t.Fatalf("%d/4 partial service health must remain quality-only, got %+v", ok, got)
+		}
+	}
+}
+
+func TestAutomationCompleteNamedHTTPSBlackholeTriggersOnlyConfirmedRecovery(t *testing.T) {
+	for _, transportOK := range []bool{true, false} {
+		if got := classifyAutomationApplicationFailure(transportOK, true); got.State != automationHealthFailed {
+			t.Fatalf("two independent failed HTTPS origins + transport=%t state=%q want failed", transportOK, got.State)
+		}
+		if got := classifyAutomationApplicationFailure(transportOK, false); got.State != automationHealthUncertain {
+			t.Fatalf("partial/uncertain HTTPS evidence must not authorize recovery: transport=%t state=%q", transportOK, got.State)
+		}
+	}
+	// This is a failed *observation*, never permission to apply by itself.
+	failed := classifyAutomationApplicationFailure(true, true)
+	healthy := automationHealthProbe{State: automationHealthHealthy}
+	if got := classifyAutomationHealth(failed, true, healthy); got.State != automationHealthHealthy {
+		t.Fatalf("a recovered second probe must cancel recovery: %+v", got)
+	}
+	if got := classifyAutomationHealth(failed, false, failed); got.State != automationHealthUncertain {
+		t.Fatalf("without healthy DIRECT WAN no failover is allowed: %+v", got)
+	}
+	if got := classifyAutomationHealth(failed, true, failed); got.State != automationHealthCritical {
+		t.Fatalf("two complete app failures with healthy WAN must enter bounded recovery: %+v", got)
+	}
+}
+
+func TestAutomationNamedHTTPSProbeRequiresEveryIndependentOrigin(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		okOn         int
+		cancelFirst  bool
+		wantOK       bool
+		wantComplete bool
+		wantCalls    int
+	}{
+		{name: "all-origins-fail", okOn: -1, wantComplete: true, wantCalls: len(bestServerApplicationProbeURLs)},
+		{name: "one-origin-recovers", okOn: 2, wantOK: true, wantCalls: 2},
+		{name: "first-origin-works", okOn: 1, wantOK: true, wantCalls: 1},
+		{name: "cancelled", okOn: -1, cancelFirst: true, wantCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			calls := 0
+			ms, ok, complete := probeAutomationNamedHTTPSWith(ctx, "curl", "127.0.0.1:12345",
+				func(_ context.Context, _, _, _ string, _ time.Duration) (int, bool) {
+					calls++
+					if tc.cancelFirst && calls == 1 {
+						cancel()
+					}
+					if calls == tc.okOn {
+						return 172, true
+					}
+					return 0, false
+				})
+			if calls != tc.wantCalls || ok != tc.wantOK || complete != tc.wantComplete {
+				t.Fatalf("attempted=%d ok=%t complete=%t want calls=%d ok=%t complete=%t", calls, ok, complete, tc.wantCalls, tc.wantOK, tc.wantComplete)
+			}
+			if ok && ms != 172 {
+				t.Fatalf("successful HTTPS RTT=%d want 172", ms)
+			}
+		})
 	}
 }
 
