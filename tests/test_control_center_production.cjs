@@ -19,6 +19,7 @@ const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
 let status={version:fixtureVersion,country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
 let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict',rttMode='ok';
+const manualRTTToken='abcdef0123456789abcdef0123456789';
 const calls=[],unhandled=[],errors=[];
 const P='#fnVpnPickerV2Panel',T='#fnVpnPickerV2Toggle',S='#fnVpnPickerV2Search',R='#fnVpnPickerV2Results',F='#fnVpnPickerV2Footer',C='#fnVpnPickerV2Connect',RTT='#fnVpnPickerV2Refresh',RESIZE='#fnVpnPickerV2Resize';
 const countApply=()=>calls.filter(c=>c.path==='/api/network-profile/apply').length;
@@ -77,7 +78,7 @@ async function capture(label){
         :i===8
           ?{profile_id:p.id,endpoint:ep(p),reachable:false,attempted:true,status:'unreachable'}
           :{profile_id:p.id,endpoint:rttMode==='malformed'&&i===1?'192.0.2.253:443':ep(p),reachable:true,attempted:true,status:'reachable',rtt_ms:55+((48-i)*4),jitter_ms:i%9});
-      return answer(route,{success:true,catalog,catalog_key:'fixture-catalog',results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:true,mutation:'NONE'});
+      return answer(route,{success:true,catalog,catalog_key:'fixture-catalog',selection_token:manualRTTToken,results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:true,mutation:'NONE'});
     }
     if(url.pathname==='/api/provider-profile/plan'){
       const id=url.searchParams.get('profile_id');
@@ -98,7 +99,11 @@ async function capture(label){
       return answer(route,{success:true,supported:true,active:true,provider_plan,extra_profiles:catalogProfiles});
     }
     if(url.pathname==='/api/network-profile/apply'){
-      const body=JSON.parse(req.postData());assert.deepEqual(Object.keys(body).sort(),['confirm','operation','profile_id']);assert.equal(body.operation,'provider');assert.equal(body.confirm,true);
+      const body=JSON.parse(req.postData());
+      const expectedKeys=body.selection_token?['confirm','operation','profile_id','selection_token']:['confirm','operation','profile_id'];
+      assert.deepEqual(Object.keys(body).sort(),expectedKeys);
+      if(body.selection_token)assert.equal(body.selection_token,manualRTTToken,'manual apply must bind the RTT snapshot');
+      assert.equal(body.operation,'provider');assert.equal(body.confirm,true);
       const selected=profiles.find(p=>p.id===body.profile_id);assert.ok(selected);
       if(applyMode==='unknown')return answer(route,{success:false,error:'Результат операции не подтверждён',rollback_state:'UNKNOWN'},502);
       await delay(250);status={...status,country:'',city:'',country_code:'',profile_label:selected.name,endpoint:ep(selected)};
@@ -229,14 +234,23 @@ async function capture(label){
   for(const query of ['герм','Germany','DE']){await page.locator(S).fill(query);assert.ok(await page.locator(R+' button').count()>0,'search '+query);assert.equal(await page.locator(R+' .fnv2-flag:not([data-country="de"])').count(),0)}
   await page.locator(S).fill('Мадрид');assert.ok(await page.locator(R+' button').count()>0,'Madrid must be searchable');assert.equal(await page.locator(R+' .fnv2-flag:not([data-country="es"])').count(),0,'Madrid must use canonical Spain flag');assert.equal(await page.locator(R+' .fnv2-flag[data-flag-source="canonical"]').count(),await page.locator(R+' button').count(),'Spain flag must not fall back to legacy/unknown renderer');
   await page.locator(S).fill('nonexistent-fixture');assert.equal(await page.locator(R+' button').count(),0);assert.equal(await page.locator(R+' .fnv2-empty').isVisible(),true);
-  await page.locator(S).fill('DE');planDelay=1300;await page.locator(R+' button[data-profile-id="fixture-1"]').click();
-  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='checking','checking');
-  assert.equal(await page.locator(C).isDisabled(),true);assert.equal(await page.locator(C).textContent(),'Подключиться');assert.equal(await page.locator('#fnVpnPickerV2Country').textContent(),'Бельгия');await geometry('checking');
-  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','ready');await geometry('ready');await capture('desktop-ready');assert.equal(countApply(),0);
+  await page.locator(S).fill('DE');planDelay=1300;
+  const providerReadsBeforeManual=calls.filter(c=>c.path==='/api/provider-profile/plan').length;
+  await page.locator(R+' button[data-profile-id="fixture-1"]').click();
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','RTT-ready');
+  assert.equal(calls.filter(c=>c.path==='/api/provider-profile/plan').length,providerReadsBeforeManual,
+    'successful RTT selection must not request a second provider plan, even with a slow subscription');
+  assert.equal(await page.locator(C).isDisabled(),false,'manual RTT click must enable Connect immediately');
+  assert.equal(await page.locator(C).textContent(),'Подключиться');
+  assert.equal(await page.locator('#fnVpnPickerV2Country').textContent(),'Бельгия');
+  await geometry('ready');await capture('desktop-ready');assert.equal(countApply(),0);
   await page.locator(C).click();await page.locator(C).dispatchEvent('click');
   await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','connected country');await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='success','verified apply');
   assert.equal(countApply(),1,'double click cannot apply twice');assert.equal(await page.locator(C).isDisabled(),true);
-  await page.locator('#fnVpnPickerV2Reset').click();planDelay=0;planMode='error';await page.locator(S).fill('NL');await page.locator(R+' button').first().click();
+  await page.locator('#fnVpnPickerV2Reset').click();planDelay=0;planMode='error';
+  // Explicitly remove the measured snapshot to test the legacy no-RTT fallback.
+  await page.evaluate(()=>{window.freenetManualRTTSelection=null;});
+  await page.locator(S).fill('NL');await page.locator(R+' button').first().click();
   await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','validation error');assert.equal(await page.locator(C).isDisabled(),true);assert.match(await page.locator('#fnVpnPickerV2Detail').textContent(),/Xray/);await geometry('validation-error');assert.equal(countApply(),1);
   await page.locator('#fnVpnPickerV2Reset').click();planMode='offline';await page.evaluate(()=>loadNetworkPlan());await page.locator(S).fill('');
   await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'cached list');await until(()=>!document.querySelector('#fnVpnPickerV2Stale').hidden,'stale banner');assert.equal(countApply(),1);
