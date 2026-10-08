@@ -137,14 +137,15 @@ async function capture(label){
   const order=await page.locator('#overviewApprovedTop').evaluate(n=>Array.from(n.children).map(x=>x.matches('.fn-xray-topbar')?'xray':x.id==='fnVpnPickerV2Host'?'vpn':x.id==='topFreenetUpdate'?'freenet':/DNS/i.test(x.textContent||'')?'dns':'other').filter(x=>x!=='other'));
   assert.deepEqual(order,['xray','vpn','dns','freenet']);
   const topbarType=await page.evaluate(()=>{
-    const selectors=['#xrayTopbarVersion','#overviewApprovedTop .fn-shell-fact-copy>strong','#topFreenetUpdate .fn-version-copy strong'];
+    const selectors=['#xrayTopbarVersion','#overviewApprovedTop .fn-shell-fact-copy>strong','#topFreenetUpdate .fn-version-copy strong','#fnVpnPickerV2Toggle .fnv2-chip-value'];
     return selectors.map(selector=>{
       const node=document.querySelector(selector);
       return node ? getComputedStyle(node).fontSize : null;
     });
   });
   assert(topbarType.every(Boolean),'all topbar version/value labels must exist: '+JSON.stringify(topbarType));
-  assert.equal(new Set(topbarType).size,1,'Xray, DNS, FreeNet topbar labels must share one font size: '+JSON.stringify(topbarType));
+  assert.equal(new Set(topbarType).size,1,'All four topbar value labels must match the VPN Belgium scale: '+JSON.stringify(topbarType));
+  assert.equal(topbarType[3],'12px','VPN should remain the compact 12px desktop value baseline');
 
   const rttCallsBeforeOpen=calls.filter(c=>c.path==='/api/provider-profiles/rtt').length;
   await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'49 profiles');
@@ -263,8 +264,32 @@ async function capture(label){
   await page.keyboard.press('Escape');
   for(const viewport of [{width:1440,height:900},{width:980,height:800},{width:760,height:700},{width:390,height:844},{width:844,height:390}]){
     await page.setViewportSize(viewport);
-    const shell=await page.evaluate(()=>{const top=document.querySelector('.topbar'),summary=document.querySelector('#overviewApprovedTop'),head=document.querySelector('.page[data-page-view="overview"] .page-head');const tr=top.getBoundingClientRect(),hr=head.getBoundingClientRect(),shown=n=>!!n&&getComputedStyle(n).display!=='none';return{summaryDisplay:getComputedStyle(summary).display,vpnVisible:shown(document.querySelector('#fnVpnPickerV2Host')),xrayVisible:shown(summary.querySelector('.fn-xray-topbar')),factsVisible:Array.from(summary.querySelectorAll('.overview-approved-fact')).some(shown),freenetVisible:shown(summary.querySelector('#topFreenetUpdate')),topBottom:tr.bottom,headTop:hr.top,topScrollWidth:top.scrollWidth,topClientWidth:top.clientWidth};});
-    if(viewport.width<=760){assert.notEqual(shell.summaryDisplay,'none',`${viewport.width}px mobile topbar must retain the VPN picker`);assert.equal(shell.vpnVisible,true,`${viewport.width}px mobile VPN picker must remain accessible`);assert.equal(shell.xrayVisible,false,`${viewport.width}px mobile Xray desktop tile must be hidden`);assert.equal(shell.factsVisible,false,`${viewport.width}px mobile DNS/provider desktop tiles must be hidden`);assert.equal(shell.freenetVisible,false,`${viewport.width}px mobile FreeNet desktop tile must be hidden`);assert.ok(shell.topScrollWidth<=shell.topClientWidth+1,`${viewport.width}px mobile topbar must not overflow horizontally`);assert.ok(shell.headTop>=shell.topBottom-1,`${viewport.width}px Overview content must start below topbar`);}else{assert.notEqual(shell.summaryDisplay,'none',`${viewport.width}px non-mobile topbar must retain status summary`);}
+    const shell=await page.evaluate(()=>{
+      const top=document.querySelector('.topbar'),summary=document.querySelector('#overviewApprovedTop'),head=document.querySelector('.page[data-page-view="overview"] .page-head');
+      const tr=top.getBoundingClientRect(),hr=head.getBoundingClientRect();
+      const shown=n=>!!n&&getComputedStyle(n).display!=='none'&&n.getBoundingClientRect().width>0;
+      const rects=['#xrayTopbarChip','#fnVpnPickerV2Host','.overview-approved-fact','#topFreenetUpdate'].map(sel=>{
+        const el=summary.querySelector(sel),r=el?.getBoundingClientRect();
+        return {shown:shown(el),x:r?.left,y:r?.top,w:r?.width,h:r?.height};
+      });
+      return {summaryDisplay:getComputedStyle(summary).display,vpnVisible:shown(document.querySelector('#fnVpnPickerV2Host')),
+        xrayVisible:shown(summary.querySelector('.fn-xray-topbar')),
+        factsVisible:Array.from(summary.querySelectorAll('.overview-approved-fact')).some(shown),
+        freenetVisible:shown(summary.querySelector('#topFreenetUpdate')),
+        columns:getComputedStyle(summary).gridTemplateColumns.split(' ').length,
+        tiles:rects,topBottom:tr.bottom,headTop:hr.top,topScrollWidth:top.scrollWidth,topClientWidth:top.clientWidth};
+    });
+    if(viewport.width<=760){
+      assert.equal(shell.summaryDisplay,'grid',`${viewport.width}px mobile topbar must use a 2x2 status grid`);
+      assert.equal(shell.columns,2,`${viewport.width}px topbar must have exactly two grid columns`);
+      assert.equal(shell.vpnVisible,true,`${viewport.width}px mobile VPN picker must remain accessible`);
+      assert.equal(shell.xrayVisible,true,`${viewport.width}px mobile Xray tile must remain visible`);
+      assert.equal(shell.factsVisible,true,`${viewport.width}px mobile DNS tile must remain visible`);
+      assert.equal(shell.freenetVisible,true,`${viewport.width}px mobile FreeNet tile must remain visible`);
+      assert(shell.tiles.every(t=>t.shown&&t.w>60&&t.h>=40),`${viewport.width}px all status tiles must have tappable geometry: ${JSON.stringify(shell.tiles)}`);
+      assert.ok(shell.topScrollWidth<=shell.topClientWidth+1,`${viewport.width}px mobile topbar must not overflow horizontally: ${JSON.stringify(shell)}`);
+      assert.ok(shell.headTop>=shell.topBottom-1,`${viewport.width}px Overview content must start below topbar`);
+    }else{assert.notEqual(shell.summaryDisplay,'none',`${viewport.width}px non-mobile topbar must retain status summary`);}
     await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await delay(100);await geometry(`${viewport.width}x${viewport.height}`);if(viewport.width<=760)assert.equal(await page.locator(RESIZE).isHidden(),true,`${viewport.width}px mobile picker must stay auto-sized and non-resizable`);if(viewport.width===390)await capture('mobile-list');await page.keyboard.press('Escape');assert.equal(await page.locator(P).isHidden(),true);
   }
   await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>setPage('settings'));await delay(300);await page.locator(T).click();await geometry('settings-route');await page.keyboard.press('Escape');await page.evaluate(()=>setPage('overview'));
