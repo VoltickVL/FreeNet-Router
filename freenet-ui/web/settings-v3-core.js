@@ -823,6 +823,12 @@
     page.innerHTML = pageMarkup();
     bindSettingsSectionFolding(page);
     collapseSettingsSections(page);
+    // The canonical nav may hold a direct reference to the original setPage
+    // function. Capture real Settings navigation before either handler runs.
+    document.addEventListener('click', event => {
+      const settingsNav = event.target.closest?.('.sidebar .nav-btn[data-page="settings"]');
+      if (settingsNav && !page.classList.contains('active')) collapseSettingsSections(page);
+    }, true);
     if (typeof window.setPage === 'function' && !window.setPage.__fn3CollapsedOnEntry) {
       const originalSetPage = window.setPage;
       const foldedSetPage = function(pageName) {
