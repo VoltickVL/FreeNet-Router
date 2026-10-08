@@ -566,8 +566,8 @@ const server = http.createServer((req, res) => {
     const manualJournal = page.locator('#fn3JournalFull .fn3-journal-event').filter({has: page.locator('.fn3-kind.manual')});
     assert.equal(await manualJournal.count(),1,'manual VPN must have a distinct kind');
     assert.equal((await manualJournal.locator('.fn3-kind').textContent()).trim(),'Ручной');
-    assert.match(await manualJournal.locator('.fn3-journal-manual').innerText(),/Сервер.*Германия, Франкфурт/);
-    assert.match(await manualJournal.locator('.fn3-journal-manual').innerText(),/Откат.*не требуется/);
+    assert.match(await manualJournal.locator('.fn3-journal-manual').innerText(),/Сервер[\s\S]*Германия, Франкфурт/);
+    assert.match(await manualJournal.locator('.fn3-journal-manual').innerText(),/Откат[\s\S]*не требуется/);
     assert.equal(journalPage.resultBadges, 8, 'Journal results must use badges');
     assert.equal(journalPage.badBadges, 1, 'failed Journal event must use error treatment');
     assert.equal(journalPage.searchVisible, true, 'Journal search must be visible');
