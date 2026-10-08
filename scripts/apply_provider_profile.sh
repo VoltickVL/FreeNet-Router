@@ -780,7 +780,16 @@ select_profile || { err 'requested Extra profile is not present in the prepared 
 build_vless_object || { err 'cannot build selected VLESS profile'; exit 1; }
 build_candidate || { err 'cannot build candidate 04_outbounds.json'; exit 1; }
 validate_candidate || { err 'candidate Xray configuration validation failed'; exit 1; }
-provider_route_probe "$CANDIDATE_OUT" || { err 'candidate VPN application route validation failed'; exit 1; }
+# A successful explicit RTT sweep already measured this exact selected VPN.
+# For manual emergency apply only, avoid a second isolated route preflight.
+# The Xray config test above, state snapshot, live post-check and rollback
+# below remain mandatory and are never bypassed.
+CANDIDATE_ROUTE_STATUS=yes
+if [ "$MODE" = apply ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
+    CANDIDATE_ROUTE_STATUS=skipped
+else
+    provider_route_probe "$CANDIDATE_OUT" || { err 'candidate VPN application route validation failed'; exit 1; }
+fi
 
 say '========== FreeNet Provider Plan =========='
 say "PROFILE_ID=$REQUESTED_ID"
@@ -789,7 +798,7 @@ say "ENDPOINT=$SELECTED_ADDRESS:$SELECTED_PORT"
 if [ -f "$OUT_FILE" ]; then say 'CURRENT_OUTBOUND=present'; else say 'CURRENT_OUTBOUND=missing'; fi
 if pidof xray >/dev/null 2>&1; then say 'XRAY_RUNNING=yes'; else say 'XRAY_RUNNING=no'; fi
 say 'CANDIDATE_XRAY_VALID=yes'
-say 'CANDIDATE_ROUTE_OK=yes'
+say "CANDIDATE_ROUTE_OK=$CANDIDATE_ROUTE_STATUS"
 say 'EXPECTED_DELTA=install or replace exactly one vless-reality outbound; preserve existing non-VLESS outbounds; persist safe preferred profile name and exact active profile filter'
 say 'EXPECTED_NO_DELTA=subscription URL and VLESS/Reality credentials are never printed; ISP/DNS/routing are not changed by this helper'
 case "$MODE" in
