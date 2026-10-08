@@ -441,12 +441,6 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 		}
 	}
 
-	manualName := strings.ReplaceAll(sanitizeProfileName(providerPlan.ProfileName), "|", "/")
-	if strings.TrimSpace(manualName) == "" {
-		manualName = "Extra-профиль"
-	}
-	v3AppendEvent("vpn_manual", "start", "Сервер: "+manualName+" | Итог: начата попытка подключения")
-
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	output, cmdErr := a.runNetworkApplyFor(ctx, req.DNSMode, req.NativeDNSProvider)
 	timedOut := ctx.Err() == context.DeadlineExceeded
@@ -620,6 +614,12 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 			RollbackState: "NOT_APPLIED", Error: "current VPN changed while the measured candidate was being revalidated; run Best Server again",
 		}
 	}
+
+	manualName := strings.ReplaceAll(sanitizeProfileName(providerPlan.ProfileName), "|", "/")
+	if strings.TrimSpace(manualName) == "" {
+		manualName = "Extra-профиль"
+	}
+	v3AppendEvent("vpn_manual", "start", "Сервер: "+manualName+" | Итог: начата попытка подключения")
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	defer cancel()
