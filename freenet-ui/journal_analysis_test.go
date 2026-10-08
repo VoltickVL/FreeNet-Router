@@ -8,6 +8,39 @@ import (
 	"time"
 )
 
+func TestJournalHealthFreshnessShowsWatchdogIndependentlyOfEvents(t *testing.T) {
+	now := time.Date(2026, 10, 8, 11, 35, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name string
+		enabled bool
+		interval time.Duration
+		state map[string]string
+		want string
+	}{
+		{"fresh-completed-no-new-journal-event", true, 30*time.Second, map[string]string{
+			"HEALTH_LAST": "2026-10-08T11:34:30Z", "HEALTH_RESULT": "healthy",
+		}, "fresh"},
+		{"stale-completed-after-17-min-silence", true, 30*time.Second, map[string]string{
+			"HEALTH_LAST": "2026-10-08T11:18:00Z", "HEALTH_SCHEDULE_LAST": "2026-10-08T11:18:15Z", "HEALTH_RESULT": "healthy",
+		}, "stale"},
+		{"stale-stuck-started-with-no-completion", true, 30*time.Second, map[string]string{
+			"HEALTH_SCHEDULE_LAST": "2026-10-08T11:18:00Z",
+		}, "stale"},
+		{"no-known-completion", true, 30*time.Second, map[string]string{}, "unknown"},
+		{"disabled", false, 30*time.Second, map[string]string{"HEALTH_LAST":"2026-10-08T11:18:00Z"}, "disabled"},
+		{"five-minute-fresh", true, 5*time.Minute, map[string]string{"HEALTH_LAST":"2026-10-08T11:25:00Z"}, "fresh"},
+		{"five-minute-stale", true, 5*time.Minute, map[string]string{"HEALTH_LAST":"2026-10-08T11:19:00Z"}, "stale"},
+		{"future-clock-skew-unknown", true, 30*time.Second, map[string]string{"HEALTH_LAST":"2026-10-08T11:40:00Z"}, "unknown"},
+	} {
+		t.Run(tc.name,func(t *testing.T){
+			got:=journalHealthFreshness(tc.enabled,tc.interval,tc.state,now)
+			if got.Freshness!=tc.want {t.Fatalf("freshness=%q want %q: %+v",got.Freshness,tc.want,got)}
+			if got.Enabled!=tc.enabled {t.Fatalf("enabled mismatch %+v",got)}
+			if got.IntervalSeconds!=int(tc.interval/time.Second){t.Fatalf("interval mismatch %+v",got)}
+		})
+	}
+}
+
 func TestJournalRetentionAndPageBounds(t *testing.T) {
 	if journalCanonicalRetentionLimit != 15000 {
 		t.Fatalf("canonical retention=%d want 15000", journalCanonicalRetentionLimit)
