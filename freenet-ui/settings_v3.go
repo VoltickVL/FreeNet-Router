@@ -98,6 +98,18 @@ type journalResponse struct {
 	RangeFrom     string            `json:"range_from,omitempty"`
 	RangeTo       string            `json:"range_to,omitempty"`
 	Stats         journalStats      `json:"stats"`
+	Health        journalHealthStatus `json:"health"`
+}
+
+// Journal rows are intentionally compacted: keep live health freshness
+// separate from the latest significant event, with no credentials/endpoints.
+type journalHealthStatus struct {
+	Enabled         bool   `json:"enabled"`
+	LastCompleted   string `json:"last_completed,omitempty"`
+	LastScheduled   string `json:"last_scheduled,omitempty"`
+	Result          string `json:"result,omitempty"`
+	IntervalSeconds int    `json:"interval_seconds"`
+	Freshness       string `json:"freshness"`
 }
 
 type journalQuery struct {
@@ -990,6 +1002,57 @@ func journalQueryRange(query journalQuery) (string, string) {
 	return from, to
 }
 
+// journalHealthFreshness is informational. It never triggers a network
+// mutation or claims that the client-side route was checked. Busy checks
+// do not advance HEALTH_LAST, so a stuck watchdog becomes visibly stale.
+func journalHealthFreshness(enabled bool, interval time.Duration, state map[string]string, now time.Time) journalHealthStatus {
+	status := journalHealthStatus{
+		Enabled: enabled,
+		LastCompleted: strings.TrimSpace(state["HEALTH_LAST"]),
+		LastScheduled: strings.TrimSpace(state["HEALTH_SCHEDULE_LAST"]),
+		Result: strings.ToLower(strings.TrimSpace(state["HEALTH_RESULT"])),
+		Freshness: "unknown",
+	}
+	if interval > 0 {
+		status.IntervalSeconds = int(interval / time.Second)
+	}
+	if !enabled {
+		status.Freshness = "disabled"
+		return status
+	}
+	if interval <= 0 || now.IsZero() {
+		return status
+	}
+	threshold := 3 * interval
+	if threshold < 2*time.Minute {
+		threshold = 2 * time.Minute
+	}
+	checked, err := time.Parse(time.RFC3339, status.LastCompleted)
+	if err != nil {
+		// A started-but-never-completed health run is also actionable.
+		scheduled, scheduleErr := time.Parse(time.RFC3339, status.LastScheduled)
+		if scheduleErr == nil && !now.Before(scheduled) && now.Sub(scheduled) > threshold {
+			status.Freshness = "stale"
+		}
+		return status
+	}
+	if checked.After(now.Add(time.Minute)) {
+		return status
+	}
+	if now.Sub(checked) > threshold {
+		status.Freshness = "stale"
+	} else {
+		status.Freshness = "fresh"
+	}
+	return status
+}
+
+func (a *app) journalWatchHealth(now time.Time) journalHealthStatus {
+	settings := readAutomationSettings(a.cfg.ConfigPath)
+	interval := automationHealthIntervalDuration(configuredAutomationHealthInterval(a.cfg.ConfigPath))
+	return journalHealthFreshness(settings.Enabled, interval, v3ParseState(settingsV3StatePath()), now)
+}
+
 func (a *app) journalQueryResponse(r *http.Request) (journalResponse, error) {
 	query, err := parseJournalQuery(r)
 	if err != nil {
@@ -1014,6 +1077,7 @@ func (a *app) journalQueryResponse(r *http.Request) (journalResponse, error) {
 		RangeFrom: rangeFrom,
 		RangeTo: rangeTo,
 		Stats: journalStatsFor(filtered),
+		Health: a.journalWatchHealth(time.Now().UTC()),
 	}, nil
 }
 
