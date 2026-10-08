@@ -498,6 +498,40 @@ func sanitizeAutomationReason(reason string) string {
 	return strings.TrimSpace(reason)
 }
 
+// Do not echo arbitrary subprocess errors into permanent Journal history.
+// Only these fixed provider-helper reasons are known not to contain secrets.
+func safeAutomationProviderPrimaryError(result networkApplyResponse) string {
+	primary := strings.TrimSpace(result.PrimaryError)
+	switch primary {
+	case "another VPN mutation is already running",
+		"cannot snapshot current provider state",
+		"safe core-only Xray restart requires exactly one running Xray process",
+		"safe core-only Xray restart is unavailable or runtime state is ambiguous",
+		"cannot create FreeNet config directory",
+		"cannot create profile filter directory",
+		"cannot stage outbound candidate",
+		"cannot commit outbound candidate",
+		"cannot stage preferred profile",
+		"cannot commit preferred profile",
+		"cannot stage exact active profile filter",
+		"cannot commit exact active profile filter",
+		"Xray/XKeen runtime acceptance failed after provider apply",
+		"live Xray configuration validation failed after provider apply",
+		"live VPN application route validation failed after provider apply",
+		"provider profile apply timed out":
+		return primary
+	}
+	// Before an apply, only allow an exact fixed failure code; never leak
+	// untrusted subscription/credential-bearing errors to the Journal.
+	switch strings.TrimSpace(result.Error) {
+	case "provider plan is not a validated application-ready candidate":
+		return "provider plan rejected before mutation"
+	case "another FreeNet operation is already running":
+		return "concurrent VPN operation blocked before mutation"
+	}
+	return "не классифицирована (подробности скрыты для безопасности)"
+}
+
 func automationRollbackBlocksMutation(value string) bool {
 	normalized := strings.ToUpper(strings.TrimSpace(value))
 	if normalized == "" {
@@ -902,7 +936,7 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
 	})
 	if status < 200 || status >= 300 || !applied.Success {
-		reason := "Подтверждённый VPN не применён: " + strings.TrimSpace(applied.Error)
+		reason := "Подтверждённый VPN не применён; PRIMARY ERROR: " + safeAutomationProviderPrimaryError(applied)
 		rollback := applied.RollbackState
 		if rollback == "" {
 			rollback = "unknown"
