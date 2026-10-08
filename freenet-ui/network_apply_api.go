@@ -513,7 +513,7 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 	op, leader, conflict := vpnOperations.begin("provider", operationTarget)
 	if !leader {
 		if conflict != nil {
-			v3AppendEvent("VPN", "busy", "Ручной выбор VPN пропущен: другая VPN-операция уже выполняется.")
+			v3AppendEvent("vpn_manual", "busy", "Сервер: — | Итог: другая VPN-операция уже выполняется")
 			writeJSON(w, http.StatusConflict, operationConflictPayload("другая VPN-операция уже выполняется", *conflict))
 			return
 		}
@@ -533,20 +533,27 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 	status, result := a.executeProviderProfileApply(req)
 	result.OperationID = op.state.ID
 	journalResult := "failed"
-	journalMessage := "Ручной выбор VPN не выполнен."
+	journalName := "—"
+	if result.ProviderPlan != nil && strings.TrimSpace(result.ProviderPlan.ProfileName) != "" {
+		journalName = strings.ReplaceAll(sanitizeProfileName(result.ProviderPlan.ProfileName), "|", "/")
+	}
+	journalMessage := "Сервер: " + journalName
 	if result.Success {
 		journalResult = "success"
-		journalMessage = "Ручной выбор VPN применён."
-		if result.ProviderPlan != nil && strings.TrimSpace(result.ProviderPlan.ProfileName) != "" {
-			journalMessage = "Ручной выбор VPN: " + sanitizeProfileName(result.ProviderPlan.ProfileName) + "."
+		journalMessage += " | Итог: VPN подключён"
+	} else {
+		reason := sanitizeAutomationReason(result.PrimaryError)
+		if reason == "" {
+			reason = sanitizeAutomationReason(result.Error)
 		}
-	} else if safe := sanitizeAutomationReason(result.Error); safe != "" {
-		journalMessage += " " + safe
+		if reason != "" {
+			journalMessage += " | Причина: " + strings.ReplaceAll(reason, "|", "/")
+		}
 	}
-	if rollback := sanitizeAutomationReason(result.RollbackState); rollback != "" && rollback != "NOT_NEEDED" && rollback != "NOT_APPLIED" {
-		journalMessage += " Rollback: " + rollback + "."
+	if rollback := sanitizeAutomationReason(result.RollbackState); rollback != "" {
+		journalMessage += " | Откат: " + strings.ReplaceAll(rollback, "|", "/")
 	}
-	v3AppendEvent("VPN", journalResult, journalMessage)
+	v3AppendEvent("vpn_manual", journalResult, journalMessage)
 	vpnOperations.finish(op, status, result, result.Success, result.Message, result.Error)
 	writeJSON(w, status, result)
 }
@@ -565,12 +572,13 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		providerPlan providerPlanResponse
 		selected     bestServerInternalCandidate
 		useSnapshot  bool
+		manualRTT    bool
 		err          error
 	)
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
 	if selectionToken != "" {
-		selected, err = a.loadBestServerSelectionCandidate(selectionToken, profileID, currentEndpoint, currentFilter)
+		selected, manualRTT, err = a.loadBestServerSelectionCandidateWithPurpose(selectionToken, profileID, currentEndpoint, currentFilter)
 		if err != nil {
 			return http.StatusConflict, networkApplyResponse{
 				Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
@@ -579,14 +587,25 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		}
 		useSnapshot = true
 		defer consumeBestServerSelectionSnapshot(selectionToken)
-		providerPlan, err = a.runProviderSelectionPlan(selected)
+		if manualRTT {
+			// The measured snapshot authorizes a manual attempt without another
+			// subscription download or isolated route probe. The helper still
+			// validates the candidate config, snapshots state and rolls back.
+			providerPlan = providerPlanResponse{
+				Success: true, ProfileID: selected.Profile.ID,
+				ProfileName: selected.Profile.Name, Endpoint: profileEndpoint(selected.Profile),
+				Mutation: "NONE",
+			}
+		} else {
+			providerPlan, err = a.runProviderSelectionPlan(selected)
+		}
 	} else {
 		providerPlan, err = a.runProviderPlan(profileID)
 	}
 	if err != nil {
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED", Error: err.Error()}
 	}
-	if !providerPlan.CandidateValid || !providerPlan.CandidateRouteOK || providerPlan.Mutation != "NONE" {
+	if !manualRTT && (!providerPlan.CandidateValid || !providerPlan.CandidateRouteOK || providerPlan.Mutation != "NONE") {
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED", Error: "provider plan is not a validated application-ready candidate"}
 	}
 	if useSnapshot && (readBestServerCurrentEndpoint(a.cfg.OutPath) != currentEndpoint || readBestServerCurrentFilter(a.cfg.FilterPath) != currentFilter) {
@@ -596,12 +615,23 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		}
 	}
 
+	manualName := strings.ReplaceAll(sanitizeProfileName(providerPlan.ProfileName), "|", "/")
+	if strings.TrimSpace(manualName) == "" {
+		manualName = "Extra-профиль"
+	}
+	v3AppendEvent("vpn_manual", "start", "Сервер: "+manualName+" | Итог: начата попытка подключения")
+
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	defer cancel()
 	var output []byte
 	var cmdErr error
 	if useSnapshot {
-		output, cmdErr = a.runProviderSelectionCommand(ctx, "apply", selected)
+		mode := "apply"
+		if manualRTT {
+			// Do not tear down XKeen firewall rules on emergency RTT cutover.
+			mode = "apply-core"
+		}
+		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, mode, selected, manualRTT)
 	} else {
 		output, cmdErr = runCommand(ctx, providerHelperPath(), "apply", profileID)
 	}

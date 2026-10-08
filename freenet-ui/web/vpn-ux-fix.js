@@ -173,6 +173,23 @@
     }
     selectedCardText(`Проверяем: ${selectedProviderName}`, profileEndpoint(p), 'Проверяем доступность и конфигурацию сервера перед подключением.', 'checking');
 
+    // Explicit RTT has already measured this exact profile and retained its
+    // one-time router-side snapshot. Skip the redundant subscription/plan fetch.
+    const measured = window.freenetManualRTTSelection;
+    const measuredEndpoint = measured?.endpoints?.[p.id];
+    if (/^[0-9a-f]{32}$/.test(String(measured?.token || '')) && measuredEndpoint && measuredEndpoint === profileEndpoint(p)) {
+      exactPlan = {endpoint:measuredEndpoint, selection_token:measured.token};
+      providerPlanReady = true;
+      exactChecking = false;
+      selectedCardText(`Готов к подключению: ${selectedProviderName}`, measuredEndpoint,
+        'VPN-пинг прошёл. Можно подключаться. FreeNet сохранит прежнее состояние и проверит результат.', 'ready');
+      if (controls && controls.connect) {
+        controls.connect.disabled = false;
+        controls.connect.textContent = 'Подключиться';
+      }
+      return;
+    }
+
     try {
       const r = await fetch('/api/provider-profile/plan?profile_id=' + encodeURIComponent(selectedProviderID), {cache:'no-store'});
       if (r.status === 401) {
@@ -246,7 +263,7 @@
       const r = await fetch('/api/network-profile/apply', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({operation: 'provider', profile_id: profileID, confirm: true})
+        body: JSON.stringify({operation: 'provider', profile_id: profileID, confirm: true, ...(pp.selection_token ? {selection_token:pp.selection_token} : {})})
       });
       if (r.status === 401) {
         if (typeof loadAuthStatus === 'function') await loadAuthStatus();

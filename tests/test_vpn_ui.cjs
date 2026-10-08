@@ -15,6 +15,7 @@ const winner = {...current,id:'fixture-de',name:'Германия · Франк�
 const second = {...winner,id:'fixture-lt',name:'Литва · Вильнюс',country_code:'lt',endpoint:'192.0.2.40:443',download_mbps:59.1};
 const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:31.4,application_rtt_ms:180};
 const bestSelectionToken = '0123456789abcdef0123456789abcdef';
+const manualRTTToken = 'abcdef0123456789abcdef0123456789';
 let expectedApply = winner;
 let status = {version:'0.2.88',country:'Польша',city:'Варшава',country_code:'pl',endpoint:current.endpoint,xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true};
 const server = http.createServer((req,res)=>{
@@ -75,7 +76,7 @@ const server = http.createServer((req,res)=>{
           safeProfile(current)
         ];
         return answer(route,{
-          success:true,cached:false,mutation:'NONE',profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
+          success:true,cached:false,mutation:'NONE',selection_token:manualRTTToken,profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
           results:[
             {profile_id:second.id,endpoint:second.endpoint,rtt_ms:92,jitter_ms:3,reachable:true,attempted:true,status:'reachable'},
             {profile_id:winner.id,endpoint:rttMode==='malformed'?'192.0.2.98:443':winnerEndpoint,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
@@ -130,7 +131,7 @@ const server = http.createServer((req,res)=>{
         assert.equal(payload.operation,'provider');
         assert.equal(payload.profile_id,expectedApply.id);
         assert.equal(payload.confirm,true);
-        if(Object.prototype.hasOwnProperty.call(payload,'selection_token'))assert.equal(payload.selection_token,bestSelectionToken);
+        if(Object.prototype.hasOwnProperty.call(payload,'selection_token'))assert.ok([bestSelectionToken,manualRTTToken].includes(payload.selection_token));
         status={...status,country:'Германия',city:'Франкфурт',country_code:'de',endpoint:expectedApply.endpoint};
         if(applyMode!=='ok'){
           status=expectedApply.id===second.id
@@ -529,6 +530,33 @@ const server = http.createServer((req,res)=>{
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'modern selector has no mobile horizontal overflow');
     await page.setViewportSize({width:1440,height:1000});
+    providerPlanMode='ok';
+
+    // Emergency manual choice: a successful explicit RTT sweep is enough to
+    // enable Connect even while the subscription/plan route is unavailable.
+    expectedApply=second;providerPlanMode='error';applyMode='manual-ok';operationReads=0;
+    status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};
+    await page.goto(base);
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
+    await openPicker();
+    const planReadsBeforeRTT=calls.filter(c=>c.path==='/api/provider-profile/plan').length;
+    await page.locator('#fnVpnPickerV2Refresh').click();
+    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2RTTState')?.textContent.includes('Список отсортирован'));
+    assert.equal(await page.evaluate(()=>window.freenetManualRTTSelection?.token),manualRTTToken,
+      'explicit RTT must retain a protected one-time selection token without credentials');
+    await page.locator('#fnVpnPickerV2Results [data-profile-id="fixture-lt"]').click();
+    await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-ready'));
+    assert.equal(calls.filter(c=>c.path==='/api/provider-profile/plan').length,planReadsBeforeRTT,
+      'measured manual selection must never perform a redundant provider plan / subscription fetch');
+    const emergencyPosts=calls.filter(c=>c.path==='/api/network-profile/apply').length;
+    await page.locator('#fnVpnPickerV2Connect').click();
+    await page.waitForFunction(()=>document.querySelector('#notice')?.textContent.includes('Подключено:'));
+    const emergencyRequests=calls.filter(c=>c.path==='/api/network-profile/apply');
+    assert.equal(emergencyRequests.length,emergencyPosts+1,'measured selection sends exactly one apply');
+    assert.equal(JSON.parse(emergencyRequests.at(-1).body).selection_token,manualRTTToken,
+      'manual apply must bind to the exact measured snapshot');
+    assert.equal(calls.filter(c=>c.path==='/api/provider-profile/plan').length,planReadsBeforeRTT,
+      'successful manual apply must not re-fetch subscription');
     providerPlanMode='ok';
 
     for(const scenario of ['manual-ok','gateway','other']) {

@@ -134,6 +134,7 @@
       .fn3-journal-event-rail{display:flex;flex-direction:column;align-items:center;padding-top:5px}.fn3-journal-event-dot{width:8px;height:8px;border-radius:50%;background:#7892ad;box-shadow:0 0 0 4px rgba(120,146,173,.08)}.fn3-journal-event.ok .fn3-journal-event-dot{background:#45dba1}.fn3-journal-event.bad .fn3-journal-event-dot{background:#ff7583}
       .fn3-journal-event-main{min-width:0}.fn3-journal-event-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.fn3-journal-event-tags{display:flex;flex-wrap:wrap;gap:6px;align-items:center}.fn3-journal-event-time{flex:0 0 auto;color:#7892ad;font-size:10.5px;font-weight:700;white-space:nowrap}
       .fn3-journal-event-message{margin-top:8px;color:#d9e5ef;font-size:12.5px;line-height:1.5;overflow-wrap:anywhere}
+      .fn3-journal-manual{display:grid;gap:5px;margin-top:9px;padding:9px 11px;border:1px solid #234a6b;border-radius:9px;background:#081d30}.fn3-journal-manual-row{display:grid;grid-template-columns:90px minmax(0,1fr);gap:12px;align-items:baseline;font-size:11.5px;line-height:1.45}.fn3-journal-manual-row span{color:#87a2be;font-weight:760}.fn3-journal-manual-row strong{color:#e4f0fc;font-size:11.5px;font-weight:680;overflow-wrap:anywhere}.fn3-kind.manual{border-color:#427aa9;background:#102d45;color:#d0e7ff}
       .fn3-kind{display:inline-flex;align-items:center;min-height:24px;padding:3px 8px;border:1px solid #355878;border-radius:999px;background:#0a2035;color:#bdd0e4;font-size:10px;font-weight:800;white-space:nowrap}.fn3-kind.auto{border-color:#2e679a;color:#a9cfff;background:#0b2947}.fn3-kind.system{border-color:#41627f;color:#c4d1df;background:#112339}.fn3-kind.vpn{border-color:#356c9e;color:#b8d7f7;background:#0b2946}
       .fn3-result{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:3px 8px;border:1px solid rgba(82,228,168,.26);border-radius:999px;background:rgba(35,124,90,.16);color:#52e4a8;font-size:10px;font-weight:780;white-space:nowrap}.fn3-result.neutral{border-color:#3c5875;background:#102239;color:#c4d0dc}.fn3-result.bad{border-color:rgba(255,103,115,.4);background:rgba(102,34,45,.24);color:#ff9da7}.fn3-dot{width:6px;height:6px;border-radius:50%;background:currentColor}
       .fn3-journal-empty{padding:34px 18px;text-align:center;border:1px dashed #31526f;border-radius:12px;color:#8198b2;background:#071726;font-size:12px}
@@ -286,8 +287,8 @@
     return `
       <div class="fn3-head"><div><h1>Настройки</h1><p>Автоматизация, обновления и резервное копирование FreeNet.</p></div><button id="fn3Save" class="btn primary fn3-save" type="button" disabled>${svg('save')}<span>Сохранено</span></button></div>
       <div class="fn3-grid">
-        <section id="fn3SubscriptionMount" class="fn3-card fn3-subscription-card">
-          <div class="fn3-subscription-head" role="button" tabindex="0" aria-expanded="true" aria-label="Подписка: скрыть или раскрыть">
+        <section id="fn3SubscriptionMount" class="fn3-card fn3-subscription-card fn3-section-collapsed">
+          <div class="fn3-subscription-head" role="button" tabindex="0" aria-expanded="false" aria-label="Подписка: скрыть или раскрыть">
             <div class="fn3-subscription-title"><span class="fn3-icon">${svg('subscription')}</span><div><h2>Подписка</h2><p>Ключ BlancVPN, доступные Extra-профили и ручная проверка.</p></div></div>
           </div>
           <div class="fn3-subscription-body">
@@ -301,8 +302,8 @@
           </div>
         </section>
         <div class="fn3-left">
-          <section id="fn3AutoCard" class="fn3-card">
-            <div class="fn3-card-head" role="button" tabindex="0" aria-expanded="true" aria-label="AUTO VPN: скрыть или раскрыть"><div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>AUTO VPN</h2><span id="fn3AutoLabel" class="fn3-enabled-badge">Выключено</span><div class="fn3-sub">FreeNet автоматически поддерживает рабочий VPN.</div></div></div><label class="fn3-master"><span class="fn3-switch"><input id="fn3AutoEnabled" type="checkbox"><span></span></span></label></div>
+          <section id="fn3AutoCard" class="fn3-card fn3-section-collapsed">
+            <div class="fn3-card-head" role="button" tabindex="0" aria-expanded="false" aria-label="AUTO VPN: скрыть или раскрыть"><div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>AUTO VPN</h2><span id="fn3AutoLabel" class="fn3-enabled-badge">Выключено</span><div class="fn3-sub">FreeNet автоматически поддерживает рабочий VPN.</div></div></div><label class="fn3-master"><span class="fn3-switch"><input id="fn3AutoEnabled" type="checkbox"><span></span></span></label></div>
             <div class="fn3-info">${svg('info')}<span>Быстрый watchdog проверяет только живучесть текущего VPN. Тяжёлый подбор серверов запускается лишь после подтверждённого отказа.<br>Режим работы определяет, может ли автоматика только обновлять текущий профиль или также подбирать проверенную замену.</span></div>
             <div class="fn3-endpoint-schedule fn3-health-schedule">
               <div class="fn3-endpoint-copy"><strong>Проверка доступности VPN</strong><small>30 секунд — максимально быстро; 1 минута — рекомендуемый баланс; 5 минут — минимальная нагрузка.</small></div>
@@ -330,7 +331,7 @@
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
         </div>
-        <section class="fn3-card fn3-extra"><div class="fn3-extra-title" role="button" tabindex="0" aria-expanded="true" aria-label="Системное обслуживание: скрыть или раскрыть"><h2>Системное обслуживание</h2><div class="fn3-sub">Обновления, служебные данные и резервные копии.</div></div><div class="fn3-extra-grid">${extraCard('subscription','subscription','Обновление подписки','Автоматическое обновление данных подписки — списка доступных VPN.','Проверять','Проверить сейчас')}${extraCard('geodata','globe','GeoData / GeoIP','Данные геолокации, используемые для маршрутизации и фильтров.','Обновлять','Обновить сейчас')}${extraCard('freenet','box','Обновление FreeNet','Автоматическая проверка новых версий FreeNet. Установка — только после подтверждения.','Проверять','Проверить сейчас')}${backupCard()}</div><div class="fn3-extra-save-row"><button id="fn3MaintenanceSave" class="btn fn3-extra-save" type="button" disabled>${svg('save')}<span>Сохранено</span></button></div></section>
+        <section class="fn3-card fn3-extra fn3-section-collapsed"><div class="fn3-extra-title" role="button" tabindex="0" aria-expanded="false" aria-label="Системное обслуживание: скрыть или раскрыть"><h2>Системное обслуживание</h2><div class="fn3-sub">Обновления, служебные данные и резервные копии.</div></div><div class="fn3-extra-grid">${extraCard('subscription','subscription','Обновление подписки','Автоматическое обновление данных подписки — списка доступных VPN.','Проверять','Проверить сейчас')}${extraCard('geodata','globe','GeoData / GeoIP','Данные геолокации, используемые для маршрутизации и фильтров.','Обновлять','Обновить сейчас')}${extraCard('freenet','box','Обновление FreeNet','Автоматическая проверка новых версий FreeNet. Установка — только после подтверждения.','Проверять','Проверить сейчас')}${backupCard()}</div><div class="fn3-extra-save-row"><button id="fn3MaintenanceSave" class="btn fn3-extra-save" type="button" disabled>${svg('save')}<span>Сохранено</span></button></div></section>
       </div>
       <div class="fn3-compat"><select id="fnDNS"><option value="firmware">Прямой</option><option value="xkeen">Раздельный</option></select><input id="fnAutoEnabled" type="checkbox"><select id="fnAutoInterval"><option value="manual">Вручную</option></select><input id="fnAutoApply" type="checkbox"><input type="radio" name="fnAutoMode" value="best"><input type="radio" name="fnAutoPolicy" value="degraded"><input type="radio" name="fnCountryScope" value="region"><input id="fnGeoDataEnabled" type="checkbox"><span id="fnGeoDataSchedule"></span><span id="fnAutoEnabledLabel"></span><span id="fnCurrentProfile"></span><span id="fnCurrentProfileSmall"></span><span id="fnCurrentEndpoint"></span><span id="fnCurrentFlag"></span><span id="fnWatchState"></span><span id="fnLastRun"></span><span id="fnLatency"></span><span id="fnSpeed"></span><span id="fnJitter"></span><span id="fnHealthBanner"></span><tbody id="fnJournalBody"></tbody><button id="fnSaveSettings"></button><button id="fnCheckNow"></button></div>
       <div id="fn3CountryPop" class="fn3-country-pop" hidden></div>`;
@@ -341,11 +342,11 @@
   }
 
   function extraCard(key, icon, title, description, verb, actionLabel) {
-    return `<article class="fn3-extra-card"><div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="true" aria-label="${title}: скрыть или раскрыть"><span class="fn3-extra-icon">${svg(icon)}</span><div><h3>${title}</h3><p>${description}</p></div><label class="fn3-switch"><input id="fn3_${key}_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_${key}_interval">${verb}</label><select id="fn3_${key}_interval"></select></div><div class="fn3-extra-meta"><span>Последняя проверка</span><b id="fn3_${key}_last">—</b><span>Следующая проверка</span><b id="fn3_${key}_next">—</b></div><button class="btn secondary fn3-extra-action" type="button" data-v3-action="${key}">${svg('refresh')}${actionLabel}</button></article>`;
+    return `<article class="fn3-extra-card fn3-section-collapsed"><div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="false" aria-label="${title}: скрыть или раскрыть"><span class="fn3-extra-icon">${svg(icon)}</span><div><h3>${title}</h3><p>${description}</p></div><label class="fn3-switch"><input id="fn3_${key}_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_${key}_interval">${verb}</label><select id="fn3_${key}_interval"></select></div><div class="fn3-extra-meta"><span>Последняя проверка</span><b id="fn3_${key}_last">—</b><span>Следующая проверка</span><b id="fn3_${key}_next">—</b></div><button class="btn secondary fn3-extra-action" type="button" data-v3-action="${key}">${svg('refresh')}${actionLabel}</button></article>`;
   }
 
   function backupCard() {
-    return `<article class="fn3-extra-card"><div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="true" aria-label="Резервное копирование: скрыть или раскрыть"><span class="fn3-extra-icon">${svg('backup')}</span><div><h3>Резервное копирование</h3><p>Снимки хранятся локально на роутере и используются для безопасного восстановления.</p></div><label class="fn3-switch"><input id="fn3_backup_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_backup_interval">Создавать</label><select id="fn3_backup_interval"></select></div><div class="fn3-extra-meta"><span>Последняя копия</span><b id="fn3_backup_last">—</b><span>Следующая копия</span><b id="fn3_backup_next">—</b></div><div class="fn3-backup-storage"><span>Хранилище</span><code id="fn3_backup_root">—</code><span>Последний снимок</span><code id="fn3_backup_snapshot">пока нет</code><span>Полный путь</span><code id="fn3_backup_path">—</code></div><div class="fn3-backup-contents">Снимок фиксирует состояние настроек FreeNet, подписки, фильтра профилей и Xray outbounds. Секретные значения в браузере не показываются.</div><div id="fn3_backup_result" class="fn3-backup-result" hidden></div><div class="fn3-backup-actions"><button class="btn secondary" type="button" data-v3-action="backup_create" title="Создать внутренний снимок настроек на роутере">${svg('download')}Создать снимок</button><button class="btn secondary fn3-danger" type="button" data-v3-action="backup_restore" title="Восстановить последний внутренний снимок настроек на роутере">${svg('upload')}Восстановить последний</button></div></article>`;
+    return `<article class="fn3-extra-card fn3-section-collapsed"><div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="false" aria-label="Резервное копирование: скрыть или раскрыть"><span class="fn3-extra-icon">${svg('backup')}</span><div><h3>Резервное копирование</h3><p>Снимки хранятся локально на роутере и используются для безопасного восстановления.</p></div><label class="fn3-switch"><input id="fn3_backup_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_backup_interval">Создавать</label><select id="fn3_backup_interval"></select></div><div class="fn3-extra-meta"><span>Последняя копия</span><b id="fn3_backup_last">—</b><span>Следующая копия</span><b id="fn3_backup_next">—</b></div><div class="fn3-backup-storage"><span>Хранилище</span><code id="fn3_backup_root">—</code><span>Последний снимок</span><code id="fn3_backup_snapshot">пока нет</code><span>Полный путь</span><code id="fn3_backup_path">—</code></div><div class="fn3-backup-contents">Снимок фиксирует состояние настроек FreeNet, подписки, фильтра профилей и Xray outbounds. Секретные значения в браузере не показываются.</div><div id="fn3_backup_result" class="fn3-backup-result" hidden></div><div class="fn3-backup-actions"><button class="btn secondary" type="button" data-v3-action="backup_create" title="Создать внутренний снимок настроек на роутере">${svg('download')}Создать снимок</button><button class="btn secondary fn3-danger" type="button" data-v3-action="backup_restore" title="Восстановить последний внутренний снимок настроек на роутере">${svg('upload')}Восстановить последний</button></div></article>`;
   }
 
   function currentForm() {
@@ -499,7 +500,7 @@
 
   function journalCategory(event) {
     const kind = String(event?.kind || '').trim().toLowerCase();
-    if (kind === 'vpn') return 'vpn';
+    if (kind === 'vpn' || kind === 'vpn_manual') return 'vpn';
     if (kind === 'auto vpn' || kind === 'auto_vpn') return 'auto';
     if (kind === 'subscription') return 'subscription';
     return 'system';
@@ -532,6 +533,7 @@
   function journalKind(event) {
     const kind = String(event?.kind || '').trim();
     const category = journalCategory(event);
+    if (kind.toLowerCase() === 'vpn_manual') return ['Ручной', 'vpn manual'];
     if (category === 'vpn') return ['VPN', 'vpn'];
     if (category === 'auto') {
       const stage = journalStageLabel(journalStage(event));
@@ -572,6 +574,24 @@
     return rows;
   }
 
+  function manualJournalMarkup(message) {
+    const rows = String(message || '').split(/\s+\|\s+/).map(x => x.trim()).filter(Boolean);
+    if (!rows.length) return '<div class="fn3-journal-event-message">Нет подробностей.</div>';
+    const rollbackLabels = {
+      NOT_NEEDED:'не требуется', NOT_APPLIED:'ничего не изменено',
+      ROLLED_BACK:'выполнен', ROLLBACK_SUCCESS:'выполнен',
+      ROLLBACK_FAILED:'ошибка отката', ROLLBACK_UNKNOWN:'состояние неизвестно'
+    };
+    return '<div class="fn3-journal-manual">' + rows.map(field => {
+      const split = field.indexOf(':');
+      const label = split < 1 ? 'Событие' : field.slice(0, split).trim();
+      const raw = split < 1 ? field : field.slice(split + 1).trim();
+      const value = label === 'Откат' ? (rollbackLabels[raw] || raw) : raw;
+      return '<div class="fn3-journal-manual-row"><span>' + escapeHTML(label) +
+        '</span><strong>' + escapeHTML(value || '—') + '</strong></div>';
+    }).join('') + '</div>';
+  }
+
   function renderJournal(events, target = '#fn3JournalFull') {
     const body = q(target); if (!body) return;
     const source = Array.isArray(events) ? events : [];
@@ -583,6 +603,7 @@
     body.innerHTML = filtered.map(e => {
       const [result, msg, tone] = humanResult(e.result, e.message);
       const [kind, kindClass] = journalKind(e);
+      const messageMarkup = String(e.kind || '').trim().toLowerCase() === 'vpn_manual' ? manualJournalMarkup(msg) : `<div class="fn3-journal-event-message">${escapeHTML(msg)}</div>`;
       const toneClass = tone === 'ok' ? 'ok' : tone === 'bad' ? 'bad' : 'neutral';
       const resultClass = tone === 'ok' ? '' : tone === 'bad' ? 'bad' : 'neutral';
       return `<article class="fn3-journal-event ${toneClass}">
@@ -592,7 +613,7 @@
             <div class="fn3-journal-event-tags"><span class="fn3-kind ${kindClass}">${escapeHTML(kind)}</span><span class="fn3-result ${resultClass}"><i class="fn3-dot"></i>${escapeHTML(result)}</span></div>
             <time class="fn3-journal-event-time">${formatDate(e.at)}</time>
           </div>
-          <div class="fn3-journal-event-message">${escapeHTML(msg)}</div>
+          ${messageMarkup}
         </div>
       </article>`;
     }).join('');
@@ -783,6 +804,15 @@
     });
   }
 
+  function collapseSettingsSections(page) {
+    if (!page) return;
+    page.querySelectorAll('.fn3-card,.fn3-extra-card').forEach(card => {
+      card.classList.add('fn3-section-collapsed');
+      const header = card.querySelector('[role="button"][aria-expanded]');
+      if (header) header.setAttribute('aria-expanded', 'false');
+    });
+  }
+
   function mountSettings() {
     const page = ensureSettingsPage();
     if (!page) return false;
@@ -792,6 +822,22 @@
     page.classList.add('fn3-page');
     page.innerHTML = pageMarkup();
     bindSettingsSectionFolding(page);
+    collapseSettingsSections(page);
+    // The canonical nav may hold a direct reference to the original setPage
+    // function. Capture real Settings navigation before either handler runs.
+    document.addEventListener('click', event => {
+      const settingsNav = event.target.closest?.('.sidebar .nav-btn[data-page="settings"]');
+      if (settingsNav && !page.classList.contains('active')) collapseSettingsSections(page);
+    }, true);
+    if (typeof window.setPage === 'function' && !window.setPage.__fn3CollapsedOnEntry) {
+      const originalSetPage = window.setPage;
+      const foldedSetPage = function(pageName) {
+        if (pageName === 'settings' && !page.classList.contains('active')) collapseSettingsSections(page);
+        return originalSetPage.apply(this, arguments);
+      };
+      foldedSetPage.__fn3CollapsedOnEntry = true;
+      window.setPage = foldedSetPage;
+    }
     document.dispatchEvent(new CustomEvent('freenet:settings-v3-mounted'));
     bind(); load();
     return true;

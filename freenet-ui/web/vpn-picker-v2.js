@@ -83,7 +83,7 @@
     }
     const safe = profiles.filter(p => p && typeof p.id === 'string' && p.id && !['ru','ua'].includes(codeOf(p))).slice(0,100).map(p => ({id:p.id,name:String(p.name || p.label || ''),country_code:codeOf(p),endpoint:endpoint(p),address:String(p.address || ''),port:Number(p.port || 0)}));
     const key = JSON.stringify([safe, stale]);
-    if (key !== sourceKey) { sourceKey = key; rows = safe; listKey = ''; rttByID.clear(); rttRanked = false; rttSummary=''; rttError=''; rttVersion++; }
+    if (key !== sourceKey) { sourceKey = key; rows = safe; listKey = ''; rttByID.clear(); rttRanked = false; rttSummary=''; rttError=''; rttVersion++; window.freenetManualRTTSelection = null; }
     return {stale};
   }
   function currentIdentity(s) {
@@ -328,7 +328,7 @@
   }
   async function refreshRTT(event) {
     if (!event || event.isTrusted !== true || rttScanning || busy()) return;
-    rttScanning=true; rttError=''; rttSummary=''; listKey=''; paint();
+    rttScanning=true; rttError=''; rttSummary=''; listKey=''; window.freenetManualRTTSelection = null; paint();
     try {
       if (typeof window.freenetProviderRTTScan!=='function') throw new Error('rtt');
       const data=await window.freenetProviderRTTScan(event);
@@ -350,6 +350,15 @@
         next.set(id,value);
       }
       if (seen.size!==measuredByID.size || !publishRTTCatalog(measuredCatalog)) throw new Error('catalog-changed');
+      // The token refers to router-side protected credentials; never persist it.
+      const selectionToken=String(data.selection_token||'').trim();
+      if (reachable && !/^[0-9a-f]{32}$/.test(selectionToken)) throw new Error('rtt-token');
+      const endpoints=Object.create(null);
+      for (const p of measuredCatalog) {
+        const item=next.get(p.id);
+        if (item?.attempted && item.reachable && item.status==='reachable') endpoints[p.id]=p.endpoint;
+      }
+      window.freenetManualRTTSelection=selectionToken ? {token:selectionToken,endpoints} : null;
       rttByID=next; rttRanked=true; rttVersion++;
       const total=data.results.length;
       const serverChecked=Number.isFinite(Number(data.checked))?Number(data.checked):checked;
@@ -359,7 +368,7 @@
         ? `VPN-пинг: завершён частично — ответили ${serverReachable} из ${serverChecked}, не проверено ${serverUnknown} из ${total}.`
         : `VPN-пинг: проверено ${serverChecked} из ${total}, ответили ${serverReachable}. Список отсортирован от меньшей задержки к большей.`;
     } catch (error) {
-      rttByID.clear(); rttRanked=false; rttVersion++;
+      rttByID.clear(); rttRanked=false; rttVersion++; window.freenetManualRTTSelection = null;
       rttError=error&&error.message==='catalog-changed'?L.pingCatalogChanged:L.pingFailed;
     } finally {
       rttScanning=false; listKey=''; paint();

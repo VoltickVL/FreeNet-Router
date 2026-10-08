@@ -47,7 +47,7 @@ const settings = {
     {at:'2026-09-12T11:35:00Z',kind:'auto_vpn',result:'success',message:'Текущий VPN работает нормально, смена не требуется.'},
     {at:'2026-09-12T11:34:30Z',kind:'auto_vpn',result:'candidate_selection:start',message:'Endpoint fast-path не восстановил VPN; запускаем canonical Best Server до Top-3 проверенных.'},
     {at:'2026-09-12T11:34:00Z',kind:'AUTO VPN',result:'selection',message:'AUTO VPN Top-3: Франкфурт [VPN 175 мс, сайты 177 мс, скорость 151 Мбит/с, стабильность 17 мс]; Цюрих [VPN 188 мс, сайты 191 мс, скорость 159 Мбит/с, стабильность 8 мс]. Выбран: Франкфурт.'},
-    {at:'2026-09-12T10:35:00Z',kind:'VPN',result:'success',message:'Ручная проверка текущего VPN завершена.'},
+    {at:'2026-09-12T10:35:00Z',kind:'vpn_manual',result:'success',message:'Сервер: Германия, Франкфурт | Итог: VPN подключён | Откат: NOT_NEEDED'},
     {at:'2026-09-12T09:35:00Z',kind:'geodata',result:'updated',message:'GeoData / GeoIP обновлены.'},
     {at:'2026-09-12T08:35:00Z',kind:'backup',result:'success',message:'Резервная копия FreeNet создана.'},
     {at:'2026-09-12T07:35:00Z',kind:'freenet',result:'failed',message:'Проверка обновления FreeNet завершилась ошибкой.'},
@@ -235,6 +235,22 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    await page.waitForSelector('#fn3AutoEnabled', {state:'attached'});
+    const initialFolded = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('[data-page-view="settings"] .fn3-card,[data-page-view="settings"] .fn3-extra-card')];
+      return {total:cards.length, folded:cards.every(card => card.classList.contains('fn3-section-collapsed') &&
+        card.querySelector('[role="button"][aria-expanded]')?.getAttribute('aria-expanded') === 'false')};
+    });
+    assert.ok(initialFolded.total >= 7 && initialFolded.folded,
+      'Settings must enter with all sections, including nested maintenance and DNS, collapsed: ' + JSON.stringify(initialFolded));
+    // Expand the baseline fixture to exercise the existing forms and folding tests.
+    await page.evaluate(() => {
+      for (const selector of ['#fn3SubscriptionMount .fn3-subscription-head','#fn3AutoCard .fn3-card-head',
+        'section.fn3-extra .fn3-extra-title','#fn3DnsCard .fn3-dns-head']) {
+        document.querySelector(selector)?.click();
+      }
+      document.querySelectorAll('.fn3-extra-card .fn3-extra-head').forEach(header => header.click());
+    });
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
 
     const runtime = await page.evaluate(() => ({
@@ -485,7 +501,8 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
-    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true);
+    assert.equal(await page.locator('#fn3AutoEnabled').isVisible(), true, 'master toggle remains accessible in a folded section header');
+    assert.equal(await page.locator('#fn3Check').isVisible(), false, 'return to Settings must fold AUTO VPN body');
 
     await page.locator('.nav-btn[data-page="routing"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
@@ -507,6 +524,9 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    assert.equal(await settingsPage.locator('#fn3AutoCard .fn3-card-head').getAttribute('aria-expanded'), 'false',
+      'returning to Settings must re-collapse the AUTO VPN section');
+    await settingsPage.locator('#fn3AutoCard .fn3-card-head').click({position:{x:20,y:20}});
     await page.locator('#fn3AllEvents').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
     await page.waitForSelector('#fn3JournalSummary');
@@ -543,6 +563,11 @@ const server = http.createServer((req, res) => {
     assert.equal(journalPage.heroVisible, true, 'Journal product hero must be visible');
     assert.match(journalPage.retentionCopy, /Архив:/, 'Journal must expose retained range');
     assert.equal(journalPage.kindBadges, 8, 'Journal event kinds must use badges');
+    const manualJournal = page.locator('#fn3JournalFull .fn3-journal-event').filter({has: page.locator('.fn3-kind.manual')});
+    assert.equal(await manualJournal.count(),1,'manual VPN must have a distinct kind');
+    assert.equal((await manualJournal.locator('.fn3-kind').textContent()).trim(),'Ручной');
+    assert.match(await manualJournal.locator('.fn3-journal-manual').innerText(),/Сервер[\s\S]*Германия, Франкфурт/);
+    assert.match(await manualJournal.locator('.fn3-journal-manual').innerText(),/Откат[\s\S]*не требуется/);
     assert.equal(journalPage.resultBadges, 8, 'Journal results must use badges');
     assert.equal(journalPage.badBadges, 1, 'failed Journal event must use error treatment');
     assert.equal(journalPage.searchVisible, true, 'Journal search must be visible');
@@ -559,7 +584,7 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => document.querySelector('#fn3JournalAdvancedFilters')?.hidden === false);
     assert.equal(await page.locator('#fn3JournalFiltersToggle').getAttribute('aria-expanded'), 'true');
 
-    await page.locator('#fn3JournalSearch').fill('Франкфурт');
+    await page.locator('#fn3JournalSearch').fill('Выбран: Франкфурт');
     await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 1);
     assert.match((await page.locator('#fn3JournalFull').textContent()) || '', /Выбран: Франкфурт/);
     assert.deepEqual(await page.locator('#fn3JournalSummary .fn3-journal-stat strong').allTextContents(), ['1','0','1','0']);

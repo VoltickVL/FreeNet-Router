@@ -24,7 +24,9 @@ func TestUnifiedJournalUIHasCanonicalFiltersAndCategories(t *testing.T) {
 		"['subscription','Подписка']",
 		"['system','Система']",
 		"function journalCategory(event)",
-		"if (kind === 'vpn') return 'vpn'",
+		"if (kind === 'vpn' || kind === 'vpn_manual') return 'vpn'",
+		"if (kind.toLowerCase() === 'vpn_manual') return ['Ручной', 'vpn manual']",
+		"function manualJournalMarkup(message)",
 		"if (kind === 'auto vpn' || kind === 'auto_vpn') return 'auto'",
 		"if (kind === 'freenet_update' || kind === 'freenet_update_recovery') return ['Обновление FreeNet', 'system']",
 		"window.openFreeNetJournal = filter =>",
@@ -69,7 +71,7 @@ func TestManualVPNHandlersWriteExplicitVPNJournalEvents(t *testing.T) {
 		want string
 	}{
 		{"main.go", `v3AppendEvent("VPN", journalResult, journalMessage)`},
-		{"network_apply_api.go", `v3AppendEvent("VPN", journalResult, journalMessage)`},
+		{"network_apply_api.go", `v3AppendEvent("vpn_manual", journalResult, journalMessage)`},
 		{"best_server_targeted.go", `v3AppendEvent("VPN", journalResult, journalMessage)`},
 	} {
 		data, err := os.ReadFile(tc.path)
@@ -157,5 +159,18 @@ func TestUnifiedJournalReleaseCatalogSuppressesOnlyCanceledBrowserRequests(t *te
 		if !strings.Contains(source, want) {
 			t.Fatalf("release-catalog Journal contract missing %q", want)
 		}
+	}
+}
+
+func TestManualVPNJournalUsesVPNCategoryWithDistinctLabel(t *testing.T) {
+	event := automationEvent{Kind: "vpn_manual", Result: "success", Message: "Сервер: тестовый | Итог: VPN подключён"}
+	if got := journalEventCategory(event); got != "vpn" {
+		t.Fatalf("manual VPN must pass server-side VPN filter; category=%q", got)
+	}
+	if got := canonicalJournalKindKey(event.Kind); got != "vpn_manual" {
+		t.Fatalf("manual VPN must remain separate from regular VPN; kind=%q", got)
+	}
+	if got := journalCSVStageLabel(event); got != "Ручной" {
+		t.Fatalf("manual VPN export needs a dedicated label; label=%q", got)
 	}
 }

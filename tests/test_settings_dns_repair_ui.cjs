@@ -107,6 +107,11 @@ const server = http.createServer((req, res) => {
     const base = `http://127.0.0.1:${server.address().port}`;
 
     await page.goto(`${base}/#settings`);
+    await page.waitForSelector('#fn3DnsRepair', {state:'attached'});
+    const dnsHeader = page.locator('#fn3DnsCard .fn3-dns-head');
+    assert.equal(await dnsHeader.getAttribute('aria-expanded'), 'false',
+      'Settings must enter with DNS folded, even when repair is available');
+    await dnsHeader.click();
     await page.waitForSelector('#fn3DnsRepair', {state:'visible'});
     await page.waitForFunction(() => document.querySelector('#fn3DnsWarning')?.textContent.includes('DIRECT DNS'));
 
