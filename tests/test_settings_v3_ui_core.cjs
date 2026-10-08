@@ -318,8 +318,11 @@ const server = http.createServer((req, res) => {
     await autoHeader.click({position:{x:20,y:20}});
     assert.equal(await settingsPage.locator('#fn3Check').isHidden(), true, 'AUTO VPN header click must collapse controls');
     const autoCollapsedDetail = await settingsPage.locator('#fn3AutoCard').evaluate(el=>{
-      const box=n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return {h:r.height,display:s.display,minHeight:s.minHeight,height:s.height,flex:s.flex,alignSelf:s.alignSelf,gridTemplateRows:s.gridTemplateRows,children:[...n.children].map(ch=>({cls:ch.className,h:ch.getBoundingClientRect().height,display:getComputedStyle(ch).display}))};};
-      return {card:box(el),left:box(el.parentElement),grid:box(el.parentElement.parentElement)};
+      const box=n=>{const s=getComputedStyle(n),r=n.getBoundingClientRect();return {h:r.height,display:s.display,minHeight:s.minHeight,height:s.height,inline:n.getAttribute('style'),minHeightInlinePriority:n.style.getPropertyPriority('min-height'),flex:s.flex,alignSelf:s.alignSelf,gridTemplateRows:s.gridTemplateRows,children:[...n.children].map(ch=>({cls:ch.className,h:ch.getBoundingClientRect().height,display:getComputedStyle(ch).display}))};};
+      const matching=[];
+      for(const styleSheet of document.styleSheets){try{for(const rule of styleSheet.cssRules){if(rule.selectorText&&el.matches(rule.selectorText)&&(rule.style?.height||rule.style?.minHeight)){matching.push({selector:rule.selectorText,height:rule.style.height,minHeight:rule.style.minHeight})}}}catch(_){}}
+
+      return {card:box(el),left:box(el.parentElement),grid:box(el.parentElement.parentElement),matching:matching.slice(-15)};
     });
     const autoCollapsedHeight=autoCollapsedDetail.card.h;
     assert(autoCollapsedHeight < 140, 'collapsed AUTO VPN must occupy header-height only, not an empty panel: '+JSON.stringify(autoCollapsedDetail));
