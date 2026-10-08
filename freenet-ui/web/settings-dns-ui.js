@@ -27,8 +27,8 @@
   }
 
   function markup() {
-    return `<section id="fn3DnsCard" class="fn3-card fn3-dns-card">
-      <div class="fn3-dns-head" role="button" tabindex="0" aria-expanded="true" aria-label="Режим DNS: скрыть или раскрыть"><div class="fn3-dns-title"><span class="fn3-dns-icon">DNS</span><div><h2>Режим DNS</h2><p>Выберите, где FreeNet должен разрешать DNS-запросы.</p></div></div><span id="fn3DnsState" class="fn3-dns-state"><i></i><span>Определяем…</span></span></div>
+    return `<section id="fn3DnsCard" class="fn3-card fn3-dns-card fn3-section-collapsed">
+      <div class="fn3-dns-head" role="button" tabindex="0" aria-expanded="false" aria-label="Режим DNS: скрыть или раскрыть"><div class="fn3-dns-title"><span class="fn3-dns-icon">DNS</span><div><h2>Режим DNS</h2><p>Выберите, где FreeNet должен разрешать DNS-запросы.</p></div></div><span id="fn3DnsState" class="fn3-dns-state"><i></i><span>Определяем…</span></span></div>
       <div class="fn3-dns-layout">
         <div class="fn3-dns-modes">
           <label class="fn3-dns-mode" data-dns-mode="firmware"><input type="radio" name="fnDnsMode" value="firmware"><span class="fn3-dns-mode-dot"></span><span>Прямой</span></label>
