@@ -429,14 +429,11 @@
 
   function ensureSubscriptionSettingsMount() {
     if (relocateSubscriptionToSettings()) return;
-    // Settings may mount after the legacy form: stop observing as soon as the
-    // real form moves, so the page has no perpetual DOM observer.
-    const container = qs('.content');
-    if (!container) return;
-    const observer = new MutationObserver(() => {
-      if (relocateSubscriptionToSettings()) observer.disconnect();
-    });
-    observer.observe(container, {childList:true, subtree:true});
+    // Both modules can mount in either order. Use the canonical Settings
+    // lifecycle signal and the existing data signal, never DOM polling.
+    document.addEventListener('freenet:settings-v3-mounted', relocateSubscriptionToSettings);
+    document.addEventListener('freenet:settings-v3-updated', relocateSubscriptionToSettings);
+    queueMicrotask(relocateSubscriptionToSettings);
   }
 
   function ensurePopover() {
