@@ -20,6 +20,7 @@ let activeFreeNetTarget = '';
 let backupCreatePosts = 0;
 let backupRestorePosts = 0;
 let journalGets = 0;
+let journalHealthFixture = {enabled:true,last_completed:'2026-09-12T11:35:00Z',last_scheduled:'2026-09-12T11:35:00Z',result:'healthy',interval_seconds:30,freshness:'fresh'};
 
 const settings = {
   success: true,
@@ -108,7 +109,7 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/api/journal') {
     journalGets += 1;
-    return json(res, {success:true,events:settings.events,generated_at:new Date().toISOString()});
+    return json(res, {success:true,events:settings.events,generated_at:new Date().toISOString(),health:journalHealthFixture});
   }
   if (url.pathname === '/api/settings-v3/action' && req.method === 'POST') {
     let raw = '';
@@ -485,6 +486,16 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => document.querySelector('[data-page-view="journal"]')?.classList.contains('active'));
     await page.waitForSelector('#fn3JournalSummary');
     await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 8);
+    await page.waitForFunction(() => document.querySelector('#fn3JournalHealth')?.textContent.includes('AUTO VPN: проверка'));
+    assert.equal(await page.locator('#fn3JournalHealth').evaluate(el => el.classList.contains('fresh')), true, 'fresh completed watchdog is shown independently of Journal entries');
+    assert.match(await page.locator('#fn3JournalHealth').textContent(), /норма по тесту/, 'the status must describe a probe, not claim that client routes were tested');
+    journalHealthFixture = {...journalHealthFixture, freshness:'stale', last_completed:'2026-09-12T11:18:00Z'};
+    await page.locator('#fn3JournalRefresh').click();
+    await page.waitForFunction(() => document.querySelector('#fn3JournalHealth')?.classList.contains('stale'));
+    assert.match(await page.locator('#fn3JournalHealth').textContent(), /нет свежей завершённой проверки/, 'stalled watchdog must warn even with no new Journal rows');
+    journalHealthFixture = {...journalHealthFixture, freshness:'fresh', last_completed:'2026-09-12T11:35:00Z'};
+    await page.locator('#fn3JournalRefresh').click();
+    await page.waitForFunction(() => document.querySelector('#fn3JournalHealth')?.classList.contains('fresh'));
     const journalPage = await page.evaluate(() => ({
       rows: document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length,
       stats: [...document.querySelectorAll('#fn3JournalSummary .fn3-journal-stat strong')].map(node => node.textContent.trim()),
