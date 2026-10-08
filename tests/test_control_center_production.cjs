@@ -145,6 +145,19 @@ async function capture(label){
   });
   assert(topbarType.every(Boolean),'all topbar version/value labels must exist: '+JSON.stringify(topbarType));
   assert.equal(new Set(topbarType).size,1,'Xray, DNS, FreeNet topbar labels must share one font size: '+JSON.stringify(topbarType));
+  const valueTypography = await page.evaluate(() => {
+    const selectors=['#xrayTopbarVersion','#fnVpnPickerV2Country','#overviewApprovedTop .fn-shell-dns .fn-shell-fact-copy>strong','#topFreenetUpdate .fn-version-copy strong'];
+    return selectors.map(selector=>{
+      const el=document.querySelector(selector);
+      if(!el) return null;
+      const style=getComputedStyle(el);
+      return {size:style.fontSize,weight:style.fontWeight};
+    });
+  });
+  assert(valueTypography.every(Boolean),'four canonical topbar value labels must exist: '+JSON.stringify(valueTypography));
+  assert.equal(new Set(valueTypography.map(x=>x.size)).size,1,'topbar values must be same size as VPN country: '+JSON.stringify(valueTypography));
+  assert.equal(new Set(valueTypography.map(x=>x.weight)).size,1,'topbar weights must match VPN: '+JSON.stringify(valueTypography));
+  assert.equal(valueTypography[1].size,'12px','VPN and other values must use compact 12px rather than oversized 14.5px');
 
   const rttCallsBeforeOpen=calls.filter(c=>c.path==='/api/provider-profiles/rtt').length;
   await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'49 profiles');
@@ -264,7 +277,7 @@ async function capture(label){
   for(const viewport of [{width:1440,height:900},{width:980,height:800},{width:760,height:700},{width:390,height:844},{width:844,height:390}]){
     await page.setViewportSize(viewport);
     const shell=await page.evaluate(()=>{const top=document.querySelector('.topbar'),summary=document.querySelector('#overviewApprovedTop'),head=document.querySelector('.page[data-page-view="overview"] .page-head');const tr=top.getBoundingClientRect(),hr=head.getBoundingClientRect(),shown=n=>!!n&&getComputedStyle(n).display!=='none';return{summaryDisplay:getComputedStyle(summary).display,vpnVisible:shown(document.querySelector('#fnVpnPickerV2Host')),xrayVisible:shown(summary.querySelector('.fn-xray-topbar')),factsVisible:Array.from(summary.querySelectorAll('.overview-approved-fact')).some(shown),freenetVisible:shown(summary.querySelector('#topFreenetUpdate')),topBottom:tr.bottom,headTop:hr.top,topScrollWidth:top.scrollWidth,topClientWidth:top.clientWidth};});
-    if(viewport.width<=760){assert.notEqual(shell.summaryDisplay,'none',`${viewport.width}px mobile topbar must retain the VPN picker`);assert.equal(shell.vpnVisible,true,`${viewport.width}px mobile VPN picker must remain accessible`);assert.equal(shell.xrayVisible,false,`${viewport.width}px mobile Xray desktop tile must be hidden`);assert.equal(shell.factsVisible,false,`${viewport.width}px mobile DNS/provider desktop tiles must be hidden`);assert.equal(shell.freenetVisible,false,`${viewport.width}px mobile FreeNet desktop tile must be hidden`);assert.ok(shell.topScrollWidth<=shell.topClientWidth+1,`${viewport.width}px mobile topbar must not overflow horizontally`);assert.ok(shell.headTop>=shell.topBottom-1,`${viewport.width}px Overview content must start below topbar`);}else{assert.notEqual(shell.summaryDisplay,'none',`${viewport.width}px non-mobile topbar must retain status summary`);}
+    if(viewport.width<=760){assert.notEqual(shell.summaryDisplay,'none',`${viewport.width}px mobile topbar must retain the VPN picker`);assert.equal(shell.vpnVisible,true,`${viewport.width}px mobile VPN picker must remain accessible`);assert.equal(shell.xrayVisible,true,`${viewport.width}px mobile Xray status must remain visible`);assert.equal(shell.factsVisible,true,`${viewport.width}px mobile DNS status must remain visible`);assert.equal(shell.freenetVisible,true,`${viewport.width}px mobile FreeNet version must remain visible`);assert.ok(shell.topScrollWidth<=shell.topClientWidth+1,`${viewport.width}px mobile topbar must not overflow horizontally`);assert.ok(shell.topBottom-shell.headTop<=1,`${viewport.width}px topbar must not cover Overview headline`);assert.ok(shell.headTop>=shell.topBottom-1,`${viewport.width}px Overview content must start below topbar`);}else{assert.notEqual(shell.summaryDisplay,'none',`${viewport.width}px non-mobile topbar must retain status summary`);}
     await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await delay(100);await geometry(`${viewport.width}x${viewport.height}`);if(viewport.width<=760)assert.equal(await page.locator(RESIZE).isHidden(),true,`${viewport.width}px mobile picker must stay auto-sized and non-resizable`);if(viewport.width===390)await capture('mobile-list');await page.keyboard.press('Escape');assert.equal(await page.locator(P).isHidden(),true);
   }
   await page.setViewportSize({width:1440,height:1000});await page.evaluate(()=>setPage('settings'));await delay(300);await page.locator(T).click();await geometry('settings-route');await page.keyboard.press('Escape');await page.evaluate(()=>setPage('overview'));
