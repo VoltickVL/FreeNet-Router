@@ -293,17 +293,48 @@ func automationQualityOptimizationStartReason(probe automationHealthProbe) strin
 	return "Последовательная деградация качества подтверждена накоплением mild/strong evidence. Триггер: " + trigger + " Сравниваем текущий VPN с fully measured Top-3."
 }
 
-func classifyAutomationApplicationFailure(transportOK bool) automationHealthProbe {
-	if transportOK {
+// An IP-only success is not working Internet for a VPN-routed user. When BOTH
+// independent named-HTTPS origins were actually attempted and failed, treat
+// this as a read-only FAIL even if fixed-IP VPN transport is still reachable.
+// Recovery still requires a second failed probe, healthy DIRECT WAN, and a
+// separately verified application-ready replacement before any mutation.
+func classifyAutomationApplicationFailure(transportOK, namedFailureComplete bool) automationHealthProbe {
+	if !namedFailureComplete {
 		return automationHealthProbe{
 			State: automationHealthUncertain,
-			Reason: "VPN-транспорт отвечает, но независимые HTTPS/DNS проверки по именам не подтверждены. AUTO VPN сохраняет текущее подключение без изменений.",
+			Reason: "Независимые HTTPS/DNS проверки VPN завершены не полностью; без однозначного результата AUTO VPN сохраняет текущее подключение.",
+		}
+	}
+	if transportOK {
+		return automationHealthProbe{
+			State: automationHealthFailed,
+			Reason: "VPN-транспорт по IP отвечает, но оба независимых HTTPS/DNS-адреса через VPN недоступны. Требуются повторная read-only проверка и исправный обычный интернет.",
 		}
 	}
 	return automationHealthProbe{
 		State: automationHealthFailed,
-		Reason: "Текущий VPN не подтвердил доступ ни через независимые HTTPS-проверки, ни через IP-транспорт.",
+		Reason: "Текущий VPN не подтвердил доступ ни через оба независимых HTTPS/DNS-адреса, ни через IP-транспорт.",
 	}
+}
+
+// Count attempted independent named-origin probes, not merely failed curl
+// calls. A cancelled/partial probe is UNKNOWN and cannot authorize recovery.
+func probeAutomationNamedHTTPSWith(ctx context.Context, curlPath, socks string, runner bestServerHTTPProbeRunner) (int, bool, bool) {
+	if runner == nil || len(bestServerApplicationProbeURLs) < 2 {
+		return 0, false, false
+	}
+	attempts := 0
+	recordingRunner := func(ctx context.Context, curlPath, socks, target string, timeout time.Duration) (int, bool) {
+		attempts++
+		return runner(ctx, curlPath, socks, target, timeout)
+	}
+	ms, _, ok := probeBestServerHTTPAnyWith(ctx, curlPath, socks, bestServerApplicationProbeURLs, bestServerApplicationProbePerTargetTimeout, recordingRunner)
+	completeFailure := !ok && attempts == len(bestServerApplicationProbeURLs) && ctx.Err() == nil
+	return ms, ok, completeFailure
+}
+
+func probeAutomationNamedHTTPS(ctx context.Context, curlPath, socks string) (int, bool, bool) {
+	return probeAutomationNamedHTTPSWith(ctx, curlPath, socks, runBestServerHTTPProbeURL)
 }
 
 func probeAutomationWAN(ctx context.Context) bool {
@@ -423,9 +454,16 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	}
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
-	applicationMS, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks)
+	applicationMS, ok, namedFailureComplete := probeAutomationNamedHTTPS(ctx, curlPath, socks)
 	if !ok {
-		return classifyAutomationApplicationFailure(probeBestServerTransportIP(ctx, curlPath, socks))
+		if ctx.Err() != nil {
+			return automationHealthProbe{State: automationHealthUncertain, Reason: "VPN health probe прерван до завершения HTTPS/DNS проверок; AUTO mutation запрещена."}
+		}
+		transportOK := probeBestServerTransportIP(ctx, curlPath, socks)
+		if ctx.Err() != nil {
+			return automationHealthProbe{State: automationHealthUncertain, Reason: "VPN health probe истёк до подтверждения транспортного состояния; AUTO mutation запрещена."}
+		}
+		return classifyAutomationApplicationFailure(transportOK, namedFailureComplete)
 	}
 	serviceOK, serviceTotal := probeBestServerServiceReachability(ctx, curlPath, socks)
 	return classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal)
@@ -779,7 +817,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		appendAutomationRecoveryStage("post_check", "success", endpointResult.Reason)
 		appendAutomationRecoveryIncidentStage(
 			incident, "incident", "recovered",
-			"method=current-endpoint; total_downtime_since_detection="+time.Since(incident.StartedAt).Round(time.Second).String(),
+			"method=current-endpoint; recovery_cycle_elapsed="+time.Since(incident.StartedAt).Round(time.Second).String(),
 			time.Now().UTC(),
 		)
 		return recordAndReturnHealth(endpointResult, nil)
@@ -852,7 +890,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	if best.Mutated && best.Result == "switched" {
 		appendAutomationRecoveryIncidentStage(
 			incident, "incident", "recovered",
-			"method=emergency-replacement; total_downtime_since_detection="+time.Since(incident.StartedAt).Round(time.Second).String(),
+			"method=emergency-replacement; recovery_cycle_elapsed="+time.Since(incident.StartedAt).Round(time.Second).String(),
 			time.Now().UTC(),
 		)
 	} else if bestErr != nil {
