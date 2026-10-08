@@ -319,7 +319,12 @@ const server = http.createServer((req, res) => {
     const autoHeader = settingsPage.locator('#fn3AutoCard .fn3-card-head');
     await autoHeader.click({position:{x:20,y:20}});
     assert.equal(await settingsPage.locator('#fn3Check').isHidden(), true, 'AUTO VPN header click must collapse controls');
-    assert.ok(await compactHeight('#fn3AutoCard') < 120,'collapsed AUTO VPN must not stretch into a large empty panel');
+    const autoFoldGeometry = await settingsPage.locator('#fn3AutoCard').evaluate(n=>{
+      const style=getComputedStyle(n),header=n.querySelector('.fn3-card-head');
+      const children=Array.from(n.children).map(e=>({class:e.className,display:getComputedStyle(e).display,height:e.getBoundingClientRect().height}));
+      return {height:n.getBoundingClientRect().height,header:header?.getBoundingClientRect().height,display:style.display,minHeight:style.minHeight,flex:style.flex,alignSelf:style.alignSelf,children};
+    });
+    assert.ok(autoFoldGeometry.height < 120,'collapsed AUTO VPN must not stretch into a large empty panel: '+JSON.stringify(autoFoldGeometry));
     await autoHeader.click({position:{x:20,y:20}});
     assert.equal(await settingsPage.locator('#fn3Check').isVisible(), true, 'second click must reopen AUTO VPN');
     assert.equal(await page.locator('#fn3AutoEnabled').isChecked(), true, 'collapsing must not mutate AUTO VPN settings');
