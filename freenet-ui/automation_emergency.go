@@ -24,6 +24,9 @@ type automationEmergencyScanResult struct {
 	Candidate            bestServerInternalCandidate
 	CurrentEndpoint      string
 	CurrentFilter        string
+	Discovered           int
+	AfterCurrent         int
+	Foreign              int
 	Total                int
 	RTTChecked           int
 	RTTReachable         int
@@ -254,8 +257,11 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 	if err != nil {
 		return result, err
 	}
+	result.Discovered = len(all)
 	all = withoutBestServerCurrentLogicalAlternatives(all, result.CurrentEndpoint, result.CurrentFilter, currentExactProfileLabel(a.cfg.FilterPath))
+	result.AfterCurrent = len(all)
 	foreign := filterForeignBestServerCandidates(all)
+	result.Foreign = len(foreign)
 	filtered := make([]bestServerInternalCandidate, 0, len(foreign))
 	for _, candidate := range foreign {
 		if automationCountryAllowed(settings, currentCountry, candidate.Profile.CountryCode) {
@@ -406,6 +412,15 @@ func (a *app) runAutomationBestEmergencyCycleLocked(parent context.Context, sett
 			"В аварийном fast-path пока нет application-ready replacement: pool=%d; rtt_checked=%d; rtt_reachable=%d; app_checked=%d; app_reachable=%d. Следующий цикл продолжит с другого участка пула.",
 			scan.Total, scan.RTTChecked, scan.RTTReachable, scan.Checked, scan.Reachable,
 		)
+		if scan.Total == 0 {
+			// Never silently treat a partial subscription/policy snapshot as
+			// proof that no VPN in the wider service can work. Preserve the
+			// active configuration, but report every non-secret filter stage.
+			reason = fmt.Sprintf(
+				"Аварийная замена недоступна: pool=0; discovered=%d; after_current=%d; foreign=%d; allowed=0; scope=%s. Активная конфигурация сохранена; следующий цикл повторит discovery.",
+				scan.Discovered, scan.AfterCurrent, scan.Foreign, settings.CountryScope,
+			)
+		}
 		writeAutomationStateV2("failed", reason, "no", false)
 		appendAutomationHistoryV2("failed", reason)
 		return automationBestCycleResult{Result: "failed", Reason: reason}, scan, nil
