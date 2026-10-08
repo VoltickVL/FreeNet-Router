@@ -64,6 +64,8 @@
       .fn3-subscription-card .fn3-subscription-fact strong{font-size:13px!important;line-height:1.25!important;font-weight:750!important;letter-spacing:0!important;margin:0!important}
       .fn3-subscription-card .fn3-subscription-fact .fn-sub-value.ok{color:#5de5ad!important}
       .fn3-subscription-card .fn3-subscription-fact .fn-sub-status-dot{width:7px!important;height:7px!important;margin-right:5px!important}
+      .fn3-subscription-card .fn3-subscription-fact>span,
+      .fn3-subscription-card .fn3-subscription-fact span[id]{font-size:13px!important;line-height:1.25!important;font-weight:750!important;letter-spacing:0!important;white-space:nowrap!important}
       .fn3-section-collapsed>.fn3-extra-title{margin-bottom:0!important}
       .fn3-subscription-card .fn-sub-key{margin:0;border:1px solid #294866;border-radius:12px;box-shadow:none;background:#081b2f}
       .fn3-subscription-card .fn-sub-key-main{padding:14px 16px}.fn3-subscription-card .fn-sub-key-actions{padding:14px 16px}
