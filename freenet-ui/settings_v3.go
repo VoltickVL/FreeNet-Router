@@ -802,7 +802,7 @@ func (a *app) handleSettingsV3Get(w http.ResponseWriter, _ *http.Request) {
 func journalEventCategory(event automationEvent) string {
 	kind := strings.ToLower(strings.TrimSpace(event.Kind))
 	switch kind {
-	case "vpn":
+	case "vpn", "vpn_manual":
 		return "vpn"
 	case "auto vpn", "auto_vpn":
 		return "auto"
@@ -1138,6 +1138,9 @@ func journalCSVStageLabel(event automationEvent) string {
 		return "AUTO VPN"
 	}
 	if category == "vpn" {
+		if kind == "vpn_manual" {
+			return "Ручной"
+		}
 		return "VPN"
 	}
 	if category == "subscription" {
