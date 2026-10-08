@@ -626,7 +626,12 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 	var output []byte
 	var cmdErr error
 	if useSnapshot {
-		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, "apply", selected, manualRTT)
+		mode := "apply"
+		if manualRTT {
+			// Do not tear down XKeen firewall rules on emergency RTT cutover.
+			mode = "apply-core"
+		}
+		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, mode, selected, manualRTT)
 	} else {
 		output, cmdErr = runCommand(ctx, providerHelperPath(), "apply", profileID)
 	}
