@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -34,6 +35,7 @@ type providerProfileRTTResponse struct {
 	MeasuredAt      string                   `json:"measured_at,omitempty"`
 	Catalog         []subscriptionProfile    `json:"catalog,omitempty"`
 	CatalogKey      string                   `json:"catalog_key,omitempty"`
+	SelectionToken  string                   `json:"selection_token,omitempty"`
 	Results         []providerProfileRTTItem `json:"results"`
 	Profiles        int                      `json:"profiles"`
 	UniqueEndpoints int                      `json:"unique_endpoints"`
@@ -428,6 +430,35 @@ func acquireProviderProfileRTTGuards(a *app) (func(), string) {
 	}, ""
 }
 
+// An RTT sweep has already fetched the subscription and measured exact logical
+// profiles. Keep only reachable candidates in a protected, source-bound one-time
+// snapshot so an emergency manual click never needs another subscription fetch.
+func (a *app) storeProviderRTTSelectionSnapshot(internal []bestServerInternalCandidate, items []providerProfileRTTItem) (string, error) {
+	measured := make(map[string]providerProfileRTTItem, len(items))
+	for _, item := range items {
+		if _, duplicate := measured[item.ProfileID]; duplicate {
+			return "", errors.New("duplicate measured VPN identity")
+		}
+		measured[item.ProfileID] = item
+	}
+	eligible := make([]bestServerQualityCandidate, 0, len(internal))
+	for _, candidate := range internal {
+		item, ok := measured[candidate.Profile.ID]
+		if !ok || item.Endpoint != profileEndpoint(candidate.Profile) {
+			return "", errors.New("measured VPN snapshot identity is inconsistent")
+		}
+		if item.Attempted && item.Reachable && item.Status == "reachable" {
+			eligible = append(eligible, bestServerQualityCandidate{
+				ID: candidate.Profile.ID, Tested: true, Available: true, Eligible: true,
+			})
+		}
+	}
+	return a.storeBestServerSelectionSnapshotWithPurpose(
+		readBestServerCurrentEndpoint(a.cfg.OutPath), readBestServerCurrentFilter(a.cfg.FilterPath),
+		internal, eligible, "manual_rtt",
+	)
+}
+
 func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) {
 	releaseGuards, guardError := acquireProviderProfileRTTGuards(a)
 	if releaseGuards == nil {
@@ -480,8 +511,15 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 					reachable++
 				}
 			}
+			token, snapshotErr := a.storeProviderRTTSelectionSnapshot(filtered, items)
+			if snapshotErr != nil {
+				writeJSON(w, http.StatusServiceUnavailable, providerProfileRTTResponse{
+					Success: false, Results: []providerProfileRTTItem{}, Mutation: "NONE", Error: "Не удалось сохранить проверенные VPN для ручного выбора.",
+				})
+				return
+			}
 			writeJSON(w, http.StatusOK, providerProfileRTTResponse{
-				Success: true, Cached: true, MeasuredAt: measuredAt.Format(time.RFC3339), Catalog: catalog, CatalogKey: catalogKey, Results: items,
+				Success: true, Cached: true, MeasuredAt: measuredAt.Format(time.RFC3339), Catalog: catalog, CatalogKey: catalogKey, SelectionToken: token, Results: items,
 				Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
 				Checked: checked, Reachable: reachable, Unknown: 0, Partial: false,
 				ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
@@ -524,8 +562,15 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 			reachable++
 		}
 	}
+	token, snapshotErr := a.storeProviderRTTSelectionSnapshot(filtered, items)
+	if snapshotErr != nil {
+		writeJSON(w, http.StatusServiceUnavailable, providerProfileRTTResponse{
+			Success: false, Results: []providerProfileRTTItem{}, Mutation: "NONE", Error: "Не удалось сохранить проверенные VPN для ручного выбора.",
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, providerProfileRTTResponse{
-		Success: true, Cached: false, MeasuredAt: time.Now().UTC().Format(time.RFC3339), Catalog: catalog, CatalogKey: catalogKey, Results: items,
+		Success: true, Cached: false, MeasuredAt: time.Now().UTC().Format(time.RFC3339), Catalog: catalog, CatalogKey: catalogKey, SelectionToken: token, Results: items,
 		Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
 		Checked: checked, Reachable: reachable, Unknown: unknown, Partial: checked < len(filtered),
 		ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
