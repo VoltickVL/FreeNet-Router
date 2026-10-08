@@ -179,8 +179,11 @@
         html body .topbar.overview-approved{height:auto!important;min-height:0!important;flex-direction:column!important;align-items:stretch!important;flex-wrap:nowrap!important;gap:6px!important;padding:7px 11px 9px!important;overflow:visible!important}
         html body .topbar.overview-approved .top-left{width:100%!important;min-height:28px!important}
         html body .topbar.overview-approved #overviewApprovedTop{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;grid-auto-flow:row!important;flex:0 0 auto!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;gap:6px!important;overflow:visible!important;align-items:stretch!important;justify-content:stretch!important}
-        html body .topbar.overview-approved #overviewApprovedTop>:not(#fnVpnPickerV2Host){display:none!important}
+        /* Only legacy duplicate facts are hidden: the previous :not(#id)
+           selector outranked canonical mobile tile display rules. */
+        html body .topbar.overview-approved #overviewApprovedTop>.overview-approved-fact:not(.fn-shell-dns){display:none!important}
         html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar{display:grid!important}
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar .fn-xray-chip{display:flex!important;min-width:0!important}
         html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns{display:flex!important}
         html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate{display:flex!important}
         html body .topbar.overview-approved #overviewApprovedTop>#fnVpnPickerV2Host{display:block!important;min-width:0!important;width:100%!important;max-width:100%!important}
