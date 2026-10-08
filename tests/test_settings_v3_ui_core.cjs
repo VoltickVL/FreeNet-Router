@@ -322,7 +322,18 @@ const server = http.createServer((req, res) => {
     const autoFoldGeometry = await settingsPage.locator('#fn3AutoCard').evaluate(n=>{
       const style=getComputedStyle(n),header=n.querySelector('.fn3-card-head');
       const children=Array.from(n.children).map(e=>({class:e.className,display:getComputedStyle(e).display,height:e.getBoundingClientRect().height}));
-      return {height:n.getBoundingClientRect().height,header:header?.getBoundingClientRect().height,display:style.display,minHeight:style.minHeight,flex:style.flex,alignSelf:style.alignSelf,children};
+      const matches=[];
+      for(const sheet of document.styleSheets) {
+        let rules; try {rules=sheet.cssRules;} catch(_) {continue;}
+        const scan=(entries)=>{
+          for(const rule of entries){
+            if(rule.cssRules){scan(rule.cssRules);continue;}
+            if(!rule.selectorText || !rule.style?.getPropertyValue('min-height'))continue;
+            try{if(n.matches(rule.selectorText))matches.push({rule:rule.selectorText,minHeight:rule.style.getPropertyValue('min-height'),priority:rule.style.getPropertyPriority('min-height')});}catch(_){}
+          }
+        };scan(rules);
+      }
+      return {height:n.getBoundingClientRect().height,header:header?.getBoundingClientRect().height,display:style.display,minHeight:style.minHeight,flex:style.flex,alignSelf:style.alignSelf,styleAttr:n.getAttribute('style'),body:document.body.className,page:n.closest('[data-page-view]')?.className,matchingMinHeight:matches,children};
     });
     assert.ok(autoFoldGeometry.height < 120,'collapsed AUTO VPN must not stretch into a large empty panel: '+JSON.stringify(autoFoldGeometry));
     await autoHeader.click({position:{x:20,y:20}});
