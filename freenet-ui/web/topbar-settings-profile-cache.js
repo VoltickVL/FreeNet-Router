@@ -271,15 +271,19 @@
 
       .overview-approved-fact.fn-shell-fact,#topFreenetUpdate{height:50px!important;min-height:50px!important;border-radius:11px!important;padding:6px 11px!important;display:flex!important;align-items:center!important}
       .overview-approved-fact.fn-shell-fact{min-width:112px!important}
-      .overview-approved-fact.fn-shell-fact span,.overview-approved-fact.fn-shell-fact small,#topFreenetUpdate span{font-size:10px!important;line-height:1.05!important;font-weight:760!important}
-      .overview-approved-fact.fn-shell-fact strong,#topFreenetUpdate strong{font-size:13px!important;line-height:1.15!important;font-weight:800!important}
+      .overview-approved-fact.fn-shell-fact span,.overview-approved-fact.fn-shell-fact small,#topFreenetUpdate span{font-size:9px!important;line-height:1.05!important;font-weight:700!important}
+      .overview-approved-fact.fn-shell-fact strong,#topFreenetUpdate strong{font-size:12px!important;line-height:1.25!important;font-weight:750!important}
 
 
       #profilesMenu .fn-selector-cache-note{padding:10px 12px!important;margin:0 0 8px!important;border:1px solid rgba(241,184,75,.32)!important;border-radius:10px!important;background:rgba(100,72,18,.22)!important;color:#ffd98a!important;font-size:11.5px!important;line-height:1.35!important}
-      body:has([data-page-view="settings"].active) .fn3-grid{align-items:stretch!important}
-      body:has([data-page-view="settings"].active) .fn3-left{display:flex!important;flex-direction:column!important;min-height:100%!important}
-      body:has([data-page-view="settings"].active) .fn3-left>.fn3-card{flex:1 1 auto!important;min-height:0!important}
-      body:has([data-page-view="settings"].active) .fn3-extra-grid{align-items:stretch!important}
+      /* Settings cards must size to their content, also after folding.
+         The former 100% / flex-grow rules left large empty collapsed panels. */
+      body:has([data-page-view="settings"].active) .fn3-grid{align-items:start!important}
+      body:has([data-page-view="settings"].active) .fn3-left{display:grid!important;grid-auto-rows:max-content!important;align-items:start!important;min-height:0!important}
+      body:has([data-page-view="settings"].active) .fn3-left>.fn3-card{flex:none!important;min-height:0!important;height:auto!important}
+      body:has([data-page-view="settings"].active) .fn3-extra-grid{align-items:start!important}
+      body:has([data-page-view="settings"].active) .fn3-section-collapsed{height:auto!important;min-height:0!important;flex:none!important;align-self:start!important}
+      body:has([data-page-view="settings"].active) .fn3-section-collapsed>.fn3-extra-title{margin-bottom:0!important}
       body:has([data-page-view="settings"].active) .fn3-extra-card{display:flex!important;flex-direction:column!important;min-height:0!important}
       body:has([data-page-view="settings"].active) .fn3-extra-action,body:has([data-page-view="settings"].active) .fn3-backup-actions .btn{height:56px!important;min-height:56px!important;display:flex!important;align-items:center!important;justify-content:center!important;text-align:center!important;line-height:1.16!important}
       body:has([data-page-view="settings"].active) .fn3-backup-actions{display:grid!important;grid-template-columns:1fr 1fr!important;gap:10px!important;margin-top:auto!important;align-items:stretch!important}
@@ -328,12 +332,12 @@
       .fn-xray-topbar-icon,.fn-shell-fact>.fn-top-fact-icon,.fn-version-icon{display:grid!important;place-items:center!important;flex:0 0 30px!important;width:30px!important;height:30px!important;color:#67a3ff!important}
       .fn-xray-topbar-icon svg,.fn-shell-fact>.fn-top-fact-icon svg{width:23px!important;height:23px!important}
       .fn-shell-fact-copy,.fn-version-copy{display:flex!important;flex-direction:column!important;justify-content:center!important;gap:2px!important;min-width:0!important;text-align:left!important}
-      .fn-xray-chip small,.fn-shell-fact-copy>span,.fn-version-copy small{font-size:11px!important;line-height:1.05!important;color:#8da4c2!important;font-weight:720!important;letter-spacing:0!important;text-transform:none!important;white-space:nowrap!important}
-      .fn-xray-chip strong,.fn-shell-fact-copy>strong,.fn-version-copy strong{font-size:14.5px!important;line-height:1.1!important;color:#f5f8ff!important;font-weight:800!important;white-space:nowrap!important}
-      /* Exactly one desktop type scale for all four topbar cards. */
-      #xrayTopbarChip #xrayTopbarVersion,#overviewApprovedTop .fn-shell-fact-copy>strong,#topFreenetUpdate .fn-version-copy strong{font-size:14.5px!important;line-height:1.1!important;font-weight:800!important;letter-spacing:0!important}
-      #xrayTopbarChip .fn-xray-chip small,#overviewApprovedTop .fn-shell-fact-copy>span,#topFreenetUpdate .fn-version-copy small{font-size:11px!important;line-height:1.05!important;font-weight:720!important}
-      @media(max-width:1180px){#xrayTopbarChip #xrayTopbarVersion,#overviewApprovedTop .fn-shell-fact-copy>strong,#topFreenetUpdate .fn-version-copy strong{font-size:13px!important}}
+      /* Current VPN sets the typography contract: country is 12px/750.
+         Xray, DNS and FreeNet must not overpower the VPN value. */
+      .fn-xray-chip small,.fn-shell-fact-copy>span,.fn-version-copy small{font-size:9px!important;line-height:1.1!important;color:#8da4c2!important;font-weight:750!important;letter-spacing:0!important;text-transform:none!important;white-space:nowrap!important}
+      .fn-xray-chip strong,.fn-shell-fact-copy>strong,.fn-version-copy strong{font-size:12px!important;line-height:1.25!important;color:#eef4ff!important;font-weight:750!important;white-space:nowrap!important}
+      #xrayTopbarChip #xrayTopbarVersion,#overviewApprovedTop .fn-shell-fact-copy>strong,#topFreenetUpdate .fn-version-copy strong{font-size:12px!important;line-height:1.25!important;font-weight:750!important;letter-spacing:0!important}
+      #xrayTopbarChip .fn-xray-chip small,#overviewApprovedTop .fn-shell-fact-copy>span,#topFreenetUpdate .fn-version-copy small{font-size:9px!important;line-height:1.1!important;font-weight:750!important}
       .fn-xray-topbar{display:grid!important;grid-template-columns:30px minmax(0,1fr)!important;grid-template-rows:1fr!important;column-gap:11px!important;align-items:center!important;min-width:148px!important;width:148px!important;padding:9px 14px!important;text-align:left!important}
       .fn-xray-topbar-icon{grid-row:auto!important}
       .overview-approved-fact.fn-shell-fact{min-width:166px!important;max-width:180px!important;padding:9px 14px!important}
