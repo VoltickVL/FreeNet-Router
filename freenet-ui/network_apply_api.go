@@ -530,7 +530,13 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	status, result := a.executeProviderProfileApply(req)
+	status, result := a.executeProviderProfileApplyWithStart(req, func(plan providerPlanResponse) {
+		name := strings.ReplaceAll(sanitizeProfileName(plan.ProfileName), "|", "/")
+		if strings.TrimSpace(name) == "" {
+			name = "Extra-профиль"
+		}
+		v3AppendEvent("vpn_manual", "start", "Сервер: "+name+" | Итог: начата попытка подключения")
+	})
 	result.OperationID = op.state.ID
 	journalResult := "failed"
 	journalName := "—"
@@ -558,7 +564,13 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, status, result)
 }
 
+// Internal AUTO/Best applies do not emit manual journal events. Only the
+// authenticated HTTP path supplies a manual-start callback.
 func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, networkApplyResponse) {
+	return a.executeProviderProfileApplyWithStart(req, nil)
+}
+
+func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onManualStart func(providerPlanResponse)) (int, networkApplyResponse) {
 	profileID := strings.TrimSpace(req.ProfileID)
 	selectionToken := strings.TrimSpace(req.SelectionToken)
 	select {
@@ -615,24 +627,21 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		}
 	}
 
-	manualName := strings.ReplaceAll(sanitizeProfileName(providerPlan.ProfileName), "|", "/")
-	if strings.TrimSpace(manualName) == "" {
-		manualName = "Extra-профиль"
+	if onManualStart != nil {
+		onManualStart(providerPlan)
 	}
-	v3AppendEvent("vpn_manual", "start", "Сервер: "+manualName+" | Итог: начата попытка подключения")
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	defer cancel()
 	var output []byte
 	var cmdErr error
 	if useSnapshot {
-		mode := "apply"
-		if manualRTT {
-			// Do not tear down XKeen firewall rules on emergency RTT cutover.
-			mode = "apply-core"
-		}
-		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, mode, selected, manualRTT)
+		// Protected AUTO/Best/manual snapshot switches preserve XKeen/netfilter
+		// during Xray cutover and rollback. AUTO/Best retains route preflight;
+		// only explicit measured manual RTT skips its duplicate preflight.
+		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, "apply-core", selected, manualRTT)
 	} else {
+		// Unmeasured legacy/no-token setup retains its established apply path.
 		output, cmdErr = runCommand(ctx, providerHelperPath(), "apply", profileID)
 	}
 	safeOutput := sanitizeOutput(string(output))
