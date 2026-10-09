@@ -199,6 +199,10 @@ func (a *app) restartXrayControlled(parent context.Context) error {
 
 func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 	if a.mutationBlockedBySelfUpdate(w) { return }
+	if automationMutationBlockedState() {
+		writeJSON(w, http.StatusLocked, xrayServiceResponse{Success: false, Events: xrayServiceEvents(8), Error: "Xray state is unresolved after VPN rollback; read-only reconciliation required before Start/Stop/Restart"})
+		return
+	}
 	action, ok := decodeXrayServiceAction(w, r)
 	if !ok { return }
 	select {
