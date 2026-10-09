@@ -147,3 +147,21 @@ func TestSelfUpdateFailedStagingDoesNotAdvanceVersionMarker(t *testing.T) {
 		t.Fatalf("failed update advanced version marker to %q", version)
 	}
 }
+
+func TestSelfUpdateUIRespectsCompatibilityStop(t *testing.T) {
+	data, err := webFS.ReadFile("web/self-update.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ui := string(data)
+	for _, contract := range []string{
+		"!p.ready ? `Обновление заблокировано до изменений:",
+		"if (!p.ready) {",
+		"title: 'Обновление остановлено до изменений'",
+		"if (!plan || !plan.success || !plan.ready || !plan.update_available || !plan.target_tag) return;",
+	} {
+		if !strings.Contains(ui, contract) {
+			t.Fatalf("update UI bypasses compatibility preflight: %q", contract)
+		}
+	}
+}
