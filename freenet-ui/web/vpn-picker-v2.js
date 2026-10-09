@@ -201,6 +201,250 @@
         #fnVpnPickerV2Panel .fnv2-subtitle{max-width:280px}
       }
       @media(max-height:580px){#fnVpnPickerV2Panel{top:12px!important;bottom:12px!important;height:calc(100dvh - 24px)!important;min-height:0!important;max-height:calc(100dvh - 24px)!important}#fnVpnPickerV2Resize{display:none!important}#fnVpnPickerV2Panel .fnv2-head{padding:8px 12px}#fnVpnPickerV2Panel h2{font-size:15px}#fnVpnPickerV2Panel .fnv2-subtitle{display:none}#fnVpnPickerV2Panel .fnv2-current{padding:5px 12px}#fnVpnPickerV2Panel .fnv2-current-copy span{display:none}#fnVpnPickerV2Panel .fnv2-search-wrap{padding:0 12px 5px}#fnVpnPickerV2Search{height:36px}#fnVpnPickerV2RTTState{margin:0 12px 4px}#fnVpnPickerV2Results{min-height:48px}#fnVpnPickerV2Footer{padding:5px 12px 6px;gap:4px;margin-top:4px}#fnVpnPickerV2Footer .fnv2-validation{min-height:38px;padding:5px 8px;gap:2px}#fnVpnPickerV2Footer button{height:36px}}
+
+      /* v0.7 chrome/overview visual contract: presentation-only, no event handlers. */
+      html body .topbar.overview-approved{
+        --fn-chrome-gap:10px;--fn-chrome-radius:13px;--fn-chrome-icon:28px;
+        gap:12px!important;min-width:0!important;
+      }
+      html body .topbar.overview-approved .top-left{flex:0 0 auto!important;min-width:0!important}
+      html body .topbar.overview-approved #overviewApprovedTop{
+        display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;
+        align-items:stretch!important;gap:var(--fn-chrome-gap)!important;
+        flex:1 1 748px!important;width:min(748px,100%)!important;max-width:748px!important;
+        min-width:0!important;margin-left:auto!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar,
+      html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns,
+      html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate,
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle{
+        box-sizing:border-box!important;position:relative!important;
+        min-width:0!important;max-width:none!important;width:100%!important;
+        min-height:60px!important;height:60px!important;
+        padding:9px 12px!important;margin:0!important;gap:9px!important;
+        border:1px solid #355575!important;border-radius:var(--fn-chrome-radius)!important;
+        background:linear-gradient(160deg,#112239,#0b192a)!important;
+        box-shadow:inset 0 1px rgba(255,255,255,.045)!important;
+        text-align:left!important;overflow:hidden!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar{
+        display:grid!important;grid-template-columns:var(--fn-chrome-icon) minmax(0,1fr)!important;
+        column-gap:9px!important;place-items:stretch!important;
+        align-items:center!important;justify-items:stretch!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns,
+      html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate{
+        display:flex!important;align-items:center!important;justify-content:flex-start!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle{
+        display:grid!important;grid-template-columns:var(--fn-chrome-icon) minmax(0,1fr)!important;
+        align-items:center!important;justify-items:stretch!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop .fn-xray-topbar-icon,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-top-fact-icon,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-version-icon{
+        flex:0 0 var(--fn-chrome-icon)!important;width:var(--fn-chrome-icon)!important;
+        min-width:var(--fn-chrome-icon)!important;height:var(--fn-chrome-icon)!important;
+        margin:0!important;display:grid!important;place-items:center!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle>svg{
+        justify-self:center!important;width:24px!important;height:24px!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop .fn-xray-chip,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-shell-fact-copy,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-version-copy,
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle .fnv2-chip{
+        display:flex!important;flex-direction:column!important;align-items:flex-start!important;
+        justify-content:center!important;justify-self:stretch!important;
+        flex:1 1 auto!important;min-width:0!important;width:100%!important;
+        gap:3px!important;margin:0!important;text-align:left!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop .fn-xray-chip small,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-shell-fact-copy>span,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-version-copy small,
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle small{
+        display:block!important;width:100%!important;
+        font-size:10px!important;line-height:1.15!important;font-weight:700!important;
+        letter-spacing:.01em!important;color:#9aafcb!important;
+        white-space:nowrap!important;text-align:left!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop .fn-xray-chip strong,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-shell-fact-copy>strong,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-version-copy strong,
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle .fnv2-chip-value{
+        display:flex!important;align-items:center!important;justify-content:flex-start!important;
+        width:100%!important;min-width:0!important;
+        color:#f4f7fd!important;font-size:12px!important;line-height:1.2!important;
+        font-weight:750!important;white-space:nowrap!important;
+        text-align:left!important;overflow:hidden!important;text-overflow:ellipsis!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Country{
+        min-width:0!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle .fnv2-chip-value{
+        gap:6px!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop .fn-xray-topbar-icon svg,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-top-fact-icon svg{
+        width:25px!important;height:25px!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop #topFreenetUpdate .fn-version-icon::before{
+        width:25px!important;height:25px!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar:hover,
+      html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns:hover,
+      html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate:hover,
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle:hover{
+        border-color:#628bbd!important;background:linear-gradient(160deg,#172d49,#102238)!important;
+      }
+      html body .topbar.overview-approved #overviewApprovedTop .fn-xray-topbar:focus-visible,
+      html body .topbar.overview-approved #overviewApprovedTop #topFreenetUpdate:focus-visible,
+      html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle:focus-visible{
+        outline:2px solid #83b0ff!important;outline-offset:2px!important;
+      }
+      /* Older injected CSS addressed two IDs and won over shared typography. */
+      html body .topbar.overview-approved #xrayTopbarChip #xrayTopbarVersion,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-shell-fact-copy>strong,
+      html body .topbar.overview-approved #topFreenetUpdate .fn-version-copy strong,
+      html body .topbar.overview-approved #fnVpnPickerV2Toggle #fnVpnPickerV2Country{
+        font-size:12px!important;font-weight:750!important;line-height:1.2!important;
+      }
+      /* Overview: one visual rhythm on desktop without changing measurements or actions. */
+      html body [data-page-view="overview"] .page-head h1{
+        line-height:1.12!important;letter-spacing:-.035em!important;
+      }
+      html body [data-page-view="overview"] .vpn-current-panel,
+      html body [data-page-view="overview"] .vpn-alternatives-panel{
+        border-radius:16px!important;
+      }
+      html body [data-page-view="overview"] .best-v4-name{
+        max-width:100%!important;overflow-wrap:anywhere!important;
+      }
+      html body [data-page-view="overview"] .best-v4-endpoint{
+        overflow-wrap:anywhere!important;
+      }
+      @media(max-width:980px){
+        html body .topbar.overview-approved{
+          height:auto!important;min-height:0!important;flex-direction:column!important;
+          flex-wrap:nowrap!important;align-items:stretch!important;justify-content:flex-start!important;
+          gap:9px!important;padding:9px 13px 13px!important;overflow:visible!important;
+        }
+        html body .topbar.overview-approved .top-left{
+          width:100%!important;min-height:41px!important;height:41px!important;
+          display:flex!important;align-items:center!important;
+        }
+        html body .topbar.overview-approved .mobile-menu{
+          display:grid!important;place-items:center!important;width:41px!important;height:41px!important;
+          border-radius:12px!important;border-color:#355575!important;background:#102036!important;
+          color:#dbe8f8!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop{
+          display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;
+          grid-auto-flow:row!important;gap:8px!important;
+          flex:0 0 auto!important;width:100%!important;max-width:100%!important;
+          min-width:0!important;margin:0!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar,
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns,
+        html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate,
+        html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle{
+          min-width:0!important;max-width:100%!important;width:100%!important;
+          height:61px!important;min-height:61px!important;padding:9px 11px!important;
+          gap:9px!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar{
+          display:grid!important;grid-template-columns:var(--fn-chrome-icon) minmax(0,1fr)!important;
+          place-items:stretch!important;align-items:center!important;justify-items:stretch!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar .fn-xray-chip{
+          display:flex!important;align-items:flex-start!important;justify-self:stretch!important;
+          width:100%!important;text-align:left!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns,
+        html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate{display:flex!important}
+        html body .topbar.overview-approved #overviewApprovedTop>#fnVpnPickerV2Host{
+          width:100%!important;max-width:100%!important;min-width:0!important;display:block!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle{
+          display:grid!important;grid-template-columns:var(--fn-chrome-icon) minmax(0,1fr)!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop .fn-version-copy small{
+          display:block!important;
+        }
+      }
+      @media(max-width:600px){
+        html body .topbar.overview-approved{
+          padding:8px 12px 12px!important;gap:9px!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop{
+          gap:8px!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar,
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns,
+        html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate,
+        html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle{
+          height:59px!important;min-height:59px!important;padding:8px 10px!important;
+          gap:8px!important;border-radius:12px!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop .fn-xray-chip strong,
+        html body .topbar.overview-approved #overviewApprovedTop .fn-shell-fact-copy>strong,
+        html body .topbar.overview-approved #overviewApprovedTop .fn-version-copy strong,
+        html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle .fnv2-chip-value{
+          font-size:12px!important;
+        }
+        html body #controlCenter .content{
+          width:calc(100% - 28px)!important;padding-top:18px!important;
+        }
+        html body [data-page-view="overview"] .page-head{
+          margin-bottom:14px!important;gap:10px!important;
+        }
+        html body [data-page-view="overview"] .page-head h1{
+          font-size:31px!important;line-height:1.08!important;
+        }
+        html body [data-page-view="overview"] .page-head p{
+          margin-top:6px!important;font-size:13px!important;line-height:1.45!important;
+        }
+        html body [data-page-view="overview"] .card{
+          padding:16px!important;border-radius:16px!important;
+        }
+        html body [data-page-view="overview"] .vpn-current-panel,
+        html body [data-page-view="overview"] .vpn-alternatives-panel{
+          padding:16px!important;border-radius:15px!important;
+        }
+        html body [data-page-view="overview"] .best-v4-name{
+          font-size:clamp(19px,5.8vw,25px)!important;line-height:1.16!important;
+          font-weight:780!important;letter-spacing:-.025em!important;
+        }
+        html body [data-page-view="overview"] .best-v4-endpoint{
+          font-size:12px!important;line-height:1.5!important;
+        }
+        html body [data-page-view="overview"] .best-v4-metrics{
+          display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;
+          gap:8px!important;
+        }
+        html body [data-page-view="overview"] .best-v4-pill{
+          min-width:0!important;overflow-wrap:anywhere!important;
+        }
+        html body [data-page-view="overview"] .vpn-current-panel .btn,
+        html body [data-page-view="overview"] .vpn-alternatives-panel .btn{
+          min-height:44px!important;border-radius:11px!important;
+        }
+      }
+      @media(max-width:350px){
+        html body .topbar.overview-approved{--fn-chrome-icon:24px}
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-xray-topbar,
+        html body .topbar.overview-approved #overviewApprovedTop>.fn-shell-dns,
+        html body .topbar.overview-approved #overviewApprovedTop>#topFreenetUpdate,
+        html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle{
+          padding-left:8px!important;padding-right:8px!important;gap:6px!important;
+        }
+        html body .topbar.overview-approved #overviewApprovedTop .fn-xray-chip strong,
+        html body .topbar.overview-approved #overviewApprovedTop .fn-shell-fact-copy>strong,
+        html body .topbar.overview-approved #overviewApprovedTop .fn-version-copy strong,
+        html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle .fnv2-chip-value{
+          font-size:12px!important;
+        }
+      }
     `;
     document.head.appendChild(style);
   }
