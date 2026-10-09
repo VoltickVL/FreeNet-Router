@@ -487,7 +487,7 @@
     qs('#webUpdateLatest').textContent = p.latest_version || '—';
     qs('#webUpdateManifest').textContent = p.manifest_verified ? 'проверен' : 'нет';
     const text = [
-      p.update_available ? `Доступно обновление ${p.current_version} → ${p.latest_version}` : 'Установлена актуальная версия.',
+      !p.ready ? `Обновление заблокировано до изменений: ${p.error || 'Совместимость установленного XKeen/Xray не подтверждена'}` : (p.update_available ? `Доступно обновление ${p.current_version} → ${p.latest_version}` : 'Установлена актуальная версия.'),
       p.expected_delta ? `Изменится: ${p.expected_delta}` : '',
       p.expected_no_delta ? `Не изменится: ${p.expected_no_delta}` : ''
     ].filter(Boolean).join('\n');
@@ -497,12 +497,12 @@
     const apply = qs('#webUpdateApplyBtn');
     apply.disabled = !(p.success && p.ready && p.update_available && p.target_tag);
     apply.textContent = p.update_available && p.target_tag ? `Обновить до ${p.target_tag}` : 'Обновить';
-    setUpdateSummary(p.update_available ? `Доступно ${p.latest_version}` : 'Актуальная версия', p.update_available ? '' : 'ok');
+    setUpdateSummary(!p.ready ? 'Обновление заблокировано' : (p.update_available ? `Доступно ${p.latest_version}` : 'Актуальная версия'), !p.ready ? 'bad' : (p.update_available ? '' : 'ok'));
     renderTopbarVersion(p.current_version, !!p.update_available, p.latest_version);
   }
 
   function openUpdateConfirmModal() {
-    if (!plan || !plan.update_available || !plan.target_tag) return;
+    if (!plan || !plan.success || !plan.ready || !plan.update_available || !plan.target_tag) return;
     openModal({
       kicker: 'Обновление FreeNet',
       title: `${plan.current_version || 'текущая версия'} → ${plan.latest_version || plan.target_tag}`,
@@ -571,6 +571,18 @@
       const p = await r.json();
       if (!r.ok || !p.success) throw new Error(p.error || 'Не удалось проверить обновление');
       renderPlan(p);
+      if (!p.ready) {
+        const reason = p.error || 'Совместимость существующего XKeen/Xray не подтверждена.';
+        updateNotice('Обновление заблокировано до изменений: ' + reason, 'bad');
+        openModal({
+          kicker: 'Безопасность FreeNet',
+          title: 'Обновление остановлено до изменений',
+          body: reason,
+          meta: 'Работающий Xray и текущие настройки сохранены. Не переустанавливайте XKeen/Xray ради обхода этой проверки.',
+          closable: true
+        });
+        return;
+      }
       updateNotice(p.update_available ? `Обновление ${p.target_tag} готово к установке после вашего подтверждения.` : 'Установлена актуальная версия FreeNet.', 'ok');
       if (p.update_available) openUpdateConfirmModal();
       else openModal({kicker: 'Обновление FreeNet', title: 'Установлена актуальная версия', body: `${p.current_version || 'FreeNet'} уже является последним опубликованным релизом.`, meta: 'Проверка завершена.', closable: true});
@@ -595,7 +607,7 @@
   }
 
   async function startUpdate() {
-    if (!plan || !plan.update_available || !plan.target_tag) return;
+    if (!plan || !plan.success || !plan.ready || !plan.update_available || !plan.target_tag) return;
     const checkBtn = qs('#webUpdateCheckBtn');
     const applyBtn = qs('#webUpdateApplyBtn');
     if (checkBtn) checkBtn.disabled = true;

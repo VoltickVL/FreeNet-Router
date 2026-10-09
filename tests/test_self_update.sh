@@ -16,7 +16,31 @@ make_root() {
     rm -rf "$R"
     mkdir -p \
         "$R/sbin" "$R/bin" "$R/lib/freenet" "$R/etc/freenet" \
-        "$R/etc/xray/configs" "$R/var/run" "$R/backups"
+        "$R/etc/xray/configs" "$R/var/run" "$R/backups" \
+        "$R/etc/init.d" "$R/etc/ndm/netfilter.d"
+
+    # Working-stack fixture: installed userland is deliberately preserved.
+    # Legacy S99xkeen may check pidof, but a compatible controller explicitly
+    # declares foreground support. These binaries are NEVER executed.
+    cat > "$R/sbin/xkeen" <<'EOF'
+#!/bin/sh
+# XKEEN_FOREGROUND supported by this test fixture
+exit 0
+EOF
+    cat > "$R/sbin/xray" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+    cat > "$R/etc/init.d/S99xkeen" <<'EOF'
+#!/bin/sh
+name_client=xray
+proxy_status() { pidof "$name_client" >/dev/null 2>&1; }
+EOF
+    printf '%s\n' 'EXISTING_NETFILTER' > "$R/etc/ndm/netfilter.d/proxy.sh"
+    printf '%s\n' 'EXISTING_SUBSCRIPTION_SECRET' > "$R/etc/xray/blanc_subscription.url"
+    printf '%s\n' 'EXISTING_PROFILE' > "$R/etc/freenet/vpn_profile_name"
+    printf '%s\n' 'EXISTING_FILTER' > "$R/etc/xray/blanc_profile_filter.regex"
+    chmod 755 "$R/sbin/xkeen" "$R/sbin/xray" "$R/etc/init.d/S99xkeen"
 
     printf '%s\n' 'OLD_UI' > "$R/sbin/freenet-ui"
     printf '%s\n' 'OLD_MANAGER' > "$R/bin/freenet"
@@ -185,6 +209,24 @@ cat > "$MOCK_BIN/nslookup" <<'EOF'
 exit 1
 EOF
 chmod 755 "$MOCK_BIN/nslookup"
+# Crontab fake permits a pure read-only inventory and unmanaged cron fixtures;
+# no real host cron is read or modified.
+cat > "$MOCK_BIN/crontab" <<'EOF'
+#!/bin/sh
+[ "$1" = '-l' ] || exit 2
+[ -f "$FREENET_TEST_CRONTAB" ] || exit 1
+cat "$FREENET_TEST_CRONTAB"
+EOF
+chmod 755 "$MOCK_BIN/crontab"
+FREENET_TEST_CRONTAB="$TMP/crontab.fixture"
+: > "$FREENET_TEST_CRONTAB"
+export FREENET_TEST_CRONTAB
+# Separate test-only shared mutation fences; never touch the host/router paths.
+FREENET_STACK_MUTATION_LOCK="$TMP/shared-provider.lock"
+FREENET_STACK_AUTO_LOCK="$TMP/shared-auto.lock"
+export FREENET_STACK_MUTATION_LOCK FREENET_STACK_AUTO_LOCK
+PATH="$MOCK_BIN:$PATH"
+export PATH
 MOCK_CURL_LOG="$TMP/github-web-redirect.calls"
 : > "$MOCK_CURL_LOG"
 env \
@@ -351,6 +393,10 @@ grep -Fq 'STATE=ROLLBACK_FAILED' "$R/var/run/update.state" || fail 'terminal rol
 grep -Fq 'ROLLBACK_STATE=FAILED_UNKNOWN' "$R/var/run/update.state" || fail 'rollback failed/unknown marker missing'
 [ -d "$R/var/run/update.lock" ] || fail 'rollback failed/unknown must keep stop lock'
 rm -rf "$R/var/run/update.lock"
+# In production an unresolved rollback retains both locks until reconciliation.
+# The next unrelated unit-test fixture explicitly clears its simulated STOP.
+[ -d "$FREENET_STACK_MUTATION_LOCK" ] || fail 'unknown rollback must retain shared Xray mutation lock'
+rm -rf "$FREENET_STACK_MUTATION_LOCK"
 
 # Exact published stable downgrade uses the same transactional engine and preserves user/Xray state.
 make_root "$R"
@@ -384,5 +430,95 @@ if run_apply "$R" "$D" "" v0.2.27 v0.2.26 v0.2.28 > "$TMP/prerelease.out" 2>&1; 
 fi
 [ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'prerelease rejection mutated UI'
 grep -Fq 'target release is not a published stable FreeNet release' "$R/var/run/update.state" || fail 'prerelease rejection reason missing'
+
+
+# Existing-stack protection: an outdated XKeen with legacy PID gate MUST NOT
+# accept a newly downloaded FreeNet helper. It also must not change Xray,
+# cron, config, or even the previous FreeNet UI when apply is refused.
+make_root "$R"
+make_release "$D"
+sed -i '/XKEEN_FOREGROUND/d' "$R/sbin/xkeen"
+XRAY_BEFORE="$(sha256sum "$R/sbin/xray" "$R/etc/xray/configs/04_outbounds.json" | sha256sum)"
+run_plan "$R" "$D" v0.2.27 v0.2.28 > "$TMP/legacy-stack-plan.out" || fail 'legacy-stack plan should report a safe explicit BLOCKED result'
+grep -Fq 'READY=no' "$TMP/legacy-stack-plan.out" || fail 'unsupported legacy XKeen must not be READY'
+grep -Fq 'STACK_COMPATIBILITY=LEGACY_PIDOF' "$TMP/legacy-stack-plan.out" || fail 'legacy XKeen PID-only contract not detected'
+grep -Fq 'MUTATION=NONE' "$TMP/legacy-stack-plan.out" || fail 'legacy plan was not read-only'
+if run_apply "$R" "$D" "" > "$TMP/legacy-stack-apply.out" 2>&1; then
+    fail 'unsupported legacy XKeen accepted a FreeNet helper upgrade'
+fi
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'blocked legacy upgrade replaced UI'
+[ "$(cat "$R/lib/freenet/apply_provider_profile.sh")" = OLD_PROVIDER ] || fail 'blocked legacy upgrade replaced provider helper'
+[ "$(sha256sum "$R/sbin/xray" "$R/etc/xray/configs/04_outbounds.json" | sha256sum)" = "$XRAY_BEFORE" ] ||
+    fail 'blocked legacy upgrade modified installed Xray or config'
+[ ! -s "$FREENET_TEST_CRONTAB" ] || fail 'blocked legacy upgrade modified cron'
+grep -Fq 'LEGACY_PIDOF' "$R/var/run/update.state" || fail 'blocked legacy reason missing in update state'
+
+# Missing init is another uncertain/partial stack. No auto repair/reinstall.
+make_root "$R"
+rm -f "$R/etc/init.d/S99xkeen"
+run_plan "$R" "$D" v0.2.27 v0.2.28 > "$TMP/partial-stack-plan.out" ||
+    fail 'partial-stack plan must return a safe classified result'
+grep -Fq 'STACK_COMPATIBILITY=PARTIAL_STACK' "$TMP/partial-stack-plan.out" ||
+    fail 'partial XKeen/init was not rejected'
+if run_apply "$R" "$D" "" > "$TMP/partial-stack-apply.out" 2>&1; then
+    fail 'incomplete existing stack accepted a helper upgrade'
+fi
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'partial stack modified app before STOP'
+
+# Independent legacy cron writer is preserved, but incompatible with a safe
+# upgrade of a second VPN controller. Normal XKeen geodata -ug is harmless.
+make_root "$R"
+printf '*/5 * * * * /opt/sbin/xkeen -restart\n' > "$FREENET_TEST_CRONTAB"
+run_plan "$R" "$D" v0.2.27 v0.2.28 > "$TMP/foreign-cron-plan.out" ||
+    fail 'unsafe cron plan must return a classified result'
+grep -Fq 'STACK_COMPATIBILITY=UNMANAGED_WRITER' "$TMP/foreign-cron-plan.out" ||
+    fail 'unmanaged cron restart not detected'
+if run_apply "$R" "$D" "" > "$TMP/foreign-cron-apply.out" 2>&1; then
+    fail 'foreign cron writer accepted a FreeNet helper upgrade'
+fi
+grep -Fq '/opt/sbin/xkeen -restart' "$FREENET_TEST_CRONTAB" ||
+    fail 'preflight removed an unrelated cron entry'
+[ "$(cat "$R/bin/vpn")" = OLD_VPN ] || fail 'cron blocked upgrade modified FreeNet'
+printf '30 6 * * * /opt/sbin/xkeen -ug\n' > "$FREENET_TEST_CRONTAB"
+run_plan "$R" "$D" v0.2.27 v0.2.28 > "$TMP/geodata-cron-plan.out" ||
+    fail 'geodata-only cron should not block app update'
+grep -Fq 'READY=yes' "$TMP/geodata-cron-plan.out" || fail 'harmless XKeen geodata cron was incorrectly blocked'
+: > "$FREENET_TEST_CRONTAB"
+
+# Provider and legacy AUTO locks are non-destructive STOPs. Neither is stolen.
+make_root "$R"
+STACK_LOCK="$TMP/provider.active"
+mkdir -p "$STACK_LOCK"
+FREENET_STACK_MUTATION_LOCK="$STACK_LOCK"
+export FREENET_STACK_MUTATION_LOCK
+run_plan "$R" "$D" v0.2.27 v0.2.28 > "$TMP/busy-stack-plan.out" ||
+    fail 'active mutation must be a safe preflight status'
+grep -Fq 'STACK_COMPATIBILITY=MUTATION_BUSY' "$TMP/busy-stack-plan.out" ||
+    fail 'active mutation lock did not block update'
+[ -d "$STACK_LOCK" ] || fail 'read-only guard removed a runtime mutation lock'
+if run_apply "$R" "$D" "" > "$TMP/busy-stack-apply.out" 2>&1; then
+    fail 'active mutation lock permitted FreeNet helper upgrade'
+fi
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'busy upgrade modified running UI'
+FREENET_STACK_MUTATION_LOCK="$TMP/shared-provider.lock"
+export FREENET_STACK_MUTATION_LOCK
+rm -rf "$STACK_LOCK"
+
+# Preserve actual core/init/netfilter/cron before and after a successful update,
+# even if Xray is offline and no user-level VPN activity is taking place.
+make_root "$R"
+printf '30 6 * * * /opt/sbin/xkeen -ug\n' > "$FREENET_TEST_CRONTAB"
+BEFORE_PROTECTED="$(sha256sum "$R/sbin/xray" "$R/sbin/xkeen" "$R/etc/init.d/S99xkeen" "$R/etc/ndm/netfilter.d/proxy.sh" | sha256sum)"
+BEFORE_CRON="$(sha256sum "$FREENET_TEST_CRONTAB")"
+run_apply "$R" "$D" "" > "$TMP/protected-success.out" 2>&1 ||
+    { cat "$TMP/protected-success.out" >&2; fail 'compatible existing stack update failed'; }
+[ "$(sha256sum "$R/sbin/xray" "$R/sbin/xkeen" "$R/etc/init.d/S99xkeen" "$R/etc/ndm/netfilter.d/proxy.sh" | sha256sum)" = "$BEFORE_PROTECTED" ] ||
+    fail 'successful update modified Xray/XKeen/init/netfilter'
+[ "$(sha256sum "$FREENET_TEST_CRONTAB")" = "$BEFORE_CRON" ] ||
+    fail 'successful update modified existing crontab'
+[ ! -e "$FREENET_STACK_MUTATION_LOCK" ] || fail 'successful update left Xray mutation fence'
+[ -s "$R/backups/$(ls "$R/backups" | head -n 1)/protected-stack.before" ] ||
+    fail 'update did not record protected stack fingerprints in private backup'
+: > "$FREENET_TEST_CRONTAB"
 
 echo 'web self update transactional contract: PASS'
