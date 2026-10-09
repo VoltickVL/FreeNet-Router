@@ -65,6 +65,7 @@ func startTechnicalJournalRecorder() {
      recent[key] = now
     }
     if len(recent) > 256 { recent = map[string]time.Time{} }
+    record.State = technicalJournalStateSnapshot() // background-only disk reads
     if appendTechnicalJournalRecord(technicalJournalPath(), record) != nil { technicalJournalWriteErrors.Add(1) }
    }
   }(technicalJournalQueue)
@@ -157,7 +158,7 @@ func technicalJournalObserve(path, line string) {
   Severity: technicalJournalSeverity(event.Result,event.Message),
   Message: journalDiagnosticRedact(event.Message),
   Incident: technicalJournalIncident(event.Message),
-  State: technicalJournalStateSnapshot(),
+
  }
  select { case queue <- record: default: technicalJournalDropped.Add(1) }
 }
