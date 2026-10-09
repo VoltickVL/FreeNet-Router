@@ -1,11 +1,13 @@
 package main
 
 import (
+    "context"
     "net/http"
     "os"
     "path/filepath"
     "strings"
     "testing"
+    "time"
 )
 
 func TestLocalManualProviderCandidateIsSourceAndEndpointBound(t *testing.T) {
@@ -98,7 +100,38 @@ echo '[FreeNet Provider] RESULT=SUCCESS'
     if code != http.StatusConflict || result.Success || result.RollbackState != "NOT_APPLIED" { t.Fatalf("changed endpoint must STOP: %d %+v",code,result) }
     if _, err := os.Stat(marker); !os.IsNotExist(err) { t.Fatal("rejected candidate entered helper") }
 
-    code, result = a.executeProviderProfileApply(networkApplyRequest{Operation:"provider", ProfileID:profile.ID, ExpectedEndpoint:profileEndpoint(profile), ManualOverride:true, Confirm:true})
+    // Real Giga regression: a read-only isolated probe may still be running
+    // when the user selects Berlin. The manual helper MUST NOT start until
+    // the probe has exited; XKeen's legacy "pidof xray" cannot distinguish it.
+    activeProbeRelease, probeOK := acquireIsolatedXrayProbe(context.Background())
+    if !probeOK { t.Fatal("cannot start overlapping isolated probe fixture") }
+    defer func() { if activeProbeRelease != nil { activeProbeRelease() } }()
+    type applyResult struct { status int; response networkApplyResponse }
+    manualStarted := make(chan struct{})
+    manualDone := make(chan applyResult, 1)
+    go func() {
+        status, response := a.executeProviderProfileApplyWithStart(attempted, func(providerPlanResponse) { close(manualStarted) })
+        manualDone <- applyResult{status: status, response: response}
+    }()
+    select {
+    case <-manualStarted:
+    case <-time.After(3*time.Second):
+        t.Fatal("manual apply did not reach its pre-cutover state")
+    }
+    select {
+    case premature := <-manualDone:
+        t.Fatalf("manual apply returned before diagnostic drain: %+v", premature)
+    case <-time.After(45*time.Millisecond):
+    }
+    if _, err := os.Stat(marker); !os.IsNotExist(err) { t.Fatal("manual helper started while isolated Xray probe was active") }
+    activeProbeRelease()
+    activeProbeRelease = nil
+    select {
+    case completed := <-manualDone:
+        code, result = completed.status, completed.response
+    case <-time.After(3*time.Second):
+        t.Fatal("manual apply did not resume after isolated probe exit")
+    }
     if code != http.StatusOK || !result.Success || !result.Applied { t.Fatalf("explicit manual apply unavailable: %d %+v",code,result) }
     if !strings.Contains(result.Message, "не проверялись") { t.Fatalf("unprobed apply claimed Internet access: %q",result.Message) }
     if _, err := os.Stat(marker); err != nil { t.Fatalf("manual apply helper not called: %v",err) }
