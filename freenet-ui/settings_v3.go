@@ -161,6 +161,7 @@ func registerSettingsV3API(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/settings-v3", a.requireAuth(a.handleSettingsV3Get))
 	mux.HandleFunc("GET /api/journal", a.requireAuth(a.handleJournalGet))
 	mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))
+	mux.HandleFunc("GET /api/journal/diagnostics", a.requireAuth(a.handleJournalDiagnostics))
 	mux.HandleFunc("POST /api/settings-v3", a.requireAuth(a.handleSettingsV3Save))
 	mux.HandleFunc("POST /api/settings-v3/action", a.requireAuth(a.handleSettingsV3Action))
 }
