@@ -685,7 +685,7 @@ rollback_state() {
             pidof xray >/dev/null 2>&1 || RB=1
         fi
     fi
-    [ "$RB" -ne 0 ] || provider_route_probe "$OUT_FILE" || RB=1
+    if [ "$RB" -eq 0 ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" != 1 ]; then provider_route_probe "$OUT_FILE" || RB=1; fi
     ROLLBACK_ACTIVE=0
     [ "$RB" -eq 0 ]
 }
@@ -774,7 +774,11 @@ OUT_BEFORE="$TMP_DIR/out.before"
 PROFILE_BEFORE="$TMP_DIR/profile.before"
 FILTER_BEFORE="$TMP_DIR/filter.before"
 
-prepare_subscription || { err 'fresh subscription unavailable and secure provider cache is missing or does not match'; exit 1; }
+if [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] && [ "$MODE" = apply-core ]; then
+    load_provider_cache || { err 'source-bound secure provider cache is missing or does not match'; exit 1; }
+else
+    prepare_subscription || { err 'fresh subscription unavailable and secure provider cache is missing or does not match'; exit 1; }
+fi
 
 select_profile || { err 'requested Extra profile is not present in the prepared subscription'; exit 1; }
 build_vless_object || { err 'cannot build selected VLESS profile'; exit 1; }
@@ -830,7 +834,9 @@ mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" || fail_apply 'cannot commit exact ac
 restart_if_needed || fail_apply 'Xray/XKeen runtime acceptance failed after provider apply'
 XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
     || fail_apply 'live Xray configuration validation failed after provider apply'
-provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
+if [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" != 1 ]; then
+    provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
+fi
 
 append_provider_history 'success' "VPN server applied: $SELECTED_NAME · $SELECTED_ADDRESS:$SELECTED_PORT"
 say '[FreeNet Provider] RESULT=SUCCESS'
