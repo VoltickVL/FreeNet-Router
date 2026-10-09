@@ -77,6 +77,7 @@ type statusResponse struct {
 	ProfileLabel           string       `json:"profile_label"`
 	Endpoint               string       `json:"endpoint"`
 	XrayOnline             bool         `json:"xray_online"`
+	VPNStateUnresolved     bool         `json:"vpn_state_unresolved"`
 	XKeenUI                bool         `json:"xkeen_ui_online"`
 	DNSOut                 bool         `json:"dns_out_present"`
 	DNSMode                string       `json:"dns_mode"`
@@ -1003,6 +1004,7 @@ func (a *app) status() statusResponse {
 		ProfileLabel:           p.Label,
 		Endpoint:               endpoint,
 		XrayOnline:             a.liveXrayRunning(),
+		VPNStateUnresolved:     automationMutationBlockedState(),
 		XKeenUI:                processRunning("xkeen-ui"),
 		DNSOut:                 dnsOut,
 		DNSMode:                dnsMode,
