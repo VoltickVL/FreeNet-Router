@@ -687,13 +687,14 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		appliedPlan.Endpoint = liveEndpoint
 	}
 	postNetwork, _ := a.runNetworkPlan()
-	// The provider helper reports success only after the fresh candidate and the
-	// live post-apply VPN route both pass application-level probes. That is
-	// sufficient factual acceptance to retire a stale rollback latch inherited
-	// from an older release and to acknowledge the current post-update hold.
-	setAutomationMutationBlocked(false)
-	if target := automationPendingPostUpdateTarget(a); target != "" {
-		setAutomationPostUpdateAck(target)
+	// Only network-verified automatic/standard applies can clear the safety
+	// latch. Explicit manual overrides deliberately skip route verification and
+	// cannot be used as proof of Internet reachability after a rollback.
+	if !req.ManualOverride {
+		setAutomationMutationBlocked(false)
+		if target := automationPendingPostUpdateTarget(a); target != "" {
+			setAutomationPostUpdateAck(target)
+		}
 	}
 	return http.StatusOK, networkApplyResponse{
 		Success: true, Applied: true, Operation: "provider", ProfileID: profileID,
