@@ -16,6 +16,7 @@ XRAY_BIN="${FREENET_XRAY_BIN:-/opt/sbin/xray}"
 XKEEN_BIN="${FREENET_XKEEN_BIN:-/opt/sbin/xkeen}"
 CORE_RESTART_HELPER="${FREENET_XRAY_CORE_RESTART_HELPER:-}"
 LOCK_DIR="${FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock}"
+TX_DIR="${FREENET_PROVIDER_TX_DIR:-/opt/var/lib/freenet/provider-transaction}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
 PROVIDER_ROUTE_PROBE_BIN="${FREENET_PROVIDER_ROUTE_PROBE_BIN:-}"
 BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
@@ -28,6 +29,7 @@ FILTER_BEFORE_EXISTS=no
 APPLIED=0
 ROLLBACK_ACTIVE=0
 LOCK_HELD=0
+TX_PENDING=0
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Provider] ERROR: %s\n' "$*" >&2; }
@@ -35,12 +37,73 @@ err() { printf '[FreeNet Provider] ERROR: %s\n' "$*" >&2; }
 cleanup() {
     [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR" 2>/dev/null || true
     if [ "$LOCK_HELD" -eq 1 ]; then
-        rm -rf "$LOCK_DIR" 2>/dev/null || true
-        LOCK_HELD=0
+        # A timed-out, interrupted or failed-unknown transaction must never
+        # release the cross-process mutation lock and permit legacy writers.
+        if [ "$TX_PENDING" -eq 0 ] && [ ! -e "$TX_DIR" ] && [ ! -L "$TX_DIR" ]; then
+            rm -rf "$LOCK_DIR" 2>/dev/null || true
+            LOCK_HELD=0
+        fi
     fi
 }
 
+# A stale owner PID does not authorize a new mutation when an earlier
+# transaction still has a protected checkpoint. Read-only reconciliation first.
+provider_transaction_pending() {
+    [ -e "$TX_DIR" ] || [ -L "$TX_DIR" ]
+}
+
+provider_tx_write_state() {
+    TX_STATE="$1"
+    printf '%s\n' "$TX_STATE" > "$TX_DIR/state.new.$" || return 1
+    chmod 600 "$TX_DIR/state.new.$" || return 1
+    mv -f "$TX_DIR/state.new.$" "$TX_DIR/state" || return 1
+    sync || return 1
+}
+
+# Secret-bearing snapshots are persisted outside /tmp BEFORE the first change.
+# A SIGKILL can skip all shell traps, so marker existence is the authoritative
+# STOP fact and is not tied to a process/PID/temporary directory.
+begin_provider_transaction() {
+    provider_transaction_pending && return 1
+    TX_PARENT="$(dirname "$TX_DIR")"
+    mkdir -p "$TX_PARENT" || return 1
+    mkdir "$TX_DIR" || return 1
+    chmod 700 "$TX_DIR" || return 1
+    TX_PENDING=1
+    if [ "$OUT_BEFORE_EXISTS" = yes ]; then
+        cp -p "$OUT_BEFORE" "$TX_DIR/out.before" || return 1
+        chmod 600 "$TX_DIR/out.before" || return 1
+    fi
+    if [ "$PROFILE_BEFORE_EXISTS" = yes ]; then
+        cp -p "$PROFILE_BEFORE" "$TX_DIR/profile.before" || return 1
+        chmod 600 "$TX_DIR/profile.before" || return 1
+    fi
+    if [ "$FILTER_BEFORE_EXISTS" = yes ]; then
+        cp -p "$FILTER_BEFORE" "$TX_DIR/filter.before" || return 1
+        chmod 600 "$TX_DIR/filter.before" || return 1
+    fi
+    {
+        printf 'OUT_BEFORE_EXISTS=%s\n' "$OUT_BEFORE_EXISTS"
+        printf 'PROFILE_BEFORE_EXISTS=%s\n' "$PROFILE_BEFORE_EXISTS"
+        printf 'FILTER_BEFORE_EXISTS=%s\n' "$FILTER_BEFORE_EXISTS"
+        printf 'WAS_RUNNING=%s\n' "$WAS_RUNNING"
+    } > "$TX_DIR/manifest" || return 1
+    chmod 600 "$TX_DIR/manifest" || return 1
+    provider_tx_write_state PREPARED
+}
+
+# Terminal success/verified rollback is the only time a protected STOP marker
+# may be removed by this helper. Never silently clear UNKNOWN after a timeout.
+finish_provider_transaction() {
+    [ "$TX_PENDING" -eq 1 ] || return 1
+    provider_tx_write_state TERMINAL || return 1
+    rm -rf "$TX_DIR" || return 1
+    TX_PENDING=0
+    return 0
+}
+
 acquire_mutation_lock() {
+    provider_transaction_pending && return 1
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         LOCK_HELD=1
         printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null || {
@@ -52,11 +115,13 @@ acquire_mutation_lock() {
     fi
 
     sleep 1
+    provider_transaction_pending && return 1
     OLD_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
     if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
         return 1
     fi
 
+    provider_transaction_pending && return 1
     rm -rf "$LOCK_DIR" 2>/dev/null || return 1
     mkdir "$LOCK_DIR" 2>/dev/null || return 1
     LOCK_HELD=1
@@ -800,8 +865,12 @@ fail_apply() {
     append_provider_history 'failed' "VPN server apply failed: $MESSAGE"
     if [ "$APPLIED" -eq 1 ] && [ "$ROLLBACK_ACTIVE" -eq 0 ]; then
         if rollback_state; then
-            err 'ROLLBACK ERROR/STATE: rollback success'
-            exit 1
+            if finish_provider_transaction; then
+                err 'ROLLBACK ERROR/STATE: rollback success'
+                exit 1
+            fi
+            err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN: checkpoint cannot be finalized'
+            exit 2
         fi
         err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
         exit 2
@@ -910,7 +979,9 @@ if [ "$MODE" = apply-core ]; then
     [ "$WAS_RUNNING" -eq 1 ] || fail_apply 'safe core-only Xray restart requires exactly one running Xray process'
     core_restart_preflight || fail_apply 'safe core-only Xray restart is unavailable or runtime state is ambiguous'
 fi
+begin_provider_transaction || fail_apply 'cannot persist protected provider transaction before mutation'
 APPLIED=1
+provider_tx_write_state APPLYING || fail_apply 'cannot record provider transaction apply state'
 mkdir -p "$(dirname "$PROFILE_FILE")" || fail_apply 'cannot create FreeNet config directory'
 mkdir -p "$(dirname "$FILTER_FILE")" || fail_apply 'cannot create profile filter directory'
 cp "$CANDIDATE_OUT" "$OUT_FILE.new.$$" || fail_apply 'cannot stage outbound candidate'
@@ -923,6 +994,7 @@ printf '%s\n' "$SELECTED_NAME" | escape_ere > "$FILTER_FILE.new.$$" || fail_appl
 chmod 644 "$FILTER_FILE.new.$$" 2>/dev/null || true
 mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" || fail_apply 'cannot commit exact active profile filter'
 
+provider_tx_write_state VERIFYING || fail_apply 'cannot record provider transaction verification state'
 restart_if_needed || fail_apply 'Xray/XKeen runtime acceptance failed after provider apply'
 XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
     || fail_apply 'live Xray configuration validation failed after provider apply'
@@ -930,6 +1002,11 @@ if [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" != 1 ]; then
     provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
 fi
 
+finish_provider_transaction || {
+    err 'PRIMARY ERROR: verified apply completed but transaction checkpoint finalization failed'
+    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
+    exit 2
+}
 append_provider_history 'success' "VPN server applied: $SELECTED_NAME · $SELECTED_ADDRESS:$SELECTED_PORT"
 say '[FreeNet Provider] RESULT=SUCCESS'
 say '[FreeNet Provider] ROLLBACK=NOT_NEEDED'
