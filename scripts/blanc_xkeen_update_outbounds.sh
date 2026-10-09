@@ -7,6 +7,7 @@ ASSET_DIR="${FREENET_ASSET_DIR:-/opt/etc/xray/dat}"
 OUT_FILE="$CONFIG_DIR/04_outbounds.json"
 BACKUP_FILE="$CONFIG_DIR/04_outbounds.json.bak"
 LOCK_DIR="${FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock}"
+PROVIDER_TX_DIR="${FREENET_PROVIDER_TX_DIR:-/opt/var/lib/freenet/provider-transaction}"
 LOG_PREFIX="[blanc-xkeen]"
 BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
 BOOTSTRAP_DNS_SECONDARY="8.8.8.8"
@@ -37,7 +38,12 @@ cleanup() {
 trap cleanup 0
 trap 'exit 130' 1 2 15
 
+provider_transaction_pending() {
+    [ -e "$PROVIDER_TX_DIR" ] || [ -L "$PROVIDER_TX_DIR" ]
+}
+
 acquire_lock() {
+    provider_transaction_pending && fail "unresolved provider transaction checkpoint: STOP before mutation"
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         LOCK_HELD=1
         echo "$$" > "$LOCK_DIR/pid"
@@ -45,12 +51,14 @@ acquire_lock() {
     fi
 
     sleep 1
+    provider_transaction_pending && fail "unresolved provider transaction checkpoint: STOP before stale-lock recovery"
     OLD_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
 
     if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
         fail "another updater instance is already running (pid $OLD_PID)"
     fi
 
+    provider_transaction_pending && fail "unresolved provider transaction checkpoint: STOP before stale-lock recovery"
     rm -rf "$LOCK_DIR" 2>/dev/null || fail "cannot remove stale updater lock"
     mkdir "$LOCK_DIR" 2>/dev/null || fail "cannot acquire updater lock"
 
