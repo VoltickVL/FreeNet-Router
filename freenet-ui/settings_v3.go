@@ -161,6 +161,7 @@ func registerSettingsV3API(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/settings-v3", a.requireAuth(a.handleSettingsV3Get))
 	mux.HandleFunc("GET /api/journal", a.requireAuth(a.handleJournalGet))
 	mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))
+	mux.HandleFunc("GET /api/journal/diagnostics", a.requireAuth(a.handleJournalDiagnostics))
 	mux.HandleFunc("POST /api/settings-v3", a.requireAuth(a.handleSettingsV3Save))
 	mux.HandleFunc("POST /api/settings-v3/action", a.requireAuth(a.handleSettingsV3Action))
 }
@@ -394,6 +395,10 @@ func v3WriteState(values map[string]string) error {
 }
 
 func appendBoundedJournalLine(path, line string) {
+	stored := false
+	defer func() {
+		if stored { technicalJournalObserve(path, line) }
+	}()
 	journalHistoryMu.Lock()
 	defer journalHistoryMu.Unlock()
 
@@ -402,8 +407,9 @@ func appendBoundedJournalLine(path, line string) {
 	if err != nil {
 		return
 	}
-	_, _ = file.WriteString(line)
-	_ = file.Close()
+	_, writeErr := file.WriteString(line)
+	closeErr := file.Close()
+	stored = writeErr == nil && closeErr == nil
 
 	data, err := os.ReadFile(path)
 	if err != nil {

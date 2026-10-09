@@ -213,6 +213,7 @@ func main() {
 	flag.Parse()
 
 	a := &app{cfg: cfg, sem: make(chan struct{}, 1)}
+	startTechnicalJournalRecorder() // diagnostics only; capture early startup incidents
 	reconcileSettingsV3SchedulerOnStartup(a)
 	a.initializeXrayRuntimeIntent()
 	a.startXrayRuntimeWatchdog()
