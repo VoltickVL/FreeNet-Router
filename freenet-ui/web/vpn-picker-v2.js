@@ -9,10 +9,10 @@
   const L = {
     choose:'Выбор VPN-сервера', current:'Текущий VPN', connected:'Подключено',
     offline:'Не подключён', unknown:'Статус неизвестен', connect:'Подключиться', reset:'Сбросить', close:'Закрыть',
-    search:'Страна, город или адрес сервера', hint:'Сначала проверка, затем подключение',
+    search:'Страна, город или адрес сервера', hint:'Ручной выбор без предварительной проверки доступности',
     idle:'Выберите сервер из списка', unchanged:'Текущий VPN не меняется до нажатия «Подключиться».',
-    checking:'Проверяем сервер…', ready:'Проверка пройдена', applying:'Подключаем и проверяем соединение…',
-    failed:'Проверка не пройдена', empty:'Список серверов недоступен. Проверьте подписку.',
+    checking:'Выбираем сервер…', ready:'Можно подключиться вручную', applying:'Применяем конфигурацию…',
+    failed:'Не удалось применить конфигурацию', empty:'Список серверов недоступен. Проверьте подписку.',
     noMatch:'Ничего не найдено. Измените запрос.', stale:'Показан последний успешный список.',
     busy:'Другая операция VPN ещё выполняется.', blocked:'Результат нужно подтвердить. Повтор заблокирован.',
     ping:'Измерить задержку через каждый VPN', pinging:'Проверяем задержку через каждый VPN…', pingFailed:'Не удалось измерить RTT серверов.',
@@ -441,7 +441,7 @@
     if (selected) {
       if (choosing || e.card?.classList.contains('is-checking')) {state='checking';title=L.checking;note=clean(selected.name);}
       else if (e.applying) {state='applying';title=L.applying;note=clean(selected.name);}
-      else if (sent && !e.id && online && s.endpoint===selected.endpoint) {state='success';title=L.connected;note=clean(selected.name);}
+      else if (sent && !e.id && online && s.endpoint===selected.endpoint) {state='success';title='Конфигурация применена';note='Доступность VPN не проверялась: '+clean(selected.name);}
       else if (error || e.card?.classList.contains('is-error')) {state='error';title=uncertain(e)?L.blocked:L.failed;note=error || e.note || e.title;}
       else if (canConnect(e)) {state='ready';title=L.ready;note=clean(selected.name);}
       else if (sent) {state='applying';title=L.applying;note=e.note || L.blocked;}

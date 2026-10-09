@@ -100,11 +100,11 @@ async function capture(label){
     }
     if(url.pathname==='/api/network-profile/apply'){
       const body=JSON.parse(req.postData());
-      const expectedKeys=body.selection_token?['confirm','operation','profile_id','selection_token']:['confirm','operation','profile_id'];
+      const expectedKeys=['confirm','expected_endpoint','manual_override','operation','profile_id'];
       assert.deepEqual(Object.keys(body).sort(),expectedKeys);
-      if(body.selection_token)assert.equal(body.selection_token,manualRTTToken,'manual apply must bind the RTT snapshot');
+      assert.equal(body.manual_override,true,'explicit manual override required');
       assert.equal(body.operation,'provider');assert.equal(body.confirm,true);
-      const selected=profiles.find(p=>p.id===body.profile_id);assert.ok(selected);
+      const selected=profiles.find(p=>p.id===body.profile_id);assert.ok(selected);assert.equal(body.expected_endpoint,ep(selected),'manual endpoint binding required');
       if(applyMode==='unknown')return answer(route,{success:false,error:'Результат операции не подтверждён',rollback_state:'UNKNOWN'},502);
       await delay(250);status={...status,country:'',city:'',country_code:'',profile_label:selected.name,endpoint:ep(selected)};
       return answer(route,{success:true,applied:true,rollback_state:'NOT_NEEDED'});
@@ -141,6 +141,7 @@ async function capture(label){
   await until(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Бельгия','current country after provenance reload');
   const order=await page.locator('#overviewApprovedTop').evaluate(n=>Array.from(n.children).map(x=>x.matches('.fn-xray-topbar')?'xray':x.id==='fnVpnPickerV2Host'?'vpn':x.id==='topFreenetUpdate'?'freenet':/DNS/i.test(x.textContent||'')?'dns':'other').filter(x=>x!=='other'));
   assert.deepEqual(order,['xray','vpn','dns','freenet']);
+  await until(()=>!!document.querySelector('#xrayTopbarVersion') && !!document.querySelector('#topFreenetUpdate .fn-version-copy strong'), 'all async topbar values mounted');
   const topbarType=await page.evaluate(()=>{
     const selectors=['#xrayTopbarVersion','#overviewApprovedTop .fn-shell-fact-copy>strong','#topFreenetUpdate .fn-version-copy strong'];
     return selectors.map(selector=>{
@@ -251,7 +252,7 @@ async function capture(label){
   // Explicitly remove the measured snapshot to test the legacy no-RTT fallback.
   await page.evaluate(()=>{window.freenetManualRTTSelection=null;});
   await page.locator(S).fill('NL');await page.locator(R+' button').first().click();
-  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','validation error');assert.equal(await page.locator(C).isDisabled(),true);assert.match(await page.locator('#fnVpnPickerV2Detail').textContent(),/Xray/);await geometry('validation-error');assert.equal(countApply(),1);
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','manual selection without preplan');assert.equal(await page.locator(C).isDisabled(),false);assert.equal(calls.filter(c=>c.path==='/api/provider-profile/plan').length,providerReadsBeforeManual,'manual selection must never preflight even on failed provider plan');await geometry('manual-no-preplan');assert.equal(countApply(),1);
   await page.locator('#fnVpnPickerV2Reset').click();planMode='offline';await page.evaluate(()=>loadNetworkPlan());await page.locator(S).fill('');
   await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'cached list');await until(()=>!document.querySelector('#fnVpnPickerV2Stale').hidden,'stale banner');assert.equal(countApply(),1);
 

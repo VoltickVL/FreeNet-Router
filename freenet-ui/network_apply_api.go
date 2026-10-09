@@ -73,6 +73,8 @@ type networkApplyRequest struct {
 	NativeDNSProvider  string `json:"native_dns_provider,omitempty"`
 	ProfileID          string `json:"profile_id,omitempty"`
 	SelectionToken     string `json:"selection_token,omitempty"`
+	ManualOverride      bool   `json:"manual_override,omitempty"`
+	ExpectedEndpoint    string `json:"expected_endpoint,omitempty"`
 	NativeFilterEngine string `json:"native_filter_engine,omitempty"`
 	Confirm            bool   `json:"confirm"`
 }
@@ -505,10 +507,15 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "invalid VPN selection token"})
 		return
 	}
+	if req.ManualOverride && (strings.TrimSpace(req.ExpectedEndpoint) == "" || len(req.ExpectedEndpoint) > 320) {
+		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success:false, Operation:"provider", ProfileID:profileID, Error:"expected endpoint required for explicit manual VPN"})
+		return
+	}
 	operationTarget := profileID
 	if selectionToken != "" {
 		operationTarget += "@" + selectionToken
 	}
+	if req.ManualOverride { operationTarget += "@manual:" + req.ExpectedEndpoint }
 
 	op, leader, conflict := vpnOperations.begin("provider", operationTarget)
 	if !leader {
@@ -546,7 +553,7 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 	journalMessage := "Сервер: " + journalName
 	if result.Success {
 		journalResult = "success"
-		journalMessage += " | Итог: VPN подключён"
+		if req.ManualOverride { journalMessage += " | Итог: конфигурация применена; доступность VPN не проверялась" } else { journalMessage += " | Итог: VPN подключён" }
 	} else {
 		reason := sanitizeAutomationReason(result.PrimaryError)
 		if reason == "" {
@@ -589,7 +596,16 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	)
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	if selectionToken != "" {
+	if req.ManualOverride {
+		if selectionToken != "" {
+			return http.StatusBadRequest, networkApplyResponse{Success:false, Operation:"provider", ProfileID:profileID, RollbackState:"NOT_APPLIED", Error:"manual override cannot combine with measured selection token"}
+		}
+		selected, err = a.localManualProviderCandidate(profileID, req.ExpectedEndpoint)
+		if err != nil { return http.StatusConflict, networkApplyResponse{Success:false,Operation:"provider",ProfileID:profileID,RollbackState:"NOT_APPLIED",Error:err.Error()} }
+		useSnapshot = true
+		manualRTT = true
+		providerPlan = providerPlanResponse{Success:true, ProfileID:selected.Profile.ID, ProfileName:selected.Profile.Name, Endpoint:profileEndpoint(selected.Profile),Mutation:"NONE"}
+	} else if selectionToken != "" {
 		selected, manualRTT, err = a.loadBestServerSelectionCandidateWithPurpose(selectionToken, profileID, currentEndpoint, currentFilter)
 		if err != nil {
 			return http.StatusConflict, networkApplyResponse{
@@ -671,17 +687,18 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		appliedPlan.Endpoint = liveEndpoint
 	}
 	postNetwork, _ := a.runNetworkPlan()
-	// The provider helper reports success only after the fresh candidate and the
-	// live post-apply VPN route both pass application-level probes. That is
-	// sufficient factual acceptance to retire a stale rollback latch inherited
-	// from an older release and to acknowledge the current post-update hold.
-	setAutomationMutationBlocked(false)
-	if target := automationPendingPostUpdateTarget(a); target != "" {
-		setAutomationPostUpdateAck(target)
+	// Only network-verified automatic/standard applies can clear the safety
+	// latch. Explicit manual overrides deliberately skip route verification and
+	// cannot be used as proof of Internet reachability after a rollback.
+	if !req.ManualOverride {
+		setAutomationMutationBlocked(false)
+		if target := automationPendingPostUpdateTarget(a); target != "" {
+			setAutomationPostUpdateAck(target)
+		}
 	}
 	return http.StatusOK, networkApplyResponse{
 		Success: true, Applied: true, Operation: "provider", ProfileID: profileID,
-		Message: "VPN-профиль применён, интернет через него проверен.", RollbackState: "NOT_NEEDED",
+		Message: providerApplySuccessMessage(req.ManualOverride), RollbackState: "NOT_NEEDED",
 		Plan: postNetwork, ProviderPlan: &appliedPlan,
 	}
 }
@@ -993,4 +1010,9 @@ func parseProviderPlan(output string) (providerPlanResponse, error) {
 		CandidateRouteOK: values["CANDIDATE_ROUTE_OK"] == "yes", ExpectedDelta: values["EXPECTED_DELTA"],
 		ExpectedNoDelta: values["EXPECTED_NO_DELTA"], Mutation: values["MUTATION"],
 	}, nil
+}
+
+func providerApplySuccessMessage(manualOverride bool) string {
+	if manualOverride { return "VPN-конфигурация применена; доступность сервера и интернет через VPN не проверялись." }
+	return "VPN-профиль применён, интернет через него проверен."
 }
