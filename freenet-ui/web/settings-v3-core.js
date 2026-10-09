@@ -592,6 +592,23 @@
     }).join('') + '</div>';
   }
 
+  // Friendly event headline. The complete original message stays available
+  // behind disclosure, while the separate technical export preserves full stages.
+  function journalBrief(event, message) {
+    const result = String(event?.result || '').toLowerCase();
+    const raw = String(message || '').trim();
+    if (result.includes('post_update_guard:blocked')) return 'После обновления состояние VPN пока неясно — автоматические изменения удерживаются.';
+    if (result.includes('post_update_guard:recovery_allowed')) return 'Текущий VPN не подтвердил доступ — разрешены штатные проверки перед восстановлением.';
+    if (result.includes('post_update_guard:cleared')) return 'Текущий VPN подтвердил доступ после обновления.';
+    if (result.includes('rollback') && result.includes('failed')) return 'Не удалось подтвердить безопасный откат — требуется диагностика.';
+    if (result.includes('incident:recovered')) return 'AUTO VPN восстановил соединение.';
+    if (result.includes('incident:start')) return 'AUTO VPN начал восстановление соединения.';
+    if (result.includes('incident:failed')) return 'AUTO VPN не удалось восстановить соединение.';
+    if (/качество соединения ухудшен|подтверждение деградации/i.test(raw)) return 'Качество VPN ухудшилось — AUTO VPN собирает подтверждения.';
+    const first = raw.split(/(?<=[.!?])\\s+/)[0] || raw;
+    return first.length > 145 ? first.slice(0, 142).trimEnd() + '…' : first;
+  }
+
   function renderJournal(events, target = '#fn3JournalFull') {
     const body = q(target); if (!body) return;
     const source = Array.isArray(events) ? events : [];
@@ -603,7 +620,12 @@
     body.innerHTML = filtered.map(e => {
       const [result, msg, tone] = humanResult(e.result, e.message);
       const [kind, kindClass] = journalKind(e);
-      const messageMarkup = String(e.kind || '').trim().toLowerCase() === 'vpn_manual' ? manualJournalMarkup(msg) : `<div class="fn3-journal-event-message">${escapeHTML(msg)}</div>`;
+      const isManual = String(e.kind || '').trim().toLowerCase() === 'vpn_manual';
+      const brief = journalBrief(e, msg);
+      const expanded = msg.length > 160 || brief !== msg;
+      const messageMarkup = isManual ? manualJournalMarkup(msg) :
+        `<div class="fn3-journal-event-message"><div class="fn3-journal-brief">${escapeHTML(brief)}</div>${expanded ?
+          `<details class="fn3-journal-event-details"><summary>Подробности события</summary><div class="fn3-journal-raw-message">${escapeHTML(msg)}</div></details>` : ''}</div>`;
       const toneClass = tone === 'ok' ? 'ok' : tone === 'bad' ? 'bad' : 'neutral';
       const resultClass = tone === 'ok' ? '' : tone === 'bad' ? 'bad' : 'neutral';
       return `<article class="fn3-journal-event ${toneClass}">
@@ -1052,7 +1074,7 @@
       page.innerHTML = `<section class="fn3-journal-hero">
         <div class="fn3-journal-kicker">СОБЫТИЯ И ДИАГНОСТИКА</div>
         <h1>Журнал</h1>
-        <p>История значимых событий FreeNet: VPN, AUTO VPN, обновления и системные действия. Повторяющиеся штатные проверки агрегируются, а инциденты и этапы восстановления сохраняются подробно.</p>
+        <p>История значимых событий FreeNet: VPN, AUTO VPN, обновления и системные действия. Повторяющиеся штатные проверки объединяются. Видны причина и результат, а полные детали доступны по нажатию. Отдельный технический лог помогает разбирать инциденты.</p>
         <div class="fn3-journal-policy">
           <span>До 15 000 значимых событий</span>
           <span class="healthy">Штатная отметка — не чаще 1 раза в 6 часов</span>
@@ -1061,8 +1083,8 @@
         </div>
       </section>
       <section class="fn3-journal-control-card">
-        <div class="fn3-journal-toolbar"><input id="fn3JournalSearch" class="fn3-journal-search" type="search" autocomplete="off" placeholder="Поиск: сервер, AUTO, ошибка, обновление, 189 мс…"><div class="fn3-journal-actions"><button id="fn3JournalFiltersToggle" class="fn3-journal-filter-toggle" type="button" aria-expanded="false">Фильтры</button><button id="fn3JournalExport" class="fn3-journal-export" type="button">Экспорт CSV</button><button id="fn3JournalDiagnostics" class="fn3-journal-export" type="button" title="Исходные этапы инцидентов и состояния без запуска проверок VPN">Диагностика JSON</button><button id="fn3JournalLive" class="fn3-journal-live active" type="button" aria-pressed="true" title="Остановить автообновление журнала"><span class="fn3-journal-live-dot"></span>Пауза</button><button id="fn3JournalRefresh" class="fn3-journal-refresh" type="button">Обновить</button></div></div>
-        <div id="fn3JournalMeta" class="fn3-journal-meta">Read-only журнал готов к обновлению.</div>
+        <div class="fn3-journal-toolbar"><input id="fn3JournalSearch" class="fn3-journal-search" type="search" autocomplete="off" placeholder="Поиск: сервер, AUTO, ошибка, обновление, 189 мс…"><div class="fn3-journal-actions"><button id="fn3JournalFiltersToggle" class="fn3-journal-filter-toggle" type="button" aria-expanded="false">Фильтры</button><button id="fn3JournalExport" class="fn3-journal-export" type="button">Экспорт CSV</button><button id="fn3JournalDiagnostics" class="fn3-journal-export" type="button" title="Исходные этапы инцидентов и состояния без запуска проверок VPN">Скачать технический лог</button><button id="fn3JournalLive" class="fn3-journal-live active" type="button" aria-pressed="true" title="Остановить автообновление журнала"><span class="fn3-journal-live-dot"></span>Пауза</button><button id="fn3JournalRefresh" class="fn3-journal-refresh" type="button">Обновить</button></div></div>
+        <div id="fn3JournalMeta" class="fn3-journal-meta">Журнал показывает значимые события; технический лог содержит отдельную хронологию, состояния защит и исходные этапы без агрегации.</div>
         <div id="fn3JournalAdvancedFilters" class="fn3-journal-filter-groups" hidden>
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Период</span><div class="fn3-journal-range">${ranges.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-range="${key}">${label}</button>`).join('')}<span id="fn3JournalCustomRange" class="fn3-journal-custom" hidden><input id="fn3JournalFrom" type="datetime-local" aria-label="Начало периода"><input id="fn3JournalTo" type="datetime-local" aria-label="Конец периода"></span></div></div>
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Событие</span><div class="fn3-journal-filters">${filters.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-filter="${key}">${label}</button>`).join('')}</div></div>
