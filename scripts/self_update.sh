@@ -538,6 +538,101 @@ snapshot_xray() {
     fi
 }
 
+
+# Existing-stack upgrade preflight does not start/stop Xray, execute XKeen,
+# read credentials, change cron, or probe the VPN.
+STACK_KIND=UNKNOWN
+STACK_ERROR=''
+stack_refuse() {
+    STACK_KIND="$1"
+    STACK_ERROR="$2"
+    return 1
+}
+
+check_existing_stack_compatibility() {
+    STACK_KIND=UNKNOWN
+    STACK_ERROR=''
+    XK="$ROOT/sbin/xkeen"
+    XR="$ROOT/sbin/xray"
+    INIT="$ROOT/etc/init.d/S99xkeen"
+
+    [ -x "$XK" ] && [ -x "$XR" ] && [ -f "$INIT" ] && [ -d "$ROOT/etc/xray/configs" ] ||
+        { stack_refuse PARTIAL_STACK 'Existing XKeen/Xray/configs/init are incomplete; safe FreeNet helper upgrade is blocked'; return 1; }
+
+    # Old Giga XKeen: pidof xray with no supported foreground start.
+    # Neither a PID nor "xray run -test" proves startup compatibility.
+    if ! grep -Fq 'XKEEN_FOREGROUND' "$XK" 2>/dev/null; then
+        if grep -Eq 'pidof[[:space:]]+("?[$]name_client"?|xray)' "$INIT" 2>/dev/null; then
+            stack_refuse LEGACY_PIDOF 'Legacy XKeen pidof startup without foreground support; working VPN preserved, update requires compatibility repair'
+        else
+            stack_refuse UNKNOWN_XKEEN 'XKeen foreground startup compatibility cannot be verified read-only; update is blocked'
+        fi
+        return 1
+    fi
+
+    # Do not upgrade the helpers while a VPN writer is running or unresolved.
+    STACK_LOCK='/tmp/blanc_xkeen_update.lock'
+    [ -z "$FREENET_STACK_MUTATION_LOCK" ] || STACK_LOCK="$FREENET_STACK_MUTATION_LOCK"
+    [ ! -e "$STACK_LOCK" ] ||
+        { stack_refuse MUTATION_BUSY 'An Xray/provider mutation lock exists; await read-only reconciliation'; return 1; }
+    STACK_LOCK='/tmp/freenet-auto-vpn.lock'
+    [ -z "$FREENET_STACK_AUTO_LOCK" ] || STACK_LOCK="$FREENET_STACK_AUTO_LOCK"
+    [ ! -e "$STACK_LOCK" ] ||
+        { stack_refuse MUTATION_BUSY 'A legacy AUTO VPN mutation lock exists; await read-only reconciliation'; return 1; }
+
+    command -v crontab >/dev/null 2>&1 ||
+        { stack_refuse CRON_UNKNOWN 'Entware crontab is unavailable; other runtime writers cannot be verified'; return 1; }
+    # "no crontab" with empty stdout is a legitimate empty schedule.
+    STACK_CRON="$(crontab -l 2>/dev/null)" || {
+        [ -z "$STACK_CRON" ] ||
+            { stack_refuse CRON_UNKNOWN 'Unable to inspect cron safely'; return 1; }
+    }
+    if ! printf '%s\n' "$STACK_CRON" | awk '
+        /^# BEGIN FREENET$/ {managed=1; next}
+        /^# END FREENET$/ {managed=0; next}
+        managed || /^[[:space:]]*#/ || NF < 6 {next}
+        /xkeen[[:space:]]+-(restart|start|stop)([[:space:]]|$)/ ||
+        /blanc_xkeen_update_outbounds[.]sh/ ||
+        /auto_vpn[.]sh/ ||
+        /freenet-ui[[:space:]]+(automation-health-watch|settings-v3-endpoint-refresh|settings-v3-subscription)/ ||
+        /(^|\/)xray[[:space:]]+run([[:space:]]|$)/ {unsafe++}
+        END {exit unsafe > 0 ? 1 : 0}
+    '; then
+        stack_refuse UNMANAGED_WRITER 'Unmanaged cron controls Xray/XKeen/VPN; update blocked without changing the job'
+        return 1
+    fi
+
+    STACK_KIND=DECLARED_COMPATIBLE
+    return 0
+}
+
+# Persist only hashes of protected external router assets, never credentials.
+# Offline Xray is permitted. Update must not modify core binaries, init hooks,
+# netfilter, subscription, profile, router config or cron.
+snapshot_protected_stack() {
+    OUT="$1"
+    : > "$OUT" || return 1
+    for F in \
+        "$ROOT/sbin/xray" "$ROOT/sbin/xkeen" "$ROOT/sbin/xkeen-ui" \
+        "$ROOT/etc/init.d/S99xkeen" "$ROOT/etc/init.d/S99xkeen-ui" \
+        "$ROOT/etc/ndm/netfilter.d/proxy.sh" \
+        "$ROOT/etc/freenet/freenet.conf" "$ROOT/etc/freenet/vpn_profile_name" \
+        "$ROOT/etc/xray/blanc_subscription.url" "$ROOT/etc/xray/blanc_profile_filter.regex"
+    do
+        if [ -e "$F" ]; then
+            [ -f "$F" ] || return 1
+            sha256sum "$F" >> "$OUT" || return 1
+        else
+            printf '%s MISSING\n' "$F" >> "$OUT" || return 1
+        fi
+    done
+    command -v crontab >/dev/null 2>&1 || return 1
+    CRON_SNAPSHOT="$(crontab -l 2>/dev/null)" || [ -z "$CRON_SNAPSHOT" ] || return 1
+    CRON_SHA="$(printf '%s' "$CRON_SNAPSHOT" | sha256sum | awk '{print $1}')"
+    [ -n "$CRON_SHA" ] || return 1
+    printf '%s CRONTAB\n' "$CRON_SHA" >> "$OUT"
+}
+
 backup_one() {
     SRC="$1"
     KEY="$2"
@@ -561,6 +656,7 @@ prepare_backup() {
         backup_one "$DEST" "asset-$I" || return 1
     done
     snapshot_xray "$BACKUP_DIR/xray-hashes.before" || return 1
+    snapshot_protected_stack "$BACKUP_DIR/protected-stack.before" || return 1
 }
 
 restore_one() {
@@ -630,6 +726,8 @@ accept_runtime() {
 
     snapshot_xray "$TMP_DIR/xray-hashes.after" || return 1
     cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.after" >/dev/null 2>&1 || return 1
+    snapshot_protected_stack "$TMP_DIR/protected-stack.after" || return 1
+    cmp "$BACKUP_DIR/protected-stack.before" "$TMP_DIR/protected-stack.after" >/dev/null 2>&1 || return 1
     return 0
 }
 
@@ -656,6 +754,8 @@ rollback_assets() {
     fi
     snapshot_xray "$TMP_DIR/xray-hashes.rollback" || return 1
     cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.rollback" >/dev/null 2>&1 || return 1
+    snapshot_protected_stack "$TMP_DIR/protected-stack.rollback" || return 1
+    cmp "$BACKUP_DIR/protected-stack.before" "$TMP_DIR/protected-stack.rollback" >/dev/null 2>&1 || return 1
     return 0
 }
 
@@ -675,6 +775,17 @@ run_plan() {
     for T in curl sha256sum sed awk grep mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || { plan_error "required command missing: $T"; return 1; }
     done
+    if ! check_existing_stack_compatibility; then
+        say 'SUCCESS=yes'
+        say 'READY=no'
+        say "CURRENT_VERSION=$CURRENT_VERSION"
+        say "TARGET_TAG=$TARGET_TAG"
+        say "STACK_COMPATIBILITY=$STACK_KIND"
+        say "ERROR=$STACK_ERROR"
+        say 'EXPECTED_DELTA=NONE; existing router stack preserved'
+        say 'MUTATION=NONE'
+        return 0
+    fi
     if [ -n "$TARGET_TAG" ]; then
         # Exact target is already selected by the authenticated release catalog.
         # Do not spend another network round-trip asking GitHub which release is latest.
@@ -706,6 +817,8 @@ run_plan() {
 
     say 'SUCCESS=yes'
     say 'READY=yes'
+    say "STACK_COMPATIBILITY=$STACK_KIND"
+    say 'STACK_RUNTIME_ACCEPTANCE=NOT_TESTED'
     say "CURRENT_VERSION=$CURRENT_VERSION"
     say "LATEST_VERSION=$LATEST"
     say "TARGET_TAG=$PLAN_TARGET"
@@ -752,6 +865,7 @@ run_apply() {
     for T in curl sha256sum sed awk grep cmp mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || fail_before_mutation "required command missing: $T"
     done
+    check_existing_stack_compatibility || fail_before_mutation "$STACK_KIND: $STACK_ERROR"
     fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release is not a published stable FreeNet release'
 
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -766,8 +880,10 @@ run_apply() {
     make_tmp || fail_before_mutation 'cannot create staging directory'
     download_assets "$TARGET_TAG" || fail_before_mutation "${LAST_DOWNLOAD_ERROR:-release asset download or SHA-256 verification failed}"
     validate_stage || fail_before_mutation 'staging validation failed'
+    check_existing_stack_compatibility || fail_before_mutation "$STACK_KIND: $STACK_ERROR"
     write_state SNAPSHOT "$TARGET_TAG" 'Создаём snapshot FreeNet-owned файлов' '' NOT_NEEDED '' || true
     prepare_backup || fail_before_mutation 'cannot create pre-update snapshot'
+    check_existing_stack_compatibility || fail_before_mutation "$STACK_KIND: $STACK_ERROR"
 
     MUTATED=1
     write_state UPDATING "$TARGET_TAG" 'Применяем проверенные FreeNet assets' '' PENDING "$BACKUP_DIR" || true
