@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -52,6 +51,9 @@ type journalDiagnosticReport struct {
 	Update        journalDiagnosticUpdate  `json:"update"`
 	SourceCount   map[string]int           `json:"source_event_count"`
 	Events        []automationEvent        `json:"events"`
+	TechnicalEvents []technicalJournalRecord `json:"technical_events"`
+	TechnicalDropped uint64 `json:"technical_dropped"`
+	TechnicalWriteErrors uint64 `json:"technical_write_errors"`
 	Notes         []string                 `json:"notes"`
 }
 
@@ -143,6 +145,9 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 		},
 		SourceCount: map[string]int{"auto": len(autoHistory), "settings": len(systemHistory)},
 		Events: events,
+		TechnicalEvents: readTechnicalJournalRecords(technicalJournalPath(), technicalJournalMaxExportLines),
+		TechnicalDropped: technicalJournalDropped.Load(),
+		TechnicalWriteErrors: technicalJournalWriteErrors.Load(),
 		Notes: []string{
 			"Historical observations only: no new VPN probe or router connectivity acceptance was performed.",
 			"Original on-disk journals are unchanged; these entries bypass display deduplication.",
@@ -167,6 +172,3 @@ func (a *app) handleJournalDiagnostics(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(append(payload, '\n'))
 }
 
-// The handler requires auth, and os.* is used only for existing on-disk reads.
-// Verify that adding it never creates a new diagnostic log or background job.
-var _ = os.ErrNotExist
