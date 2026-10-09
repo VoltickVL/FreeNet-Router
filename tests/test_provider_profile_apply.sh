@@ -524,4 +524,50 @@ if identify_main_xray '23808 99999' > /dev/null; then
     fail 'unreadable PID metadata must STOP before any mutation'
 fi
 
+# Legacy Giga XKeen decides whether to start a core with plain "pidof xray".
+# FreeNet may identify the primary correctly, but it must NOT kill that core
+# if the installed XKeen also sees a second isolated probe PID: old XKeen
+# would then mistake the probe for an already-running production Xray.
+sed -n '/^xkeen_exclusive_runtime_view() {/,/^}/p' "$SCRIPT" > "$TMP/xkeen-process-view.func"
+[ -s "$TMP/xkeen-process-view.func" ] || fail 'legacy XKeen process-view guard missing'
+check_xkeen_view() {
+    TEST_XRAY_PIDS="$1" PATH="$TMP/bin:$PATH" \
+        sh -c '. "$1"; err() { :; }; xkeen_exclusive_runtime_view "$2"' \
+        sh "$TMP/xkeen-process-view.func" "$2"
+}
+check_xkeen_view '23808' 23808 || fail 'single live production Xray should pass legacy XKeen guard'
+check_xkeen_view '' '' || fail 'fully stopped production Xray should pass clean startup guard'
+if check_xkeen_view '23808 27453' 23808; then
+    fail 'legacy XKeen guard allowed isolated Xray to mask a stopped core'
+fi
+if check_xkeen_view '27453' ''; then
+    fail 'legacy XKeen startup guard accepted isolated worker as a production core'
+fi
+if check_xkeen_view '23809' 23808; then
+    fail 'legacy XKeen guard accepted a different Xray PID'
+fi
+
+# Exercise the actual apply-core preflight, not just a mocked restart helper.
+# No credentials, route rules or live output are changed on refusal.
+CORE_HELPER=''
+export CORE_HELPER
+LEGACY_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+LEGACY_FILTER="$(cat "$TMP/profile.filter")"
+LEGACY_PROFILE="$(cat "$TMP/etc/vpn_profile_name")"
+if TEST_XRAY_PIDS='23808 27453' FREENET_XRAY_PROC_ROOT="$TMP/proc" \
+    FREENET_PROVIDER_RTT_MANUAL=1 run_helper apply-core "$PROFILE_ID" \
+    > "$TMP/legacy-conflict.out" 2> "$TMP/legacy-conflict.err"; then
+    fail 'apply-core mutated while old XKeen saw both main and isolated Xray'
+fi
+grep -Fq 'core-only cutover refused: legacy XKeen sees another Xray process' "$TMP/legacy-conflict.err" ||
+    fail 'legacy pidof conflict missing its primary diagnostic'
+grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/legacy-conflict.err" ||
+    fail 'legacy pidof conflict was not classified as STOP before mutation'
+[ "$LEGACY_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] ||
+    fail 'legacy pidof conflict altered the production outbound'
+[ "$LEGACY_FILTER" = "$(cat "$TMP/profile.filter")" ] ||
+    fail 'legacy pidof conflict altered the production filter'
+[ "$LEGACY_PROFILE" = "$(cat "$TMP/etc/vpn_profile_name")" ] ||
+    fail 'legacy pidof conflict altered the preferred VPN label'
+
 echo 'provider profile apply test PASS'

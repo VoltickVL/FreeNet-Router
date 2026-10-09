@@ -622,6 +622,26 @@ managed_xray_pid() {
     return 2
 }
 
+# Installed legacy XKeen uses "pidof xray" for proxy_status/start. Its view
+# must contain the production PID ONLY, even if FreeNet itself can correctly
+# distinguish an isolated -confdir probe. Refuse a conflicting view BEFORE
+# touching the live config or killing the primary process. No guessed kills.
+xkeen_exclusive_runtime_view() {
+    EXPECTED_CORE_PID="${1:-}"
+    XKEEN_VISIBLE_PIDS="$(pidof xray 2>/dev/null || true)"
+    set -- $XKEEN_VISIBLE_PIDS
+    if [ -n "$EXPECTED_CORE_PID" ]; then
+        if [ "$#" -ne 1 ] || [ "$1" != "$EXPECTED_CORE_PID" ]; then
+            err 'core-only cutover refused: legacy XKeen sees another Xray process; wait for isolated probes to finish'
+            return 1
+        fi
+    elif [ "$#" -ne 0 ]; then
+        err 'core-only cutover refused: legacy XKeen still sees Xray processes after primary core stopped'
+        return 1
+    fi
+    return 0
+}
+
 core_restart_preflight() {
     if [ -n "$CORE_RESTART_HELPER" ]; then
         [ -x "$CORE_RESTART_HELPER" ] || return 1
@@ -629,7 +649,8 @@ core_restart_preflight() {
     fi
     command -v kill >/dev/null 2>&1 || return 1
     [ -x "$XKEEN_BIN" ] || return 1
-    managed_xray_pid >/dev/null 2>&1
+    PREFLIGHT_CORE_PID="$(managed_xray_pid)" || return 1
+    xkeen_exclusive_runtime_view "$PREFLIGHT_CORE_PID"
 }
 
 restart_xray_core() {
@@ -653,6 +674,10 @@ restart_xray_core() {
             ;;
     esac
 
+    # FreeNet knows the core identity, but XKeen's installed pidof-based
+    # start path cannot distinguish isolated Xray workers. They must drain
+    # before stopping the one accepted production process.
+    xkeen_exclusive_runtime_view "$OLD_PID" || return 1
     if [ -n "$OLD_PID" ]; then
         kill "$OLD_PID" 2>/dev/null || return 1
         I=0
@@ -670,6 +695,11 @@ restart_xray_core() {
         fi
         kill -0 "$OLD_PID" 2>/dev/null && return 1
     fi
+
+    # If an out-of-band Xray appeared during shutdown, legacy XKeen would
+    # treat it as the core and silently skip start. Stop rather than invoking
+    # XKeen in an ambiguous state or signaling an unrelated PID.
+    xkeen_exclusive_runtime_view "" || return 1
 
     # Keep XKeen/netfilter ownership intact: do not call XKeen stop/restart.
     # Start the Xray core through XKeen's canonical synchronous start path so

@@ -658,6 +658,22 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		onManualStart(providerPlan)
 	}
 
+	// Old XKeen init scripts use pidof xray for their startup readiness gate.
+	// Let every in-flight FreeNet isolated RTT/quality/health worker exit before
+	// the shell helper can stop the production core, then exclude new workers
+	// until apply and any rollback are terminal. No PID is killed by this gate.
+	quiesceCtx, cancelQuiesce := context.WithTimeout(context.Background(), 12*time.Second)
+	releaseProbes, quiesced := acquireExclusiveIsolatedXrayProbe(quiesceCtx)
+	cancelQuiesce()
+	if !quiesced {
+		return http.StatusConflict, networkApplyResponse{
+			Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+			ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED",
+			Error: "isolated Xray diagnostics are still running; production VPN was not changed",
+		}
+	}
+	defer releaseProbes()
+
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	defer cancel()
 	var output []byte
