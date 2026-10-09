@@ -1061,7 +1061,7 @@
         </div>
       </section>
       <section class="fn3-journal-control-card">
-        <div class="fn3-journal-toolbar"><input id="fn3JournalSearch" class="fn3-journal-search" type="search" autocomplete="off" placeholder="Поиск: сервер, AUTO, ошибка, обновление, 189 мс…"><div class="fn3-journal-actions"><button id="fn3JournalFiltersToggle" class="fn3-journal-filter-toggle" type="button" aria-expanded="false">Фильтры</button><button id="fn3JournalExport" class="fn3-journal-export" type="button">Экспорт CSV</button><button id="fn3JournalLive" class="fn3-journal-live active" type="button" aria-pressed="true" title="Остановить автообновление журнала"><span class="fn3-journal-live-dot"></span>Пауза</button><button id="fn3JournalRefresh" class="fn3-journal-refresh" type="button">Обновить</button></div></div>
+        <div class="fn3-journal-toolbar"><input id="fn3JournalSearch" class="fn3-journal-search" type="search" autocomplete="off" placeholder="Поиск: сервер, AUTO, ошибка, обновление, 189 мс…"><div class="fn3-journal-actions"><button id="fn3JournalFiltersToggle" class="fn3-journal-filter-toggle" type="button" aria-expanded="false">Фильтры</button><button id="fn3JournalExport" class="fn3-journal-export" type="button">Экспорт CSV</button><button id="fn3JournalDiagnostics" class="fn3-journal-export" type="button" title="Исходные этапы инцидентов и состояния без запуска проверок VPN">Диагностика JSON</button><button id="fn3JournalLive" class="fn3-journal-live active" type="button" aria-pressed="true" title="Остановить автообновление журнала"><span class="fn3-journal-live-dot"></span>Пауза</button><button id="fn3JournalRefresh" class="fn3-journal-refresh" type="button">Обновить</button></div></div>
         <div id="fn3JournalMeta" class="fn3-journal-meta">Read-only журнал готов к обновлению.</div>
         <div id="fn3JournalAdvancedFilters" class="fn3-journal-filter-groups" hidden>
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Период</span><div class="fn3-journal-range">${ranges.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-range="${key}">${label}</button>`).join('')}<span id="fn3JournalCustomRange" class="fn3-journal-custom" hidden><input id="fn3JournalFrom" type="datetime-local" aria-label="Начало периода"><input id="fn3JournalTo" type="datetime-local" aria-label="Конец периода"></span></div></div>
@@ -1115,6 +1115,10 @@
       const exportButton = q('#fn3JournalExport', page);
       if (exportButton) exportButton.onclick = () => {
         window.location.href = '/api/journal/export?' + journalQueryString(false);
+      };
+      const diagnosticButton = q('#fn3JournalDiagnostics', page);
+      if (diagnosticButton) diagnosticButton.onclick = () => {
+        window.location.href = '/api/journal/diagnostics';
       };
       const pageSize = q('#fn3JournalPageSize', page);
       if (pageSize) pageSize.onchange = () => {
