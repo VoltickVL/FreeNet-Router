@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -67,21 +66,8 @@ func recoveryDownload(ctx context.Context, rawURL string, maxBytes int64) ([]byt
 				if readErr != nil {
 					lastErr = readErr
 				} else if resp.StatusCode != http.StatusOK {
-					// GitHub REST API rate limits are per outbound IP and can be
-					// exhausted by unrelated clients behind the same VPN/CGNAT.
-					// Retrying against other DNS servers does not reset this limit.
-					if (resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests) &&
-						(resp.Header.Get("X-RateLimit-Remaining") == "0" ||
-							strings.Contains(strings.ToLower(string(body)), "api rate limit exceeded") ||
-							strings.Contains(strings.ToLower(string(body)), "secondary rate limit")) {
-						message := fmt.Sprintf("GitHub API rate limit exceeded (HTTP %d)", resp.StatusCode)
-						if reset, parseErr := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); parseErr == nil && reset > 0 {
-							message += "; reset " + time.Unix(reset, 0).UTC().Format(time.RFC3339)
-						}
-						return nil, errors.New(message)
-					}
 					lastErr = fmt.Errorf("HTTP %d", resp.StatusCode)
-					} else if int64(len(body)) > maxBytes {
+				} else if int64(len(body)) > maxBytes {
 					lastErr = errors.New("response exceeds recovery size limit")
 				} else {
 					return body, nil
@@ -103,24 +89,12 @@ func recoveryDownload(ctx context.Context, rawURL string, maxBytes int64) ([]byt
 }
 
 func recoveryLatestTag(ctx context.Context) (string, error) {
-	// Tests and explicitly configured diagnostics may provide a separate
-	// release-metadata endpoint. Production never accepts an untrusted web
-	// redirect: the canonical GitHub path is checked in githubLatestStableWebTag.
 	url := strings.TrimSpace(os.Getenv("FREENET_RECOVERY_LATEST_URL"))
-	var webErr error
 	if url == "" {
-		if tag, err := githubLatestStableWebTag(ctx); err == nil {
-			return tag, nil
-		} else {
-			webErr = err
-		}
 		url = recoveryLatestURL
 	}
 	body, err := recoveryDownload(ctx, url, 1024*1024)
 	if err != nil {
-		if webErr != nil {
-			return "", fmt.Errorf("official GitHub releases/latest redirect unavailable: %v; REST metadata failed: %w", webErr, err)
-		}
 		return "", fmt.Errorf("latest release metadata unavailable: %w", err)
 	}
 	var meta recoveryReleaseMetadata

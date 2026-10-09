@@ -559,87 +559,11 @@ short_pause() {
     fi
 }
 
-# Identify the *managed* production Xray. FreeNet's isolated RTT/quality
-# probes (and other explicitly separate -confdir instances) must never be
-# signaled or counted as the production core. Fail closed for unreadable or
-# ambiguous process identity; do not guess a PID from the order of pidof.
-managed_xray_pid() {
-    PROC_ROOT="${FREENET_XRAY_PROC_ROOT:-/proc}"
-    EXACT_PIDS=""
-    FALLBACK_PIDS=""
-    ALL_PIDS="$(pidof xray 2>/dev/null || true)"
-    for CANDIDATE_PID in $ALL_PIDS; do
-        case "$CANDIDATE_PID" in
-            ''|*[!0-9]*) return 2 ;;
-        esac
-        PROC_DIR="$PROC_ROOT/$CANDIDATE_PID"
-        [ -r "$PROC_DIR/cmdline" ] && [ -r "$PROC_DIR/environ" ] || return 2
-
-        if tr '\000' '\n' < "$PROC_DIR/environ" | grep -Fxq 'FREENET_XRAY_PROBE=1'; then
-            continue
-        fi
-        if tr '\000' '\n' < "$PROC_DIR/cmdline" | grep -Fxq -- '-test'; then
-            continue
-        fi
-
-        # An explicit separate confdir is an isolated worker, not XKeen's
-        # primary config directory. An explicit *matching* confdir is trusted.
-        if tr '\000' '\n' < "$PROC_DIR/cmdline" | grep -Fxq -- '-confdir'; then
-            ARGS_CONF_DIR="$(tr '\000' '\n' < "$PROC_DIR/cmdline" | awk 'found { print; exit } $0 == "-confdir" { found=1 }')"
-            if [ "$ARGS_CONF_DIR" = "$CONFIG_DIR" ]; then
-                EXACT_PIDS="$EXACT_PIDS $CANDIDATE_PID"
-            elif [ -z "$ARGS_CONF_DIR" ]; then
-                return 2
-            fi
-            continue
-        fi
-
-        # XKeen starts its core as `xray run` with this exact environment.
-        # Unknown competing bare instances remain ambiguous when one is
-        # already known; a sole bare instance preserves older XKeen support.
-        if tr '\000' '\n' < "$PROC_DIR/environ" | grep -Fxq "XRAY_LOCATION_CONFDIR=$CONFIG_DIR"; then
-            EXACT_PIDS="$EXACT_PIDS $CANDIDATE_PID"
-        elif tr '\000' '\n' < "$PROC_DIR/environ" | grep -q '^XRAY_LOCATION_CONFDIR='; then
-            continue
-        else
-            FALLBACK_PIDS="$FALLBACK_PIDS $CANDIDATE_PID"
-        fi
-    done
-
-    set -- $EXACT_PIDS
-    if [ "$#" -eq 1 ]; then
-        [ -z "$FALLBACK_PIDS" ] || return 2
-        printf '%s\n' "$1"
-        return 0
-    fi
-    [ "$#" -eq 0 ] || return 2
-    set -- $FALLBACK_PIDS
-    if [ "$#" -eq 1 ]; then
-        printf '%s\n' "$1"
-        return 0
-    fi
-    [ "$#" -eq 0 ] && return 1
-    return 2
-}
-
-# Installed legacy XKeen uses "pidof xray" for proxy_status/start. Its view
-# must contain the production PID ONLY, even if FreeNet itself can correctly
-# distinguish an isolated -confdir probe. Refuse a conflicting view BEFORE
-# touching the live config or killing the primary process. No guessed kills.
-xkeen_exclusive_runtime_view() {
-    EXPECTED_CORE_PID="${1:-}"
-    XKEEN_VISIBLE_PIDS="$(pidof xray 2>/dev/null || true)"
-    set -- $XKEEN_VISIBLE_PIDS
-    if [ -n "$EXPECTED_CORE_PID" ]; then
-        if [ "$#" -ne 1 ] || [ "$1" != "$EXPECTED_CORE_PID" ]; then
-            err 'core-only cutover refused: legacy XKeen sees another Xray process; wait for isolated probes to finish'
-            return 1
-        fi
-    elif [ "$#" -ne 0 ]; then
-        err 'core-only cutover refused: legacy XKeen still sees Xray processes after primary core stopped'
-        return 1
-    fi
-    return 0
+single_xray_pid() {
+    PIDS="$(pidof xray 2>/dev/null || true)"
+    set -- $PIDS
+    [ "$#" -eq 1 ] || return 1
+    printf '%s\n' "$1"
 }
 
 core_restart_preflight() {
@@ -649,8 +573,7 @@ core_restart_preflight() {
     fi
     command -v kill >/dev/null 2>&1 || return 1
     [ -x "$XKEEN_BIN" ] || return 1
-    PREFLIGHT_CORE_PID="$(managed_xray_pid)" || return 1
-    xkeen_exclusive_runtime_view "$PREFLIGHT_CORE_PID"
+    single_xray_pid >/dev/null 2>&1
 }
 
 restart_xray_core() {
@@ -660,24 +583,22 @@ restart_xray_core() {
         return $?
     fi
 
-    OLD_PID="$(managed_xray_pid)"
-    PID_STATUS=$?
-    case "$PID_STATUS" in
-        0) ;;
-        1)
+    OLD_PID=""
+    PIDS="$(pidof xray 2>/dev/null || true)"
+    set -- $PIDS
+    case "$#" in
+        0)
             [ "$ALLOW_STOPPED" = yes ] || return 1
-            OLD_PID=""
+            ;;
+        1)
+            OLD_PID="$1"
             ;;
         *)
-            err 'core-only restart refused: managed Xray process identity is ambiguous'
+            err 'core-only restart refused: multiple Xray processes are active'
             return 1
             ;;
     esac
 
-    # FreeNet knows the core identity, but XKeen's installed pidof-based
-    # start path cannot distinguish isolated Xray workers. They must drain
-    # before stopping the one accepted production process.
-    xkeen_exclusive_runtime_view "$OLD_PID" || return 1
     if [ -n "$OLD_PID" ]; then
         kill "$OLD_PID" 2>/dev/null || return 1
         I=0
@@ -696,11 +617,6 @@ restart_xray_core() {
         kill -0 "$OLD_PID" 2>/dev/null && return 1
     fi
 
-    # If an out-of-band Xray appeared during shutdown, legacy XKeen would
-    # treat it as the core and silently skip start. Stop rather than invoking
-    # XKeen in an ambiguous state or signaling an unrelated PID.
-    xkeen_exclusive_runtime_view "" || return 1
-
     # Keep XKeen/netfilter ownership intact: do not call XKeen stop/restart.
     # Start the Xray core through XKeen's canonical synchronous start path so
     # its runtime environment, limits and acceptance checks remain authoritative.
@@ -709,13 +625,9 @@ restart_xray_core() {
     I=0
     STABLE=0
     while [ "$I" -lt 60 ]; do
-        CURRENT_PID="$(managed_xray_pid)"
-        PID_STATUS=$?
-        if [ "$PID_STATUS" -eq 2 ]; then
-            err 'core-only runtime acceptance stopped: managed Xray process identity is ambiguous'
-            return 1
-        fi
-        if [ "$PID_STATUS" -eq 0 ] && kill -0 "$CURRENT_PID" 2>/dev/null; then
+        PIDS="$(pidof xray 2>/dev/null || true)"
+        set -- $PIDS
+        if [ "$#" -eq 1 ] && kill -0 "$1" 2>/dev/null; then
             STABLE=$((STABLE + 1))
             [ "$STABLE" -ge 3 ] && return 0
         else
@@ -773,11 +685,7 @@ rollback_state() {
             pidof xray >/dev/null 2>&1 || RB=1
         fi
     fi
-    if [ "$RB" -eq 0 ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
-        XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 || RB=1
-    elif [ "$RB" -eq 0 ]; then
-        provider_route_probe "$OUT_FILE" || RB=1
-    fi
+    [ "$RB" -ne 0 ] || provider_route_probe "$OUT_FILE" || RB=1
     ROLLBACK_ACTIVE=0
     [ "$RB" -eq 0 ]
 }
@@ -866,20 +774,16 @@ OUT_BEFORE="$TMP_DIR/out.before"
 PROFILE_BEFORE="$TMP_DIR/profile.before"
 FILTER_BEFORE="$TMP_DIR/filter.before"
 
-if [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] && [ "$MODE" = apply-core ]; then
-    load_provider_cache || { err 'source-bound secure provider cache is missing or does not match'; exit 1; }
-else
-    prepare_subscription || { err 'fresh subscription unavailable and secure provider cache is missing or does not match'; exit 1; }
-fi
+prepare_subscription || { err 'fresh subscription unavailable and secure provider cache is missing or does not match'; exit 1; }
 
 select_profile || { err 'requested Extra profile is not present in the prepared subscription'; exit 1; }
 build_vless_object || { err 'cannot build selected VLESS profile'; exit 1; }
 build_candidate || { err 'cannot build candidate 04_outbounds.json'; exit 1; }
 validate_candidate || { err 'candidate Xray configuration validation failed'; exit 1; }
-# Explicit manual selection may deliberately target a dead VPN. The caller
-# securely stages a URL-bound local profile and sets the manual flag; skip
-# network probes while keeping Xray validation, backup, core-only cutover,
-# process acceptance and rollback on technical failures.
+# A successful explicit RTT sweep already measured this exact selected VPN.
+# For manual emergency apply only, avoid a second isolated route preflight.
+# The Xray config test above, state snapshot, live post-check and rollback
+# below remain mandatory and are never bypassed.
 CANDIDATE_ROUTE_STATUS=yes
 if [ "$MODE" = apply-core ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
     CANDIDATE_ROUTE_STATUS=skipped
@@ -926,9 +830,7 @@ mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" || fail_apply 'cannot commit exact ac
 restart_if_needed || fail_apply 'Xray/XKeen runtime acceptance failed after provider apply'
 XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
     || fail_apply 'live Xray configuration validation failed after provider apply'
-if [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" != 1 ]; then
-    provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
-fi
+provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
 
 append_provider_history 'success' "VPN server applied: $SELECTED_NAME · $SELECTED_ADDRESS:$SELECTED_PORT"
 say '[FreeNet Provider] RESULT=SUCCESS'

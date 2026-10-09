@@ -49,7 +49,7 @@ func recoveryRoot(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	for _, dir := range []string{
-		"sbin", "bin", "lib/freenet", "etc/freenet", "etc/xray/configs", "etc/init.d", "var/run", "backups",
+		"sbin", "bin", "lib/freenet", "etc/freenet", "etc/xray/configs", "var/run", "backups",
 	} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			t.Fatal(err)
@@ -57,10 +57,6 @@ func recoveryRoot(t *testing.T) string {
 	}
 	files := map[string]string{
 		"sbin/freenet-ui":                         "OLD_UI\n",
-		"sbin/xkeen":                             "#!/bin/sh\n# XKEEN_FOREGROUND supported by test fixture\nexit 0\n",
-		"sbin/xray":                              "#!/bin/sh\nexit 0\n",
-		"etc/init.d/S99xkeen":                    "#!/bin/sh\nname_client=xray\nproxy_status() { pidof \"$name_client\"; }\n",
-		"bin/crontab":                             "#!/bin/sh\n[ \"$1\" = -l ] && exit 1\nexit 2\n",
 		"bin/freenet":                             "OLD_MANAGER\n",
 		"bin/vpn":                                 "OLD_VPN\n",
 		"bin/blanc_xkeen_update_outbounds.sh":     "#!/bin/sh\nexit 0\n",
@@ -77,14 +73,13 @@ func recoveryRoot(t *testing.T) string {
 	}
 	for rel, body := range files {
 		mode := os.FileMode(0o644)
-		if strings.HasSuffix(rel, ".sh") || rel == "sbin/freenet-ui" || rel == "bin/freenet" || rel == "bin/vpn" || rel == "bin/crontab" || rel == "sbin/xkeen" || rel == "sbin/xray" || rel == "etc/init.d/S99xkeen" {
+		if strings.HasSuffix(rel, ".sh") || rel == "sbin/freenet-ui" || rel == "bin/freenet" || rel == "bin/vpn" {
 			mode = 0o755
 		}
 		if err := os.WriteFile(filepath.Join(root, rel), []byte(body), mode); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("PATH", filepath.Join(root, "bin")+":"+os.Getenv("PATH"))
 	return root
 }
 
@@ -145,23 +140,5 @@ func TestSelfUpdateFailedStagingDoesNotAdvanceVersionMarker(t *testing.T) {
 	}
 	if strings.TrimSpace(string(version)) != "v0.3.9" {
 		t.Fatalf("failed update advanced version marker to %q", version)
-	}
-}
-
-func TestSelfUpdateUIRespectsCompatibilityStop(t *testing.T) {
-	data, err := webFS.ReadFile("web/self-update.js")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ui := string(data)
-	for _, contract := range []string{
-		"!p.ready ? `Обновление заблокировано до изменений:",
-		"if (!p.ready) {",
-		"title: 'Обновление остановлено до изменений'",
-		"if (!plan || !plan.success || !plan.ready || !plan.update_available || !plan.target_tag) return;",
-	} {
-		if !strings.Contains(ui, contract) {
-			t.Fatalf("update UI bypasses compatibility preflight: %q", contract)
-		}
 	}
 }

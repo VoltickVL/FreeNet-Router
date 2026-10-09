@@ -355,24 +355,3 @@ func TestRecoveryIncidentContextCarriesSafeCorrelationFields(t *testing.T) {
 		}
 	}
 }
-
-
-// The Journal must retain known PRIMARY ERROR details separately from
-// rollback without copying arbitrary helper output containing credentials.
-func TestAutomationProviderPrimaryErrorWhitelist(t *testing.T) {
-	for _, tc := range []struct {
-		result networkApplyResponse
-		want   string
-	}{
-		{networkApplyResponse{PrimaryError: "Xray/XKeen runtime acceptance failed after provider apply", RollbackState: "FAILED/UNKNOWN"}, "Xray/XKeen runtime acceptance failed after provider apply"},
-		{networkApplyResponse{PrimaryError: "live VPN application route validation failed after provider apply", RollbackState: "SUCCESS"}, "live VPN application route validation failed after provider apply"},
-		{networkApplyResponse{PrimaryError: "safe core-only Xray restart requires exactly one running Xray process", RollbackState: "NOT_APPLIED"}, "safe core-only Xray restart requires exactly one running Xray process"},
-		{networkApplyResponse{Error: "provider plan is not a validated application-ready candidate", RollbackState: "NOT_APPLIED"}, "provider plan rejected before mutation"},
-		{networkApplyResponse{PrimaryError: "vless://CREDENTIAL@secret.example", RollbackState: "FAILED/UNKNOWN"}, "не классифицирована (подробности скрыты для безопасности)"},
-		{networkApplyResponse{PrimaryError: "https://provider.example/subscription?token=SECRET", RollbackState: "FAILED/UNKNOWN"}, "не классифицирована (подробности скрыты для безопасности)"},
-	} {
-		if got := safeAutomationProviderPrimaryError(tc.result); got != tc.want {
-			t.Fatalf("safe primary=%q want=%q", got, tc.want)
-		}
-	}
-}

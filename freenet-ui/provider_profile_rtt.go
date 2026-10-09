@@ -15,7 +15,7 @@ import (
 
 const (
 	providerProfileRTTWorkers          = 2
-	providerProfileRTTDiscoveryTimeout = 35 * time.Second
+	providerProfileRTTDiscoveryTimeout = 30 * time.Second
 	providerProfileRTTCacheTTL         = 5 * time.Minute
 )
 
@@ -45,8 +45,6 @@ type providerProfileRTTResponse struct {
 	Partial         bool                     `json:"partial,omitempty"`
 	ProbeMode       string                   `json:"probe_mode,omitempty"`
 	Fresh           bool                     `json:"fresh"`
-	CatalogSource string `json:"catalog_source,omitempty"`
-	CatalogUpdatedAt string `json:"catalog_updated_at,omitempty"`
 	Mutation        string                   `json:"mutation"`
 	Error           string                   `json:"error,omitempty"`
 }
@@ -472,7 +470,7 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 	defer releaseGuards()
 
 	discoveryCtx, cancelDiscovery := context.WithTimeout(r.Context(), providerProfileRTTDiscoveryTimeout)
-	all, _, _, catalogSource, err := a.discoverBestServerCandidatesWithSource(discoveryCtx)
+	all, _, _, err := a.discoverBestServerCandidates(discoveryCtx)
 	cancelDiscovery()
 	filtered := filterForeignBestServerCandidates(all)
 	if len(filtered) == 0 {
@@ -524,7 +522,7 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 				Success: true, Cached: true, MeasuredAt: measuredAt.Format(time.RFC3339), Catalog: catalog, CatalogKey: catalogKey, SelectionToken: token, Results: items,
 				Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
 				Checked: checked, Reachable: reachable, Unknown: 0, Partial: false,
-				ProbeMode: "logical_vpn_https_ip", Fresh: catalogSource.Fresh, CatalogSource: catalogSource.Source, CatalogUpdatedAt: catalogSource.UpdatedAt, Mutation: "NONE",
+				ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
 			})
 			return
 		}
@@ -575,6 +573,6 @@ func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) 
 		Success: true, Cached: false, MeasuredAt: time.Now().UTC().Format(time.RFC3339), Catalog: catalog, CatalogKey: catalogKey, SelectionToken: token, Results: items,
 		Profiles: len(filtered), UniqueEndpoints: countProviderUniqueEndpoints(filtered),
 		Checked: checked, Reachable: reachable, Unknown: unknown, Partial: checked < len(filtered),
-		ProbeMode: "logical_vpn_https_ip", Fresh: catalogSource.Fresh, CatalogSource: catalogSource.Source, CatalogUpdatedAt: catalogSource.UpdatedAt, Mutation: "NONE",
+		ProbeMode: "logical_vpn_https_ip", Fresh: err == nil, Mutation: "NONE",
 	})
 }

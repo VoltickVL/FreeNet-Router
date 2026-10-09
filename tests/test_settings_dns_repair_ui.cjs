@@ -113,14 +113,6 @@ const server = http.createServer((req, res) => {
       'Settings must enter with DNS folded, even when repair is available');
     await dnsHeader.click();
     await page.waitForSelector('#fn3DnsRepair', {state:'visible'});
-    const icons = await page.evaluate(() => ['#fn3DnsCard .fn3-dns-icon','#fn3AutoCard .fn3-icon'].map(selector => {
-      const element = document.querySelector(selector);
-      const glyph = element?.querySelector('svg');
-      return {box:Math.round(element?.getBoundingClientRect().width || 0),
-        glyph:Math.round(glyph?.getBoundingClientRect().width || 0)};
-    }));
-    assert.deepEqual(icons, [{box:48,glyph:26},{box:48,glyph:26}],
-      'DNS and AUTO must share identical product icon tokens with SVG glyphs');
     await page.waitForFunction(() => document.querySelector('#fn3DnsWarning')?.textContent.includes('DIRECT DNS'));
 
     assert.equal(await page.locator('#fn3Save').isDisabled(), true, 'generic Settings Save must remain independently disabled');

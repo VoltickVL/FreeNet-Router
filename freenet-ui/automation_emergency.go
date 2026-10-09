@@ -450,7 +450,7 @@ func (a *app) runAutomationBestEmergencyCycleLocked(parent context.Context, sett
 	})
 	scan.ApplyDuration = time.Since(applyStarted).Round(time.Millisecond)
 	if status < 200 || status >= 300 || !applied.Success {
-		reason := "Аварийный replacement не применён; PRIMARY ERROR: " + safeAutomationProviderPrimaryError(applied)
+		reason := "Аварийный replacement не применён: " + strings.TrimSpace(applied.Error)
 		rollback := strings.TrimSpace(applied.RollbackState)
 		if rollback == "" {
 			rollback = "unknown"

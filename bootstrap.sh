@@ -40,7 +40,6 @@ UI_WAS_RUNNING=0
 LAST_DOWNLOAD_ERROR=""
 CORE_MODE=""
 CORE_INITIAL_MODE=""
-APP_ACCEPT_PRIMARY=""
 
 say() { printf '%s\n' "$*"; }
 info() { printf '\n[FreeNet Setup] %s\n' "$*"; }
@@ -572,87 +571,20 @@ start_ui() {
     pidof freenet-ui >/dev/null 2>&1 || return 1
 }
 
-# Fixed diagnostic codes only: never print HTTP payloads, environment,
-# process lists or raw configuration into installer logs.
-app_accept_fail() {
-    APP_ACCEPT_PRIMARY="$1"
-    say "[FreeNet Setup] APP_ACCEPT_PRIMARY=$APP_ACCEPT_PRIMARY" >&2
-    return 1
-}
-
 validate_app() {
-    APP_ACCEPT_PRIMARY="UNKNOWN"
-    # Init may publish its PID before its HTTP listener is ready on slow
-    # routers. Retry only this read-only health gate, with a hard budget:
-    # 15 x 2-second curl + 14 x 1-second sleep (at most ~44 seconds).
-    # Never relax the subsequent auth, LAN-only bind or Xray checks.
-    HEALTH_ATTEMPT=0
-    HEALTH_RC=1
-    while [ "$HEALTH_ATTEMPT" -lt 15 ]; do
-        HEALTH_ATTEMPT=$((HEALTH_ATTEMPT + 1))
-        HEALTH="$(curl -fsS --noproxy '*' --connect-timeout 2 --max-time 2 "http://$LAN_IP:$UI_PORT/healthz" 2>/dev/null)"
-        HEALTH_RC=$?
-        if [ "$HEALTH_RC" -eq 0 ]; then
-            [ "$HEALTH" = ok ] || { app_accept_fail "HEALTH_INVALID"; return 1; }
-            break
-        fi
-        if ! pidof freenet-ui >/dev/null 2>&1; then
-            app_accept_fail "HEALTH_PROCESS_EXITED"
-            return 1
-        fi
-        [ "$HEALTH_ATTEMPT" -lt 15 ] && sleep 1
-    done
-    if [ "$HEALTH_RC" -ne 0 ]; then
-        # Distinguish the observed failure before rollback stops the process.
-        # Keep HTTP bodies, environment, process listings and config private.
-        HEALTH_LISTENERS="$(netstat -lntp 2>/dev/null)" || {
-            app_accept_fail "HEALTH_NETSTAT_UNAVAILABLE"
-            return 1
-        }
-        if ! printf '%s\n' "$HEALTH_LISTENERS" | grep "$LAN_IP:$UI_PORT[[:space:]]" >/dev/null 2>&1; then
-            app_accept_fail "HEALTH_LAN_LISTENER_MISSING"
-            return 1
-        fi
-        HEALTH_LOOPBACK="$(curl -fsS --noproxy '*' --connect-timeout 2 --max-time 2 "http://127.0.0.1:$UI_PORT/healthz" 2>/dev/null)" || HEALTH_LOOPBACK=""
-        if [ "$HEALTH_LOOPBACK" = ok ]; then
-            app_accept_fail "HEALTH_LAN_SELF_CONNECT_FAILED"
-        else
-            app_accept_fail "HEALTH_LAN_HTTP_UNREACHABLE"
-        fi
+    HEALTH="$(curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/healthz" 2>/dev/null)" || return 1
+    [ "$HEALTH" = ok ] || return 1
+
+    curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/api/auth/status" -o "$TMP_DIR/auth-status.json" 2>/dev/null || return 1
+    jq -e '(.configured | type) == "boolean" and (.authenticated | type) == "boolean"' "$TMP_DIR/auth-status.json" >/dev/null 2>&1 || return 1
+
+    netstat -lntp 2>/dev/null | grep "$LAN_IP:$UI_PORT[[:space:]]" >/dev/null 2>&1 || return 1
+    if netstat -lntp 2>/dev/null | grep -E "0\.0\.0\.0:$UI_PORT[[:space:]]|:::$UI_PORT[[:space:]]" >/dev/null 2>&1; then
         return 1
     fi
 
-    curl -fsS --noproxy '*' --connect-timeout 3 --max-time 15 "http://$LAN_IP:$UI_PORT/api/auth/status" -o "$TMP_DIR/auth-status.json" 2>/dev/null || {
-        app_accept_fail "AUTH_STATUS_UNREACHABLE"
-        return 1
-    }
-    jq -e '(.configured | type) == "boolean" and (.authenticated | type) == "boolean"' "$TMP_DIR/auth-status.json" >/dev/null 2>&1 || {
-        app_accept_fail "AUTH_STATUS_INVALID"
-        return 1
-    }
-
-    LISTENERS="$(netstat -lntp 2>/dev/null)" || {
-        app_accept_fail "NETSTAT_UNAVAILABLE"
-        return 1
-    }
-    printf '%s\n' "$LISTENERS" | grep "$LAN_IP:$UI_PORT[[:space:]]" >/dev/null 2>&1 || {
-        app_accept_fail "LAN_LISTENER_MISSING"
-        return 1
-    }
-    if printf '%s\n' "$LISTENERS" | grep -E "0\.0\.0\.0:$UI_PORT[[:space:]]|:::$UI_PORT[[:space:]]" >/dev/null 2>&1; then
-        app_accept_fail "WILDCARD_LISTENER_FORBIDDEN"
-        return 1
-    fi
-
-    snapshot_xray "$TMP_DIR/xray-hashes.after" || {
-        app_accept_fail "XRAY_SNAPSHOT_FAILED"
-        return 1
-    }
-    cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.after" >/dev/null 2>&1 || {
-        app_accept_fail "XRAY_CONFIG_CHANGED"
-        return 1
-    }
-    APP_ACCEPT_PRIMARY="NONE"
+    snapshot_xray "$TMP_DIR/xray-hashes.after" || return 1
+    cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.after" >/dev/null 2>&1 || return 1
 }
 
 on_signal() {
@@ -680,7 +612,7 @@ backup_app || { err 'cannot create app/cron backup'; exit 1; }
 MUTATED=1
 install_app || fail_app 'cannot install FreeNet Control Center files/cron safely'
 start_ui || fail_app 'FreeNet Control Center failed to start'
-validate_app || fail_app "FreeNet Control Center app acceptance failed (PRIMARY ERROR: ${APP_ACCEPT_PRIMARY:-UNKNOWN})"
+validate_app || fail_app 'FreeNet Control Center app acceptance failed'
 MUTATED=0
 
 SETUP_COMPLETE="$(config_value SETUP_COMPLETE no)"

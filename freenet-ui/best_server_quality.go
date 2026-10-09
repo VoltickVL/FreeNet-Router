@@ -96,9 +96,6 @@ type bestServerQualityResponse struct {
 	EligibleFound     int                          `json:"eligible_found,omitempty"`
 	EligibleTarget    int                          `json:"eligible_target,omitempty"`
 	ProfilesTruncated bool                         `json:"profiles_truncated,omitempty"`
-	CatalogFresh bool `json:"catalog_fresh"`
-	CatalogSource string `json:"catalog_source,omitempty"`
-	CatalogUpdatedAt string `json:"catalog_updated_at,omitempty"`
 	Mutation          string                       `json:"mutation"`
 	Message           string                       `json:"message,omitempty"`
 	Error             string                       `json:"error,omitempty"`

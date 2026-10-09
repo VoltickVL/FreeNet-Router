@@ -9,10 +9,10 @@
   const L = {
     choose:'Выбор VPN-сервера', current:'Текущий VPN', connected:'Подключено',
     offline:'Не подключён', unknown:'Статус неизвестен', connect:'Подключиться', reset:'Сбросить', close:'Закрыть',
-    search:'Страна, город или адрес сервера', hint:'Ручной выбор без предварительной проверки доступности',
+    search:'Страна, город или адрес сервера', hint:'Сначала проверка, затем подключение',
     idle:'Выберите сервер из списка', unchanged:'Текущий VPN не меняется до нажатия «Подключиться».',
-    checking:'Выбираем сервер…', ready:'Можно подключиться вручную', applying:'Применяем конфигурацию…',
-    failed:'Не удалось применить конфигурацию', empty:'Список серверов недоступен. Проверьте подписку.',
+    checking:'Проверяем сервер…', ready:'Проверка пройдена', applying:'Подключаем и проверяем соединение…',
+    failed:'Проверка не пройдена', empty:'Список серверов недоступен. Проверьте подписку.',
     noMatch:'Ничего не найдено. Измените запрос.', stale:'Показан последний успешный список.',
     busy:'Другая операция VPN ещё выполняется.', blocked:'Результат нужно подтвердить. Повтор заблокирован.',
     ping:'Измерить задержку через каждый VPN', pinging:'Проверяем задержку через каждый VPN…', pingFailed:'Не удалось измерить RTT серверов.',
@@ -306,12 +306,12 @@
     }
     return safe.length ? safe : null;
   }
-  function publishRTTCatalog(catalog, fresh) {
+  function publishRTTCatalog(catalog) {
     const publicCatalog = catalog.map(({id,name,country_code,address,port}) => ({id,name,country_code,address,port}));
     let published = false;
     try {
       if (typeof window.freenetPublishMeasuredProfileCatalog === 'function') {
-        published = window.freenetPublishMeasuredProfileCatalog(publicCatalog, fresh) === true;
+        published = window.freenetPublishMeasuredProfileCatalog(publicCatalog) === true;
       } else if (typeof renderExtraProfiles === 'function') {
         renderExtraProfiles({extra_profiles:publicCatalog});
         published = true;
@@ -324,7 +324,7 @@
     }
     if (!published) return false;
     const state = profileSource();
-    return rows.length === catalog.length && state.stale === !fresh;
+    return rows.length === catalog.length && !state.stale;
   }
   async function refreshRTT(event) {
     if (!event || event.isTrusted !== true || rttScanning || busy()) return;
@@ -349,7 +349,7 @@
         if (attempted) checked++; else unknown++;
         next.set(id,value);
       }
-      if (seen.size!==measuredByID.size || !publishRTTCatalog(measuredCatalog, data.fresh === true)) throw new Error('catalog-changed');
+      if (seen.size!==measuredByID.size || !publishRTTCatalog(measuredCatalog)) throw new Error('catalog-changed');
       // The token refers to router-side protected credentials; never persist it.
       const selectionToken=String(data.selection_token||'').trim();
       if (reachable && !/^[0-9a-f]{32}$/.test(selectionToken)) throw new Error('rtt-token');
@@ -367,7 +367,6 @@
       rttSummary=data.partial
         ? `VPN-пинг: завершён частично — ответили ${serverReachable} из ${serverChecked}, не проверено ${serverUnknown} из ${total}.`
         : `VPN-пинг: проверено ${serverChecked} из ${total}, ответили ${serverReachable}. Список отсортирован от меньшей задержки к большей.`;
-      if (data.fresh === false) rttSummary += ` Используется последний защищённый каталог от ${String(data.catalog_updated_at || 'неизвестного времени')}; свежие серверы не подтверждены.`;
     } catch (error) {
       rttByID.clear(); rttRanked=false; rttVersion++; window.freenetManualRTTSelection = null;
       rttError=error&&error.message==='catalog-changed'?L.pingCatalogChanged:L.pingFailed;
@@ -442,7 +441,7 @@
     if (selected) {
       if (choosing || e.card?.classList.contains('is-checking')) {state='checking';title=L.checking;note=clean(selected.name);}
       else if (e.applying) {state='applying';title=L.applying;note=clean(selected.name);}
-      else if (sent && !e.id && online && s.endpoint===selected.endpoint) {state='success';title='Конфигурация применена';note='Доступность VPN не проверялась: '+clean(selected.name);}
+      else if (sent && !e.id && online && s.endpoint===selected.endpoint) {state='success';title=L.connected;note=clean(selected.name);}
       else if (error || e.card?.classList.contains('is-error')) {state='error';title=uncertain(e)?L.blocked:L.failed;note=error || e.note || e.title;}
       else if (canConnect(e)) {state='ready';title=L.ready;note=clean(selected.name);}
       else if (sent) {state='applying';title=L.applying;note=e.note || L.blocked;}

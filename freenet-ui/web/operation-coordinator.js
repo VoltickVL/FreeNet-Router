@@ -416,15 +416,6 @@
     return null;
   }
 
-  function safeCurrentSpeedFailure(candidate) {
-    const issue=String(candidate?.download_issue || candidate?.media_issue || '').toLowerCase();
-    if (/server list (unavailable|invalid|empty)/.test(issue)) return 'через VPN не получен список серверов Speedtest';
-    if (/origins unavailable|cloudflare throughput unavailable/.test(issue)) return 'источники загрузки Speedtest/Cloudflare не ответили через VPN';
-    if (/timeout|timed out|deadline/.test(issue)) return 'загрузочный тест превысил ограничение времени';
-    if (/streams|download unavailable|throughput unavailable/.test(issue)) return 'не получено достаточное число завершённых загрузок';
-    return 'полное измерение загрузки не завершилось';
-  }
-
   function renderCurrentHealth(candidate, status = null) {
     const box = qs('#bestCurrentHealth');
     if (!box) return;
@@ -447,9 +438,6 @@
     } else if (latencyOnlyWarning(candidate)) {
       box.className = 'current-health warning';
       box.textContent = 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nАвтоматическое переключение на такой профиль запрещено.';
-    } else if (Number(candidate.download_mbps || 0) <= 0) {
-      box.className = 'current-health neutral';
-      box.textContent = 'VPN доступен, но скорость не измерена: ' + safeCurrentSpeedFailure(candidate) + '. Остальные проверки не равны Speedtest.';
     } else {
       box.className = 'current-health neutral';
       box.textContent = 'VPN доступен, но часть критериев качества не пройдена.';
@@ -482,8 +470,8 @@
       setText(qs('#bestCurrentQuality'), 'Недостаточно данных для оценки');
       setText(qs('#bestServerStatus'), 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
     }
-    if (shown && Number(shown.download_mbps || 0) <= 0 && shown.tested) {
-      setText(qs('#bestCurrentQuality'), 'Скорость не измерена: ' + safeCurrentSpeedFailure(shown) + '. Последняя проверка: ' + (time || 'сейчас'));
+    if (shown?.download_issue && Number(shown.download_mbps || 0) <= 0) {
+      setText(qs('#bestCurrentQuality'), 'Замер скорости: ' + shown.download_issue);
     }
   }
 
@@ -789,11 +777,7 @@
         const detail=body&&typeof body.error==='string'?body.error:response.status===504?'Шлюз не дождался ответа FreeNet.':response.status===502?'Шлюз не получил корректный ответ FreeNet.':response.status===401?'Требуется войти в FreeNet заново.':response.ok?'Ответ FreeNet не содержит результатов проверки.':'Сервер вернул ошибку.';
         setText(qs('#bestServerStatus'),`Подбор не завершён (HTTP ${response.status}). ${detail}`);return;
       }
-      renderBestResult(body);
-      const staleCatalog = body.catalog_source === 'protected_cache';
-      const catalogNotice = staleCatalog ? ' Использован последний защищённый список от ' + String(body.catalog_updated_at || 'неизвестного времени') + '; свежий список не подтверждён.' : '';
-      if(body.partial) setText(qs('#bestServerStatus'), 'Проверка ограничена по времени: глубоко проверено ' + Number(body.deep_checked || 0) + ' из ' + Number(body.deep_total || 0) + ' кандидатов.' + catalogNotice);
-      else if(staleCatalog) setText(qs('#bestServerStatus'), (body.message || 'Подбор завершён.') + catalogNotice);
+      renderBestResult(body);if(body.partial)setText(qs('#bestServerStatus'),'Проверка завершена в пределах лимита времени. Показаны только измеренные варианты; часть кандидатов не проверена.');
     } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено безопасное время ожидания ответа.':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
   }
 

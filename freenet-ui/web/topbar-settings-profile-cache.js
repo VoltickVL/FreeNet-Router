@@ -137,12 +137,12 @@
       };
       wrapped[patchFlag] = true;
       renderExtraProfiles = wrapped;
-      window.freenetPublishMeasuredProfileCatalog = function(profiles, fresh = true) {
+      window.freenetPublishMeasuredProfileCatalog = function(profiles) {
         const incoming = cloneProfiles(profiles);
         if (!incoming.length) return false;
-        catalogStale = fresh !== true;
+        catalogStale = false;
         writeCache(incoming);
-        previous({extra_profiles: incoming, profiles_stale:catalogStale});
+        previous({extra_profiles: incoming});
         return true;
       };
       window.freenetProfileCatalogState = function() {

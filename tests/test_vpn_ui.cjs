@@ -76,7 +76,7 @@ const server = http.createServer((req,res)=>{
           safeProfile(current)
         ];
         return answer(route,{
-          success:true,cached:false,mutation:'NONE',fresh:true,catalog_source:'direct',selection_token:manualRTTToken,profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
+          success:true,cached:false,mutation:'NONE',selection_token:manualRTTToken,profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
           results:[
             {profile_id:second.id,endpoint:second.endpoint,rtt_ms:92,jitter_ms:3,reachable:true,attempted:true,status:'reachable'},
             {profile_id:winner.id,endpoint:rttMode==='malformed'?'192.0.2.98:443':winnerEndpoint,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
@@ -331,7 +331,7 @@ const server = http.createServer((req,res)=>{
     assert.match(missingSpeedMetrics,/Скорость VPN/,'current VPN keeps the canonical speed metric owner');
     assert.doesNotMatch(missingSpeedMetrics,/Мбит\/с/,'no alternative throughput value may replace a failed canonical measurement');
     assert.doesNotMatch(missingSpeedMetrics,/Быстрый|не для сравнения/i,'non-comparable speed UX must not return');
-    assert.match(await page.locator('#bestCurrentQuality').textContent(),/Скорость не измерена:/,'failed canonical speed must remain explicit');
+    assert.match(await page.locator('#bestCurrentQuality').textContent(),/Замер скорости:/,'failed canonical speed must remain explicit');
 
     bestMode='no-current';
     await page.locator('#bestServerRefresh').click();
@@ -514,19 +514,21 @@ const server = http.createServer((req,res)=>{
     await page.goto(base);
     await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
     const providerErrorPosts=calls.filter(c=>c.method==='POST').length;
-    const manualPlanReads=calls.filter(c=>c.path==='/api/provider-profile/plan').length;
     await openPicker();
     await page.locator('#fnVpnPickerV2Results').waitFor({state:'visible'});
     await page.locator('#fnVpnPickerV2Results [data-profile-id="fixture-lt"]').click();
-    assert.equal(await page.locator('#fnVpnPickerV2Panel').isVisible(),true,'manual selection must stay inside open picker');
-    await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-ready'));
-    assert.equal(await page.locator('#exactConnectBtn').isDisabled(),false,'dead/untested server must be selectable');
-    assert.equal(calls.filter(c=>c.path==='/api/provider-profile/plan').length,manualPlanReads,'manual selection must not fetch provider plan');
-    assert.equal(calls.filter(c=>c.method==='POST').length,providerErrorPosts,'selection is read-only');
+    assert.equal(await page.locator('#fnVpnPickerV2Panel').isVisible(),true,'profile selection rerender must not be mistaken for an outside click');
+    await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-error'));
+    assert.equal(await page.locator('#exactConnectBtn').isDisabled(),true,'failed provider plan cannot connect');
+    assert.equal(await page.locator('#exactConnectBtn').textContent(),'Сервер недоступен');
+    assert.match(await page.locator('#selectedProfileCard').textContent(),/FreeNet не получил полный результат проверки этого сервера/);
+    assert.doesNotMatch(await page.locator('#selectedProfileCard').textContent(),/incomplete provider plan/i);
+    assert.equal(await page.locator('#selectedProfileCard .fn-selector-state-badge').textContent(),'Ошибка');
+    assert.equal(calls.filter(c=>c.method==='POST').length,providerErrorPosts,'provider plan failure stays read-only');
     await page.setViewportSize({width:1366,height:768});
-    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'desktop overflow');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'modern selector has no desktop horizontal overflow');
     await page.setViewportSize({width:390,height:844});
-    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'mobile overflow');
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'modern selector has no mobile horizontal overflow');
     await page.setViewportSize({width:1440,height:1000});
     providerPlanMode='ok';
 
@@ -548,15 +550,11 @@ const server = http.createServer((req,res)=>{
       'measured manual selection must never perform a redundant provider plan / subscription fetch');
     const emergencyPosts=calls.filter(c=>c.path==='/api/network-profile/apply').length;
     await page.locator('#fnVpnPickerV2Connect').click();
-    await page.waitForFunction(()=>document.querySelector('#notice')?.textContent.includes('Конфигурация применена:'));
+    await page.waitForFunction(()=>document.querySelector('#notice')?.textContent.includes('Подключено:'));
     const emergencyRequests=calls.filter(c=>c.path==='/api/network-profile/apply');
     assert.equal(emergencyRequests.length,emergencyPosts+1,'measured selection sends exactly one apply');
-    assert.equal(JSON.parse(emergencyRequests.at(-1).body).manual_override,true,
-      'manual apply must explicitly skip connectivity preflight');
-    assert.equal(JSON.parse(emergencyRequests.at(-1).body).expected_endpoint,second.endpoint,
-      'manual apply must bind expected endpoint');
-    assert.equal('selection_token' in JSON.parse(emergencyRequests.at(-1).body),false,
-      'manual apply must not require RTT selection token');
+    assert.equal(JSON.parse(emergencyRequests.at(-1).body).selection_token,manualRTTToken,
+      'manual apply must bind to the exact measured snapshot');
     assert.equal(calls.filter(c=>c.path==='/api/provider-profile/plan').length,planReadsBeforeRTT,
       'successful manual apply must not re-fetch subscription');
     providerPlanMode='ok';
@@ -575,7 +573,7 @@ const server = http.createServer((req,res)=>{
       assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore,'manual selection only validates');
       await page.locator('#fnVpnPickerV2Connect').click();
       if(scenario==='other')await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('пока не подтверждён'));
-      else await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Конфигурация применена:'));
+      else await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Подключено:'));
       assert.equal(status.country_code,'','exact Extra acceptance must not depend on legacy country mapping');
       assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1);
       await page.evaluate(()=>{buttonsBusy(false);document.querySelector('#exactConnectBtn').click();});

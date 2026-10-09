@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -344,7 +343,7 @@ func (a *app) handleBestServerForeign(w http.ResponseWriter, r *http.Request) {
 func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	all, _, truncated, catalog, err := a.discoverBestServerCandidatesWithSource(ctx)
+	all, _, truncated, err := a.discoverBestServerCandidates(ctx)
 	if err != nil {
 		return bestServerQualityResponse{}, err
 	}
@@ -366,7 +365,7 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		}
 		return bestServerQualityResponse{
 			Success: true, Available: currentBaselineOK && currentBaseline.Eligible, Candidates: currentCandidates, ProfilesScanned: profilesScanned, ProfilesTotal: profilesScanned,
-			ProfilesTruncated: truncated, CatalogFresh: catalog.Fresh, CatalogSource: catalog.Source, CatalogUpdatedAt: catalog.UpdatedAt, Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
+			ProfilesTruncated: truncated, Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
 			Message: "Подходящих зарубежных Extra-профилей нет; текущий VPN не изменён.",
 		}, nil
 	}
@@ -383,7 +382,6 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 		response.Candidates = append(response.Candidates, currentBaseline)
 	}
 	response.ProfilesScanned = profilesScanned
-	response.CatalogFresh, response.CatalogSource, response.CatalogUpdatedAt = catalog.Fresh, catalog.Source, catalog.UpdatedAt
 	response.Success = true
 	response.Mutation = "NONE"
 	response.ScannedAt = time.Now().UTC().Format(time.RFC3339)
@@ -397,10 +395,6 @@ func (a *app) scanBestServerForeign(ctx context.Context) (bestServerQualityRespo
 	} else {
 		response.Message = "Достоверная рекомендация среди зарубежных профилей сейчас недоступна; текущий VPN не изменён."
 	}
-	if !catalog.Fresh {
-		response.Message += " Каталог: последний защищённый список подписки от " + catalog.UpdatedAt + "; свежие серверы не подтверждены."
-	}
-	if response.Partial { response.Message += " Сканирование ограничено по времени: проверено " + fmt.Sprint(response.DeepChecked) + " из " + fmt.Sprint(response.DeepTotal) + " кандидатов." }
 	if currentBaselineOK {
 		response.Message += " Свежий подтверждённый замер текущего VPN переиспользован без повторной тяжёлой Speedtest-проверки."
 	} else {

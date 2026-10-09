@@ -78,7 +78,7 @@ async function capture(label){
         :i===8
           ?{profile_id:p.id,endpoint:ep(p),reachable:false,attempted:true,status:'unreachable'}
           :{profile_id:p.id,endpoint:rttMode==='malformed'&&i===1?'192.0.2.253:443':ep(p),reachable:true,attempted:true,status:'reachable',rtt_ms:55+((48-i)*4),jitter_ms:i%9});
-      return answer(route,{success:true,catalog,catalog_key:'fixture-catalog',selection_token:manualRTTToken,results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:rttMode!=='cached',catalog_source:rttMode==='cached'?'protected_cache':'direct',catalog_updated_at:'2026-10-09T07:14:00Z',mutation:'NONE'});
+      return answer(route,{success:true,catalog,catalog_key:'fixture-catalog',selection_token:manualRTTToken,results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:true,mutation:'NONE'});
     }
     if(url.pathname==='/api/provider-profile/plan'){
       const id=url.searchParams.get('profile_id');
@@ -100,11 +100,11 @@ async function capture(label){
     }
     if(url.pathname==='/api/network-profile/apply'){
       const body=JSON.parse(req.postData());
-      const expectedKeys=['confirm','expected_endpoint','manual_override','operation','profile_id'];
+      const expectedKeys=body.selection_token?['confirm','operation','profile_id','selection_token']:['confirm','operation','profile_id'];
       assert.deepEqual(Object.keys(body).sort(),expectedKeys);
-      assert.equal(body.manual_override,true,'explicit manual override required');
+      if(body.selection_token)assert.equal(body.selection_token,manualRTTToken,'manual apply must bind the RTT snapshot');
       assert.equal(body.operation,'provider');assert.equal(body.confirm,true);
-      const selected=profiles.find(p=>p.id===body.profile_id);assert.ok(selected);assert.equal(body.expected_endpoint,ep(selected),'manual endpoint binding required');
+      const selected=profiles.find(p=>p.id===body.profile_id);assert.ok(selected);
       if(applyMode==='unknown')return answer(route,{success:false,error:'Результат операции не подтверждён',rollback_state:'UNKNOWN'},502);
       await delay(250);status={...status,country:'',city:'',country_code:'',profile_label:selected.name,endpoint:ep(selected)};
       return answer(route,{success:true,applied:true,rollback_state:'NOT_NEEDED'});
@@ -135,15 +135,12 @@ async function capture(label){
   assert.doesNotMatch(legacyFallbackMetrics,/37\.4 Мбит\/с/,'legacy fallback throughput must never be displayed');
   assert.doesNotMatch(legacyFallbackMetrics,/Быстрый|не для сравнения/i,'legacy fallback UX must be retired');
   assert.match(legacyFallbackMetrics,/Скорость VPN[\s\S]*—/,'missing canonical speed must remain unknown');
-  await until(()=>/Скорость не измерена:/i.test(document.querySelector('#bestCurrentQuality')?.textContent||''),'fallback throughput issue hydration');
-  assert.match(await page.locator('#bestCurrentHealth').textContent(),/скорость не измерена/i,'missing strict throughput must have a safe cause, not a generic health statement');
   currentCacheMode='strict';
   await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','strict canonical reboot');
   await page.locator(T).waitFor({state:'visible'});
   await until(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Бельгия','current country after provenance reload');
   const order=await page.locator('#overviewApprovedTop').evaluate(n=>Array.from(n.children).map(x=>x.matches('.fn-xray-topbar')?'xray':x.id==='fnVpnPickerV2Host'?'vpn':x.id==='topFreenetUpdate'?'freenet':/DNS/i.test(x.textContent||'')?'dns':'other').filter(x=>x!=='other'));
   assert.deepEqual(order,['xray','vpn','dns','freenet']);
-  await until(()=>!!document.querySelector('#xrayTopbarVersion') && !!document.querySelector('#topFreenetUpdate .fn-version-copy strong'), 'all async topbar values mounted');
   const topbarType=await page.evaluate(()=>{
     const selectors=['#xrayTopbarVersion','#overviewApprovedTop .fn-shell-fact-copy>strong','#topFreenetUpdate .fn-version-copy strong'];
     return selectors.map(selector=>{
@@ -254,7 +251,7 @@ async function capture(label){
   // Explicitly remove the measured snapshot to test the legacy no-RTT fallback.
   await page.evaluate(()=>{window.freenetManualRTTSelection=null;});
   await page.locator(S).fill('NL');await page.locator(R+' button').first().click();
-  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','manual selection without preplan');assert.equal(await page.locator(C).isDisabled(),false);assert.equal(calls.filter(c=>c.path==='/api/provider-profile/plan').length,providerReadsBeforeManual,'manual selection must never preflight even on failed provider plan');await geometry('manual-no-preplan');assert.equal(countApply(),1);
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','validation error');assert.equal(await page.locator(C).isDisabled(),true);assert.match(await page.locator('#fnVpnPickerV2Detail').textContent(),/Xray/);await geometry('validation-error');assert.equal(countApply(),1);
   await page.locator('#fnVpnPickerV2Reset').click();planMode='offline';await page.evaluate(()=>loadNetworkPlan());await page.locator(S).fill('');
   await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'cached list');await until(()=>!document.querySelector('#fnVpnPickerV2Stale').hidden,'stale banner');assert.equal(countApply(),1);
 
@@ -290,16 +287,6 @@ async function capture(label){
   assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,rttReadsBeforeStaleReopen+1,'explicit refresh must issue one RTT/catalog request');
   assert.equal(calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length,planReadsBeforeReopen,'explicit RTT catalog refresh must not require hidden network-plan hydrate');
   assert.equal(countApply(),1,'catalog refresh must remain read-only');
-  rttMode='cached';
-  await page.locator(RTT).click();
-  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'protected cached RTT finish');
-  assert.equal(await page.locator('#fnVpnPickerV2Stale').isVisible(),true,'protected last-good catalog must remain explicitly stale');
-  assert.match(await page.locator('#fnVpnPickerV2RTTState').textContent(),/последний защищённый каталог/i,'RTT must disclose source staleness');
-  rttMode='ok';
-  await page.locator(RTT).click();
-  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'fresh RTT restore');
-  await until(()=>document.querySelector('#fnVpnPickerV2Stale')?.hidden===true,'genuinely fresh RTT clears stale label');
-  assert.equal(countApply(),1,'protected/fresh discovery must stay read-only');
   await page.keyboard.press('Escape');
   for(const viewport of [{width:1440,height:900},{width:980,height:800},{width:760,height:700},{width:390,height:844},{width:844,height:390}]){
     await page.setViewportSize(viewport);
