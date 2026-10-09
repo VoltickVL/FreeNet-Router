@@ -49,6 +49,7 @@ type journalDiagnosticReport struct {
 	Window        string                   `json:"window"`
 	AutoVPN       journalDiagnosticAuto    `json:"auto_vpn"`
 	Update        journalDiagnosticUpdate  `json:"update"`
+	Environment journalDiagnosticEnvironment `json:"environment"`
 	SourceCount   map[string]int           `json:"source_event_count"`
 	Events        []automationEvent        `json:"events"`
 	TechnicalEvents []technicalJournalRecord `json:"technical_events"`
@@ -143,6 +144,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 			UpdatedAt: updateState["UPDATED_AT"],
 			RollbackState: journalDiagnosticRedact(updateState["ROLLBACK_STATE"]),
 		},
+		Environment: a.journalDiagnosticEnvironment(),
 		SourceCount: map[string]int{"auto": len(autoHistory), "settings": len(systemHistory)},
 		Events: events,
 		TechnicalEvents: readTechnicalJournalRecords(technicalJournalPath(), technicalJournalMaxExportLines),
