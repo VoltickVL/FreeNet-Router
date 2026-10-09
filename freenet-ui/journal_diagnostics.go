@@ -11,7 +11,7 @@ import (
 
 // Diagnostics is deliberately pull-only. It must never run network probes,
 // update state, call AUTO VPN, or write additional journal entries.
-const journalDiagnosticEventsPerSource = 750
+const journalDiagnosticEventsPerSource = 2000
 
 type journalDiagnosticAuto struct {
 	Enabled             bool   `json:"enabled"`
@@ -117,7 +117,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 		GeneratedAt: now.UTC().Format(time.RFC3339),
 		Version: version,
 		Mode: "read-only",
-		Window: "latest 750 original events per source; no deduplication",
+		Window: "latest 2000 original events per source; no deduplication",
 		AutoVPN: journalDiagnosticAuto{
 			Enabled: settings.Enabled,
 			Mode: settings.Mode,
