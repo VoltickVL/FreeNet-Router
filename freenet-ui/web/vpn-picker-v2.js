@@ -274,8 +274,8 @@
       html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle .fnv2-chip-value{
         display:flex!important;align-items:center!important;justify-content:flex-start!important;
         width:100%!important;min-width:0!important;
-        color:#f4f7fd!important;font-size:13px!important;line-height:1.2!important;
-        font-weight:760!important;white-space:nowrap!important;
+        color:#f4f7fd!important;font-size:12px!important;line-height:1.2!important;
+        font-weight:750!important;white-space:nowrap!important;
         text-align:left!important;overflow:hidden!important;text-overflow:ellipsis!important;
       }
       html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Country{
@@ -301,6 +301,13 @@
       html body .topbar.overview-approved #overviewApprovedTop #topFreenetUpdate:focus-visible,
       html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle:focus-visible{
         outline:2px solid #83b0ff!important;outline-offset:2px!important;
+      }
+      /* Older injected CSS addressed two IDs and won over shared typography. */
+      html body .topbar.overview-approved #xrayTopbarChip #xrayTopbarVersion,
+      html body .topbar.overview-approved #overviewApprovedTop .fn-shell-fact-copy>strong,
+      html body .topbar.overview-approved #topFreenetUpdate .fn-version-copy strong,
+      html body .topbar.overview-approved #fnVpnPickerV2Toggle #fnVpnPickerV2Country{
+        font-size:12px!important;font-weight:750!important;line-height:1.2!important;
       }
       /* Overview: one visual rhythm on desktop without changing measurements or actions. */
       html body [data-page-view="overview"] .page-head h1{
@@ -383,7 +390,7 @@
         html body .topbar.overview-approved #overviewApprovedTop .fn-shell-fact-copy>strong,
         html body .topbar.overview-approved #overviewApprovedTop .fn-version-copy strong,
         html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle .fnv2-chip-value{
-          font-size:12.5px!important;
+          font-size:12px!important;
         }
         html body #controlCenter .content{
           width:calc(100% - 28px)!important;padding-top:18px!important;
@@ -435,7 +442,7 @@
         html body .topbar.overview-approved #overviewApprovedTop .fn-shell-fact-copy>strong,
         html body .topbar.overview-approved #overviewApprovedTop .fn-version-copy strong,
         html body .topbar.overview-approved #overviewApprovedTop #fnVpnPickerV2Toggle .fnv2-chip-value{
-          font-size:11.5px!important;
+          font-size:12px!important;
         }
       }
     `;
