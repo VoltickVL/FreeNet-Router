@@ -221,6 +221,10 @@ chmod 755 "$MOCK_BIN/crontab"
 FREENET_TEST_CRONTAB="$TMP/crontab.fixture"
 : > "$FREENET_TEST_CRONTAB"
 export FREENET_TEST_CRONTAB
+# Separate test-only shared mutation fences; never touch the host/router paths.
+FREENET_STACK_MUTATION_LOCK="$TMP/shared-provider.lock"
+FREENET_STACK_AUTO_LOCK="$TMP/shared-auto.lock"
+export FREENET_STACK_MUTATION_LOCK FREENET_STACK_AUTO_LOCK
 PATH="$MOCK_BIN:$PATH"
 export PATH
 MOCK_CURL_LOG="$TMP/github-web-redirect.calls"
@@ -389,6 +393,10 @@ grep -Fq 'STATE=ROLLBACK_FAILED' "$R/var/run/update.state" || fail 'terminal rol
 grep -Fq 'ROLLBACK_STATE=FAILED_UNKNOWN' "$R/var/run/update.state" || fail 'rollback failed/unknown marker missing'
 [ -d "$R/var/run/update.lock" ] || fail 'rollback failed/unknown must keep stop lock'
 rm -rf "$R/var/run/update.lock"
+# In production an unresolved rollback retains both locks until reconciliation.
+# The next unrelated unit-test fixture explicitly clears its simulated STOP.
+[ -d "$FREENET_STACK_MUTATION_LOCK" ] || fail 'unknown rollback must retain shared Xray mutation lock'
+rm -rf "$FREENET_STACK_MUTATION_LOCK"
 
 # Exact published stable downgrade uses the same transactional engine and preserves user/Xray state.
 make_root "$R"
@@ -492,7 +500,8 @@ if run_apply "$R" "$D" "" > "$TMP/busy-stack-apply.out" 2>&1; then
     fail 'active mutation lock permitted FreeNet helper upgrade'
 fi
 [ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'busy upgrade modified running UI'
-unset FREENET_STACK_MUTATION_LOCK
+FREENET_STACK_MUTATION_LOCK="$TMP/shared-provider.lock"
+export FREENET_STACK_MUTATION_LOCK
 rm -rf "$STACK_LOCK"
 
 # Preserve actual core/init/netfilter/cron before and after a successful update,
@@ -507,6 +516,7 @@ run_apply "$R" "$D" "" > "$TMP/protected-success.out" 2>&1 ||
     fail 'successful update modified Xray/XKeen/init/netfilter'
 [ "$(sha256sum "$FREENET_TEST_CRONTAB")" = "$BEFORE_CRON" ] ||
     fail 'successful update modified existing crontab'
+[ ! -e "$FREENET_STACK_MUTATION_LOCK" ] || fail 'successful update left Xray mutation fence'
 [ -s "$R/backups/$(ls "$R/backups" | head -n 1)/protected-stack.before" ] ||
     fail 'update did not record protected stack fingerprints in private backup'
 : > "$FREENET_TEST_CRONTAB"
