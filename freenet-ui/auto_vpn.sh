@@ -285,6 +285,10 @@ retain_backup() {
 }
 
 run_auto_vpn() {
+    PROVIDER_TX_DIR="${FREENET_PROVIDER_TX_DIR:-/opt/var/lib/freenet/provider-transaction}"
+    if [ -e "$PROVIDER_TX_DIR" ] || [ -L "$PROVIDER_TX_DIR" ]; then
+        fail_no_mutation 'unresolved provider transaction checkpoint: STOP, read-only reconciliation required'
+    fi
     acquire_lock || fail_no_mutation 'cannot acquire AUTO VPN lock'
     [ -s "$CONFIG_FILE" ] || fail_no_mutation 'FreeNet config is unavailable'
     [ -s "$SUB_FILE" ] || fail_no_mutation 'subscription is not configured'
