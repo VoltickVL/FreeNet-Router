@@ -582,12 +582,45 @@ app_accept_fail() {
 
 validate_app() {
     APP_ACCEPT_PRIMARY="UNKNOWN"
-    # Local Control Center probes must bypass a configured proxy.
-    HEALTH="$(curl -fsS --noproxy '*' --connect-timeout 3 --max-time 15 "http://$LAN_IP:$UI_PORT/healthz" 2>/dev/null)" || {
-        app_accept_fail "HEALTH_UNREACHABLE"
+    # Init may publish its PID before its HTTP listener is ready on slow
+    # routers. Retry only this read-only health gate, with a hard budget:
+    # 15 x 2-second curl + 14 x 1-second sleep (at most ~44 seconds).
+    # Never relax the subsequent auth, LAN-only bind or Xray checks.
+    HEALTH_ATTEMPT=0
+    HEALTH_RC=1
+    while [ "$HEALTH_ATTEMPT" -lt 15 ]; do
+        HEALTH_ATTEMPT=$((HEALTH_ATTEMPT + 1))
+        HEALTH="$(curl -fsS --noproxy '*' --connect-timeout 2 --max-time 2 "http://$LAN_IP:$UI_PORT/healthz" 2>/dev/null)"
+        HEALTH_RC=$?
+        if [ "$HEALTH_RC" -eq 0 ]; then
+            [ "$HEALTH" = ok ] || { app_accept_fail "HEALTH_INVALID"; return 1; }
+            break
+        fi
+        if ! pidof freenet-ui >/dev/null 2>&1; then
+            app_accept_fail "HEALTH_PROCESS_EXITED"
+            return 1
+        fi
+        [ "$HEALTH_ATTEMPT" -lt 15 ] && sleep 1
+    done
+    if [ "$HEALTH_RC" -ne 0 ]; then
+        # Distinguish the observed failure before rollback stops the process.
+        # Keep HTTP bodies, environment, process listings and config private.
+        HEALTH_LISTENERS="$(netstat -lntp 2>/dev/null)" || {
+            app_accept_fail "HEALTH_NETSTAT_UNAVAILABLE"
+            return 1
+        }
+        if ! printf '%s\n' "$HEALTH_LISTENERS" | grep "$LAN_IP:$UI_PORT[[:space:]]" >/dev/null 2>&1; then
+            app_accept_fail "HEALTH_LAN_LISTENER_MISSING"
+            return 1
+        fi
+        HEALTH_LOOPBACK="$(curl -fsS --noproxy '*' --connect-timeout 2 --max-time 2 "http://127.0.0.1:$UI_PORT/healthz" 2>/dev/null)" || HEALTH_LOOPBACK=""
+        if [ "$HEALTH_LOOPBACK" = ok ]; then
+            app_accept_fail "HEALTH_LAN_SELF_CONNECT_FAILED"
+        else
+            app_accept_fail "HEALTH_LAN_HTTP_UNREACHABLE"
+        fi
         return 1
-    }
-    [ "$HEALTH" = ok ] || { app_accept_fail "HEALTH_INVALID"; return 1; }
+    fi
 
     curl -fsS --noproxy '*' --connect-timeout 3 --max-time 15 "http://$LAN_IP:$UI_PORT/api/auth/status" -o "$TMP_DIR/auth-status.json" 2>/dev/null || {
         app_accept_fail "AUTH_STATUS_UNREACHABLE"

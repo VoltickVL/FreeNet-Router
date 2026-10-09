@@ -182,6 +182,14 @@ BACKUP_DIR="$ACCEPT_TMP/backup"
 mkdir -p "$TMP_DIR" "$BACKUP_DIR"
 printf '%s\n' 'same config hashes' > "$BACKUP_DIR/xray-hashes.before"
 
+# Simulate eventual readiness or a specific failure without using sockets.
+: > "$ACCEPT_TMP/health-count"
+: > "$ACCEPT_TMP/sleeps"
+sleep() { printf '%s\n' tick >> "$ACCEPT_TMP/sleeps"; }
+pidof() {
+    [ "$MOCK_SCENARIO" = HEALTH_PROCESS_EXITED ] && return 1
+    return 0
+}
 curl() {
     case " $* " in
         *'--noproxy'* ) ;;
@@ -189,12 +197,28 @@ curl() {
     esac
     case "$*" in
         */healthz*)
-            [ "$MOCK_SCENARIO" = HEALTH_UNREACHABLE ] && return 7
-            if [ "$MOCK_SCENARIO" = HEALTH_INVALID ]; then
-                printf '%s\n' 'private-secret-HTTP-payload'
-            else
-                printf '%s\n' ok
-            fi
+            case "$*" in
+                *127.0.0.1:1001*)
+                    if [ "$MOCK_SCENARIO" = HEALTH_LAN_SELF_CONNECT_FAILED ]; then
+                        printf '%s\n' ok
+                        return 0
+                    fi
+                    return 7
+                    ;;
+            esac
+            N="$(cat "$ACCEPT_TMP/health-count")"
+            N=$((N + 1))
+            printf '%s\n' "$N" > "$ACCEPT_TMP/health-count"
+            case "$MOCK_SCENARIO" in
+                HEALTH_PROCESS_EXITED|HEALTH_NETSTAT_UNAVAILABLE|HEALTH_LAN_LISTENER_MISSING|HEALTH_LAN_SELF_CONNECT_FAILED|HEALTH_LAN_HTTP_UNREACHABLE)
+                    return 7 ;;
+                HEALTH_DELAYED)
+                    [ "$N" -lt 3 ] && return 7 ;;
+                HEALTH_INVALID)
+                    printf '%s\n' 'private-secret-HTTP-payload'
+                    return 0 ;;
+            esac
+            printf '%s\n' ok
             ;;
         */api/auth/status*)
             [ "$MOCK_SCENARIO" = AUTH_STATUS_UNREACHABLE ] && return 7
@@ -215,8 +239,10 @@ jq() {
     [ "$MOCK_SCENARIO" != AUTH_STATUS_INVALID ]
 }
 netstat() {
-    [ "$MOCK_SCENARIO" = NETSTAT_UNAVAILABLE ] && return 1
-    if [ "$MOCK_SCENARIO" != LAN_LISTENER_MISSING ]; then
+    case "$MOCK_SCENARIO" in
+        NETSTAT_UNAVAILABLE|HEALTH_NETSTAT_UNAVAILABLE) return 1 ;;
+    esac
+    if [ "$MOCK_SCENARIO" != LAN_LISTENER_MISSING ] && [ "$MOCK_SCENARIO" != HEALTH_LAN_LISTENER_MISSING ]; then
         printf '%s\n' 'tcp 0 0 192.168.1.1:1001 0.0.0.0:* LISTEN 42/freenet-ui'
     fi
     if [ "$MOCK_SCENARIO" = WILDCARD_LISTENER_FORBIDDEN ]; then
@@ -236,6 +262,8 @@ check_accept() {
     WANT="$2"
     WANT_RC="$3"
     APP_ACCEPT_PRIMARY=""
+    : > "$ACCEPT_TMP/health-count"
+    : > "$ACCEPT_TMP/sleeps"
     RC=0
     validate_app > "$ACCEPT_TMP/output" 2>&1 || RC=$?
     [ "$RC" -eq "$WANT_RC" ] || fail "acceptance $MOCK_SCENARIO: rc=$RC expected $WANT_RC"
@@ -244,12 +272,28 @@ check_accept() {
         grep -Fxq "[FreeNet Setup] APP_ACCEPT_PRIMARY=$WANT" "$ACCEPT_TMP/output" || fail "acceptance $MOCK_SCENARIO: primary not printed"
     fi
     if grep -Eq 'private-secret|password|vless://' "$ACCEPT_TMP/output"; then
-        fail "acceptance $MOCK_SCENARIO: payload/credential leaked to logs"
+        fail "acceptance $MOCK_SCENARIO: response body or credential leaked"
+    fi
+    if [ "$MOCK_SCENARIO" = HEALTH_DELAYED ]; then
+        [ "$(cat "$ACCEPT_TMP/health-count")" -eq 3 ] || fail 'readiness did not wait for successful third probe'
+        [ "$(wc -l < "$ACCEPT_TMP/sleeps")" -eq 2 ] || fail 'delayed readiness did not sleep twice'
+    fi
+    if [ "$MOCK_SCENARIO" = HEALTH_LAN_HTTP_UNREACHABLE ]; then
+        [ "$(cat "$ACCEPT_TMP/health-count")" -eq 15 ] || fail 'health retry budget is not bounded to fifteen probes'
+        [ "$(wc -l < "$ACCEPT_TMP/sleeps")" -eq 14 ] || fail 'health loop slept beyond retry budget'
+    fi
+    if [ "$MOCK_SCENARIO" = HEALTH_PROCESS_EXITED ]; then
+        [ "$(cat "$ACCEPT_TMP/health-count")" -eq 1 ] || fail 'dead process not detected at earliest failure'
     fi
 }
 check_accept OK NONE 0
-check_accept HEALTH_UNREACHABLE HEALTH_UNREACHABLE 1
+check_accept HEALTH_DELAYED NONE 0
 check_accept HEALTH_INVALID HEALTH_INVALID 1
+check_accept HEALTH_PROCESS_EXITED HEALTH_PROCESS_EXITED 1
+check_accept HEALTH_NETSTAT_UNAVAILABLE HEALTH_NETSTAT_UNAVAILABLE 1
+check_accept HEALTH_LAN_LISTENER_MISSING HEALTH_LAN_LISTENER_MISSING 1
+check_accept HEALTH_LAN_SELF_CONNECT_FAILED HEALTH_LAN_SELF_CONNECT_FAILED 1
+check_accept HEALTH_LAN_HTTP_UNREACHABLE HEALTH_LAN_HTTP_UNREACHABLE 1
 check_accept AUTH_STATUS_UNREACHABLE AUTH_STATUS_UNREACHABLE 1
 check_accept AUTH_STATUS_INVALID AUTH_STATUS_INVALID 1
 check_accept NETSTAT_UNAVAILABLE NETSTAT_UNAVAILABLE 1
