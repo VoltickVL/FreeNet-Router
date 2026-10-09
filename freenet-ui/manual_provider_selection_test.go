@@ -90,7 +90,7 @@ echo '[FreeNet Provider] RESULT=SUCCESS'
 
     code, result = a.executeProviderProfileApply(networkApplyRequest{Operation:"provider", ProfileID:profile.ID, ExpectedEndpoint:profileEndpoint(profile), ManualOverride:true, Confirm:true})
     if code != http.StatusOK || !result.Success || !result.Applied { t.Fatalf("explicit manual apply unavailable: %d %+v",code,result) }
-    if !strings.Contains(result.Message, "не проверялась") { t.Fatalf("unprobed apply claimed Internet access: %q",result.Message) }
+    if !strings.Contains(result.Message, "не проверялись") { t.Fatalf("unprobed apply claimed Internet access: %q",result.Message) }
     if _, err := os.Stat(marker); err != nil { t.Fatalf("manual apply helper not called: %v",err) }
     if !automationMutationBlockedState() { t.Fatal("unprobed manual apply must not clear UNKNOWN rollback safety latch") }
 }
