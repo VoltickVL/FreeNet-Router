@@ -138,16 +138,45 @@ OUT="$(run_case "$C3")"
 printf '%s\n' "$OUT" | grep -Fq 'ENTWARE_ARCH=mipsel' || fail 'KN-1810 must select mipsel'
 grep -Fq 'mipselsf-k3.4/installer/mipsel-installer.tar.gz' "$C3/command.log" || fail 'KN-1810 Entware URL mismatch'
 
+# Verified Giga models use the same one-command Stage-0 as Ultra.
+# Giga KN-1010 / KN-1011 = MIPSel; Netcraze Giga NC-1012 = AArch64.
+for MODEL_CASE in kn1010 kn1011 hero1011 nc1012; do
+    case "$MODEL_CASE" in
+        kn1010) MODEL_NAME='Giga (KN-1010)'; EXPECTED_ARCH='mipsel'; EXPECTED_URL='mipselsf-k3.4/installer/mipsel-installer.tar.gz' ;;
+        kn1011) MODEL_NAME='Giga (KN-1011)'; EXPECTED_ARCH='mipsel'; EXPECTED_URL='mipselsf-k3.4/installer/mipsel-installer.tar.gz' ;;
+        hero1011) MODEL_NAME='Hero (KN-1011)'; EXPECTED_ARCH='mipsel'; EXPECTED_URL='mipselsf-k3.4/installer/mipsel-installer.tar.gz' ;;
+        nc1012) MODEL_NAME='Giga (NC-1012)'; EXPECTED_ARCH='aarch64'; EXPECTED_URL='aarch64-k3.10/installer/aarch64-installer.tar.gz' ;;
+    esac
+    GIGA="$TMP/$MODEL_CASE"
+    make_fake_tools "$GIGA"
+    printf '            model: %s\n' "$MODEL_NAME" > "$GIGA/model.txt"
+    write_media_one "$GIGA/media.txt" '33333333-4444-5555-6666-777777777777'
+    export FAKE_ARCH="$EXPECTED_ARCH"
+    OUT="$(run_case "$GIGA")"
+    printf '%s\n' "$OUT" | grep -Fq "ENTWARE_ARCH=$EXPECTED_ARCH" || fail "$MODEL_CASE wrong architecture"
+    grep -Fq "opkg disk 33333333-4444-5555-6666-777777777777:/ https://bin.entware.net/$EXPECTED_URL" "$GIGA/command.log" || fail "$MODEL_CASE wrong Entware installer"
+    [ -f "$GIGA/bootstrap.marker" ] || fail "$MODEL_CASE missing FreeNet bootstrap handoff"
+done
+
 # Unknown model must fail before opkg disk.
 C4="$TMP/unknown"
 make_fake_tools "$C4"
-printf '            model: Giga (NC-1012)\n' > "$C4/model.txt"
+printf '            model: Giga (NC-9999)\n' > "$C4/model.txt"
 write_media_one "$C4/media.txt" 'cccccccc-dddd-eeee-ffff-000000000000'
 export FAKE_ARCH='aarch64-3.10'
 if run_case "$C4" >"$C4/out" 2>&1; then
     fail 'unknown model must STOP'
 fi
 [ ! -f "$C4/command.log" ] || fail 'unknown model reached opkg mutation'
+
+# Do not accept model identifiers from unrelated show-version fields.
+SPOOF="$TMP/spoofed"
+make_fake_tools "$SPOOF"
+printf '            model: Unsupported (KN-9999)\n            note: Giga (NC-1012)\n' > "$SPOOF/model.txt"
+write_media_one "$SPOOF/media.txt" 'dddddddd-eeee-ffff-0000-111111111111'
+export FAKE_ARCH='aarch64-3.10'
+if run_case "$SPOOF" >"$SPOOF/out" 2>&1; then fail 'spoofed model must STOP'; fi
+[ ! -f "$SPOOF/command.log" ] || fail 'spoofed model reached opkg mutation'
 
 # Zero EXT4 must fail closed.
 C5="$TMP/noext4"
@@ -221,5 +250,8 @@ grep -Fq 'more than one mounted EXT4 partition found; refusing to guess' "$BOOT"
 grep -Fq "Ultra (KN-1811)" "$BOOT" || fail 'KN-1811 mapping missing'
 grep -Fq "Ultra (NC-1812)" "$BOOT" || fail 'NC-1812 mapping missing'
 grep -Fq "Ultra (KN-1810)" "$BOOT" || fail 'KN-1810 mapping missing'
+grep -Fq '"Giga (KN-1010)"' "$BOOT" || fail 'KN-1010 mapping missing'
+grep -Fq '"Giga (KN-1011)"' "$BOOT" || fail 'KN-1011 mapping missing'
+grep -Fq '"Giga (NC-1012)"' "$BOOT" || fail 'NC-1012 mapping missing'
 
 echo 'router stage-0 contract PASS'
