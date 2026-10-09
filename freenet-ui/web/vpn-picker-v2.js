@@ -433,11 +433,13 @@
     mount(); if (!host) return;
     orderTopbar(); observeEngine();
     const {stale}=profileSource(), s=runtime(), id=currentIdentity(s), e=engine();
-    const online=s?.xray_online===true;
-    const name=s?.xray_online===false?L.offline:id.country;
+    const unresolved=s?.vpn_state_unresolved===true;
+    const online=s?.xray_online===true && !unresolved;
+    const name=unresolved?'Состояние VPN не подтверждено':s?.xray_online===false?L.offline:id.country;
     text(q('#fnVpnPickerV2Country'),name); toggle.setAttribute('aria-label','VPN: '+name);
     setFlag(q('#fnVpnPickerV2Flag'),online?id.code:''); setFlag(currentFlag,online?id.code:'');
-    text(currentName,id.country); text(currentCopy,id.label); text(badge,online?L.connected:s?.xray_online===false?L.offline:L.unknown); badge.dataset.online=String(online);
+    text(currentName,name); text(currentCopy,unresolved?'Файлы VPN могут отличаться от работающего Xray':id.label);
+    text(badge,unresolved?'STOP · нужна проверка':online?L.connected:s?.xray_online===false?L.offline:L.unknown); badge.dataset.online=String(online);
     let state='idle', title=L.idle, note=L.unchanged;
     if (selected) {
       if (choosing || e.card?.classList.contains('is-checking')) {state='checking';title=L.checking;note=clean(selected.name);}
@@ -447,6 +449,7 @@
       else if (canConnect(e)) {state='ready';title=L.ready;note=clean(selected.name);}
       else if (sent) {state='applying';title=L.applying;note=e.note || L.blocked;}
     } else if (busy()) {title=L.busy;}
+    if (unresolved) {state='error';title='Переключение заблокировано';note='Незавершённый VPN rollback. Сначала требуется read-only диагностика текущего состояния.';}
     footer.dataset.state=state; text(statusText,title); text(detail,note);
     connect.disabled=!canConnect(e); reset.disabled=!selected || busy() || uncertain(e);
     if (refresh) { refresh.disabled=rttScanning || busy(); refresh.dataset.busy=String(rttScanning); }
