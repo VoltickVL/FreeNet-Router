@@ -559,7 +559,7 @@ check_existing_stack_compatibility() {
     [ -x "$XK" ] && [ -x "$XR" ] && [ -f "$INIT" ] && [ -d "$ROOT/etc/xray/configs" ] ||
         { stack_refuse PARTIAL_STACK 'Existing XKeen/Xray/configs/init are incomplete; safe FreeNet helper upgrade is blocked'; return 1; }
 
-    # Old Giga XKeen: pidof xray with no supported foreground start.
+    # Old Giga XKeen uses PID-only readiness without supported foreground start.
     # Neither a PID nor "xray run -test" proves startup compatibility.
     if ! grep -Fq 'XKEEN_FOREGROUND' "$XK" 2>/dev/null; then
         if grep -Eq 'pidof[[:space:]]+("?[$]name_client"?|xray)' "$INIT" 2>/dev/null; then
@@ -649,6 +649,7 @@ prepare_backup() {
     [ -n "$STAMP" ] || STAMP="$$"
     BACKUP_DIR="$ROOT/backups/freenet-web-update-$STAMP"
     mkdir -p "$BACKUP_DIR" || return 1
+    chmod 700 "$BACKUP_DIR" || return 1
     I=0
     for NAME in $(asset_list); do
         I=$((I + 1))
