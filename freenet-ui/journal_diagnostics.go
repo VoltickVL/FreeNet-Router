@@ -64,7 +64,8 @@ var (
 	journalDiagnosticIP = regexp.MustCompile(`\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]{1,5})?\b`)
 	journalDiagnosticUUID = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
 	journalDiagnosticSecret = regexp.MustCompile(`(?i)\b(token|secret|password|passwd|private[_-]?key|authorization|api[_-]?key|access[_-]?key|uuid)\s*[:=]\s*[^\s;,}]+\b`)
-	journalDiagnosticBearer = regexp.MustCompile(`(?i)\bbearer\s+[^\s;,}]+`)
+	journalDiagnosticBearer = regexp.MustCompile(`(?i)\b(?:bearer|basic)\s+[^\s;,}]+`)
+	journalDiagnosticEmail = regexp.MustCompile(`(?i)\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b`)
 )
 
 // Redact endpoint identity and credentials before creating a shareable report.
@@ -72,8 +73,9 @@ var (
 func journalDiagnosticRedact(input string) string {
 	s := strings.ReplaceAll(strings.ReplaceAll(input, "\r", " "), "\n", " ")
 	s = journalDiagnosticURI.ReplaceAllString(s, "[url-redacted]")
+	s = journalDiagnosticBearer.ReplaceAllString(s, "[auth-redacted]")
+	s = journalDiagnosticEmail.ReplaceAllString(s, "[email-redacted]")
 	s = journalDiagnosticSecret.ReplaceAllString(s, "$1=[redacted]")
-	s = journalDiagnosticBearer.ReplaceAllString(s, "Bearer [redacted]")
 	s = journalDiagnosticUUID.ReplaceAllString(s, "[id-redacted]")
 	s = journalDiagnosticIP.ReplaceAllString(s, "[ip-redacted]")
 	s = journalDiagnosticHost.ReplaceAllString(s, "[host-redacted]")
