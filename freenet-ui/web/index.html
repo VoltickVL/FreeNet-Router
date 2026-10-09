@@ -72,6 +72,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
   [data-page-view="settings"] .fn3-extra-card:not(.fn3-section-collapsed){height:auto}
   [data-page-view="settings"] .fn3-extra-grid{align-items:start}
 }
+.auth-actions .btn[aria-busy="true"]{opacity:1;cursor:progress;pointer-events:none}
 </style>
 </head>
 <body>
@@ -83,7 +84,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
     <div class="field"><label for="authPassword">Пароль администратора</label><input id="authPassword" type="password" autocomplete="current-password" maxlength="256" placeholder="Не менее 12 символов"></div>
     <div id="authConfirmField" class="field" style="margin-top:9px" hidden><label for="authPasswordConfirm">Повторите пароль</label><input id="authPasswordConfirm" type="password" autocomplete="new-password" maxlength="256"></div>
     <div class="auth-actions"><button id="authSubmitBtn" class="btn primary" type="button">Продолжить</button></div>
-    <div id="authNotice" class="notice"></div>
+    <div id="authNotice" class="notice" role="status" aria-live="polite"></div>
   </div>
 </div>
 
@@ -227,7 +228,7 @@ let localPending=false,requestedAction='',actionStartedAt=0,baselineEndedAt='',l
 let networkDirty=false,networkPlanReady=false,networkApplying=false,networkChecking=false,networkPlanError=false,lastNetworkPlan=null;
 let selectedProviderID='',selectedProviderName='',providerPlanReady=false,providerApplying=false,providerApplied=false,extraProfiles=[];
 let setupFinalizePlanReady=false,setupFinalizeApplying=false,setupFinalizeComplete=false,lastSetupFinalizePlan=null;
-let authConfigured=false,authAuthenticated=false,controlCenterStarted=false,statusTimer=null;
+let authConfigured=false,authAuthenticated=false,authPending=false,controlCenterStarted=false,statusTimer=null;
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function el(id){return document.getElementById(id)}
 function setSummary(id,text,type=''){const n=el(id);if(!n)return;n.textContent=text;n.className='summary-state'+(type?' '+type:'')}
@@ -240,7 +241,50 @@ function setPage(page){if(page==='subscription')page='settings';if(!pageLabels[p
 document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>setPage(b.dataset.page)));el('mobileMenuBtn').addEventListener('click',()=>el('sidebar').classList.toggle('open'));
 function renderAuth(s){authConfigured=!!(s&&s.configured);authAuthenticated=!!(s&&s.authenticated);el('authSection').hidden=authAuthenticated;el('controlCenter').hidden=!authAuthenticated;el('authConfirmField').hidden=authConfigured;el('authTitle').textContent=authConfigured?'Вход в FreeNet':'Первичная защита FreeNet';el('authSubtitle').textContent=authConfigured?'Введите пароль администратора.':'Создайте пароль администратора. Он хранится на роутере только как salted adaptive hash и не выводится в API/журнал.';el('authSubmitBtn').textContent=authConfigured?'Войти':'Создать пароль и войти';el('authPassword').autocomplete=authConfigured?'current-password':'new-password';if(authAuthenticated)startControlCenter();else stopControlCenter()}
 async function loadAuthStatus(){try{const r=await fetch('/api/auth/status',{cache:'no-store'}),s=await r.json();renderAuth(s)}catch(e){el('authSection').hidden=false;showBox('authNotice','FreeNet Control Center недоступен','bad')}}
-async function submitAuth(){hideBox('authNotice');const password=el('authPassword').value,confirm=el('authPasswordConfirm').value;if(!authConfigured&&password!==confirm){showBox('authNotice','Пароли не совпадают','bad');return}const path=authConfigured?'/api/auth/login':'/api/auth/setup';try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})}),j=await r.json();if(!r.ok){showBox('authNotice',j.error||'Ошибка авторизации','bad');return}el('authPassword').value='';el('authPasswordConfirm').value='';await loadAuthStatus()}catch(e){showBox('authNotice','Нет связи с FreeNet','bad')}}
+function setAuthPending(pending){
+  authPending=!!pending;
+  const button=el('authSubmitBtn');
+  button.disabled=authPending;
+  button.setAttribute('aria-busy',String(authPending));
+  el('authPassword').disabled=authPending;
+  el('authPasswordConfirm').disabled=authPending;
+  const remember=el('authRemember');
+  if(remember)remember.disabled=authPending;
+  button.textContent=authPending
+    ?(authConfigured?'Проверяем пароль на роутере…':'Создаём защищённый пароль…')
+    :(authConfigured?'Войти':'Создать пароль и войти');
+}
+async function submitAuth(){
+  if(authPending)return;
+  hideBox('authNotice');
+  const password=el('authPassword').value,confirm=el('authPasswordConfirm').value;
+  if(!authConfigured&&password!==confirm){showBox('authNotice','Пароли не совпадают','bad');return}
+  const path=authConfigured?'/api/auth/login':'/api/auth/setup';
+  setAuthPending(true);
+  showBox('authNotice',authConfigured
+    ?'Проверяем пароль на роутере. На MIPS это может занять некоторое время; повторно нажимать не нужно.'
+    :'Создаём защищённый пароль на роутере. На MIPS это может занять некоторое время; не обновляйте страницу.');
+  try{
+    const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});
+    const j=await r.json();
+    if(!r.ok){showBox('authNotice',(j&&j.error)||'Ошибка авторизации','bad');return}
+    // Only the server's confirmed authenticated result may reveal the app.
+    // The session cookie arrives with this response: a second status request
+    // is unnecessary and could fail on a resource-constrained MIPS router.
+    if(!j||j.configured!==true||j.authenticated!==true){
+      showBox('authNotice','Сервер не подтвердил вход. Обновите страницу один раз для проверки состояния; не повторяйте создание пароля вслепую.','bad');
+      return;
+    }
+    el('authPassword').value='';
+    el('authPasswordConfirm').value='';
+    hideBox('authNotice');
+    renderAuth(j);
+  }catch(e){
+    showBox('authNotice','Связь с FreeNet прервалась. Пароль мог сохраниться: обновите страницу один раз и проверьте, появилась ли форма входа.','bad');
+  }finally{
+    setAuthPending(false);
+  }
+}
 async function logout(all){try{await fetch(all?'/api/auth/logout-all':'/api/auth/logout',{method:'POST'})}catch(e){}stopControlCenter();lastStatus=null;await loadAuthStatus()}
 el('authSubmitBtn').addEventListener('click',submitAuth);el('authPassword').addEventListener('keydown',e=>{if(e.key==='Enter')submitAuth()});el('logoutBtn').addEventListener('click',()=>logout(false));el('logoutAllBtn').addEventListener('click',()=>logout(true));
 function healthClass(id,ok){const n=el(id);if(n)n.className='health '+(ok?'ok':'bad')}
