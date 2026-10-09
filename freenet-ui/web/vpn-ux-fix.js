@@ -154,11 +154,10 @@
   async function selectExactProfile(p) {
     if (!p || !p.id || exactChecking || providerApplying) return;
     exactProfile = p;
-    exactPlan = null;
-    exactChecking = true;
+    exactPlan = {endpoint:profileEndpoint(p)};
     selectedProviderID = p.id;
     selectedProviderName = p.name || 'Extra-профиль';
-    providerPlanReady = false;
+    providerPlanReady = true;
     providerApplied = false;
     if (typeof resetSetupFinalizePlan === 'function') resetSetupFinalizePlan();
     if (typeof hideBox === 'function') hideBox('providerNotice');
@@ -166,62 +165,16 @@
     if (typeof renderProfileOptions === 'function') renderProfileOptions();
     showExactMode(true);
 
+    // This is the user's explicit manual choice. No RTT, subscription refresh,
+    // candidate reachability test or provider plan is allowed on selection.
+    // Only an authenticated click on Connect invokes the protected backend
+    // transaction; an offline server remains selectable.
+    selectedCardText(`Выбрано вручную: ${selectedProviderName}`, profileEndpoint(p),
+      'Подключение не проверяется заранее — выбранный сервер может быть недоступен. Проверить VPN можно после применения.', 'ready');
     const controls = mountExactConnectControls();
     if (controls && controls.connect) {
-      controls.connect.disabled = true;
-      controls.connect.textContent = 'Проверяем…';
-    }
-    selectedCardText(`Проверяем: ${selectedProviderName}`, profileEndpoint(p), 'Проверяем доступность и конфигурацию сервера перед подключением.', 'checking');
-
-    // Explicit RTT has already measured this exact profile and retained its
-    // one-time router-side snapshot. Skip the redundant subscription/plan fetch.
-    const measured = window.freenetManualRTTSelection;
-    const measuredEndpoint = measured?.endpoints?.[p.id];
-    if (/^[0-9a-f]{32}$/.test(String(measured?.token || '')) && measuredEndpoint && measuredEndpoint === profileEndpoint(p)) {
-      exactPlan = {endpoint:measuredEndpoint, selection_token:measured.token};
-      providerPlanReady = true;
-      exactChecking = false;
-      selectedCardText(`Готов к подключению: ${selectedProviderName}`, measuredEndpoint,
-        'VPN-пинг прошёл. Можно подключаться. FreeNet сохранит прежнее состояние и проверит результат.', 'ready');
-      if (controls && controls.connect) {
-        controls.connect.disabled = false;
-        controls.connect.textContent = 'Подключиться';
-      }
-      return;
-    }
-
-    try {
-      const r = await fetch('/api/provider-profile/plan?profile_id=' + encodeURIComponent(selectedProviderID), {cache:'no-store'});
-      if (r.status === 401) {
-        if (typeof loadAuthStatus === 'function') await loadAuthStatus();
-        return;
-      }
-      const pp = await r.json();
-      providerPlanReady = !!(r.ok && pp && pp.success && pp.candidate_xray_valid && pp.mutation === 'NONE' && !pp.error);
-      if (!providerPlanReady) {
-        const reason = humanProviderPlanError((pp && pp.error) || 'Сервер не прошёл проверку перед подключением.');
-        selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), reason, 'error');
-        if (controls && controls.connect) {
-          controls.connect.disabled = true;
-          controls.connect.textContent = 'Сервер недоступен';
-        }
-        if (typeof showBox === 'function') showBox('providerNotice', `Не удалось проверить выбранный VPN-сервер: ${reason}`, 'bad');
-        return;
-      }
-      exactPlan = pp;
-      selectedCardText(`Готов к подключению: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Проверка пройдена. Можно подключаться. DNS при этом не изменяется.', 'ready');
-      if (controls && controls.connect) {
-        controls.connect.disabled = false;
-        controls.connect.textContent = 'Подключиться';
-      }
-    } catch (_) {
-      selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), 'Не удалось получить результат проверки. Текущий VPN не изменён.', 'error');
-      if (controls && controls.connect) {
-        controls.connect.disabled = true;
-        controls.connect.textContent = 'Сервер недоступен';
-      }
-    } finally {
-      exactChecking = false;
+      controls.connect.disabled = false;
+      controls.connect.textContent = 'Подключиться';
     }
   }
 
@@ -257,13 +210,13 @@
     }
     if (typeof buttonsBusy === 'function') buttonsBusy(true);
     if (typeof hideBox === 'function') hideBox('notice');
-    selectedCardText(`Подключаем: ${p.name || 'Extra-профиль'}`, expectedEndpoint, 'Применяем профиль и подтверждаем фактическое соединение.', 'applying');
+    selectedCardText(`Подключаем: ${p.name || 'Extra-профиль'}`, expectedEndpoint, 'Применяем конфигурацию. Доступность удалённого VPN не проверяем.', 'applying');
 
     try {
       const r = await fetch('/api/network-profile/apply', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({operation: 'provider', profile_id: profileID, confirm: true, ...(pp.selection_token ? {selection_token:pp.selection_token} : {})})
+        body: JSON.stringify({operation: 'provider', profile_id: profileID, confirm: true, manual_override: true})
       });
       if (r.status === 401) {
         if (typeof loadAuthStatus === 'function') await loadAuthStatus();
@@ -279,8 +232,9 @@
         return;
       }
 
-      const s = await waitExactState(expectedEndpoint);
-      const accepted = !!(s && s.endpoint === expectedEndpoint && !s.busy && !s.updater_busy && s.xray_online);
+      const confirmedEndpoint = (j.provider_plan && j.provider_plan.endpoint) || expectedEndpoint;
+      const s = await waitExactState(confirmedEndpoint);
+      const accepted = !!(s && s.endpoint === confirmedEndpoint && !s.busy && !s.updater_busy && s.xray_online);
       if (!accepted) {
         const actual = s ? `${s.country || 'страна не определена'} · ${s.endpoint || 'endpoint неизвестен'}` : 'фактический статус недоступен';
         selectedCardText('Требуется проверка состояния', expectedEndpoint, `Фактическое соединение пока не подтверждено: ${actual}. Повтор автоматически не запускается.`, 'error');
@@ -297,8 +251,7 @@
       if (typeof renderProfileOptions === 'function') renderProfileOptions();
       if (typeof renderSelectedProfile === 'function') renderSelectedProfile(null);
       showExactMode(false);
-      if (typeof loadNetworkPlan === 'function') await loadNetworkPlan('');
-      if (typeof showBox === 'function') showBox('notice', `Подключено: ${s.profile_label || p.name || s.country || 'VPN'}${s.city ? ' · ' + s.city : ''}\n${s.endpoint}`, 'ok');
+      if (typeof showBox === 'function') showBox('notice', `VPN-конфигурация применена вручную: ${s.profile_label || p.name || 'VPN'}\n${s.endpoint}\nДоступность интернета через выбранный сервер не проверена. Нажмите «Проверить текущий VPN», если нужна диагностика.`, 'ok');
     } catch (_) {
       selectedCardText('Связь прервалась', expectedEndpoint, 'Ждём фактический статус VPN. Повторное подключение автоматически не запускается.', 'error');
       if (typeof showBox === 'function') showBox('notice', 'Связь прервалась во время переключения. Проверяем фактическое состояние перед любым повтором.', 'bad');
