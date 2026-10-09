@@ -73,6 +73,7 @@ type networkApplyRequest struct {
 	NativeDNSProvider  string `json:"native_dns_provider,omitempty"`
 	ProfileID          string `json:"profile_id,omitempty"`
 	SelectionToken     string `json:"selection_token,omitempty"`
+	ManualOverride    bool   `json:"manual_override,omitempty"`
 	NativeFilterEngine string `json:"native_filter_engine,omitempty"`
 	Confirm            bool   `json:"confirm"`
 }
@@ -546,7 +547,7 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 	journalMessage := "Сервер: " + journalName
 	if result.Success {
 		journalResult = "success"
-		journalMessage += " | Итог: VPN подключён"
+		journalMessage += " | Итог: " + func() string { if req.ManualOverride { return "конфигурация применена, доступность VPN не проверена" }; return "VPN подключён" }()
 	} else {
 		reason := sanitizeAutomationReason(result.PrimaryError)
 		if reason == "" {
@@ -589,7 +590,19 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	)
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	if selectionToken != "" {
+	if req.ManualOverride && selectionToken != "" {
+		return http.StatusBadRequest, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, RollbackState: "NOT_APPLIED", Error: "manual override does not accept a scan token"}
+	}
+	if req.ManualOverride {
+		// Explicit manual intent does not run RTT, reachability preflight,
+		// provider plan or subscription refresh. Only source-bound local LKG.
+		selected, err = a.loadManualProviderCandidate(profileID)
+		if err != nil {
+			return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, RollbackState: "NOT_APPLIED", Error: err.Error()}
+		}
+		useSnapshot = true
+		providerPlan = providerPlanResponse{Success: true, ProfileID: selected.Profile.ID, ProfileName: selected.Profile.Name, Endpoint: profileEndpoint(selected.Profile), Mutation: "NONE"}
+	} else if selectionToken != "" {
 		selected, manualRTT, err = a.loadBestServerSelectionCandidateWithPurpose(selectionToken, profileID, currentEndpoint, currentFilter)
 		if err != nil {
 			return http.StatusConflict, networkApplyResponse{
@@ -617,7 +630,7 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	if err != nil {
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED", Error: err.Error()}
 	}
-	if !manualRTT && (!providerPlan.CandidateValid || !providerPlan.CandidateRouteOK || providerPlan.Mutation != "NONE") {
+	if !req.ManualOverride && !manualRTT && (!providerPlan.CandidateValid || !providerPlan.CandidateRouteOK || providerPlan.Mutation != "NONE") {
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED", Error: "provider plan is not a validated application-ready candidate"}
 	}
 	if useSnapshot && (readBestServerCurrentEndpoint(a.cfg.OutPath) != currentEndpoint || readBestServerCurrentFilter(a.cfg.FilterPath) != currentFilter) {
@@ -639,7 +652,7 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		// Protected AUTO/Best/manual snapshot switches preserve XKeen/netfilter
 		// during Xray cutover and rollback. AUTO/Best retains route preflight;
 		// only explicit measured manual RTT skips its duplicate preflight.
-		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, "apply-core", selected, manualRTT)
+		output, cmdErr = a.runProviderSelectionCommandWithManualOptions(ctx, "apply-core", selected, manualRTT, req.ManualOverride)
 	} else {
 		// Unmeasured legacy/no-token setup retains its established apply path.
 		output, cmdErr = runCommand(ctx, providerHelperPath(), "apply", profileID)
@@ -675,13 +688,17 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	// live post-apply VPN route both pass application-level probes. That is
 	// sufficient factual acceptance to retire a stale rollback latch inherited
 	// from an older release and to acknowledge the current post-update hold.
-	setAutomationMutationBlocked(false)
-	if target := automationPendingPostUpdateTarget(a); target != "" {
-		setAutomationPostUpdateAck(target)
+	if !req.ManualOverride {
+		// Only an actually verified live VPN route can clear the old
+		// automation rollback latch or acknowledge post-update recovery.
+		setAutomationMutationBlocked(false)
+		if target := automationPendingPostUpdateTarget(a); target != "" {
+			setAutomationPostUpdateAck(target)
+		}
 	}
 	return http.StatusOK, networkApplyResponse{
 		Success: true, Applied: true, Operation: "provider", ProfileID: profileID,
-		Message: "VPN-профиль применён, интернет через него проверен.", RollbackState: "NOT_NEEDED",
+		Message: func() string { if req.ManualOverride { return "VPN-конфигурация применена вручную. Доступность интернета через этот сервер не проверялась." }; return "VPN-профиль применён, интернет через него проверен." }(), RollbackState: "NOT_NEEDED",
 		Plan: postNetwork, ProviderPlan: &appliedPlan,
 	}
 }
