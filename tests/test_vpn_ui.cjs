@@ -331,7 +331,7 @@ const server = http.createServer((req,res)=>{
     assert.match(missingSpeedMetrics,/Скорость VPN/,'current VPN keeps the canonical speed metric owner');
     assert.doesNotMatch(missingSpeedMetrics,/Мбит\/с/,'no alternative throughput value may replace a failed canonical measurement');
     assert.doesNotMatch(missingSpeedMetrics,/Быстрый|не для сравнения/i,'non-comparable speed UX must not return');
-    assert.match(await page.locator('#bestCurrentQuality').textContent(),/Замер скорости:/,'failed canonical speed must remain explicit');
+    assert.match(await page.locator('#bestCurrentQuality').textContent(),/Скорость не измерена:/,'failed canonical speed must remain explicit');
 
     bestMode='no-current';
     await page.locator('#bestServerRefresh').click();
