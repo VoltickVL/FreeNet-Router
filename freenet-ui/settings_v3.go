@@ -395,6 +395,10 @@ func v3WriteState(values map[string]string) error {
 }
 
 func appendBoundedJournalLine(path, line string) {
+	stored := false
+	defer func() {
+		if stored { technicalJournalObserve(path, line) }
+	}()
 	journalHistoryMu.Lock()
 	defer journalHistoryMu.Unlock()
 
@@ -403,8 +407,9 @@ func appendBoundedJournalLine(path, line string) {
 	if err != nil {
 		return
 	}
-	_, _ = file.WriteString(line)
-	_ = file.Close()
+	_, writeErr := file.WriteString(line)
+	closeErr := file.Close()
+	stored = writeErr == nil && closeErr == nil
 
 	data, err := os.ReadFile(path)
 	if err != nil {
