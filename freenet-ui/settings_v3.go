@@ -1644,6 +1644,17 @@ func (a *app) runV3FreeNetCheck(ctx context.Context) error {
 		return err
 	}
 	values := parseKVOutput(string(out))
+	// A read-only updater plan may succeed as a diagnostic while explicitly
+	// refusing to upgrade an incompatible existing XKeen/Xray stack.
+	// It must never be logged as "already up to date".
+	if !strings.EqualFold(values["SUCCESS"], "yes") {
+		v3Mark("freenet", "failed", "FreeNet update plan did not confirm its result.")
+		return errors.New("FreeNet update plan result is unconfirmed")
+	}
+	if !strings.EqualFold(values["READY"], "yes") {
+		v3Mark("freenet", "blocked", "Обновление FreeNet остановлено: установленный XKeen/Xray не прошёл проверку совместимости. Рабочие настройки сохранены.")
+		return nil
+	}
 	if strings.EqualFold(values["UPDATE_AVAILABLE"], "yes") {
 		latest := sanitizeAutomationReason(values["LATEST_VERSION"])
 		v3Mark("freenet", "available", "Доступно обновление FreeNet "+latest+". Установка требует подтверждения.")
