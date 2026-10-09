@@ -302,6 +302,37 @@ grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/core.out" || fail 'core-only 
 run_helper core-restart > "$TMP/core-command.out" 2> "$TMP/core-command.err"
 grep -Fq '[FreeNet Provider] CORE_RESTART=SUCCESS' "$TMP/core-command.out" || fail 'standalone core-restart command failed'
 [ ! -s "$TMP/xkeen.calls" ] || fail 'standalone core restart called xkeen'
+# An explicitly selected VPN may be unreachable. Manual apply never
+# probes pre/post connectivity; technical Xray validation and core-only
+# guarded cutover remain mandatory. Other modes still fail closed (above).
+printf '%s\n' fail-all > "$TMP/route-probe.mode"
+if ! FREENET_PROVIDER_RTT_MANUAL=1 run_helper apply-core "$PROFILE_ID" > "$TMP/dead-manual.out" 2> "$TMP/dead-manual.err"; then
+    cat "$TMP/dead-manual.err" >&2 || true
+    fail 'explicit manual apply rejected unreachable profile'
+fi
+grep -Fq 'CANDIDATE_ROUTE_OK=skipped' "$TMP/dead-manual.out" || fail 'manual apply still performed candidate route preflight'
+grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/dead-manual.out" || fail 'unprobed manual apply did not reach technical success'
+[ ! -s "$TMP/xkeen.calls" ] || fail 'manual apply unexpectedly restarted XKeen'
+MANUAL_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+MANUAL_FILTER="$(cat "$TMP/profile.filter")"
+MANUAL_PROFILE="$(cat "$TMP/etc/vpn_profile_name")"
+
+# Technical cutover failure must still rollback even though the route is dead.
+cat > "$TMP/bin/manual-core-failure" <<'EOF'
+#!/bin/sh
+[ "${1:-no}" = yes ]
+EOF
+chmod 755 "$TMP/bin/manual-core-failure"
+CORE_HELPER="$TMP/bin/manual-core-failure"
+if FREENET_PROVIDER_RTT_MANUAL=1 run_helper apply-core "$PROFILE_ID" > "$TMP/manual-rollback.out" 2> "$TMP/manual-rollback.err"; then
+    fail 'manual technical core failure unexpectedly succeeded'
+fi
+[ "$MANUAL_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'manual technical rollback lost outbound'
+[ "$MANUAL_FILTER" = "$(cat "$TMP/profile.filter")" ] || fail 'manual technical rollback lost active filter'
+[ "$MANUAL_PROFILE" = "$(cat "$TMP/etc/vpn_profile_name")" ] || fail 'manual technical rollback lost profile label'
+grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/manual-rollback.err" || fail 'manual technical rollback was not confirmed'
+[ ! -s "$TMP/xkeen.calls" ] || fail 'manual technical rollback unexpectedly restarted XKeen'
+printf '%s\n' pass > "$TMP/route-probe.mode"
 unset CORE_HELPER
 rm -f "$TMP/core.calls" "$TMP/xkeen.calls"
 
