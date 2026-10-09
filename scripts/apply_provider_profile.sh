@@ -685,7 +685,11 @@ rollback_state() {
             pidof xray >/dev/null 2>&1 || RB=1
         fi
     fi
-    if [ "$RB" -eq 0 ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" != 1 ]; then provider_route_probe "$OUT_FILE" || RB=1; fi
+    if [ "$RB" -eq 0 ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
+        XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 || RB=1
+    elif [ "$RB" -eq 0 ]; then
+        provider_route_probe "$OUT_FILE" || RB=1
+    fi
     ROLLBACK_ACTIVE=0
     [ "$RB" -eq 0 ]
 }
@@ -784,10 +788,10 @@ select_profile || { err 'requested Extra profile is not present in the prepared 
 build_vless_object || { err 'cannot build selected VLESS profile'; exit 1; }
 build_candidate || { err 'cannot build candidate 04_outbounds.json'; exit 1; }
 validate_candidate || { err 'candidate Xray configuration validation failed'; exit 1; }
-# A successful explicit RTT sweep already measured this exact selected VPN.
-# For manual emergency apply only, avoid a second isolated route preflight.
-# The Xray config test above, state snapshot, live post-check and rollback
-# below remain mandatory and are never bypassed.
+# Explicit manual selection may deliberately target a dead VPN. The caller
+# securely stages a URL-bound local profile and sets the manual flag; skip
+# network probes while keeping Xray validation, backup, core-only cutover,
+# process acceptance and rollback on technical failures.
 CANDIDATE_ROUTE_STATUS=yes
 if [ "$MODE" = apply-core ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
     CANDIDATE_ROUTE_STATUS=skipped
