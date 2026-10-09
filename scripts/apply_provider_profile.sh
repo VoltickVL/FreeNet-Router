@@ -685,7 +685,13 @@ rollback_state() {
             pidof xray >/dev/null 2>&1 || RB=1
         fi
     fi
-    [ "$RB" -ne 0 ] || provider_route_probe "$OUT_FILE" || RB=1
+    if [ "$FORCED_MANUAL" -eq 1 ]; then
+        # User explicitly accepts an offline endpoint. Rollback acceptance
+        # checks restored Xray syntax/runtime, never requires working VPN.
+        [ "$RB" -ne 0 ] || XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" >/dev/null 2>&1 || RB=1
+    else
+        [ "$RB" -ne 0 ] || provider_route_probe "$OUT_FILE" || RB=1
+    fi
     ROLLBACK_ACTIVE=0
     [ "$RB" -eq 0 ]
 }
@@ -720,6 +726,10 @@ fail_apply() {
 
 MODE="${1:-plan}"
 REQUESTED_ID="${2:-}"
+FORCED_MANUAL=0
+if [ "$MODE" = apply-core ] && [ "${FREENET_PROVIDER_FORCE_MANUAL:-0}" = 1 ]; then
+    FORCED_MANUAL=1
+fi
 
 if [ "$MODE" = core-restart ]; then
     acquire_mutation_lock || {
@@ -785,7 +795,7 @@ validate_candidate || { err 'candidate Xray configuration validation failed'; ex
 # The Xray config test above, state snapshot, live post-check and rollback
 # below remain mandatory and are never bypassed.
 CANDIDATE_ROUTE_STATUS=yes
-if [ "$MODE" = apply-core ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
+if [ "$FORCED_MANUAL" -eq 1 ] || { [ "$MODE" = apply-core ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; }; then
     CANDIDATE_ROUTE_STATUS=skipped
 else
     provider_route_probe "$CANDIDATE_OUT" || { err 'candidate VPN application route validation failed'; exit 1; }
@@ -830,7 +840,13 @@ mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" || fail_apply 'cannot commit exact ac
 restart_if_needed || fail_apply 'Xray/XKeen runtime acceptance failed after provider apply'
 XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
     || fail_apply 'live Xray configuration validation failed after provider apply'
-provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
+if [ "$FORCED_MANUAL" -eq 1 ]; then
+    # A dead server is an explicit user choice. Verify only the Xray runtime
+    # (above), never roll back solely because the remote VPN is offline.
+    say '[FreeNet Provider] CONNECTIVITY=NOT_TESTED'
+else
+    provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
+fi
 
 append_provider_history 'success' "VPN server applied: $SELECTED_NAME · $SELECTED_ADDRESS:$SELECTED_PORT"
 say '[FreeNet Provider] RESULT=SUCCESS'
