@@ -25,15 +25,14 @@
       body.fn-settings-accepted .fn3-head p{font-size:13px!important;margin-top:5px!important}
       body.fn-settings-accepted .fn3-save{width:208px!important;min-width:208px!important;height:40px!important;min-height:40px!important;border-radius:10px!important}
       body.fn-settings-accepted .fn3-grid{grid-template-columns:640px minmax(0,1fr)!important;gap:14px!important}
-      body.fn-settings-accepted .fn3-card{border-radius:12px!important}
+      body.fn-settings-accepted .fn3-card{border-radius:var(--fn-ui-panel-radius,14px)!important}
       body.fn-settings-accepted .fn3-left>.fn3-card:first-child{min-height:518px!important}
       body.fn-settings-accepted .fn3-right>.fn3-card:first-child{min-height:293px!important}
       body.fn-settings-accepted .fn3-right>.fn3-card:nth-child(2){min-height:213px!important}
       body.fn-settings-accepted .fn3-extra{min-height:299px!important;padding:11px 6px!important}
       body.fn-settings-accepted .fn3-extra-grid{gap:10px!important}
       body.fn-settings-accepted .fn3-extra-card{min-height:229px!important}
-      body.fn-settings-accepted .fn3-left>.fn3-card:first-child .fn3-icon>svg{display:none!important}
-      body.fn-settings-accepted .fn3-left>.fn3-card:first-child .fn3-icon::before{content:'VPN';display:grid!important;place-items:center!important;width:30px!important;height:30px!important;border:2px solid #e8f3ff!important;border-radius:50%!important;color:#fff!important;font-size:10px!important;font-weight:800!important;letter-spacing:-.04em!important;line-height:1!important;box-sizing:border-box!important}
+      /* The canonical Settings SVG is shared with DNS/Subscription/Services; no CSS text icon. */
       body.fn-settings-accepted .fn3-auto-actions .btn svg{width:18px!important;height:18px!important}
       body.fn-settings-accepted .fn3-extra-action svg,
       body.fn-settings-accepted .fn3-backup-actions .btn svg{width:16px!important;height:16px!important}
