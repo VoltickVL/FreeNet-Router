@@ -135,6 +135,7 @@ async function capture(label){
   assert.doesNotMatch(legacyFallbackMetrics,/37\.4 Мбит\/с/,'legacy fallback throughput must never be displayed');
   assert.doesNotMatch(legacyFallbackMetrics,/Быстрый|не для сравнения/i,'legacy fallback UX must be retired');
   assert.match(legacyFallbackMetrics,/Скорость VPN[\s\S]*—/,'missing canonical speed must remain unknown');
+  await until(()=>/Скорость не измерена:/i.test(document.querySelector('#bestCurrentQuality')?.textContent||''),'fallback throughput issue hydration');
   assert.match(await page.locator('#bestCurrentHealth').textContent(),/скорость не измерена/i,'missing strict throughput must have a safe cause, not a generic health statement');
   currentCacheMode='strict';
   await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','strict canonical reboot');
