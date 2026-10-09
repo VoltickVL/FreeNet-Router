@@ -138,6 +138,88 @@ D="$TMP/release"
 make_root "$R"
 make_release "$D"
 
+# GitHub REST API may be exhausted for a shared IP even when github.com
+# and verified GitHub release assets work. Simulate HTTP 403 on ALL REST calls.
+# No test here reaches the network and no router state may be modified.
+MOCK_BIN="$TMP/mockbin"
+mkdir -p "$MOCK_BIN"
+cat > "$MOCK_BIN/curl" <<'EOF'
+#!/bin/sh
+HEAD=no
+HDR=''
+OUT=''
+URL=''
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -I) HEAD=yes ;;
+        -D) shift; HDR="$1" ;;
+        -o) shift; OUT="$1" ;;
+        --connect-timeout|--max-time|--max-redirs|--resolve) shift ;;
+        https://*) URL="$1" ;;
+    esac
+    shift
+done
+printf '%s %s\n' "$HEAD" "$URL" >> "$MOCK_CURL_LOG"
+case "$URL" in
+    https://github.com/VoltickVL/FreeNet-Router/releases/latest)
+        [ "$HEAD" = yes ] || exit 22
+        printf 'HTTP/1.1 302 Found\r\nLocation: %s\r\n\r\n' "${MOCK_LATEST_LOCATION:-https://github.com/VoltickVL/FreeNet-Router/releases/tag/v0.2.28}" > "$HDR"
+        exit 0
+        ;;
+    https://api.github.com/*)
+        printf 'HTTP/1.1 403 Forbidden\r\n\r\n' > "$HDR"
+        exit 22
+        ;;
+    https://github.com/VoltickVL/FreeNet-Router/releases/download/v0.2.28/*)
+        NAME="${URL##*/}"
+        cp "$MOCK_RELEASE_DIR/$NAME" "$OUT" || exit 1
+        printf 'HTTP/1.1 200 OK\r\n\r\n' > "$HDR"
+        exit 0
+        ;;
+esac
+exit 22
+EOF
+chmod 755 "$MOCK_BIN/curl"
+cat > "$MOCK_BIN/nslookup" <<'EOF'
+#!/bin/sh
+exit 1
+EOF
+chmod 755 "$MOCK_BIN/nslookup"
+MOCK_CURL_LOG="$TMP/github-web-redirect.calls"
+: > "$MOCK_CURL_LOG"
+env \
+    PATH="$MOCK_BIN:$PATH" \
+    MOCK_RELEASE_DIR="$D" MOCK_CURL_LOG="$MOCK_CURL_LOG" \
+    FREENET_ROOT="$R" FREENET_CURRENT_VERSION=v0.2.27 FREENET_ARCH=arm64-v8a \
+    FREENET_UPDATE_STATE_FILE="$R/var/run/update.state" \
+    FREENET_UPDATE_LOCK_DIR="$R/var/run/update.lock" \
+    FREENET_SELF_UPDATE_TEST_MODE=yes \
+    sh "$SCRIPT" plan > "$TMP/rate-limit-plan.out" 2>&1 || {
+        cat "$TMP/rate-limit-plan.out" >&2
+        fail 'official GitHub redirect should work when REST API returns 403'
+    }
+grep -Fq 'TARGET_TAG=v0.2.28' "$TMP/rate-limit-plan.out" || fail 'REST-limited plan did not select stable tag'
+grep -Fq 'MANIFEST_VERIFIED=yes' "$TMP/rate-limit-plan.out" || fail 'REST-limited plan did not verify SHA manifest'
+grep -Fq 'MUTATION=NONE' "$TMP/rate-limit-plan.out" || fail 'rate-limited plan must be read-only'
+grep -Fq 'yes https://github.com/VoltickVL/FreeNet-Router/releases/latest' "$MOCK_CURL_LOG" || fail 'canonical latest GitHub redirect unused'
+if grep -Fq 'no https://api.github.com/repos/VoltickVL/FreeNet-Router/releases/latest' "$MOCK_CURL_LOG"; then
+    fail 'stable link should not consume a latest REST request'
+fi
+MOCK_CURL_LOG="$TMP/github-bad-redirect.calls"
+: > "$MOCK_CURL_LOG"
+if env \
+    PATH="$MOCK_BIN:$PATH" \
+    MOCK_RELEASE_DIR="$D" MOCK_CURL_LOG="$MOCK_CURL_LOG" \
+    MOCK_LATEST_LOCATION='https://evil.example/VoltickVL/FreeNet-Router/releases/tag/v0.2.28' \
+    FREENET_ROOT="$R" FREENET_CURRENT_VERSION=v0.2.27 FREENET_ARCH=arm64-v8a \
+    FREENET_UPDATE_STATE_FILE="$R/var/run/update.state" \
+    FREENET_UPDATE_LOCK_DIR="$R/var/run/update.lock" \
+    FREENET_SELF_UPDATE_TEST_MODE=yes \
+    sh "$SCRIPT" plan > "$TMP/untrusted-redirect.out" 2>&1; then
+    fail 'untrusted GitHub latest redirect must fail closed'
+fi
+grep -Fq 'MUTATION=NONE' "$TMP/untrusted-redirect.out" || fail 'failed redirect must remain mutation-free'
+
 # Read-only plan: newer exact release is READY and persistent files stay unchanged.
 BEFORE_UI="$(cat "$R/sbin/freenet-ui")"
 BEFORE_XRAY="$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')"

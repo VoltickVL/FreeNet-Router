@@ -264,16 +264,48 @@ download_url() {
     return 1
 }
 
+# Trust only GitHub's canonical stable-release redirect. HEAD does not
+# consume the per-IP unauthenticated REST API quota. No HTML scraping, remote
+# executable redirects, downgrade guesses, or insecure TLS are allowed.
+web_latest_tag() {
+    [ "$REPO" = 'VoltickVL/FreeNet-Router' ] || return 1
+    make_tmp || return 1
+    if [ -s "$TMP_DIR/web-latest-stable" ]; then
+        cat "$TMP_DIR/web-latest-stable"
+        return 0
+    fi
+    HDR="$TMP_DIR/web-latest.headers"
+    curl -sS -I --connect-timeout 5 --max-time 12 --max-redirs 0 \
+        -D "$HDR" -o /dev/null "https://github.com/$REPO/releases/latest" 2>/dev/null || return 1
+    CODE="$(awk '/^HTTP\// {code=$2} END {print code}' "$HDR")"
+    case "$CODE" in 301|302|303|307|308) ;; *) return 1 ;; esac
+    LOC="$(sed -n 's/^[Ll]ocation:[[:space:]]*//p' "$HDR" | tr -d '\r' | tail -n 1)"
+    case "$LOC" in
+        "https://github.com/$REPO/releases/tag/"*) TAG="${LOC##*/}" ;;
+        "/$REPO/releases/tag/"*) TAG="${LOC##*/}" ;;
+        *) return 1 ;;
+    esac
+    valid_tag "$TAG" || return 1
+    printf '%s\n' "$TAG" > "$TMP_DIR/web-latest-stable" || return 1
+    printf '%s\n' "$TAG"
+}
+
 latest_tag() {
     if [ -n "$LATEST_OVERRIDE" ]; then
         printf '%s\n' "$LATEST_OVERRIDE"
+        return 0
+    fi
+    # When the REST API is rate limited, the stable-releases HTML link still
+    # gives a trusted exact tag without consuming the API's hourly budget.
+    if WEB_LATEST="$(web_latest_tag)"; then
+        printf '%s\n' "$WEB_LATEST"
         return 0
     fi
     make_tmp || return 1
     META="$TMP_DIR/latest.json"
     download_url "https://api.github.com/repos/$REPO/releases/latest" "$META" || return 1
     TAG="$(jq -r '.tag_name // empty' "$META" 2>/dev/null)"
-    [ -n "$TAG" ] || return 1
+    valid_tag "$TAG" || return 1
     printf '%s\n' "$TAG"
 }
 
@@ -293,7 +325,14 @@ fetch_release_metadata() {
             return 1
         fi
     else
-        download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META" || return 1
+        if ! download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META"; then
+            # API metadata is rate-limited. Only the *current latest stable*
+            # tag confirmed by GitHub's trusted official redirect may bypass
+            # this read; older exact targets and prereleases fail closed.
+            WEB_LATEST="$(web_latest_tag)" || return 1
+            [ "$WEB_LATEST" = "$TAG" ] || return 1
+            printf '{"tag_name":"%s","draft":false,"prerelease":false,"body":""}\n' "$TAG" > "$META" || return 1
+        fi
     fi
     META_TAG="$(jq -r '.tag_name // empty' "$META" 2>/dev/null)"
     META_DRAFT="$(jq -r '.draft // false' "$META" 2>/dev/null)"
@@ -645,7 +684,7 @@ run_plan() {
             valid_tag "$LATEST" || { plan_error 'latest release tag is invalid'; return 1; }
         fi
     else
-        LATEST="$(latest_tag)" || { plan_error 'cannot determine latest FreeNet release'; return 1; }
+        LATEST="$(latest_tag)" || { plan_error 'cannot determine latest FreeNet release: official GitHub latest link and REST API unavailable'; return 1; }
         valid_tag "$LATEST" || { plan_error 'latest release tag is invalid'; return 1; }
         PLAN_TARGET="$LATEST"
     fi
