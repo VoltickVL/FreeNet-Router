@@ -206,13 +206,13 @@
     }
     if (typeof buttonsBusy === 'function') buttonsBusy(true);
     if (typeof hideBox === 'function') hideBox('notice');
-    selectedCardText(`Подключаем: ${p.name || 'Extra-профиль'}`, expectedEndpoint, 'Применяем профиль и подтверждаем фактическое соединение.', 'applying');
+    selectedCardText(`Подключаем: ${p.name || 'Extra-профиль'}`, expectedEndpoint, 'Применяем конфигурацию без проверки доступности выбранного VPN.', 'applying');
 
     try {
       const r = await fetch('/api/network-profile/apply', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({operation: 'provider', profile_id: profileID, confirm: true, ...(pp.selection_token ? {selection_token:pp.selection_token} : {})})
+        body: JSON.stringify({operation: 'provider', profile_id: profileID, expected_endpoint: expectedEndpoint, manual_override: true, confirm: true})
       });
       if (r.status === 401) {
         if (typeof loadAuthStatus === 'function') await loadAuthStatus();
@@ -247,7 +247,7 @@
       if (typeof renderSelectedProfile === 'function') renderSelectedProfile(null);
       showExactMode(false);
       if (typeof loadNetworkPlan === 'function') await loadNetworkPlan('');
-      if (typeof showBox === 'function') showBox('notice', `Подключено: ${s.profile_label || p.name || s.country || 'VPN'}${s.city ? ' · ' + s.city : ''}\n${s.endpoint}`, 'ok');
+      if (typeof showBox === 'function') showBox('notice', `Конфигурация применена: ${s.profile_label || p.name || 'VPN'}\n${s.endpoint}\nДоступность VPN не проверялась.`, 'ok');
     } catch (_) {
       selectedCardText('Связь прервалась', expectedEndpoint, 'Ждём фактический статус VPN. Повторное подключение автоматически не запускается.', 'error');
       if (typeof showBox === 'function') showBox('notice', 'Связь прервалась во время переключения. Проверяем фактическое состояние перед любым повтором.', 'bad');
