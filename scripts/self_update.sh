@@ -34,6 +34,8 @@ fi
 TMP_DIR=""
 BACKUP_DIR=""
 LOCK_HELD=0
+STACK_LOCK_HELD=0
+STACK_MUTATION_LOCK=""
 KEEP_LOCK=0
 MUTATED=0
 LAST_DOWNLOAD_ERROR=""
@@ -48,6 +50,13 @@ cleanup() {
     if [ "$LOCK_HELD" = 1 ] && [ "$KEEP_LOCK" = 0 ]; then
         rm -rf "$LOCK_DIR" 2>/dev/null || true
         LOCK_HELD=0
+    fi
+    if [ "$STACK_LOCK_HELD" = 1 ] && [ "$KEEP_LOCK" = 0 ]; then
+        # Never remove a lock that is no longer owned by this updater.
+        if [ "$(cat "$STACK_MUTATION_LOCK/pid" 2>/dev/null)" = "$" ]; then
+            rm -rf "$STACK_MUTATION_LOCK" 2>/dev/null || true
+            STACK_LOCK_HELD=0
+        fi
     fi
 }
 trap cleanup 0 1 2 15
@@ -609,6 +618,20 @@ check_existing_stack_compatibility() {
 # Persist only hashes of protected external router assets, never credentials.
 # Offline Xray is permitted. Update must not modify core binaries, init hooks,
 # netfilter, subscription, profile, router config or cron.
+# Recheck before calling this helper: the mkdir is the atomic cross-process
+# fence shared with the legacy provider updater. Keep the fence throughout
+# FreeNet asset replacement, UI restart, acceptance and rollback. The Xray
+# binary and its running process are never touched by this update.
+acquire_update_stack_lock() {
+    STACK_MUTATION_LOCK='/tmp/blanc_xkeen_update.lock'
+    [ -z "$FREENET_STACK_MUTATION_LOCK" ] ||
+        STACK_MUTATION_LOCK="$FREENET_STACK_MUTATION_LOCK"
+    mkdir "$STACK_MUTATION_LOCK" 2>/dev/null || return 1
+    STACK_LOCK_HELD=1
+    printf '%s\n' "$" > "$STACK_MUTATION_LOCK/pid" 2>/dev/null || return 1
+    return 0
+}
+
 snapshot_protected_stack() {
     OUT="$1"
     : > "$OUT" || return 1
@@ -890,9 +913,9 @@ run_apply() {
     download_assets "$TARGET_TAG" || fail_before_mutation "${LAST_DOWNLOAD_ERROR:-release asset download or SHA-256 verification failed}"
     validate_stage || fail_before_mutation 'staging validation failed'
     check_existing_stack_compatibility || fail_before_mutation "$STACK_KIND: $STACK_ERROR"
+    acquire_update_stack_lock || fail_before_mutation 'Xray/provider mutation lock could not be acquired; another writer may be active'
     write_state SNAPSHOT "$TARGET_TAG" 'Создаём snapshot FreeNet-owned файлов' '' NOT_NEEDED '' || true
     prepare_backup || fail_before_mutation 'cannot create pre-update snapshot'
-    check_existing_stack_compatibility || fail_before_mutation "$STACK_KIND: $STACK_ERROR"
 
     MUTATED=1
     write_state UPDATING "$TARGET_TAG" 'Применяем проверенные FreeNet assets' '' PENDING "$BACKUP_DIR" || true
