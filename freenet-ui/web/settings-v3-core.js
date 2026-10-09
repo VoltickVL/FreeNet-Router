@@ -605,7 +605,7 @@
     if (result.includes('incident:start')) return 'AUTO VPN начал восстановление соединения.';
     if (result.includes('incident:failed')) return 'AUTO VPN не удалось восстановить соединение.';
     if (/качество соединения ухудшен|подтверждение деградации/i.test(raw)) return 'Качество VPN ухудшилось — AUTO VPN собирает подтверждения.';
-    const first = raw.split(/(?<=[.!?])\\s+/)[0] || raw;
+    const first = raw.split(/[.!?]\s+/)[0] || raw;
     return first.length > 145 ? first.slice(0, 142).trimEnd() + '…' : first;
   }
 
