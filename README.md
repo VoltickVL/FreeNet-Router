@@ -2,26 +2,18 @@
 
 **FreeNet Router** — локальный Control Center для Keenetic/Netcraze с Entware, XKeen и Xray. Он управляет VPN, DNS, маршрутизацией, автоматическим восстановлением VPN, подпиской и обновлениями через браузер. SSH нужен только для первичного bootstrap или аварийной диагностики.
 
-Целевой путь для нового Ultra:
+Целевой путь для нового устройства:
 
-```text
+~~~text
 Keenetic / Netcraze
         ↓
-веб-интерфейс роутера
+Веб-интерфейс: EXT4, OPKG, системные компоненты
         ↓
-один USB-раздел → штатно форматируем в EXT4
+Сначала штатно подготовить Entware /opt
         ↓
-системные компоненты: EXT + Open Package support + SSH server
+Проверить рабочий /opt/bin/opkg в Entware shell
         ↓
-ОДНА команда с компьютера через stock SSH
-        ↓
-FreeNet Stage-0
-        ├─ определяет Ultra/архитектуру
-        ├─ находит ровно один mounted EXT4
-        ├─ онлайн устанавливает Entware
-        └─ передаёт управление обычному FreeNet bootstrap
-        ↓
-FreeNet bootstrap
+FreeNet bootstrap запускается ТОЛЬКО в Entware shell
         ├─ clean Entware → pinned XKeen + Xray
         ├─ existing valid XKeen/Xray → preserve
         └─ partial/unknown core → STOP без догадок
@@ -29,7 +21,10 @@ FreeNet bootstrap
 FreeNet Control Center в браузере
         ↓
 Subscription → VPN → DNS → Routing → Automation → Acceptance
-```
+~~~
+
+> **Важно для KeeneticOS 5.x:** встроенный SSH администратора открывает конфигурационную консоль `(config)>`, а не Linux shell. Передавать туда shell-скрипты через SSH/pipe **нельзя**. На некоторых устройствах уже работает Entware SSH (часто порт 222) — это отдельный сервис. Наличие EXT4 и строки «OPKG» в веб-интерфейсе ещё не доказывает, что `/opt/bin/opkg` исправен. Неподдержанный путь установки = STOP без догадок.
+
 
 > **На USB не ставится отдельная операционная система.** Роутер продолжает работать под KeeneticOS/Netcraze OS. Накопитель используется для Entware и каталога `/opt`, где затем находятся XKeen, Xray, FreeNet и их локальные данные.
 
@@ -94,14 +89,14 @@ Online-install через `opkg disk <disk> <url>` требует актуаль
    - поддержку файловых систем EXT;
    - **Open Package support / Поддержка открытых пакетов (OPKG)**;
    - **SSH server / Сервер SSH**.
-3. В разделе накопителей выбрать нужную флешку и **штатно отформатировать один раздел в EXT4**.
+3. Если накопитель новый и пустой — штатно подготовить раздел EXT4. **Не форматировать существующий EXT4/Entware с данными**: сначала проверить состояние OPKG, чтобы не потерять рабочий стек.
 4. После форматирования убедиться, что EXT4-раздел смонтирован.
 5. На время первой установки желательно иметь **ровно один mounted EXT4-раздел**. Если их несколько, FreeNet Stage-0 остановится и ничего не выберет сам.
 6. Убедиться, что локальная учётная запись администратора имеет доступ к CLI.
 
 **Форматирование удаляет данные на выбранном разделе.**
 
-Для обычной установки больше не нужно вручную скачивать Entware archive, создавать каталог `install`, включать SMB или копировать installer на USB.
+Поддержка OPKG в компонентах и смонтированный EXT4 — это подготовка среды, **не подтверждение работающего Entware**. Для чистого роутера сначала требуется штатно установить/активировать Entware через поддержанный механизм KeeneticOS/Netcraze OS. Не запускайте необоснованные операции форматирования, повторной установки или смены SSH-портов.
 
 Официальные справочные страницы:
 
@@ -111,111 +106,67 @@ Online-install через `opkg disk <disk> <url>` требует актуаль
 
 ---
 
-## 4. Первый SSH: какой логин и пароль
+## 4. Системный CLI ≠ Entware shell
 
-### Это SSH самого роутера, а не Entware
+У роутера бывают **два разных SSH-сервиса**, и путать их нельзя.
 
-До установки Entware подключаемся к **SSH server KeeneticOS/Netcraze OS**:
+**Системный SSH KeeneticOS/Netcraze OS:** локальный администратор (например, `admin`), часто порт `22`. Его приглашение:
 
-- адрес по умолчанию в домашней сети обычно `192.168.1.1`;
-- порт stock SSH по умолчанию — `22`, если вы его не меняли;
-- логин — **ваша локальная учётная запись администратора роутера** (часто `admin`);
-- пароль — **пароль этой учётной записи, который вы сами задали в роутере**.
-
-Пример обычного подключения:
-
-```powershell
-ssh admin@192.168.1.1
-```
-
-После успешного входа stock CLI выглядит примерно так:
-
-```text
+~~~text
 (config)>
-```
+~~~
 
-**Не используйте `root / keenetic` для первого stock SSH.** Эти данные относятся к Entware shell после его установки, а не к административному SSH роутера.
+Это **конфигурационный CLI, не POSIX shell**. Он не умеет выполнять `curl`, `sh`, `exec /bin/sh` и конвейеры shell. Наша прежняя инструкция `curl ... | ssh -tt ... 'exec /bin/sh'` здесь была ошибочной: на KeeneticOS 5.01 текст скрипта попадал в CLI, после чего появлялись `incorrect request` и `ndm: failed to initialize`. **Не повторяйте эту команду** ни с Mac, ни с Windows. Порт 23 (Telnet) также не является Linux shell и не должен использоваться для установки.
 
----
+**Entware SSH:** отдельная сессия Linux/BusyBox, как правило `root`, порт `222`, если сервис установлен и запущен. Точный порт зависит от конфигурации и не гарантирован. Не подбирайте пароли, не открывайте SSH в интернет и не отключайте проверку SSH host key. Удалённая консоль только для первичной установки/аварийной диагностики.
 
-## 5. Рекомендуемый вариант: одна команда с компьютера
+## 5. Установка FreeNet, когда Entware **уже работает**
 
-Команда ниже сама скачивает маленький Stage-0 helper **на компьютере** и передаёт его по SSH в stock shell роутера. Поэтому до Entware на самом роутере не нужен `curl`.
+Сначала подтвердите фактическое состояние **без каких-либо изменений**. Из терминала компьютера, подключённого к локальной сети нового роутера (пример для типичного Entware SSH, а **не** системного SSH):
 
-### Windows 10/11 — PowerShell / Windows Terminal
+~~~sh
+ssh -p 222 root@192.168.1.1
+~~~
 
-Если IP роутера `192.168.1.1`, stock SSH работает на `22`, а администратор называется `admin`:
+В появившемся **Entware** shell (например, `~ #`, не `(config)>`) выполните:
 
-```powershell
-curl.exe -fsSL https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap_router_ultra.sh | ssh -tt admin@192.168.1.1 "exec /bin/sh"
-```
+~~~sh
+test -x /opt/bin/opkg && /opt/bin/opkg print-architecture
+~~~
 
-SSH спросит **пароль администратора роутера**. После этого всё остальное выполняется в том же сеансе.
+Команда должна завершиться успешно и показать архитектуру Entware. Если порт 222 не отвечает, `/opt/bin/opkg` отсутствует, команда выдаёт ошибку или вы видите `(config)>` — **STOP**: никакой переустановки Entware и запуска bootstrap наугад.
 
-Если у вас другой логин, IP или SSH-порт:
+Только после успешного read-only preflight и при доступном с роутера GitHub/Entware repository запускайте в **Entware shell**:
 
-```powershell
-curl.exe -fsSL https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap_router_ultra.sh | ssh -tt -p 2022 МОЙ_ЛОГИН@МОЙ_IP "exec /bin/sh"
-```
-
-### macOS / Linux
-
-```sh
-curl -fsSL https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap_router_ultra.sh | ssh -tt admin@192.168.1.1 'exec /bin/sh'
-```
-
-### Что делает Stage-0
-
-1. Если `/opt/bin/opkg` уже существует — **не переустанавливает Entware**, а сразу передаёт работу FreeNet bootstrap.
-2. Читает модель через router CLI.
-3. Для KN-1811 / NC-1812 выбирает AArch64; для KN-1810 — MIPSel.
-4. Читает `show media`.
-5. Требует **ровно один mounted EXT4** и использует его UUID как OPKG target.
-6. Вызывает штатный online installer:
-   `opkg disk <UUID>:/ <официальный Entware URL>`.
-7. Ждёт, пока `/opt/bin/opkg` станет реально работоспособным.
-8. Проверяет Entware architecture.
-9. Ставит только `ca-bundle` и `curl` для handoff.
-10. Скачивает опубликованный `bootstrap.sh` FreeNet.
-11. Обычный FreeNet bootstrap устанавливает/сохраняет XKeen + Xray, ставит FreeNet и запускает Control Center.
-
-Stage-0 не выполняет global `opkg upgrade`.
-
-### Когда Stage-0 остановится
-
-Без mutation FreeNet остановится, если:
-
-- модель не входит в поддержанный Ultra mapping;
-- EXT4 не найден;
-- одновременно найдено больше одного mounted EXT4;
-- router CLI отверг online Entware install;
-- Entware не стал ready за bounded timeout;
-- фактическая architecture Entware не совпала с моделью.
-
----
-
-## 6. Если Entware уже установлен
-
-Можно использовать ту же команду из раздела 5. Stage-0 увидит существующий `/opt/bin/opkg` и **не станет повторно устанавливать Entware**.
-
-Если вы уже вручную вошли именно в Entware shell, прямой FreeNet handoff остаётся таким:
-
-```sh
+~~~sh
 /opt/bin/opkg update && /opt/bin/opkg install ca-bundle curl && /opt/bin/curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh -o /tmp/freenet-bootstrap.sh && /opt/bin/sh /tmp/freenet-bootstrap.sh
-```
+~~~
 
-### Entware SSH — только если он действительно нужен вручную
+Этот сценарий не переустанавливает работоспособный Entware. Продуктовый bootstrap проверяет XKeen/Xray и сохраняет целый существующий стек. Partial/unknown core = STOP. Не вводите команду в системном `(config)>`.
 
-После установки Entware отдельный Linux shell обычно использует:
+### Если загрузка `bootstrap.sh` с роутера не работает, а с Mac работает
 
-- логин: `root`;
-- первоначальный пароль: `keenetic`;
-- если stock SSH server занимает порт `22`, Entware SSH обычно доступен на `222`;
-- если stock SSH server не установлен/не занимает `22`, Entware может использовать `22`.
+Можно скачать **только точку входа** на macOS, затем передать её по **Entware SSH** после успешного read-only preflight:
 
-При ручном входе первоначальный пароль следует сразу сменить командой `passwd`.
+~~~sh
+curl -fsSL -o "$HOME/Downloads/freenet-bootstrap.sh" https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh
+test -s "$HOME/Downloads/freenet-bootstrap.sh" && ssh -p 222 root@192.168.1.1 '/opt/bin/opkg print-architecture >/dev/null && /opt/bin/sh -s' < "$HOME/Downloads/freenet-bootstrap.sh"
+~~~
 
-Для нормальной установки FreeNet второй SSH-сеанс **не требуется**.
+Вторая команда запускает installer **только в подтверждённом Entware shell**. Это не offline-install: далее FreeNet всё равно скачивает свои release-артефакты и целевые Entware-пакеты **с роутера**. Если там `Could not resolve host: github.com` или нет доступа к Entware feeds, **STOP**: сначала штатно исправьте подключение WAN/DNS в веб-интерфейсе; не отключайте HTTPS и не повторяйте mutation вслепую.
+
+Для Windows не переносите Linux-команды в `(config)>`: подключитесь к существующему Entware SSH и выполните показанный выше Entware-level bootstrap уже в его shell.
+
+## 6. Чистый роутер, Entware **ещё нет** — STOP до подготовки /opt
+
+1. Через веб-интерфейс убедитесь, что установлены компоненты EXT/OPKG, накопитель смонтирован и интернет/DNS исправны.
+2. Используйте штатную процедуру KeeneticOS/Netcraze OS для установки/активации Entware на выбранном EXT4; не форматируйте носитель с существующими данными.
+3. Когда Entware shell доступен, проверьте `/opt/bin/opkg print-architecture` и переходите к **разделу 5**.
+4. Пока доступен только системный `(config)>`, у FreeNet **нет подтверждённой однокомандной установки из этого CLI**. Не подменяйте её запуском `bootstrap_router_ultra.sh` по `ssh -tt`. Автоматический browser-first clean-install остаётся отдельной продуктовой задачей.
+
+Скрипт `scripts/bootstrap_router_ultra.sh` — shell-helper для среды, в которой **реально существует POSIX shell**; это не команда для системного SSH KeeneticOS. В нём автоматически сопоставлены только Ultra **KN-1811 / NC-1812 / KN-1810**. **Giga и другие модели не входят в Ultra-only auto mapping**: определять для них архитектуру по догадке нельзя. При существующем и исправном Entware используется обычный bootstrap из раздела 5.
+
+**Безопасность:** не публикуйте пароли, subscription URL, UUID и Reality-ключи в скриншотах терминала и GitHub. При `ROLLBACK FAILED/UNKNOWN` — STOP и read-only диагностика.
 
 ---
 
@@ -259,7 +210,7 @@ FreeNet не должен сбрасывать:
 
 ### `NO_ENTWARE` / `UNSUPPORTED_ARCH`
 
-Обычный Entware-level bootstrap не начинается. Для Ultra clean install этот слой теперь закрывает Stage-0 из раздела 5.
+Обычный Entware-level bootstrap не начинается. Если Entware отсутствует, сначала используйте штатную подготовку OPKG в веб-интерфейсе и подтвердите исправную Entware shell согласно разделу 6. Stock Keenetic CLI не исполняет Stage-0 shell-скрипт.
 
 ---
 
