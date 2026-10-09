@@ -18,6 +18,7 @@ func TestTechnicalJournalSignalFilter(t *testing.T) {
   {"confirm",automationEvent{Kind:"AUTO VPN",Result:"confirm:failed",Message:"VPN failed twice"},true},
   {"manual",automationEvent{Kind:"vpn_manual",Result:"success",Message:"manual switch"},true},
   {"update",automationEvent{Kind:"freenet_update",Result:"success",Message:"updated"},true},
+  {"backup",automationEvent{Kind:"backup",Result:"success",Message:"backup created"},true},
   {"catalog cancel",automationEvent{Kind:"freenet_release_catalog",Result:"canceled",Message:"browser navigation"},false},
   {"catalog error",automationEvent{Kind:"freenet_release_catalog",Result:"failed",Message:"catalog unreachable"},true},
  }
