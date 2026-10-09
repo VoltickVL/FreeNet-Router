@@ -8,7 +8,6 @@ import (
 	"io"
 	"math"
 	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,23 +63,8 @@ func endpointsEqual(a, b string) bool {
 }
 
 func (a *app) discoverBestServerCandidates(ctx context.Context) ([]bestServerInternalCandidate, int, bool, error) {
-	rawURL, err := os.ReadFile(a.cfg.SubPath)
-	if err != nil {
-		return nil, 0, false, errors.New("subscription is not configured")
-	}
-	secretURL := strings.TrimSpace(string(rawURL))
-	if err := validateSubscriptionURL(secretURL); err != nil {
-		return nil, 0, false, errors.New("stored subscription URL is invalid")
-	}
-	u, err := url.Parse(secretURL)
-	if err != nil {
-		return nil, 0, false, errors.New("stored subscription URL is invalid")
-	}
-	body, err := fetchSubscriptionBody(ctx, u)
-	if err != nil {
-		return nil, 0, false, errors.New("subscription fetch failed")
-	}
-	return parseBestServerCandidates(body)
+    candidates, total, truncated, _, err := a.discoverBestServerCandidatesWithSource(ctx)
+    return candidates, total, truncated, err
 }
 
 func parseBestServerCandidates(body []byte) ([]bestServerInternalCandidate, int, bool, error) {
