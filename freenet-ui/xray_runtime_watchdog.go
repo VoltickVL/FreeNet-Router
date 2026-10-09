@@ -124,6 +124,11 @@ func (a *app) initializeXrayRuntimeIntent() {
 }
 
 func (a *app) xrayRuntimeMutationBusy() bool {
+	// Never start an offline core against uncommitted VPN files after a
+	// provider timeout. A read-only recovery must reconcile this first.
+	if automationMutationBlockedState() {
+		return true
+	}
 	if a == nil {
 		return true
 	}
