@@ -163,4 +163,105 @@ grep -Eq '^[[:space:]]+apply_network_profile\.sh[[:space:]]+\\$' "$RELEASE" || f
 grep -Eq '^[[:space:]]+apply_provider_profile\.sh[[:space:]]+\\$' "$RELEASE" || fail 'provider helper не покрыт SHA256SUMS'
 grep -Eq '^[[:space:]]+finalize_setup\.sh[[:space:]]+\\$' "$RELEASE" || fail 'completion helper не покрыт SHA256SUMS'
 
+
+# Execute the extracted acceptance functions with simulated router responses,
+# not only static grep assertions. No sockets, real router files or secrets.
+ACCEPT_TMP="$(mktemp -d)"
+trap 'rm -rf "$ACCEPT_TMP"' EXIT HUP INT TERM
+sed -n '/^app_accept_fail() {/,/^}/p' "$BOOT" > "$ACCEPT_TMP/accept.sh"
+sed -n '/^validate_app() {/,/^}/p' "$BOOT" >> "$ACCEPT_TMP/accept.sh"
+# Missing functions must not quietly make the test vacuous.
+grep -Fq 'APP_ACCEPT_PRIMARY="$1"' "$ACCEPT_TMP/accept.sh" || fail 'нет классификатора acceptance'
+grep -Fq 'validate_app() {' "$ACCEPT_TMP/accept.sh" || fail 'нет validate_app'
+. "$ACCEPT_TMP/accept.sh"
+say() { printf '%s\n' "$*"; }
+LAN_IP=192.168.1.1
+UI_PORT=1001
+TMP_DIR="$ACCEPT_TMP/tmp"
+BACKUP_DIR="$ACCEPT_TMP/backup"
+mkdir -p "$TMP_DIR" "$BACKUP_DIR"
+printf '%s\n' 'same config hashes' > "$BACKUP_DIR/xray-hashes.before"
+
+curl() {
+    case " $* " in
+        *'--noproxy'* ) ;;
+        *) return 9 ;;
+    esac
+    case "$*" in
+        */healthz*)
+            [ "$MOCK_SCENARIO" = HEALTH_UNREACHABLE ] && return 7
+            if [ "$MOCK_SCENARIO" = HEALTH_INVALID ]; then
+                printf '%s\n' 'private-secret-HTTP-payload'
+            else
+                printf '%s\n' ok
+            fi
+            ;;
+        */api/auth/status*)
+            [ "$MOCK_SCENARIO" = AUTH_STATUS_UNREACHABLE ] && return 7
+            while [ "$#" -gt 0 ]; do
+                if [ "$1" = "-o" ]; then
+                    shift
+                    printf '%s\n' '{"configured":false,"authenticated":false}' > "$1"
+                    return 0
+                fi
+                shift
+            done
+            return 8
+            ;;
+        *) return 9 ;;
+    esac
+}
+jq() {
+    [ "$MOCK_SCENARIO" != AUTH_STATUS_INVALID ]
+}
+netstat() {
+    [ "$MOCK_SCENARIO" = NETSTAT_UNAVAILABLE ] && return 1
+    if [ "$MOCK_SCENARIO" != LAN_LISTENER_MISSING ]; then
+        printf '%s\n' 'tcp 0 0 192.168.1.1:1001 0.0.0.0:* LISTEN 42/freenet-ui'
+    fi
+    if [ "$MOCK_SCENARIO" = WILDCARD_LISTENER_FORBIDDEN ]; then
+        printf '%s\n' 'tcp 0 0 0.0.0.0:1001 0.0.0.0:* LISTEN 42/freenet-ui'
+    fi
+}
+snapshot_xray() {
+    [ "$MOCK_SCENARIO" = XRAY_SNAPSHOT_FAILED ] && return 1
+    if [ "$MOCK_SCENARIO" = XRAY_CONFIG_CHANGED ]; then
+        printf '%s\n' 'changed config hashes' > "$1"
+    else
+        printf '%s\n' 'same config hashes' > "$1"
+    fi
+}
+check_accept() {
+    MOCK_SCENARIO="$1"
+    WANT="$2"
+    WANT_RC="$3"
+    APP_ACCEPT_PRIMARY=""
+    RC=0
+    validate_app > "$ACCEPT_TMP/output" 2>&1 || RC=$?
+    [ "$RC" -eq "$WANT_RC" ] || fail "acceptance $MOCK_SCENARIO: rc=$RC expected $WANT_RC"
+    [ "$APP_ACCEPT_PRIMARY" = "$WANT" ] || fail "acceptance $MOCK_SCENARIO: primary $APP_ACCEPT_PRIMARY expected $WANT"
+    if [ "$WANT_RC" -ne 0 ]; then
+        grep -Fxq "[FreeNet Setup] APP_ACCEPT_PRIMARY=$WANT" "$ACCEPT_TMP/output" || fail "acceptance $MOCK_SCENARIO: primary not printed"
+    fi
+    if grep -Eq 'private-secret|password|vless://' "$ACCEPT_TMP/output"; then
+        fail "acceptance $MOCK_SCENARIO: payload/credential leaked to logs"
+    fi
+}
+check_accept OK NONE 0
+check_accept HEALTH_UNREACHABLE HEALTH_UNREACHABLE 1
+check_accept HEALTH_INVALID HEALTH_INVALID 1
+check_accept AUTH_STATUS_UNREACHABLE AUTH_STATUS_UNREACHABLE 1
+check_accept AUTH_STATUS_INVALID AUTH_STATUS_INVALID 1
+check_accept NETSTAT_UNAVAILABLE NETSTAT_UNAVAILABLE 1
+check_accept LAN_LISTENER_MISSING LAN_LISTENER_MISSING 1
+check_accept WILDCARD_LISTENER_FORBIDDEN WILDCARD_LISTENER_FORBIDDEN 1
+check_accept XRAY_SNAPSHOT_FAILED XRAY_SNAPSHOT_FAILED 1
+check_accept XRAY_CONFIG_CHANGED XRAY_CONFIG_CHANGED 1
+
+# The actual release entrypoint must surface the same bounded code in the
+# final error, preserving a distinct transactional ROLLBACK result.
+grep -Fq 'app acceptance failed (PRIMARY ERROR: ${APP_ACCEPT_PRIMARY:-UNKNOWN})' "$BOOT" || fail 'bootstrap final error drops PRIMARY ERROR'
+grep -Fq 'ROLLBACK: SUCCESS' "$BOOT" || fail 'bootstrap successful rollback contract missing'
+grep -Fq 'ROLLBACK ERROR: FAILED/UNKNOWN' "$BOOT" || fail 'bootstrap uncertain rollback contract missing'
+
 echo 'контракт product bootstrap PASS'

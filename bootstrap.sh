@@ -40,6 +40,7 @@ UI_WAS_RUNNING=0
 LAST_DOWNLOAD_ERROR=""
 CORE_MODE=""
 CORE_INITIAL_MODE=""
+APP_ACCEPT_PRIMARY=""
 
 say() { printf '%s\n' "$*"; }
 info() { printf '\n[FreeNet Setup] %s\n' "$*"; }
@@ -571,20 +572,54 @@ start_ui() {
     pidof freenet-ui >/dev/null 2>&1 || return 1
 }
 
+# Fixed diagnostic codes only: never print HTTP payloads, environment,
+# process lists or raw configuration into installer logs.
+app_accept_fail() {
+    APP_ACCEPT_PRIMARY="$1"
+    say "[FreeNet Setup] APP_ACCEPT_PRIMARY=$APP_ACCEPT_PRIMARY" >&2
+    return 1
+}
+
 validate_app() {
-    HEALTH="$(curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/healthz" 2>/dev/null)" || return 1
-    [ "$HEALTH" = ok ] || return 1
+    APP_ACCEPT_PRIMARY="UNKNOWN"
+    # Local Control Center probes must bypass a configured proxy.
+    HEALTH="$(curl -fsS --noproxy '*' --connect-timeout 3 --max-time 15 "http://$LAN_IP:$UI_PORT/healthz" 2>/dev/null)" || {
+        app_accept_fail "HEALTH_UNREACHABLE"
+        return 1
+    }
+    [ "$HEALTH" = ok ] || { app_accept_fail "HEALTH_INVALID"; return 1; }
 
-    curl -fsS --connect-timeout 3 "http://$LAN_IP:$UI_PORT/api/auth/status" -o "$TMP_DIR/auth-status.json" 2>/dev/null || return 1
-    jq -e '(.configured | type) == "boolean" and (.authenticated | type) == "boolean"' "$TMP_DIR/auth-status.json" >/dev/null 2>&1 || return 1
+    curl -fsS --noproxy '*' --connect-timeout 3 --max-time 15 "http://$LAN_IP:$UI_PORT/api/auth/status" -o "$TMP_DIR/auth-status.json" 2>/dev/null || {
+        app_accept_fail "AUTH_STATUS_UNREACHABLE"
+        return 1
+    }
+    jq -e '(.configured | type) == "boolean" and (.authenticated | type) == "boolean"' "$TMP_DIR/auth-status.json" >/dev/null 2>&1 || {
+        app_accept_fail "AUTH_STATUS_INVALID"
+        return 1
+    }
 
-    netstat -lntp 2>/dev/null | grep "$LAN_IP:$UI_PORT[[:space:]]" >/dev/null 2>&1 || return 1
-    if netstat -lntp 2>/dev/null | grep -E "0\.0\.0\.0:$UI_PORT[[:space:]]|:::$UI_PORT[[:space:]]" >/dev/null 2>&1; then
+    LISTENERS="$(netstat -lntp 2>/dev/null)" || {
+        app_accept_fail "NETSTAT_UNAVAILABLE"
+        return 1
+    }
+    printf '%s\n' "$LISTENERS" | grep "$LAN_IP:$UI_PORT[[:space:]]" >/dev/null 2>&1 || {
+        app_accept_fail "LAN_LISTENER_MISSING"
+        return 1
+    }
+    if printf '%s\n' "$LISTENERS" | grep -E "0\.0\.0\.0:$UI_PORT[[:space:]]|:::$UI_PORT[[:space:]]" >/dev/null 2>&1; then
+        app_accept_fail "WILDCARD_LISTENER_FORBIDDEN"
         return 1
     fi
 
-    snapshot_xray "$TMP_DIR/xray-hashes.after" || return 1
-    cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.after" >/dev/null 2>&1 || return 1
+    snapshot_xray "$TMP_DIR/xray-hashes.after" || {
+        app_accept_fail "XRAY_SNAPSHOT_FAILED"
+        return 1
+    }
+    cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.after" >/dev/null 2>&1 || {
+        app_accept_fail "XRAY_CONFIG_CHANGED"
+        return 1
+    }
+    APP_ACCEPT_PRIMARY="NONE"
 }
 
 on_signal() {
@@ -612,7 +647,7 @@ backup_app || { err 'cannot create app/cron backup'; exit 1; }
 MUTATED=1
 install_app || fail_app 'cannot install FreeNet Control Center files/cron safely'
 start_ui || fail_app 'FreeNet Control Center failed to start'
-validate_app || fail_app 'FreeNet Control Center app acceptance failed'
+validate_app || fail_app "FreeNet Control Center app acceptance failed (PRIMARY ERROR: ${APP_ACCEPT_PRIMARY:-UNKNOWN})"
 MUTATED=0
 
 SETUP_COMPLETE="$(config_value SETUP_COMPLETE no)"
