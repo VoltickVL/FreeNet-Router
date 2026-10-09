@@ -46,6 +46,7 @@ var (
  technicalJournalQueue chan technicalJournalRecord
  technicalJournalInit sync.Once
  technicalJournalDropped atomic.Uint64
+ technicalJournalWriteErrors atomic.Uint64
 )
 
 // Technical logging is started only by main() after process setup; tests or
@@ -64,7 +65,7 @@ func startTechnicalJournalRecorder() {
      recent[key] = now
     }
     if len(recent) > 256 { recent = map[string]time.Time{} }
-    _ = appendTechnicalJournalRecord(technicalJournalPath(), record)
+    if appendTechnicalJournalRecord(technicalJournalPath(), record) != nil { technicalJournalWriteErrors.Add(1) }
    }
   }(technicalJournalQueue)
  })
