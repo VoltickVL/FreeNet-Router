@@ -772,6 +772,14 @@ plan_error() {
 run_plan() {
     detect_current || { plan_error 'current FreeNet version is invalid'; return 1; }
     get_arch || { plan_error 'unsupported Entware architecture'; return 1; }
+    # Malformed release tags must be rejected even when local compatibility
+    # is blocked. No malformed target can become a misleading READY=no plan.
+    if [ -n "$TARGET_TAG" ]; then
+        valid_tag "$TARGET_TAG" || { plan_error 'target release tag is invalid'; return 1; }
+    fi
+    if [ -n "$LATEST_OVERRIDE" ]; then
+        valid_tag "$LATEST_OVERRIDE" || { plan_error 'latest release tag is invalid'; return 1; }
+    fi
     for T in curl sha256sum sed awk grep mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || { plan_error "required command missing: $T"; return 1; }
     done
