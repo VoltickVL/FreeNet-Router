@@ -19,14 +19,14 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 		"Сбросить выбор",
 		"Обновить профиль",
 		"Сменить сервер",
-		"DNS при этом не изменяется",
+		"Ручной выбор: сетевой доступ к серверу не проверяется",
 		"VPN-действия не меняют DNS",
 		"operation: 'provider'",
 		"waitExactState",
 		"showExactMode(true)",
 		"controls.routine.hidden = enabled",
-		"/api/provider-profile/plan?profile_id=",
-		"encodeURIComponent(selectedProviderID)",
+		"manual_override: true",
+		"expected_endpoint: expectedEndpoint",
 	} {
 		if !strings.Contains(ux, required) {
 			t.Fatalf("exact VPN UX contract missing %q", required)
@@ -36,6 +36,7 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 		"quick.querySelector('.action-row')",
 		"countryOK && s.xray_online && s.dns_out_present",
 		"expectedCode) && s.xray_online && s.dns_out_present",
+		"/api/provider-profile/plan?profile_id=",
 	} {
 		if strings.Contains(ux, forbidden) {
 			t.Fatalf("exact VPN UX contains forbidden coupled condition %q", forbidden)
