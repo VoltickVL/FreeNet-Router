@@ -183,6 +183,50 @@ const server = http.createServer((req,res)=>{
       return Array.from(summary.children).map(node => node.matches('.fn-xray-topbar')?'xray':node.id==='fnVpnPickerV2Host'?'vpn':node.id==='topFreenetUpdate'?'freenet':/DNS/i.test(node.textContent||'')?'dns':'other').filter(x=>x!=='other');
     });
     assert.deepEqual(topbarOrder,['xray','vpn','dns','freenet'],'topbar order must be Xray -> VPN -> DNS -> FreeNet');
+
+    // UI-only acceptance: measure computed chrome geometry, not media-query intent.
+    await page.waitForFunction(() => !!document.querySelector('#topFreenetUpdate .fn-version-copy small'));
+    for (const width of [320,390,430,768,1024,1440]) {
+      await page.setViewportSize({width,height:900});
+      const chrome = await page.evaluate(() => {
+        const summary = document.querySelector('#overviewApprovedTop');
+        const tiles = [...summary.children].slice(0,4).map(node => {
+          const r = node.getBoundingClientRect();
+          return {x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height),visible:r.width>30&&r.height>30};
+        });
+        const label = document.querySelector('#topFreenetUpdate .fn-version-copy small');
+        const lr = label?.getBoundingClientRect();
+        const xr = document.querySelector('#xrayTopbarChip .fn-xray-chip');
+        const xrayRect = xr?.getBoundingClientRect();
+        return {
+          viewport:innerWidth,scroll:document.documentElement.scrollWidth,tiles,
+          freenetLabel:label?.textContent?.trim(),
+          freenetLabelVisible:!!lr&&lr.width>0&&lr.height>0&&getComputedStyle(label).display!=='none',
+          xrayTextAlign:xr?getComputedStyle(xr).textAlign:'',
+          xrayTextWidth:xrayRect?.width||0
+        };
+      });
+      console.log('CHROME_VISUAL',JSON.stringify({width,...chrome}));
+      assert.equal(chrome.tiles.length,4,'four canonical controls are required');
+      assert.equal(chrome.tiles.every(tile=>tile.visible),true,'missing chrome tile at '+width+': '+JSON.stringify(chrome));
+      assert.equal(chrome.freenetLabel,'FreeNet','FreeNet label missing at '+width);
+      assert.equal(chrome.freenetLabelVisible,true,'FreeNet label hidden at '+width);
+      assert.equal(chrome.xrayTextAlign,'left','Xray value not left-aligned at '+width);
+      assert.ok(chrome.xrayTextWidth>20,'Xray value collapsed at '+width);
+      assert.ok(chrome.scroll<=chrome.viewport+1,'horizontal page overflow at '+width+': '+JSON.stringify(chrome));
+      if(width<=980){
+        assert.ok(Math.abs(chrome.tiles[0].y-chrome.tiles[1].y)<=2,'first chrome row unaligned at '+width);
+        assert.ok(Math.abs(chrome.tiles[2].y-chrome.tiles[3].y)<=2,'second chrome row unaligned at '+width);
+        assert.ok(chrome.tiles[2].y>chrome.tiles[0].y,'mobile chrome is not 2x2 at '+width);
+      }else{
+        assert.ok(chrome.tiles.every(tile=>Math.abs(tile.y-chrome.tiles[0].y)<=2),'desktop chrome is not one row at '+width);
+      }
+      assert.ok(Math.max(...chrome.tiles.map(tile=>tile.height))-Math.min(...chrome.tiles.map(tile=>tile.height))<=2,
+        'chrome cards are not equally tall at '+width);
+      if(width===390||width===1440) await page.screenshot({path:path.join(artifacts,'chrome-'+width+'.png')});
+    }
+    await page.setViewportSize({width:1440,height:1000});
+
     await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Польша');
     assert.equal(await page.locator('#fnVpnPickerV2Flag').evaluate(node=>node.classList.contains('flag-pl')),true,'VPN chip must expose current country flag');
     assert.equal(await page.locator('#fnVpnPickerV2Panel').isHidden(),true,'VPN selector popover must be closed by default');
