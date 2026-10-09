@@ -446,7 +446,7 @@
       box.textContent = 'Текущий VPN работает стабильно.\nСкорость и отклик в норме.';
     } else if (latencyOnlyWarning(candidate)) {
       box.className = 'current-health warning';
-      box.textContent = 'VPN доступен, но отклик выше целевого порога AUTO VPN.\\nАвтоматическое переключение на такой профиль запрещено.';
+      box.textContent = 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nАвтоматическое переключение на такой профиль запрещено.';
     } else if (Number(candidate.download_mbps || 0) <= 0) {
       box.className = 'current-health neutral';
       box.textContent = 'VPN доступен, но скорость не измерена: ' + safeCurrentSpeedFailure(candidate) + '. Остальные проверки не равны Speedtest.';
