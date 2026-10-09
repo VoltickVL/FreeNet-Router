@@ -306,12 +306,12 @@
     }
     return safe.length ? safe : null;
   }
-  function publishRTTCatalog(catalog) {
+  function publishRTTCatalog(catalog, fresh) {
     const publicCatalog = catalog.map(({id,name,country_code,address,port}) => ({id,name,country_code,address,port}));
     let published = false;
     try {
       if (typeof window.freenetPublishMeasuredProfileCatalog === 'function') {
-        published = window.freenetPublishMeasuredProfileCatalog(publicCatalog) === true;
+        published = window.freenetPublishMeasuredProfileCatalog(publicCatalog, fresh) === true;
       } else if (typeof renderExtraProfiles === 'function') {
         renderExtraProfiles({extra_profiles:publicCatalog});
         published = true;
@@ -324,7 +324,7 @@
     }
     if (!published) return false;
     const state = profileSource();
-    return rows.length === catalog.length && !state.stale;
+    return rows.length === catalog.length && state.stale === !fresh;
   }
   async function refreshRTT(event) {
     if (!event || event.isTrusted !== true || rttScanning || busy()) return;
@@ -349,7 +349,7 @@
         if (attempted) checked++; else unknown++;
         next.set(id,value);
       }
-      if (seen.size!==measuredByID.size || !publishRTTCatalog(measuredCatalog)) throw new Error('catalog-changed');
+      if (seen.size!==measuredByID.size || !publishRTTCatalog(measuredCatalog, data.fresh === true)) throw new Error('catalog-changed');
       // The token refers to router-side protected credentials; never persist it.
       const selectionToken=String(data.selection_token||'').trim();
       if (reachable && !/^[0-9a-f]{32}$/.test(selectionToken)) throw new Error('rtt-token');
@@ -367,6 +367,7 @@
       rttSummary=data.partial
         ? `VPN-пинг: завершён частично — ответили ${serverReachable} из ${serverChecked}, не проверено ${serverUnknown} из ${total}.`
         : `VPN-пинг: проверено ${serverChecked} из ${total}, ответили ${serverReachable}. Список отсортирован от меньшей задержки к большей.`;
+      if (data.fresh === false) rttSummary += ` Используется последний защищённый каталог от ${String(data.catalog_updated_at || 'неизвестного времени')}; свежие серверы не подтверждены.`;
     } catch (error) {
       rttByID.clear(); rttRanked=false; rttVersion++; window.freenetManualRTTSelection = null;
       rttError=error&&error.message==='catalog-changed'?L.pingCatalogChanged:L.pingFailed;

@@ -78,7 +78,7 @@ async function capture(label){
         :i===8
           ?{profile_id:p.id,endpoint:ep(p),reachable:false,attempted:true,status:'unreachable'}
           :{profile_id:p.id,endpoint:rttMode==='malformed'&&i===1?'192.0.2.253:443':ep(p),reachable:true,attempted:true,status:'reachable',rtt_ms:55+((48-i)*4),jitter_ms:i%9});
-      return answer(route,{success:true,catalog,catalog_key:'fixture-catalog',selection_token:manualRTTToken,results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:true,mutation:'NONE'});
+      return answer(route,{success:true,catalog,catalog_key:'fixture-catalog',selection_token:manualRTTToken,results,profiles:profiles.length,unique_endpoints:profiles.length,checked:48,reachable:47,unknown:1,partial:true,probe_mode:'proxy_http_multi_origin',fresh:rttMode!=='cached',catalog_source:rttMode==='cached'?'protected_cache':'direct',catalog_updated_at:'2026-10-09T07:14:00Z',mutation:'NONE'});
     }
     if(url.pathname==='/api/provider-profile/plan'){
       const id=url.searchParams.get('profile_id');
@@ -135,6 +135,8 @@ async function capture(label){
   assert.doesNotMatch(legacyFallbackMetrics,/37\.4 Мбит\/с/,'legacy fallback throughput must never be displayed');
   assert.doesNotMatch(legacyFallbackMetrics,/Быстрый|не для сравнения/i,'legacy fallback UX must be retired');
   assert.match(legacyFallbackMetrics,/Скорость VPN[\s\S]*—/,'missing canonical speed must remain unknown');
+  await until(()=>/Скорость не измерена:/i.test(document.querySelector('#bestCurrentQuality')?.textContent||''),'fallback throughput issue hydration');
+  assert.match(await page.locator('#bestCurrentHealth').textContent(),/скорость не измерена/i,'missing strict throughput must have a safe cause, not a generic health statement');
   currentCacheMode='strict';
   await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','strict canonical reboot');
   await page.locator(T).waitFor({state:'visible'});
@@ -288,6 +290,16 @@ async function capture(label){
   assert.equal(calls.filter(c=>c.path==='/api/provider-profiles/rtt').length,rttReadsBeforeStaleReopen+1,'explicit refresh must issue one RTT/catalog request');
   assert.equal(calls.filter(c=>c.path==='/api/network-profile/plan'&&c.method==='GET'&&!c.query.includes('provider_profile_id')).length,planReadsBeforeReopen,'explicit RTT catalog refresh must not require hidden network-plan hydrate');
   assert.equal(countApply(),1,'catalog refresh must remain read-only');
+  rttMode='cached';
+  await page.locator(RTT).click();
+  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'protected cached RTT finish');
+  assert.equal(await page.locator('#fnVpnPickerV2Stale').isVisible(),true,'protected last-good catalog must remain explicitly stale');
+  assert.match(await page.locator('#fnVpnPickerV2RTTState').textContent(),/последний защищённый каталог/i,'RTT must disclose source staleness');
+  rttMode='ok';
+  await page.locator(RTT).click();
+  await until(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled,'fresh RTT restore');
+  await until(()=>document.querySelector('#fnVpnPickerV2Stale')?.hidden===true,'genuinely fresh RTT clears stale label');
+  assert.equal(countApply(),1,'protected/fresh discovery must stay read-only');
   await page.keyboard.press('Escape');
   for(const viewport of [{width:1440,height:900},{width:980,height:800},{width:760,height:700},{width:390,height:844},{width:844,height:390}]){
     await page.setViewportSize(viewport);
