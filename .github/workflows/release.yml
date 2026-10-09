@@ -3,9 +3,10 @@ name: FreeNet Router Release
 on:
   push:
     branches:
-      - main
+      - stable/v0.7
     paths:
       - VERSION
+      - .github/workflows/release.yml
 
 permissions:
   contents: write
