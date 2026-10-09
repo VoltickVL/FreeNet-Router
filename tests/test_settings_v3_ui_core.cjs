@@ -249,9 +249,41 @@ const server = http.createServer((req, res) => {
         'section.fn3-extra .fn3-extra-title','#fn3DnsCard .fn3-dns-head']) {
         document.querySelector(selector)?.click();
       }
-      document.querySelectorAll('.fn3-extra-card .fn3-extra-head').forEach(header => header.click());
+      // Expanding Maintenance now opens its four nested cards in one action.
     });
     await page.waitForSelector('#fn3AutoEnabled', {state:'visible'});
+    const maintenanceWorkspace = await page.evaluate(() => {
+      const section = document.querySelector('section.fn3-extra');
+      const cards = [...section.querySelectorAll('.fn3-extra-card')];
+      const sizes = cards.map(card => Math.round(card.getBoundingClientRect().height));
+      const icons = [...document.querySelectorAll(
+        '#fn3SubscriptionMount .fn3-icon,#fn3AutoCard .fn3-icon,' +
+        '.fn3-extra-title .fn3-icon,.fn3-extra-card .fn3-extra-icon'
+      )].map(el => ({
+        box: Math.round(el.getBoundingClientRect().width),
+        glyph: Math.round(el.querySelector('svg')?.getBoundingClientRect().width || 0)
+      }));
+      const baselineCard = document.querySelector('.card');
+      return {
+        expanded: cards.every(card => !card.classList.contains('fn3-section-collapsed') &&
+          card.querySelector('.fn3-extra-head')?.getAttribute('aria-expanded') === 'true'),
+        sizes, icons,
+        sharedRadius: getComputedStyle(baselineCard).borderRadius,
+        settingsRadius: getComputedStyle(document.querySelector('#fn3AutoCard')).borderRadius,
+        backupDisclosureOpen: document.querySelector('.fn3-backup-details')?.open
+      };
+    });
+    assert.equal(maintenanceWorkspace.expanded, true,
+      'opening Maintenance must expand all subscription/geodata/FreeNet/backup cards');
+    assert.equal(maintenanceWorkspace.sizes.length, 4);
+    assert.ok(Math.max(...maintenanceWorkspace.sizes) - Math.min(...maintenanceWorkspace.sizes) <= 2,
+      'expanded Maintenance cards must share one grid-row height: ' + JSON.stringify(maintenanceWorkspace));
+    assert.ok(maintenanceWorkspace.icons.length >= 6 &&
+      maintenanceWorkspace.icons.every(x => x.box === 48 && x.glyph === 26),
+      'all category icons must follow shared desktop icon box/glyph tokens: ' + JSON.stringify(maintenanceWorkspace));
+    assert.equal(maintenanceWorkspace.sharedRadius, maintenanceWorkspace.settingsRadius,
+      'Control Center and Settings cards must use the same shared border radius');
+    assert.equal(maintenanceWorkspace.backupDisclosureOpen, false, 'storage paths must default closed');
 
     const runtime = await page.evaluate(() => ({
       saveDisabled: document.querySelector('#fn3Save')?.disabled,
@@ -311,10 +343,19 @@ const server = http.createServer((req, res) => {
     assert.equal(runtime.endpointScheduleHidden, true, `endpoint interval must stay hidden in full mode: ${JSON.stringify(runtime)}`);
     assert.equal(runtime.replacementHidden, false, `replacement geography must stay visible in full mode: ${JSON.stringify(runtime)}`);
     assert.equal(runtime.controlTitle, 'Полный AUTO VPN', `unexpected AUTO VPN control copy: ${runtime.controlTitle}`);
-    assert.equal(runtime.backupRoot, '/opt/backups/freenet-settings', `backup root must be visible: ${JSON.stringify(runtime)}`);
-    assert.equal(runtime.backupSnapshot, 'backup-20260912-023000.000000000', `latest snapshot id must be visible: ${JSON.stringify(runtime)}`);
-    assert.equal(runtime.backupPath, '/opt/backups/freenet-settings/backup-20260912-023000.000000000', `latest snapshot path must be visible: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.backupRoot, '/opt/backups/freenet-settings', `backup storage data must remain accessible: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.backupSnapshot, 'backup-20260912-023000.000000000', `latest snapshot id must remain intact: ${JSON.stringify(runtime)}`);
+    assert.equal(runtime.backupPath, '/opt/backups/freenet-settings/backup-20260912-023000.000000000', `latest snapshot path must remain intact: ${JSON.stringify(runtime)}`);
     assert.match(runtime.backupLast, /Снимок создан/, `backup schedule must explain success: ${runtime.backupLast}`);
+    assert.equal(await page.locator('#fn3_backup_root').isHidden(), true,
+      'long backup path must not occupy the normal maintenance card');
+    await page.locator('.fn3-backup-details > summary').click();
+    assert.equal(await page.locator('#fn3_backup_root').isVisible(), true,
+      'native details must expose actual path on user request');
+    await page.locator('.fn3-backup-details > summary').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.locator('#fn3_backup_root').isHidden(), true,
+      'keyboard Enter must collapse backup details again');
 
     const settingsPage = page.locator('[data-page-view="settings"]');
     assert.equal((await settingsPage.locator('h1').first().textContent()).trim(), 'Настройки');
@@ -348,6 +389,16 @@ const server = http.createServer((req, res) => {
     await maintenanceHeader.focus();
     await page.keyboard.press('Enter');
     assert.equal(await settingsPage.locator('section.fn3-extra .fn3-extra-grid').isVisible(), true,'keyboard Enter reopens maintenance contents');
+    assert.equal(await settingsPage.locator('.fn3-extra-card.fn3-section-collapsed').count(), 0,
+      'keyboard reopen of maintenance must reveal all four nested cards');
+    const nestedSubscriptionHead = settingsPage.locator('.fn3-extra-card .fn3-extra-head').first();
+    await nestedSubscriptionHead.click({position:{x:20,y:20}});
+    assert.equal(await settingsPage.locator('.fn3-extra-card.fn3-section-collapsed').count(), 1,
+      'individual maintenance cards must remain independently foldable');
+    await nestedSubscriptionHead.focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await settingsPage.locator('.fn3-extra-card.fn3-section-collapsed').count(), 0,
+      'individual maintenance card keyboard toggle must reopen it');
     // This Settings core fixture may not mount the optional DNS extension.
     // Exercise the fold contract when DNS is present; its dedicated browser
     // acceptance separately checks the real DNS panel.
@@ -625,6 +676,10 @@ const server = http.createServer((req, res) => {
 
     await page.locator('.nav-btn[data-page="settings"]').click();
     await page.waitForFunction(() => document.querySelector('[data-page-view="settings"]')?.classList.contains('active'));
+    assert.equal(await page.locator('section.fn3-extra.fn3-section-collapsed').count(), 1,
+      'return to Settings must restore default collapsed Maintenance');
+    assert.equal(await page.locator('.fn3-extra-card.fn3-section-collapsed').count(), 4,
+      'return to Settings must restore all nested Maintenance cards closed');
     const journalGetsAfterLeave = journalGets;
     await page.waitForTimeout(5200);
     assert.equal(journalGets, journalGetsAfterLeave, 'Journal polling must stop when Journal page is not active');
