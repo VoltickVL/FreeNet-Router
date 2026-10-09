@@ -152,76 +152,25 @@
   }
 
   async function selectExactProfile(p) {
-    if (!p || !p.id || exactChecking || providerApplying) return;
+    if (!p || !p.id || providerApplying || (lastStatus && (lastStatus.busy || lastStatus.updater_busy))) return;
     exactProfile = p;
-    exactPlan = null;
-    exactChecking = true;
+    exactPlan = {endpoint: profileEndpoint(p)};
+    exactChecking = false;
     selectedProviderID = p.id;
     selectedProviderName = p.name || 'Extra-профиль';
-    providerPlanReady = false;
+    providerPlanReady = true; // Selection is available; technical validation occurs inside guarded apply.
     providerApplied = false;
     if (typeof resetSetupFinalizePlan === 'function') resetSetupFinalizePlan();
     if (typeof hideBox === 'function') hideBox('providerNotice');
     if (typeof closeProfileMenu === 'function') closeProfileMenu();
     if (typeof renderProfileOptions === 'function') renderProfileOptions();
     showExactMode(true);
-
+    selectedCardText(`Выбрано: ${selectedProviderName}`, profileEndpoint(p),
+      'Ручной выбор: сетевой доступ к серверу не проверяется. Техническая проверка Xray и rollback сохраняются.', 'ready');
     const controls = mountExactConnectControls();
-    if (controls && controls.connect) {
-      controls.connect.disabled = true;
-      controls.connect.textContent = 'Проверяем…';
-    }
-    selectedCardText(`Проверяем: ${selectedProviderName}`, profileEndpoint(p), 'Проверяем доступность и конфигурацию сервера перед подключением.', 'checking');
-
-    // Explicit RTT has already measured this exact profile and retained its
-    // one-time router-side snapshot. Skip the redundant subscription/plan fetch.
-    const measured = window.freenetManualRTTSelection;
-    const measuredEndpoint = measured?.endpoints?.[p.id];
-    if (/^[0-9a-f]{32}$/.test(String(measured?.token || '')) && measuredEndpoint && measuredEndpoint === profileEndpoint(p)) {
-      exactPlan = {endpoint:measuredEndpoint, selection_token:measured.token};
-      providerPlanReady = true;
-      exactChecking = false;
-      selectedCardText(`Готов к подключению: ${selectedProviderName}`, measuredEndpoint,
-        'VPN-пинг прошёл. Можно подключаться. FreeNet сохранит прежнее состояние и проверит результат.', 'ready');
-      if (controls && controls.connect) {
-        controls.connect.disabled = false;
-        controls.connect.textContent = 'Подключиться';
-      }
-      return;
-    }
-
-    try {
-      const r = await fetch('/api/provider-profile/plan?profile_id=' + encodeURIComponent(selectedProviderID), {cache:'no-store'});
-      if (r.status === 401) {
-        if (typeof loadAuthStatus === 'function') await loadAuthStatus();
-        return;
-      }
-      const pp = await r.json();
-      providerPlanReady = !!(r.ok && pp && pp.success && pp.candidate_xray_valid && pp.mutation === 'NONE' && !pp.error);
-      if (!providerPlanReady) {
-        const reason = humanProviderPlanError((pp && pp.error) || 'Сервер не прошёл проверку перед подключением.');
-        selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), reason, 'error');
-        if (controls && controls.connect) {
-          controls.connect.disabled = true;
-          controls.connect.textContent = 'Сервер недоступен';
-        }
-        if (typeof showBox === 'function') showBox('providerNotice', `Не удалось проверить выбранный VPN-сервер: ${reason}`, 'bad');
-        return;
-      }
-      exactPlan = pp;
-      selectedCardText(`Готов к подключению: ${selectedProviderName}`, pp.endpoint || profileEndpoint(p), 'Проверка пройдена. Можно подключаться. DNS при этом не изменяется.', 'ready');
-      if (controls && controls.connect) {
-        controls.connect.disabled = false;
-        controls.connect.textContent = 'Подключиться';
-      }
-    } catch (_) {
-      selectedCardText(`Сервер не готов: ${selectedProviderName}`, profileEndpoint(p), 'Не удалось получить результат проверки. Текущий VPN не изменён.', 'error');
-      if (controls && controls.connect) {
-        controls.connect.disabled = true;
-        controls.connect.textContent = 'Сервер недоступен';
-      }
-    } finally {
-      exactChecking = false;
+    if (controls?.connect) {
+      controls.connect.disabled = false;
+      controls.connect.textContent = 'Подключиться';
     }
   }
 
