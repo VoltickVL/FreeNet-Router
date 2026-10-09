@@ -464,6 +464,10 @@ func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
 	if a.mutationBlockedBySelfUpdate(w) {
 		return
 	}
+	if automationMutationBlockedState() {
+		writeJSON(w, http.StatusLocked, routingApplyResponse{Success: false, Mutation: "NONE", Rollback: "FAILED/UNKNOWN", Error: "VPN transaction is unresolved; routing/Xray mutation is stopped until read-only reconciliation"})
+		return
+	}
 	req, ok := decodeRoutingCandidateRequest(w, r, "NONE")
 	if !ok {
 		return
