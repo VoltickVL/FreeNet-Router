@@ -594,6 +594,17 @@
 
   // Friendly event headline. The complete original message stays available
   // behind disclosure, while the separate technical export preserves full stages.
+  function journalResultLabel(event, fallback) {
+    const value = String(event?.result || '').toLowerCase();
+    if (value.includes('post_update_guard:blocked')) return 'Ожидание';
+    if (value.includes('post_update_guard:recovery_allowed')) return 'Проверка разрешена';
+    if (value.includes('post_update_guard:cleared')) return 'Подтверждено';
+    if (value === 'uncertain') return 'Не подтверждено';
+    if (value.includes('rollback') && value.includes('failed')) return 'Ошибка отката';
+    if (value.includes('incident:recovered')) return 'Восстановлено';
+    return fallback;
+  }
+
   function journalBrief(event, message) {
     const result = String(event?.result || '').toLowerCase();
     const raw = String(message || '').trim();
@@ -619,6 +630,7 @@
     }
     body.innerHTML = filtered.map(e => {
       const [result, msg, tone] = humanResult(e.result, e.message);
+      const readableResult = journalResultLabel(e, result);
       const [kind, kindClass] = journalKind(e);
       const isManual = String(e.kind || '').trim().toLowerCase() === 'vpn_manual';
       const brief = journalBrief(e, msg);
@@ -632,7 +644,7 @@
         <div class="fn3-journal-event-rail"><span class="fn3-journal-event-dot"></span></div>
         <div class="fn3-journal-event-main">
           <div class="fn3-journal-event-top">
-            <div class="fn3-journal-event-tags"><span class="fn3-kind ${kindClass}">${escapeHTML(kind)}</span><span class="fn3-result ${resultClass}"><i class="fn3-dot"></i>${escapeHTML(result)}</span></div>
+            <div class="fn3-journal-event-tags"><span class="fn3-kind ${kindClass}">${escapeHTML(kind)}</span><span class="fn3-result ${resultClass}"><i class="fn3-dot"></i>${escapeHTML(readableResult)}</span></div>
             <time class="fn3-journal-event-time">${formatDate(e.at)}</time>
           </div>
           ${messageMarkup}
