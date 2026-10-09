@@ -12,9 +12,9 @@ import (
 )
 
 func TestJournalDiagnosticsRedactsSecrets(t *testing.T) {
- input := "token=abc123; password=hunter2 vless://abcdef@example.net:443 ip=192.0.2.12 UUID=123e4567-e89b-12d3-a456-426614174000"
+ input := "token=abc123; password=hunter2 vless://abcdef@example.net:443 ip=192.0.2.12 UUID=123e4567-e89b-12d3-a456-426614174000 Authorization: Bearer secretBearer999 email=alice@example.org"
  redacted := journalDiagnosticRedact(input)
- for _, needle := range []string{"abc123", "hunter2", "abcdef", "example.net", "192.0.2.12", "123e4567"} {
+ for _, needle := range []string{"abc123", "hunter2", "abcdef", "example.net", "192.0.2.12", "123e4567", "secretBearer999", "alice@example.org"} {
   if strings.Contains(redacted, needle) { t.Fatalf("secret leaked: %q in %q",needle,redacted) }
  }
 }
