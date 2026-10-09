@@ -47,7 +47,7 @@ func TestLocalManualProviderCandidateIsSourceAndEndpointBound(t *testing.T) {
     }
 }
 
-func TestManualOverrideAppliesWithoutPlanAndDoesNotClearSafetyLatch(t *testing.T) {
+func TestManualOverrideRequiresKnownRuntimeAndAppliesWithoutExtraPlan(t *testing.T) {
     dir := t.TempDir()
     cachePath := filepath.Join(dir, "provider.lkg")
     t.Setenv("FREENET_PROVIDER_SUBSCRIPTION_CACHE", cachePath)
@@ -83,8 +83,18 @@ echo '[FreeNet Provider] RESULT=SUCCESS'
     t.Setenv("FREENET_NETWORK_HELPER", network)
     t.Setenv("FREENET_TEST_OUT_PATH", a.cfg.OutPath)
 
+    attempted := networkApplyRequest{Operation:"provider", ProfileID:profile.ID, ExpectedEndpoint:profileEndpoint(profile), ManualOverride:true, Confirm:true}
+    code, result := a.executeProviderProfileApply(attempted)
+    if code != http.StatusConflict || result.Success || result.RollbackState != "FAILED/UNKNOWN" {
+        t.Fatalf("unknown rollback must block manual mutation: %d %+v", code, result)
+    }
+    if _, err := os.Stat(marker); !os.IsNotExist(err) { t.Fatal("blocked manual apply reached helper") }
+    if !automationMutationBlockedState() { t.Fatal("blocked manual apply cleared the rollback safety latch") }
+    // A separate read-only recovery acceptance must reconcile the state.
+    setAutomationMutationBlocked(false)
+
     wrong := networkApplyRequest{Operation:"provider", ProfileID:profile.ID, ExpectedEndpoint:"192.0.2.88:443", ManualOverride:true, Confirm:true}
-    code, result := a.executeProviderProfileApply(wrong)
+    code, result = a.executeProviderProfileApply(wrong)
     if code != http.StatusConflict || result.Success || result.RollbackState != "NOT_APPLIED" { t.Fatalf("changed endpoint must STOP: %d %+v",code,result) }
     if _, err := os.Stat(marker); !os.IsNotExist(err) { t.Fatal("rejected candidate entered helper") }
 
@@ -92,5 +102,29 @@ echo '[FreeNet Provider] RESULT=SUCCESS'
     if code != http.StatusOK || !result.Success || !result.Applied { t.Fatalf("explicit manual apply unavailable: %d %+v",code,result) }
     if !strings.Contains(result.Message, "не проверялись") { t.Fatalf("unprobed apply claimed Internet access: %q",result.Message) }
     if _, err := os.Stat(marker); err != nil { t.Fatalf("manual apply helper not called: %v",err) }
-    if !automationMutationBlockedState() { t.Fatal("unprobed manual apply must not clear UNKNOWN rollback safety latch") }
+    if automationMutationBlockedState() { t.Fatal("accepted manual apply should preserve previously reconciled known runtime") }
+
+    // Regression from Giga: the helper may report FAILED/UNKNOWN after a
+    // failed core cutover. Manual and AUTO must share the persistent STOP
+    // latch, and a second manual attempt must not reach the helper.
+    attempts := filepath.Join(dir, "unknown-apply-attempts")
+    failing := writeFakeNetworkHelper(t, `[ "$1" = "apply-core" ] || exit 21
+echo attempt >> "`+attempts+`"
+echo '[FreeNet Provider] ERROR: PRIMARY ERROR: Xray/XKeen runtime acceptance failed after provider apply' >&2
+echo '[FreeNet Provider] ERROR: ROLLBACK ERROR/STATE: FAILED/UNKNOWN' >&2
+exit 2`)
+    t.Setenv("FREENET_PROVIDER_HELPER", failing)
+    code, result = a.executeProviderProfileApply(attempted)
+    if code != http.StatusBadGateway || result.Success || result.RollbackState != "FAILED/UNKNOWN" {
+        t.Fatalf("failed core restart lost rollback classification: %d %+v", code, result)
+    }
+    if !automationMutationBlockedState() { t.Fatal("UNKNOWN manual rollback did not latch AUTO STOP") }
+    first, err := os.ReadFile(attempts)
+    if err != nil || strings.Count(string(first), "attempt") != 1 { t.Fatalf("first failed helper attempt missing: %q %v", first, err) }
+    code, result = a.executeProviderProfileApply(attempted)
+    if code != http.StatusConflict || result.RollbackState != "FAILED/UNKNOWN" {
+        t.Fatalf("second manual apply must STOP before helper: %d %+v", code, result)
+    }
+    after, err := os.ReadFile(attempts)
+    if err != nil || string(after) != string(first) { t.Fatal("second attempt mutated before rollback reconciliation") }
 }
