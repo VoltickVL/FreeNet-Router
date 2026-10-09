@@ -6,7 +6,7 @@
 #
 # Responsibilities are deliberately narrow:
 # 1) if Entware already exists, hand off directly to the normal FreeNet bootstrap;
-# 2) otherwise identify a supported Ultra model and exactly one mounted EXT4 partition;
+# 2) otherwise identify an explicitly supported Ultra/Giga model and one EXT4 partition;
 # 3) use the router CLI online "opkg disk <disk> <url>" installer;
 # 4) wait for /opt/bin/opkg, verify architecture, install only ca-bundle/curl;
 # 5) download and execute the published FreeNet bootstrap.
@@ -43,12 +43,16 @@ router_cli() {
 
 detect_model() {
     MODEL_TEXT="$(router_cli 'show version' 2>/dev/null)" || stop 'cannot read router model via CLI'
-    case "$MODEL_TEXT" in
-        *"Ultra (KN-1811)"*|*"Ultra (NC-1812)"*)
+    # Accept only the actual model field, not incidental names elsewhere in
+    # "show version" (e.g. serial/product notes). Never infer CPU from "Giga".
+    MODEL_LINE="$(printf '%s\n' "$MODEL_TEXT" | sed -n 's/^[[:space:]]*model:[[:space:]]*//p' | head -n 1)"
+    [ -n "$MODEL_LINE" ] || stop 'router model field is absent; Entware selection stopped'
+    case "$MODEL_LINE" in
+        "Ultra (KN-1811)"|"Ultra (NC-1812)"|"Giga (NC-1012)")
             EXPECTED_ARCH='aarch64'
             ENTWARE_URL='https://bin.entware.net/aarch64-k3.10/installer/aarch64-installer.tar.gz'
             ;;
-        *"Ultra (KN-1810)"*)
+        "Ultra (KN-1810)"|"Giga (KN-1010)"|"Giga (KN-1011)"|"Hero (KN-1011)")
             EXPECTED_ARCH='mipsel'
             ENTWARE_URL='https://bin.entware.net/mipselsf-k3.4/installer/mipsel-installer.tar.gz'
             ;;
@@ -57,8 +61,6 @@ detect_model() {
             stop 'unsupported/unknown router model; automatic Entware selection stopped'
             ;;
     esac
-    MODEL_LINE="$(printf '%s\n' "$MODEL_TEXT" | sed -n 's/^[[:space:]]*model:[[:space:]]*//p' | head -n 1)"
-    [ -n "$MODEL_LINE" ] || MODEL_LINE='Ultra'
     say "[FreeNet Stage-0] MODEL=$MODEL_LINE"
     say "[FreeNet Stage-0] ENTWARE_ARCH=$EXPECTED_ARCH"
 }
