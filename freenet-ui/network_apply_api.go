@@ -587,6 +587,17 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "another FreeNet operation is already running"}
 	}
 
+	// Manual and AUTO share the same production Xray. An UNKNOWN rollback
+	// stops *all* new profile mutations until read-only reconciliation proves
+	// the live state. An explicit manual override cannot clear that safety latch.
+	if automationMutationBlockedState() {
+		return http.StatusConflict, networkApplyResponse{
+			Success: false, Operation: "provider", ProfileID: profileID,
+			RollbackState: "FAILED/UNKNOWN",
+			Error: "Xray state is unresolved after rollback; read-only recovery acceptance is required before another VPN switch",
+		}
+	}
+
 	var (
 		providerPlan providerPlanResponse
 		selected     bestServerInternalCandidate
@@ -668,6 +679,12 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		primary, rollback := classifyApplyFailure(safeOutput)
 		if primary == "" {
 			primary = cmdErr.Error()
+		}
+		// Do not let AUTO VPN run after a manual apply whose rollback is
+		// FAILED/UNKNOWN. Timeout with no terminal rollback result is equally
+		// ambiguous because the helper may have changed the live config.
+		if automationRollbackBlocksMutation(rollback) || (ctx.Err() == context.DeadlineExceeded && strings.TrimSpace(rollback) == "") {
+			setAutomationMutationBlocked(true)
 		}
 		return http.StatusBadGateway, networkApplyResponse{
 			Success: false, Applied: false, Operation: "provider", ProfileID: profileID,

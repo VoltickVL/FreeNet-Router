@@ -153,7 +153,7 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 	t.Setenv("FREENET_AUTOMATION_STATE", automationState)
 	manualHistory := filepath.Join(dir, "settings.history")
 	t.Setenv("FREENET_SETTINGS_V3_HISTORY", manualHistory)
-	if err := os.WriteFile(automationState, []byte("LAST_RUN=2026-10-03T08:00:00Z\nROLLBACK_READY=no\nMUTATION_BLOCKED=yes\n"), 0600); err != nil {
+	if err := os.WriteFile(automationState, []byte("LAST_RUN=2026-10-03T08:00:00Z\nROLLBACK_READY=no\nMUTATION_BLOCKED=no\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(updateState, []byte("STATE=SUCCESS\nTARGET_VERSION=v"+version+"\nUPDATED_AT=2026-10-03T08:00:00Z\n"), 0600); err != nil {
@@ -205,7 +205,7 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 		t.Fatalf("response lost exact endpoint reported by apply transaction: %+v", resp.ProviderPlan)
 	}
 	if automationMutationBlockedState() {
-		t.Fatal("accepted manual VPN switch did not clear inherited mutation block")
+		t.Fatal("accepted standard provider switch changed rollback safety latch unexpectedly")
 	}
 	if got := parseAutomationState(automationState)["POST_UPDATE_ACK"]; got != "v"+version {
 		t.Fatalf("accepted manual VPN switch did not acknowledge post-update hold: %q", got)
@@ -221,6 +221,8 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 }
 
 func TestProviderApplyFailureSeparatesPrimaryAndRollback(t *testing.T) {
+	// A failed test must not mutate the host/shared AUTO safety state.
+	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(t.TempDir(), "automation.state"))
 	provider := writeFakeNetworkHelper(t, "if [ \"$1\" = plan ]; then\ncat <<'EOF'\n"+providerPlanOutput(testProviderID)+"\nEOF\nexit 0\nfi\necho '[FreeNet Provider] ERROR: PRIMARY ERROR: Xray restart failed' >&2\necho '[FreeNet Provider] ERROR: ROLLBACK ERROR/STATE: rollback success' >&2\nexit 1")
 	t.Setenv("FREENET_PROVIDER_HELPER", provider)
 	a := testNetworkApp(t, "DNS_MODE=firmware\n")
