@@ -141,6 +141,7 @@ async function capture(label){
   await until(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Бельгия','current country after provenance reload');
   const order=await page.locator('#overviewApprovedTop').evaluate(n=>Array.from(n.children).map(x=>x.matches('.fn-xray-topbar')?'xray':x.id==='fnVpnPickerV2Host'?'vpn':x.id==='topFreenetUpdate'?'freenet':/DNS/i.test(x.textContent||'')?'dns':'other').filter(x=>x!=='other'));
   assert.deepEqual(order,['xray','vpn','dns','freenet']);
+  await until(()=>!!document.querySelector('#xrayTopbarVersion') && !!document.querySelector('#topFreenetUpdate .fn-version-copy strong'), 'all async topbar values mounted');
   const topbarType=await page.evaluate(()=>{
     const selectors=['#xrayTopbarVersion','#overviewApprovedTop .fn-shell-fact-copy>strong','#topFreenetUpdate .fn-version-copy strong'];
     return selectors.map(selector=>{
