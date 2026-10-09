@@ -76,7 +76,7 @@ const server = http.createServer((req,res)=>{
           safeProfile(current)
         ];
         return answer(route,{
-          success:true,cached:false,mutation:'NONE',selection_token:manualRTTToken,profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
+          success:true,cached:false,mutation:'NONE',fresh:true,catalog_source:'direct',selection_token:manualRTTToken,profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
           results:[
             {profile_id:second.id,endpoint:second.endpoint,rtt_ms:92,jitter_ms:3,reachable:true,attempted:true,status:'reachable'},
             {profile_id:winner.id,endpoint:rttMode==='malformed'?'192.0.2.98:443':winnerEndpoint,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
