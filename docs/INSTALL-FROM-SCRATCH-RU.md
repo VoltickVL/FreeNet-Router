@@ -2,22 +2,22 @@
 
 Главная пользовательская инструкция находится в корневом [README.md](../README.md). Этот файл фиксирует технический clean-install contract.
 
-## Целевой путь
+## Текущий безопасный путь
 
-Для Keenetic Ultra / Netcraze Ultra обычная установка должна выглядеть так:
+На KeeneticOS 5.01 **системный SSH администратора открывает `(config)>`, а не Linux/POSIX shell**. Команда `curl ... | ssh -tt admin@... 'exec /bin/sh'` из предыдущей редакции README была ошибочной: текст Stage-0 отправлялся в конфигурационный CLI и приводил к `incorrect request` / `ndm: failed to initialize`. Никогда не используйте этот способ установки.
 
-```text
+~~~text
 веб-интерфейс роутера
-  → системные компоненты EXT + OPKG + SSH server
-  → один USB-раздел, штатно отформатированный в EXT4
-  → одна команда с компьютера через stock SSH
-  → FreeNet Stage-0
-  → Entware
-  → FreeNet bootstrap
+  → EXT + OPKG + смонтированный EXT4 (существующие данные не форматировать)
+  → штатно установить/подтвердить Entware
+  → доступ к отдельному Entware SSH / Linux shell
+  → read-only /opt/bin/opkg print-architecture
+  → FreeNet bootstrap в подтверждённом Entware shell
   → Browser Setup
-```
+~~~
 
-Ручное скачивание Entware archive, каталог `install`, SMB и второй SSH-сеанс не являются целевым normal flow.
+Без Entware shell или при частичном/неизвестном состоянии — **STOP**. Чистая установка одной командой через stock SSH в текущей версии **не поддерживается**; будущий browser-first путь фиксируется в Roadmap #5.
+
 
 ## Поддержанные Ultra mapping
 
@@ -25,7 +25,7 @@
 - Netcraze Ultra **NC-1812** → AArch64 → `aarch64-k3.10`;
 - legacy Keenetic Ultra **KN-1810** → MIPSel → `mipselsf-k3.4`.
 
-Unknown model = STOP.
+Unknown model = STOP для Stage-0 Ultra mapping. **Giga и другие не перечисленные модели не определяются автоматически через этот Ultra-only helper**; готовый Entware на них может использовать обычный FreeNet bootstrap после проверки фактической архитектуры.
 
 ## До команды
 
@@ -34,41 +34,45 @@ Unknown model = STOP.
 1. установить поддержку EXT filesystem;
 2. установить **Open Package support / OPKG**;
 3. установить **SSH server**;
-4. штатно отформатировать один USB-раздел в EXT4;
+4. если носитель пустой — штатно подготовить EXT4; **если Entware/данные уже есть — ничего не форматировать**;
 5. убедиться, что раздел mounted;
 6. оставить на время первого install ровно один mounted EXT4, чтобы Stage-0 не выбирал диск по догадке.
 
 Online `opkg disk <disk> <url>` flow рассчитан на актуальную KeeneticOS/Netcraze OS с URL option из ветки 4.2+.
 
-## Stock SSH credentials
+## Разные SSH и запуск из действующего Entware
 
-Первое подключение — к SSH самого роутера:
+- **Stock SSH**: локальный администратор, обычно `192.168.1.1:22`, приглашение `(config)>`. Это системный конфигурационный CLI, не Linux shell. Ни `curl`, ни `sh`, ни shell-пайпы в нём не работают. Telnet на порту 23 также не подходит.
+- **Entware SSH**: отдельный Linux/BusyBox shell, часто `root@192.168.1.1:222`, если он настроен и запущен. Это не гарантированное значение порта/учётной записи.
 
-- обычно `192.168.1.1:22`;
-- login — локальный administrator account роутера, например `admin`;
-- password — пароль этой учётной записи, заданный пользователем.
+Пример **read-only проверки** с компьютера, подключённого к локальному Wi-Fi нового роутера:
 
-Это **не** `root/keenetic`.
+~~~sh
+ssh -p 222 root@192.168.1.1
+~~~
 
-## Одна команда
+В **Entware shell** (не `(config)>`):
 
-Windows PowerShell / Windows Terminal:
+~~~sh
+test -x /opt/bin/opkg && /opt/bin/opkg print-architecture
+~~~
 
-```powershell
-curl.exe -fsSL https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap_router_ultra.sh | ssh -tt admin@192.168.1.1 "exec /bin/sh"
-```
+Пока OPKG не подтвердил работоспособность, **не запускать установку**. Системная страница «OPKG» и каталоги `bin/etc` на EXT4 сами по себе не доказывают исправность.
 
-macOS / Linux:
+При исправном OPKG и работающих с роутера WAN/DNS и HTTPS/GitHub:
 
-```sh
-curl -fsSL https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap_router_ultra.sh | ssh -tt admin@192.168.1.1 'exec /bin/sh'
-```
+~~~sh
+/opt/bin/opkg update && /opt/bin/opkg install ca-bundle curl && /opt/bin/curl -fLsS https://github.com/VoltickVL/FreeNet-Router/releases/latest/download/bootstrap.sh -o /tmp/freenet-bootstrap.sh && /opt/bin/sh /tmp/freenet-bootstrap.sh
+~~~
 
-При другом IP/login/stock SSH port значения меняются в команде.
+Если роутер не разрешает `github.com`, остановиться и исправить WAN/DNS штатно, без ослабления TLS и повторных mutation. Дополнительный способ доставки `bootstrap.sh` с Mac через **Entware SSH** описан в [README.md](../README.md#5-установка-freenet-когда-entware-уже-работает); последующие release assets всё равно скачиваются с роутера.
+
+Для чистой установки **сначала подготовьте Entware штатным способом KeeneticOS/Netcraze**, затем повторите read-only проверку. Не используйте системный SSH как вход в `/bin/sh`.
+
 
 ## Stage-0 contract
 
-`scripts/bootstrap_router_ultra.sh`:
+`scripts/bootstrap_router_ultra.sh` — shell-helper **только для среды с реально доступным POSIX shell**; запуск через системный SSH `(config)>` не поддерживается. Его внутренний контракт (не инструкция для пользователя):
 
 1. при существующем `/opt/bin/opkg` не переустанавливает Entware;
 2. иначе читает router model;
@@ -109,9 +113,7 @@ Partial/contradictory core = `NEEDS_REVIEW` → STOP.
 
 ## Entware SSH
 
-Для normal install он не нужен.
-
-Если после установки пользователь сознательно открывает Entware shell вручную, официальная схема обычно использует login `root`, initial password `keenetic`; при занятом stock SSH порту 22 Entware shell обычно находится на 222. Initial password следует сменить через `passwd`.
+Для текущей версии Entware shell является **точкой запуска FreeNet bootstrap**, если автоматическая native clean-install процедура в продукте ещё не реализована. Типичный порт `222` — не гарантия. Начальные пароли не размещайте в журнале/скриншотах; заданные заводские/простые пароли нужно сменить. Нет shell или OPKG = STOP без предположений.
 
 ## Browser Setup
 
