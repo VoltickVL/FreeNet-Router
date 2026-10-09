@@ -707,6 +707,10 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 }
 
 func (a *app) handleXrayCoreApply(w http.ResponseWriter, r *http.Request) {
+	if automationMutationBlockedState() {
+		writeJSON(w, http.StatusLocked, xrayCoreApplyResponse{Success: false, Error: "Xray transaction unresolved; do not replace the core until read-only reconciliation"})
+		return
+	}
 	if a.mutationBlockedBySelfUpdate(w) {
 		return
 	}
