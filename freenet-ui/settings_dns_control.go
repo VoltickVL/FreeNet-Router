@@ -305,6 +305,10 @@ func acquireSettingsDNSOperation(ctx context.Context, a *app, timeout time.Durat
 }
 
 func (a *app) handleSettingsDNSControlPost(w http.ResponseWriter, r *http.Request) {
+	if automationMutationBlockedState() {
+		writeJSON(w, http.StatusLocked, map[string]any{"success": false, "error": "Unresolved VPN transaction; DNS mutation stopped until read-only reconciliation"})
+		return
+	}
 	if a.mutationBlockedBySelfUpdate(w) {
 		return
 	}
