@@ -15,7 +15,7 @@ import (
 
 const (
 	providerProfileRTTWorkers          = 2
-	providerProfileRTTDiscoveryTimeout = 30 * time.Second
+	providerProfileRTTDiscoveryTimeout = 35 * time.Second
 	providerProfileRTTCacheTTL         = 5 * time.Minute
 )
 
