@@ -30,8 +30,8 @@
       body.fn-settings-accepted .fn3-right>.fn3-card:first-child{min-height:293px!important}
       body.fn-settings-accepted .fn3-right>.fn3-card:nth-child(2){min-height:213px!important}
       body.fn-settings-accepted .fn3-extra{min-height:299px!important;padding:11px 6px!important}
-      body.fn-settings-accepted .fn3-extra-grid{gap:10px!important}
-      body.fn-settings-accepted .fn3-extra-card{min-height:229px!important}
+      body.fn-settings-accepted .fn3-extra-grid{gap:var(--fn-ui-section-gap,12px)!important}
+      body.fn-settings-accepted .fn3-extra-card{min-height:0!important}
       /* The canonical Settings SVG is shared with DNS/Subscription/Services; no CSS text icon. */
       body.fn-settings-accepted .fn3-auto-actions .btn svg{width:18px!important;height:18px!important}
       body.fn-settings-accepted .fn3-extra-action svg,
@@ -47,7 +47,7 @@
       body.fn-settings-accepted .fn3-health{font-size:11.5px!important}
       body.fn-settings-accepted .fn3-link{font-size:12px!important}
       body.fn-settings-accepted .fn3-table{font-size:12.5px!important;line-height:1.42!important}
-      body.fn-settings-accepted .fn3-extra-card p{font-size:10px!important}
+      body.fn-settings-accepted .fn3-extra-card p{font-size:11.5px!important}
       body.fn-settings-accepted .fn3-extra-row label{font-size:10.5px!important}
       body.fn-settings-accepted .fn3-extra-row select{font-size:11px!important}
       body.fn-settings-accepted .fn3-extra-meta{font-size:10px!important}
