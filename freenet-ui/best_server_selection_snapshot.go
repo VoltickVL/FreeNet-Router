@@ -303,6 +303,12 @@ func (a *app) runProviderSelectionCommand(ctx context.Context, mode string, cand
 // isolated preflight. Candidate Xray validation, backup, live acceptance and
 // rollback remain mandatory in the provider helper.
 func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode string, candidate bestServerInternalCandidate, manualRTT bool) ([]byte, error) {
+	return a.runProviderSelectionCommandWithManualOptions(ctx, mode, candidate, manualRTT, false)
+}
+
+// An explicit manual selection is allowed to target even an unresponsive
+// VPN, but never bypasses Xray config validation, core-only safety or rollback.
+func (a *app) runProviderSelectionCommandWithManualOptions(ctx context.Context, mode string, candidate bestServerInternalCandidate, manualRTT, forceManual bool) ([]byte, error) {
 	cachePath, sourcePath, cleanup, err := a.materializeBestServerSelectionProviderCache(candidate)
 	if err != nil {
 		return nil, err
@@ -314,12 +320,17 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 	if manualRTT && mode == "apply-core" {
 		rttFlag = "1"
 	}
+	forceFlag := "0"
+	if forceManual && mode == "apply-core" {
+		forceFlag = "1"
+	}
 	cmd.Env = append(os.Environ(),
 		"PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin",
 		"FREENET_SUB_FILE="+a.cfg.SubPath,
 		"FREENET_PROVIDER_SUBSCRIPTION_CACHE="+cachePath,
 		"FREENET_PROVIDER_SUBSCRIPTION_SOURCE="+sourcePath,
 		"FREENET_PROVIDER_RTT_MANUAL="+rttFlag,
+		"FREENET_PROVIDER_FORCE_MANUAL="+forceFlag,
 	)
 	cmd.WaitDelay = 2 * time.Second
 	output, err := cmd.CombinedOutput()
