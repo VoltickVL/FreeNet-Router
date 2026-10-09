@@ -282,6 +282,10 @@ func (a *app) handleProviderProfilePlan(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) {
+	if automationMutationBlockedState() {
+		writeJSON(w, http.StatusLocked, networkApplyResponse{Success: false, Operation: "network", RollbackState: "FAILED/UNKNOWN", Error: "Provider transaction unresolved; network mutation stopped until read-only reconciliation"})
+		return
+	}
 	if a.mutationBlockedBySelfUpdate(w) {
 		return
 	}
