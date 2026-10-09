@@ -106,6 +106,7 @@ func technicalJournalSignificant(event automationEvent) bool {
  if kind == "vpn switch" { return false } // canonical manual record is separate
  if kind == "vpn" || kind == "vpn_manual" { return true }
  if kind == "freenet_update" || kind == "freenet_update_recovery" || kind == "xray_runtime" { return true }
+ if kind=="subscription" || kind=="backup" || kind=="geodata" || kind=="freenet" {return result!="same" && result!="no_new" && result!="cooldown"}
  if strings.Contains(result,"failed") || strings.Contains(result,"error") || strings.Contains(result,"rollback") { return true }
  return false
 }
