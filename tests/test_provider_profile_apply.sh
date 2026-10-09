@@ -477,4 +477,51 @@ grep -Fq 'FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock' "$SCRIPT" || fail 'pro
 grep -Fq 'FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock' "$ROOT_DIR/scripts/blanc_xkeen_update_outbounds.sh" || fail 'updater helper canonical lock contract changed'
 grep -Fq 'tag:"direct",protocol:"freedom",streamSettings:{sockopt:{mark:255}}' "$SCRIPT" || fail 'new DIRECT outbound is missing XKeen self-bypass mark 255'
 
+# Runtime regression (real Giga): pidof xray lists the live XKeen core
+# alongside short-lived isolated -confdir probe workers. They must not block
+# a guarded core switch, and they must NEVER be signaled as the main core.
+# Test identity resolution in isolation: no process kill or real router I/O.
+sed -n '/^managed_xray_pid() {/,/^}/p' "$SCRIPT" > "$TMP/managed-xray-pid.func"
+[ -s "$TMP/managed-xray-pid.func" ] || fail 'managed Xray PID resolver missing'
+cat > "$TMP/bin/pidof" <<'EOF'
+#!/bin/sh
+[ "$1" = xray ] && [ -n "${TEST_XRAY_PIDS:-}" ] || exit 1
+printf '%s\n' "$TEST_XRAY_PIDS"
+EOF
+chmod 755 "$TMP/bin/pidof"
+mkdir -p "$TMP/proc"/23808 "$TMP/proc"/27453 "$TMP/proc"/27454 "$TMP/proc"/27455 "$TMP/proc"/23809 "$TMP/proc"/23810
+printf 'xray\000run\000' > "$TMP/proc/23808/cmdline"
+printf 'XRAY_LOCATION_CONFDIR=%s\000' "$TMP/configs" > "$TMP/proc/23808/environ"
+printf 'xray\000run\000-confdir\000/tmp/freenet-probe\000' > "$TMP/proc/27453/cmdline"
+printf 'FREENET_XRAY_PROBE=1\000' > "$TMP/proc/27453/environ"
+printf 'xray\000run\000-confdir\000/tmp/separate-diagnostic\000' > "$TMP/proc/27454/cmdline"
+: > "$TMP/proc/27454/environ"
+printf 'xray\000run\000-test\000-confdir\000/tmp/diagnostic\000' > "$TMP/proc/27455/cmdline"
+: > "$TMP/proc/27455/environ"
+printf 'xray\000run\000' > "$TMP/proc/23809/cmdline"
+printf 'XRAY_LOCATION_CONFDIR=%s\000' "$TMP/configs" > "$TMP/proc/23809/environ"
+printf 'xray\000run\000' > "$TMP/proc/23810/cmdline"
+: > "$TMP/proc/23810/environ"
+identify_main_xray() {
+    TEST_XRAY_PIDS="$1" CONFIG_DIR="$TMP/configs" \
+        FREENET_XRAY_PROC_ROOT="$TMP/proc" PATH="$TMP/bin:$PATH" \
+        sh -c '. "$1"; managed_xray_pid' sh "$TMP/managed-xray-pid.func"
+}
+[ "$(identify_main_xray '23808 27453 27454 27455')" = 23808 ] ||
+    fail 'main Xray was lost among known isolated probe workers'
+[ "$(identify_main_xray '23810 27453')" = 23810 ] ||
+    fail 'single legacy bare Xray must remain identifiable'
+if identify_main_xray '23808 23809 27453' > /dev/null; then
+    fail 'multiple production Xray processes must STOP before any mutation'
+fi
+if identify_main_xray '23808 23810 27453' > /dev/null; then
+    fail 'unidentified competing Xray must STOP before any mutation'
+fi
+if identify_main_xray '27453 27454 27455' > /dev/null; then
+    fail 'probe workers without a production Xray must not pass core preflight'
+fi
+if identify_main_xray '23808 99999' > /dev/null; then
+    fail 'unreadable PID metadata must STOP before any mutation'
+fi
+
 echo 'provider profile apply test PASS'
