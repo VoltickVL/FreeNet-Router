@@ -545,7 +545,9 @@ func automationRollbackBlocksMutation(value string) bool {
 }
 
 func automationMutationBlockedState() bool {
-	return strings.EqualFold(strings.TrimSpace(parseAutomationState(automationStatePath())["MUTATION_BLOCKED"]), "yes")
+	// Persistent provider checkpoints override any stale AUTO state, even after
+	// a kill, process restart or failure to persist the old AUTO latch.
+	return providerTransactionPending() || strings.EqualFold(strings.TrimSpace(parseAutomationState(automationStatePath())["MUTATION_BLOCKED"]), "yes")
 }
 
 func writeAutomationStatePayload(path string, values map[string]string) {
