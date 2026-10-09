@@ -260,7 +260,7 @@ check_accept XRAY_CONFIG_CHANGED XRAY_CONFIG_CHANGED 1
 
 # The actual release entrypoint must surface the same bounded code in the
 # final error, preserving a distinct transactional ROLLBACK result.
-grep -Fq 'app acceptance failed (PRIMARY ERROR: \${APP_ACCEPT_PRIMARY:-UNKNOWN})' "$BOOT" || fail 'bootstrap final error drops PRIMARY ERROR'
+grep -Fq 'app acceptance failed (PRIMARY ERROR: ${APP_ACCEPT_PRIMARY:-UNKNOWN})' "$BOOT" || fail 'bootstrap final error drops PRIMARY ERROR'
 grep -Fq 'ROLLBACK: SUCCESS' "$BOOT" || fail 'bootstrap successful rollback contract missing'
 grep -Fq 'ROLLBACK ERROR: FAILED/UNKNOWN' "$BOOT" || fail 'bootstrap uncertain rollback contract missing'
 
