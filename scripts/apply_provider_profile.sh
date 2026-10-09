@@ -559,11 +559,67 @@ short_pause() {
     fi
 }
 
-single_xray_pid() {
-    PIDS="$(pidof xray 2>/dev/null || true)"
-    set -- $PIDS
-    [ "$#" -eq 1 ] || return 1
-    printf '%s\n' "$1"
+# Identify the *managed* production Xray. FreeNet's isolated RTT/quality
+# probes (and other explicitly separate -confdir instances) must never be
+# signaled or counted as the production core. Fail closed for unreadable or
+# ambiguous process identity; do not guess a PID from the order of pidof.
+managed_xray_pid() {
+    PROC_ROOT="${FREENET_XRAY_PROC_ROOT:-/proc}"
+    EXACT_PIDS=""
+    FALLBACK_PIDS=""
+    ALL_PIDS="$(pidof xray 2>/dev/null || true)"
+    for CANDIDATE_PID in $ALL_PIDS; do
+        case "$CANDIDATE_PID" in
+            ''|*[!0-9]*) return 2 ;;
+        esac
+        PROC_DIR="$PROC_ROOT/$CANDIDATE_PID"
+        [ -r "$PROC_DIR/cmdline" ] && [ -r "$PROC_DIR/environ" ] || return 2
+
+        if tr '\000' '\n' < "$PROC_DIR/environ" | grep -Fxq 'FREENET_XRAY_PROBE=1'; then
+            continue
+        fi
+        if tr '\000' '\n' < "$PROC_DIR/cmdline" | grep -Fxq -- '-test'; then
+            continue
+        fi
+
+        # An explicit separate confdir is an isolated worker, not XKeen's
+        # primary config directory. An explicit *matching* confdir is trusted.
+        if tr '\000' '\n' < "$PROC_DIR/cmdline" | grep -Fxq -- '-confdir'; then
+            ARGS_CONF_DIR="$(tr '\000' '\n' < "$PROC_DIR/cmdline" | awk 'found { print; exit } $0 == "-confdir" { found=1 }')"
+            if [ "$ARGS_CONF_DIR" = "$CONFIG_DIR" ]; then
+                EXACT_PIDS="$EXACT_PIDS $CANDIDATE_PID"
+            elif [ -z "$ARGS_CONF_DIR" ]; then
+                return 2
+            fi
+            continue
+        fi
+
+        # XKeen starts its core as `xray run` with this exact environment.
+        # Unknown competing bare instances remain ambiguous when one is
+        # already known; a sole bare instance preserves older XKeen support.
+        if tr '\000' '\n' < "$PROC_DIR/environ" | grep -Fxq "XRAY_LOCATION_CONFDIR=$CONFIG_DIR"; then
+            EXACT_PIDS="$EXACT_PIDS $CANDIDATE_PID"
+        elif tr '\000' '\n' < "$PROC_DIR/environ" | grep -q '^XRAY_LOCATION_CONFDIR='; then
+            continue
+        else
+            FALLBACK_PIDS="$FALLBACK_PIDS $CANDIDATE_PID"
+        fi
+    done
+
+    set -- $EXACT_PIDS
+    if [ "$#" -eq 1 ]; then
+        [ -z "$FALLBACK_PIDS" ] || return 2
+        printf '%s\n' "$1"
+        return 0
+    fi
+    [ "$#" -eq 0 ] || return 2
+    set -- $FALLBACK_PIDS
+    if [ "$#" -eq 1 ]; then
+        printf '%s\n' "$1"
+        return 0
+    fi
+    [ "$#" -eq 0 ] && return 1
+    return 2
 }
 
 core_restart_preflight() {
@@ -573,7 +629,7 @@ core_restart_preflight() {
     fi
     command -v kill >/dev/null 2>&1 || return 1
     [ -x "$XKEEN_BIN" ] || return 1
-    single_xray_pid >/dev/null 2>&1
+    managed_xray_pid >/dev/null 2>&1
 }
 
 restart_xray_core() {
@@ -583,18 +639,16 @@ restart_xray_core() {
         return $?
     fi
 
-    OLD_PID=""
-    PIDS="$(pidof xray 2>/dev/null || true)"
-    set -- $PIDS
-    case "$#" in
-        0)
-            [ "$ALLOW_STOPPED" = yes ] || return 1
-            ;;
+    OLD_PID="$(managed_xray_pid)"
+    PID_STATUS=$?
+    case "$PID_STATUS" in
+        0) ;;
         1)
-            OLD_PID="$1"
+            [ "$ALLOW_STOPPED" = yes ] || return 1
+            OLD_PID=""
             ;;
         *)
-            err 'core-only restart refused: multiple Xray processes are active'
+            err 'core-only restart refused: managed Xray process identity is ambiguous'
             return 1
             ;;
     esac
@@ -625,9 +679,13 @@ restart_xray_core() {
     I=0
     STABLE=0
     while [ "$I" -lt 60 ]; do
-        PIDS="$(pidof xray 2>/dev/null || true)"
-        set -- $PIDS
-        if [ "$#" -eq 1 ] && kill -0 "$1" 2>/dev/null; then
+        CURRENT_PID="$(managed_xray_pid)"
+        PID_STATUS=$?
+        if [ "$PID_STATUS" -eq 2 ]; then
+            err 'core-only runtime acceptance stopped: managed Xray process identity is ambiguous'
+            return 1
+        fi
+        if [ "$PID_STATUS" -eq 0 ] && kill -0 "$CURRENT_PID" 2>/dev/null; then
             STABLE=$((STABLE + 1))
             [ "$STABLE" -ge 3 ] && return 0
         else
