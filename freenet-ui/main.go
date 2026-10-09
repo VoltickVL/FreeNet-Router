@@ -217,6 +217,7 @@ func main() {
 	a.initializeXrayRuntimeIntent()
 	a.startXrayRuntimeWatchdog()
 	a.startAutomationHealthScheduler()
+	startTechnicalJournalRecorder() // async, observation-only; never probes or changes AUTO VPN
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", a.handleIndex)
