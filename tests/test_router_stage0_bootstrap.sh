@@ -214,9 +214,25 @@ if grep -Ei 'XKEEN_UI_REPO|fetch_one XKeen-UI|cp .*xkeen-ui|write_xkeen_ui_init|
     fail 'stage-0 must not manage XKeen UI'
 fi
 README="$ROOT_DIR/README.md"
+INSTALL_DOC="$ROOT_DIR/docs/INSTALL-FROM-SCRATCH-RU.md"
 if grep -Ei 'XKeen[[:space:]-]*UI|xkeen-ui' "$README" >/dev/null; then
     fail 'README must not mention XKeen UI'
 fi
+
+# KeeneticOS 5 stock SSH enters the (config)> CLI, not a shell. Never
+# regress to sending bootstrap_router_ultra.sh to ssh -tt/exec /bin/sh.
+for DOC in "$README" "$INSTALL_DOC"; do
+    if grep -E '^[[:space:]]*curl(\.exe)?[[:space:]].*bootstrap_router_ultra\.sh.*ssh[[:space:]]' "$DOC" >/dev/null; then
+        fail "unsupported stock SSH shell-pipe installation command in $DOC"
+    fi
+    if grep -E '^[[:space:]]*ssh[[:space:]]+-tt.*exec /bin/sh' "$DOC" >/dev/null; then
+        fail "unsupported stock SSH remote exec installation command in $DOC"
+    fi
+    grep -Fq '(config)>' "$DOC" || fail "stock Keenetic CLI caveat missing in $DOC"
+    grep -Fq '/opt/bin/opkg print-architecture' "$DOC" || fail "Entware read-only preflight missing in $DOC"
+    grep -Fq 'ssh -p 222 root@192.168.1.1' "$DOC" || fail "example must target Entware SSH, not stock SSH in $DOC"
+    grep -Fq 'STOP' "$DOC" || fail "unsafe/unknown state STOP not documented in $DOC"
+done
 grep -Fq 'more than one mounted EXT4 partition found; refusing to guess' "$BOOT" || fail 'multiple-disk STOP contract missing'
 grep -Fq "Ultra (KN-1811)" "$BOOT" || fail 'KN-1811 mapping missing'
 grep -Fq "Ultra (NC-1812)" "$BOOT" || fail 'NC-1812 mapping missing'
