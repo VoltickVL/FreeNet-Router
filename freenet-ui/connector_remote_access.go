@@ -148,6 +148,17 @@ func connectorAdminSecureOrigin(r *http.Request) bool {
  return strings.EqualFold(u.Host,r.Host) || (forwardedHost!="" && strings.EqualFold(u.Host,forwardedHost))
 }
 
+// CSRF-safe complement for reverse proxies that rewrite Host to the local
+// listener. Only the same-router TCP peer may assert the external host.
+func connectorAdminSameOrigin(r *http.Request) bool {
+ if sameOrigin(r){return true}
+ if strings.EqualFold(r.Header.Get("Sec-Fetch-Site"),"cross-site") || !connectorTrustedProxyPeer(r){return false}
+ external:=strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+ if external==""||strings.ContainsAny(external,",/\\ "){return false}
+ if !strings.EqualFold(r.Header.Get("X-Forwarded-Proto"),"https"){return false}
+ return strings.TrimSpace(r.Header.Get("Origin"))=="https://"+external
+}
+
 // An authenticated administrator can immediately revoke diagnostic approval
 // without disrupting the outbound machine transport or VPN/routing.
 func (a *app) handleConnectorRemoteRevoke(w http.ResponseWriter,r *http.Request){
