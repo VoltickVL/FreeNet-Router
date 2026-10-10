@@ -78,6 +78,20 @@ func connectorMCPTools() []map[string]any {
             "annotations":map[string]any{"readOnlyHint":true, "destructiveHint":false, "openWorldHint":false},
         },
         {
+            "name":"request_access",
+            "title":"Запросить временный доступ к FreeNet",
+            "description":"Только запрашивает одобрение в Control Center; никакие данные роутера до подтверждения не раскрываются.",
+            "inputSchema":empty,
+            "annotations":map[string]any{"readOnlyHint":false, "destructiveHint":false, "openWorldHint":false},
+        },
+        {
+            "name":"get_access_status",
+            "title":"Статус согласования доступа к FreeNet",
+            "description":"Показывает только PENDING/APPROVED/DENIED и срок действия, без конфигураций и секретов.",
+            "inputSchema":empty,
+            "annotations":map[string]any{"readOnlyHint":true, "destructiveHint":false, "openWorldHint":false},
+        },
+        {
             "name":"get_recent_journal",
             "title":"Доступность безопасного журнала",
             "description":"Не выдаёт сырой журнал или секреты; возвращает available=false, пока очищенная проекция не готова.",
@@ -152,7 +166,8 @@ func (a *app) connectorMCPCall(name string, args json.RawMessage) (any, error) {
 
 func (a *app) handleConnectorMCP(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Cache-Control", "no-store")
-    if !a.authorizeConnectorMachine(w,r) { return }
+    remoteIdentity:=a.connectorRemoteTransportMatch(r)
+    if !remoteIdentity && !a.authorizeConnectorMachine(w,r) { return }
     if r.Method != http.MethodPost {
         w.Header().Set("Allow","POST")
         connectorMCPError(w,http.StatusMethodNotAllowed,nil,-32600,"POST required")
@@ -239,6 +254,31 @@ func (a *app) handleConnectorMCP(w http.ResponseWriter, r *http.Request) {
         }
         if err:=json.Unmarshal(request.Params,&params);err!=nil || len(params.Name)>64 {
             connectorMCPError(w,http.StatusBadRequest,request.ID,-32602,"invalid tool call")
+            return
+        }
+        if params.Name=="request_access" || params.Name=="get_access_status" {
+            if !remoteIdentity {
+                connectorMCPError(w,http.StatusForbidden,request.ID,-32003,"remote access request unavailable")
+                return
+            }
+            args:=map[string]json.RawMessage{}
+            if len(params.Arguments)>0 && string(params.Arguments)!="null" {
+                if json.Unmarshal(params.Arguments,&args)!=nil || args==nil || len(args)!=0 {
+                    connectorMCPError(w,http.StatusBadRequest,request.ID,-32602,"unexpected access tool arguments")
+                    return
+                }
+            }
+            var result map[string]any
+            if params.Name=="request_access" {
+                var err error
+                result,err=a.connectorRemoteRequestAccess()
+                if err!=nil {connectorMCPError(w,http.StatusTooManyRequests,request.ID,-32029,"access request rate-limited");return}
+            }else{result=a.connectorRemoteStatus()}
+            connectorMCPReply(w,http.StatusOK,request.ID,connectorRemoteToolResult(result),nil)
+            return
+        }
+        if remoteIdentity && !a.connectorRemoteCanRead() {
+            connectorMCPError(w,http.StatusForbidden,request.ID,-32003,"diagnostics require temporary approval")
             return
         }
         result,err:=a.connectorMCPCall(params.Name,params.Arguments)

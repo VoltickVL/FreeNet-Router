@@ -239,7 +239,7 @@ func installTunnelCandidate(ctx context.Context,client *http.Client,base,arch,de
 func (a *app) handleTunnelInstall(w http.ResponseWriter,r *http.Request) {
  w.Header().Set("Cache-Control","no-store")
  if !connectorConfirm(w,r){return}
- if !connectorSecureProvisioning(r) {
+ if !connectorAdminSecureOrigin(r) {
   writeJSON(w,http.StatusForbidden,map[string]any{"success":false,"mutation":"NONE","error":"Установка только через подтверждённое HTTPS или loopback"})
   return
  }
@@ -251,6 +251,10 @@ func (a *app) handleTunnelInstall(w http.ResponseWriter,r *http.Request) {
  }
  dst:=tunnelInstallPath()
  plan:=tunnelPlanFor(runtime.GOOS,runtime.GOARCH,dst)
+ if _,err:=os.Lstat(a.connectorTunnelAttestationPath());!os.IsNotExist(err){
+  writeJSON(w,http.StatusConflict,map[string]any{"success":false,"mutation":"NONE","error":"STOP: installation provenance state unknown or already exists"})
+  return
+ }
  if !plan.Ready {
   writeJSON(w,http.StatusConflict,map[string]any{"success":false,"mutation":"NONE","error":plan.Error})
   return
@@ -262,5 +266,13 @@ func (a *app) handleTunnelInstall(w http.ResponseWriter,r *http.Request) {
   return
  }
  v3AppendEvent("connector","success","Проверенный официальный tunnel-client установлен без запуска; внешнее соединение отключено")
+ if err:=a.connectorTunnelAttestInstalled(dst);err!=nil{
+  if rmErr:=os.Remove(dst);rmErr!=nil {
+   writeJSON(w,http.StatusServiceUnavailable,map[string]any{"success":false,"state":"ROLLBACK_UNKNOWN","error":"ROLLBACK UNKNOWN: installed client could not be removed after attestation failure"})
+   return
+  }
+  writeJSON(w,http.StatusServiceUnavailable,map[string]any{"success":false,"state":"STOP","error":"installation attestation failed; binary rollback completed"})
+  return
+ }
  writeJSON(w,http.StatusOK,map[string]any{"success":true,"mutation":"BINARY_ONLY","version":tunnelPinnedRelease,"state":"INSTALLED_NOT_STARTED","external_connected":false})
 }

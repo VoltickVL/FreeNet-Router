@@ -76,7 +76,7 @@ func connectorLoopbackHost(raw string) bool {
 }
 
 func connectorConfirm(w http.ResponseWriter, r *http.Request) bool {
-	if !sameOrigin(r) {
+	if !connectorAdminSameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"success":false,"error":"cross-origin request rejected"})
 		return false
 	}
@@ -172,6 +172,7 @@ func (a *app) handleConnectorRevoke(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	a.connectorRemoteRevoke()
 	v3AppendEvent("connector", "success", "Локальный read-only доступ отозван.")
 	writeJSON(w, http.StatusOK, map[string]any{"success":true,"active":false,"mutation":"AUTHORIZATION_ONLY"})
 }

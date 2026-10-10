@@ -91,6 +91,14 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
 .fn-admin-form-row button{min-height:46px}
 .fn-connector-controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 .fn-connector-controls button{min-height:44px;flex:1 1 155px;max-width:100%}
+.fn-connector-setup{max-width:100%;min-width:0;margin:12px 0;padding:10px 12px;border:1px solid #385c79;border-radius:11px;background:rgba(6,20,35,.52)}
+.fn-connector-setup summary{cursor:pointer;color:#e3f0ff;overflow-wrap:anywhere}
+.fn-connector-setup[open] summary{margin-bottom:10px}
+.fn-connector-setup form{max-width:100%;min-width:0}
+.fn-connector-setup input{box-sizing:border-box;display:block;max-width:100%;min-width:0;width:100%;min-height:44px;padding:9px 11px;border:1px solid #385c79;border-radius:10px;background:#061421;color:#eaf4ff}
+.fn-connector-setup form>button{margin:12px 0;max-width:100%;white-space:normal}
+.fn-connector-setup pre{box-sizing:border-box;width:100%;min-width:0;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;padding:10px;border:1px solid #385c79;border-radius:10px;background:#061421;color:#d5eaff;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+
 /* All diagnostic outputs may contain unbroken SHA-256, FQDN, error details,
    or a one-time credential. Keep these inside the Administration card. */
 .fn-admin-card pre{box-sizing:border-box;min-width:0;width:100%;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;overflow-x:auto}
@@ -301,6 +309,36 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
             <pre id="connectorInstallOutput" role="status" aria-live="polite">Официальный tunnel-client ещё не проверен и не запускается. Сначала запроси план; установка требует отдельного подтверждения.</pre>
             <pre id="connectorGrantOutput" role="status" aria-live="polite">Создание токена разрешено только через защищённое соединение HTTPS или с самого устройства через localhost. Отозвать доступ можно из обычного Control Center.</pre>
             <pre id="connectorGrantSecret" hidden aria-label="Разовый токен подключения"></pre>
+            <details id="connectorTunnelSection" class="fn-connector-setup">
+              <summary><b>OpenAI Tunnel — подключение ChatGPT</b></summary>
+              <p>Созданный в OpenAI Platform туннель работает через исходящий HTTPS. Ключ остаётся на роутере; VPN, DNS и маршруты не меняются.</p>
+              <form id="connectorTunnelForm" autocomplete="off">
+                <label for="connectorTunnelID">Tunnel ID (из OpenAI Platform)</label>
+                <input id="connectorTunnelID" type="text" maxlength="39" spellcheck="false" autocomplete="off" placeholder="tunnel_…" required>
+                <label for="connectorTunnelKey">Runtime API key с правами Tunnels Read + Use (не Admin key)</label>
+                <input id="connectorTunnelKey" type="password" maxlength="520" autocomplete="new-password" spellcheck="false" placeholder="sk-…" required>
+                <button id="connectorTunnelConfigureBtn" class="btn secondary" type="submit">Сохранить доступ на роутере</button>
+              </form>
+              <div class="fn-connector-controls">
+                <button id="connectorTunnelStatusBtn" class="btn secondary" type="button">Проверить туннель</button>
+                <button id="connectorTunnelStartBtn" class="btn secondary" type="button">Запустить</button>
+                <button id="connectorTunnelStopBtn" class="btn secondary" type="button">Остановить</button>
+                <button id="connectorTunnelForgetBtn" class="btn secondary" type="button">Забыть ключ</button>
+              </div>
+              <pre id="connectorTunnelOutput" role="status" aria-live="polite">Клиент не запущен. После установки официального бинарника настрой runtime key и явно запусти туннель.</pre>
+              <p>После подтверждённого соединения: ChatGPT → Плагины → Добавить свой MCP → «Туннель», аутентификация ChatGPT «Без аутентификации». Сам FreeNet проверяет машинный токен и требует отдельное разрешение на диагностику.</p>
+            </details>
+            <details id="connectorAccessSection" class="fn-connector-setup">
+              <summary><b>Запрос доступа из ChatGPT</b></summary>
+              <p>Когда ты в командировке, ChatGPT может запросить доступ. Проверяй и подтверждай его здесь из защищённого браузера. Разрешение действует 15 минут, без права изменять сеть.</p>
+              <button id="connectorAccessStatusBtn" class="btn secondary" type="button">Проверить запрос</button>
+              <pre id="connectorAccessOutput" role="status" aria-live="polite">Нет подтверждённой диагностической сессии.</pre>
+              <div class="fn-connector-controls">
+                <button id="connectorAccessApproveBtn" class="btn secondary" type="button" disabled>Разрешить на 15 минут</button>
+                <button id="connectorAccessDenyBtn" class="btn secondary" type="button" disabled>Отклонить</button>
+                <button id="connectorAccessRevokeBtn" class="btn secondary" type="button">Отозвать разрешение</button>
+              </div>
+            </details>
             <p><b>SSH:</b> произвольные команды и shell-терминал недоступны.</p>
             <p><b>Проверка реального маршрута:</b> для LAN-клиента нужен отдельный источник наблюдений Xray; DNS или ping недостаточно.</p>
             <p>Полный редактированный отчёт доступен в разделе «Журнал» → «Скачать технический лог».</p>
@@ -494,6 +532,94 @@ async function connectorHostPreflight(){
   finally{button.disabled=false;}
 }
 el('connectorHostPreflightBtn').addEventListener('click',()=>{void connectorHostPreflight()});
+let connectorPendingRequestID="";
+async function connectorTunnelStatus(){
+ if(!authAuthenticated)return;
+ const out=el("connectorTunnelOutput"),btn=el("connectorTunnelStatusBtn");btn.disabled=true;
+ try{
+  const res=await fetch("/api/admin/connector/tunnel/status",{cache:"no-store",credentials:"same-origin"});
+  const d=await res.json();if(!res.ok||d.success===false)throw Error(d.error||"недоступно");
+  out.textContent=[ "Настройка: "+(d.configured?"сохранена":"не настроена"),
+   "Процесс: "+String(d.state||"UNKNOWN"),"Процесс активен: "+(d.client_running?"ДА":"НЕТ"),
+   "OpenAI readiness: "+(d.client_ready?"ОТВЕТ /readyz":"НЕ ПОДТВЕРЖДЕНА"),
+   "ChatGPT MCP end-to-end: НЕ ПОДТВЕРЖДЁН", "Диагностический доступ без разрешения: ЗАКРЫТ" ].join("\n");
+ }catch(e){out.textContent="STOP: "+String(e.message||"недоступно");}
+ finally{btn.disabled=false;}
+}
+el("connectorTunnelStatusBtn").addEventListener("click",()=>{void connectorTunnelStatus()});
+el("connectorTunnelForm").addEventListener("submit",async e=>{
+ e.preventDefault();if(!authAuthenticated)return;
+ const btn=el("connectorTunnelConfigureBtn"),out=el("connectorTunnelOutput"),id=el("connectorTunnelID"),key=el("connectorTunnelKey");
+ if(!window.confirm("Сохранить tunnel ID и ограниченный OpenAI Runtime API key только на роутере? Клиент НЕ запустится автоматически.")){key.value="";return;}
+ const payload={confirm:true,tunnel_id:id.value.trim(),runtime_api_key:key.value.trim()};key.value="";btn.disabled=true;
+ try{const res=await fetch("/api/admin/connector/tunnel/configure",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",cache:"no-store",body:JSON.stringify(payload)});
+  payload.runtime_api_key="";const d=await res.json();if(!res.ok||!d.success)throw Error(d.error||"запись отклонена");
+  id.value="";out.textContent="Настройка записана. Ключ не отображается. Установи проверенный бинарник и отдельно нажми «Запустить».";
+ }catch(err){out.textContent="STOP: "+String(err.message||"сохранение невозможно");}finally{payload.runtime_api_key="";btn.disabled=false;}
+});
+async function connectorTunnelMutation(action){
+ if(!authAuthenticated)return;
+ if(!window.confirm(action==="start"?"Запустить только проверенный OpenAI tunnel-client? Будет установлено исходящее HTTPS-соединение, но без разрешения диагностики.":"Остановить OpenAI Tunnel и отозвать временное разрешение?"))return;
+ const btn=el(action==="start"?"connectorTunnelStartBtn":"connectorTunnelStopBtn"),out=el("connectorTunnelOutput");
+ btn.disabled=true;
+ try{const res=await fetch("/api/admin/connector/tunnel/"+action,{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",cache:"no-store",body:JSON.stringify({confirm:true})});
+  const d=await res.json();if(!res.ok||!d.success)throw Error(d.error||"операция остановлена");out.textContent="Операция: "+String(d.state||"UNKNOWN")+". Проверить фактический /readyz и ChatGPT отдельно.";
+ }catch(e){out.textContent="STOP: "+String(e.message||"операция неизвестна");}
+ finally{btn.disabled=false;}
+}
+el("connectorTunnelStartBtn").addEventListener("click",()=>{void connectorTunnelMutation("start")});
+el("connectorTunnelStopBtn").addEventListener("click",()=>{void connectorTunnelMutation("stop")});
+el("connectorTunnelForgetBtn").addEventListener("click",async()=>{
+ if(!authAuthenticated)return;
+ if(!window.confirm("Удалить с роутера runtime key и машинный токен? Сначала останови туннель. OpenAI API key в Platform нужно также отозвать самостоятельно."))return;
+ const btn=el("connectorTunnelForgetBtn");btn.disabled=true;
+ try{
+  const res=await fetch("/api/admin/connector/tunnel/forget",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",credentials:"same-origin",body:JSON.stringify({confirm:true})});
+  const d=await res.json();if(!res.ok||!d.success)throw Error(d.error||"удаление не завершено");
+  el("connectorTunnelOutput").textContent="Локальные credentials удалены. Отключи соответствующий Runtime API key также в OpenAI Platform. Туннель не подключён.";
+ }catch(e){el("connectorTunnelOutput").textContent="STOP: "+String(e.message||"неизвестно");}
+ finally{btn.disabled=false;}
+});
+async function connectorAccessStatus(){
+ if(!authAuthenticated)return;
+ const out=el("connectorAccessOutput"),btn=el("connectorAccessStatusBtn");btn.disabled=true;connectorPendingRequestID="";
+ try{const res=await fetch("/api/admin/connector/access",{cache:"no-store",credentials:"same-origin"});const d=await res.json();
+  if(!res.ok||!d.success)throw Error(d.error||"статус недоступен");
+  const state=String(d.state||"DENIED");
+  if(state==="PENDING"&&typeof d.request_id==="string"&&/^[a-f0-9]{64}$/.test(d.request_id)){
+   connectorPendingRequestID=d.request_id;
+  }
+  out.textContent="Запрос: "+state+"\nИстекает: "+String(d.expires_at||"не выдано")+"\nРазрешены только диагностические инструменты (15 минут).";
+ }catch(e){out.textContent="STOP: "+String(e.message||"нет статуса");}
+ finally{const ready=!!connectorPendingRequestID;el("connectorAccessApproveBtn").disabled=!ready;el("connectorAccessDenyBtn").disabled=!ready;btn.disabled=false;}
+}
+el("connectorAccessStatusBtn").addEventListener("click",()=>{void connectorAccessStatus()});
+async function connectorAccessDecision(approve){
+ if(!authAuthenticated||!connectorPendingRequestID)return;
+ if(!window.confirm(approve?"Разрешить ВСЕМ авторизованным участникам выбранного ChatGPT Tunnel читать только диагностику FreeNet на 15 минут?":"Отклонить запрос без выдачи доступа?"))return;
+ const id=connectorPendingRequestID;connectorPendingRequestID="";
+ el("connectorAccessApproveBtn").disabled=true;el("connectorAccessDenyBtn").disabled=true;
+ try{const res=await fetch("/api/admin/connector/access/approve",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",cache:"no-store",body:JSON.stringify({confirm:true,request_id:id,approve})});
+  const d=await res.json();if(!res.ok||!d.success)throw Error(d.error||"запрос отклонён");el("connectorAccessOutput").textContent="Решение: "+String(d.state||"UNKNOWN")+". Доступ истекает автоматически через 15 минут.";
+ }catch(e){el("connectorAccessOutput").textContent="STOP: "+String(e.message||"не выполнено");}
+}
+el("connectorAccessApproveBtn").addEventListener("click",()=>{void connectorAccessDecision(true)});
+el("connectorAccessDenyBtn").addEventListener("click",()=>{void connectorAccessDecision(false)});
+el("connectorAccessRevokeBtn").addEventListener("click",async()=>{
+ if(!authAuthenticated)return;
+ if(!window.confirm("Немедленно отозвать временный доступ ChatGPT к диагностике FreeNet?"))return;
+ const button=el("connectorAccessRevokeBtn");button.disabled=true;
+ try{
+  const res=await fetch("/api/admin/connector/access/revoke",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",cache:"no-store",body:JSON.stringify({confirm:true})});
+  const d=await res.json();
+  if(!res.ok||!d.success)throw Error(d.error||"невозможно отозвать");
+  connectorPendingRequestID="";
+  el("connectorAccessApproveBtn").disabled=true;el("connectorAccessDenyBtn").disabled=true;
+  el("connectorAccessOutput").textContent="Разрешение отозвано. Доступ к диагностике закрыт.";
+ }catch(e){el("connectorAccessOutput").textContent="STOP: "+String(e.message||"неизвестно");}
+ finally{button.disabled=false;}
+});
+
 
 let connectorInstallReady=false;
 async function connectorInstallPlan(){
