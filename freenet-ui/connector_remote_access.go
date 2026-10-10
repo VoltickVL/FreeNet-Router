@@ -90,7 +90,7 @@ func (a *app) handleConnectorRemoteAccessStatus(w http.ResponseWriter,r *http.Re
 
 func (a *app) handleConnectorRemoteApprove(w http.ResponseWriter,r *http.Request){
  w.Header().Set("Cache-Control","no-store")
- if !sameOrigin(r) || !connectorAdminSecureOrigin(r) {
+ if !connectorAdminSameOrigin(r) || !connectorAdminSecureOrigin(r) {
   writeJSON(w,http.StatusForbidden,map[string]any{"success":false,"error":"secure same-origin administration required"});return
  }
  var req struct {Confirm bool `json:"confirm"`; RequestID string `json:"request_id"`; Approve bool `json:"approve"`}
