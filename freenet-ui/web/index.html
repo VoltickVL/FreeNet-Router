@@ -488,9 +488,9 @@ async function connectorHostPreflight(){
       'Подключение ChatGPT: НЕ ПОДТВЕРЖДЕНО',
       String(d.note||''),
       'VPN/DNS/routing: БЕЗ ИЗМЕНЕНИЙ'
-    ].join('\\n');
-    if(!observed)out.textContent+='\\nSTOP: дальнейшую установку до выяснения фактов не выполнять.';
-  }catch(error){out.textContent='STOP: '+String(error.message||'ошибка')+'\\nНикакие изменения не выполнялись.';}
+    ].join('\n');
+    if(!observed)out.textContent+='\nSTOP: дальнейшую установку до выяснения фактов не выполнять.';
+  }catch(error){out.textContent='STOP: '+String(error.message||'ошибка')+'\nНикакие изменения не выполнялись.';}
   finally{button.disabled=false;}
 }
 el('connectorHostPreflightBtn').addEventListener('click',()=>{void connectorHostPreflight()});
