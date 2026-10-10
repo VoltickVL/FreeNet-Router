@@ -110,3 +110,41 @@ func TestAdminRouteMalformedConfigUnknown(t *testing.T) {
         t.Fatalf("malformed config guessed route: %+v", result)
     }
 }
+
+func TestAdminRouteUISeparatesExpectedFromObserved(t *testing.T) {
+    raw, err := webFS.ReadFile("web/index.html")
+    if err != nil { t.Fatal(err) }
+    ui := string(raw)
+    for _, want := range []string{
+        "adminRouteForm", "adminRouteHost", "adminRouteClient",
+        "adminRouteNetwork", "adminRoutePort", "adminRouteOutput",
+        "/api/admin/route?", "Факт реального соединения: НЕ НАБЛЮДАЛСЯ",
+        "GeoSite, GeoIP и неизвестные условия",
+        "window.FreeNetFlags",
+    } {
+        if !strings.Contains(ui, want) { t.Fatalf("Administration route view missing %q", want) }
+    }
+    if !strings.Contains(ui, "const known=d.confidence==='CONFIG_ONLY'") {
+        t.Fatal("Administration must distinguish known config rule from unknown result")
+    }
+}
+
+func TestAdminRouteRejectsChainedOrUnsafeOutboundTags(t *testing.T) {
+    if adminRouteSafeTag("my-token/secret") || adminRouteSafeTag("credential@example.com") {
+        t.Fatal("unsafe outbound tags were permitted in admin API")
+    }
+    if !adminRouteSafeTag("vless-reality") { t.Fatal("safe Xray tag was rejected") }
+    root := map[string]any{"outbounds":[]any{
+        map[string]any{"tag":"direct","protocol":"freedom","proxySettings":map[string]any{"tag":"vless-reality"}},
+    }}
+    if got := adminRouteOutboundAction(root, "direct"); got != "UNKNOWN" {
+        t.Fatalf("chained freedom is not proven DIRECT: %s", got)
+    }
+    root["outbounds"] = []any{
+        map[string]any{"tag":"direct","protocol":"freedom"},
+        map[string]any{"tag":"direct","protocol":"blackhole"},
+    }
+    if got := adminRouteOutboundAction(root, "direct"); got != "UNKNOWN" {
+        t.Fatalf("ambiguous duplicated outbound tag must be UNKNOWN: %s", got)
+    }
+}
