@@ -67,6 +67,9 @@ type app struct {
 	updateMu        sync.Mutex
 	updateLaunching bool
 	updateTarget    string
+	connectorMu sync.Mutex
+	connectorRateWindow time.Time
+	connectorRateCount int
 }
 
 type statusResponse struct {
