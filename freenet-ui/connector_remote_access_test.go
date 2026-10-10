@@ -151,3 +151,33 @@ func TestTunnelProfileRejectsSymlinkAndMachineKeyMismatch(t *testing.T){
  if _,err:=a.readTunnelProfile();err==nil{t.Fatal("symlinked tunnel config accepted")}
  _=token
 }
+
+func TestTunnelForgetRevokeRotateAndSymlinkStop(t *testing.T){
+ a,_:=connectorFixture(t)
+ a.cfg.Listen="192.168.50.1:1001"
+ body:=`{"confirm":true,"tunnel_id":"tunnel_`+strings.Repeat("d",32)+`","runtime_api_key":"sk-`+strings.Repeat("r",48)+`"}`
+ configure:=func()int{
+  w:=httptest.NewRecorder()
+  a.handleTunnelConfigure(w,connectorRequest("POST","/api/admin/connector/tunnel/configure",body))
+  return w.Code
+ }
+ if code:=configure();code!=200{t.Fatalf("initial setup failed: %d",code)}
+ a.connectorRemoteMu.Lock()
+ a.connectorRemote.GrantedUntil=time.Now().Add(15*time.Minute)
+ a.connectorRemoteMu.Unlock()
+ w:=httptest.NewRecorder()
+ a.handleTunnelForget(w,connectorRequest("POST","/api/admin/connector/tunnel/forget",`{"confirm":true}`))
+ if w.Code!=200||a.connectorRemoteCanRead()||a.connectorTransportConfigured(){
+  t.Fatalf("operator revoke failed to close diagnostics and remove credentials: %d %s",w.Code,w.Body.String())
+ }
+ for _,path:=range []string{a.connectorTunnelProfilePath(),a.connectorTransportKeyPath(),a.connectorTransportHeaderPath(),a.connectorTunnelConfigPath()}{
+  if _,err:=os.Lstat(path);!os.IsNotExist(err){t.Fatal("credential not deleted")}
+ }
+ if code:=configure();code!=200{t.Fatalf("reprovision after revocation failed: %d",code)}
+ if err:=os.Remove(a.connectorTransportKeyPath());err!=nil{t.Fatal(err)}
+ if err:=os.Symlink("/dev/null",a.connectorTransportKeyPath());err!=nil{t.Fatal(err)}
+ w=httptest.NewRecorder()
+ a.handleTunnelForget(w,connectorRequest("POST","/api/admin/connector/tunnel/forget",`{"confirm":true}`))
+ if w.Code!=http.StatusServiceUnavailable{t.Fatalf("unsafe credential symlink was removed: %d",w.Code)}
+ if st,err:=os.Lstat(a.connectorTransportKeyPath());err!=nil||st.Mode()&os.ModeSymlink==0{t.Fatal("unsafe credential unexpectedly changed")}
+}
