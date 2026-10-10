@@ -62,6 +62,8 @@ async function capture(label){
     if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
     if(url.pathname==='/api/status')return answer(route,status);
     if(url.pathname==='/api/admin/dns')return answer(route,{success:true,host:url.searchParams.get('host'),resolver:'system',ips:['203.0.113.10'],mutation:'NONE'});
+    if(url.pathname==='/api/admin/connector/grant')return answer(route,{success:true,active:false,transport:'LOCAL_LOOPBACK_ONLY',external_connected:false});
+    if(url.pathname==='/api/admin/connector/revoke')return answer(route,{success:true,active:false,mutation:'AUTHORIZATION_ONLY'});
     if(url.pathname==='/api/admin/route')return answer(route,{success:true,host:url.searchParams.get('host'),client:url.searchParams.get('client')||'',port:443,network:'tcp',expected_action:'UNKNOWN',confidence:'UNKNOWN',observed_route:'NOT_OBSERVED',rules_sha256:'fixture-routing-sha',reason:'GeoSite требует точного сопоставления',mutation:'NONE'});
     if(url.pathname==='/api/journal/diagnostics')return answer(route,{schema:1,version:'v0.7.4',generated_at:'2026-10-10T00:00:00Z',technical_events:[]});
     if(url.pathname==='/api/operation/state')return answer(route,{success:true,active:false});
@@ -138,6 +140,18 @@ async function capture(label){
   await page.locator('#adminRunBtn').click();
   assert.match(await page.locator('#adminCommandOutput').textContent(),/не поддерживается/, 'raw SSH must be rejected');
   assert.equal(calls.filter(c=>c.path==='/api/admin/dns').length,1,'only allowlisted DNS diagnostic request');
+  await page.locator('#connectorStatusBtn').click();
+  await until(()=>document.querySelector('#connectorGrantState')?.textContent.includes('Локальный доступ выключен'),'connector status read-only');
+  assert.equal(calls.filter(c=>c.path==='/api/admin/connector/grant').length,1,'connector status uses only read-only GET');
+  await page.locator('#connectorPairBtn').click();
+  assert.match(await page.locator('#connectorGrantOutput').textContent(),/HTTP LAN выдача токена запрещена/,'never issue bearer over insecure LAN HTTP');
+  assert.equal(calls.filter(c=>c.path==='/api/admin/connector/pair').length,0,'insecure browser must not request token');
+  page.once('dialog',d=>d.accept());
+  await page.locator('#connectorRevokeBtn').click();
+  await until(()=>document.querySelector('#connectorGrantOutput')?.textContent.includes('Локальный доступ отозван'),'connector explicit revoke');
+  assert.equal(calls.filter(c=>c.path==='/api/admin/connector/revoke').length,1,'revocation requires one explicit POST');
+  assert.equal(calls.find(c=>c.path==='/api/admin/connector/revoke')?.body,'{"confirm":true}','revoke requires confirmation payload');
+  assert.equal(await page.locator('#connectorGrantSecret').isHidden(),true,'one-time token is not shown without secure pairing');
   await page.locator('#adminRouteHost').fill('sg.api.io.mi.com');
   await page.locator('#adminRouteClient').fill('192.168.50.144');
   await page.locator('#adminRouteBtn').click();
