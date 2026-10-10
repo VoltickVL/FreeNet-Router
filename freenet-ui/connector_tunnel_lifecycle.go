@@ -283,11 +283,20 @@ func (a *app) handleTunnelConnectionStatus(w http.ResponseWriter,r *http.Request
 func (a *app) connectorTunnelResumeOnStartup(){
  profile,err:=a.readTunnelProfile()
  if err!=nil||!profile.Enabled{return}
- a.connectorTunnelMu.Lock()
- err=a.connectorTunnelStartLocked()
- if err!=nil{a.connectorTunnelState="RECOVERY_STOP"}
- a.connectorTunnelMu.Unlock()
- if err!=nil{v3AppendEvent("connector","warning","Автозапуск туннеля остановлен: требует проверки через Control Center.")}
+ // The previous child receives Pdeathsig on FreeNet shutdown. Allow it
+ // to release its own health listener and process lock before re-spawning.
+ time.Sleep(3*time.Second)
+ for attempt:=0;attempt<3;attempt++{
+  a.connectorTunnelMu.Lock()
+  err=a.connectorTunnelStartLocked()
+  if err==nil{a.connectorTunnelMu.Unlock();return}
+  a.connectorTunnelState="RECOVERY_STOP"
+  a.connectorTunnelMu.Unlock()
+  // Retry only a known handover race, never broken credentials or ABI.
+  if err.Error()!="health port already occupied" && err.Error()!="another client supervisor exists" {break}
+  time.Sleep(time.Duration(attempt+1)*3*time.Second)
+ }
+ v3AppendEvent("connector","warning","Автозапуск Tunnel STOP: требуется проверка через Control Center.")
 }
 
 // Attestation exists only if the verified official installer created this binary.
