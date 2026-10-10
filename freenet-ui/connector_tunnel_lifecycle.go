@@ -217,10 +217,12 @@ func (a *app) connectorTunnelStopLocked() error {
  p.Enabled=false
  data,_:=json.Marshal(p)
  if err:=atomicWrite(a.connectorTunnelProfilePath(),data,0600);err!=nil{return errors.New("cannot persist disabled state")}
+ // Revoke read permission before process termination; even if SIGTERM
+ // fails, the previous diagnostic approval must not survive a STOP.
+ a.connectorRemoteRevoke()
  if a.connectorTunnelCmd!=nil {
   if err:=a.connectorTunnelCmd.Process.Signal(syscall.SIGTERM);err!=nil{a.connectorTunnelState="STOP_UNKNOWN";return errors.New("tunnel signal failed; STOP UNKNOWN")}
  }
- a.connectorRemoteRevoke()
  a.connectorTunnelState="STOP_REQUESTED"
  return nil
 }
