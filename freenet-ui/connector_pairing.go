@@ -172,6 +172,7 @@ func (a *app) handleConnectorRevoke(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	a.connectorRemoteRevoke()
 	v3AppendEvent("connector", "success", "Локальный read-only доступ отозван.")
 	writeJSON(w, http.StatusOK, map[string]any{"success":true,"active":false,"mutation":"AUTHORIZATION_ONLY"})
 }
