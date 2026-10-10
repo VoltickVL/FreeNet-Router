@@ -21,6 +21,7 @@ func TestControlCenter2ShellNavigationContract(t *testing.T) {
 		`data-page="settings"`,
 		`data-page="network"`,
 		`data-page="journal"`,
+		`data-page="admin"`,
 		`data-page-view="overview"`,
 		`data-page-view="subscription"`,
 		`data-page-view="system"`,
@@ -50,8 +51,8 @@ func TestControlCenter2ShellNavigationContract(t *testing.T) {
 			t.Fatalf("retired navigation route leaked into source shell: %s", retired)
 		}
 	}
-	if got := strings.Count(nav, `data-freenet-shell="1"`); got != 4 {
-		t.Fatalf("source shell must ship four final navigation icons, got %d", got)
+	if got := strings.Count(nav, `data-freenet-shell="1"`); got != 5 {
+		t.Fatalf("source shell must ship five final navigation icons, got %d", got)
 	}
 }
 

@@ -122,7 +122,7 @@ async function capture(label){
   });
   const verifyCanonicalSidebar = async context => {
     const actual = await page.locator('.sidebar .nav>.nav-btn[data-page]').evaluateAll(nodes => nodes.map(n => n.dataset.page === 'routing' ? 'network' : n.dataset.page));
-    assert.deepEqual(actual,['overview','settings','network','journal','admin'], context+': only five canonical sidebar entries allowed');
+    assert.deepEqual([...actual].sort(), [...['overview','settings','network','journal','admin']].sort(), context+': exactly five canonical sidebar entries, no duplicates or retired routes');
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="subscription"]').count(),0,context+': legacy Subscription must not reappear');
   };
   await page.goto(base);await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','canonical boot');

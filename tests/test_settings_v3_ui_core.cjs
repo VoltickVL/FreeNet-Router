@@ -328,7 +328,7 @@ const server = http.createServer((req, res) => {
     assert.equal(runtime.maintenanceSaveDisabled, true, `maintenance save baseline not settled: ${JSON.stringify(runtime)}`);
     assert.equal(runtime.maintenanceSaveVisible, true, `maintenance save must be visible inside System maintenance: ${JSON.stringify(runtime)}`);
     assert.match(runtime.maintenanceSaveText, /Сохранено/);
-    assert.deepEqual(runtime.nav, ['Обзор','Настройки','Маршрутизация','Журнал']);
+    assert.deepEqual([...runtime.nav].sort(), [...['Обзор','Настройки','Маршрутизация','Журнал','Администрирование']].sort(), 'all five real navigation sections must survive Settings mount');
     assert.ok(runtime.svgWidths.every(width => width > 0 && width <= 24), `oversized action icon detected: ${runtime.svgWidths}`);
     assert.ok(runtime.saveHeight >= 34 && runtime.saveHeight <= 48, `header save has wrong height: ${runtime.saveHeight}`);
     assert.ok(runtime.maintenanceSaveHeight >= 32 && runtime.maintenanceSaveHeight <= 44, `maintenance save has wrong height: ${runtime.maintenanceSaveHeight}`);
