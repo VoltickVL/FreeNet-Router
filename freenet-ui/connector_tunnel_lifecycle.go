@@ -124,6 +124,7 @@ func (a *app) connectorTunnelVerifiedBinary() error {
  dest:=tunnelInstallPath()
  st,err:=os.Lstat(dest)
  if err!=nil||!st.Mode().IsRegular()||st.Mode().Perm()!=0700||st.Size()<=0||st.Size()>tunnelMaxBinary{return errors.New("official binary not installed or unsafe")}
+ if err:=tunnelSafeELF(dest,runtime.GOARCH);err!=nil{return errors.New("binary ELF/ABI not confirmed")}
  digest,err:=connectorReadPrivateFile(a.connectorTunnelAttestationPath(),64)
  if err!=nil||len(digest)!=64{return errors.New("installer provenance missing")}
  f,err:=os.Open(dest);if err!=nil{return errors.New("candidate unreadable")};defer f.Close()
@@ -174,7 +175,8 @@ func (a *app) connectorTunnelWait(cmd *exec.Cmd, lock *os.File){
 
 func (a *app) handleTunnelStart(w http.ResponseWriter,r *http.Request){
  w.Header().Set("Cache-Control","no-store")
- if !connectorConfirm(w,r)||!connectorAdminSecureOrigin(r){return}
+ if !connectorConfirm(w,r){return}
+ if !connectorAdminSecureOrigin(r){writeJSON(w,403,map[string]any{"success":false,"error":"secure same-origin administration required"});return}
  a.connectorTunnelMu.Lock();err:=a.connectorTunnelStartLocked();a.connectorTunnelMu.Unlock()
  if err!=nil{writeJSON(w,409,map[string]any{"success":false,"state":"STOP","error":err.Error()});return}
  v3AppendEvent("connector","success","Проверенный клиент OpenAI Tunnel запущен. Readiness и ChatGPT MCP ещё не подтверждены.")
@@ -197,7 +199,8 @@ func (a *app) connectorTunnelStopLocked() error {
 
 func (a *app) handleTunnelStop(w http.ResponseWriter,r *http.Request){
  w.Header().Set("Cache-Control","no-store")
- if !connectorConfirm(w,r)||!connectorAdminSecureOrigin(r){return}
+ if !connectorConfirm(w,r){return}
+ if !connectorAdminSecureOrigin(r){writeJSON(w,403,map[string]any{"success":false,"error":"secure same-origin administration required"});return}
  a.connectorTunnelMu.Lock();err:=a.connectorTunnelStopLocked();a.connectorTunnelMu.Unlock()
  if err!=nil{writeJSON(w,503,map[string]any{"success":false,"state":"STOP_UNKNOWN","error":err.Error()});return}
  v3AppendEvent("connector","success","Остановка OpenAI Tunnel запрошена; временные разрешения отозваны.")
