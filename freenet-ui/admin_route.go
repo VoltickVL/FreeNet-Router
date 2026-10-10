@@ -159,6 +159,16 @@ func adminRouteReadJSON(path string, limit int64) (map[string]any, []byte, error
     return root, data, nil
 }
 
+func adminRouteSafeTag(tag string) bool {
+    if len(tag) == 0 || len(tag) > 64 { return false }
+    for _, c := range tag {
+        if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' { continue }
+        return false
+    }
+    return true
+}
+
 func adminRouteOutboundAction(outRoot map[string]any, tag string) string {
     entries, ok := outRoot["outbounds"].([]any)
     if !ok { return "UNKNOWN" }
@@ -274,6 +284,10 @@ func (a *app) handleAdminRoute(w http.ResponseWriter, r *http.Request) {
             break
         }
         tag, _ := rule["outboundTag"].(string)
+        if !adminRouteSafeTag(tag) {
+            response["reason"] = "Невозможно безопасно показать outbound tag"
+            break
+        }
         action := adminRouteOutboundAction(outRoot, tag)
         response["matched_rule_order"] = i+1
         response["outbound_tag"] = tag
