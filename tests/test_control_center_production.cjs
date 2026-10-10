@@ -150,7 +150,7 @@ async function capture(label){
   assert.equal(calls.filter(c=>c.path==='/api/admin/connector/readiness').length,1,'browser preflight should be GET only');
   assert.equal(calls.find(c=>c.path==='/api/admin/connector/readiness')?.method,'GET','preflight no mutation');
   await page.locator('#connectorHostPreflightBtn').click();
-  await until(()=>document.querySelector('#connectorHostPreflightOutput')?.textContent.includes('RAM'),'host preflight resource summary');
+  await until(()=>document.querySelector('#connectorHostPreflightOutput')?.textContent.includes('Предпосылки: STOP'),'host preflight resource summary');
   const hostOut=await page.locator('#connectorHostPreflightOutput').textContent();
   assert.match(hostOut,/Предпосылки: STOP/,'unsupported MIPS remains STOP despite available flash');
   assert.match(hostOut,/ChatGPT: НЕ ПОДТВЕРЖДЕНО/,'host preflight must not claim active tunnel');
