@@ -60,8 +60,7 @@ func tunnelPlanFor(goos,arch,destination string) tunnelInstallPlan {
  if !filepath.IsAbs(destination)||destination=="/" {p.Error="Недопустимый путь установки";return p}
  info,err:=os.Lstat(destination)
  if err==nil {
-  if !info.Mode().IsRegular(){p.Error="Неизвестное состояние файла (symlink/directory): STOP"}
-  else{p.State="EXISTING_UNVERIFIED";p.Error="Файл уже существует. Без отдельной проверки и rollback перезапись запрещена"}
+  if !info.Mode().IsRegular(){p.Error="Неизвестное состояние файла (symlink/directory): STOP"} else{p.State="EXISTING_UNVERIFIED";p.Error="Файл уже существует. Без отдельной проверки и rollback перезапись запрещена"}
   return p
  }
  if !os.IsNotExist(err) {p.Error="Не удалось проверить место установки";return p}
@@ -108,8 +107,7 @@ func tunnelReleaseDownload(ctx context.Context,client *http.Client,addr string,m
 }
 func tunnelManifestDigest(manifest []byte,filename string)(string,error){
  var found string
- for _,line:=range strings.Split(string(manifest),"
-"){
+ for _,line:=range strings.Split(string(manifest),string(byte(10))){
   parts:=strings.Fields(line)
   if len(parts)!=2 || strings.TrimPrefix(parts[1],"*")!=filename {continue}
   if found!=""{return "",errors.New("duplicate checksum entry")}
@@ -148,7 +146,7 @@ func tunnelCandidateFromZip(zipName,arch,stage string)error{
  count:=0
  for _,entry:=range reader.File{
   clean:=path.Clean(entry.Name)
-  if strings.HasPrefix(clean,"../")||strings.HasPrefix(clean,"/")||strings.Contains(entry.Name,"\") {return errors.New("unsafe zip pathname")}
+  if strings.HasPrefix(clean,"../")||strings.HasPrefix(clean,"/")||strings.IndexByte(entry.Name,92)>=0 {return errors.New("unsafe zip pathname")}
   if path.Base(clean)!="tunnel-client" {continue}
   count++
   if count!=1 || !entry.Mode().IsRegular() || entry.UncompressedSize64==0 || entry.UncompressedSize64>tunnelMaxBinary {return errors.New("unsafe tunnel executable entry")}
