@@ -18,6 +18,7 @@
     valid: new Set(),
     errors: new Map(),
     stale: false,
+    draftRevision: 0,
     geoSuggestTimer: null,
     geoSuggestController: null,
     geoSuggestItems: [],
@@ -468,6 +469,7 @@
     input.value = text;
     input.addEventListener('input', () => {
       state.draft.set(state.active, input.value);
+      state.draftRevision++;
       state.valid.delete(state.active);
       updateEditorVisuals();
       queueGeoEditorAutocomplete(input);
@@ -544,7 +546,7 @@
     state.active = preferred || (state.tabs[0] && state.tabs[0].name) || '';
   }
 
-  async function reloadWorkspace(message, force = false) {
+  async function reloadWorkspace(message, force = false, discardDraft = false) {
     if (state.loadPromise) {
       const active = state.loadPromise;
       if (!force) return active;
@@ -554,10 +556,14 @@
 
     state.loading = true;
     const previousActive = state.active;
+    const revisionAtStart = state.draftRevision;
     const task = (async () => {
       try {
         const body = await api('/api/config-studio');
         if (body.mutation !== 'NONE') throw new Error('Нарушен read-only contract Config Studio');
+        // A background response must never clear a newer draft or STOP marker.
+        // Explicit Reset or verified Apply alone authorizes replacing a stale draft.
+        if (state.draftRevision !== revisionAtStart || (!discardDraft && (state.stale || hasDirtyDrafts()))) return false;
         loadWorkspaceData(body);
         if (previousActive && tabByName(previousActive)) state.active = previousActive;
         state.stale = false;
@@ -583,6 +589,7 @@
     const diagnostic = syntaxDiagnostic(activeText());
     if (diagnostic) { updateEditorVisuals(); return; }
     state.draft.set(state.active, normalizeJSONString(JSON.parse(activeText())));
+    state.draftRevision++;
     state.valid.delete(state.active);
     renderBody();
     renderTabs();
@@ -591,7 +598,7 @@
 
   function resetActive() {
     if (state.stale) {
-      void reloadWorkspace('Черновик отменён. Загружена актуальная live-конфигурация.');
+      void reloadWorkspace('Черновик отменён. Загружена актуальная live-конфигурация.', true, true);
       return;
     }
     if (!state.live.has(state.active)) return;
@@ -654,7 +661,7 @@
       const appliedMessage = body.core_restart
         ? 'Изменения применены, post-validation подтверждён, Xray Core перезапущен безопасным core-only path.'
         : 'Изменения сохранены и post-validation подтверждён. Xray был остановлен и остался остановлен; новый конфиг загрузится при следующем запуске.';
-      await reloadWorkspace(appliedMessage, true);
+      await reloadWorkspace(appliedMessage, true, true);
       document.dispatchEvent(new CustomEvent('freenet:xray-config-applied', {
         detail:{
           source:'config-studio',
@@ -682,6 +689,7 @@
 
     if (hasDirtyDrafts()) {
       state.stale = true;
+      state.draftRevision++;
       state.valid.clear();
       renderStatusAndActions();
       setNotice('Live-конфигурация изменилась в «Правила». Локальный черновик сохранён, но применение заблокировано. Нажмите «Отменить», чтобы загрузить актуальный live state.', 'bad');
