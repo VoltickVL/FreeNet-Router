@@ -4,6 +4,7 @@ import (
   "net/http"
   "net/http/httptest"
   "testing"
+  "strings"
 )
 
 func TestAdminPublicDomainFailClosed(t *testing.T) {

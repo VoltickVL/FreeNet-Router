@@ -27,12 +27,12 @@ func TestCanonicalizeControlCenterIndexRemovesLegacyFirstPaint(t *testing.T) {
 	}
 	nav := html[navStart : navStart+navEndRel+len(`</nav>`)]
 
-	for _, want := range []string{"Обзор", "Настройки", "Маршрутизация", "Журнал"} {
+	for _, want := range []string{"Обзор", "Настройки", "Маршрутизация", "Журнал", "Администрирование"} {
 		if !strings.Contains(nav, ">"+want+"</span></button>") {
 			t.Fatalf("canonical first-paint navigation missing %q", want)
 		}
 	}
-	for _, want := range []string{`data-page="overview"`, `data-page="settings"`, `data-page="network"`, `data-page="journal"`} {
+	for _, want := range []string{`data-page="overview"`, `data-page="settings"`, `data-page="network"`, `data-page="journal"`, `data-page="admin"`} {
 		if !strings.Contains(nav, want) {
 			t.Fatalf("canonical first-paint route missing %q", want)
 		}
@@ -42,16 +42,16 @@ func TestCanonicalizeControlCenterIndexRemovesLegacyFirstPaint(t *testing.T) {
 			t.Fatalf("retired first-paint navigation route leaked %q", retired)
 		}
 	}
-	if got := strings.Count(nav, `<svg viewBox="0 0 24 24"`); got != 4 {
-		t.Fatalf("canonical first-paint navigation must ship four final SVG icons, got %d", got)
+	if got := strings.Count(nav, `<svg viewBox="0 0 24 24"`); got != 5 {
+		t.Fatalf("canonical first-paint navigation must ship five final SVG icons, got %d", got)
 	}
-	if got := strings.Count(nav, `data-freenet-shell="1"`); got != 4 {
+	if got := strings.Count(nav, `data-freenet-shell="1"`); got != 5 {
 		t.Fatalf("canonical first-paint icons must be marked final before accepted UX mounts, got %d", got)
 	}
 	if strings.Contains(html, `<div class="side-bottom">`) {
 		t.Fatal("legacy sidebar footer must not be present in first-paint HTML")
 	}
-	if !strings.Contains(html, `const pageLabels={overview:'Обзор',settings:'Настройки',network:'Маршрутизация',journal:'Журнал'};`) {
+	if !strings.Contains(html, `const pageLabels={overview:'Обзор',settings:'Настройки',network:'Маршрутизация',journal:'Журнал',admin:'Администрирование'};`) {
 		t.Fatal("canonical page labels are not final during bootstrap")
 	}
 }
@@ -75,7 +75,7 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 		`document.getElementById('freenetAcceptedUXStyles')`,
 		`document.getElementById('freenetFinalShellPolishStyles')`,
 		`document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')`,
-		`const canonicalRoutes = ['overview','settings','network','journal']`,
+		`const canonicalRoutes = ['overview','settings','network','journal','admin']`,
 		`document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]')`,
 		`.nav-icon[data-freenet-shell="1"] svg`,
 

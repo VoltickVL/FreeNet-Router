@@ -80,6 +80,21 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
 .fn3-journal-event-details[open] summary{margin-bottom:8px}
 .fn3-journal-raw-message{color:#c4d5e9;font-size:12.5px;line-height:1.56;overflow-wrap:anywhere}
 @media(max-width:650px){.fn3-journal-event-details{padding:9px}.fn3-journal-raw-message{font-size:12px}}
+
+/* Администрирование: отдельный безопасный интерфейс, без общего CSS-рефакторинга. */
+.fn-admin-grid{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(290px,.9fr);gap:14px}
+.fn-admin-card{min-width:0}
+.fn-admin-card p{font-size:14px;line-height:1.55;color:#b9cee5;overflow-wrap:anywhere}
+.fn-admin-card label{display:block;margin:12px 0 7px;font-size:13px;font-weight:700}
+.fn-admin-form-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.fn-admin-form-row input{width:100%;min-width:0;min-height:46px;padding:9px 12px;border:1px solid #385c79;border-radius:11px;background:#071a2c;color:#eaf4ff;font:600 14px/1.4 inherit}
+.fn-admin-form-row button{min-height:46px}
+.fn-admin-quick{display:flex;flex-wrap:wrap;gap:8px;margin:13px 0}
+.fn-admin-quick button{min-height:44px}
+.fn-admin-card button:focus-visible,.fn-admin-card input:focus-visible{outline:2px solid #80adff;outline-offset:2px}
+#adminCommandOutput{min-height:140px;max-height:350px;overflow:auto;padding:14px;border:1px solid #385c79;border-radius:11px;background:#061421;color:#d5eaff;font:500 13px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:1040px){.fn-admin-grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:480px){.fn-admin-form-row{grid-template-columns:minmax(0,1fr)}.fn-admin-form-row button{width:100%;justify-content:center}.fn-admin-quick button{flex:1 1 120px}.fn-admin-card{padding:14px}}
 </style>
 </head>
 <body>
@@ -103,6 +118,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
       <button class="nav-btn" data-page="settings"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21H10v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg></span><span>Настройки</span></button>
       <button class="nav-btn" data-page="network"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h14m0 0-3-3m3 3-3 3M20 16H6m0 0 3-3m-3 3 3 3"/></svg></span><span>Маршрутизация</span></button>
       <button class="nav-btn" data-page="journal"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg></span><span>Журнал</span></button>
+      <button class="nav-btn" data-page="admin"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 2.5 8 4.5v10l-8 4.5L4 17V7Z"/><path d="m9 12 2 2 4-4"/></svg></span><span>Администрирование</span></button>
     </nav>
     <div class="side-bottom"><span id="version">FreeNet UI</span><br><a id="xkeenLink" href="#" target="_blank" rel="noopener">Открыть XKeen UI ↗</a></div>
   </aside>
@@ -229,6 +245,35 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
         </div>
       </section>
 
+
+      <section class="page fn-admin" data-page-view="admin">
+        <div class="page-head"><div><div class="page-kicker">Безопасная диагностика</div><h1>Администрирование</h1><p>Проверки из браузера без SSH и без изменения VPN, DNS и маршрутизации.</p></div></div>
+        <div class="fn-admin-grid">
+          <div class="card flat fn-admin-card">
+            <div class="card-head"><h2>Диагностическая консоль</h2><span class="coming">Только чтение</span></div>
+            <p>Разрешены только команды FreeNet: <b>помощь</b>, <b>состояние</b>, <b>dns адрес</b>, <b>журнал</b>. Это не терминал ОС.</p>
+            <form id="adminCommandForm">
+              <label for="adminCommandInput">Что проверить?</label>
+              <div class="fn-admin-form-row"><input id="adminCommandInput" type="text" maxlength="255" autocomplete="off" spellcheck="false" placeholder="dns sg.api.io.mi.com"><button id="adminRunBtn" class="btn primary" type="submit">Проверить</button></div>
+            </form>
+            <p>DNS-проверка использует системный резолвер роутера, а не DNS Xray. Она не доказывает DIRECT/VPN и фактический трафик Home Assistant.</p>
+            <div class="fn-admin-quick">
+              <button type="button" class="btn secondary" data-admin-command="состояние">Состояние</button>
+              <button type="button" class="btn secondary" data-admin-command="журнал">Журнал</button>
+              <button type="button" class="btn secondary" data-admin-command="помощь">Помощь</button>
+            </div>
+            <pre id="adminCommandOutput" role="status" aria-live="polite">Выбери проверку или введи команду.</pre>
+          </div>
+          <div class="card flat fn-admin-card">
+            <div class="card-head"><h2>Доступ и диагностика</h2><span class="coming">Следующий этап</span></div>
+            <p><b>ChatGPT Connector</b> будет отдельным защищённым подключением с ограниченными разрешениями и отзывом доступа. Сейчас прямого доступа ChatGPT к роутеру нет.</p>
+            <p><b>SSH:</b> произвольные команды и shell-терминал недоступны.</p>
+            <p><b>Проверка реального маршрута:</b> для LAN-клиента нужен отдельный источник наблюдений Xray; DNS или ping недостаточно.</p>
+            <p>Полный редактированный отчёт доступен в разделе «Журнал» → «Скачать технический лог».</p>
+          </div>
+        </div>
+      </section>
+
       <div class="footer"><span>FreeNet Control Center 2.0 shell</span><span>Основные действия доступны без SSH</span></div>
     </div>
   </main>
@@ -237,7 +282,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
 <script>
 function validCountryCode(code){return /^[a-z]{2}$/.test(String(code||'').toLowerCase())}
 const dnsLabels={auto:'Авто',firmware:'Прямой',xkeen:'Раздельный',custom:'Свой'};
-const pageLabels={overview:'Обзор',settings:'Настройки',network:'Маршрутизация',journal:'Журнал'};
+const pageLabels={overview:'Обзор',settings:'Настройки',network:'Маршрутизация',journal:'Журнал',admin:'Администрирование'};
 let localPending=false,requestedAction='',actionStartedAt=0,baselineEndedAt='',lastStatus=null;
 let networkDirty=false,networkPlanReady=false,networkApplying=false,networkChecking=false,networkPlanError=false,lastNetworkPlan=null;
 let selectedProviderID='',selectedProviderName='',providerPlanReady=false,providerApplying=false,providerApplied=false,extraProfiles=[];
@@ -253,6 +298,58 @@ function makeCountryMarker(code){const safe=String(code||'').toLowerCase(),n=doc
 function renderHeroFlag(code,country){const n=el('heroFlag'),safe=String(code||'').toLowerCase(),flags=window.FreeNetFlags,known=validCountryCode(safe)&&(!flags||flags.has(safe));n.className='flag-icon flag-hero '+(known?'flag-'+safe:'flag-unknown');if(flags)flags.apply(n,known?safe:'');n.classList.add('flag-hero');n.setAttribute('aria-label',known&&country?'Флаг '+country:'VPN')}
 function setPage(page){if(page==='subscription')page='settings';if(!pageLabels[page])page='overview';document.querySelectorAll('[data-page-view]').forEach(n=>n.classList.toggle('active',n.dataset.pageView===page));document.querySelectorAll('.nav-btn').forEach(n=>n.classList.toggle('active',n.dataset.page===page));el('pageTitle').textContent=pageLabels[page];el('sidebar').classList.remove('open');history.replaceState(null,'','#'+page)}
 document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>setPage(b.dataset.page)));el('mobileMenuBtn').addEventListener('click',()=>el('sidebar').classList.toggle('open'));
+
+async function adminRunCommand(provided){
+  const input=el('adminCommandInput'),out=el('adminCommandOutput'),button=el('adminRunBtn');
+  if(!authAuthenticated||!input||!out||!button)return;
+  const command=String(provided===undefined?input.value:provided).trim(),normalized=command.toLowerCase(),dns=command.match(/^dns\s+(\S+)$/i);
+  button.disabled=true;out.textContent='Проверяем…';
+  try{
+    if(!command||normalized==='помощь'||normalized==='help'){
+      out.textContent='Доступно:\nсостояние — версия, Xray, DNS\nжурнал — короткая техническая сводка\ndns example.com — системный DNS для публичного домена\n\nНе SSH и не проверка DIRECT/VPN.';
+      return;
+    }
+    if(normalized==='маршрут'||normalized.startsWith('маршрут ')){
+      out.textContent='Фактический маршрут LAN-клиента не отслеживается этой версией. DNS/ping не подтверждают outbound Xray.';
+      return;
+    }
+    let url='';
+    if(normalized==='состояние'||normalized==='status')url='/api/status';
+    else if(normalized==='журнал')url='/api/journal/diagnostics';
+    else if(dns)url='/api/admin/dns?host='+encodeURIComponent(dns[1]);
+    else{out.textContent='Команда не поддерживается. Используй «Помощь». Shell/SSH-команды не выполняются.';return;}
+    const response=await fetch(url,{cache:'no-store',credentials:'same-origin'});
+    const data=await response.json();
+    if(!response.ok||data.success===false)throw Error(data.error||'Диагностика недоступна');
+    if(url==='/api/status')out.textContent=[
+      'FreeNet: '+String(data.version||'неизвестно'),
+      'Xray: '+(data.xray_online?'процесс запущен':'не подтверждён'),
+      'DNS: '+String(data.dns_mode||'неизвестно'),
+      'Подписка: '+(data.subscription_configured?'настроена':'не настроена'),
+      'Изменение выполняется: '+(data.busy?'да':'нет'),
+      'Маршрут DIRECT/VPN: не проверялся'
+    ].join('\n');
+    else if(url==='/api/journal/diagnostics')out.textContent=[
+      'Отчёт: '+String(data.generated_at||'неизвестно'),
+      'Версия: '+String(data.version||'неизвестно'),
+      'Технических событий: '+Number(data.technical_events?.length||0),
+      'Это сводка, а не журнал соединений. Полный экспорт — в разделе «Журнал».'
+    ].join('\n');
+    else out.textContent=[
+      'Домен: '+String(data.host||''),
+      'Источник: системный DNS, не Xray',
+      'Публичные IP: '+(Array.isArray(data.ips)&&data.ips.length?data.ips.join(', '):'нет'),
+      'Изменения конфигурации: НЕТ',
+      'Маршрут DIRECT/VPN: не определён'
+    ].join('\n');
+  }catch(error){out.textContent='Проверка не выполнена: '+String(error.message||'ошибка')+'\nКонфигурация не изменялась.';}
+  finally{button.disabled=false;}
+}
+el('adminCommandForm').addEventListener('submit',event=>{event.preventDefault();adminRunCommand()});
+document.querySelectorAll('[data-admin-command]').forEach(b=>b.addEventListener('click',()=>{
+  el('adminCommandInput').value=b.dataset.adminCommand;adminRunCommand(b.dataset.adminCommand);
+}));
+
 function renderAuth(s){authConfigured=!!(s&&s.configured);authAuthenticated=!!(s&&s.authenticated);el('authSection').hidden=authAuthenticated;el('controlCenter').hidden=!authAuthenticated;el('authConfirmField').hidden=authConfigured;el('authTitle').textContent=authConfigured?'Вход в FreeNet':'Первичная защита FreeNet';el('authSubtitle').textContent=authConfigured?'Введите пароль администратора.':'Создайте пароль администратора. Он хранится на роутере только как salted adaptive hash и не выводится в API/журнал.';el('authSubmitBtn').textContent=authConfigured?'Войти':'Создать пароль и войти';el('authPassword').autocomplete=authConfigured?'current-password':'new-password';if(authAuthenticated)startControlCenter();else stopControlCenter()}
 async function loadAuthStatus(){try{const r=await fetch('/api/auth/status',{cache:'no-store'}),s=await r.json();renderAuth(s)}catch(e){el('authSection').hidden=false;showBox('authNotice','FreeNet Control Center недоступен','bad')}}
 async function submitAuth(){hideBox('authNotice');const password=el('authPassword').value,confirm=el('authPasswordConfirm').value;if(!authConfigured&&password!==confirm){showBox('authNotice','Пароли не совпадают','bad');return}const path=authConfigured?'/api/auth/login':'/api/auth/setup';try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})}),j=await r.json();if(!r.ok){showBox('authNotice',j.error||'Ошибка авторизации','bad');return}el('authPassword').value='';el('authPasswordConfirm').value='';await loadAuthStatus()}catch(e){showBox('authNotice','Нет связи с FreeNet','bad')}}
