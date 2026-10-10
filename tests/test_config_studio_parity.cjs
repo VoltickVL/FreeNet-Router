@@ -10,6 +10,7 @@ const web = path.join(root, 'freenet-ui', 'web');
 const calls = [];
 let standardGeoHadExplicitFile = false;
 const geoSuggestModes = [];
+let holdStudioNext=false, releaseStudioResponse=null;
 let live = {
   '01_log': {log:{loglevel:'warning'}},
   '02_dns': {dns:{servers:['1.1.1.1']}},
@@ -123,7 +124,15 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/routing/config') {
     return json(res,{success:true,mutation:'NONE',routing:live['05_routing'],policy:live['06_policy'],routing_present:true,policy_present:true,routing_sha256:'e'.repeat(64),policy_sha256:'f'.repeat(64)});
   }
-  if (url.pathname === '/api/config-studio' && req.method === 'GET') return json(res,studioBody());
+  if (url.pathname === '/api/config-studio' && req.method === 'GET') {
+    const snapshot=studioBody();
+    if(holdStudioNext) {
+      holdStudioNext=false;
+      await new Promise(resolve=>{releaseStudioResponse=resolve;});
+      releaseStudioResponse=null;
+    }
+    return json(res,snapshot);
+  }
   if (url.pathname === '/api/config-studio/validate' && req.method === 'POST') {
     const c = await bodyJSON(req);
     assert.ok(['01_log.json','02_dns.json','03_inbounds.json','04_outbounds.json'].includes(c.file), 'unexpected single-file validation target');
@@ -356,6 +365,33 @@ const server = http.createServer(async (req, res) => {
     await page.locator('#csReset').click();
     await page.waitForFunction(() => (document.querySelector('#csInput')?.value || '').includes('studio.test'));
     assert.doesNotMatch(await page.locator('#csInput').inputValue(),/draft\.test/);
+
+    // Deterministic race: a GET issued before a local edit must NOT overwrite
+    // that draft or clear external STALE after its delayed response arrives.
+    holdStudioNext=true;
+    await page.evaluate(()=>{
+      window.__configReloadOutcome='pending';
+      void window.FreeNetConfigStudio.reloadWorkspace('',true)
+        .then(ok=>{window.__configReloadOutcome=ok?'applied':'discarded';});
+    });
+    for(let wait=0;wait<150&&!releaseStudioResponse;wait++)await new Promise(r=>setTimeout(r,20));
+    assert.equal(typeof releaseStudioResponse,'function','held Config Studio GET must have started');
+    const lateDraft=JSON.stringify({routing:{domainStrategy:'AsIs',rules:[
+      {type:'field',domain:['domain:late-draft.test'],outboundTag:'direct'}
+    ]}},null,2);
+    await page.locator('#csInput').fill(lateDraft);
+    await page.evaluate(()=>document.dispatchEvent(new CustomEvent('freenet:xray-config-applied',{
+      detail:{source:'rules',files:['05_routing','06_policy']}
+    })));
+    await page.waitForFunction(()=>(document.querySelector('#csNotice')?.textContent||'').includes('Локальный черновик сохранён'));
+    releaseStudioResponse();
+    await page.waitForFunction(()=>window.__configReloadOutcome==='discarded');
+    assert.match(await page.locator('#csInput').inputValue(),new RegExp('late-draft[.]test'),'late read must not overwrite draft');
+    assert.equal(await page.locator('#csApply').isDisabled(),true,'late read must preserve STALE block');
+    await page.locator('#csReset').click();
+    await page.waitForFunction(()=>(document.querySelector('#csInput')?.value||'').includes('studio.test'));
+    assert.doesNotMatch(await page.locator('#csInput').inputValue(),new RegExp('late-draft[.]test'));
+    assert.equal(await page.locator('#csApply').isDisabled(),true,'reset to live must be clean');
 
     // List artifacts remain read-only and visibly separated from 01-06.
     await page.locator('.cs-tab[data-tab="port_proxying"]').click();
