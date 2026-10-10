@@ -552,7 +552,7 @@
       if (!force) return active;
       await active;
     }
-    if (state.loadPromise) return reloadWorkspace(message, force);
+    if (state.loadPromise) return reloadWorkspace(message, force, discardDraft);
 
     state.loading = true;
     const previousActive = state.active;
