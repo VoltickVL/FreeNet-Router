@@ -7,6 +7,8 @@ import (
  "errors"
  "io"
  "net/http"
+ "net"
+ "net/url"
  "strings"
  "time"
 )
@@ -118,17 +120,32 @@ func connectorRemoteToolResult(v map[string]any) map[string]any {
  return map[string]any{"content":[]map[string]any{{"type":"text","text":string(encoded)}},"structuredContent":v,"isError":false}
 }
 
-// A loopback reverse proxy is trusted only when its peer really is loopback,
-// forwarded HTTPS is explicit, and browser Origin matches the forwarded Host.
-// LAN-supplied X-Forwarded-Proto alone must never authorize secret delivery.
+// A same-device HTTPS reverse proxy must connect from the router's own
+// loopback or exact listener IP. Arbitrary LAN peers and user-supplied
+// X-Forwarded-* headers are never a credential-provisioning trust anchor.
+func connectorTrustedProxyPeer(r *http.Request) bool {
+ if requestFromLoopback(r){return true}
+ local,ok:=r.Context().Value(http.LocalAddrContextKey).(*net.TCPAddr)
+ if !ok||local.IP==nil||local.IP.IsUnspecified(){return false}
+ host,_,err:=net.SplitHostPort(r.RemoteAddr)
+ if err!=nil{return false}
+ remote:=net.ParseIP(strings.Trim(host,"[]"))
+ return remote!=nil && remote.Equal(local.IP)
+}
+
 func connectorAdminSecureOrigin(r *http.Request) bool {
- if r.TLS!=nil {return true}
- if requestFromLoopback(r) && connectorLoopbackHost(r.Host) {return true}
- if !requestFromLoopback(r) || !strings.EqualFold(r.Header.Get("X-Forwarded-Proto"),"https") {return false}
- host:=strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
- if host=="" || strings.ContainsAny(host,",/\\ ") {return false}
+ if r.TLS!=nil{return true}
+ if requestFromLoopback(r) && connectorLoopbackHost(r.Host){return true}
+ if !connectorTrustedProxyPeer(r){return false}
  origin:=strings.TrimSpace(r.Header.Get("Origin"))
- return origin=="https://"+host && sameOrigin(r)
+ u,err:=url.Parse(origin)
+ if err!=nil||u.Scheme!="https"||u.Host==""||u.User!=nil||u.RawQuery!=""||u.Fragment!=""||u.Path!=""{return false}
+ proto:=strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+ if proto!="" && !strings.EqualFold(proto,"https"){return false}
+ forwardedHost:=strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+ if strings.ContainsAny(forwardedHost,",/\\ "){return false}
+ // sameOrigin() is separately enforced by all browser mutation handlers.
+ return strings.EqualFold(u.Host,r.Host) || (forwardedHost!="" && strings.EqualFold(u.Host,forwardedHost))
 }
 
 // An authenticated administrator can immediately revoke diagnostic approval
