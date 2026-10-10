@@ -152,6 +152,13 @@ func TestTunnelProfileRejectsSymlinkAndMachineKeyMismatch(t *testing.T){
  _=token
 }
 
+func TestConnectorRejectsOpenAIAdminKey(t *testing.T){
+ for _,key:=range []string{"sk-admin-"+strings.Repeat("a",50),"sk-admin-"+strings.Repeat("b",20)}{
+  if connectorRuntimeKeyAllowed(key){t.Fatal("privileged admin key accepted as runtime credential")}
+ }
+ if !connectorRuntimeKeyAllowed("sk-proj-"+strings.Repeat("a",36)){t.Fatal("limited project key incorrectly rejected")}
+}
+
 func TestTunnelForgetRevokeRotateAndSymlinkStop(t *testing.T){
  a,_:=connectorFixture(t)
  a.cfg.Listen="192.168.50.1:1001"
