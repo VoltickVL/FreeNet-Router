@@ -255,7 +255,16 @@ func (a *app) handleTunnelConnectionStatus(w http.ResponseWriter,r *http.Request
   if err==nil {ready=rsp.StatusCode==200;rsp.Body.Close()}
  }
  if !running && state==""{state="NOT_STARTED"}
- writeJSON(w,200,map[string]any{"success":true,"configured":a.connectorTransportConfigured(),"client_running":running,"client_ready":ready,"state":state,"chatgpt_plugin_connected":false,"external_mcp_verified":false,"mutation":"NONE"})
+ if running && !ready {state="RUNNING_NOT_READY"}
+ a.connectorRemoteMu.Lock()
+ lastRequest:=a.connectorRemote.LastRequest
+ a.connectorRemoteMu.Unlock()
+ writeJSON(w,200,map[string]any{
+  "success":true,"configured":a.connectorTransportConfigured(),"client_running":running,"client_ready":ready,
+  "state":state,"chatgpt_plugin_connected":false,"external_mcp_verified":false,
+  "mcp_access_request_observed":!lastRequest.IsZero(),"mcp_access_request_at":lastRequest,
+  "mutation":"NONE",
+ })
 }
 
 func (a *app) connectorTunnelResumeOnStartup(){
