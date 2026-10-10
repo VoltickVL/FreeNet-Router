@@ -41,6 +41,7 @@ func validateAdminPublicDomain(input string) (string, bool) {
 
 func registerAdminDiagnostics(mux *http.ServeMux, a *app) {
   mux.HandleFunc("GET /api/admin/dns", a.requireAuth(a.handleAdminDNS))
+  mux.HandleFunc("GET /api/admin/route", a.requireAuth(a.handleAdminRoute))
 }
 
 func (a *app) handleAdminDNS(w http.ResponseWriter, r *http.Request) {
