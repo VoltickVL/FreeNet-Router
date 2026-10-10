@@ -44,8 +44,8 @@ func TestRemoteMCPRequiresBrowserApprovalAndNeverWritesRouter(t *testing.T){
  code,_,_=mcpTestRPC(t,a,token,"tools/call",map[string]any{"name":"get_status","arguments":map[string]any{}})
  if code!=200{t.Fatalf("approved diagnostics unavailable: %d",code)}
  // Replay of an already-approved request may never renew the window.
- w=httptest.NewRecorder();a.handleConnectorRemoteApprove(w,req)
- if w.Code!=http.StatusConflict{t.Fatal("approval replay prolonged session")}
+ w=httptest.NewRecorder();a.handleConnectorRemoteApprove(w,connectorRequest("POST","/api/admin/connector/access/approve",`{"confirm":true,"request_id":"`+requestID+`","approve":true}`))
+ if w.Code!=http.StatusConflict{t.Fatalf("approval replay prolonged session: %d",w.Code)}
  a.connectorRemoteRevoke()
  code,_,_=mcpTestRPC(t,a,token,"tools/call",map[string]any{"name":"get_status","arguments":map[string]any{}})
  if code!=http.StatusForbidden{t.Fatal("revoked access still authorized")}
