@@ -89,6 +89,9 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
 .fn-admin-form-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
 .fn-admin-form-row input{width:100%;min-width:0;min-height:46px;padding:9px 12px;border:1px solid #385c79;border-radius:11px;background:#071a2c;color:#eaf4ff;font:600 14px/1.4 inherit}
 .fn-admin-form-row button{min-height:46px}
+.fn-connector-controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.fn-connector-controls button{min-height:44px;flex:1 1 155px;max-width:100%}
+#connectorGrantSecret{overflow-wrap:anywhere;white-space:pre-wrap;user-select:text}
 .fn-admin-route-targets{grid-template-columns:minmax(0,1fr) 92px 90px}
 .fn-admin-route-targets select{min-width:0;min-height:46px;padding:8px;border:1px solid #385c79;border-radius:11px;background:#071a2c;color:#eaf4ff}
 @media(max-width:480px){.fn-admin-route-targets{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.fn-admin-route-targets #adminRouteHost{grid-column:1/-1}}
@@ -268,8 +271,16 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
             <pre id="adminCommandOutput" role="status" aria-live="polite">Выбери проверку или введи команду.</pre>
           </div>
           <div class="card flat fn-admin-card">
-            <div class="card-head"><h2>Доступ и диагностика</h2><span class="coming">Следующий этап</span></div>
-            <p><b>ChatGPT Connector</b> будет отдельным защищённым подключением с ограниченными разрешениями и отзывом доступа. Сейчас прямого доступа ChatGPT к роутеру нет.</p>
+            <div class="card-head"><h2>Доступ и диагностика</h2><span class="coming">Локальный доступ</span></div>
+            <p><b>ChatGPT Connector:</b> временный read-only токен действует 15 минут. Это ещё не подключение к ChatGPT: внешний защищённый канал пока не установлен.</p>
+            <p id="connectorGrantState" role="status" aria-live="polite">Статус доступа пока не запрошен.</p>
+            <div class="fn-connector-controls">
+              <button id="connectorStatusBtn" class="btn secondary" type="button">Проверить доступ</button>
+              <button id="connectorPairBtn" class="btn secondary" type="button">Выдать на 15 минут</button>
+              <button id="connectorRevokeBtn" class="btn secondary" type="button">Отозвать доступ</button>
+            </div>
+            <pre id="connectorGrantOutput" role="status" aria-live="polite">Создание токена разрешено только через защищённое соединение HTTPS или с самого устройства через localhost. Отозвать доступ можно из обычного Control Center.</pre>
+            <pre id="connectorGrantSecret" hidden aria-label="Разовый токен подключения"></pre>
             <p><b>SSH:</b> произвольные команды и shell-терминал недоступны.</p>
             <p><b>Проверка реального маршрута:</b> для LAN-клиента нужен отдельный источник наблюдений Xray; DNS или ping недостаточно.</p>
             <p>Полный редактированный отчёт доступен в разделе «Журнал» → «Скачать технический лог».</p>
@@ -311,7 +322,7 @@ function hideBox(id){const n=el(id);if(n){n.textContent='';n.className='notice'}
 function detailsFor(id){return el(id+'Details')}
 function makeCountryMarker(code){const safe=String(code||'').toLowerCase(),n=document.createElement('span'),flags=window.FreeNetFlags;if(validCountryCode(safe)&&(!flags||flags.has(safe))){n.className='flag-icon flag-'+safe;n.setAttribute('aria-hidden','true');if(flags)flags.apply(n,safe)}else{n.className='country-code-badge';n.textContent=validCountryCode(safe)?safe.toUpperCase():'VPN'}return n}
 function renderHeroFlag(code,country){const n=el('heroFlag'),safe=String(code||'').toLowerCase(),flags=window.FreeNetFlags,known=validCountryCode(safe)&&(!flags||flags.has(safe));n.className='flag-icon flag-hero '+(known?'flag-'+safe:'flag-unknown');if(flags)flags.apply(n,known?safe:'');n.classList.add('flag-hero');n.setAttribute('aria-label',known&&country?'Флаг '+country:'VPN')}
-function setPage(page){if(page==='subscription')page='settings';if(!pageLabels[page])page='overview';document.querySelectorAll('[data-page-view]').forEach(n=>n.classList.toggle('active',n.dataset.pageView===page));document.querySelectorAll('.nav-btn').forEach(n=>n.classList.toggle('active',n.dataset.page===page));el('pageTitle').textContent=pageLabels[page];el('sidebar').classList.remove('open');history.replaceState(null,'','#'+page)}
+function setPage(page){if(page!=='admin')clearConnectorSecret();if(page==='subscription')page='settings';if(!pageLabels[page])page='overview';document.querySelectorAll('[data-page-view]').forEach(n=>n.classList.toggle('active',n.dataset.pageView===page));document.querySelectorAll('.nav-btn').forEach(n=>n.classList.toggle('active',n.dataset.page===page));el('pageTitle').textContent=pageLabels[page];el('sidebar').classList.remove('open');history.replaceState(null,'','#'+page)}
 document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>setPage(b.dataset.page)));el('mobileMenuBtn').addEventListener('click',()=>el('sidebar').classList.toggle('open'));
 
 async function adminRunCommand(provided){
@@ -385,13 +396,66 @@ async function adminRouteCheck(){
   }catch(e){out.textContent='Проверка не выполнена: '+String(e.message||'ошибка')+'\nМаршрут не подтверждён. Конфигурация не изменялась.';}
   finally{button.disabled=false;}
 }
+let connectorSecretClearTimer=null;
+function clearConnectorSecret(){
+  if(connectorSecretClearTimer){clearTimeout(connectorSecretClearTimer);connectorSecretClearTimer=null;}
+  const node=el('connectorGrantSecret');if(node){node.textContent='';node.hidden=true;}
+}
+async function connectorGrantStatus(){
+  if(!authAuthenticated)return;
+  const button=el('connectorStatusBtn'),out=el('connectorGrantOutput');
+  button.disabled=true;clearConnectorSecret();
+  try{
+    const response=await fetch('/api/admin/connector/grant',{cache:'no-store',credentials:'same-origin'});
+    const info=await response.json();
+    if(!response.ok||info.success===false)throw Error(info.error||'Статус доступа недоступен');
+    el('connectorGrantState').textContent=info.active
+      ?'Локальный доступ активен до '+String(info.expires_at||'неизвестно')+'. ChatGPT ещё не подключён.'
+      :'Локальный доступ выключен. ChatGPT не подключён.';
+    out.textContent='Приватный токен никогда не возвращается при проверке статуса.';
+  }catch(error){out.textContent='Не удалось проверить доступ: '+String(error.message||'ошибка');}
+  finally{button.disabled=false;}
+}
+async function connectorGrantAction(action){
+  if(!authAuthenticated)return;
+  const pair=action==='pair',button=el(pair?'connectorPairBtn':'connectorRevokeBtn'),out=el('connectorGrantOutput');
+  clearConnectorSecret();
+  if(pair&&!((location.protocol==='https:')||['localhost','127.0.0.1','::1'].includes(location.hostname))){
+    out.textContent='STOP: по обычному HTTP LAN выдача токена запрещена. Используй доверенный HTTPS или локальный loopback. Не публикуй порт FreeNet в WAN.';
+    return;
+  }
+  if(!window.confirm(pair?'Выдать временный read-only токен на 15 минут? Предыдущий токен будет отозван.':'Отозвать действующее разрешение на диагностику?'))return;
+  button.disabled=true;
+  out.textContent=pair?'Создаём локальное разрешение…':'Отзываем разрешение…';
+  try{
+    const response=await fetch('/api/admin/connector/'+(pair?'pair':'revoke'),{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
+    const info=await response.json();
+    if(!response.ok||info.success===false)throw Error(info.error||'Операция недоступна');
+    if(pair){
+      const token=String(info.token||'');
+      if(!/^[a-f0-9]{64}$/.test(token))throw Error('Сервер не вернул корректный разовый токен');
+      const secret=el('connectorGrantSecret');
+      secret.textContent='Разовый токен (скрой через 60 секунд): '+token;secret.hidden=false;
+      connectorSecretClearTimer=setTimeout(clearConnectorSecret,60000);
+      out.textContent='Токен выдан на 15 минут. Это только локальный доступ; внешний ChatGPT Connector пока не активирован. Не отправляй токен в чат или GitHub.';
+      el('connectorGrantState').textContent='Локальный временный доступ активен. ChatGPT не подключён.';
+    }else{
+      out.textContent='Локальный доступ отозван. Ранее выданный токен более не действует.';
+      el('connectorGrantState').textContent='Локальный доступ выключен. ChatGPT не подключён.';
+    }
+  }catch(error){out.textContent='Операция не выполнена: '+String(error.message||'ошибка')+'\nНастройки VPN/DNS/routing не изменялись.';}
+  finally{button.disabled=false;}
+}
+el('connectorStatusBtn').addEventListener('click',()=>{void connectorGrantStatus()});
+el('connectorPairBtn').addEventListener('click',()=>{void connectorGrantAction('pair')});
+el('connectorRevokeBtn').addEventListener('click',()=>{void connectorGrantAction('revoke')});
 el('adminRouteForm').addEventListener('submit',event=>{event.preventDefault();void adminRouteCheck()});
 el('adminCommandForm').addEventListener('submit',event=>{event.preventDefault();adminRunCommand()});
 document.querySelectorAll('[data-admin-command]').forEach(b=>b.addEventListener('click',()=>{
   el('adminCommandInput').value=b.dataset.adminCommand;adminRunCommand(b.dataset.adminCommand);
 }));
 
-function renderAuth(s){authConfigured=!!(s&&s.configured);authAuthenticated=!!(s&&s.authenticated);el('authSection').hidden=authAuthenticated;el('controlCenter').hidden=!authAuthenticated;el('authConfirmField').hidden=authConfigured;el('authTitle').textContent=authConfigured?'Вход в FreeNet':'Первичная защита FreeNet';el('authSubtitle').textContent=authConfigured?'Введите пароль администратора.':'Создайте пароль администратора. Он хранится на роутере только как salted adaptive hash и не выводится в API/журнал.';el('authSubmitBtn').textContent=authConfigured?'Войти':'Создать пароль и войти';el('authPassword').autocomplete=authConfigured?'current-password':'new-password';if(authAuthenticated)startControlCenter();else stopControlCenter()}
+function renderAuth(s){if(!(s&&s.authenticated))clearConnectorSecret();authConfigured=!!(s&&s.configured);authAuthenticated=!!(s&&s.authenticated);el('authSection').hidden=authAuthenticated;el('controlCenter').hidden=!authAuthenticated;el('authConfirmField').hidden=authConfigured;el('authTitle').textContent=authConfigured?'Вход в FreeNet':'Первичная защита FreeNet';el('authSubtitle').textContent=authConfigured?'Введите пароль администратора.':'Создайте пароль администратора. Он хранится на роутере только как salted adaptive hash и не выводится в API/журнал.';el('authSubmitBtn').textContent=authConfigured?'Войти':'Создать пароль и войти';el('authPassword').autocomplete=authConfigured?'current-password':'new-password';if(authAuthenticated)startControlCenter();else stopControlCenter()}
 async function loadAuthStatus(){try{const r=await fetch('/api/auth/status',{cache:'no-store'}),s=await r.json();renderAuth(s)}catch(e){el('authSection').hidden=false;showBox('authNotice','FreeNet Control Center недоступен','bad')}}
 async function submitAuth(){hideBox('authNotice');const password=el('authPassword').value,confirm=el('authPasswordConfirm').value;if(!authConfigured&&password!==confirm){showBox('authNotice','Пароли не совпадают','bad');return}const path=authConfigured?'/api/auth/login':'/api/auth/setup';try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})}),j=await r.json();if(!r.ok){showBox('authNotice',j.error||'Ошибка авторизации','bad');return}el('authPassword').value='';el('authPasswordConfirm').value='';await loadAuthStatus()}catch(e){showBox('authNotice','Нет связи с FreeNet','bad')}}
 async function logout(all){try{await fetch(all?'/api/auth/logout-all':'/api/auth/logout',{method:'POST'})}catch(e){}stopControlCenter();lastStatus=null;await loadAuthStatus()}
