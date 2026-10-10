@@ -20,6 +20,7 @@ HISTORY_FILE="${FREENET_AUTOMATION_HISTORY:-$ROOT/var/log/freenet-automation.his
 RUNTIME_LOG="${FREENET_AUTO_VPN_LOG:-$ROOT/var/log/freenet-auto-vpn.log}"
 BACKUP_DIR="${FREENET_AUTO_VPN_BACKUP:-$ROOT/backups/freenet-auto-vpn-last}"
 LOCK_DIR="${FREENET_AUTO_VPN_LOCK:-/tmp/freenet-auto-vpn.lock}"
+CHECKPOINT_DIR="${FREENET_VPN_TRANSACTION_DIR:-$ROOT/var/lib/freenet/vpn-transaction.pending}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
 BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
 BOOTSTRAP_DNS_SECONDARY="8.8.8.8"
