@@ -97,6 +97,7 @@ func TestRemoteAdminApprovalRequiresConfirmedSecureOrigin(t *testing.T){
 
 func TestTunnelProvisioningPrivateOneTimeAndNoSecretsInResponses(t *testing.T){
  a,_:=connectorFixture(t)
+ a.cfg.Listen="192.168.50.1:1001"
  id:="tunnel_"+strings.Repeat("f",32)
  key:="sk-"+strings.Repeat("K",40)
  body:=`{"confirm":true,"tunnel_id":"`+id+`","runtime_api_key":"`+key+`"}`
