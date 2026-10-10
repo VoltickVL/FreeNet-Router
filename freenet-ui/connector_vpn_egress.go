@@ -222,3 +222,29 @@ func (a *app) connectorVPNStartLocked() error {
 func connectorVPNYAMLProxyLine() string {
  return "http_proxy: "+connectorVPNProxyURL+"\n"
 }
+
+func (a *app) connectorVPNProxyPresent() bool {
+ a.connectorTunnelMu.Lock()
+ defer a.connectorTunnelMu.Unlock()
+ return a.connectorVPNProxyCmd!=nil
+}
+
+func (a *app) connectorVPNUpgradeYAMLLocked(id string) error {
+ file:=a.connectorTunnelConfigPath()
+ current,err:=connectorReadPrivateFile(file,4096)
+ if err!=nil{return errors.New("VPN_TUNNEL_CONFIG_UNSAFE")}
+ expected,err:=a.connectorTunnelYAML(id)
+ if err!=nil{return errors.New("VPN_TUNNEL_CONFIG_INVALID")}
+ if string(current)==expected{return nil}
+ legacy,err:=a.connectorTunnelLegacyYAML(id)
+ if err!=nil||string(current)!=legacy{return errors.New("VPN_TUNNEL_CONFIG_UNKNOWN")}
+ // Existing API key and machine identity files are left untouched. Only
+ // migrate an exact, verified previous FreeNet-generated YAML to fixed
+ // loopback http_proxy. After migration, DIRECT is impossible for the client.
+ if err:=atomicWrite(file,[]byte(expected),0600);err!=nil{
+  return errors.New("VPN_TUNNEL_CONFIG_MIGRATION_FAILED")
+ }
+ verify,err:=connectorReadPrivateFile(file,4096)
+ if err!=nil||string(verify)!=expected{return errors.New("VPN_TUNNEL_CONFIG_MIGRATION_UNKNOWN")}
+ return nil
+}
