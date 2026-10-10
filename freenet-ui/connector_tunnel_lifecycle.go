@@ -64,13 +64,16 @@ func (a *app) readTunnelProfile()(connectorTunnelProfile,error){
 }
 
 func (a *app) connectorTransportConfigured() bool {
- if _,err:=a.readTunnelProfile();err!=nil{return false}
+ p,err:=a.readTunnelProfile();if err!=nil{return false}
  key,err:=connectorReadPrivateFile(a.connectorTransportKeyPath(),1024)
  if err!=nil||!connectorRuntimeKeyPattern.Match(key){return false}
  token,err:=connectorReadPrivateFile(a.connectorTransportHeaderPath(),96)
  if err!=nil||len(token)!=len("Bearer ")+64||!strings.HasPrefix(string(token),"Bearer "){return false}
- _,err=hex.DecodeString(strings.TrimPrefix(string(token),"Bearer "))
- return err==nil
+ if _,err=hex.DecodeString(strings.TrimPrefix(string(token),"Bearer "));err!=nil{return false}
+ yaml,err:=connectorReadPrivateFile(a.connectorTunnelConfigPath(),4096)
+ if err!=nil{return false}
+ expected,err:=a.connectorTunnelYAML(p.TunnelID)
+ return err==nil && string(yaml)==expected
 }
 
 // The profile contains file references, never the API key or MCP bearer.
