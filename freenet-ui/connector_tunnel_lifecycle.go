@@ -271,3 +271,39 @@ func (a *app) connectorTunnelAttestInstalled(destination string) error {
  if err!=nil||n<=0||n>tunnelMaxBinary{return errors.New("candidate attestation unavailable")}
  return atomicWrite(a.connectorTunnelAttestationPath(),[]byte(hex.EncodeToString(h.Sum(nil))),0600)
 }
+
+func (a *app) handleTunnelForget(w http.ResponseWriter,r *http.Request){
+ w.Header().Set("Cache-Control","no-store")
+ if !connectorConfirm(w,r){return}
+ if !connectorAdminSecureOrigin(r){
+  writeJSON(w,http.StatusForbidden,map[string]any{"success":false,"error":"secure origin required"});return
+ }
+ a.connectorTunnelMu.Lock()
+ defer a.connectorTunnelMu.Unlock()
+ if a.connectorTunnelCmd!=nil{
+  writeJSON(w,http.StatusConflict,map[string]any{"success":false,"error":"STOP: first stop the supervised client"});return
+ }
+ if resp,err:=(&http.Client{Timeout:300*time.Millisecond}).Get(connectorHealthURL);err==nil{
+  resp.Body.Close()
+  writeJSON(w,http.StatusConflict,map[string]any{"success":false,"error":"STOP: health port occupied; process ownership unknown"});return
+ }
+ // A partial private state is recoverable only after each existing file is
+ // proven regular/private. Never follow or delete an unexpected symlink.
+ paths:=[]string{a.connectorTransportKeyPath(),a.connectorTransportHeaderPath(),a.connectorTunnelConfigPath(),a.connectorTunnelProfilePath()}
+ for _,path:=range paths{
+  st,err:=os.Lstat(path)
+  if os.IsNotExist(err){continue}
+  if err!=nil||!st.Mode().IsRegular()||st.Mode().Perm()!=0600{
+   writeJSON(w,http.StatusServiceUnavailable,map[string]any{"success":false,"error":"STOP: unsafe or unknown credential state"});return
+  }
+ }
+ for _,path:=range paths{
+  if err:=os.Remove(path);err!=nil&&!os.IsNotExist(err){
+   writeJSON(w,http.StatusServiceUnavailable,map[string]any{"success":false,"error":"ROLLBACK UNKNOWN: partial credential removal"});return
+  }
+ }
+ a.connectorRemoteRevoke()
+ a.connectorTunnelState="CREDENTIALS_REMOVED"
+ v3AppendEvent("connector","success","Runtime credentials FreeNet Connector удалены. Проверь отзыв OpenAI key в Platform отдельно.")
+ writeJSON(w,http.StatusOK,map[string]any{"success":true,"state":"CREDENTIALS_REMOVED","mutation":"CREDENTIALS_DELETED","connected":false})
+}
