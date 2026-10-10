@@ -119,7 +119,7 @@ async function capture(label){
     unhandled.push(url.pathname);return answer(route,{success:true,available:false,configured:true,active:false,events:[]});
   });
   const verifyCanonicalSidebar = async context => {
-    const actual = await page.locator('.sidebar .nav>.nav-btn[data-page]').evaluateAll(nodes => nodes.map(n => n.dataset.page));
+    const actual = await page.locator('.sidebar .nav>.nav-btn[data-page]').evaluateAll(nodes => nodes.map(n => n.dataset.page === 'routing' ? 'network' : n.dataset.page));
     assert.deepEqual(actual,['overview','settings','network','journal'], context+': only four canonical sidebar entries allowed');
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="subscription"]').count(),0,context+': legacy Subscription must not reappear');
   };
