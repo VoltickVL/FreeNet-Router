@@ -179,6 +179,7 @@ func (a *app) connectorTunnelStartLocked() error {
   a.connectorVPNStopLocked();lock.Close();return err
  }
  cmd:=exec.Command(tunnelInstallPath(),"run","--config",a.connectorTunnelConfigPath())
+ cmd.Env=connectorVPNClientEnv(os.Environ())
  cmd.Stdin=nil;cmd.Stdout=io.Discard;cmd.Stderr=io.Discard
  cmd.SysProcAttr=&syscall.SysProcAttr{Pdeathsig:syscall.SIGTERM}
  if err:=cmd.Start();err!=nil{
