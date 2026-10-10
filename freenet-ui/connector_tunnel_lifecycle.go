@@ -147,6 +147,10 @@ func (a *app) connectorTunnelStartLocked() error {
  if runtime.GOOS!="linux" || (runtime.GOARCH!="arm64"&&runtime.GOARCH!="amd64"){return errors.New("unsupported platform")}
  p,err:=a.readTunnelProfile();if err!=nil{return errors.New("tunnel profile unavailable")}
  if !a.connectorTransportConfigured(){return errors.New("runtime credentials unavailable")}
+ meminfo,err:=os.ReadFile("/proc/meminfo")
+ if err!=nil||len(meminfo)>connectorHostMeminfoLimit{return errors.New("router memory status unknown; STOP")}
+ available,ok:=connectorAvailableMemory(meminfo)
+ if !ok||available<128<<20{return errors.New("less than 128 MiB available RAM or unknown; STOP")}
  if err:=a.connectorTunnelVerifiedBinary();err!=nil{return err}
  client:=&http.Client{Timeout:400*time.Millisecond}
  if rsp,err:=client.Get(connectorHealthURL);err==nil{rsp.Body.Close();return errors.New("health port already occupied")}
