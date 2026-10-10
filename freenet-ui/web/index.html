@@ -91,7 +91,14 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
 .fn-admin-form-row button{min-height:46px}
 .fn-connector-controls{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 .fn-connector-controls button{min-height:44px;flex:1 1 155px;max-width:100%}
-#connectorGrantSecret{overflow-wrap:anywhere;white-space:pre-wrap;user-select:text}
+/* All diagnostic outputs may contain unbroken SHA-256, FQDN, error details,
+   or a one-time credential. Keep these inside the Administration card. */
+.fn-admin-card pre{box-sizing:border-box;min-width:0;width:100%;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;overflow-x:auto}
+#adminRouteOutput,#connectorGrantOutput,#connectorGrantSecret{padding:12px;border:1px solid #385c79;border-radius:11px;background:#061421;color:#d5eaff;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#connectorGrantSecret{user-select:text}
+.fn-admin-card .card-head{flex-wrap:wrap;min-width:0}
+.fn-admin-card .card-head > *{min-width:0;overflow-wrap:anywhere}
+.fn-admin-card .coming{max-width:100%;white-space:normal;overflow-wrap:anywhere}
 .fn-admin-route-targets{grid-template-columns:minmax(0,1fr) 92px 90px}
 .fn-admin-route-targets select{min-width:0;min-height:46px;padding:8px;border:1px solid #385c79;border-radius:11px;background:#071a2c;color:#eaf4ff}
 @media(max-width:480px){.fn-admin-route-targets{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.fn-admin-route-targets #adminRouteHost{grid-column:1/-1}}

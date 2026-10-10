@@ -353,6 +353,39 @@ async function capture(label){
   status={...connectedStatus,xray_online:false};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Не подключён','offline');await page.locator(T).click();assert.equal(await page.locator('#fnVpnPickerV2State').getAttribute('data-online'),'false');
   status={...status,xray_online:true};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','online again');await page.locator(S).fill('FI');await page.locator(R+' button').first().click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','ready before unknown');
   applyMode='unknown';await page.locator(C).click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','unknown result');assert.equal(await page.locator(C).isDisabled(),true);assert.equal(await page.locator('#fnVpnPickerV2Reset').isDisabled(),true);assert.equal(await page.locator(R+' button:not(:disabled)').count(),0,'unknown rollback STOP');await page.locator(C).dispatchEvent('click');assert.equal(countApply(),2,'no blind retry');assert.deepEqual(errors,[]);
+  // Layout regression runs after existing VPN tests to avoid affecting their async topbar renders.
+  await page.evaluate(()=>setPage('admin'));
+  // Long SHA256/domain and one-time bearer must stay within Administration
+  // card at mobile and desktop widths, without horizontal overflow.
+  const originalOutputs=await page.evaluate(()=>{
+    const ids=['adminCommandOutput','adminRouteOutput','connectorGrantOutput','connectorGrantSecret'];
+    const original=ids.map(id=>{const n=document.getElementById(id);return{id,text:n.textContent,hidden:n.hidden}});
+    document.getElementById('adminRouteOutput').textContent='Маршрут '+('a'.repeat(310))+'.example.com '+('f'.repeat(64));
+    document.getElementById('connectorGrantOutput').textContent='Диагностика '+('long-token-'.repeat(38));
+    const secret=document.getElementById('connectorGrantSecret');
+    secret.textContent='Разовый токен: '+('a'.repeat(64));secret.hidden=false;
+    return original;
+  });
+  for(const width of [320,375,768,1440]){
+    await page.setViewportSize({width,height:900});
+    const fit=await page.evaluate(()=>{
+      const ids=['adminRouteOutput','connectorGrantOutput','connectorGrantSecret','adminCommandOutput'];
+      return ids.map(id=>{
+        const n=document.getElementById(id),r=n.getBoundingClientRect(),p=n.closest('.fn-admin-card').getBoundingClientRect();
+        return{id,right:r.right,parentRight:p.right,scrollWidth:n.scrollWidth,clientWidth:n.clientWidth,whiteSpace:getComputedStyle(n).whiteSpace};
+      });
+    });
+    for(const result of fit){
+      assert.ok(result.right<=result.parentRight+1,'Admin '+result.id+' exceeds card at '+width+': '+JSON.stringify(result));
+      assert.ok(result.scrollWidth<=result.clientWidth+2,'Admin '+result.id+' scrolls horizontally at '+width+': '+JSON.stringify(result));
+      assert.equal(result.whiteSpace,'pre-wrap','Admin '+result.id+' must wrap diagnostics at '+width);
+    }
+  }
+  await page.evaluate(original=>{
+    for(const item of original){const n=document.getElementById(item.id);n.textContent=item.text;n.hidden=item.hidden;}
+  },originalOutputs);
+  await page.setViewportSize({width:1440,height:1000});
+  await page.setViewportSize({width:1440,height:1000});
   console.log('PASS: actual production HTML/CSP, canonical flags, current identity, Ukraine exclusion, RTT refresh/sort, search, read-only check, exact apply, cache, errors/STOP, five viewports, navigation and liveness.');console.log('Other mocked GET surfaces: '+JSON.stringify([...new Set(unhandled)]));
 })().catch(async error=>{
   console.error(error);
