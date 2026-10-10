@@ -315,6 +315,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
                 <button id="connectorTunnelStatusBtn" class="btn secondary" type="button">Проверить туннель</button>
                 <button id="connectorTunnelStartBtn" class="btn secondary" type="button">Запустить</button>
                 <button id="connectorTunnelStopBtn" class="btn secondary" type="button">Остановить</button>
+                <button id="connectorTunnelForgetBtn" class="btn secondary" type="button">Забыть ключ</button>
               </div>
               <pre id="connectorTunnelOutput" role="status" aria-live="polite">Клиент не запущен. После установки официального бинарника настрой runtime key и явно запусти туннель.</pre>
               <p>После подтверждённого соединения: ChatGPT → Плагины → Добавить свой MCP → «Туннель», аутентификация ChatGPT «Без аутентификации». Сам FreeNet проверяет машинный токен и требует отдельное разрешение на диагностику.</p>
@@ -560,6 +561,17 @@ async function connectorTunnelMutation(action){
 }
 el("connectorTunnelStartBtn").addEventListener("click",()=>{void connectorTunnelMutation("start")});
 el("connectorTunnelStopBtn").addEventListener("click",()=>{void connectorTunnelMutation("stop")});
+el("connectorTunnelForgetBtn").addEventListener("click",async()=>{
+ if(!authAuthenticated)return;
+ if(!window.confirm("Удалить с роутера runtime key и машинный токен? Сначала останови туннель. OpenAI API key в Platform нужно также отозвать самостоятельно."))return;
+ const btn=el("connectorTunnelForgetBtn");btn.disabled=true;
+ try{
+  const res=await fetch("/api/admin/connector/tunnel/forget",{method:"POST",headers:{"Content-Type":"application/json"},cache:"no-store",credentials:"same-origin",body:JSON.stringify({confirm:true})});
+  const d=await res.json();if(!res.ok||!d.success)throw Error(d.error||"удаление не завершено");
+  el("connectorTunnelOutput").textContent="Локальные credentials удалены. Отключи соответствующий Runtime API key также в OpenAI Platform. Туннель не подключён.";
+ }catch(e){el("connectorTunnelOutput").textContent="STOP: "+String(e.message||"неизвестно");}
+ finally{btn.disabled=false;}
+});
 async function connectorAccessStatus(){
  if(!authAuthenticated)return;
  const out=el("connectorAccessOutput"),btn=el("connectorAccessStatusBtn");btn.disabled=true;connectorPendingRequestID="";
