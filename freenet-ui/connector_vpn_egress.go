@@ -194,6 +194,7 @@ func (a *app) connectorVPNStartLocked() error {
  ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
  defer cancel()
  valid:=exec.CommandContext(ctx,a.routingXrayBin(),"run","-test","-c",target)
+ valid.Env=isolatedXrayProbeEnv(os.Environ())
  valid.Stdout=io.Discard;valid.Stderr=io.Discard
  if err:=valid.Run();err!=nil {cleanup();return errors.New("VPN_XRAY_CONFIG_INVALID")}
  // Refuse an occupied listener. Reusing an unknown service would bypass our
@@ -202,6 +203,8 @@ func (a *app) connectorVPNStartLocked() error {
  if err!=nil{cleanup();return errors.New("VPN_PROXY_PORT_OCCUPIED")}
  _=ln.Close()
  cmd:=exec.Command(a.routingXrayBin(),"run","-c",target)
+ // Never let this separate Xray child masquerade as the active XKeen core.
+ cmd.Env=isolatedXrayProbeEnv(os.Environ())
  cmd.Stdin=nil;cmd.Stdout=io.Discard;cmd.Stderr=io.Discard
  cmd.SysProcAttr=&syscall.SysProcAttr{Pdeathsig:syscall.SIGTERM}
  if err:=cmd.Start();err!=nil{cleanup();return errors.New("VPN_PROXY_START_FAILED")}
