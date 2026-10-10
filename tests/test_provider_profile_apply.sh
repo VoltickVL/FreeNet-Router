@@ -577,7 +577,7 @@ grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/legacy-conflict.err" ||
 # outbound. Persistent private snapshots and STOP must survive the process.
 cat > "$TMP/bin/mv" <<EOF
 #!/bin/sh
-if [ "\$2" = "$TMP/configs/04_outbounds.json" ]; then
+if [ "\$3" = "$TMP/configs/04_outbounds.json" ]; then
     /bin/mv "\$@" || exit 3
     PARENT="\$(ps -o ppid= -p "\$\$" | tr -d ' ')"
     kill -KILL "\$PARENT"
