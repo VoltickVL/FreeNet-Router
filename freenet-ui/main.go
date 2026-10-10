@@ -532,6 +532,10 @@ func validReleaseTag(tag string) bool {
 }
 
 func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if automationMutationBlockedState() {
+		writeJSON(w, http.StatusConflict, actionResult{Success:false, Error:"VPN transaction pending/unknown: self-update blocked until read-only reconciliation"})
+		return
+	}
 	if !sameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, actionResult{Success: false, Error: "cross-origin request rejected"})
 		return
