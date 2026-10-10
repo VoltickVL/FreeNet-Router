@@ -37,7 +37,7 @@ func TestNormalizeSelfUpdateReleasesStableSemanticOrder(t *testing.T) {
 func TestReleaseCatalogCarriesBoundedPublishedNotes(t *testing.T) {
 	long := strings.Repeat("П", selfUpdateReleaseNotesLimit+80)
 	out := normalizeSelfUpdateReleases([]githubFreeNetRelease{
-		{TagName:"v0.7.2", Body:"## What's Changed\\n* Giga Stage-0\\n* Обзор без ложного индикатора", PublishedAt:"2026-10-09T23:44:49Z"},
+		{TagName:"v0.7.2", Body:"## What's Changed\n* Giga Stage-0\n* Обзор без ложного индикатора", PublishedAt:"2026-10-09T23:44:49Z"},
 		{TagName:"v0.7.1", Body:long},
 		{TagName:"v0.7.3", Body:"NEVER", Draft:true},
 	}, "v0.7.1")

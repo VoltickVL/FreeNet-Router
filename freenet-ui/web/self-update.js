@@ -992,10 +992,10 @@
   function readableReleaseNotes(release) {
     const raw = String(release?.release_notes || '').trim();
     if (!raw) return '';
-    return raw.split(/\\r?\\n/).map(line => line.trim())
-      .filter(line => line && !/^#{1,3}\\s*(?:What's Changed|Что изменилось)\\s*$/i.test(line) && !/^\\*\\*Full Changelog\\*\\*/i.test(line))
-      .map(line => line.replace(/^[-*]\\s+/, '• ').replace(/\\s+by\\s+@[\\w-]+\\s+in\\s+https:\\/\\/github\\.com\\/\\S+$/i, '').replace(/\\[([^\\]]+)\\]\\(https?:\\/\\/[^)]+\\)/g, '$1'))
-      .slice(0, 12).join('\\n').slice(0, 2400);
+    return raw.split(/\r?\n/).map(line => line.trim())
+      .filter(line => line && !/^#{1,3}\s*(?:What's Changed|Что изменилось)\s*$/i.test(line) && !/^\*\*Full Changelog\*\*/i.test(line))
+      .map(line => line.replace(/^[-*]\s+/, '• ').replace(/\s+by\s+@[\w-]+\s+in\s+https:\/\/github\.com\/\S+$/i, '').replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, '$1'))
+      .slice(0, 12).join('\n').slice(0, 2400);
   }
 
   function appendVersionReleaseNotes(root, release) {
