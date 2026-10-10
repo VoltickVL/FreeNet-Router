@@ -137,9 +137,6 @@ exit 0
 }
 
 func TestConfigStudioApplyWritesOnlyAllowedFile(t *testing.T) {
-	if automationMutationBlockedState() {
-		t.Fatalf("diagnostic gate: pending=%t legacy=%q statepath=%q marker-env=%q", vpnTransactionPending(), parseAutomationState(automationStatePath())["MUTATION_BLOCKED"], automationStatePath(), os.Getenv("FREENET_VPN_TRANSACTION_DIR"))
-	}
 	a, dir := configStudioTestApp(t)
 	configStudioFakeXray(t, `#!/bin/sh
 set -eu
