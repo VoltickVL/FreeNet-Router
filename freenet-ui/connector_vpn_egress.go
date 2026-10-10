@@ -161,7 +161,8 @@ func connectorVPNProbe(ctx context.Context, addr string) error {
  }
  resp,err:=http.ReadResponse(bufio.NewReader(conn),&http.Request{Method:http.MethodConnect})
  if err!=nil{return errors.New("VPN_PROXY_CONNECT_FAILED")}
- defer resp.Body.Close()
+ // A successful CONNECT switches to a raw TCP tunnel; do not drain its
+ // unbounded body on Close. Closing the underlying conn ends the probe.
  if resp.StatusCode!=http.StatusOK{return errors.New("VPN_PROXY_CONNECT_REJECTED")}
  return nil
 }
