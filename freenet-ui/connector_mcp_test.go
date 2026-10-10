@@ -53,11 +53,13 @@ func TestMCPReadOnlyDiscoveryAndRouteNoMutation(t *testing.T) {
     code,data,raw=mcpTestRPC(t,a,token,"tools/list",map[string]any{})
     if code!=200{t.Fatalf("tools/list failed: %d %s",code,raw)}
     list:=data["result"].(map[string]any)["tools"].([]any)
-    if len(list)!=4{t.Fatalf("expected precisely four allowlisted tools: %d",len(list))}
+    if len(list)!=6{t.Fatalf("expected six allowlisted tools including access request: %d",len(list))}
     for _,item:=range list {
         tool:=item.(map[string]any)
         if tool["inputSchema"]==nil {t.Fatal("tool has no input schema")}
-        if tool["annotations"].(map[string]any)["readOnlyHint"]!=true {t.Fatal("tool not labeled read-only")}
+        if tool["name"]=="request_access" {
+            if tool["annotations"].(map[string]any)["readOnlyHint"]!=false {t.Fatal("approval request falsely labeled read-only")}
+        } else if tool["annotations"].(map[string]any)["readOnlyHint"]!=true {t.Fatal("diagnostic/status tool not labeled read-only")}
     }
     code,data,raw=mcpTestRPC(t,a,token,"tools/call",map[string]any{
         "name":"test_route",
