@@ -96,6 +96,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
 .fn-admin-card pre{box-sizing:border-box;min-width:0;width:100%;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;overflow-x:auto}
 #adminRouteOutput,#connectorGrantOutput,#connectorGrantSecret{padding:12px;border:1px solid #385c79;border-radius:11px;background:#061421;color:#d5eaff;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 #connectorGrantSecret{user-select:text}
+#connectorInstallOutput{width:100%;max-width:100%;padding:12px;border:1px solid #385c79;border-radius:11px;background:#061421;color:#d5eaff;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 #connectorReadinessOutput{width:100%;max-width:100%;padding:12px;border:1px solid #385c79;border-radius:11px;background:#061421;color:#d5eaff;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 .fn-admin-card .card-head{flex-wrap:wrap;min-width:0}
 .fn-admin-card .card-head > *{min-width:0;overflow-wrap:anywhere}
@@ -291,6 +292,11 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
               <button id="connectorReadinessBtn" class="btn secondary" type="button">Проверить подключение ChatGPT</button>
             </div>
             <pre id="connectorReadinessOutput" role="status" aria-live="polite">Транспорт OpenAI пока не проверен. FreeNet определит архитектуру роутера и безопасный следующий шаг.</pre>
+            <div class="fn-connector-controls">
+              <button id="connectorInstallPlanBtn" class="btn secondary" type="button">План установки tunnel-client</button>
+              <button id="connectorInstallBtn" class="btn secondary" type="button" disabled>Установить проверенный клиент</button>
+            </div>
+            <pre id="connectorInstallOutput" role="status" aria-live="polite">Официальный tunnel-client ещё не проверен и не запускается. Сначала запроси план; установка требует отдельного подтверждения.</pre>
             <pre id="connectorGrantOutput" role="status" aria-live="polite">Создание токена разрешено только через защищённое соединение HTTPS или с самого устройства через localhost. Отозвать доступ можно из обычного Control Center.</pre>
             <pre id="connectorGrantSecret" hidden aria-label="Разовый токен подключения"></pre>
             <p><b>SSH:</b> произвольные команды и shell-терминал недоступны.</p>
@@ -457,6 +463,46 @@ async function connectorReadiness(){
   finally{button.disabled=false;}
 }
 el('connectorReadinessBtn').addEventListener('click',()=>{void connectorReadiness()});
+let connectorInstallReady=false;
+async function connectorInstallPlan(){
+  if(!authAuthenticated)return;
+  connectorInstallReady=false;
+  clearConnectorSecret();
+  const btn=el('connectorInstallPlanBtn'),apply=el('connectorInstallBtn'),out=el('connectorInstallOutput');
+  btn.disabled=true;apply.disabled=true;out.textContent='Проверяем официальный ARM64/AMD64 клиент и свободное место без изменений системы…';
+  try{
+    const res=await fetch('/api/admin/connector/install/plan',{cache:'no-store',credentials:'same-origin'});
+    const state=await res.json();
+    if(!res.ok||state.success===false)throw Error(state.error||'План недоступен');
+    connectorInstallReady=!!state.ready;
+    apply.disabled=!connectorInstallReady;
+    out.textContent=[
+      'Статус: '+String(state.state||'STOP'),
+      'Версия: '+String(state.version||'неизвестно'),
+      'Платформа: '+String(state.architecture||'неизвестно'),
+      'Действие: '+String(state.expected_delta||'никаких'),
+      'Не меняется: '+String(state.expected_no_delta||'VPN/DNS/routing'),
+      connectorInstallReady?'План безопасен для отдельного подтверждения. Туннель НЕ запускается.':'STOP: '+String(state.error||'готовность не подтверждена'),
+      'Внешнее подключение ChatGPT: НЕ УСТАНОВЛЕНО'
+    ].join('\n');
+  }catch(e){out.textContent='STOP: '+String(e.message||'не удалось проверить')+'\nНикакие операции не выполнялись.';}
+  finally{btn.disabled=false;}
+}
+async function connectorInstallApply(){
+  if(!authAuthenticated||!connectorInstallReady)return;
+  const btn=el('connectorInstallBtn'),out=el('connectorInstallOutput');
+  if(!window.confirm('Установить исключительно официальный проверенный OpenAI tunnel-client? VPN, DNS и маршрутизация не меняются, туннель НЕ включается.'))return;
+  btn.disabled=true;connectorInstallReady=false;
+  out.textContent='Скачивание, проверка SHA256 и ELF/ABI; запуск туннеля запрещён…';
+  try{
+    const res=await fetch('/api/admin/connector/install/apply',{method:'POST',cache:'no-store',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
+    const data=await res.json();
+    if(!res.ok||!data.success)throw Error(data.error||'Установка остановлена');
+    out.textContent='Клиент '+String(data.version||'')+' установлен без запуска. Внешнее соединение ChatGPT НЕ СОЗДАНО. Следующий этап — авторизация OpenAI и отдельный lifecycle.';
+  }catch(e){out.textContent='STOP: '+String(e.message||'установка не выполнена')+'\nРезультат подтверждает только API FreeNet. Повтори проверку плана; не запускай SSH-исправления.';}
+}
+el('connectorInstallPlanBtn').addEventListener('click',()=>{void connectorInstallPlan()});
+el('connectorInstallBtn').addEventListener('click',()=>{void connectorInstallApply()});
 async function connectorGrantAction(action){
   if(!authAuthenticated)return;
   const pair=action==='pair',button=el(pair?'connectorPairBtn':'connectorRevokeBtn'),out=el('connectorGrantOutput');
