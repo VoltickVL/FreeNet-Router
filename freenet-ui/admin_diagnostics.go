@@ -47,6 +47,7 @@ func registerAdminDiagnostics(mux *http.ServeMux, a *app) {
   mux.HandleFunc("POST /api/admin/connector/pair", a.requireAuth(a.handleConnectorPair))
   mux.HandleFunc("POST /api/admin/connector/revoke", a.requireAuth(a.handleConnectorRevoke))
   mux.HandleFunc("GET /api/connector/diagnostics", a.handleConnectorMachineDiagnostics)
+  mux.HandleFunc("POST /mcp", a.handleConnectorMCP)
 }
 
 func (a *app) handleAdminDNS(w http.ResponseWriter, r *http.Request) {
