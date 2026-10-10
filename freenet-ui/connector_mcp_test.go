@@ -154,7 +154,7 @@ func TestMCPAuthRevocationAndRequestValidation(t *testing.T){
 }
 
 func TestMCPHTTPRouteIsProtected(t *testing.T){
-    a,mux:=connectorFixture(t)
+    _,mux:=connectorFixture(t)
     w:=httptest.NewRecorder()
     mux.ServeHTTP(w,mcpTestRequest(t,"",[]byte(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)))
     if w.Code!=401{t.Fatalf("POST /mcp route is not guarded: %d",w.Code)}
