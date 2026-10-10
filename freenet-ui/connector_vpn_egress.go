@@ -220,7 +220,7 @@ func (a *app) connectorVPNStartLocked() error {
 }
 
 func connectorVPNYAMLProxyLine() string {
- return "http_proxy: "+connectorVPNProxyURL+"\n"
+ return "  http_proxy: "+connectorVPNProxyURL+"\n"
 }
 
 func (a *app) connectorVPNProxyPresent() bool {
