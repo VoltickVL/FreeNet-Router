@@ -66,7 +66,7 @@ async function capture(label){
     if(url.pathname==='/api/admin/connector/readiness')return answer(route,{success:true,mutation:'NONE',router_os:'linux',router_arch:'mipsle',architecture_status:'OFFICIAL_BINARY_UNAVAILABLE',loopback_mcp:'http://127.0.0.1:1001/mcp',mcp_ready_on_router:true,grant_active:false,external_connected:false,external_evidence:'NOT_OBSERVED',next_step:'TRUSTED_EXTERNAL_HOST_AND_SECURE_BRIDGE_REQUIRED',notes:'MIPS: нужен доверенный узел; bridge ещё не реализован.'});
     if(url.pathname==='/api/admin/connector/host-preflight')return answer(route,{success:true,mutation:'NONE',router_os:'linux',router_arch:'mipsle',local_mcp:'CONFIG_ONLY',storage:'OBSERVED',free_bytes:4294967296,storage_exec:'EXEC_FLAG_ALLOWED',memory_available_bytes:251658240,memory_evidence:'PROC_MEMINFO',candidate:'ABSENT',preconditions:'STOP',executable_verified:false,openai_connected:false,chatgpt_connected:false,network_evidence:'NOT_TESTED',note:'STOP: архитектура не поддерживается.'});
     if(url.pathname==='/api/admin/connector/install/plan')return answer(route,{success:true,mutation:'NONE',ready:false,state:'STOP',architecture:'linux/mipsle',version:'v0.0.16',error:'Официального Linux tunnel-client для этой архитектуры нет',external_connected:false});
-    if(url.pathname==='/api/admin/connector/tunnel/status')return answer(route,{success:true,configured:true,state:'RUNNING_NOT_READY',client_running:true,client_ready:false,external_mcp_verified:false});
+    if(url.pathname==='/api/admin/connector/tunnel/status')return answer(route,{success:true,configured:true,state:'RUNNING_NOT_READY',client_running:true,client_ready:false,vpn_only:true,vpn_egress_process_active:true,vpn_egress_mode:'ISOLATED_XRAY_VLESS',external_mcp_verified:false});
     if(url.pathname==='/api/admin/connector/tunnel/health')return answer(route,{success:true,mutation:'NONE',health_state:'OBSERVED',client_ready:false,chatgpt_connected:false,
       control_plane:{status:'degraded',state:'backoff',reason_code:'http_error',failure_category:'http_error',http_status:403,consecutive_failures:3},
       mcp:{status:'unknown',state:'starting',startup_probe:'pending'},
@@ -163,6 +163,7 @@ async function capture(label){
   await until(()=>document.querySelector('#connectorTunnelOutput')?.textContent.includes('HTTP 403'),'component health readiness diagnosis in browser');
   const tunnelOut=await page.locator('#connectorTunnelOutput').textContent();
   assert.match(tunnelOut,/RUNNING_NOT_READY/,'runtime remains not ready');
+  assert.match(tunnelOut,/VPN-маршрут OpenAI: ИЗОЛИРОВАННЫЙ VLESS \/ VPN/,'outbound VPN route must be visible');
   assert.match(tunnelOut,/OpenAI control-plane: degraded/,'component reason visible');
   assert.match(tunnelOut,/MCP: unknown/,'MCP startup visible');
   assert.doesNotMatch(tunnelOut,/tunnel_[a-z0-9]+|sk-[a-z0-9]+/i,'no secrets in health');
