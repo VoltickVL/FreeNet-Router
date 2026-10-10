@@ -327,6 +327,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
               <div class="fn-connector-controls">
                 <button id="connectorAccessApproveBtn" class="btn secondary" type="button" disabled>Разрешить на 15 минут</button>
                 <button id="connectorAccessDenyBtn" class="btn secondary" type="button" disabled>Отклонить</button>
+                <button id="connectorAccessRevokeBtn" class="btn secondary" type="button">Отозвать разрешение</button>
               </div>
             </details>
             <p><b>SSH:</b> произвольные команды и shell-терминал недоступны.</p>
@@ -584,6 +585,20 @@ async function connectorAccessDecision(approve){
 }
 el("connectorAccessApproveBtn").addEventListener("click",()=>{void connectorAccessDecision(true)});
 el("connectorAccessDenyBtn").addEventListener("click",()=>{void connectorAccessDecision(false)});
+el("connectorAccessRevokeBtn").addEventListener("click",async()=>{
+ if(!authAuthenticated)return;
+ if(!window.confirm("Немедленно отозвать временный доступ ChatGPT к диагностике FreeNet?"))return;
+ const button=el("connectorAccessRevokeBtn");button.disabled=true;
+ try{
+  const res=await fetch("/api/admin/connector/access/revoke",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",cache:"no-store",body:JSON.stringify({confirm:true})});
+  const d=await res.json();
+  if(!res.ok||!d.success)throw Error(d.error||"невозможно отозвать");
+  connectorPendingRequestID="";
+  el("connectorAccessApproveBtn").disabled=true;el("connectorAccessDenyBtn").disabled=true;
+  el("connectorAccessOutput").textContent="Разрешение отозвано. Доступ к диагностике закрыт.";
+ }catch(e){el("connectorAccessOutput").textContent="STOP: "+String(e.message||"неизвестно");}
+ finally{button.disabled=false;}
+});
 
 
 let connectorInstallReady=false;
