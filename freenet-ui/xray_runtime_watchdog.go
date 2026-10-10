@@ -124,6 +124,7 @@ func (a *app) initializeXrayRuntimeIntent() {
 }
 
 func (a *app) xrayRuntimeMutationBusy() bool {
+	if automationMutationBlockedState() { return true }
 	if a == nil {
 		return true
 	}
