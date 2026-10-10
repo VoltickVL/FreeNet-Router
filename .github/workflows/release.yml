@@ -6,7 +6,6 @@ on:
       - stable/v0.7
     paths:
       - VERSION
-      - .github/workflows/release.yml
 
 permissions:
   contents: write
@@ -39,6 +38,23 @@ jobs:
           [ "$PATCH" -le 99 ] || { echo "Invalid VERSION: patch .100+ is forbidden; roll minor version (v0.3.99 -> v0.4.0)" >&2; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Проверить русское описание выпуска
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          NOTES_FILE="docs/releases/${VERSION}.md"
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "Нет обязательного русского списка изменений: $NOTES_FILE" >&2
+            exit 1
+          fi
+          if ! grep -Fq '## Что изменилось' "$NOTES_FILE"; then
+            echo "В описании нет заголовка «Что изменилось»" >&2
+            exit 1
+          fi
+          if [ "$(wc -c < "$NOTES_FILE")" -gt 10000 ]; then
+            echo "Описание выпуска слишком длинное" >&2
+            exit 1
+          fi
       - name: Stamp UI version from VERSION
         run: |
           VERSION="$(tr -d '\r\n' < VERSION)"
@@ -237,7 +253,8 @@ jobs:
             echo "Release $VERSION already exists; VERSION must be bumped." >&2
             exit 1
           fi
+          NOTES_FILE="docs/releases/${VERSION}.md"
           gh release create "$VERSION" dist/* \
             --target "$GITHUB_SHA" \
             --title "FreeNet Router $VERSION" \
-            --generate-notes
+            --notes-file "$NOTES_FILE"
