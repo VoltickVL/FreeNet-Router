@@ -110,6 +110,7 @@ run_helper() {
     FREENET_XKEEN_BIN="$TMP/bin/xkeen" \
     FREENET_XRAY_CORE_RESTART_HELPER="${CORE_HELPER:-}" \
     FREENET_LOCK_DIR="$TMP/vpn-mutation.lock" \
+    FREENET_VPN_TRANSACTION_DIR="$TMP/provider-transaction.pending" \
     FREENET_CURL_BIN="$TMP/bin/curl" \
     FREENET_PROVIDER_ROUTE_PROBE_BIN="$TMP/bin/provider-route-probe" \
     sh "$SCRIPT" "$@"
@@ -242,6 +243,7 @@ rm -rf "$TMP/vpn-mutation.lock"
 run_helper apply "$PROFILE_ID" > "$TMP/apply.out" 2> "$TMP/apply.err"
 grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/apply.out" || fail 'apply success missing'
 grep -Fq '[FreeNet Provider] ROLLBACK=NOT_NEEDED' "$TMP/apply.out" || fail 'rollback status missing'
+[ ! -e "$TMP/provider-transaction.pending" ] || fail 'successful apply left VPN mutation blocked'
 jq -e '([.outbounds[] | select(.tag=="vless-reality")] | length)==1' "$TMP/configs/04_outbounds.json" >/dev/null || fail 'vless-reality not installed exactly once'
 jq -e 'any(.outbounds[]; .tag=="direct") and any(.outbounds[]; .tag=="block") and any(.outbounds[]; .tag=="keep-me")' "$TMP/configs/04_outbounds.json" >/dev/null || fail 'non-VLESS outbounds not preserved'
 [ "$(cat "$TMP/etc/vpn_profile_name")" = "$PROFILE_NAME" ] || fail 'safe preferred profile name not persisted'
@@ -269,6 +271,7 @@ fi
 [ "$POST_FILTER" = "$(cat "$TMP/profile.filter")" ] || fail 'post-apply route rollback did not restore active filter'
 grep -Fq 'PRIMARY ERROR: live VPN application route validation failed after provider apply' "$TMP/post-route.err" || fail 'post-apply route primary error missing'
 grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/post-route.err" || fail 'post-apply route rollback was not verified'
+[ ! -e "$TMP/provider-transaction.pending" ] || fail 'verified rollback left pending marker'
 printf '%s\n' pass > "$TMP/route-probe.mode"
 
 # Endpoint-only apply must preserve XKeen/netfilter ownership: it uses the
@@ -569,5 +572,44 @@ grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/legacy-conflict.err" ||
     fail 'legacy pidof conflict altered the production filter'
 [ "$LEGACY_PROFILE" = "$(cat "$TMP/etc/vpn_profile_name")" ] ||
     fail 'legacy pidof conflict altered the preferred VPN label'
+
+# Fault injection: abruptly kill the writer after the first committed live
+# outbound. Persistent private snapshots and STOP must survive the process.
+cat > "$TMP/bin/mv" <<EOF
+#!/bin/sh
+if [ "\$3" = "$TMP/configs/04_outbounds.json" ]; then
+    /bin/mv "\$@" || exit 3
+    PARENT="\$(ps -o ppid= -p "\$\$" | tr -d ' ')"
+    kill -KILL "\$PARENT"
+    exit 9
+fi
+exec /bin/mv "\$@"
+EOF
+chmod 755 "$TMP/bin/mv"
+rm -rf "$TMP/vpn-mutation.lock"
+if run_helper apply "$PROFILE_ID" > "$TMP/killed-apply.out" 2> "$TMP/killed-apply.err"; then
+    fail 'fault injection did not kill provider helper'
+fi
+[ -d "$TMP/provider-transaction.pending" ] || fail 'SIGKILL lost durable VPN checkpoint'
+[ -s "$TMP/provider-transaction.pending/out.before" ] || fail 'SIGKILL lost private outbound backup'
+[ -s "$TMP/provider-transaction.pending/profile.before" ] || fail 'SIGKILL lost private profile backup'
+[ -s "$TMP/provider-transaction.pending/filter.before" ] || fail 'SIGKILL lost private filter backup'
+[ -s "$TMP/provider-transaction.pending/state" ] || fail 'SIGKILL lost transaction marker'
+[ "$(stat -c %a "$TMP/provider-transaction.pending")" = 700 ] || fail 'checkpoint directory permissions are unsafe'
+for ITEM in out.before profile.before filter.before state; do
+    [ "$(stat -c %a "$TMP/provider-transaction.pending/$ITEM")" = 600 ] || fail 'checkpoint file permissions are unsafe'
+done
+rm -f "$TMP/bin/mv"
+if run_helper apply "$PROFILE_ID" > "$TMP/blocked-apply.out" 2> "$TMP/blocked-apply.err"; then
+    fail 'a second apply crossed PENDING checkpoint'
+fi
+grep -Fq 'pending VPN transaction requires read-only reconciliation' "$TMP/blocked-apply.err" ||
+    fail 'PENDING reason was not reported'
+if run_helper core-restart > "$TMP/blocked-core.out" 2> "$TMP/blocked-core.err"; then
+    fail 'core restart crossed PENDING checkpoint'
+fi
+if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/blocked-apply.err" "$TMP/blocked-core.err" "$TMP/killed-apply.err"; then
+    fail 'checkpoint path leaked credentials in diagnostics'
+fi
 
 echo 'provider profile apply test PASS'

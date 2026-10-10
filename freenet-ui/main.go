@@ -85,6 +85,7 @@ type statusResponse struct {
 	SubscriptionConfigured bool         `json:"subscription_configured"`
 	Busy                   bool         `json:"busy"`
 	UpdaterBusy            bool         `json:"updater_busy"`
+	MutationBlocked        bool         `json:"mutation_blocked"`
 	Last                   actionResult `json:"last_action"`
 }
 
@@ -372,6 +373,10 @@ func (a *app) currentUpdateActivity() (bool, string, string) {
 }
 
 func (a *app) mutationBlockedBySelfUpdate(w http.ResponseWriter) bool {
+	if automationMutationBlockedState() {
+		writeJSON(w, http.StatusConflict, actionResult{Success:false, Error:"VPN mutation blocked: pending/unknown transaction; read-only reconciliation required"})
+		return true
+	}
 	if !a.updateLockHeld() {
 		return false
 	}
@@ -527,6 +532,10 @@ func validReleaseTag(tag string) bool {
 }
 
 func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
+	if automationMutationBlockedState() {
+		writeJSON(w, http.StatusConflict, actionResult{Success:false, Error:"VPN transaction pending/unknown: self-update blocked until read-only reconciliation"})
+		return
+	}
 	if !sameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, actionResult{Success: false, Error: "cross-origin request rejected"})
 		return
@@ -1011,6 +1020,7 @@ func (a *app) status() statusResponse {
 		SubscriptionConfigured: subscriptionConfigured(a.cfg.SubPath),
 		Busy:                   busy || a.updateLockHeld(),
 		UpdaterBusy:            lockErr == nil,
+		MutationBlocked:        automationMutationBlockedState(),
 		Last:                   last,
 	}
 }

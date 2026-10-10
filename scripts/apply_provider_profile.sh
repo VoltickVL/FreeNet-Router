@@ -16,6 +16,8 @@ XRAY_BIN="${FREENET_XRAY_BIN:-/opt/sbin/xray}"
 XKEEN_BIN="${FREENET_XKEEN_BIN:-/opt/sbin/xkeen}"
 CORE_RESTART_HELPER="${FREENET_XRAY_CORE_RESTART_HELPER:-}"
 LOCK_DIR="${FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock}"
+CHECKPOINT_DIR="${FREENET_VPN_TRANSACTION_DIR:-/opt/var/lib/freenet/vpn-transaction.pending}"
+AUTOMATION_STATE="${FREENET_AUTOMATION_STATE:-/opt/var/run/freenet-automation.state}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
 PROVIDER_ROUTE_PROBE_BIN="${FREENET_PROVIDER_ROUTE_PROBE_BIN:-}"
 BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
@@ -40,7 +42,16 @@ cleanup() {
     fi
 }
 
+transaction_pending() {
+    [ -e "$CHECKPOINT_DIR" ] || [ -L "$CHECKPOINT_DIR" ]
+}
+
+mutation_forbidden() {
+    transaction_pending || grep -qs '^MUTATION_BLOCKED=yes$' "$AUTOMATION_STATE" 2>/dev/null
+}
+
 acquire_mutation_lock() {
+    mutation_forbidden && return 1
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         LOCK_HELD=1
         printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null || {
@@ -51,21 +62,8 @@ acquire_mutation_lock() {
         return 0
     fi
 
-    sleep 1
-    OLD_PID="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
-    if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
-        return 1
-    fi
-
-    rm -rf "$LOCK_DIR" 2>/dev/null || return 1
-    mkdir "$LOCK_DIR" 2>/dev/null || return 1
-    LOCK_HELD=1
-    printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null || {
-        rm -rf "$LOCK_DIR" 2>/dev/null || true
-        LOCK_HELD=0
-        return 1
-    }
-    return 0
+    # Never steal a stale lock; previous writer may have died after commit.
+    return 1
 }
 trap cleanup 0 1 2 15
 
@@ -551,6 +549,42 @@ snapshot_state() {
     pidof xray >/dev/null 2>&1 && WAS_RUNNING=1 || WAS_RUNNING=0
 }
 
+# The directory itself is the fail-closed marker, even after SIGKILL.
+# Persist snapshots outside /tmp before touching any live Xray file.
+begin_checkpoint() {
+    transaction_pending && return 1
+    umask 077
+    mkdir -p "$(dirname "$CHECKPOINT_DIR")" || return 1
+    mkdir "$CHECKPOINT_DIR" || return 1
+    chmod 700 "$CHECKPOINT_DIR" || return 1
+    for ITEM in out profile filter; do
+        case "$ITEM" in
+            out) SRC="$OUT_BEFORE"; PRESENT="$OUT_BEFORE_EXISTS" ;;
+            profile) SRC="$PROFILE_BEFORE"; PRESENT="$PROFILE_BEFORE_EXISTS" ;;
+            filter) SRC="$FILTER_BEFORE"; PRESENT="$FILTER_BEFORE_EXISTS" ;;
+        esac
+        if [ "$PRESENT" = yes ]; then
+            cp "$SRC" "$CHECKPOINT_DIR/$ITEM.before" || return 1
+            chmod 600 "$CHECKPOINT_DIR/$ITEM.before" || return 1
+        else
+            : > "$CHECKPOINT_DIR/$ITEM.absent" || return 1
+        fi
+    done
+    printf 'PENDING\n' > "$CHECKPOINT_DIR/state" || return 1
+    chmod 600 "$CHECKPOINT_DIR/state" || return 1
+    if command -v sync >/dev/null 2>&1; then sync || return 1; fi
+    [ -s "$CHECKPOINT_DIR/state" ]
+}
+
+clear_checkpoint() {
+    case "$CHECKPOINT_DIR" in
+        /|/opt|/opt/var|/opt/var/lib|/opt/var/lib/freenet|'') return 1 ;;
+    esac
+    [ -d "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ] || return 1
+    rm -rf "$CHECKPOINT_DIR" || return 1
+    [ ! -e "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ]
+}
+
 short_pause() {
     if command -v usleep >/dev/null 2>&1; then
         usleep 50000
@@ -800,8 +834,12 @@ fail_apply() {
     append_provider_history 'failed' "VPN server apply failed: $MESSAGE"
     if [ "$APPLIED" -eq 1 ] && [ "$ROLLBACK_ACTIVE" -eq 0 ]; then
         if rollback_state; then
-            err 'ROLLBACK ERROR/STATE: rollback success'
-            exit 1
+            if clear_checkpoint; then
+                err 'ROLLBACK ERROR/STATE: rollback success'
+                exit 1
+            fi
+            err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN (checkpoint retained)'
+            exit 2
         fi
         err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
         exit 2
@@ -814,6 +852,7 @@ MODE="${1:-plan}"
 REQUESTED_ID="${2:-}"
 
 if [ "$MODE" = core-restart ]; then
+    mutation_forbidden && { err 'PRIMARY ERROR: pending VPN transaction requires read-only reconciliation'; exit 2; }
     acquire_mutation_lock || {
         err 'PRIMARY ERROR: another VPN mutation is already running'
         err 'ROLLBACK ERROR/STATE: no live apply'
@@ -841,7 +880,9 @@ done
 [ -s "$SUB_FILE" ] || { err 'subscription is not configured'; exit 1; }
 
 if [ "$MODE" != plan ]; then
+    mutation_forbidden && fail_apply 'pending VPN transaction requires read-only reconciliation'
     acquire_mutation_lock || fail_apply 'another VPN mutation is already running'
+    mutation_forbidden && fail_apply 'pending VPN transaction requires read-only reconciliation'
 fi
 
 SUB_URL="$(tr -d '\r\n' < "$SUB_FILE")"
@@ -910,6 +951,7 @@ if [ "$MODE" = apply-core ]; then
     [ "$WAS_RUNNING" -eq 1 ] || fail_apply 'safe core-only Xray restart requires exactly one running Xray process'
     core_restart_preflight || fail_apply 'safe core-only Xray restart is unavailable or runtime state is ambiguous'
 fi
+begin_checkpoint || fail_apply 'cannot persist protected VPN transaction checkpoint; STOP before mutation'
 APPLIED=1
 mkdir -p "$(dirname "$PROFILE_FILE")" || fail_apply 'cannot create FreeNet config directory'
 mkdir -p "$(dirname "$FILTER_FILE")" || fail_apply 'cannot create profile filter directory'
@@ -930,6 +972,7 @@ if [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" != 1 ]; then
     provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
 fi
 
+clear_checkpoint || { err 'PRIMARY ERROR: VPN applied but checkpoint cleanup is UNKNOWN; STOP'; exit 2; }
 append_provider_history 'success' "VPN server applied: $SELECTED_NAME · $SELECTED_ADDRESS:$SELECTED_PORT"
 say '[FreeNet Provider] RESULT=SUCCESS'
 say '[FreeNet Provider] ROLLBACK=NOT_NEEDED'
