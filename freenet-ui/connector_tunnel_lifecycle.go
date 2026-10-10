@@ -99,7 +99,7 @@ func (a *app) connectorTunnelLegacyYAML(tunnelID string) (string,error) {
 func (a *app) connectorTunnelYAML(tunnelID string) (string,error) {
  old,err:=a.connectorTunnelLegacyYAML(tunnelID)
  if err!=nil{return "",err}
- return strings.Replace(old,"config_version: 1\n","config_version: 1\n"+connectorVPNYAMLProxyLine(),1),nil
+ return strings.Replace(old,"control_plane:\n","control_plane:\n"+connectorVPNYAMLProxyLine(),1),nil
 }
 
 func (a *app) handleTunnelConfigure(w http.ResponseWriter,r *http.Request){
