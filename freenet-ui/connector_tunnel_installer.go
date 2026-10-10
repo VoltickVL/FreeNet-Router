@@ -8,9 +8,7 @@ import (
  "debug/elf"
  "encoding/hex"
  "errors"
- "fmt"
  "io"
- "net"
  "net/http"
  "os"
  "os/exec"
@@ -214,7 +212,13 @@ func installTunnelCandidate(ctx context.Context,client *http.Client,base,arch,de
  // Recheck immediately before commit; no overwrite or symlink following.
  if _,err:=os.Lstat(destination);!os.IsNotExist(err){return errors.New("destination changed during staging; STOP")}
  if err:=os.Chmod(stage,0700);err!=nil{return err}
- if err:=os.Rename(stage,destination);err!=nil{return err}
+ // Atomic no-replace commit: rename(2) would silently overwrite a racing file.
+ if err:=os.Link(stage,destination);err!=nil{return errors.New("atomic no-overwrite commit failed")}
+ if err:=os.Remove(stage);err!=nil{
+  // The same inode is still at destination. Treat unlink failure as ambiguous.
+  if removeErr:=os.Remove(destination);removeErr!=nil{return errors.New("ROLLBACK UNKNOWN: installed candidate cannot be removed")}
+  return errors.New("staging cleanup failed; rollback success")
+ }
  if info,err:=os.Lstat(destination);err!=nil||!info.Mode().IsRegular()||info.Mode().Perm()!=0700 {
   if removeErr:=os.Remove(destination);removeErr!=nil{return errors.New("ROLLBACK UNKNOWN: installed candidate cannot be removed")}
   return errors.New("installed candidate validation failed; rollback success")
