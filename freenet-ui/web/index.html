@@ -479,7 +479,7 @@ async function connectorHostPreflight(){
     out.textContent=[
       'ОС / архитектура: '+String(d.router_os||'UNKNOWN')+'/'+String(d.router_arch||'UNKNOWN'),
       'Локальный MCP: '+String(d.local_mcp||'UNKNOWN'),
-      'USB/Entware: '+String(d.storage||'UNKNOWN')+'; свободно: '+mib(d.free_bytes),
+      'Файловая система /opt: '+String(d.storage||'UNKNOWN')+'; свободно: '+mib(d.free_bytes),
       'Запуск файлов (mount): '+String(d.storage_exec||'UNKNOWN'),
       'Свободная RAM: '+mib(d.memory_available_bytes)+'; источник: '+String(d.memory_evidence||'UNKNOWN'),
       'Установщик: '+String(d.candidate||'UNKNOWN'),
