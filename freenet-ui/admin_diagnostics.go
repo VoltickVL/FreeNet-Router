@@ -57,6 +57,7 @@ func registerAdminDiagnostics(mux *http.ServeMux, a *app) {
   mux.HandleFunc("POST /api/admin/connector/tunnel/stop", a.requireAuth(a.handleTunnelStop))
   mux.HandleFunc("GET /api/admin/connector/access", a.requireAuth(a.handleConnectorRemoteAccessStatus))
   mux.HandleFunc("POST /api/admin/connector/access/approve", a.requireAuth(a.handleConnectorRemoteApprove))
+  mux.HandleFunc("POST /api/admin/connector/access/revoke", a.requireAuth(a.handleConnectorRemoteRevoke))
   mux.HandleFunc("POST /mcp", a.handleConnectorMCP)
 }
 
