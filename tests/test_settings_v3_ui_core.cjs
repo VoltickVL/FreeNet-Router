@@ -155,7 +155,7 @@ const server = http.createServer((req, res) => {
       {version:'v0.3.41',published_at:'2026-08-17T00:00:00Z',current:false,latest:false},
       {version:'v0.3.40',published_at:'2026-08-16T00:00:00Z',current:false,latest:false},
       {version:'v0.3.39',published_at:'2026-08-15T00:00:00Z',current:false,latest:false},
-      {version:'v0.3.38',published_at:'2026-08-14T00:00:00Z',current:false,latest:false}
+      {version:'v0.3.38',published_at:'2026-08-14T00:00:00Z',current:false,latest:false,release_notes:"## What's Changed\n* Пользователю видны изменения релиза\n* Уточнённый интерфейс by @example in https://github.com/example/test/pull/1\n**Full Changelog**: https://github.com/example/test/compare"}
     ]
   });
   if (url.pathname === '/api/system/update/plan' && req.method === 'GET') {
@@ -695,6 +695,12 @@ const server = http.createServer((req, res) => {
     await page.locator('#fnVersionSearch').fill('v0.3.38');
     await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.38"]');
     assert.equal(await page.locator('#fnVersionList .fn-version-release').count(), 1, 'version search must query the full catalog beyond the initial five');
+    await page.locator('#fnVersionList .fn-version-release[data-version="v0.3.38"]').click();
+    await page.waitForFunction(() => document.querySelector('#fnVersionDetail .fn-version-release-notes')?.textContent.includes('Пользователю видны изменения релиза'));
+    const visibleReleaseNotes = await page.locator('#fnVersionDetail .fn-version-release-notes').textContent();
+    assert.match(visibleReleaseNotes, /Уточнённый интерфейс/, 'selected release must show real published notes');
+    assert.doesNotMatch(visibleReleaseNotes, /Full Changelog|by @example|github.com/, 'auto-generated GitHub noise must be removed');
+    assert.equal(versionApplyPosts, 0, 'reading release notes must remain read-only');
     await page.locator('#fnVersionSearch').fill('');
     await page.waitForSelector('#fnVersionList .fn-version-release[data-version="v0.3.42"]');
     assert.equal(await page.locator('#fnVersionList .fn-version-release').count(), 5, 'clearing search must restore the five-release compact list');
