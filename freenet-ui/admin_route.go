@@ -140,6 +140,7 @@ func adminRouteRule(rule map[string]any, host, inbound, network string, destIP, 
         if current == adminNo { return adminNo }
         if current == adminUnknown { result = adminUnknown }
     }
+    if _, ok := rule["balancerTag"]; ok { return adminUnknown }
     if _, ok := rule["outboundTag"]; !ok { return adminUnknown }
     return result
 }
@@ -171,19 +172,23 @@ func adminRouteSafeTag(tag string) bool {
 
 func adminRouteOutboundAction(outRoot map[string]any, tag string) string {
     entries, ok := outRoot["outbounds"].([]any)
-    if !ok { return "UNKNOWN" }
+    if !ok || len(entries) > maxAdminRouteRules { return "UNKNOWN" }
+    count, action := 0, "UNKNOWN"
     for _, item := range entries {
         ob, ok := item.(map[string]any)
         if !ok || ob["tag"] != tag { continue }
+        count++
+        if _, chained := ob["proxySettings"]; chained { return "UNKNOWN" }
         protocol, _ := ob["protocol"].(string)
         switch protocol {
-        case "freedom": return "DIRECT"
-        case "blackhole": return "BLOCK"
-        case "vless", "vmess", "trojan", "shadowsocks", "wireguard": return "VPN"
-        default: return "UNKNOWN"
+        case "freedom": action = "DIRECT"
+        case "blackhole": action = "BLOCK"
+        case "vless", "vmess", "trojan", "shadowsocks", "wireguard": action = "VPN"
+        default: action = "UNKNOWN"
         }
     }
-    return "UNKNOWN"
+    if count != 1 { return "UNKNOWN" }
+    return action
 }
 
 func (a *app) handleAdminRoute(w http.ResponseWriter, r *http.Request) {
