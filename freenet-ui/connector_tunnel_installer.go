@@ -22,12 +22,26 @@ import (
 
 const (
  tunnelPinnedRelease = "v0.0.16"
+ // The annotated official v0.0.16 tag resolves to this release commit.
+ // The upstream release workflow stamps this exact SHA in --version output.
+ tunnelPinnedCommit = "5f99daabd4aa4a77049e6d81d54a0d8c18335397"
  tunnelReleaseBase = "https://github.com/openai/tunnel-client/releases/download/v0.0.16"
  tunnelMaxArchive = 56 << 20
  tunnelMaxBinary = 90 << 20
  tunnelMinFree = 190 << 20
 )
 var tunnelInstallSlot = make(chan struct{}, 1)
+
+// Upstream cmd/client/root_command.go emits the version only (no "tunnel"
+// prefix). Check the exact pinned release output, including its commit,
+// instead of accepting a loose substring or rejecting a genuine binary.
+func tunnelExpectedVersion() string {
+ return strings.TrimPrefix(tunnelPinnedRelease,"v")+"+"+tunnelPinnedCommit+" (git sha: "+tunnelPinnedCommit+")"
+}
+
+func tunnelVersionVerified(out []byte) bool {
+ return strings.TrimSpace(string(out))==tunnelExpectedVersion()
+}
 
 type tunnelInstallPlan struct {
  Success bool `json:"success"`
@@ -204,9 +218,8 @@ func installTunnelCandidate(ctx context.Context,client *http.Client,base,arch,de
  cmdCtx,cancel:=context.WithTimeout(ctx,6*time.Second)
  defer cancel()
  out,err:=exec.CommandContext(cmdCtx,stage,"--version").Output()
- if err!=nil||!strings.Contains(strings.ToLower(string(out)),"tunnel")||!strings.Contains(string(out),strings.TrimPrefix(tunnelPinnedRelease,"v")){
-  return errors.New("candidate execution/ABI/version check failed")
- }
+ if err!=nil{return errors.New("candidate execution/ABI check failed")}
+ if !tunnelVersionVerified(out){return errors.New("candidate version/provenance mismatch")}
  // Recheck immediately before commit; no overwrite or symlink following.
  if _,err:=os.Lstat(destination);!os.IsNotExist(err){return errors.New("destination changed during staging; STOP")}
  if err:=os.Chmod(stage,0700);err!=nil{return err}

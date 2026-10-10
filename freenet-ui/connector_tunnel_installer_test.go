@@ -35,6 +35,32 @@ func TestTunnelInstallPlanNeverOverwritesAndStopsUnsupported(t *testing.T){
  b,err:=os.ReadFile(dst);if err!=nil||string(b)!="existing-no-overwrite"{t.Fatal("existing binary changed")}
 }
 
+// Regression for the real v0.7.10 ARM64 install STOP: upstream --version
+// prints a bare semver and the Git commit, never the word "tunnel".
+func TestTunnelClientReleaseVersionAttestation(t *testing.T){
+ expected:="0.0.16+5f99daabd4aa4a77049e6d81d54a0d8c18335397 (git sha: 5f99daabd4aa4a77049e6d81d54a0d8c18335397)"
+ if got:=tunnelExpectedVersion();got!=expected{t.Fatalf("upstream release signature changed: %q",got)}
+ tests:=[]struct{name,output string;accepted bool}{
+  {"official release output",expected+"\n",true},
+  {"official output without newline",expected,true},
+  {"different version",strings.Replace(expected,"0.0.16+","0.0.17+",1)+"\n",false},
+  {"different first sha",strings.Replace(expected,"+5f99da","+"+strings.Repeat("0",6),1)+"\n",false},
+  {"different trailing sha",strings.Replace(expected,"git sha: 5f99da","git sha: 000000",1)+"\n",false},
+  {"old loose substring","tunnel-client 0.0.16\n",false},
+  {"bare semantic version","0.0.16\n",false},
+  {"additional line",expected+"\nuntrusted output\n",false},
+  {"prefixed tool name","tunnel "+expected+"\n",false},
+  {"empty","",false},
+ }
+ for _,tc:=range tests{
+  t.Run(tc.name,func(t *testing.T){
+   if got:=tunnelVersionVerified([]byte(tc.output));got!=tc.accepted{
+    t.Fatalf("version verification got %v, want %v",got,tc.accepted)
+   }
+  })
+ }
+}
+
 func TestTunnelManifestDigestFailClosed(t *testing.T){
  name:="tunnel-client-v0.0.16-linux-arm64.zip"
  valid:=strings.Repeat("a",64)
