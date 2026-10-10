@@ -21,30 +21,7 @@ import (
 
 const connectorHealthURL = "http://127.0.0.1:12031/readyz"
 var connectorTunnelIDPattern=regexp.MustCompile(`^tunnel_[a-f0-9]{32}$`)
-var connectorRuntimeKeyPattern=regexp.MustCompile(`^sk-[A-Za-z0-9_-]{20,512}package main
-
-import (
- "context"
- "crypto/sha256"
- "crypto/subtle"
- "encoding/hex"
- "encoding/json"
- "errors"
- "io"
- "net/http"
- "os"
- "os/exec"
- "path/filepath"
- "regexp"
- "runtime"
- "strings"
- "syscall"
- "time"
-)
-
-const connectorHealthURL = "http://127.0.0.1:12031/readyz"
-var connectorTunnelIDPattern=regexp.MustCompile(`^tunnel_[a-f0-9]{32}$`)
-)
+var connectorRuntimeKeyPattern=regexp.MustCompile(`^sk-[A-Za-z0-9_-]{20,512}$`)
 func connectorRuntimeKeyAllowed(v string) bool {return connectorRuntimeKeyPattern.MatchString(v) && !strings.HasPrefix(v,"sk-admin-")}
 
 type connectorTunnelProfile struct {
