@@ -74,11 +74,16 @@ func (a *app) connectorTransportConfigured() bool {
  yaml,err:=connectorReadPrivateFile(a.connectorTunnelConfigPath(),4096)
  if err!=nil{return false}
  expected,err:=a.connectorTunnelYAML(p.TunnelID)
- return err==nil && string(yaml)==expected
+ if err!=nil{return false}
+ if string(yaml)==expected{return true}
+ // Allow a verified, exact v0.7.12-0.7.13 profile to be safely migrated
+ // during the next managed start. Never run that legacy profile directly.
+ legacy,err:=a.connectorTunnelLegacyYAML(p.TunnelID)
+ return err==nil && string(yaml)==legacy
 }
 
 // The profile contains file references, never the API key or MCP bearer.
-func (a *app) connectorTunnelYAML(tunnelID string) (string,error) {
+func (a *app) connectorTunnelLegacyYAML(tunnelID string) (string,error) {
  readiness:=connectorReadinessFor(runtime.GOOS,runtime.GOARCH,a.cfg.Listen)
  if !readiness.MCPReadyOnRouter || !connectorTunnelIDPattern.MatchString(tunnelID){return "",errors.New("loopback MCP not confirmed")}
  return "config_version: 1\n"+
@@ -86,6 +91,15 @@ func (a *app) connectorTunnelYAML(tunnelID string) (string,error) {
    "mcp:\n  server_urls:\n    - channel: main\n      url: "+readiness.LoopbackMCP+"\n  extra_headers:\n    Authorization: file:"+a.connectorTransportHeaderPath()+"\n  discovery_extra_headers:\n    Authorization: file:"+a.connectorTransportHeaderPath()+"\n  max_concurrent_requests: 2\n"+
    "health:\n  listen_addr: 127.0.0.1:12031\n"+
    "log:\n  level: warn\n  format: json\nadmin_ui:\n  open_browser: false\n",nil
+}
+
+// Proxy is explicit, fixed to a router-owned loopback-only Xray process.
+// Go's tunnel-client does not fall back to a direct OpenAI connection if the
+// configured HTTP proxy is unavailable.
+func (a *app) connectorTunnelYAML(tunnelID string) (string,error) {
+ old,err:=a.connectorTunnelLegacyYAML(tunnelID)
+ if err!=nil{return "",err}
+ return strings.Replace(old,"config_version: 1\n","config_version: 1\n"+connectorVPNYAMLProxyLine(),1),nil
 }
 
 func (a *app) handleTunnelConfigure(w http.ResponseWriter,r *http.Request){
@@ -158,13 +172,24 @@ func (a *app) connectorTunnelStartLocked() error {
  lock,err:=os.OpenFile(a.connectorTunnelLockPath(),os.O_CREATE|os.O_RDWR,0600)
  if err!=nil{return errors.New("process lock unavailable")}
  if err=syscall.Flock(int(lock.Fd()),syscall.LOCK_EX|syscall.LOCK_NB);err!=nil{lock.Close();return errors.New("another client supervisor exists")}
+ // Validate and actually CONNECT through the isolated VLESS sidecar BEFORE
+ // starting OpenAI. Fail closed on all unsupported/unknown VPN states.
+ if err:=a.connectorVPNStartLocked();err!=nil{lock.Close();return err}
+ if err:=a.connectorVPNUpgradeYAMLLocked(p.TunnelID);err!=nil{
+  a.connectorVPNStopLocked();lock.Close();return err
+ }
  cmd:=exec.Command(tunnelInstallPath(),"run","--config",a.connectorTunnelConfigPath())
  cmd.Stdin=nil;cmd.Stdout=io.Discard;cmd.Stderr=io.Discard
  cmd.SysProcAttr=&syscall.SysProcAttr{Pdeathsig:syscall.SIGTERM}
- if err:=cmd.Start();err!=nil{lock.Close();return errors.New("verified client failed to start")}
+ if err:=cmd.Start();err!=nil{
+  a.connectorVPNStopLocked();lock.Close();return errors.New("verified client failed to start")
+ }
  p.Enabled=true
  data,_:=json.Marshal(p)
- if err:=atomicWrite(a.connectorTunnelProfilePath(),data,0600);err!=nil{cmd.Process.Kill();cmd.Wait();lock.Close();return errors.New("cannot persist supervised state")}
+ if err:=atomicWrite(a.connectorTunnelProfilePath(),data,0600);err!=nil{
+  cmd.Process.Kill();cmd.Wait();a.connectorVPNStopLocked();lock.Close()
+  return errors.New("cannot persist supervised state")
+ }
  a.connectorTunnelCmd=cmd
  a.connectorTunnelLock=lock
  a.connectorTunnelState="STARTING"
@@ -180,6 +205,7 @@ func (a *app) connectorTunnelWait(cmd *exec.Cmd, lock *os.File){
   a.connectorTunnelCmd=nil
   a.connectorTunnelState="STOPPED_OR_FAILED"
   a.connectorRemoteRevoke()
+  a.connectorVPNStopLocked()
   if profile,err:=a.readTunnelProfile();err==nil&&profile.Enabled {
    if a.connectorTunnelRestartCount<3 {
     a.connectorTunnelRestartCount++
@@ -241,6 +267,7 @@ func (a *app) connectorTunnelStopLocked() error {
    if a.connectorTunnelCmd==cmd{_ =cmd.Process.Kill()}
   }()
  }
+ if a.connectorTunnelCmd==nil {a.connectorVPNStopLocked()}
  a.connectorTunnelState="STOP_REQUESTED"
  return nil
 }
@@ -278,7 +305,8 @@ func (a *app) handleTunnelConnectionStatus(w http.ResponseWriter,r *http.Request
   "success":true,"configured":a.connectorTransportConfigured(),"client_running":running,"client_ready":ready,
   "state":state,"chatgpt_plugin_connected":false,"external_mcp_verified":false,
   "mcp_access_request_observed":!lastRequest.IsZero(),"mcp_access_request_at":lastRequest,
-  "mutation":"NONE",
+  "vpn_only":true,"vpn_egress_process_active":a.connectorVPNProxyPresent(),
+  "vpn_egress_mode":"ISOLATED_XRAY_VLESS","mutation":"NONE",
  })
 }
 
@@ -322,6 +350,7 @@ func (a *app) handleTunnelForget(w http.ResponseWriter,r *http.Request){
  if a.connectorTunnelCmd!=nil{
   writeJSON(w,http.StatusConflict,map[string]any{"success":false,"error":"STOP: first stop the supervised client"});return
  }
+ a.connectorVPNStopLocked()
  if resp,err:=(&http.Client{Timeout:300*time.Millisecond}).Get(connectorHealthURL);err==nil{
   resp.Body.Close()
   writeJSON(w,http.StatusConflict,map[string]any{"success":false,"error":"STOP: health port occupied; process ownership unknown"});return
