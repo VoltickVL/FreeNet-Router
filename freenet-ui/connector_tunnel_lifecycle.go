@@ -219,14 +219,15 @@ func (a *app) handleTunnelStart(w http.ResponseWriter,r *http.Request){
 }
 
 func (a *app) connectorTunnelStopLocked() error {
+ // A STOP attempt immediately removes read consent even if local state is
+ // corrupt or a process termination operation later fails.
+ a.connectorRemoteRevoke()
  p,err:=a.readTunnelProfile()
  if err!=nil{return errors.New("unknown tunnel profile; STOP")}
  p.Enabled=false
  data,_:=json.Marshal(p)
  if err:=atomicWrite(a.connectorTunnelProfilePath(),data,0600);err!=nil{return errors.New("cannot persist disabled state")}
- // Revoke read permission before process termination; even if SIGTERM
- // fails, the previous diagnostic approval must not survive a STOP.
- a.connectorRemoteRevoke()
+ // The diagnostic approval was revoked at entry, before disk IO.
  if a.connectorTunnelCmd!=nil {
   cmd:=a.connectorTunnelCmd
   if err:=cmd.Process.Signal(syscall.SIGTERM);err!=nil{a.connectorTunnelState="STOP_UNKNOWN";return errors.New("tunnel signal failed; STOP UNKNOWN")}
@@ -314,6 +315,7 @@ func (a *app) handleTunnelForget(w http.ResponseWriter,r *http.Request){
  if !connectorAdminSecureOrigin(r){
   writeJSON(w,http.StatusForbidden,map[string]any{"success":false,"error":"secure origin required"});return
  }
+ a.connectorRemoteRevoke()
  a.connectorTunnelMu.Lock()
  defer a.connectorTunnelMu.Unlock()
  if a.connectorTunnelCmd!=nil{
