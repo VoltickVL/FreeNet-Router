@@ -64,6 +64,7 @@ async function capture(label){
     if(url.pathname==='/api/admin/dns')return answer(route,{success:true,host:url.searchParams.get('host'),resolver:'system',ips:['203.0.113.10'],mutation:'NONE'});
     if(url.pathname==='/api/admin/connector/grant')return answer(route,{success:true,active:false,transport:'LOCAL_LOOPBACK_ONLY',external_connected:false});
     if(url.pathname==='/api/admin/connector/readiness')return answer(route,{success:true,mutation:'NONE',router_os:'linux',router_arch:'mipsle',architecture_status:'OFFICIAL_BINARY_UNAVAILABLE',loopback_mcp:'http://127.0.0.1:1001/mcp',mcp_ready_on_router:true,grant_active:false,external_connected:false,external_evidence:'NOT_OBSERVED',next_step:'TRUSTED_EXTERNAL_HOST_AND_SECURE_BRIDGE_REQUIRED',notes:'MIPS: нужен доверенный узел; bridge ещё не реализован.'});
+    if(url.pathname==='/api/admin/connector/install/plan')return answer(route,{success:true,mutation:'NONE',ready:false,state:'STOP',architecture:'linux/mipsle',version:'v0.0.16',error:'Официального Linux tunnel-client для этой архитектуры нет',external_connected:false});
     if(url.pathname==='/api/admin/connector/pair')return answer(route,{success:true,token:'a'.repeat(64),scope:'read:diagnostics',transport:'LOCAL_LOOPBACK_ONLY',mutation:'AUTHORIZATION_ONLY'});
     if(url.pathname==='/api/admin/connector/revoke')return answer(route,{success:true,active:false,mutation:'AUTHORIZATION_ONLY'});
     if(url.pathname==='/api/admin/route')return answer(route,{success:true,host:url.searchParams.get('host'),client:url.searchParams.get('client')||'',port:443,network:'tcp',expected_action:'UNKNOWN',confidence:'UNKNOWN',observed_route:'NOT_OBSERVED',rules_sha256:'fixture-routing-sha',reason:'GeoSite требует точного сопоставления',mutation:'NONE'});
@@ -147,6 +148,11 @@ async function capture(label){
   assert.match(await page.locator('#connectorReadinessOutput').textContent(),/НЕ ПОДТВЕРЖДЕНО/,'must not invent connected tunnel');
   assert.equal(calls.filter(c=>c.path==='/api/admin/connector/readiness').length,1,'browser preflight should be GET only');
   assert.equal(calls.find(c=>c.path==='/api/admin/connector/readiness')?.method,'GET','preflight no mutation');
+  await page.locator('#connectorInstallPlanBtn').click();
+  await until(()=>document.querySelector('#connectorInstallOutput')?.textContent.includes('STOP:'),'unsupported binary install STOP');
+  assert.equal(await page.locator('#connectorInstallBtn').isDisabled(),true,'MIPS install must be disabled');
+  assert.equal(calls.filter(c=>c.path==='/api/admin/connector/install/plan').length,1,'one read-only install plan');
+  assert.equal(calls.filter(c=>c.path==='/api/admin/connector/install/apply').length,0,'no installation on unsupported architecture');
   await page.locator('#connectorStatusBtn').click();
   await until(()=>document.querySelector('#connectorGrantState')?.textContent.includes('Локальный доступ выключен'),'connector status read-only');
   assert.equal(calls.filter(c=>c.path==='/api/admin/connector/grant').length,1,'connector status uses only read-only GET');
