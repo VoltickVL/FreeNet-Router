@@ -122,6 +122,7 @@ func waitForXrayOffline(ctx context.Context) bool {
 }
 
 func (a *app) controlXrayService(parent context.Context, action string) (bool, error) {
+	if automationMutationBlockedState() { return false, errors.New("VPN transaction pending/unknown: Xray mutation blocked until read-only reconciliation") }
 	if action != "start" && action != "stop" && action != "restart" {
 		return false, errors.New("unsupported Xray service action")
 	}
