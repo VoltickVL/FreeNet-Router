@@ -237,7 +237,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
 <script>
 function validCountryCode(code){return /^[a-z]{2}$/.test(String(code||'').toLowerCase())}
 const dnsLabels={auto:'Авто',firmware:'Прямой',xkeen:'Раздельный',custom:'Свой'};
-const pageLabels={overview:'Обзор',subscription:'Подписка',settings:'Настройки',network:'Маршрутизация',journal:'Журнал'};
+const pageLabels={overview:'Обзор',settings:'Настройки',network:'Маршрутизация',journal:'Журнал'};
 let localPending=false,requestedAction='',actionStartedAt=0,baselineEndedAt='',lastStatus=null;
 let networkDirty=false,networkPlanReady=false,networkApplying=false,networkChecking=false,networkPlanError=false,lastNetworkPlan=null;
 let selectedProviderID='',selectedProviderName='',providerPlanReady=false,providerApplying=false,providerApplied=false,extraProfiles=[];

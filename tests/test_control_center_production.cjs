@@ -118,7 +118,13 @@ async function capture(label){
     if(req.method()!=='GET')throw new Error('Unexpected mutation '+url.pathname);
     unhandled.push(url.pathname);return answer(route,{success:true,available:false,configured:true,active:false,events:[]});
   });
+  const verifyCanonicalSidebar = async context => {
+    const actual = await page.locator('.sidebar .nav>.nav-btn[data-page]').evaluateAll(nodes => nodes.map(n => n.dataset.page === 'routing' ? 'network' : n.dataset.page));
+    assert.deepEqual(actual,['overview','settings','network','journal'], context+': only four canonical sidebar entries allowed');
+    assert.equal(await page.locator('.sidebar .nav-btn[data-page="subscription"]').count(),0,context+': legacy Subscription must not reappear');
+  };
   await page.goto(base);await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','canonical boot');
+  await verifyCanonicalSidebar('cold start');
   await page.locator(T).waitFor({state:'visible'});await until(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Бельгия','current country');
   assert.equal(await page.locator('#fnVpnPickerToggle').count(),0,'legacy picker owner retired');assert.equal(await page.locator(T).count(),1);assert.equal(await page.locator(P).isHidden(),true);
   assert.equal(countApply(),0,'no startup apply');assert.equal(calls.filter(c=>c.path.startsWith('/api/vpn/')&&!c.query.includes('job=cache')).length,0,'cache read does not start speed scan');assert.deepEqual(errors,[]);
@@ -130,6 +136,7 @@ async function capture(label){
   assert.match(await page.locator('#bestCurrentMetrics').textContent(),/55\.0 Мбит\/с/);
   currentCacheMode='fallback';
   await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','legacy fallback canonical boot');
+  await verifyCanonicalSidebar('first reload');
   await until(()=>/Скорость VPN/.test(document.querySelector('#bestCurrentMetrics')?.textContent||''),'strict-only current speed UI');
   const legacyFallbackMetrics=await page.locator('#bestCurrentMetrics').textContent();
   assert.doesNotMatch(legacyFallbackMetrics,/37\.4 Мбит\/с/,'legacy fallback throughput must never be displayed');
@@ -137,6 +144,7 @@ async function capture(label){
   assert.match(legacyFallbackMetrics,/Скорость VPN[\s\S]*—/,'missing canonical speed must remain unknown');
   currentCacheMode='strict';
   await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','strict canonical reboot');
+  await verifyCanonicalSidebar('second reload');
   await page.locator(T).waitFor({state:'visible'});
   await until(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Бельгия','current country after provenance reload');
   const order=await page.locator('#overviewApprovedTop').evaluate(n=>Array.from(n.children).map(x=>x.matches('.fn-xray-topbar')?'xray':x.id==='fnVpnPickerV2Host'?'vpn':x.id==='topFreenetUpdate'?'freenet':/DNS/i.test(x.textContent||'')?'dns':'other').filter(x=>x!=='other'));
