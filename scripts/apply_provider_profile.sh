@@ -572,7 +572,7 @@ begin_checkpoint() {
     done
     printf 'PENDING\n' > "$CHECKPOINT_DIR/state" || return 1
     chmod 600 "$CHECKPOINT_DIR/state" || return 1
-    command -v sync >/dev/null 2>&1 && sync
+    if command -v sync >/dev/null 2>&1; then sync || return 1; fi
     [ -s "$CHECKPOINT_DIR/state" ]
 }
 
