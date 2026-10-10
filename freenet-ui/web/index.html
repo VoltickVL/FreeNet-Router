@@ -539,10 +539,42 @@ async function connectorTunnelStatus(){
  try{
   const res=await fetch("/api/admin/connector/tunnel/status",{cache:"no-store",credentials:"same-origin"});
   const d=await res.json();if(!res.ok||d.success===false)throw Error(d.error||"недоступно");
-  out.textContent=[ "Настройка: "+(d.configured?"сохранена":"не настроена"),
+  const lines=[
+   "Настройка: "+(d.configured?"сохранена":"не настроена"),
    "Процесс: "+String(d.state||"UNKNOWN"),"Процесс активен: "+(d.client_running?"ДА":"НЕТ"),
    "OpenAI readiness: "+(d.client_ready?"ОТВЕТ /readyz":"НЕ ПОДТВЕРЖДЕНА"),
-   "ChatGPT MCP end-to-end: НЕ ПОДТВЕРЖДЁН", "Диагностический доступ без разрешения: ЗАКРЫТ" ].join("\n");
+   "ChatGPT MCP end-to-end: НЕ ПОДТВЕРЖДЁН",
+   "Диагностический доступ без разрешения: ЗАКРЫТ"
+  ];
+  if(d.client_running){
+   try{
+    const response=await fetch("/api/admin/connector/tunnel/health",{cache:"no-store",credentials:"same-origin"});
+    const h=await response.json();
+    if(!response.ok||h.success===false)throw Error("unavailable");
+    const part=(name,item)=>{
+     const v=item||{};
+     return name+": "+String(v.status||"unknown")+
+      ", state="+String(v.state||"UNKNOWN")+
+      (v.reason_code?", причина="+String(v.reason_code):"")+
+      (v.failure_category?", категория="+String(v.failure_category):"")+
+      (v.http_status?", HTTP "+String(v.http_status):"")+
+      (v.consecutive_failures?", ошибки подряд="+String(v.consecutive_failures):"")+
+      (v.startup_probe?", startup="+String(v.startup_probe):"");
+    };
+    lines.push("— Диагностика tunnel-client, только чтение —");
+    lines.push("Локальный health: "+String(h.health_state||"UNKNOWN"));
+    if(h.health_state==="OBSERVED"){
+     lines.push("Клиент health.ready: "+(h.client_ready?"ДА":"НЕТ"));
+     lines.push(part("OpenAI control-plane",h.control_plane));
+     lines.push(part("MCP",h.mcp));
+     lines.push(part("OAuth discovery",h.oauth));
+     lines.push(part("Cloudflared",h.cloudflared));
+     lines.push(part("Response delivery",h.response_delivery));
+    }else{lines.push("PRIMARY ERROR: UNKNOWN (компоненты недоступны)");}
+    lines.push("Эти наблюдения НЕ доказывают подключение ChatGPT.");
+   }catch(error){lines.push("Диагностика компонентов: НЕ ДОСТУПНА; без перезапуска.");}
+  }
+  out.textContent=lines.join("\n");
  }catch(e){out.textContent="STOP: "+String(e.message||"недоступно");}
  finally{btn.disabled=false;}
 }
