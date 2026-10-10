@@ -2,6 +2,8 @@ package main
 
 import (
  "encoding/json"
+ "context"
+ "net"
  "net/http"
  "net/http/httptest"
  "os"
@@ -93,6 +95,25 @@ func TestRemoteAdminApprovalRequiresConfirmedSecureOrigin(t *testing.T){
  safe.Header.Set("X-Forwarded-Proto","https");safe.Header.Set("X-Forwarded-Host","freenet.example.net:8443")
  w=httptest.NewRecorder();a.handleConnectorRemoteApprove(w,safe)
  if w.Code!=200 || !a.connectorRemoteCanRead(){t.Fatalf("trusted loopback HTTPS approval failed: %d",w.Code)}
+}
+
+func TestSecureProvisioningSameRouterProxyPeer(t *testing.T){
+ a,_:=connectorFixture(t);_ =a
+ mk:=func(peer string)*http.Request{
+  req:=connectorRequest("POST","/api/admin/connector/access/revoke",`{"confirm":true}`)
+  req.RemoteAddr=peer
+  req.Host="freenet.example.net:8443"
+  req.Header.Set("Origin","https://freenet.example.net:8443")
+  req.Header.Set("X-Forwarded-Proto","https")
+  req=req.WithContext(context.WithValue(req.Context(),http.LocalAddrContextKey,&net.TCPAddr{IP:net.ParseIP("192.168.50.1"),Port:1001}))
+  return req
+ }
+ if !connectorAdminSecureOrigin(mk("192.168.50.1:40500")){t.Fatal("same-router reverse proxy incorrectly rejected")}
+ if connectorAdminSecureOrigin(mk("192.168.50.22:40500")){t.Fatal("LAN client forged proxy headers")}
+ wrong:=mk("192.168.50.1:40500");wrong.Header.Set("Origin","http://freenet.example.net:8443")
+ if connectorAdminSecureOrigin(wrong){t.Fatal("cleartext origin accepted")}
+ forwarded:=mk("192.168.50.1:40500");forwarded.Header.Set("X-Forwarded-Proto","http")
+ if connectorAdminSecureOrigin(forwarded){t.Fatal("downgraded proxy accepted")}
 }
 
 func TestTunnelProvisioningPrivateOneTimeAndNoSecretsInResponses(t *testing.T){
