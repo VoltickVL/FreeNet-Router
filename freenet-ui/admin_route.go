@@ -100,6 +100,9 @@ func adminRoutePort(port int, raw any) adminMatch {
 }
 
 func adminRouteRule(rule map[string]any, host, inbound, network string, destIP, clientIP net.IP, port int) adminMatch {
+    if _, hasDomain := rule["domain"]; hasDomain {
+        if _, hasIP := rule["ip"]; hasIP { return adminUnknown }
+    }
     result := adminYes
     for key, raw := range rule {
         current := adminUnknown
