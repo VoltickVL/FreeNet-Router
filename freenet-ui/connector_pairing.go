@@ -76,7 +76,7 @@ func connectorLoopbackHost(raw string) bool {
 }
 
 func connectorConfirm(w http.ResponseWriter, r *http.Request) bool {
-	if !sameOrigin(r) {
+	if !connectorAdminSameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"success":false,"error":"cross-origin request rejected"})
 		return false
 	}
