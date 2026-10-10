@@ -57,8 +57,7 @@ func (a *app) saveConnectorGrant(grant connectorGrant) error {
 	data, err := json.Marshal(grant)
 	if err != nil { return err }
 	if err := os.MkdirAll(filepath.Dir(a.connectorGrantPath()), 0700); err != nil { return err }
-	if err := atomicWrite(a.connectorGrantPath(), append(data, '
-'), 0600); err != nil { return err }
+	if err := atomicWrite(a.connectorGrantPath(), append(data, byte(10)), 0600); err != nil { return err }
 	return os.Chmod(a.connectorGrantPath(), 0600)
 }
 
