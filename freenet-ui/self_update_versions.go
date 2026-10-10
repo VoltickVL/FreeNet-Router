@@ -18,6 +18,7 @@ const (
 	selfUpdateReleaseBodyLimit = 4 << 20
 	selfUpdateReleaseCacheTTL = 5 * time.Minute
 	selfUpdateReleaseFreshMinAge = 1 * time.Minute
+	selfUpdateReleaseNotesLimit = 4000
 )
 
 var (
@@ -33,6 +34,7 @@ var (
 type selfUpdateRelease struct {
 	Version     string `json:"version"`
 	PublishedAt string `json:"published_at,omitempty"`
+	ReleaseNotes string `json:"release_notes,omitempty"`
 	Current     bool   `json:"current"`
 	Latest      bool   `json:"latest"`
 }
@@ -49,6 +51,7 @@ type selfUpdateReleaseCatalogResponse struct {
 
 type githubFreeNetRelease struct {
 	TagName     string `json:"tag_name"`
+	Body        string `json:"body"`
 	Draft       bool   `json:"draft"`
 	Prerelease  bool   `json:"prerelease"`
 	PublishedAt string `json:"published_at"`
@@ -84,6 +87,17 @@ func releaseVersionGreater(a, b string) bool {
 	return false
 }
 
+// Release notes are GitHub-published metadata, never input to a shell command.
+// Keep them small enough for router memory and render as text only in the browser.
+func boundedSelfUpdateReleaseNotes(body string) string {
+	body = strings.TrimSpace(strings.ToValidUTF8(strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\r", "\n"), ""))
+	runes := []rune(body)
+	if len(runes) > selfUpdateReleaseNotesLimit {
+		body = string(runes[:selfUpdateReleaseNotesLimit])
+	}
+	return strings.TrimSpace(body)
+}
+
 func normalizeSelfUpdateReleases(raw []githubFreeNetRelease, current string) []selfUpdateRelease {
 	seen := make(map[string]bool)
 	out := make([]selfUpdateRelease, 0, len(raw))
@@ -96,6 +110,7 @@ func normalizeSelfUpdateReleases(raw []githubFreeNetRelease, current string) []s
 		out = append(out, selfUpdateRelease{
 			Version: tag,
 			PublishedAt: strings.TrimSpace(item.PublishedAt),
+			ReleaseNotes: boundedSelfUpdateReleaseNotes(item.Body),
 			Current: tag == current,
 		})
 	}

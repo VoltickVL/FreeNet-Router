@@ -7,6 +7,7 @@
   let updateProgressStarted = 0;
   let versionCatalog = null;
   let versionTargetPlan = null;
+  let versionSelectionToken = 0;
   let modalFocusBeforeOpen = null;
 
   function stopUpdateProgress() {
@@ -132,6 +133,7 @@
       .fn-modal-status{display:none;margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid #2b405e;background:#0a1624;font-size:13px;line-height:1.55;white-space:pre-line}
       .fn-modal-status.show{display:block}.fn-modal-status.ok{border-color:rgba(73,218,146,.38);color:#c9f7dc}.fn-modal-status.bad{border-color:rgba(255,112,112,.4);color:#ffd0d0}
       .fn-modal-root.fn-version-picker-mode{display:block;padding:0;pointer-events:none}.fn-modal-root.fn-version-picker-mode .fn-modal-backdrop{display:none!important}.fn-modal-root.fn-version-picker-mode .fn-modal{position:fixed;pointer-events:auto;width:540px;max-width:calc(100vw - 24px);max-height:min(82vh,650px);overflow:auto;padding:0;border-radius:12px;background:#0c1c2e;box-shadow:0 18px 46px rgba(0,0,0,.52)}.fn-modal-root.fn-version-picker-mode .fn-modal-head{padding:12px 14px;border-bottom:1px solid #28415b}.fn-modal-root.fn-version-picker-mode .fn-modal-kicker{font-size:9px;letter-spacing:0;text-transform:none;color:#8da4c2}.fn-modal-root.fn-version-picker-mode .fn-modal h2{margin-top:3px;font-size:17px}.fn-modal-root.fn-version-picker-mode .fn-modal-close{width:30px;height:30px;border-radius:8px;font-size:20px}.fn-modal-root.fn-version-picker-mode .fn-modal-body{margin:0;padding:12px 16px;color:#c4d1e4;font-size:11.5px;line-height:1.5}.fn-modal-root.fn-version-picker-mode .fn-modal-meta,.fn-modal-root.fn-version-picker-mode .fn-modal-status{margin:0 16px 12px;padding:11px 12px;border-radius:10px;font-size:11px}.fn-modal-root.fn-version-picker-mode .fn-modal-actions{margin:0;padding:10px 12px;border-top:1px solid #28415b;background:#0b1b2d}.fn-modal-root.fn-version-picker-mode #fnUpdateProgress{margin:0 16px 12px;color:#9fb2ca;font-size:11px}
+      .fn-version-release-notes{margin-top:9px;padding:9px 11px;border:1px solid #31516d;border-radius:9px;background:#0a2135;color:#c7daeb;overflow-wrap:anywhere}.fn-version-release-notes strong{display:block;color:#d2e9ff;font-size:12px}.fn-version-release-notes p{margin:5px 0 0;font-size:11.5px;line-height:1.5;white-space:pre-line}
       @media(max-width:600px){.fn-modal{padding:17px}.fn-modal h2{font-size:21px}.fn-modal-actions{grid-template-columns:1fr}.fn-modal-root.fn-version-picker-mode .fn-modal{width:calc(100vw - 24px)!important;max-width:none}.fn-modal-root.fn-version-picker-mode .fn-modal h2{font-size:17px}}
     `;
     document.head.appendChild(style);
@@ -604,6 +606,7 @@
     setUpdateSummary(isDowngrade ? 'Запускаем откат версии…' : 'Запускаем обновление…');
     updateNotice(isDowngrade ? 'Возвращаем выбранную версию. FreeNet кратко перезапустится.' : 'Устанавливаем обновление. FreeNet кратко перезапустится.');
     modalProgress(`Устанавливаем ${plan.target_tag}…`, 'Подготавливаем обновление и создаём резервную копию. После перезапуска FreeNet автоматически проверит результат.');
+    showInstallingReleaseNotes();
     try {
       const r = await fetch('/api/system/update/apply', {
         method: 'POST',
@@ -746,6 +749,7 @@
 
   async function waitForVersion(target) {
     modalProgress(`Перезапускаем FreeNet…`, `Ждём, когда Control Center вернётся на версии ${target}. Краткий 502 во время этого этапа ожидаем.`);
+    showInstallingReleaseNotes();
     for (let i = 0; i < 90; i++) {
       try {
         const r = await fetch('/versionz', {cache: 'no-store', signal: AbortSignal.timeout(5000)});
@@ -986,14 +990,49 @@
     return `Установлено ${p.target_tag}`;
   }
 
+  function readableReleaseNotes(release) {
+    const raw = String(release?.release_notes || '').trim();
+    if (!raw) return '';
+    return raw.split(/\r?\n/).map(line => line.trim())
+      .filter(line => line && !/^#{1,3}\s*(?:What's Changed|Что изменилось)\s*$/i.test(line) && !/^\*\*Full Changelog\*\*/i.test(line))
+      .map(line => line.replace(/^[-*]\s+/, '• ').replace(/\s+by\s+@[\w-]+\s+in\s+https:\/\/github\.com\/\S+$/i, '').replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, '$1'))
+      .slice(0, 12).join('\n').slice(0, 2400);
+  }
+
+  function appendVersionReleaseNotes(root, release) {
+    // Missing GitHub Release body is not a changelog. Keep the compact selector
+    // unchanged for legacy releases rather than adding a fake information card.
+    const description = readableReleaseNotes(release);
+    if (!root || !description) return;
+    const notes = document.createElement('div');
+    notes.className = 'fn-version-release-notes';
+    const title = document.createElement('strong');
+    title.textContent = `Что изменилось в ${release?.version || 'релизе'}`;
+    const content = document.createElement('p');
+    content.textContent = description;
+    notes.append(title, content);
+    root.appendChild(notes);
+  }
+
+  function showInstallingReleaseNotes() {
+    const target = String(plan?.target_tag || '').trim();
+    if (!target) return;
+    const release = versionCatalog?.releases?.find(item => item.version === target);
+    const notes = release || {version: target, release_notes: plan?.release_notes || ''};
+    appendVersionReleaseNotes(qs('#fnModalBody'), notes);
+  }
+
   async function selectVersionTarget(release, detail) {
+    const token = ++versionSelectionToken;
     versionTargetPlan = null;
     detail.className = 'fn-version-detail checking';
     detail.textContent = `Проверяем версию ${release.version}…`;
+    appendVersionReleaseNotes(detail, release);
     requestAnimationFrame(positionVersionPicker);
     try {
       const r = await fetch(`/api/system/update/plan?target=${encodeURIComponent(release.version)}`, {cache:'no-store'});
       const p = await r.json().catch(() => ({}));
+      if (token !== versionSelectionToken) return;
       if (!r.ok || !p.success || !p.ready || !p.manifest_verified) {
         throw new Error(p.error || 'Этот релиз не прошёл compatibility plan');
       }
@@ -1008,6 +1047,7 @@
         ? 'Эта версия уже установлена.'
         : 'Версия проверена и готова к установке.';
       detail.append(title, text);
+      appendVersionReleaseNotes(detail, release);
       if (p.update_available) {
         const action = document.createElement('button');
         action.type = 'button';
@@ -1022,8 +1062,10 @@
       }
       requestAnimationFrame(positionVersionPicker);
     } catch (e) {
+      if (token !== versionSelectionToken) return;
       detail.className = 'fn-version-detail bad';
       detail.textContent = `Эту версию сейчас нельзя установить: ${e.message || 'проверка не пройдена'}.`;
+      appendVersionReleaseNotes(detail, release);
       requestAnimationFrame(positionVersionPicker);
     }
   }
@@ -1183,7 +1225,7 @@
         .fn-version-warning{margin-top:8px;padding:8px 10px;border:1px solid rgba(240,184,75,.35);border-radius:9px;background:rgba(102,73,18,.18);color:#e6c77f;font-size:10.5px;line-height:1.4}
         .fn-version-search{width:100%;height:42px;margin-top:10px;padding:0 12px;border:1px solid #315070;border-radius:10px;background:#081624;color:#eef5ff;font:inherit;font-size:11.5px;outline:none}.fn-version-search:focus{border-color:#6094df;box-shadow:0 0 0 2px rgba(96,148,223,.12)}
         .fn-version-list{display:grid;gap:6px;margin-top:8px;padding:0;max-height:236px;overflow-y:auto;overscroll-behavior:contain}.fn-version-release{appearance:none;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:42px;padding:8px 10px;border:1px solid #29445f;border-radius:9px;background:#0a1929;color:#dbe8f8;text-align:left;cursor:pointer}.fn-version-release:hover,.fn-version-release.selected{border-color:#5a8dcc;background:#12304d}.fn-version-release.current{box-shadow:inset 3px 0 #39d79a}.fn-version-release-main{display:flex;align-items:center;gap:6px}.fn-version-release-main strong{font-size:12.5px}.fn-version-release em{padding:2px 6px;border-radius:999px;background:#173652;color:#a9caff;font-size:8px;font-style:normal;font-weight:800}.fn-version-release em.current{background:rgba(52,221,159,.14);color:#65e3aa}.fn-version-release em.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.fn-version-release small{color:#8198b5;font-size:9px}
-        .fn-version-detail{display:grid;gap:7px;margin-top:10px;padding:11px 12px;border:1px solid #29445f;border-radius:10px;background:#091827;color:#9fb2ca;font-size:11px;line-height:1.35}.fn-version-detail strong{color:#f2f7ff;font-size:12.5px}.fn-version-detail.ready{border-color:#35658e}.fn-version-detail.bad{border-color:rgba(255,104,115,.45);color:#ffd0d4}.fn-version-detail.checking{color:#c4d7ee}.fn-version-apply{min-height:44px;margin-top:3px;width:100%;font-size:13px!important}.fn-version-empty{padding:11px;text-align:center;color:#839ab8;border:1px dashed #29445f;border-radius:8px;font-size:10.5px}
+        .fn-version-detail{display:grid;gap:7px;margin-top:10px;padding:11px 12px;border:1px solid #29445f;border-radius:10px;background:#091827;color:#9fb2ca;font-size:11px;line-height:1.35} .fn-version-detail strong{color:#f2f7ff;font-size:12.5px}.fn-version-detail.ready{border-color:#35658e}.fn-version-detail.bad{border-color:rgba(255,104,115,.45);color:#ffd0d4}.fn-version-detail.checking{color:#c4d7ee}.fn-version-apply{min-height:44px;margin-top:3px;width:100%;font-size:13px!important}.fn-version-empty{padding:11px;text-align:center;color:#839ab8;border:1px dashed #29445f;border-radius:8px;font-size:10.5px}
         @media(max-width:760px){.fn-version-control{min-width:46px}.fn-version-copy small{display:none}.fn-version-list{max-height:min(236px,38vh)}}
       `;
       document.head.appendChild(style);

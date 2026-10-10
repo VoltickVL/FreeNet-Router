@@ -34,6 +34,19 @@ func TestNormalizeSelfUpdateReleasesStableSemanticOrder(t *testing.T) {
 	}
 }
 
+func TestReleaseCatalogCarriesBoundedPublishedNotes(t *testing.T) {
+	long := strings.Repeat("П", selfUpdateReleaseNotesLimit+80)
+	out := normalizeSelfUpdateReleases([]githubFreeNetRelease{
+		{TagName:"v0.7.2", Body:"## What's Changed\n* Giga Stage-0\n* Обзор без ложного индикатора", PublishedAt:"2026-10-09T23:44:49Z"},
+		{TagName:"v0.7.1", Body:long},
+		{TagName:"v0.7.3", Body:"NEVER", Draft:true},
+	}, "v0.7.1")
+	if len(out)!=2 || out[0].Version!="v0.7.2" || out[1].Version!="v0.7.1" {t.Fatalf("unexpected catalog %+v",out)}
+	if !strings.Contains(out[0].ReleaseNotes,"Giga Stage-0") || !strings.Contains(out[0].ReleaseNotes,"Обзор") {t.Fatalf("release body lost: %+v",out[0])}
+	if len([]rune(out[1].ReleaseNotes))!=selfUpdateReleaseNotesLimit {t.Fatalf("unbounded release notes: %d",len([]rune(out[1].ReleaseNotes)))}
+	if boundedSelfUpdateReleaseNotes("\r\n")!="" {t.Fatal("empty release body must remain absent")}
+}
+
 func TestReleaseVersionGreaterIsNumeric(t *testing.T) {
 	if !releaseVersionGreater("v0.4.0", "v0.3.99") {
 		t.Fatal("v0.4.0 must sort after v0.3.99")
@@ -105,7 +118,7 @@ func TestSelfUpdateReleaseCatalogUsesResilientDownloader(t *testing.T) {
 		if !strings.Contains(rawURL, "per_page=100&page=1") {
 			t.Fatalf("unexpected catalog URL %q", rawURL)
 		}
-		return []byte(`[{"tag_name":"v0.4.51","published_at":"2026-10-02T00:00:00Z"}]`), nil
+		return []byte(`[{"tag_name":"v0.4.51","published_at":"2026-10-02T00:00:00Z","body":"## What\u0027s Changed\n* Обновление интерфейса"}]`), nil
 	}
 	items, err := fetchSelfUpdateReleaseCatalog(context.Background(), "v0.4.50", true)
 	if err != nil {
@@ -114,7 +127,7 @@ func TestSelfUpdateReleaseCatalogUsesResilientDownloader(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("resilient downloader calls=%d want=1", calls)
 	}
-	if len(items) != 1 || items[0].Version != "v0.4.51" || !items[0].Latest {
+	if len(items) != 1 || items[0].Version != "v0.4.51" || !items[0].Latest || !strings.Contains(items[0].ReleaseNotes,"Обновление интерфейса") {
 		t.Fatalf("unexpected catalog: %+v", items)
 	}
 }
