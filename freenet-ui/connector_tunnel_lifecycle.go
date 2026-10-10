@@ -323,7 +323,7 @@ func (a *app) connectorTunnelResumeOnStartup(){
   a.connectorTunnelState="RECOVERY_STOP"
   a.connectorTunnelMu.Unlock()
   // Retry only a known handover race, never broken credentials or ABI.
-  if err.Error()!="health port already occupied" && err.Error()!="another client supervisor exists" {break}
+  if err.Error()!="health port already occupied" && err.Error()!="another client supervisor exists" && err.Error()!="VPN_XRAY_OFFLINE" {break}
   time.Sleep(time.Duration(attempt+1)*3*time.Second)
  }
  v3AppendEvent("connector","warning","Автозапуск Tunnel STOP: требуется проверка через Control Center.")
