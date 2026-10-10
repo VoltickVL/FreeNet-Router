@@ -2,6 +2,7 @@ package main
 
 import (
  "bytes"
+ "context"
  "encoding/json"
  "net"
  "os"
@@ -110,7 +111,7 @@ func TestConnectorVPNProbeOnlyTrustsLocalHTTPConnect200(t *testing.T){
   finish<-string(buf[:n])
   _,_=conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
  }()
- ctx:=t.Context()
+ ctx:=context.Background()
  if err:=connectorVPNProbe(ctx,listener.Addr().String());err!=nil{t.Fatalf("HTTP CONNECT should have succeeded: %v",err)}
  request:=<-finish
  if !strings.HasPrefix(request,"CONNECT api.openai.com:443 HTTP/1.1")||strings.Contains(request,"Bearer")||strings.Contains(request,"sk-"){t.Fatal("unsafe or wrong CONNECT request")}
