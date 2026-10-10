@@ -101,6 +101,14 @@ func (a *app) handleConnectorRemoteApprove(w http.ResponseWriter,r *http.Request
  var extra any
  if err:=decoder.Decode(&extra);err!=io.EOF {writeJSON(w,http.StatusBadRequest,map[string]any{"success":false,"error":"invalid request"});return}
  if _,err:=hex.DecodeString(req.RequestID);err!=nil{writeJSON(w,http.StatusBadRequest,map[string]any{"success":false,"error":"invalid request id"});return}
+ if req.Approve {
+  a.connectorTunnelMu.Lock()
+  running:=a.connectorTunnelCmd!=nil && a.connectorTunnelState!="STOP_REQUESTED" && a.connectorTunnelState!="STOP_UNKNOWN" && a.connectorTunnelState!="RECOVERY_STOP"
+  a.connectorTunnelMu.Unlock()
+  if !running {
+   writeJSON(w,http.StatusConflict,map[string]any{"success":false,"error":"STOP: tunnel process is not active"});return
+  }
+ }
  a.connectorRemoteMu.Lock()
  now:=time.Now().UTC()
  match:=a.connectorRemote.PendingID!="" && now.Before(a.connectorRemote.PendingUntil) &&
