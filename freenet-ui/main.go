@@ -74,6 +74,7 @@ type app struct {
 	connectorRemote connectorRemoteSession
 	connectorTunnelMu sync.Mutex
 	connectorTunnelCmd *exec.Cmd
+	connectorVPNProxyCmd *exec.Cmd
 	connectorTunnelLock *os.File
 	connectorTunnelState string
 	connectorTunnelRestartCount int
