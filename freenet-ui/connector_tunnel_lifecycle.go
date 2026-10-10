@@ -224,7 +224,16 @@ func (a *app) connectorTunnelStopLocked() error {
  // fails, the previous diagnostic approval must not survive a STOP.
  a.connectorRemoteRevoke()
  if a.connectorTunnelCmd!=nil {
-  if err:=a.connectorTunnelCmd.Process.Signal(syscall.SIGTERM);err!=nil{a.connectorTunnelState="STOP_UNKNOWN";return errors.New("tunnel signal failed; STOP UNKNOWN")}
+  cmd:=a.connectorTunnelCmd
+  if err:=cmd.Process.Signal(syscall.SIGTERM);err!=nil{a.connectorTunnelState="STOP_UNKNOWN";return errors.New("tunnel signal failed; STOP UNKNOWN")}
+  // A bounded emergency escalation is only applied to this owned process,
+  // never to a system-wide PID lookup or another router service.
+  go func(){
+   time.Sleep(6*time.Second)
+   a.connectorTunnelMu.Lock()
+   defer a.connectorTunnelMu.Unlock()
+   if a.connectorTunnelCmd==cmd{_ =cmd.Process.Kill()}
+  }()
  }
  a.connectorTunnelState="STOP_REQUESTED"
  return nil
