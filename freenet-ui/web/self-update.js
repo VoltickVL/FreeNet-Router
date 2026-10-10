@@ -1000,12 +1000,16 @@
   }
 
   function appendVersionReleaseNotes(root, release) {
+    // Missing GitHub Release body is not a changelog. Keep the compact selector
+    // unchanged for legacy releases rather than adding a fake information card.
+    const description = readableReleaseNotes(release);
+    if (!root || !description) return;
     const notes = document.createElement('div');
     notes.className = 'fn-version-release-notes';
     const title = document.createElement('strong');
     title.textContent = `Что изменилось в ${release?.version || 'релизе'}`;
     const content = document.createElement('p');
-    content.textContent = readableReleaseNotes(release) || 'Описание изменений недоступно в каталоге релизов.';
+    content.textContent = description;
     notes.append(title, content);
     root.appendChild(notes);
   }
