@@ -70,6 +70,12 @@ type app struct {
 	connectorMu sync.Mutex
 	connectorRateWindow time.Time
 	connectorRateCount int
+	connectorRemoteMu sync.Mutex
+	connectorRemote connectorRemoteSession
+	connectorTunnelMu sync.Mutex
+	connectorTunnelCmd *exec.Cmd
+	connectorTunnelLock *os.File
+	connectorTunnelState string
 }
 
 type statusResponse struct {
@@ -289,6 +295,7 @@ func main() {
 			errCh <- srv.Serve(ln)
 		}()
 	}
+	go a.connectorTunnelResumeOnStartup() // fail-closed, never blocks FreeNet UI
 
 	if err := <-errCh; !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
