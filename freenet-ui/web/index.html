@@ -542,6 +542,7 @@ async function connectorTunnelStatus(){
   const lines=[
    "Настройка: "+(d.configured?"сохранена":"не настроена"),
    "Процесс: "+String(d.state||"UNKNOWN"),"Процесс активен: "+(d.client_running?"ДА":"НЕТ"),
+   "VPN-маршрут OpenAI: "+(d.vpn_egress_process_active?"ИЗОЛИРОВАННЫЙ VLESS / VPN":"НЕ АКТИВЕН — DIRECT ЗАПРЕЩЁН"),
    "OpenAI readiness: "+(d.client_ready?"ОТВЕТ /readyz":"НЕ ПОДТВЕРЖДЕНА"),
    "ChatGPT MCP end-to-end: НЕ ПОДТВЕРЖДЁН",
    "Диагностический доступ без разрешения: ЗАКРЫТ"
