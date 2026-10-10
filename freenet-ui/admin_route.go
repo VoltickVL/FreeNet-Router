@@ -21,6 +21,8 @@ const (
 
 const maxAdminRouteRules = 256
 
+var adminRouteReadSlots = make(chan struct{}, 2)
+
 func adminRouteList(raw any, match func(string) adminMatch) adminMatch {
     entries, ok := raw.([]any)
     if !ok || len(entries) == 0 || len(entries) > maxAdminRouteRules { return adminUnknown }
@@ -241,6 +243,13 @@ func (a *app) handleAdminRoute(w http.ResponseWriter, r *http.Request) {
         "observed_route":"NOT_OBSERVED", "confidence":"UNKNOWN",
         "source":"on-disk Xray routing (not running-core proof)",
         "note":"Расчёт по файлу, не наблюдение LAN-клиента. Наличие процесса Xray и DNS не подтверждают реальный outbound.",
+    }
+    select {
+    case adminRouteReadSlots <- struct{}{}:
+        defer func() { <-adminRouteReadSlots }()
+    default:
+        writeJSON(w, http.StatusTooManyRequests, map[string]any{"success":false,"error":"Проверка маршрута занята, повторите позже","mutation":"NONE"})
+        return
     }
     routingRoot, raw, err := adminRouteReadJSON(filepath.Join(a.routingConfigDir(), "05_routing.json"), maxRoutingSourceFileBytes)
     if err != nil {
