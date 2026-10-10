@@ -102,10 +102,12 @@ func (a *app) handleConnectorRemoteApprove(w http.ResponseWriter,r *http.Request
  if err:=decoder.Decode(&extra);err!=io.EOF {writeJSON(w,http.StatusBadRequest,map[string]any{"success":false,"error":"invalid request"});return}
  if _,err:=hex.DecodeString(req.RequestID);err!=nil{writeJSON(w,http.StatusBadRequest,map[string]any{"success":false,"error":"invalid request id"});return}
  if req.Approve {
+  // Hold the supervisor lock until the grant is published: Stop cannot
+  // interleave between a readiness check and the actual approval.
   a.connectorTunnelMu.Lock()
   running:=a.connectorTunnelCmd!=nil && a.connectorTunnelState!="STOP_REQUESTED" && a.connectorTunnelState!="STOP_UNKNOWN" && a.connectorTunnelState!="RECOVERY_STOP"
-  a.connectorTunnelMu.Unlock()
   if !running {
+   a.connectorTunnelMu.Unlock()
    writeJSON(w,http.StatusConflict,map[string]any{"success":false,"error":"STOP: tunnel process is not active"});return
   }
  }
@@ -113,12 +115,13 @@ func (a *app) handleConnectorRemoteApprove(w http.ResponseWriter,r *http.Request
  now:=time.Now().UTC()
  match:=a.connectorRemote.PendingID!="" && now.Before(a.connectorRemote.PendingUntil) &&
   subtle.ConstantTimeCompare([]byte(req.RequestID),[]byte(a.connectorRemote.PendingID))==1
- if !match {a.connectorRemoteMu.Unlock();writeJSON(w,http.StatusConflict,map[string]any{"success":false,"error":"pending request expired or changed"});return}
+ if !match {a.connectorRemoteMu.Unlock();if req.Approve{a.connectorTunnelMu.Unlock()};writeJSON(w,http.StatusConflict,map[string]any{"success":false,"error":"pending request expired or changed"});return}
  a.connectorRemote.PendingID=""
  a.connectorRemote.PendingUntil=time.Time{}
  if req.Approve {a.connectorRemote.GrantedUntil=now.Add(connectorRemoteApprovalTTL)}else{a.connectorRemote.GrantedUntil=time.Time{}}
  until:=a.connectorRemote.GrantedUntil
  a.connectorRemoteMu.Unlock()
+ if req.Approve {a.connectorTunnelMu.Unlock()}
  if req.Approve {v3AppendEvent("connector","success","Временный удалённый read-only доступ выдан на 15 минут.")}else{v3AppendEvent("connector","success","Запрос на удалённый доступ отклонён.")}
  writeJSON(w,http.StatusOK,map[string]any{"success":true,"state":map[bool]string{true:"APPROVED",false:"DENIED"}[req.Approve],"expires_at":until,"mutation":"AUTHORIZATION_ONLY"})
 }
