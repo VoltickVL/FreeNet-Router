@@ -7,6 +7,7 @@ import (
  "net/http"
  "net/http/httptest"
  "os"
+ "os/exec"
  "path/filepath"
  "strings"
  "testing"
@@ -28,6 +29,8 @@ func connectorTestTransport(t *testing.T,a *app) string {
 func TestRemoteMCPRequiresBrowserApprovalAndNeverWritesRouter(t *testing.T){
  a,_:=connectorFixture(t)
  token:=connectorTestTransport(t,a)
+ a.connectorTunnelCmd=&exec.Cmd{}
+ a.connectorTunnelState="STARTING"
  code,_,_:=mcpTestRPC(t,a,token,"tools/call",map[string]any{"name":"get_status","arguments":map[string]any{}})
  if code!=http.StatusForbidden{t.Fatalf("remote diagnostics before approval: %d",code)}
  code,r,_:=mcpTestRPC(t,a,token,"tools/call",map[string]any{"name":"request_access","arguments":map[string]any{}})
@@ -81,6 +84,8 @@ func TestRemoteMCPRejectsUnsafeMachineHeadersAndExpiry(t *testing.T){
 
 func TestRemoteAdminApprovalRequiresConfirmedSecureOrigin(t *testing.T){
  a,_:=connectorFixture(t);_ = connectorTestTransport(t,a)
+ a.connectorTunnelCmd=&exec.Cmd{}
+ a.connectorTunnelState="STARTING"
  result,_:=a.connectorRemoteRequestAccess();id:=result["request_id"].(string)
  body:=`{"confirm":true,"request_id":"`+id+`","approve":true}`
  unsafe:=connectorRequest("POST","/api/admin/connector/access/approve",body)
