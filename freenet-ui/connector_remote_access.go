@@ -130,3 +130,16 @@ func connectorAdminSecureOrigin(r *http.Request) bool {
  origin:=strings.TrimSpace(r.Header.Get("Origin"))
  return origin=="https://"+host && sameOrigin(r)
 }
+
+// An authenticated administrator can immediately revoke diagnostic approval
+// without disrupting the outbound machine transport or VPN/routing.
+func (a *app) handleConnectorRemoteRevoke(w http.ResponseWriter,r *http.Request){
+ w.Header().Set("Cache-Control","no-store")
+ if !connectorConfirm(w,r){return}
+ if !connectorAdminSecureOrigin(r){
+  writeJSON(w,http.StatusForbidden,map[string]any{"success":false,"error":"secure origin required"});return
+ }
+ a.connectorRemoteRevoke()
+ v3AppendEvent("connector","success","Удалённое диагностическое разрешение отозвано.")
+ writeJSON(w,http.StatusOK,map[string]any{"success":true,"state":"DENIED","mutation":"AUTHORIZATION_ONLY"})
+}
