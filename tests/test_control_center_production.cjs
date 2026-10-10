@@ -167,6 +167,36 @@ async function capture(label){
   assert.match(await page.locator('#adminRouteOutput').textContent(),/НЕ НАБЛЮДАЛСЯ/,'route preview must distinguish observed LAN traffic');
   assert.equal(calls.filter(c=>c.path==='/api/admin/route').length,1,'exactly one read-only route request');
   assert.equal(calls.find(c=>c.path==='/api/admin/route')?.method,'GET','route diagnostics must not mutate runtime');
+  // Long SHA256/domain and one-time bearer must stay within Administration
+  // card at mobile and desktop widths, without horizontal overflow.
+  const originalOutputs=await page.evaluate(()=>{
+    const ids=['adminCommandOutput','adminRouteOutput','connectorGrantOutput','connectorGrantSecret'];
+    const original=ids.map(id=>{const n=document.getElementById(id);return{id,text:n.textContent,hidden:n.hidden}});
+    document.getElementById('adminRouteOutput').textContent='Маршрут '+('a'.repeat(310))+'.example.com '+('f'.repeat(64));
+    document.getElementById('connectorGrantOutput').textContent='Диагностика '+('long-token-'.repeat(38));
+    const secret=document.getElementById('connectorGrantSecret');
+    secret.textContent='Разовый токен: '+('a'.repeat(64));secret.hidden=false;
+    return original;
+  });
+  for(const width of [320,375,768,1440]){
+    await page.setViewportSize({width,height:900});
+    const fit=await page.evaluate(()=>{
+      const ids=['adminRouteOutput','connectorGrantOutput','connectorGrantSecret','adminCommandOutput'];
+      return ids.map(id=>{
+        const n=document.getElementById(id),r=n.getBoundingClientRect(),p=n.closest('.fn-admin-card').getBoundingClientRect();
+        return{id,right:r.right,parentRight:p.right,scrollWidth:n.scrollWidth,clientWidth:n.clientWidth,whiteSpace:getComputedStyle(n).whiteSpace};
+      });
+    });
+    for(const result of fit){
+      assert.ok(result.right<=result.parentRight+1,'Admin '+result.id+' exceeds card at '+width+': '+JSON.stringify(result));
+      assert.ok(result.scrollWidth<=result.clientWidth+2,'Admin '+result.id+' scrolls horizontally at '+width+': '+JSON.stringify(result));
+      assert.equal(result.whiteSpace,'pre-wrap','Admin '+result.id+' must wrap diagnostics at '+width);
+    }
+  }
+  await page.evaluate(original=>{
+    for(const item of original){const n=document.getElementById(item.id);n.textContent=item.text;n.hidden=item.hidden;}
+  },originalOutputs);
+  await page.setViewportSize({width:1440,height:1000});
   await page.locator('.nav-btn[data-page="overview"]').click();
   await page.locator(T).waitFor({state:'visible'});await until(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Бельгия','current country');
   assert.equal(await page.locator('#fnVpnPickerToggle').count(),0,'legacy picker owner retired');assert.equal(await page.locator(T).count(),1);assert.equal(await page.locator(P).isHidden(),true);
