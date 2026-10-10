@@ -12,6 +12,7 @@ import (
  "os/exec"
  "path/filepath"
  "syscall"
+ "strings"
  "time"
 )
 
@@ -194,7 +195,7 @@ func (a *app) connectorVPNStartLocked() error {
  ctx,cancel:=context.WithTimeout(context.Background(),10*time.Second)
  defer cancel()
  valid:=exec.CommandContext(ctx,a.routingXrayBin(),"run","-test","-c",target)
- valid.Env=isolatedXrayProbeEnv(os.Environ())
+ valid.Env=connectorVPNXrayEnv(os.Environ())
  valid.Stdout=io.Discard;valid.Stderr=io.Discard
  if err:=valid.Run();err!=nil {cleanup();return errors.New("VPN_XRAY_CONFIG_INVALID")}
  // Refuse an occupied listener. Reusing an unknown service would bypass our
@@ -204,7 +205,7 @@ func (a *app) connectorVPNStartLocked() error {
  _=ln.Close()
  cmd:=exec.Command(a.routingXrayBin(),"run","-c",target)
  // Never let this separate Xray child masquerade as the active XKeen core.
- cmd.Env=isolatedXrayProbeEnv(os.Environ())
+ cmd.Env=connectorVPNXrayEnv(os.Environ())
  cmd.Stdin=nil;cmd.Stdout=io.Discard;cmd.Stderr=io.Discard
  cmd.SysProcAttr=&syscall.SysProcAttr{Pdeathsig:syscall.SIGTERM}
  if err:=cmd.Start();err!=nil{cleanup();return errors.New("VPN_PROXY_START_FAILED")}
@@ -219,6 +220,41 @@ func (a *app) connectorVPNStartLocked() error {
  }
  a.connectorVPNStopLocked()
  return errors.New("VPN_CONNECT_NOT_VERIFIED")
+}
+
+// The CLI gives environment values precedence over YAML. Strip all
+// tunnel/HTTP proxy configuration from the parent environment so even a
+// misconfigured FreeNet init script cannot override our fixed VPN-only
+// control_plane.http_proxy or inject a direct OpenAI base URL.
+func connectorVPNClientEnv(source []string) []string {
+ out:=make([]string,0,len(source))
+ for _,item:=range source {
+  name,_,ok:=strings.Cut(item,"=")
+  if !ok {continue}
+  upper:=strings.ToUpper(name)
+  if strings.HasPrefix(upper,"CONTROL_PLANE_")||
+    strings.HasPrefix(upper,"TUNNEL_CLIENT_")||
+    strings.HasPrefix(upper,"MCP_")||
+    strings.HasPrefix(upper,"HARPOON_")||
+    strings.HasPrefix(upper,"OPENAI_")||
+    upper=="HTTP_PROXY"||upper=="HTTPS_PROXY"||upper=="ALL_PROXY"||upper=="NO_PROXY" {
+    continue
+  }
+  out=append(out,item)
+ }
+ return out
+}
+
+func connectorVPNXrayEnv(source []string) []string {
+ out:=make([]string,0,len(source)+1)
+ for _,item:=range source{
+  name,_,ok:=strings.Cut(item,"=")
+  if !ok {continue}
+  if name=="XRAY_LOCATION_CONFDIR" || name=="XRAY_LOCATION_CONFIG" ||
+    name=="XRAY_LOCATION_CONFIG_FILE" || name=="FREENET_XRAY_PROBE"{continue}
+  out=append(out,item)
+ }
+ return isolatedXrayProbeEnv(out)
 }
 
 func connectorVPNYAMLProxyLine() string {
