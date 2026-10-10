@@ -86,7 +86,7 @@ func (a *app) connectorTunnelYAML(tunnelID string) (string,error) {
 
 func (a *app) handleTunnelConfigure(w http.ResponseWriter,r *http.Request){
  w.Header().Set("Cache-Control","no-store")
- if !connectorAdminSecureOrigin(r) || !sameOrigin(r){writeJSON(w,403,map[string]any{"success":false,"error":"secure same-origin browser required"});return}
+ if !connectorAdminSecureOrigin(r) || !connectorAdminSameOrigin(r){writeJSON(w,403,map[string]any{"success":false,"error":"secure same-origin browser required"});return}
  var request struct {Confirm bool `json:"confirm"`; TunnelID string `json:"tunnel_id"`; RuntimeKey string `json:"runtime_api_key"`}
  dec:=json.NewDecoder(http.MaxBytesReader(w,r.Body,4096));dec.DisallowUnknownFields()
  if err:=dec.Decode(&request);err!=nil||!request.Confirm||!connectorTunnelIDPattern.MatchString(request.TunnelID)||!connectorRuntimeKeyPattern.MatchString(request.RuntimeKey){
