@@ -71,7 +71,7 @@ func connectorTunnelSafeCode(v string) string {
     for _,c:=range v {
         if !((c>='a'&&c<='z')||(c>='0'&&c<='9')||c=='_') {return "OTHER_REDACTED"}
     }
-    if strings.Contains(v,"token") || strings.Contains(v,"secret") || strings.Contains(v,"key") || strings.Contains(v,"credential") || strings.Contains(v,"uuid") {return "OTHER_REDACTED"}
+    if strings.HasPrefix(v,"tunnel_") || strings.HasPrefix(v,"sk_") || strings.Contains(v,"token") || strings.Contains(v,"secret") || strings.Contains(v,"key") || strings.Contains(v,"credential") || strings.Contains(v,"uuid") {return "OTHER_REDACTED"}
     return v
 }
 func connectorTunnelProjectComponent(raw connectorTunnelRawComponent) connectorTunnelComponent {
