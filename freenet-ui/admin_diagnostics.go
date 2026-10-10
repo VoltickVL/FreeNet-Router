@@ -45,6 +45,8 @@ func registerAdminDiagnostics(mux *http.ServeMux, a *app) {
   mux.HandleFunc("GET /api/admin/connector/diagnostics", a.requireAuth(a.handleConnectorDiagnostics))
   mux.HandleFunc("GET /api/admin/connector/grant", a.requireAuth(a.handleConnectorGrantStatus))
   mux.HandleFunc("GET /api/admin/connector/readiness", a.requireAuth(a.handleConnectorTunnelReadiness))
+  mux.HandleFunc("GET /api/admin/connector/install/plan", a.requireAuth(a.handleTunnelInstallPlan))
+  mux.HandleFunc("POST /api/admin/connector/install/apply", a.requireAuth(a.handleTunnelInstall))
   mux.HandleFunc("POST /api/admin/connector/pair", a.requireAuth(a.handleConnectorPair))
   mux.HandleFunc("POST /api/admin/connector/revoke", a.requireAuth(a.handleConnectorRevoke))
   mux.HandleFunc("GET /api/connector/diagnostics", a.handleConnectorMachineDiagnostics)
