@@ -117,3 +117,36 @@ func TestConnectorVPNProbeOnlyTrustsLocalHTTPConnect200(t *testing.T){
  if !strings.HasPrefix(request,"CONNECT api.openai.com:443 HTTP/1.1")||strings.Contains(request,"Bearer")||strings.Contains(request,"sk-"){t.Fatal("unsafe or wrong CONNECT request")}
  if err:=connectorVPNProbe(ctx,"127.0.0.1:0");err==nil{t.Fatal("unavailable proxy accepted")}
 }
+
+func TestConnectorVPNOnlyOverridesHostEnvironment(t *testing.T){
+ source:=[]string{
+  "PATH=/opt/bin:/usr/bin",
+  "CONTROL_PLANE_HTTP_PROXY=http://untrusted.invalid:1000",
+  "CONTROL_PLANE_BASE_URL=https://direct.invalid",
+  "TUNNEL_CLIENT_HTTP_PROXY=",
+  "HTTP_PROXY=http://direct.invalid",
+  "HTTPS_PROXY=http://direct.invalid",
+  "ALL_PROXY=socks5://direct.invalid",
+  "NO_PROXY=api.openai.com",
+  "MCP_HTTP_PROXY=http://untrusted.invalid",
+  "OPENAI_ADMIN_KEY=never-inherit",
+  "XRAY_LOCATION_CONFDIR=/opt/etc/xray/configs",
+ }
+ got:=connectorVPNClientEnv(source)
+ if len(got)!=2 || got[0]!=source[0] || got[1]!=source[len(source)-1] {
+  t.Fatalf("client inherited dangerous API/proxy environment: %v",got)
+ }
+ xray:=connectorVPNXrayEnv(source)
+ if strings.Contains(strings.Join(xray,"|"),"XRAY_LOCATION_CONFDIR="){t.Fatal("sidecar inherited active Xray confdir")}
+ if !strings.Contains(strings.Join(xray,"|"),isolatedXrayProbeFlag){t.Fatal("Xray sidecar not marked isolated")}
+}
+
+func TestConnectorVPNConfigScopedToControlPlaneOnly(t *testing.T){
+ a,_:=connectorFixture(t)
+ a.cfg.Listen="192.168.50.1:1001"
+ yaml,err:=a.connectorTunnelYAML("tunnel_"+strings.Repeat("a",32))
+ if err!=nil{t.Fatal(err)}
+ if !strings.Contains(yaml,"control_plane:\n  http_proxy: http://127.0.0.1:12032\n"){t.Fatal("control-plane does not have a dedicated VPN proxy")}
+ if strings.Contains(yaml,"\nhttp_proxy:")||strings.Contains(yaml,"mcp:\n  http_proxy:"){t.Fatal("global proxy would also redirect loopback MCP")}
+ if !strings.Contains(yaml,"http://127.0.0.1:1001/mcp"){t.Fatal("MCP must remain router-local")}
+}
