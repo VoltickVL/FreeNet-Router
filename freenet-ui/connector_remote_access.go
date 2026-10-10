@@ -73,7 +73,8 @@ func (a *app) connectorRemoteCanRead() bool {
 func (a *app) connectorRemoteRevoke() {
  a.connectorRemoteMu.Lock()
  defer a.connectorRemoteMu.Unlock()
- a.connectorRemote=connectorRemoteSession{}
+ last:=a.connectorRemote.LastRequest
+ a.connectorRemote=connectorRemoteSession{LastRequest:last}
 }
 
 func (a *app) handleConnectorRemoteAccessStatus(w http.ResponseWriter,r *http.Request){
