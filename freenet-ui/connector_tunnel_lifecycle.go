@@ -166,18 +166,46 @@ func (a *app) connectorTunnelStartLocked() error {
 
 func (a *app) connectorTunnelWait(cmd *exec.Cmd, lock *os.File){
  _=cmd.Wait()
+ retry:=false
  a.connectorTunnelMu.Lock()
- if a.connectorTunnelCmd==cmd {a.connectorTunnelCmd=nil;a.connectorTunnelState="STOPPED_OR_FAILED";a.connectorRemoteRevoke()}
+ if a.connectorTunnelCmd==cmd {
+  a.connectorTunnelCmd=nil
+  a.connectorTunnelState="STOPPED_OR_FAILED"
+  a.connectorRemoteRevoke()
+  if profile,err:=a.readTunnelProfile();err==nil&&profile.Enabled {
+   if a.connectorTunnelRestartCount<3 {
+    a.connectorTunnelRestartCount++
+    retry=true
+    a.connectorTunnelState="RECONNECT_WAIT"
+   }else{
+    a.connectorTunnelState="RECOVERY_STOP"
+   }
+  }
+ }
  if a.connectorTunnelLock==lock {a.connectorTunnelLock=nil}
  a.connectorTunnelMu.Unlock()
  _=lock.Close()
+ if retry {
+  go func(){
+   time.Sleep(6*time.Second)
+   a.connectorTunnelMu.Lock()
+   defer a.connectorTunnelMu.Unlock()
+   if a.connectorTunnelCmd!=nil||a.connectorTunnelState!="RECONNECT_WAIT"{return}
+   profile,err:=a.readTunnelProfile()
+   if err!=nil||!profile.Enabled{a.connectorTunnelState="RECOVERY_STOP";return}
+   if err:=a.connectorTunnelStartLocked();err!=nil {
+    a.connectorTunnelState="RECOVERY_STOP"
+    v3AppendEvent("connector","warning","Автовосстановление Tunnel STOP: требуется проверка в браузере.")
+   }
+  }()
+ }
 }
 
 func (a *app) handleTunnelStart(w http.ResponseWriter,r *http.Request){
  w.Header().Set("Cache-Control","no-store")
  if !connectorConfirm(w,r){return}
  if !connectorAdminSecureOrigin(r){writeJSON(w,403,map[string]any{"success":false,"error":"secure same-origin administration required"});return}
- a.connectorTunnelMu.Lock();err:=a.connectorTunnelStartLocked();a.connectorTunnelMu.Unlock()
+ a.connectorTunnelMu.Lock();a.connectorTunnelRestartCount=0;err:=a.connectorTunnelStartLocked();a.connectorTunnelMu.Unlock()
  if err!=nil{writeJSON(w,409,map[string]any{"success":false,"state":"STOP","error":err.Error()});return}
  v3AppendEvent("connector","success","Проверенный клиент OpenAI Tunnel запущен. Readiness и ChatGPT MCP ещё не подтверждены.")
  writeJSON(w,200,map[string]any{"success":true,"state":"STARTING","mutation":"TUNNEL_PROCESS_ONLY","connected":false})
