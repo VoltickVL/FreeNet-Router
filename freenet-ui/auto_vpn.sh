@@ -286,6 +286,9 @@ retain_backup() {
 }
 
 run_auto_vpn() {
+    if [ -e "$CHECKPOINT_DIR" ] || [ -L "$CHECKPOINT_DIR" ] || grep -qs '^MUTATION_BLOCKED=yes$' "$STATE_FILE" 2>/dev/null; then
+        fail_no_mutation 'pending/unknown VPN transaction: automatic mutation refused'
+    fi
     acquire_lock || fail_no_mutation 'cannot acquire AUTO VPN lock'
     [ -s "$CONFIG_FILE" ] || fail_no_mutation 'FreeNet config is unavailable'
     [ -s "$SUB_FILE" ] || fail_no_mutation 'subscription is not configured'
