@@ -292,6 +292,8 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
               <button id="connectorReadinessBtn" class="btn secondary" type="button">Проверить подключение ChatGPT</button>
             </div>
             <pre id="connectorReadinessOutput" role="status" aria-live="polite">Транспорт OpenAI пока не проверен. FreeNet определит архитектуру роутера и безопасный следующий шаг.</pre>
+            <div class="fn-connector-controls"><button id="connectorHostPreflightBtn" class="btn secondary" type="button">Проверить ресурсы роутера</button></div>
+            <pre id="connectorHostPreflightOutput" role="status" aria-live="polite">Безопасная read-only проверка RAM, флешки, noexec и состояния клиента. Это не запуск туннеля.</pre>
             <div class="fn-connector-controls">
               <button id="connectorInstallPlanBtn" class="btn secondary" type="button">План установки tunnel-client</button>
               <button id="connectorInstallBtn" class="btn secondary" type="button" disabled>Установить проверенный клиент</button>
@@ -463,6 +465,36 @@ async function connectorReadiness(){
   finally{button.disabled=false;}
 }
 el('connectorReadinessBtn').addEventListener('click',()=>{void connectorReadiness()});
+async function connectorHostPreflight(){
+  if(!authAuthenticated)return;
+  clearConnectorSecret();
+  const button=el('connectorHostPreflightBtn'),out=el('connectorHostPreflightOutput');
+  button.disabled=true;out.textContent='Читаем сведения о памяти и файловой системе. Сетевых запросов и установки нет…';
+  try{
+    const response=await fetch('/api/admin/connector/host-preflight',{cache:'no-store',credentials:'same-origin'});
+    const d=await response.json();
+    if(!response.ok||d.success===false)throw Error(d.error||'Read-only preflight недоступен');
+    const mib=n=>typeof n==='number'?Math.floor(n/1048576)+' МиБ':'не подтверждено';
+    const observed=d.preconditions==='HOST_FACTS_OBSERVED';
+    out.textContent=[
+      'ОС / архитектура: '+String(d.router_os||'UNKNOWN')+'/'+String(d.router_arch||'UNKNOWN'),
+      'Локальный MCP: '+String(d.local_mcp||'UNKNOWN'),
+      'USB/Entware: '+String(d.storage||'UNKNOWN')+'; свободно: '+mib(d.free_bytes),
+      'Запуск файлов (mount): '+String(d.storage_exec||'UNKNOWN'),
+      'Свободная RAM: '+mib(d.memory_available_bytes)+'; источник: '+String(d.memory_evidence||'UNKNOWN'),
+      'Установщик: '+String(d.candidate||'UNKNOWN'),
+      'Предпосылки: '+String(d.preconditions||'STOP'),
+      'ELF/ABI: НЕ ПРОВЕРЕНО; исходящий HTTPS: НЕ ПРОВЕРЕН',
+      'Подключение ChatGPT: НЕ ПОДТВЕРЖДЕНО',
+      String(d.note||''),
+      'VPN/DNS/routing: БЕЗ ИЗМЕНЕНИЙ'
+    ].join('\\n');
+    if(!observed)out.textContent+='\\nSTOP: дальнейшую установку до выяснения фактов не выполнять.';
+  }catch(error){out.textContent='STOP: '+String(error.message||'ошибка')+'\\nНикакие изменения не выполнялись.';}
+  finally{button.disabled=false;}
+}
+el('connectorHostPreflightBtn').addEventListener('click',()=>{void connectorHostPreflight()});
+
 let connectorInstallReady=false;
 async function connectorInstallPlan(){
   if(!authAuthenticated)return;
