@@ -631,6 +631,48 @@ const server = http.createServer((req, res) => {
     assert.match(journalPage.copy, /AUTO VPN · Решение/, 'Top-3 decision must have an explicit stage');
     assert.match(journalPage.copy, /VPN 175 мс/, 'Top-3 decision metrics must remain visible');
 
+    // Full responsive audit of the same real Control Center DOM used by Journal,
+    // Settings and Overview. A mobile viewport must never need sideways scrolling
+    // to reach CSV, diagnostics, pause, refresh, date filters or pagination.
+    const journalActionIds = ['fn3JournalFiltersToggle','fn3JournalExport','fn3JournalDiagnostics','fn3JournalLive','fn3JournalRefresh'];
+    const assertJournalResponsive = async (width, mode) => {
+      const layout = await page.evaluate(({ids, mode}) => {
+        const control = document.querySelector('.fn3-journal-control-card').getBoundingClientRect();
+        const search = document.querySelector('#fn3JournalSearch').getBoundingClientRect();
+        const actionRects = ids.map(id => ({id, box: document.getElementById(id).getBoundingClientRect().toJSON()}));
+        const dateRects = mode === 'dates' ? [...document.querySelectorAll('#fn3JournalCustomRange input')].map(el => el.getBoundingClientRect().toJSON()) : [];
+        const pager = document.querySelector('.fn3-journal-pager').getBoundingClientRect();
+        const inCard = r => r.left >= control.left - 1 && r.right <= control.right + 1;
+        return {
+          viewport: innerWidth, overflow: document.documentElement.scrollWidth - innerWidth,
+          searchInside: inCard(search), actionsInside: actionRects.every(r => inCard(r.box)),
+          dateInside: dateRects.every(inCard), pagerInsideViewport: pager.left >= -1 && pager.right <= innerWidth + 1,
+          buttons: actionRects.map(r => ({id:r.id,height:r.box.height,width:r.box.width})),
+          top: [...document.querySelectorAll('.fn3-journal-actions>button')].map(el => Math.round(el.getBoundingClientRect().top))
+        };
+      }, {ids: journalActionIds, mode});
+      assert.ok(layout.overflow <= 1, width+'px '+mode+' document overflow: '+JSON.stringify(layout));
+      assert.ok(layout.searchInside && layout.actionsInside && layout.dateInside && layout.pagerInsideViewport,
+        width+'px '+mode+' elements outside Journal: '+JSON.stringify(layout));
+      const heights = layout.buttons.map(btn => btn.height);
+      assert.ok(Math.max(...heights)-Math.min(...heights)<=1, width+'px '+mode+' Journal buttons must have the same height: '+JSON.stringify(layout));
+      assert.ok(heights.every(h => h >= (width<=760?44:42)), width+'px '+mode+' touch targets too small: '+JSON.stringify(layout));
+    };
+    for (const width of [320,375,390,430,600,760,768,1024,1366,1600]) {
+      await page.setViewportSize({width,height:900});
+      await assertJournalResponsive(width,'collapsed');
+    }
+    await page.locator('#fn3JournalFiltersToggle').click();
+    await page.locator('[data-journal-range="custom"]').click();
+    for (const width of [320,390,760,1024,1600]) {
+      await page.setViewportSize({width,height:900});
+      await assertJournalResponsive(width,'dates');
+    }
+    await page.locator('[data-journal-range="24h"]').click();
+    await page.locator('#fn3JournalFiltersToggle').click();
+    await page.setViewportSize({width:1600,height:1000});
+    assert.equal(await page.locator('#fn3JournalAdvancedFilters').isHidden(),true,'responsive audit must restore collapsed Journal filters');
+
     await page.locator('#fn3JournalFiltersToggle').click();
     await page.waitForFunction(() => document.querySelector('#fn3JournalAdvancedFilters')?.hidden === false);
     assert.equal(await page.locator('#fn3JournalFiltersToggle').getAttribute('aria-expanded'), 'true');
