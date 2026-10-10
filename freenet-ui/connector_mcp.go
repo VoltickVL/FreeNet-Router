@@ -139,8 +139,12 @@ func (a *app) connectorMCPCall(name string, args json.RawMessage) (any, error) {
     if err := json.Unmarshal(body, &result); err != nil || result["mutation"] != "NONE" {
         return nil, errors.New("read-only diagnostic contract violated")
     }
+    // The browser-only transport label must not be exposed as MCP transport.
+    result["transport"] = "LOCAL_MCP_ONLY"
+    redacted, err := json.Marshal(result)
+    if err != nil { return nil, errors.New("diagnostic serialization failed") }
     return map[string]any{
-        "content":[]map[string]any{{"type":"text","text":string(body)}},
+        "content":[]map[string]any{{"type":"text","text":string(redacted)}},
         "structuredContent":result,
         "isError":false,
     }, nil
