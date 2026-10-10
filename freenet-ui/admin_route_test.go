@@ -148,3 +148,16 @@ func TestAdminRouteRejectsChainedOrUnsafeOutboundTags(t *testing.T) {
         t.Fatalf("ambiguous duplicated outbound tag must be UNKNOWN: %s", got)
     }
 }
+
+func TestAdminRouteBoundedConcurrentReads(t *testing.T) {
+    a, _ := adminRouteFixture(t, "{\"routing\":{\"rules\":[]}}")
+    adminRouteReadSlots <- struct{}{}
+    adminRouteReadSlots <- struct{}{}
+    defer func(){ <-adminRouteReadSlots; <-adminRouteReadSlots }()
+    w := httptest.NewRecorder()
+    a.handleAdminRoute(w, httptest.NewRequest(http.MethodGet, "http://router/api/admin/route?host=sg.api.io.mi.com", nil))
+    if w.Code != http.StatusTooManyRequests { t.Fatalf("unbounded concurrent route diagnostic: %d", w.Code) }
+    if !strings.Contains(w.Body.String(), "\"mutation\":\"NONE\"") {
+        t.Fatal("resource refusal must retain NONE mutation contract")
+    }
+}
