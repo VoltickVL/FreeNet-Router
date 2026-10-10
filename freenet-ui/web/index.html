@@ -96,6 +96,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
 .fn-admin-card pre{box-sizing:border-box;min-width:0;width:100%;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;overflow-x:auto}
 #adminRouteOutput,#connectorGrantOutput,#connectorGrantSecret{padding:12px;border:1px solid #385c79;border-radius:11px;background:#061421;color:#d5eaff;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 #connectorGrantSecret{user-select:text}
+#connectorReadinessOutput{width:100%;max-width:100%;padding:12px;border:1px solid #385c79;border-radius:11px;background:#061421;color:#d5eaff;font:500 12px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere}
 .fn-admin-card .card-head{flex-wrap:wrap;min-width:0}
 .fn-admin-card .card-head > *{min-width:0;overflow-wrap:anywhere}
 .fn-admin-card .coming{max-width:100%;white-space:normal;overflow-wrap:anywhere}
@@ -286,6 +287,10 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
               <button id="connectorPairBtn" class="btn secondary" type="button">Выдать на 15 минут</button>
               <button id="connectorRevokeBtn" class="btn secondary" type="button">Отозвать доступ</button>
             </div>
+            <div class="fn-connector-controls">
+              <button id="connectorReadinessBtn" class="btn secondary" type="button">Проверить подключение ChatGPT</button>
+            </div>
+            <pre id="connectorReadinessOutput" role="status" aria-live="polite">Транспорт OpenAI пока не проверен. FreeNet определит архитектуру роутера и безопасный следующий шаг.</pre>
             <pre id="connectorGrantOutput" role="status" aria-live="polite">Создание токена разрешено только через защищённое соединение HTTPS или с самого устройства через localhost. Отозвать доступ можно из обычного Control Center.</pre>
             <pre id="connectorGrantSecret" hidden aria-label="Разовый токен подключения"></pre>
             <p><b>SSH:</b> произвольные команды и shell-терминал недоступны.</p>
@@ -423,6 +428,35 @@ async function connectorGrantStatus(){
   }catch(error){out.textContent='Не удалось проверить доступ: '+String(error.message||'ошибка');}
   finally{button.disabled=false;}
 }
+async function connectorReadiness(){
+  if(!authAuthenticated)return;
+  clearConnectorSecret();
+  const button=el('connectorReadinessBtn'),out=el('connectorReadinessOutput');
+  button.disabled=true;out.textContent='Проверяем возможности роутера без запуска туннеля…';
+  try{
+    const response=await fetch('/api/admin/connector/readiness',{cache:'no-store',credentials:'same-origin'});
+    const info=await response.json();
+    if(!response.ok||info.success===false)throw Error(info.error||'Состояние неизвестно');
+    const hardware=String(info.router_os||'неизвестно')+'/'+String(info.router_arch||'неизвестно');
+    const supported=info.architecture_status==='OFFICIAL_BINARY_ARCH_SUPPORTED';
+    const message=info.architecture_status==='OFFICIAL_BINARY_UNAVAILABLE'
+       ?'STOP: официального tunnel-client под архитектуру роутера нет. Нужен проверенный доверенный узел в LAN и отдельный защищённый мост.'
+       :supported
+         ?'Архитектура поддерживается официальным Linux tunnel-client. Нужны проверка Entware/ABI и разрешения OpenAI Platform.'
+         :'Подключение на роутере не подтверждено; требуется защищённый доверенный узел.';
+    out.textContent=[
+      'Устройство: '+hardware,
+      'Локальный MCP: '+(info.mcp_ready_on_router?'доступен по конфигурации':'НЕ ПОДТВЕРЖДЁН'),
+      'Временный read-only доступ: '+(info.grant_active?'активен':'не выдавался или истёк'),
+      'Внешнее подключение ChatGPT: НЕ ПОДТВЕРЖДЕНО',
+      message,
+      String(info.notes||''),
+      'Изменения VPN, DNS, routing: НЕТ'
+    ].join('\n');
+  }catch(error){out.textContent='STOP: '+String(error.message||'невозможно проверить')+'\nСостояние соединения не подтверждено.';}
+  finally{button.disabled=false;}
+}
+el('connectorReadinessBtn').addEventListener('click',()=>{void connectorReadiness()});
 async function connectorGrantAction(action){
   if(!authAuthenticated)return;
   const pair=action==='pair',button=el(pair?'connectorPairBtn':'connectorRevokeBtn'),out=el('connectorGrantOutput');
