@@ -13,6 +13,7 @@ const canonicalFirstPaintNav = `<nav class="nav" aria-label="Навигация 
       <button class="nav-btn" data-page="settings"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21H10v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/></svg></span><span>Настройки</span></button>
       <button class="nav-btn" data-page="network"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h14m0 0-3-3m3 3-3 3M20 16H6m0 0 3-3m-3 3 3 3"/></svg></span><span>Маршрутизация</span></button>
       <button class="nav-btn" data-page="journal"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg></span><span>Журнал</span></button>
+      <button class="nav-btn" data-page="admin"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 2.5 8 4.5v10l-8 4.5L4 17V7Z"/><path d="m9 12 2 2 4-4"/></svg></span><span>Администрирование</span></button>
     </nav>`
 
 const canonicalBootStyle = `<style id="freenetCanonicalBootStyle">
@@ -27,7 +28,7 @@ const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
 (() => {
   const root = document.documentElement;
   let frames = 0;
-  const canonicalRoutes = ['overview','settings','network','journal'];
+  const canonicalRoutes = ['overview','settings','network','journal','admin'];
   const canonicalNavReady = () => {
     const buttons = Array.from(document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]'));
     return buttons.length === canonicalRoutes.length && buttons.every((button, index) =>
@@ -113,7 +114,7 @@ let localPending=`
 	// The route catalog is final from the first HTML response. Settings and Journal
 	// mount progressively behind the boot gate, while Routing keeps its established
 	// internal "network" anchor. Retired routes are never reintroduced.
-	canonicalLabels := `const pageLabels={overview:'Обзор',settings:'Настройки',network:'Маршрутизация',journal:'Журнал'}`
+	canonicalLabels := `const pageLabels={overview:'Обзор',settings:'Настройки',network:'Маршрутизация',journal:'Журнал',admin:'Администрирование'}`
 	raw = raw[:labelsAt] + canonicalLabels + raw[labelsEndAt:]
 
 	// Settings DNS, Routing v2, Config Studio parity, VPN-state reconciliation,

@@ -61,6 +61,8 @@ async function capture(label){
     calls.push({path:url.pathname,method:req.method(),query:url.search,body:req.postData()});
     if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
     if(url.pathname==='/api/status')return answer(route,status);
+    if(url.pathname==='/api/admin/dns')return answer(route,{success:true,host:url.searchParams.get('host'),resolver:'system',ips:['203.0.113.10'],mutation:'NONE'});
+    if(url.pathname==='/api/journal/diagnostics')return answer(route,{schema:1,version:'v0.7.4',generated_at:'2026-10-10T00:00:00Z',technical_events:[]});
     if(url.pathname==='/api/operation/state')return answer(route,{success:true,active:false});
     if(url.pathname==='/api/subscription')return answer(route,{success:true,configured:true});
     if(url.pathname==='/api/vpn/current-quality'&&url.searchParams.get('job')==='cache'){
@@ -120,11 +122,22 @@ async function capture(label){
   });
   const verifyCanonicalSidebar = async context => {
     const actual = await page.locator('.sidebar .nav>.nav-btn[data-page]').evaluateAll(nodes => nodes.map(n => n.dataset.page === 'routing' ? 'network' : n.dataset.page));
-    assert.deepEqual(actual,['overview','settings','network','journal'], context+': only four canonical sidebar entries allowed');
+    assert.deepEqual([...actual].sort(), [...['overview','settings','network','journal','admin']].sort(), context+': exactly five canonical sidebar entries, no duplicates or retired routes');
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="subscription"]').count(),0,context+': legacy Subscription must not reappear');
   };
   await page.goto(base);await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','canonical boot');
   await verifyCanonicalSidebar('cold start');
+  await page.locator('.nav-btn[data-page="admin"]').click();
+  await page.waitForFunction(()=>document.querySelector('[data-page-view="admin"]')?.classList.contains('active'));
+  await page.locator('#adminCommandInput').fill('dns sg.api.io.mi.com');
+  await page.locator('#adminRunBtn').click();
+  await page.waitForFunction(()=>document.querySelector('#adminCommandOutput')?.textContent.includes('203.0.113.10'));
+  assert.match(await page.locator('#adminCommandOutput').textContent(),/не определён/, 'DNS must not claim Xray routing');
+  await page.locator('#adminCommandInput').fill('ssh cat /etc/passwd');
+  await page.locator('#adminRunBtn').click();
+  assert.match(await page.locator('#adminCommandOutput').textContent(),/не поддерживается/, 'raw SSH must be rejected');
+  assert.equal(calls.filter(c=>c.path==='/api/admin/dns').length,1,'only allowlisted DNS diagnostic request');
+  await page.locator('.nav-btn[data-page="overview"]').click();
   await page.locator(T).waitFor({state:'visible'});await until(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Бельгия','current country');
   assert.equal(await page.locator('#fnVpnPickerToggle').count(),0,'legacy picker owner retired');assert.equal(await page.locator(T).count(),1);assert.equal(await page.locator(P).isHidden(),true);
   assert.equal(countApply(),0,'no startup apply');assert.equal(calls.filter(c=>c.path.startsWith('/api/vpn/')&&!c.query.includes('job=cache')).length,0,'cache read does not start speed scan');assert.deepEqual(errors,[]);
