@@ -76,6 +76,7 @@ type app struct {
 	connectorTunnelCmd *exec.Cmd
 	connectorTunnelLock *os.File
 	connectorTunnelState string
+	connectorTunnelRestartCount int
 }
 
 type statusResponse struct {
