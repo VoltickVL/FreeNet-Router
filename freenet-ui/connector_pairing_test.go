@@ -128,6 +128,8 @@ func TestConnectorPairRequiresAdminAuthAndRealSecureOrigin(t *testing.T){
  req.RemoteAddr="192.0.2.10:1234";req.Header.Set("X-Forwarded-Proto","https")
  w:=httptest.NewRecorder();a.handleConnectorPair(w,req)
  if w.Code!=403{t.Fatal("untrusted spoofed X-Forwarded-Proto accepted")}
+ req=connectorRequest("POST","/api/admin/connector/pair",`{"confirm":true}`)
+ req.RemoteAddr="192.0.2.10:1234"
  req.TLS=&tls.ConnectionState{} // direct transport TLS can issue grants
  w=httptest.NewRecorder();a.handleConnectorPair(w,req)
  if w.Code!=200{t.Fatalf("TLS pairing rejected: %d",w.Code)}
