@@ -176,24 +176,25 @@ func (a *app) handleConnectorRevoke(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success":true,"active":false,"mutation":"AUTHORIZATION_ONLY"})
 }
 
-func (a *app) handleConnectorMachineDiagnostics(w http.ResponseWriter, r *http.Request) {
+func (a *app) authorizeConnectorMachine(w http.ResponseWriter, r *http.Request) bool {
 	w.Header().Set("Cache-Control", "no-store")
 	// A user may reverse-proxy FreeNet accidentally; restrict machine API to
 	// the actual loopback listener and Host as a second independent check.
 	if !requestFromLoopback(r) || !connectorLoopbackHost(r.Host) ||
 		r.Header.Get("Cookie") != "" || r.URL.Query().Has("token") {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"success":false,"error":"connector authorization required"})
-		return
+		return false
 	}
 	auth := r.Header.Get("Authorization")
+	if len(r.Header.Values("Authorization")) != 1 { writeJSON(w, http.StatusUnauthorized, map[string]any{"success":false,"error":"connector authorization required"}); return false }
 	if !strings.HasPrefix(auth, "Bearer ") || len(auth) != len("Bearer ")+64 {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"success":false,"error":"connector authorization required"})
-		return
+		return false
 	}
 	token := strings.TrimPrefix(auth, "Bearer ")
 	if _, err := hex.DecodeString(token); err != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"success":false,"error":"connector authorization required"})
-		return
+		return false
 	}
 	a.connectorMu.Lock()
 	grant, exists, err := a.readConnectorGrant()
@@ -201,7 +202,7 @@ func (a *app) handleConnectorMachineDiagnostics(w http.ResponseWriter, r *http.R
 		subtle.ConstantTimeCompare([]byte(sessionDigest(token)), []byte(grant.Hash)) != 1 {
 		a.connectorMu.Unlock()
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"success":false,"error":"connector authorization required"})
-		return
+		return false
 	}
 	now := time.Now().UTC()
 	if a.connectorRateWindow.IsZero() || now.Sub(a.connectorRateWindow) >= time.Minute {
@@ -210,7 +211,7 @@ func (a *app) handleConnectorMachineDiagnostics(w http.ResponseWriter, r *http.R
 	if a.connectorRateCount >= 60 {
 		a.connectorMu.Unlock()
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"success":false,"error":"connector rate limit exceeded"})
-		return
+		return false
 	}
 	a.connectorRateCount++
 	if grant.LastUsedAt.IsZero() || now.Sub(grant.LastUsedAt) >= time.Minute {
@@ -218,9 +219,15 @@ func (a *app) handleConnectorMachineDiagnostics(w http.ResponseWriter, r *http.R
 		if err := a.saveConnectorGrant(grant); err != nil {
 			a.connectorMu.Unlock()
 			writeJSON(w, http.StatusServiceUnavailable, map[string]any{"success":false,"error":"connector audit persistence failed"})
-			return
+			return false
 		}
 	}
 	a.connectorMu.Unlock()
-	a.handleConnectorDiagnostics(w, r)
+	return true
+}
+
+func (a *app) handleConnectorMachineDiagnostics(w http.ResponseWriter, r *http.Request) {
+  w.Header().Set("Cache-Control", "no-store")
+  if !a.authorizeConnectorMachine(w, r) { return }
+  a.handleConnectorDiagnostics(w, r)
 }
