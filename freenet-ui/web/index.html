@@ -89,6 +89,9 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
 .fn-admin-form-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
 .fn-admin-form-row input{width:100%;min-width:0;min-height:46px;padding:9px 12px;border:1px solid #385c79;border-radius:11px;background:#071a2c;color:#eaf4ff;font:600 14px/1.4 inherit}
 .fn-admin-form-row button{min-height:46px}
+.fn-admin-route-targets{grid-template-columns:minmax(0,1fr) 92px 90px}
+.fn-admin-route-targets select{min-width:0;min-height:46px;padding:8px;border:1px solid #385c79;border-radius:11px;background:#071a2c;color:#eaf4ff}
+@media(max-width:480px){.fn-admin-route-targets{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.fn-admin-route-targets #adminRouteHost{grid-column:1/-1}}
 .fn-admin-quick{display:flex;flex-wrap:wrap;gap:8px;margin:13px 0}
 .fn-admin-quick button{min-height:44px}
 .fn-admin-card button:focus-visible,.fn-admin-card input:focus-visible{outline:2px solid #80adff;outline-offset:2px}
@@ -277,7 +280,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
           <p>Проверка показывает возможное совпадение в сохранённой конфигурации Xray. Она не подтверждает, что Xray загрузил именно эту версию правил или что запрос LAN-клиента действительно прошёл через DIRECT/VPN.</p>
           <form id="adminRouteForm">
             <label for="adminRouteHost">Домен или IP назначения</label>
-            <div class="fn-admin-form-row"><input id="adminRouteHost" type="text" maxlength="253" spellcheck="false" autocomplete="off" placeholder="sg.api.io.mi.com" required><input id="adminRoutePort" type="number" min="1" max="65535" value="443" aria-label="Порт назначения" style="max-width:90px"><select id="adminRouteNetwork" aria-label="Протокол"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
+            <div class="fn-admin-form-row fn-admin-route-targets"><input id="adminRouteHost" type="text" maxlength="253" spellcheck="false" autocomplete="off" placeholder="sg.api.io.mi.com" required><input id="adminRoutePort" type="number" min="1" max="65535" value="443" aria-label="Порт назначения" style="max-width:90px"><select id="adminRouteNetwork" aria-label="Протокол"><option value="tcp">TCP</option><option value="udp">UDP</option></select></div>
             <label for="adminRouteClient">IP LAN-клиента (необязательно)</label>
             <div class="fn-admin-form-row"><input id="adminRouteClient" type="text" maxlength="45" spellcheck="false" autocomplete="off" placeholder="192.168.50.144"><button id="adminRouteBtn" class="btn primary" type="submit">Проверить правило</button></div>
           </form>
