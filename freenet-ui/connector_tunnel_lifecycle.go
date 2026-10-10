@@ -21,7 +21,31 @@ import (
 
 const connectorHealthURL = "http://127.0.0.1:12031/readyz"
 var connectorTunnelIDPattern=regexp.MustCompile(`^tunnel_[a-f0-9]{32}$`)
-var connectorRuntimeKeyPattern=regexp.MustCompile(`^sk-[A-Za-z0-9_-]{20,512}$`)
+var connectorRuntimeKeyPattern=regexp.MustCompile(`^sk-[A-Za-z0-9_-]{20,512}package main
+
+import (
+ "context"
+ "crypto/sha256"
+ "crypto/subtle"
+ "encoding/hex"
+ "encoding/json"
+ "errors"
+ "io"
+ "net/http"
+ "os"
+ "os/exec"
+ "path/filepath"
+ "regexp"
+ "runtime"
+ "strings"
+ "syscall"
+ "time"
+)
+
+const connectorHealthURL = "http://127.0.0.1:12031/readyz"
+var connectorTunnelIDPattern=regexp.MustCompile(`^tunnel_[a-f0-9]{32}$`)
+)
+func connectorRuntimeKeyAllowed(v string) bool {return connectorRuntimeKeyPattern.MatchString(v) && !strings.HasPrefix(v,"sk-admin-")}
 
 type connectorTunnelProfile struct {
  Version int `json:"version"`
@@ -66,7 +90,7 @@ func (a *app) readTunnelProfile()(connectorTunnelProfile,error){
 func (a *app) connectorTransportConfigured() bool {
  p,err:=a.readTunnelProfile();if err!=nil{return false}
  key,err:=connectorReadPrivateFile(a.connectorTransportKeyPath(),1024)
- if err!=nil||!connectorRuntimeKeyPattern.Match(key){return false}
+ if err!=nil||!connectorRuntimeKeyAllowed(string(key)){return false}
  token,err:=connectorReadPrivateFile(a.connectorTransportHeaderPath(),96)
  if err!=nil||len(token)!=len("Bearer ")+64||!strings.HasPrefix(string(token),"Bearer "){return false}
  if _,err=hex.DecodeString(strings.TrimPrefix(string(token),"Bearer "));err!=nil{return false}
@@ -92,7 +116,7 @@ func (a *app) handleTunnelConfigure(w http.ResponseWriter,r *http.Request){
  if !connectorAdminSecureOrigin(r) || !connectorAdminSameOrigin(r){writeJSON(w,403,map[string]any{"success":false,"error":"secure same-origin browser required"});return}
  var request struct {Confirm bool `json:"confirm"`; TunnelID string `json:"tunnel_id"`; RuntimeKey string `json:"runtime_api_key"`}
  dec:=json.NewDecoder(http.MaxBytesReader(w,r.Body,4096));dec.DisallowUnknownFields()
- if err:=dec.Decode(&request);err!=nil||!request.Confirm||!connectorTunnelIDPattern.MatchString(request.TunnelID)||!connectorRuntimeKeyPattern.MatchString(request.RuntimeKey){
+ if err:=dec.Decode(&request);err!=nil||!request.Confirm||!connectorTunnelIDPattern.MatchString(request.TunnelID)||!connectorRuntimeKeyAllowed(request.RuntimeKey){
   writeJSON(w,400,map[string]any{"success":false,"error":"invalid runtime credentials or explicit confirmation missing"});return
  }
  var extra any;if dec.Decode(&extra)!=io.EOF {writeJSON(w,400,map[string]any{"success":false,"error":"unexpected data"});return}
