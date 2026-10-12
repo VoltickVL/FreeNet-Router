@@ -25,6 +25,10 @@ func TestBetaExtra2AdmittedWithoutOtherWhitelistFamilies(t *testing.T) {
 	if extraProfileFamily(profiles[0].Name) != "extra" || extraProfileFamily(profiles[1].Name) != "extra whitelist2" {
 		t.Fatalf("wrong eligible profile families: %+v", profiles)
 	}
+	visible := selectableSubscriptionProfiles(profiles)
+	if len(visible) != 2 || visible[1].ID != profiles[1].ID {
+		t.Fatalf("browser selector dropped Whitelist2: %+v", visible)
+	}
 	best, total, truncated, err := parseBestServerCandidates([]byte(body))
 	if err != nil {
 		t.Fatal(err)
@@ -56,6 +60,16 @@ func TestForeignBestServerPoolIncludesWhitelist2WithoutRussia(t *testing.T) {
 	foreign := filterForeignBestServerCandidates(best)
 	if len(foreign) != 2 || foreign[0].Profile.CountryCode != "de" || foreign[1].Profile.CountryCode != "pl" {
 		t.Fatalf("foreign candidate pool=%+v want DE ordinary and PL Whitelist2 only", foreign)
+	}
+	// Country presets must offer a region represented solely by Whitelist2.
+	profiles := []subscriptionProfile{best[0].Profile, best[1].Profile, best[2].Profile}
+	visible := selectableSubscriptionProfiles(profiles)
+	if len(visible) != 2 {
+		t.Fatalf("country selector visible profiles=%d want=2: %+v", len(visible), visible)
+	}
+	options := settingsCountryOptions(visible, nil)
+	if len(options) != 2 || options[0].Code != "de" || options[1].Code != "pl" {
+		t.Fatalf("countries available from Extra+Whitelist2=%+v", options)
 	}
 }
 
