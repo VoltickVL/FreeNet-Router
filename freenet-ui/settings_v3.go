@@ -1613,17 +1613,27 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 }
 
 func (a *app) runV3GeoData(ctx context.Context) error {
-	if _, err := os.Stat(a.cfg.XKeenPath); err != nil {
-		v3Mark("geodata", "failed", "XKeen updater недоступен.")
-		return errors.New("xkeen updater is unavailable")
-	}
-	cmd := exec.CommandContext(ctx, a.cfg.XKeenPath, "-ug")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		_ = out
-		v3Mark("geodata", "failed", "GeoData / GeoIP не обновлены.")
+	// FreeNet must update the exact geosite.dat/geoip.dat consumed by Xray.
+	// XKeen -ug refreshes a different set of upstream-named geo assets.
+	dir := a.geoDataAssetDir()
+	changed, err := updateRunetGeoData(ctx, dir, nil, runetGeoSources, validateRunetGeoDataCandidate)
+	if err != nil {
+		result := "failed"
+		if strings.Contains(err.Error(), "ROLLBACK FAILED/UNKNOWN") || strings.Contains(err.Error(), "STOP") {
+			result = "blocked"
+		}
+		v3Mark("geodata", result, "GeoSite / GeoIP runetfreedom: SHA-256/проверка/обновление не подтверждены. Рабочие данные сохранены либо требуется разбор rollback. Код: "+sanitizeAutomationReason(err.Error()))
 		return err
 	}
-	v3Mark("geodata", "success", "GeoData / GeoIP обновлены.")
+	if changed {
+		v3Mark("geodata", "pending", "GeoSite / GeoIP скачаны из runetfreedom/release, SHA-256 и protobuf проверены, файлы обновлены на диске. Xray не перезапускался: активация правил ещё не подтверждена.")
+		return nil
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, runetGeoPending)); statErr == nil {
+		v3Mark("geodata", "pending", "GeoSite / GeoIP runetfreedom: SHA-256 совпадают; активация файлов в работающем Xray ещё не подтверждена.")
+		return nil
+	}
+	v3Mark("geodata", "success", "GeoSite / GeoIP runetfreedom: контрольные суммы и формат файлов подтверждены, обновление не требуется.")
 	return nil
 }
 
@@ -1760,7 +1770,7 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, response)
 		return
 	case "geodata_update":
-		err = a.runV3GeoData(ctx); message = "GeoData / GeoIP обновлены."
+		err = a.runV3GeoData(ctx); message = "GeoSite / GeoIP runetfreedom проверены; состояние применения см. в Журнале."
 	case "freenet_check":
 		err = a.runV3FreeNetCheck(ctx); message = "Проверка версии FreeNet завершена."
 	case "backup_create":
