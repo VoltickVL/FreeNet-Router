@@ -169,8 +169,11 @@ func parseSubscriptionBody(body []byte) ([]subscriptionProfile, error) {
 		text = strings.ReplaceAll(string(decoded), "\r", "")
 	}
 
-	profiles := make([]subscriptionProfile, 0, 16)
+	const maxVisibleProfiles = 100
+	ordinary := make([]indexedExtraPoolItem[subscriptionProfile], 0, maxVisibleProfiles)
+	whitelist2 := make([]indexedExtraPoolItem[subscriptionProfile], 0, maxVisibleProfiles)
 	seen := map[string]bool{}
+	unique := 0
 	for _, rawLine := range strings.Split(text, "\n") {
 		line := strings.TrimSpace(rawLine)
 		lower := strings.ToLower(line)
@@ -182,11 +185,20 @@ func parseSubscriptionBody(body []byte) ([]subscriptionProfile, error) {
 			continue
 		}
 		seen[p.ID] = true
-		profiles = append(profiles, p)
-		if len(profiles) >= 100 {
-			break
+		item := indexedExtraPoolItem[subscriptionProfile]{Value: p, Index: unique}
+		unique++
+		switch extraProfileFamily(p.Name) {
+		case "extra whitelist2":
+			if len(whitelist2) < maxVisibleProfiles {
+				whitelist2 = append(whitelist2, item)
+			}
+		case "extra":
+			if len(ordinary) < maxVisibleProfiles {
+				ordinary = append(ordinary, item)
+			}
 		}
 	}
+	profiles := cappedExtraFamilyPool(maxVisibleProfiles, ordinary, whitelist2)
 	if len(profiles) == 0 {
 		return nil, errors.New("no active Extra profiles found")
 	}
