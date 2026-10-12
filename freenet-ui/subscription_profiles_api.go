@@ -309,7 +309,7 @@ func parseSafeVLESSProfile(line string) (subscriptionProfile, bool) {
 	if name == "" {
 		name = "Extra profile"
 	}
-	if !isBaseExtraProfileName(name) {
+	if !isSelectableExtraProfileName(name) {
 		return subscriptionProfile{}, false
 	}
 	return subscriptionProfile{
@@ -321,23 +321,29 @@ func parseSafeVLESSProfile(line string) (subscriptionProfile, bool) {
 	}, true
 }
 
-// isBaseExtraProfileName is the canonical product eligibility rule for BlancVPN
-// discovery. Only the ordinary Extra family is selectable; Whitelist variants
-// are intentionally excluded from selector, Best Server and future automation.
-func isBaseExtraProfileName(name string) bool {
+// extraProfileFamily classifies only the two explicitly allowed families.
+// Beta may try Extra Whitelist2 alongside normal Extra, but must never admit
+// arbitrary Whitelist, expired or substring-matched subscription labels.
+func extraProfileFamily(name string) string {
 	lower := strings.ToLower(strings.TrimSpace(sanitizeProfileName(name)))
-	if lower == "" || strings.Contains(lower, "expired") || strings.Contains(lower, "whitelist") {
-		return false
+	if lower == "" || strings.Contains(lower, "expired") {
+		return ""
 	}
 	lower = strings.TrimRight(lower, " ,.;")
-	if lower == "extra" {
-		return true
+	for _, family := range []string{"extra whitelist2", "extra"} {
+		if !strings.HasSuffix(lower, family) {
+			continue
+		}
+		prefix := strings.TrimSuffix(lower, family)
+		if prefix == "" || strings.HasSuffix(prefix, " ") || strings.HasSuffix(prefix, ",") {
+			return family
+		}
 	}
-	if !strings.HasSuffix(lower, "extra") {
-		return false
-	}
-	prefix := strings.TrimSuffix(lower, "extra")
-	return strings.HasSuffix(prefix, " ") || strings.HasSuffix(prefix, ",")
+	return ""
+}
+
+func isSelectableExtraProfileName(name string) bool {
+	return extraProfileFamily(name) != ""
 }
 
 func regionalIndicatorLetter(r rune) (byte, bool) {
