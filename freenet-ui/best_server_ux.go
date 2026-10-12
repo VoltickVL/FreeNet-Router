@@ -52,7 +52,9 @@ func isRussianBestServerCandidate(candidate bestServerInternalCandidate) bool {
 
 func isSpecializedBestServerCandidate(candidate bestServerInternalCandidate) bool {
 	name := strings.ToLower(strings.TrimSpace(candidate.Profile.Name))
-	return strings.Contains(name, "whitelist")
+	// An existing secondary filter must not erase the exact Whitelist2 family
+	// after it has passed the common safe subscription parser.
+	return strings.Contains(name, "whitelist") && extraProfileFamily(candidate.Profile.Name) != "extra whitelist2"
 }
 
 func filterForeignBestServerCandidates(candidates []bestServerInternalCandidate) []bestServerInternalCandidate {
