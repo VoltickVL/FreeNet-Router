@@ -347,6 +347,12 @@ func extraProfileFamily(name string) string {
 			continue
 		}
 		prefix := strings.TrimSuffix(lower, family)
+		// Only the exact trailing "Extra Whitelist2" marker is permitted.
+		// An earlier arbitrary "Whitelist" marker must not sneak into the
+		// normal Extra family or masquerade as the supported variant.
+		if strings.Contains(prefix, "whitelist") {
+			return ""
+		}
 		if prefix == "" || strings.HasSuffix(prefix, " ") || strings.HasSuffix(prefix, ",") {
 			return family
 		}
