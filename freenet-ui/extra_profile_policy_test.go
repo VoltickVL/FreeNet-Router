@@ -149,8 +149,8 @@ func TestWhitelist2TransportPreservesSNIHostAndPath(t *testing.T) {
 }
 
 func TestBestCandidateCapPreservesWhitelist2AtSubscriptionTail(t *testing.T) {
-	lines := make([]string, 0, 100)
-	for i := 0; i < 80; i++ {
+	lines := make([]string, 0, 140)
+	for i := 0; i < 120; i++ {
 		lines = append(lines, fmt.Sprintf("vless://BASE%d@203.0.113.10:443?security=reality#DE%%20City%%20%02d%%2C%%20Germany%%2C%%20Extra", i, i))
 	}
 	for i := 0; i < 20; i++ {
@@ -160,7 +160,7 @@ func TestBestCandidateCapPreservesWhitelist2AtSubscriptionTail(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !truncated || total != 100 || len(all) != bestServerMaxCandidates {
+	if !truncated || total != 140 || len(all) != bestServerMaxCandidates {
 		t.Fatalf("bounded pool total=%d len=%d truncated=%v", total, len(all), truncated)
 	}
 	families := map[string]int{}
@@ -170,13 +170,20 @@ func TestBestCandidateCapPreservesWhitelist2AtSubscriptionTail(t *testing.T) {
 	if families["extra"] != 44 || families["extra whitelist2"] != 20 {
 		t.Fatalf("family-balanced pool=%+v want 44 ordinary + 20 Extra2", families)
 	}
-	// The 100-row selector has a separate limit and must not silently erase Extra2.
+	// The 100-row selector must not erase all Whitelist2 profiles at the tail.
 	selector, err := parseSubscriptionBody([]byte(strings.Join(lines, "\n")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(selector) != 100 {
 		t.Fatalf("selector profiles=%d want=100", len(selector))
+	}
+	selectorFamilies := map[string]int{}
+	for _, item := range selector {
+		selectorFamilies[extraProfileFamily(item.Name)]++
+	}
+	if selectorFamilies["extra"] != 80 || selectorFamilies["extra whitelist2"] != 20 {
+		t.Fatalf("selector cap starved tail Extra2: %+v", selectorFamilies)
 	}
 }
 
