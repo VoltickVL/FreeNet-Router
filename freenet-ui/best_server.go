@@ -68,6 +68,46 @@ func (a *app) discoverBestServerCandidates(ctx context.Context) ([]bestServerInt
     return candidates, total, truncated, err
 }
 
+// Only retain the first bounded entries per family in memory; never let a long
+// run of ordinary Extra labels at the start of a subscription starve Whitelist2
+// candidates out of the 64-row Best Server and emergency AUTO pool.
+type indexedBestServerCandidate struct {
+	Candidate bestServerInternalCandidate
+	Index     int
+}
+
+func balancedBestServerCandidates(base, whitelist2 []indexedBestServerCandidate) []bestServerInternalCandidate {
+	if len(base) == 0 && len(whitelist2) == 0 {
+		return nil
+	}
+	combined := append(append(make([]indexedBestServerCandidate, 0, len(base)+len(whitelist2)), base...), whitelist2...)
+	sort.SliceStable(combined, func(i, j int) bool { return combined[i].Index < combined[j].Index })
+	keep := make(map[int]bool, bestServerMaxCandidates)
+	if len(base) != 0 && len(whitelist2) != 0 {
+		// Guarantee equal reserved opportunity under saturation; unused slots
+		// are filled by original subscription order without a family bias.
+		quota := bestServerMaxCandidates / 2
+		for _, family := range [][]indexedBestServerCandidate{base, whitelist2} {
+			for i := 0; i < len(family) && i < quota; i++ {
+				keep[family[i].Index] = true
+			}
+		}
+	}
+	for _, item := range combined {
+		if len(keep) >= bestServerMaxCandidates {
+			break
+		}
+		keep[item.Index] = true
+	}
+	out := make([]bestServerInternalCandidate, 0, len(keep))
+	for _, item := range combined {
+		if keep[item.Index] {
+			out = append(out, item.Candidate)
+		}
+	}
+	return out
+}
+
 func parseBestServerCandidates(body []byte) ([]bestServerInternalCandidate, int, bool, error) {
 	text := strings.ReplaceAll(string(body), "\r", "")
 	if !strings.Contains(strings.ToLower(text), "vless://") {
@@ -78,10 +118,10 @@ func parseBestServerCandidates(body []byte) ([]bestServerInternalCandidate, int,
 		text = strings.ReplaceAll(string(decoded), "\r", "")
 	}
 
-	all := make([]bestServerInternalCandidate, 0, bestServerMaxCandidates)
+	ordinary := make([]indexedBestServerCandidate, 0, bestServerMaxCandidates)
+	whitelist2 := make([]indexedBestServerCandidate, 0, bestServerMaxCandidates)
 	seen := map[string]bool{}
 	total := 0
-	truncated := false
 	for _, rawLine := range strings.Split(text, "\n") {
 		line := strings.TrimSpace(rawLine)
 		lower := strings.ToLower(line)
@@ -92,18 +132,30 @@ func parseBestServerCandidates(body []byte) ([]bestServerInternalCandidate, int,
 		if !ok || seen[profile.ID] {
 			continue
 		}
+		family := extraProfileFamily(profile.Name)
 		seen[profile.ID] = true
+		index := total
 		total++
-		if len(all) >= bestServerMaxCandidates {
-			truncated = true
-			continue
+		entry := indexedBestServerCandidate{Candidate: bestServerInternalCandidate{Profile: profile, Raw: line}, Index: index}
+		switch family {
+		case "extra whitelist2":
+			if len(whitelist2) < bestServerMaxCandidates {
+				whitelist2 = append(whitelist2, entry)
+			}
+		case "extra":
+			if len(ordinary) < bestServerMaxCandidates {
+				ordinary = append(ordinary, entry)
+			}
 		}
-		all = append(all, bestServerInternalCandidate{Profile: profile, Raw: line})
 	}
-	if total == 0 || len(all) == 0 {
+	if total == 0 {
 		return nil, 0, false, errors.New("no active Extra profiles found")
 	}
-	return all, total, truncated, nil
+	all := balancedBestServerCandidates(ordinary, whitelist2)
+	if len(all) == 0 {
+		return nil, 0, false, errors.New("no active Extra profiles found")
+	}
+	return all, total, total > bestServerMaxCandidates, nil
 }
 
 func withoutBestServerCurrentLogicalAlternatives(candidates []bestServerInternalCandidate, currentEndpoint, currentFilter, exactLabel string) []bestServerInternalCandidate {
