@@ -169,3 +169,18 @@ func TestCurrentBestServerCandidateFailsClosedOnAmbiguousIdentity(t *testing.T) 
 		t.Fatalf("ambiguous current identity must fail closed, got %#v ok=%v", got, ok)
 	}
 }
+
+
+func TestFilterForeignBestServerCandidatesAllowsExactExtraWhitelist2(t *testing.T) {
+	input := []bestServerInternalCandidate{
+		{Profile: subscriptionProfile{ID: "base", Name: "DE Berlin, Germany, Extra", CountryCode: "de"}},
+		{Profile: subscriptionProfile{ID: "wl2", Name: "PL Warsaw, Poland, Extra Whitelist2", CountryCode: "pl"}},
+		{Profile: subscriptionProfile{ID: "wl", Name: "DE Berlin, Germany, Extra Whitelist", CountryCode: "de"}},
+		{Profile: subscriptionProfile{ID: "wl3", Name: "DE Berlin, Germany, Extra Whitelist3", CountryCode: "de"}},
+		{Profile: subscriptionProfile{ID: "ruwl2", Name: "RU Moscow, Russia, Extra Whitelist2", CountryCode: "ru"}},
+	}
+	got := filterForeignBestServerCandidates(input)
+	if len(got) != 2 || got[0].Profile.ID != "base" || got[1].Profile.ID != "wl2" {
+		t.Fatalf("foreign profile families=%+v; want ordinary Extra and exact Extra Whitelist2", got)
+	}
+}
