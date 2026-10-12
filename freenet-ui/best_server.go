@@ -78,10 +78,10 @@ func parseBestServerCandidates(body []byte) ([]bestServerInternalCandidate, int,
 		text = strings.ReplaceAll(string(decoded), "\r", "")
 	}
 
-	all := make([]bestServerInternalCandidate, 0, bestServerMaxCandidates)
+	ordinary := make([]indexedExtraPoolItem[bestServerInternalCandidate], 0, bestServerMaxCandidates)
+	whitelist2 := make([]indexedExtraPoolItem[bestServerInternalCandidate], 0, bestServerMaxCandidates)
 	seen := map[string]bool{}
 	total := 0
-	truncated := false
 	for _, rawLine := range strings.Split(text, "\n") {
 		line := strings.TrimSpace(rawLine)
 		lower := strings.ToLower(line)
@@ -92,18 +92,30 @@ func parseBestServerCandidates(body []byte) ([]bestServerInternalCandidate, int,
 		if !ok || seen[profile.ID] {
 			continue
 		}
+		family := extraProfileFamily(profile.Name)
 		seen[profile.ID] = true
+		index := total
 		total++
-		if len(all) >= bestServerMaxCandidates {
-			truncated = true
-			continue
+		entry := indexedExtraPoolItem[bestServerInternalCandidate]{Value: bestServerInternalCandidate{Profile: profile, Raw: line}, Index: index}
+		switch family {
+		case "extra whitelist2":
+			if len(whitelist2) < bestServerMaxCandidates {
+				whitelist2 = append(whitelist2, entry)
+			}
+		case "extra":
+			if len(ordinary) < bestServerMaxCandidates {
+				ordinary = append(ordinary, entry)
+			}
 		}
-		all = append(all, bestServerInternalCandidate{Profile: profile, Raw: line})
 	}
-	if total == 0 || len(all) == 0 {
+	if total == 0 {
 		return nil, 0, false, errors.New("no active Extra profiles found")
 	}
-	return all, total, truncated, nil
+	all := cappedExtraFamilyPool(bestServerMaxCandidates, ordinary, whitelist2)
+	if len(all) == 0 {
+		return nil, 0, false, errors.New("no active Extra profiles found")
+	}
+	return all, total, total > bestServerMaxCandidates, nil
 }
 
 func withoutBestServerCurrentLogicalAlternatives(candidates []bestServerInternalCandidate, currentEndpoint, currentFilter, exactLabel string) []bestServerInternalCandidate {

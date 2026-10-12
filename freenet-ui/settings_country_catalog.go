@@ -46,7 +46,7 @@ func settingsCountryOptions(profiles []subscriptionProfile, selected []string) [
 	byCode := map[string]settingsCountryOption{}
 	for _, profile := range profiles {
 		code := strings.ToLower(strings.TrimSpace(profile.CountryCode))
-		if len(code) != 2 || isUserExcludedVPNCountry(code) || !isBaseExtraProfileName(profile.Name) {
+		if len(code) != 2 || isUserExcludedVPNCountry(code) || !isSelectableExtraProfileName(profile.Name) {
 			continue
 		}
 		if _, exists := byCode[code]; exists {

@@ -61,7 +61,7 @@ func selectableSubscriptionProfiles(profiles []subscriptionProfile) []subscripti
 		if code == "ru" || strings.Contains(name, "russia") || strings.Contains(name, "росси") {
 			continue
 		}
-		if !isBaseExtraProfileName(profile.Name) {
+		if !isSelectableExtraProfileName(profile.Name) {
 			continue
 		}
 		out = append(out, profile)
