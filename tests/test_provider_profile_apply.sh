@@ -56,6 +56,9 @@ cat > "$TMP/bin/provider-route-probe" <<EOF
 MODE="\$(cat "$TMP/route-probe.mode" 2>/dev/null || echo pass)"
 case "\$MODE" in
   fail-all) exit 1 ;;
+  fail-live-always)
+    [ "\$1" = "$TMP/configs/04_outbounds.json" ] && exit 1
+    ;;
   fail-live-once)
     if [ "\$1" = "$TMP/configs/04_outbounds.json" ]; then
       COUNT=0
@@ -431,6 +434,49 @@ fi
 [ "$(cat "$TMP/core-rb.count")" = '2' ] || fail 'core-only rollback did not retry core restart after restoring snapshot'
 [ ! -s "$TMP/xkeen-core-rb.calls" ] || fail 'core-only rollback fell back to xkeen restart'
 grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/core-rb.err" || fail 'core-only rollback success not reported'
+unset CORE_HELPER
+
+# The original VPN may already be down when emergency failover starts.
+# Restoring identical files and reviving Xray must not claim that unreachable
+# original Internet service was restored, and must retain the durable STOP.
+cat > "$TMP/bin/core-restart-old-down" <<EOF
+#!/bin/sh
+COUNT_FILE="$TMP/old-down-core.count"
+COUNT=0
+[ -f "\$COUNT_FILE" ] && COUNT="\$(cat "\$COUNT_FILE")"
+COUNT=\$((COUNT+1))
+printf '%s\n' "\$COUNT" > "\$COUNT_FILE"
+[ "\$COUNT" -eq 1 ] && exit 7
+exit 0
+EOF
+chmod 755 "$TMP/bin/core-restart-old-down"
+CORE_HELPER="$TMP/bin/core-restart-old-down"
+export CORE_HELPER
+printf '%s\n' 'CORE OLD DOWN' > "$TMP/etc/vpn_profile_name"
+printf '%s\n' 'CORE|DOWN' > "$TMP/profile.filter"
+printf '%s\n' fail-live-always > "$TMP/route-probe.mode"
+OLD_DOWN_HASH="$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')"
+if run_helper apply-core "$PROFILE_ID" > "$TMP/old-down.out" 2> "$TMP/old-down.err"; then
+    fail 'old VPN unreachable scenario unexpectedly reported success'
+fi
+[ "$OLD_DOWN_HASH" = "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" ] || fail 'old-down rollback did not restore outbound'
+[ "$(cat "$TMP/etc/vpn_profile_name")" = 'CORE OLD DOWN' ] || fail 'old-down rollback profile mismatch'
+[ "$(cat "$TMP/profile.filter")" = 'CORE|DOWN' ] || fail 'old-down rollback filter mismatch'
+[ "$(cat "$TMP/old-down-core.count")" = '2' ] || fail 'old-down rollback did not restart restored Xray'
+grep -Fq 'stage=restart-helper; code=7' "$TMP/old-down.err" || fail 'core restart stage and numeric code missing'
+grep -Fq 'ROLLBACK DETAIL: files=RESTORED; core=RESTORED; vpn=UNREACHABLE' "$TMP/old-down.err" || fail 'old-down rollback phases conflated'
+grep -Fq 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN' "$TMP/old-down.err" || fail 'old-down rollback incorrectly cleared STOP'
+[ -d "$TMP/provider-transaction.pending" ] || fail 'old-down rollback discarded private checkpoint'
+if run_helper apply-core "$PROFILE_ID" > "$TMP/old-down-blocked.out" 2> "$TMP/old-down-blocked.err"; then
+    fail 'pending rollback unexpectedly allowed another VPN apply'
+fi
+grep -Fq 'pending VPN transaction requires read-only reconciliation' "$TMP/old-down-blocked.err" || fail 'old-down durable guard missing'
+if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/old-down.out" "$TMP/old-down.err" "$TMP/old-down-blocked.err"; then
+    fail 'old-down stage detail leaked credentials'
+fi
+# Reset only isolated test fixtures, never an actual router checkpoint.
+rm -rf "$TMP/provider-transaction.pending" "$TMP/vpn-mutation.lock"
+printf '%s\n' pass > "$TMP/route-probe.mode"
 unset CORE_HELPER
 
 # Source contract: endpoint-only mode must keep XKeen/netfilter ownership,

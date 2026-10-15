@@ -30,6 +30,11 @@ FILTER_BEFORE_EXISTS=no
 APPLIED=0
 ROLLBACK_ACTIVE=0
 LOCK_HELD=0
+CORE_RESTART_STAGE="not-started"
+CORE_RESTART_EXIT="not-run"
+ROLLBACK_FILES_STATUS="UNKNOWN"
+ROLLBACK_CORE_STATUS="UNKNOWN"
+ROLLBACK_VPN_STATUS="UNKNOWN"
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Provider] ERROR: %s\n' "$*" >&2; }
@@ -608,11 +613,22 @@ core_restart_preflight() {
     single_xray_pid >/dev/null 2>&1
 }
 
+# Only stage names and numeric exit codes are reported; XKeen output may
+# contain local paths/credentials and is never copied to the public journal.
 restart_xray_core() {
     ALLOW_STOPPED="${1:-no}"
+    CORE_RESTART_STAGE="process-inventory"
+    CORE_RESTART_EXIT="not-run"
     if [ -n "$CORE_RESTART_HELPER" ]; then
-        "$CORE_RESTART_HELPER" "$ALLOW_STOPPED"
-        return $?
+        CORE_RESTART_STAGE="restart-helper"
+        if "$CORE_RESTART_HELPER" "$ALLOW_STOPPED"; then
+            CORE_RESTART_STAGE="ready"
+            CORE_RESTART_EXIT="0"
+            return 0
+        else
+            CORE_RESTART_EXIT="$?"
+            return 1
+        fi
     fi
 
     OLD_PID=""
@@ -620,40 +636,55 @@ restart_xray_core() {
     set -- $PIDS
     case "$#" in
         0)
-            [ "$ALLOW_STOPPED" = yes ] || return 1
+            [ "$ALLOW_STOPPED" = yes ] || { CORE_RESTART_EXIT="no-process"; return 1; }
             ;;
         1)
             OLD_PID="$1"
             ;;
         *)
-            err 'core-only restart refused: multiple Xray processes are active'
+            CORE_RESTART_EXIT="multiple-processes"
             return 1
             ;;
     esac
 
     if [ -n "$OLD_PID" ]; then
-        kill "$OLD_PID" 2>/dev/null || return 1
+        CORE_RESTART_STAGE="terminate-old-core"
+        if ! kill "$OLD_PID" 2>/dev/null; then
+            CORE_RESTART_EXIT="signal-failed"
+            return 1
+        fi
         I=0
         while kill -0 "$OLD_PID" 2>/dev/null && [ "$I" -lt 40 ]; do
             short_pause
             I=$((I + 1))
         done
         if kill -0 "$OLD_PID" 2>/dev/null; then
-            kill -9 "$OLD_PID" 2>/dev/null || return 1
+            if ! kill -9 "$OLD_PID" 2>/dev/null; then
+                CORE_RESTART_EXIT="forced-signal-failed"
+                return 1
+            fi
             I=0
             while kill -0 "$OLD_PID" 2>/dev/null && [ "$I" -lt 10 ]; do
                 short_pause
                 I=$((I + 1))
             done
         fi
-        kill -0 "$OLD_PID" 2>/dev/null && return 1
+        if kill -0 "$OLD_PID" 2>/dev/null; then
+            CORE_RESTART_EXIT="old-core-still-running"
+            return 1
+        fi
     fi
 
-    # Keep XKeen/netfilter ownership intact: do not call XKeen stop/restart.
-    # Start the Xray core through XKeen's canonical synchronous start path so
-    # its runtime environment, limits and acceptance checks remain authoritative.
-    XKEEN_FOREGROUND=1 "$XKEEN_BIN" -start >/dev/null 2>&1 || return 1
+    # Preserve XKeen/netfilter ownership, never call the full XKeen restart.
+    CORE_RESTART_STAGE="xkeen-start"
+    if XKEEN_FOREGROUND=1 "$XKEEN_BIN" -start >/dev/null 2>&1; then
+        :
+    else
+        CORE_RESTART_EXIT="$?"
+        return 1
+    fi
 
+    CORE_RESTART_STAGE="single-core-readiness"
     I=0
     STABLE=0
     while [ "$I" -lt 60 ]; do
@@ -661,13 +692,18 @@ restart_xray_core() {
         set -- $PIDS
         if [ "$#" -eq 1 ] && kill -0 "$1" 2>/dev/null; then
             STABLE=$((STABLE + 1))
-            [ "$STABLE" -ge 3 ] && return 0
+            if [ "$STABLE" -ge 3 ]; then
+                CORE_RESTART_STAGE="ready"
+                CORE_RESTART_EXIT="0"
+                return 0
+            fi
         else
             STABLE=0
         fi
         short_pause
         I=$((I + 1))
     done
+    CORE_RESTART_EXIT="readiness-timeout"
     return 1
 }
 
@@ -677,13 +713,47 @@ restart_if_needed() {
         restart_xray_core no
         return $?
     fi
-    "$XKEEN_BIN" -restart >/dev/null 2>&1 || return 1
-    sleep 4
-    pidof xray >/dev/null 2>&1
+    CORE_RESTART_STAGE="xkeen-full-restart"
+    if "$XKEEN_BIN" -restart >/dev/null 2>&1; then
+        sleep 4
+    else
+        CORE_RESTART_EXIT="$?"
+        return 1
+    fi
+    CORE_RESTART_STAGE="readiness"
+    if pidof xray >/dev/null 2>&1; then
+        CORE_RESTART_STAGE="ready"
+        CORE_RESTART_EXIT="0"
+        return 0
+    fi
+    CORE_RESTART_EXIT="no-process"
+    return 1
+}
+
+verify_restored_provider_files() {
+    if [ "$OUT_BEFORE_EXISTS" = yes ]; then
+        cmp -s "$OUT_BEFORE" "$OUT_FILE" || return 1
+    else
+        [ ! -e "$OUT_FILE" ] && [ ! -L "$OUT_FILE" ] || return 1
+    fi
+    if [ "$PROFILE_BEFORE_EXISTS" = yes ]; then
+        cmp -s "$PROFILE_BEFORE" "$PROFILE_FILE" || return 1
+    else
+        [ ! -e "$PROFILE_FILE" ] && [ ! -L "$PROFILE_FILE" ] || return 1
+    fi
+    if [ "$FILTER_BEFORE_EXISTS" = yes ]; then
+        cmp -s "$FILTER_BEFORE" "$FILTER_FILE" || return 1
+    else
+        [ ! -e "$FILTER_FILE" ] && [ ! -L "$FILTER_FILE" ] || return 1
+    fi
+    return 0
 }
 
 rollback_state() {
     ROLLBACK_ACTIVE=1
+    ROLLBACK_FILES_STATUS="UNKNOWN"
+    ROLLBACK_CORE_STATUS="UNKNOWN"
+    ROLLBACK_VPN_STATUS="UNKNOWN"
     RB=0
     if [ "$OUT_BEFORE_EXISTS" = yes ]; then
         cp -p "$OUT_BEFORE" "$OUT_FILE.rollback.$$" 2>/dev/null || RB=1
@@ -708,16 +778,46 @@ rollback_state() {
         rm -f "$FILTER_FILE" 2>/dev/null || RB=1
     fi
 
+    # Restore bytes and restore VPN availability are separate facts. The old
+    # endpoint can already be dead (the reason emergency failover began).
+    if verify_restored_provider_files; then
+        ROLLBACK_FILES_STATUS="RESTORED"
+    else
+        ROLLBACK_FILES_STATUS="FAILED"
+        RB=1
+    fi
     if [ "$WAS_RUNNING" -eq 1 ]; then
         if [ "$MODE" = apply-core ]; then
-            restart_xray_core yes || RB=1
+            if restart_xray_core yes; then
+                ROLLBACK_CORE_STATUS="RESTORED"
+            else
+                ROLLBACK_CORE_STATUS="FAILED"
+                RB=1
+            fi
         else
-            "$XKEEN_BIN" -restart >/dev/null 2>&1 || RB=1
-            sleep 4
-            pidof xray >/dev/null 2>&1 || RB=1
+            if "$XKEEN_BIN" -restart >/dev/null 2>&1 && pidof xray >/dev/null 2>&1; then
+                ROLLBACK_CORE_STATUS="RESTORED"
+            else
+                ROLLBACK_CORE_STATUS="FAILED"
+                RB=1
+            fi
         fi
+    else
+        ROLLBACK_CORE_STATUS="PREVIOUSLY_STOPPED"
     fi
-    [ "$RB" -ne 0 ] || provider_route_probe "$OUT_FILE" || RB=1
+    if [ "$RB" -eq 0 ]; then
+        if provider_route_probe "$OUT_FILE"; then
+            ROLLBACK_VPN_STATUS="REACHABLE"
+        else
+            ROLLBACK_VPN_STATUS="UNREACHABLE"
+            RB=1
+        fi
+    else
+        ROLLBACK_VPN_STATUS="NOT_TESTED"
+    fi
+    # These statuses contain no profile identity, endpoint, path or secrets.
+    err "ROLLBACK DETAIL: files=$ROLLBACK_FILES_STATUS; core=$ROLLBACK_CORE_STATUS; vpn=$ROLLBACK_VPN_STATUS"
+    append_provider_history 'rollback' "files=$ROLLBACK_FILES_STATUS; core=$ROLLBACK_CORE_STATUS; vpn=$ROLLBACK_VPN_STATUS"
     ROLLBACK_ACTIVE=0
     [ "$RB" -eq 0 ]
 }
@@ -867,7 +967,7 @@ printf '%s\n' "$SELECTED_NAME" | escape_ere > "$FILTER_FILE.new.$$" || fail_appl
 chmod 644 "$FILTER_FILE.new.$$" 2>/dev/null || true
 mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" || fail_apply 'cannot commit exact active profile filter'
 
-restart_if_needed || fail_apply 'Xray/XKeen runtime acceptance failed after provider apply'
+restart_if_needed || fail_apply "Xray/XKeen runtime acceptance failed after provider apply; stage=$CORE_RESTART_STAGE; code=$CORE_RESTART_EXIT"
 XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
     || fail_apply 'live Xray configuration validation failed after provider apply'
 provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
