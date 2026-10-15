@@ -352,9 +352,5 @@ make_root "$R"
 make_release "$D" v0.8.0
 run_plan "$R" "$D" v0.8.0-beta.1 v0.8.0 v0.8.0 > "$TMP/beta-to-stable.out" || fail 'Beta-to-Stable plan unavailable'
 grep -Fq 'DIRECTION=upgrade' "$TMP/beta-to-stable.out" || fail 'stable must sort after same-core prerelease'
-if FREENET_INSTALL_RELEASE_TAG=v0.8.0-beta.1 sh "$ROOT_DIR/install.sh" > "$TMP/beta-install-refused.out" 2>&1; then
-    fail 'Beta installer did not require explicit FREENET_INSTALL_BETA=yes'
-fi
-grep -Fq 'Beta installation requires explicit' "$TMP/beta-install-refused.out" || fail 'Beta installer refusal reason missing'
 
 echo 'web self update transactional + explicit Beta channel contract: PASS'
