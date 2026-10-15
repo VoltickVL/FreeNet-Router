@@ -242,13 +242,16 @@ func TestAutomationReachableQualityUsesSeverityWithoutTriggeringRecovery(t *test
 		wantPoints  int
 	}{
 		{"healthy", 180, 4, 4, automationHealthHealthy, 0},
-		{"mild-latency", 235, 4, 4, automationHealthUncertain, 1},
-		{"strong-latency", 398, 4, 4, automationHealthUncertain, 2},
-		{"severe-latency", 830, 4, 4, automationHealthUncertain, 3},
+		{"normal-jitter", 235, 4, 4, automationHealthHealthy, 0},
+		{"near-threshold", 299, 4, 4, automationHealthHealthy, 0},
+		{"mild-latency", 300, 4, 4, automationHealthUncertain, 1},
+		{"moderate-latency", 398, 4, 4, automationHealthUncertain, 1},
+		{"strong-latency", 420, 4, 4, automationHealthUncertain, 2},
+		{"severe-latency", 650, 4, 4, automationHealthUncertain, 3},
 		{"partial-3-of-4", 180, 3, 4, automationHealthUncertain, 1},
 		{"partial-2-of-4", 180, 2, 4, automationHealthUncertain, 2},
 		{"zero-of-4", 180, 0, 4, automationHealthFailed, 0},
-		{"stronger-signal-wins", 398, 3, 4, automationHealthUncertain, 2},
+		{"stronger-signal-wins", 420, 3, 4, automationHealthUncertain, 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -266,100 +269,90 @@ func TestAutomationReachableQualityUsesSeverityWithoutTriggeringRecovery(t *test
 func TestAutomationQualityOptimizationUsesWeightedSeverity(t *testing.T) {
 	base := time.Date(2026, 10, 5, 10, 0, 0, 0, time.UTC)
 	state := map[string]string{}
-
-	updates, due := automationQualityOptimizationPlan(state, base, 1)
-	if due || updates["QUALITY_DEGRADED_COUNT"] != "1" {
-		t.Fatalf("first mild point updates=%v due=%v", updates, due)
-	}
-	for k, v := range updates {
-		state[k] = v
-	}
-
-	// A confirmed healthy observation must break the degradation sequence.
-	updates, due = automationQualityOptimizationPlan(state, base.Add(5*time.Minute), 0)
-	if due || updates["QUALITY_DEGRADED_COUNT"] != "0" || updates["QUALITY_DEGRADED_SINCE"] != "" {
-		t.Fatalf("healthy sample must clear pending mild evidence: updates=%v due=%v", updates, due)
-	}
-	for k, v := range updates {
-		state[k] = v
+	observe := func(at time.Time, points int) bool {
+		t.Helper()
+		updates, due := automationQualityOptimizationPlan(state, at, points)
+		for k, v := range updates {
+			state[k] = v
+		}
+		return due
 	}
 
-	updates, due = automationQualityOptimizationPlan(state, base.Add(10*time.Minute), 1)
-	if due || updates["QUALITY_DEGRADED_COUNT"] != "1" {
-		t.Fatalf("first mild point after healthy reset updates=%v due=%v", updates, due)
+	// A single 300ms event must never initiate a heavy scan.
+	if observe(base, 1) || state["QUALITY_DEGRADED_COUNT"] != "1" || state["QUALITY_DEGRADED_SAMPLES"] != "1" {
+		t.Fatalf("first latency fluctuation triggered scan: %+v", state)
 	}
-	for k, v := range updates {
-		state[k] = v
+	// Any completed healthy sample resets BOTH strike points and observation count.
+	if observe(base.Add(30*time.Second), 0) ||
+		state["QUALITY_DEGRADED_COUNT"] != "0" || state["QUALITY_DEGRADED_SAMPLES"] != "0" {
+		t.Fatalf("recovered VPN did not clear pending evidence: %+v", state)
 	}
-
-	updates, due = automationQualityOptimizationPlan(state, base.Add(20*time.Minute), 1)
-	if due || updates["QUALITY_DEGRADED_COUNT"] != "2" {
-		t.Fatalf("second consecutive mild point updates=%v due=%v", updates, due)
+	for i := 1; i <= 4; i++ {
+		due := observe(base.Add(time.Duration(i+1)*30*time.Second), 1)
+		if due != (i == 4) {
+			t.Fatalf("consecutive mild sample %d: due=%v; state=%+v", i, due, state)
+		}
 	}
-	for k, v := range updates {
-		state[k] = v
-	}
-
-	updates, due = automationQualityOptimizationPlan(state, base.Add(25*time.Minute), 1)
-	if !due {
-		t.Fatalf("three consecutive mild points inside %s must trigger optimization: updates=%v", automationQualityStrikeWindow, updates)
+	if state["QUALITY_DEGRADED_COUNT"] != "0" || state["QUALITY_DEGRADED_SAMPLES"] != "0" {
+		t.Fatalf("optimizer must clear pending strikes after starting: %+v", state)
 	}
 
 	state = map[string]string{}
-	updates, due = automationQualityOptimizationPlan(state, base, 2)
-	if due {
-		t.Fatalf("one strong sample must not yet trigger optimization: %v", updates)
+	if observe(base, 3) {
+		t.Fatal("one 650ms spike launched expensive optimization")
 	}
-	for k, v := range updates {
-		state[k] = v
-	}
-	updates, due = automationQualityOptimizationPlan(state, base.Add(5*time.Minute), 2)
-	if !due {
-		t.Fatalf("two strong samples must trigger optimization: %v", updates)
+	if !observe(base.Add(30*time.Second), 1) {
+		t.Fatal("repeated severe then mild quality deterioration was ignored")
 	}
 
 	state = map[string]string{}
-	updates, due = automationQualityOptimizationPlan(state, base, 3)
-	if !due || updates["QUALITY_OPTIMIZATION_LAST"] == "" {
-		t.Fatalf("one severe sample must trigger accelerated optimization: updates=%v due=%v", updates, due)
+	if observe(base, 2) || observe(base.Add(automationQualityStrikeWindow+time.Second), 2) {
+		t.Fatal("non-consecutive strong latency samples launched optimization")
+	}
+	if state["QUALITY_DEGRADED_SAMPLES"] != "1" {
+		t.Fatalf("expired evidence was not reset: %+v", state)
 	}
 }
 
 func TestAutomationQualityOptimizationCooldownDependsOnSeverity(t *testing.T) {
 	base := time.Date(2026, 10, 5, 10, 0, 0, 0, time.UTC)
 	state := map[string]string{
-		"QUALITY_DEGRADED_COUNT": "1",
+		"QUALITY_DEGRADED_COUNT": "2",
+		"QUALITY_DEGRADED_SAMPLES": "1",
 		"QUALITY_DEGRADED_SINCE": base.Format(time.RFC3339),
 	}
 	updates, due := automationQualityOptimizationPlan(state, base.Add(automationQualityStrikeWindow+time.Minute), 0)
-	if due || updates["QUALITY_DEGRADED_COUNT"] != "0" {
-		t.Fatalf("expired mild spike must clear without scan: updates=%v due=%v", updates, due)
+	if due || updates["QUALITY_DEGRADED_COUNT"] != "0" || updates["QUALITY_DEGRADED_SAMPLES"] != "0" {
+		t.Fatalf("expired quality evidence survived a healthy probe: %+v", updates)
 	}
 
-	last := base.Add(-30 * time.Minute)
 	state = map[string]string{
-		"QUALITY_DEGRADED_COUNT": "2",
-		"QUALITY_DEGRADED_SINCE": base.Add(-10 * time.Minute).Format(time.RFC3339),
-		"QUALITY_OPTIMIZATION_LAST": last.Format(time.RFC3339),
+		"QUALITY_DEGRADED_COUNT": "3",
+		"QUALITY_DEGRADED_SAMPLES": "2",
+		"QUALITY_DEGRADED_SINCE": base.Add(-time.Minute).Format(time.RFC3339),
+		"QUALITY_OPTIMIZATION_LAST": base.Add(-30*time.Minute).Format(time.RFC3339),
 	}
 	updates, due = automationQualityOptimizationPlan(state, base, 1)
-	if due {
-		t.Fatalf("normal quality scan ignored %s cooldown: %v", automationQualityOptimizationCooldown, updates)
+	if due || updates["QUALITY_DEGRADED_COUNT"] != "4" {
+		t.Fatalf("normal mild optimization must respect %s cooldown: %+v", automationQualityOptimizationCooldown, updates)
 	}
 
-	state["QUALITY_DEGRADED_COUNT"] = "0"
-	state["QUALITY_DEGRADED_SINCE"] = ""
-	updates, due = automationQualityOptimizationPlan(state, base, 3)
-	if !due {
-		t.Fatalf("severe degradation older than %s must bypass normal cooldown: %v", automationQualitySevereCooldown, updates)
+	// Severe *repeated* degradation can bypass the normal hourly cooldown,
+	// but not the separate short severe cooldown.
+	state = map[string]string{
+		"QUALITY_DEGRADED_COUNT": "1",
+		"QUALITY_DEGRADED_SAMPLES": "1",
+		"QUALITY_DEGRADED_SINCE": base.Add(-time.Minute).Format(time.RFC3339),
+		"QUALITY_OPTIMIZATION_LAST": base.Add(-30*time.Minute).Format(time.RFC3339),
 	}
-
-	state["QUALITY_OPTIMIZATION_LAST"] = base.Add(-5 * time.Minute).Format(time.RFC3339)
-	state["QUALITY_DEGRADED_COUNT"] = "0"
-	state["QUALITY_DEGRADED_SINCE"] = ""
+	updates, due = automationQualityOptimizationPlan(state, base, 3)
+	if !due || updates["QUALITY_OPTIMIZATION_LAST"] == "" {
+		t.Fatalf("confirmed severe evidence was blocked by hourly cooldown: %+v", updates)
+	}
+	state["QUALITY_OPTIMIZATION_LAST"] = base.Add(-5*time.Minute).Format(time.RFC3339)
 	updates, due = automationQualityOptimizationPlan(state, base, 3)
 	if due {
-		t.Fatalf("severe degradation must still respect short %s cooldown: %v", automationQualitySevereCooldown, updates)
+		t.Fatalf("severe evidence must respect %s cooldown: %+v", automationQualitySevereCooldown, updates)
 	}
 }
 

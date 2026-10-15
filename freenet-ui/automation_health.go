@@ -30,13 +30,17 @@ const (
 	// bandwidth on a heavy Best Server comparison. A completed optimization
 	// attempt is also cooled down independently from the existing post-switch
 	// cooldown, so a noisy line cannot trigger repeated Top-3 scans.
-	automationQualityStrikeWindow          = 30 * time.Minute
-	automationQualityStrikeThreshold       = 3
+	// 300 ms is a *quality* hint, never evidence of a VPN outage. Two or
+	// more independent degraded observations within five minutes are required
+	// even when a single latency sample is extreme. A good sample clears them.
+	automationQualityStrikeWindow          = 5 * time.Minute
+	automationQualityStrikeThreshold       = 4
+	automationQualityMinObservations       = 2
 	automationQualityOptimizationCooldown  = 1 * time.Hour
 	automationQualitySevereCooldown        = 15 * time.Minute
-	automationQualityLatencyMildMS         = 225
-	automationQualityLatencyStrongMS       = 250
-	automationQualityLatencySevereMS       = 500
+	automationQualityLatencyMildMS         = 300
+	automationQualityLatencyStrongMS       = 420
+	automationQualityLatencySevereMS       = 650
 )
 
 type automationHealthResult struct {
@@ -168,11 +172,11 @@ func automationApplicationQualityPoints(ms int) int {
 	switch {
 	case ms <= 0:
 		return 0
-	case ms > automationQualityLatencySevereMS:
+	case ms >= automationQualityLatencySevereMS:
 		return 3
-	case ms > automationQualityLatencyStrongMS:
+	case ms >= automationQualityLatencyStrongMS:
 		return 2
-	case ms > automationQualityLatencyMildMS:
+	case ms >= automationQualityLatencyMildMS:
 		return 1
 	default:
 		return 0
@@ -240,8 +244,12 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, p
 		return stamp
 	}
 	count, _ := strconv.Atoi(strings.TrimSpace(state["QUALITY_DEGRADED_COUNT"]))
-	if count < 0 {
+	samples, _ := strconv.Atoi(strings.TrimSpace(state["QUALITY_DEGRADED_SAMPLES"]))
+	if count < 0 || count > 100 {
 		count = 0
+	}
+	if samples < 0 || samples > 100 {
+		samples = 0
 	}
 	start := parseStamp("QUALITY_DEGRADED_SINCE")
 	lastOptimization := parseStamp("QUALITY_OPTIMIZATION_LAST")
@@ -252,8 +260,9 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, p
 		// intervening healthy sample caused expensive Top-3 scans for transient
 		// 3/4 or short latency spikes. Keep the optimization cooldown, but clear
 		// only the pending quality evidence.
-		if count != 0 || !start.IsZero() {
+		if count != 0 || samples != 0 || !start.IsZero() {
 			updates["QUALITY_DEGRADED_COUNT"] = "0"
+			updates["QUALITY_DEGRADED_SAMPLES"] = "0"
 			updates["QUALITY_DEGRADED_SINCE"] = ""
 		}
 		return updates, false
@@ -262,9 +271,18 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, p
 	if start.IsZero() || now.Before(start) || now.Sub(start) > automationQualityStrikeWindow {
 		start = now
 		count = 0
+		samples = 0
 	}
 	count += points
+	if count > automationQualityStrikeThreshold {
+		count = automationQualityStrikeThreshold
+	}
+	samples++
+	if samples > automationQualityMinObservations {
+		samples = automationQualityMinObservations
+	}
 	updates["QUALITY_DEGRADED_COUNT"] = strconv.Itoa(count)
+	updates["QUALITY_DEGRADED_SAMPLES"] = strconv.Itoa(samples)
 	updates["QUALITY_DEGRADED_SINCE"] = start.UTC().Format(time.RFC3339)
 
 	cooldown := automationQualityOptimizationCooldown
@@ -274,11 +292,13 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, p
 	if !lastOptimization.IsZero() && now.Before(lastOptimization.Add(cooldown)) {
 		return updates, false
 	}
-	if count < automationQualityStrikeThreshold {
+	// No one-off RTT spike may launch a heavy Top-3 scan.
+	if count < automationQualityStrikeThreshold || samples < automationQualityMinObservations {
 		return updates, false
 	}
 
 	updates["QUALITY_DEGRADED_COUNT"] = "0"
+	updates["QUALITY_DEGRADED_SAMPLES"] = "0"
 	updates["QUALITY_DEGRADED_SINCE"] = ""
 	updates["QUALITY_OPTIMIZATION_LAST"] = now.UTC().Format(time.RFC3339)
 	return updates, true
@@ -298,10 +318,10 @@ func automationQualityOptimizationStartReason(probe automationHealthProbe) strin
 	if trigger == "" {
 		trigger = "Текущая quality-проверка не содержит подробностей."
 	}
-	if probe.QualityPoints >= automationQualityStrikeThreshold {
-		return "Критическая деградация качества подтверждена одним severe-наблюдением. Триггер: " + trigger + " Сравниваем текущий VPN с fully measured Top-3."
+	if probe.QualityPoints >= 3 {
+		return "Повторная выраженная деградация качества подтверждена минимум двумя наблюдениями. Триггер: " + trigger + " Сравниваем текущий VPN с fully measured Top-3."
 	}
-	return "Последовательная деградация качества подтверждена накоплением mild/strong evidence. Триггер: " + trigger + " Сравниваем текущий VPN с fully measured Top-3."
+	return "Устойчивая деградация качества подтверждена несколькими наблюдениями. Триггер: " + trigger + " Сравниваем текущий VPN с fully measured Top-3."
 }
 
 // An IP-only success is not working Internet for a VPN-routed user. When BOTH
