@@ -116,7 +116,7 @@ func TestBetaApplyCannotStartWithoutAcknowledgement(t *testing.T) {
 func TestBetaWorkflowAndBrowserContract(t *testing.T) {
  required:=map[string][]string{
   "web/self-update.js":{"channel=beta","Beta · тестовая","beta_acknowledged: true","Установить экспериментальную","onConfirm: startUpdate"},
-  "../scripts/self_update.sh":{"FREENET_UPDATE_BETA_OPT_IN","META_PRE","explicit Beta opt-in required"},
+  "../scripts/self_update.sh":{"FREENET_UPDATE_BETA_OPT_IN","--argjson pre", ".prerelease == $pre", "fetch_verified_release_metadata_asset", "explicit Beta opt-in required"},
  }
  for p,phrases:=range required {
   data,err:=os.ReadFile(p);if err!=nil{t.Fatal(err)}
