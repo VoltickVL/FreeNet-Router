@@ -510,8 +510,19 @@ func automationRollbackBlocksMutation(value string) bool {
 	return strings.Contains(normalized, "ROLLBACK FAILED") || strings.Contains(normalized, "ROLLBACK UNKNOWN")
 }
 
+// Persistent private rollback marker survives SIGKILL and blocks all VPN mutators.
+func vpnTransactionPending() bool {
+	path := strings.TrimSpace(os.Getenv("FREENET_VPN_TRANSACTION_DIR"))
+	if path == "" {
+		path = "/opt/var/lib/freenet/vpn-transaction.pending"
+	}
+	_, err := os.Lstat(path)
+	return err == nil || !os.IsNotExist(err)
+}
+
 func automationMutationBlockedState() bool {
-	return strings.EqualFold(strings.TrimSpace(parseAutomationState(automationStatePath())["MUTATION_BLOCKED"]), "yes")
+	return vpnTransactionPending() ||
+		strings.EqualFold(strings.TrimSpace(parseAutomationState(automationStatePath())["MUTATION_BLOCKED"]), "yes")
 }
 
 func writeAutomationStatePayload(path string, values map[string]string) {
