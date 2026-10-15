@@ -50,6 +50,7 @@ type journalDiagnosticReport struct {
 	TechnicalRetentionDays int            `json:"technical_retention_days"`
 	AutoVPN       journalDiagnosticAuto    `json:"auto_vpn"`
 	Update        journalDiagnosticUpdate  `json:"update"`
+	VPNTransaction vpnTransactionDoctorResponse `json:"vpn_transaction"`
 	Environment journalDiagnosticEnvironment `json:"environment"`
 	SourceCount   map[string]int           `json:"source_event_count"`
 	Events        []automationEvent        `json:"events"`
@@ -133,7 +134,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 			LastReason: journalDiagnosticRedact(state["LAST_REASON"]),
 			LastSwitch: state["LAST_SWITCH"],
 			RollbackReady: journalDiagnosticRedact(state["ROLLBACK_READY"]),
-			MutationBlocked: strings.EqualFold(state["MUTATION_BLOCKED"], "yes"),
+			MutationBlocked: automationMutationBlockedState(),
 			PostUpdateAck: strings.TrimSpace(state["POST_UPDATE_ACK"]) != "",
 			Health: journalHealthFreshness(settings.Enabled, automationHealthIntervalDuration(healthInterval), healthState, now),
 			HealthScheduledLast: healthState["HEALTH_SCHEDULE_LAST"],
@@ -148,6 +149,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 			UpdatedAt: updateState["UPDATED_AT"],
 			RollbackState: journalDiagnosticRedact(updateState["ROLLBACK_STATE"]),
 		},
+		VPNTransaction: a.vpnTransactionDoctor(),
 		Environment: a.journalDiagnosticEnvironment(),
 		SourceCount: map[string]int{"auto": len(autoHistory), "settings": len(systemHistory)},
 		Events: events,
@@ -158,6 +160,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 			"Historical observations only: no new VPN probe or router connectivity acceptance was performed.",
 			"Original on-disk journals are unchanged; these entries bypass display deduplication.",
 			"Only an allowlist of state fields is included; credentials and endpoint addresses are redacted.",
+			"VPN transaction doctor compares checkpoint file contents in memory and exports only match states, never hashes or config contents.",
 			"Source counts indicate selected tail events, not all historical events.",
 			"Full technical archive: /api/journal/technical-archive contains 30 UTC days of date-based gzip JSONL with explicit truncation markers.",
 		},

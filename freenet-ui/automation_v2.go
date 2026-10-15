@@ -539,6 +539,20 @@ func sanitizeAutomationReason(reason string) string {
 	return strings.TrimSpace(reason)
 }
 
+// Preserve the real apply failure stage in AUTO's summary and journal.
+// HTTP helper errors are fallback only, not the authoritative PRIMARY ERROR.
+func automationApplyFailureDetail(applied networkApplyResponse) string {
+	reason := strings.TrimSpace(applied.PrimaryError)
+	if reason == "" {
+		reason = strings.TrimSpace(applied.Error)
+	}
+	reason = sanitizeAutomationReason(reason)
+	if reason == "" {
+		return "provider profile apply failed"
+	}
+	return reason
+}
+
 func automationRollbackBlocksMutation(value string) bool {
 	normalized := strings.ToUpper(strings.TrimSpace(value))
 	if normalized == "" {
@@ -553,10 +567,7 @@ func automationRollbackBlocksMutation(value string) bool {
 
 // Persistent private rollback marker survives SIGKILL and blocks all VPN mutators.
 func vpnTransactionPending() bool {
-	path := strings.TrimSpace(os.Getenv("FREENET_VPN_TRANSACTION_DIR"))
-	if path == "" {
-		path = "/opt/var/lib/freenet/vpn-transaction.pending"
-	}
+	path := vpnTransactionCheckpointPath()
 	_, err := os.Lstat(path)
 	return err == nil || !os.IsNotExist(err)
 }
@@ -958,7 +969,7 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
 	})
 	if status < 200 || status >= 300 || !applied.Success {
-		reason := "Подтверждённый VPN не применён: " + strings.TrimSpace(applied.Error)
+		reason := "Подтверждённый VPN не применён: " + automationApplyFailureDetail(applied)
 		rollback := applied.RollbackState
 		if rollback == "" {
 			rollback = "unknown"
