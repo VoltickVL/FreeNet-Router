@@ -160,7 +160,8 @@ async function capture(label){
   await page.locator('.fn-version-apply').click();
   await until(()=>document.querySelector('#fnModalBody')?.textContent?.includes('Это предварительная версия'),'Beta requires confirmation');
   assert.equal(calls.filter(c=>c.path==='/api/system/update/apply').length,beforeVersionMutations,'confirm shown before mutation');
-  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'Остаться на текущей версии'}).click();
+  await until(()=>document.querySelector('#fnModalRoot')?.hidden,'Beta confirmation dismissed');
 
   await page.locator('.nav-btn[data-page="admin"]').click();
   await until(()=>document.querySelector('[data-page-view="admin"]')?.classList.contains('active'),'Administration visible');
