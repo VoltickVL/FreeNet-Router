@@ -688,17 +688,17 @@ func TestEndpointEmergencyConflictAndRollbackUnknownFailClosed(t *testing.T) {
 func TestAutomationQualityOptimizationStartReasonDistinguishesTriggerType(t *testing.T) {
 	severe := automationHealthProbe{
 		QualityDegraded: true,
-		QualityPoints:   automationQualityStrikeThreshold,
-		Reason:          "VPN отвечает, но качество соединения критически ухудшено: отклик 603 мс, сервисы 4/4.",
+		QualityPoints:   3,
+		Reason:          "VPN отвечает, но качество соединения критически ухудшено: отклик 670 мс, сервисы 4/4.",
 	}
 	severeText := automationQualityOptimizationStartReason(severe)
-	for _, want := range []string{"severe-наблюдением", "603 мс", "сервисы 4/4"} {
+	for _, want := range []string{"минимум двумя наблюдениями", "670 мс", "сервисы 4/4"} {
 		if !strings.Contains(severeText, want) {
 			t.Fatalf("severe start reason missing %q: %s", want, severeText)
 		}
 	}
-	if strings.Contains(severeText, "Последовательная деградация") {
-		t.Fatalf("single severe trigger mislabeled as accumulated: %s", severeText)
+	if strings.Contains(severeText, "одним severe-наблюдением") {
+		t.Fatalf("one-off severe spike incorrectly started optimization: %s", severeText)
 	}
 
 	accumulated := automationHealthProbe{
@@ -707,7 +707,7 @@ func TestAutomationQualityOptimizationStartReasonDistinguishesTriggerType(t *tes
 		Reason:          "VPN отвечает, но качество соединения ухудшено: отклик 170 мс, сервисы 3/4.",
 	}
 	accumulatedText := automationQualityOptimizationStartReason(accumulated)
-	for _, want := range []string{"Последовательная деградация", "mild/strong evidence", "170 мс", "сервисы 3/4"} {
+	for _, want := range []string{"Устойчивая деградация", "несколькими наблюдениями", "170 мс", "сервисы 3/4"} {
 		if !strings.Contains(accumulatedText, want) {
 			t.Fatalf("accumulated start reason missing %q: %s", want, accumulatedText)
 		}

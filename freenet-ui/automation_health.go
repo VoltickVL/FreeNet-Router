@@ -286,7 +286,9 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, p
 	updates["QUALITY_DEGRADED_SINCE"] = start.UTC().Format(time.RFC3339)
 
 	cooldown := automationQualityOptimizationCooldown
-	if points >= automationQualityStrikeThreshold {
+	// Severity uses the three-point scale; the four-point strike threshold
+	// must not accidentally lengthen severe quality cooldown to one hour.
+	if points >= 3 {
 		cooldown = automationQualitySevereCooldown
 	}
 	if !lastOptimization.IsZero() && now.Before(lastOptimization.Add(cooldown)) {
