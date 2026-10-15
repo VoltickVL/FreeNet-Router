@@ -554,7 +554,7 @@ func TestEmergencyBestPathBypassesOnlyOptimizationCooldown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(normalSource), "if currentState == \"healthy\" && automationCooldownActive(parseAutomationLastSwitch(automationStatePath()), time.Now().UTC())") {
+	if !strings.Contains(string(normalSource), "if currentState == \"healthy\" && automationOptimizationCooldownActive(automationStatePath(), time.Now().UTC())") {
 		t.Fatal("normal Best optimization must keep anti-flap cooldown only while the current VPN is still healthy")
 	}
 }

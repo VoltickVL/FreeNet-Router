@@ -133,6 +133,14 @@ echo '[FreeNet Provider] RESULT=SUCCESS'
         t.Fatal("manual apply did not resume after isolated probe exit")
     }
     if code != http.StatusOK || !result.Success || !result.Applied { t.Fatalf("explicit manual apply unavailable: %d %+v",code,result) }
+    // Successful manual apply updates the AUTO baseline, not the AUTO mode.
+    handoff := parseAutomationState(statePath)
+    if handoff["LAST_SWITCH_ORIGIN"] != "manual" || handoff["LAST_SWITCH"] == "" {
+        t.Fatalf("manual selected VPN was not adopted by AUTO: %+v", handoff)
+    }
+    if !automationOptimizationCooldownActive(statePath, time.Now().UTC()) {
+        t.Fatal("healthy manual selection is vulnerable to immediate cosmetic AUTO reversal")
+    }
     if !strings.Contains(result.Message, "HTTPS-маршрут") { t.Fatalf("router post-apply HTTPS receipt missing: %q",result.Message) }
     if _, err := os.Stat(marker); err != nil { t.Fatalf("manual apply helper not called: %v",err) }
     if automationMutationBlockedState() { t.Fatal("accepted manual apply should preserve previously reconciled known runtime") }

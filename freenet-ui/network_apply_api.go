@@ -726,10 +726,41 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	// Never refresh the subscription again just to tell the browser what was
 	// applied: the provider may rotate endpoint immediately after the
 	// transaction. The live outbound is the authoritative post-apply endpoint.
-	if liveEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath); liveEndpoint != "" {
+	liveEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+	if liveEndpoint != "" {
 		appliedPlan.Endpoint = liveEndpoint
 	}
-	postNetwork, _ := a.runNetworkPlan()
+	if req.ManualOverride {
+		// Only an explicit contradiction in the live outbounds is a hard
+		// mismatch; legacy XKeen layouts may not expose an easily readable
+		// endpoint even when the helper has verified the chosen HTTPS path.
+		if liveEndpoint != "" && liveEndpoint != profileEndpoint(selected.Profile) {
+			setAutomationMutationBlocked(true)
+			return http.StatusBadGateway, networkApplyResponse{
+				Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+				ProviderPlan: &appliedPlan, PrimaryError: "live Xray endpoint differs from manual selection",
+				RollbackState: "FAILED/UNKNOWN", Error: "exact manual VPN acceptance is unresolved",
+			}
+		}
+		if err := recordAutomationManualSwitch(time.Now().UTC()); err != nil {
+			setAutomationMutationBlocked(true)
+			return http.StatusBadGateway, networkApplyResponse{
+				Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+				ProviderPlan: &appliedPlan, PrimaryError: err.Error(),
+				RollbackState: "FAILED/UNKNOWN", Error: "manual VPN applied but AUTO handoff is not confirmed",
+			}
+		}
+		if err := clearAutomationEmergencyCooldown(); err != nil {
+			appendAutomationRecoveryStage("manual_handoff", "retry_reset_failed", "Не удалось сбросить устаревшую паузу аварийных попыток.")
+		}
+		appendAutomationRecoveryStage("manual_handoff", "success", "AUTO VPN остаётся включённым и следит за вручную выбранным сервером.")
+	}
+	// A verified manual VPN cutover must never be delayed by an unrelated
+	// network/DNS plan. The helper already performs Xray and HTTPS acceptance.
+	var postNetwork networkPlanResponse
+	if !req.ManualOverride {
+		postNetwork, _ = a.runNetworkPlan()
+	}
 	// Manual mode skips only the *pre-apply* isolated route probe: the
 	// production helper still performs post-apply HTTPS and rollback if it
 	// fails. It must not clear a previously unresolved persistent STOP.
