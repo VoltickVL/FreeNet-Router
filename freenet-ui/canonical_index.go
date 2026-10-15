@@ -6,7 +6,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+    _ "embed"
 )
+
+//go:embed web/design-system.css
+var freenetUnifiedDesignCSS string
 
 const canonicalFirstPaintNav = `<nav class="nav" aria-label="Навигация Control Center">
       <button class="nav-btn active" data-page="overview"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-8Z"/><path d="M9.5 20v-6h5v6"/></svg></span><span>Обзор</span></button>
@@ -36,8 +40,7 @@ const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
     );
   };
   const canonicalReady = () => !!(
-    document.getElementById('freenetAcceptedUXStyles') &&
-    document.getElementById('freenetFinalShellPolishStyles') &&
+    document.getElementById('freenetUnifiedDesignStyles') &&
     document.querySelector('.sidebar>.brand .fn-brand-lockup-svg') &&
     canonicalNavReady()
   );
@@ -79,6 +82,8 @@ let localPending=`
 	// is removed only after the accepted shell styles and vector brand are mounted.
 	raw = strings.Replace(raw, htmlStart, `<html lang="ru" class="freenet-canonical-boot">`, 1)
 	raw = strings.Replace(raw, headStart, headStart+canonicalBootStyle+controlCenterLayoutCoherenceStyle, 1)
+	// Unified CSS is emitted after base and canonical boot CSS, before any script.
+    raw = strings.Replace(raw, "</head>", "<style id='freenetUnifiedDesignStyles'>"+freenetUnifiedDesignCSS+"</style></head>", 1)
 
 	start := strings.Index(raw, navStart)
 	if start < 0 {
