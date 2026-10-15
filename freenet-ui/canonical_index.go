@@ -81,9 +81,7 @@ let localPending=`
 	// background gate and shared page geometry in the first HTML bytes. The gate
 	// is removed only after the accepted shell styles and vector brand are mounted.
 	raw = strings.Replace(raw, htmlStart, `<html lang="ru" class="freenet-canonical-boot">`, 1)
-	raw = strings.Replace(raw, headStart, headStart+canonicalBootStyle+controlCenterLayoutCoherenceStyle, 1)
-	// Unified CSS is emitted after base and canonical boot CSS, before any script.
-    raw = strings.Replace(raw, "</head>", "<style id='freenetUnifiedDesignStyles'>"+freenetUnifiedDesignCSS+"</style></head>", 1)
+	raw = strings.Replace(raw, headStart, headStart+canonicalBootStyle+controlCenterLayoutCoherenceStyle+"<style id='freenetUnifiedDesignStyles'>"+freenetUnifiedDesignCSS+"</style>", 1)
 
 	start := strings.Index(raw, navStart)
 	if start < 0 {

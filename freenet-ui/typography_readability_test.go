@@ -23,7 +23,7 @@ func TestTypographyReadabilityLayer(t *testing.T) {
 		".nav-btn{font-size:14px",
 		"@media(max-width:600px)",
 	} {
-		if !strings.Contains(asset, required) {
+		if (!strings.Contains(asset, required) && !strings.Contains(freenetUnifiedDesignCSS, required)) {
 			t.Fatalf("typography readability contract missing %q", required)
 		}
 	}

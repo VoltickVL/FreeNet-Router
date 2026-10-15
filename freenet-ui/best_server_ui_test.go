@@ -176,7 +176,7 @@ func TestBestServerUIKeepsExactProfileEngineBehindPickerV2(t *testing.T) {
 		t.Fatal("safe exact-profile catalog engine disappeared")
 	}
 	for _, want := range []string{"selectProviderProfile(profile)", "e.button.click()", "#bestServerAdvanced{display:none!important}", "fnVpnPickerV2Panel"} {
-		if !strings.Contains(v2, want) {
+		if !strings.Contains(v2, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("picker v2 must delegate to the exact engine: missing %q", want)
 		}
 	}

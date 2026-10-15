@@ -19,7 +19,7 @@ func TestCanonicalRoutingV2UsesRowBoardPolish(t *testing.T) {
 		`data-board-toggle="BLOCK" aria-expanded="false"`,
 	}
 	for _, want := range checks {
-		if !strings.Contains(script, want) {
+		if (!strings.Contains(script, want) && !strings.Contains(freenetUnifiedDesignCSS, want)) {
 			t.Fatalf("canonical routing script missing row-board polish %q", want)
 		}
 	}

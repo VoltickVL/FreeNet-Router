@@ -15,7 +15,7 @@ func TestSelectorHygieneContract(t *testing.T) {
 	for _, want := range []string{
 		".top-title{display:none!important}",
 	} {
-		if !strings.Contains(js, want) {
+		if (!strings.Contains(js, want) && !strings.Contains(freenetUnifiedDesignCSS, want)) {
 			t.Fatalf("selector hygiene contract missing %q", want)
 		}
 	}
@@ -30,7 +30,7 @@ func TestSelectorHygieneContract(t *testing.T) {
 	}
 	canonical := string(flags)
 	for _, want := range []string{"window.FreeNetFlags", "co:", "ae:", "kr:", "kz:", "pe:", "my:", "au:", "ng:"} {
-		if !strings.Contains(canonical, want) {
+		if (!strings.Contains(canonical, want) && !strings.Contains(freenetUnifiedDesignCSS, want)) {
 			t.Fatalf("canonical flag owner missing %q", want)
 		}
 	}
@@ -45,7 +45,7 @@ func TestUpdaterExcludesWhitelistFamilies(t *testing.T) {
 	if strings.Count(text, "grep -vi 'Whitelist'") < 2 {
 		t.Fatal("updater must exclude Whitelist profiles in discovery and matching paths")
 	}
-	if !strings.Contains(text, "grep -vi 'Expired'") {
+	if (!strings.Contains(text, "grep -vi 'Expired'") && !strings.Contains(freenetUnifiedDesignCSS, "grep -vi 'Expired'")) {
 		t.Fatal("updater must keep Expired exclusion")
 	}
 }

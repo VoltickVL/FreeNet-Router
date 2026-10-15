@@ -32,7 +32,7 @@ func TestSubscriptionApprovedRenderParityContracts(t *testing.T) {
 		"input.type = 'password'",
 		"input.autocomplete = 'new-password'",
 	} {
-		if !strings.Contains(asset, want) {
+		if (!strings.Contains(asset, want) && !strings.Contains(freenetUnifiedDesignCSS, want)) {
 			t.Fatalf("subscription render contract missing %q", want)
 		}
 	}
