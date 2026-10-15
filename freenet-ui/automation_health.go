@@ -34,7 +34,7 @@ const (
 	automationQualityStrikeThreshold       = 3
 	automationQualityOptimizationCooldown  = 1 * time.Hour
 	automationQualitySevereCooldown        = 15 * time.Minute
-	automationQualityLatencyMildMS         = 200
+	automationQualityLatencyMildMS         = 225
 	automationQualityLatencyStrongMS       = 250
 	automationQualityLatencySevereMS       = 500
 )
@@ -728,6 +728,9 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	}
 	if first.State == automationHealthHealthy {
 		_ = automationQualityOptimizationDue(time.Now().UTC(), 0)
+		if err := clearAutomationEmergencyCooldown(); err != nil {
+			appendAutomationRecoveryStage("retry_cooldown", "clear_failed", "Не удалось очистить паузу после восстановления VPN.")
+		}
 		cancel()
 		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
 	}
@@ -791,6 +794,18 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		return recordAndReturnHealth(automationHealthResult{State: decision.State, Reason: decision.Reason}, nil)
 	}
 
+	// A failed bounded scan must not start another expensive scan on every
+	// 30-second health tick. Read-only VPN/WAN observations continue normally.
+	// Cooldown never overrides the separate rollback/mutation safety fence.
+	if until, active, cooldownErr := automationEmergencyCooldownDue(a, time.Now().UTC()); cooldownErr != nil {
+		reason := "Не удалось проверить сохранённую паузу аварийного восстановления; AUTO mutation остановлена, текущая конфигурация сохранена."
+		appendAutomationRecoveryStage("retry_cooldown", "stopped", reason)
+		return recordAndReturnHealth(automationHealthResult{State: automationHealthUncertain, Reason: reason}, cooldownErr)
+	} else if active {
+		reason := "VPN всё ещё недоступен; повторный тяжёлый поиск резервов отложен до " + until.Format(time.RFC3339) + ". Лёгкие проверки продолжаются."
+		return recordAndReturnHealth(automationHealthResult{State: automationHealthCritical, Reason: reason}, nil)
+	}
+
 	// Critical recovery is single-flight across the entire endpoint + replacement
 	// sequence. Acquire the Best/replacement fence before any endpoint mutation,
 	// so a competing manual/quality scan cannot make every 30-second health tick
@@ -805,6 +820,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	if bestLockErr != nil {
 		reason := "Аварийное восстановление ждёт завершения другой Best Server / replacement операции; endpoint refresh и новый foreign scan не повторяются."
 		appendAutomationRecoveryIncidentStage(incident, "single_flight", "busy", reason, time.Now().UTC())
+		appendAutomationRecoveryIncidentStage(incident, "incident", "uncertain", "PRIMARY ERROR: "+reason, time.Now().UTC())
 		return recordAndReturnHealth(automationHealthResult{State: "busy", Reason: reason}, nil)
 	}
 	defer releaseBest()
@@ -825,6 +841,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		fmt.Sprintf("duration=%s; %s", endpointDuration, endpointResult.Reason), time.Now().UTC(),
 	)
 	if endpointErr == nil && endpointResult.State == automationHealthHealthy {
+		_ = clearAutomationEmergencyCooldown()
 		appendAutomationRecoveryStage("post_check", "success", endpointResult.Reason)
 		appendAutomationRecoveryIncidentStage(
 			incident, "incident", "recovered",
@@ -845,6 +862,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 			incident, "rollback", "failed",
 			"PRIMARY ERROR: rollback не подтверждён; дальнейшая mutation остановлена", time.Now().UTC(),
 		)
+		appendAutomationRecoveryIncidentStage(incident, "incident", "stopped", "PRIMARY ERROR: состояние rollback не подтверждено", time.Now().UTC())
 		return recordAndReturnHealth(endpointResult, endpointErr)
 	}
 
@@ -852,6 +870,7 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		reason := "Режим «Только текущий VPN»: endpoint текущего профиля не восстановил соединение; автоматическая смена страны или VPN-профиля запрещена."
 		appendAutomationRecoveryStage("candidate_selection", "blocked", reason)
 		appendAutomationRecoveryIncidentStage(incident, "candidate_selection", "blocked", reason, time.Now().UTC())
+		appendAutomationRecoveryIncidentStage(incident, "incident", "failed", "PRIMARY ERROR: "+reason, time.Now().UTC())
 		result := automationHealthResult{State: automationHealthCritical, Reason: reason, Mutated: endpointResult.Mutated}
 		return recordAndReturnHealth(result, endpointErr)
 	}
@@ -899,17 +918,33 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		)
 	}
 	if best.Mutated && best.Result == "switched" {
+		_ = clearAutomationEmergencyCooldown()
 		appendAutomationRecoveryIncidentStage(
 			incident, "incident", "recovered",
 			"method=emergency-replacement; recovery_cycle_elapsed="+time.Since(incident.StartedAt).Round(time.Second).String(),
 			time.Now().UTC(),
 		)
-	} else if bestErr != nil {
+	} else {
+		// Even (Result=failed, err=nil) must have one terminal event.
+		terminal := "failed"
+		if best.Result == "uncertain" || best.Result == "busy" {
+			terminal = "uncertain"
+		}
 		appendAutomationRecoveryIncidentStage(
-			incident, "incident", "failed",
+			incident, "incident", terminal,
 			"PRIMARY ERROR: "+best.Reason+"; total_elapsed="+time.Since(incident.StartedAt).Round(time.Second).String(),
 			time.Now().UTC(),
 		)
+		if best.Result == "failed" && !best.Mutated && !automationMutationBlockedState() &&
+			(best.RollbackState == "" || best.RollbackState == "NOT_NEEDED" || best.RollbackState == "yes" || best.RollbackState == "SUCCESS") {
+			if retryAt, retryErr := recordAutomationEmergencyFailure(a, time.Now().UTC()); retryErr != nil {
+				reason := "Не удалось сохранить ограничение повторных аварийных попыток; AUTO mutation остановлена. Текущие настройки сохранены."
+				appendAutomationRecoveryStage("retry_cooldown", "stopped", reason)
+				return recordAndReturnHealth(automationHealthResult{State: automationHealthUncertain, Reason: reason}, retryErr)
+			} else {
+				appendAutomationRecoveryStage("retry_cooldown", "scheduled", "Повторный тяжёлый поиск не ранее "+retryAt.Format(time.RFC3339))
+			}
+		}
 	}
 	result := automationHealthResult{State: best.Result, Reason: best.Reason, Mutated: best.Mutated}
 	return recordAndReturnHealth(result, bestErr)
