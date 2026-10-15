@@ -23,8 +23,8 @@ const (
 	automationHealthUncertain = "uncertain"
 	automationHealthCritical  = "critical"
 
-	automationHealthProbeTimeout      = 12 * time.Second
-	automationHealthRunTimeout        = 35 * time.Second
+	automationHealthProbeTimeout      = 20 * time.Second
+	automationHealthRunTimeout        = 55 * time.Second
 	automationEndpointRecoveryTimeout = 20 * time.Second
 
 	// Reachable quality degradation must be repeated before Full AUTO spends
@@ -201,36 +201,30 @@ func automationServiceQualityPoints(ok, total int) int {
 }
 
 func classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal int) automationHealthProbe {
-	// These are four independent user-facing services, not just a single
-	// provider heartbeat. When ALL fail while generic HTTPS is still alive,
-	// the VPN is not usable for the configured application traffic. Mark one
-	// read-only FAIL, never mutate from this observation alone: the health
-	// machine still requires a fenced second FAIL and healthy DIRECT WAN.
-	if serviceTotal >= 3 && serviceOK == 0 {
-		return automationHealthProbe{
-			State: automationHealthFailed,
-			Reason: fmt.Sprintf("VPN-транспорт и технический HTTPS отвечают, но прикладные сервисы недоступны (%d/%d). Требуются повторная read-only проверка и рабочий обычный интернет.", serviceOK, serviceTotal),
-		}
-	}
+	// A successful generic VPN HTTPS request proves the VPN path is alive.
+	// Instagram, Telegram Web, WhatsApp Web and YouTube can independently
+	// reject a proxy due to geoblocking, method policy or ISP DIRECT routing.
+	// They are QoE signals; even 0/4 cannot declare a global VPN outage.
 	latencyPoints := automationApplicationQualityPoints(applicationMS)
-	servicePoints := automationServiceQualityPoints(serviceOK, serviceTotal)
-	points := latencyPoints
-	if servicePoints > points {
-		points = servicePoints
-	}
-	if points == 0 {
+	mediaImpaired := serviceTotal >= 3 && serviceOK < serviceTotal
+	if latencyPoints == 0 && !mediaImpaired {
 		return automationHealthProbe{State: automationHealthHealthy, Reason: "Текущий VPN и сервисные маршруты работают стабильно."}
 	}
 
-	reason := fmt.Sprintf("VPN отвечает, но качество соединения ухудшено: отклик %d мс, сервисы %d/%d. AUTO VPN накапливает подтверждение деградации.", applicationMS, serviceOK, serviceTotal)
-	if points >= automationQualityStrikeThreshold {
-		reason = fmt.Sprintf("VPN отвечает, но качество соединения критически ухудшено: отклик %d мс, сервисы %d/%d. AUTO VPN запускает ускоренную проверку замены.", applicationMS, serviceOK, serviceTotal)
+	if latencyPoints == 0 && mediaImpaired {
+		return automationHealthProbe{
+			State: automationHealthUncertain,
+			Reason: fmt.Sprintf("VPN отвечает, но качество соединения ухудшено: отдельные сервисы %d/%d. Это не отказ общего VPN; автоматическая смена сервера только по сервисам запрещена.", serviceOK, serviceTotal),
+			QualityDegraded: true,
+			QualityPoints: 0,
+		}
 	}
+	reason := fmt.Sprintf("VPN отвечает, но качество соединения ухудшено: отклик %d мс, сервисы %d/%d. AUTO VPN накапливает подтверждение деградации.", applicationMS, serviceOK, serviceTotal)
 	return automationHealthProbe{
-		State:           automationHealthUncertain,
-		Reason:          reason,
+		State: automationHealthUncertain,
+		Reason: reason,
 		QualityDegraded: true,
-		QualityPoints:   points,
+		QualityPoints: latencyPoints,
 	}
 }
 
@@ -344,8 +338,8 @@ func classifyAutomationApplicationFailure(transportOK, namedFailureComplete bool
 	}
 	if transportOK {
 		return automationHealthProbe{
-			State: automationHealthFailed,
-			Reason: "VPN-транспорт по IP отвечает, но оба независимых HTTPS/DNS-адреса через VPN недоступны. Требуются повторная read-only проверка и исправный обычный интернет.",
+			State: automationHealthUncertain,
+			Reason: "VPN по IP подтверждён, но оба независимых HTTPS/DNS-адреса недоступны. Это частичная прикладная/DNS неисправность, а не доказанный глобальный отказ VPN.",
 		}
 	}
 	return automationHealthProbe{
@@ -491,16 +485,21 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	}
 
 	socks := fmt.Sprintf("127.0.0.1:%d", port)
-	applicationMS, ok, namedFailureComplete := probeAutomationNamedHTTPS(ctx, curlPath, socks)
+	applicationMS, ok, namedFailureComplete := probeAutomationNamedHTTPSDetailed(ctx, curlPath, socks)
 	if !ok {
 		if ctx.Err() != nil {
 			return automationHealthProbe{State: automationHealthUncertain, Reason: "VPN health probe прерван до завершения HTTPS/DNS проверок; AUTO mutation запрещена."}
 		}
-		transportOK := probeBestServerTransportIP(ctx, curlPath, socks)
+		transport := runAutomationVPNHTTPProbe(ctx, curlPath, socks, bestServerTransportProbeURL, automationHealthTransportTimeout, false)
 		if ctx.Err() != nil {
 			return automationHealthProbe{State: automationHealthUncertain, Reason: "VPN health probe истёк до подтверждения транспортного состояния; AUTO mutation запрещена."}
 		}
-		return classifyAutomationApplicationFailure(transportOK, namedFailureComplete)
+		// A timeout or an inconclusive TCP/TLS result is not evidence of
+		// a dead VPN, even when both named-origin checks also failed.
+		if !transport.Reachable && !transport.ConclusiveFailure {
+			namedFailureComplete = false
+		}
+		return classifyAutomationApplicationFailure(transport.Reachable, namedFailureComplete)
 	}
 	serviceOK, serviceTotal := probeBestServerServiceReachability(ctx, curlPath, socks)
 	return classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal)

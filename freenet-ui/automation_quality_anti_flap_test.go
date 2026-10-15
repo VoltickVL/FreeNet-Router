@@ -108,11 +108,15 @@ func TestQualityLatencyFluctuationsAndOutageAreIndependent(t *testing.T) {
 			t.Fatalf("elevated latency at %dms must be quality-only: %+v", ms, result)
 		}
 	}
-	down := classifyAutomationReachableQuality(180, 0, 4)
-	if down.State != automationHealthFailed || down.QualityDegraded {
-		t.Fatalf("real 0/4 outage must not be treated as latency noise: %+v", down)
+	mediaOnly := classifyAutomationReachableQuality(180, 0, 4)
+	if mediaOnly.State != automationHealthUncertain || !mediaOnly.QualityDegraded || mediaOnly.QualityPoints != 0 {
+		t.Fatalf("0/4 media with working generic VPN is QoE, not an outage: %+v", mediaOnly)
 	}
-	if got := classifyAutomationHealth(down, true, down); got.State != automationHealthCritical {
-		t.Fatalf("two confirmed failures with WAN available must still start recovery: %+v", got)
+	if got := classifyAutomationHealth(mediaOnly, true, mediaOnly); got.State == automationHealthCritical {
+		t.Fatalf("media block caused emergency failover: %+v", got)
+	}
+	outage := classifyAutomationApplicationFailure(false, true)
+	if got := classifyAutomationHealth(outage, true, outage); got.State != automationHealthCritical {
+		t.Fatalf("two confirmed VPN transport and named-origin failures must still start recovery: %+v", got)
 	}
 }
