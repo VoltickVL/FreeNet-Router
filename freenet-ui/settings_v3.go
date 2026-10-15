@@ -1804,9 +1804,12 @@ func healthQualityJournalDecision(previous map[string]string, result automationH
 	newQuality := journalEventIsPendingQualityObservation(automationEvent{
 		Kind: "auto_vpn", Result: result.State, Message: result.Reason,
 	})
-	qualityFlap := (oldQuality || newQuality) &&
-		(previous["HEALTH_RESULT"] == automationHealthHealthy || previous["HEALTH_RESULT"] == automationHealthUncertain) &&
-		(result.State == automationHealthHealthy || result.State == automationHealthUncertain)
+	// Only latency/service-quality chatter is throttleable. A different
+	// uncertain cause (probe infrastructure, rollback guard, invalid state)
+	// must be recorded immediately even if the previous row was quality.
+	qualityFlap := (oldQuality && newQuality) ||
+		(oldQuality && result.State == automationHealthHealthy) ||
+		(newQuality && previous["HEALTH_RESULT"] == automationHealthHealthy)
 	if !qualityFlap {
 		// The first pending-quality row also starts the heartbeat window.
 		return true, newQuality

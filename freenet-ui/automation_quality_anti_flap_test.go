@@ -85,6 +85,13 @@ func TestQualityJournalNeverThrottlesOtherUncertainErrors(t *testing.T) {
 	if !emit || qualityStamp {
 		t.Fatalf("non-quality uncertain/fail-safe state was suppressed: emit=%v, stamp=%v", emit, qualityStamp)
 	}
+	// More importantly, a quality warning must NOT mask an unrelated probe
+	// failure arriving on the next watchdog tick.
+	prev["HEALTH_MESSAGE"] = "VPN отвечает, но качество соединения ухудшено: отклик 333 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."
+	emit, qualityStamp = healthQualityJournalDecision(prev, next, now.Add(time.Second))
+	if !emit || qualityStamp {
+		t.Fatalf("transition from quality to independent uncertainty was hidden: emit=%v stamp=%v", emit, qualityStamp)
+	}
 }
 
 func TestQualityLatencyFluctuationsAndOutageAreIndependent(t *testing.T) {
