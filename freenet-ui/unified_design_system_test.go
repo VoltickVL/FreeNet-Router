@@ -69,6 +69,6 @@ func TestUnifiedDesignSystemCanonicalFirstPaintAndSingleStyleOwner(t *testing.T)
     cssAt := strings.Index(page, "<style id='freenetUnifiedDesignStyles'>")
     scriptAt := strings.Index(page, "/accepted-ux.js?v=v")
     if cssAt < 0 || scriptAt < 0 || cssAt > scriptAt {
-        t.Fatal("shared stylesheet must be present before accepted UX scripts execute")
+        t.Fatalf("shared stylesheet must be present before accepted UX scripts execute: cssAt=%d scriptAt=%d cssLen=%d", cssAt, scriptAt, len(page))
     }
 }

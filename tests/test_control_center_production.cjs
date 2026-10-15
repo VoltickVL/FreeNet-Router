@@ -138,6 +138,7 @@ async function capture(label){
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="subscription"]').count(),0,context+': legacy Subscription must not reappear');
   };
   await page.goto(base);await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','canonical boot');
+  console.log('CSS_DIAGNOSTIC_PRODUCTION',JSON.stringify(await page.evaluate(()=>{const s=document.querySelector('style#freenetUnifiedDesignStyles');const h=document.querySelector('.fn-version-copy strong');return{css:s?.textContent.length,rules:(()=>{try{return s?.sheet?.cssRules.length}catch(e){return e.message}})(),label:h?.textContent,styleCount:document.querySelectorAll('style').length}})));
   await verifyCanonicalSidebar('cold start');
 
   // Unified design regression: short desktop windows must not shrink VPN cards
