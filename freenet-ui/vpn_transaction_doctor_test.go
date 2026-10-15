@@ -7,7 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"testing"\n\t"time"
+	"testing"
+	"time"
 )
 
 func newVPNTransactionDoctorFixture(t *testing.T) (*app, string, map[string]string) {
