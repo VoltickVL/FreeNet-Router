@@ -361,6 +361,9 @@ const server = http.createServer(async (req, res) => {
     })));
     await page.waitForFunction(() => (document.querySelector('#csNotice')?.textContent || '').includes('Локальный черновик сохранён'));
     assert.match(await page.locator('#csInput').inputValue(),/draft\.test/);
+    // The routing/config modes also emit asynchronous workspace refreshes.
+    // Wait for the *guarded state* to settle, not only for notice text.
+    await page.waitForFunction(() => document.querySelector('#csApply')?.disabled === true, null, {timeout:10000});
     assert.equal(await page.locator('#csApply').isDisabled(),true,'stale Config Studio draft must be blocked, not overwritten or applied');
     await page.locator('#csReset').click();
     await page.waitForFunction(() => (document.querySelector('#csInput')?.value || '').includes('studio.test'));
@@ -387,6 +390,9 @@ const server = http.createServer(async (req, res) => {
     releaseStudioResponse();
     await page.waitForFunction(()=>window.__configReloadOutcome==='discarded');
     assert.match(await page.locator('#csInput').inputValue(),new RegExp('late-draft[.]test'),'late read must not overwrite draft');
+    // A delayed GET may settle after its response has been released; the
+    // stale marker and disabled Apply must remain authoritative.
+    await page.waitForFunction(() => document.querySelector('#csApply')?.disabled === true, null, {timeout:10000});
     assert.equal(await page.locator('#csApply').isDisabled(),true,'late read must preserve STALE block');
     await page.locator('#csReset').click();
     await page.waitForFunction(()=>(document.querySelector('#csInput')?.value||'').includes('studio.test'));
