@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -41,6 +42,9 @@ const (
 	automationQualityLatencyMildMS         = 300
 	automationQualityLatencyStrongMS       = 420
 	automationQualityLatencySevereMS       = 650
+
+	// Pending rollback is a latched incident, not a new outage every 30 s.
+	automationRollbackGuardJournalInterval = 15 * time.Minute
 )
 
 type automationHealthResult struct {
@@ -696,6 +700,29 @@ func automationRollbackStateKnownFailed(a *app, first automationHealthProbe) boo
 		strings.TrimSpace(currentExactProfileLabel(a.cfg.FilterPath)) != ""
 }
 
+// Each watchdog pass must still publish current health, but an unchanged
+// protected rollback marker cannot produce thousands of duplicate events.
+// A new guard type and the first observation after restart are reported.
+var automationRollbackGuardJournal struct {
+	sync.Mutex
+	lastTime time.Time
+	lastKind string
+}
+
+func automationRollbackGuardShouldJournal(kind string, now time.Time) bool {
+	automationRollbackGuardJournal.Lock()
+	defer automationRollbackGuardJournal.Unlock()
+	if automationRollbackGuardJournal.lastKind != kind ||
+		automationRollbackGuardJournal.lastTime.IsZero() ||
+		now.Before(automationRollbackGuardJournal.lastTime) ||
+		now.Sub(automationRollbackGuardJournal.lastTime) >= automationRollbackGuardJournalInterval {
+		automationRollbackGuardJournal.lastKind = kind
+		automationRollbackGuardJournal.lastTime = now
+		return true
+	}
+	return false
+}
+
 func automationRollbackGuardResult(a *app, first automationHealthProbe) (automationHealthResult, bool) {
 	if !automationMutationBlockedState() {
 		return automationHealthResult{}, false
@@ -706,7 +733,9 @@ func automationRollbackGuardResult(a *app, first automationHealthProbe) (automat
 	// Xray identities match. Only explicit verified reconciliation may clear it.
 	if vpnTransactionPending() {
 		reason := "Постоянный checkpoint VPN-транзакции не закрыт. AUTO mutation заблокирована до проверенного read-only восстановления исходного состояния."
-		appendAutomationRecoveryStage("rollback_guard", "blocked_pending", reason)
+		if automationRollbackGuardShouldJournal("blocked_pending", time.Now().UTC()) {
+			appendAutomationRecoveryStage("rollback_guard", "blocked_pending", reason)
+		}
 		return automationHealthResult{State: automationHealthUncertain, Reason: reason}, true
 	}
 	if first.State == automationHealthHealthy {
@@ -732,7 +761,9 @@ func automationRollbackGuardResult(a *app, first automationHealthProbe) (automat
 	if strings.TrimSpace(first.Reason) != "" {
 		reason += " " + strings.TrimSpace(first.Reason)
 	}
-	appendAutomationRecoveryStage("rollback_guard", "blocked", reason)
+	if automationRollbackGuardShouldJournal("blocked", time.Now().UTC()) {
+		appendAutomationRecoveryStage("rollback_guard", "blocked", reason)
+	}
 	return automationHealthResult{State: automationHealthUncertain, Reason: reason}, true
 }
 
