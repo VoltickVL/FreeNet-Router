@@ -678,6 +678,15 @@ func automationRollbackGuardResult(a *app, first automationHealthProbe) (automat
 	if !automationMutationBlockedState() {
 		return automationHealthResult{}, false
 	}
+	// A durable provider checkpoint contains the pre-apply snapshot, but
+	// proves neither COMMIT nor ROLLBACK. A single healthy probe cannot safely
+	// discard that evidence, and a failed probe cannot assume on-disk/live
+	// Xray identities match. Only explicit verified reconciliation may clear it.
+	if vpnTransactionPending() {
+		reason := "Постоянный checkpoint VPN-транзакции не закрыт. AUTO mutation заблокирована до проверенного read-only восстановления исходного состояния."
+		appendAutomationRecoveryStage("rollback_guard", "blocked_pending", reason)
+		return automationHealthResult{State: automationHealthUncertain, Reason: reason}, true
+	}
 	if first.State == automationHealthHealthy {
 		setAutomationMutationBlocked(false)
 		reason := "Фактическое состояние текущего VPN подтверждено read-only проверкой; аварийный запрет AUTO mutation снят."
