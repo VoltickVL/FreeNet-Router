@@ -1,7 +1,29 @@
 #!/bin/sh
 
 REPO="VoltickVL/FreeNet-Router"
+# Stable is always the default. An exact Beta release requires both flags.
 RELEASE_BASE="https://github.com/$REPO/releases/latest/download"
+if [ -n "${FREENET_INSTALL_RELEASE_TAG:-}" ]; then
+    TAG="$FREENET_INSTALL_RELEASE_TAG"
+    if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.([1-9]|[1-9][0-9]))?$'; then
+        printf '%s\n' '[FreeNet] Invalid exact release tag' >&2
+        exit 1
+    fi
+    PATCH="${TAG%%-beta.*}"
+    PATCH="${PATCH##*.}"
+    if [ "$PATCH" -gt 99 ]; then
+        printf '%s\n' '[FreeNet] Invalid version patch' >&2
+        exit 1
+    fi
+    case "$TAG" in
+        *-beta.*)
+            if [ "${FREENET_INSTALL_BETA:-no}" != yes ]; then
+                printf '%s\n' '[FreeNet] Beta installation requires explicit FREENET_INSTALL_BETA=yes' >&2
+                exit 1
+            fi ;;
+    esac
+    RELEASE_BASE="https://github.com/$REPO/releases/download/$TAG"
+fi
 
 FREENET_BIN="/opt/sbin/freenet-ui"
 FREENET_INIT="/opt/etc/init.d/S99freenet-ui"
