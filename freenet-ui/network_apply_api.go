@@ -73,6 +73,8 @@ type networkApplyRequest struct {
 	NativeDNSProvider  string `json:"native_dns_provider,omitempty"`
 	ProfileID          string `json:"profile_id,omitempty"`
 	SelectionToken     string `json:"selection_token,omitempty"`
+	ManualOverride      bool   `json:"manual_override,omitempty"`
+	ExpectedEndpoint    string `json:"expected_endpoint,omitempty"`
 	NativeFilterEngine string `json:"native_filter_engine,omitempty"`
 	Confirm            bool   `json:"confirm"`
 }
@@ -505,10 +507,15 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "invalid VPN selection token"})
 		return
 	}
+	if req.ManualOverride && (strings.TrimSpace(req.ExpectedEndpoint) == "" || len(req.ExpectedEndpoint) > 320) {
+		writeJSON(w, http.StatusBadRequest, networkApplyResponse{Success:false, Operation:"provider", ProfileID:profileID, Error:"expected endpoint required for explicit manual VPN"})
+		return
+	}
 	operationTarget := profileID
 	if selectionToken != "" {
 		operationTarget += "@" + selectionToken
 	}
+	if req.ManualOverride { operationTarget += "@manual:" + req.ExpectedEndpoint }
 
 	op, leader, conflict := vpnOperations.begin("provider", operationTarget)
 	if !leader {
@@ -530,7 +537,13 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	status, result := a.executeProviderProfileApply(req)
+	status, result := a.executeProviderProfileApplyWithStart(req, func(plan providerPlanResponse) {
+		name := strings.ReplaceAll(sanitizeProfileName(plan.ProfileName), "|", "/")
+		if strings.TrimSpace(name) == "" {
+			name = "Extra-профиль"
+		}
+		v3AppendEvent("vpn_manual", "start", "Сервер: "+name+" | Итог: начата попытка подключения")
+	})
 	result.OperationID = op.state.ID
 	journalResult := "failed"
 	journalName := "—"
@@ -540,7 +553,7 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 	journalMessage := "Сервер: " + journalName
 	if result.Success {
 		journalResult = "success"
-		journalMessage += " | Итог: VPN подключён"
+		if req.ManualOverride { journalMessage += " | Итог: HTTPS-маршрут через VPN подтверждён на роутере; LAN-проверка отдельно" } else { journalMessage += " | Итог: VPN подключён" }
 	} else {
 		reason := sanitizeAutomationReason(result.PrimaryError)
 		if reason == "" {
@@ -558,7 +571,13 @@ func (a *app) handleProviderProfileApply(w http.ResponseWriter, r *http.Request,
 	writeJSON(w, status, result)
 }
 
+// Internal AUTO/Best applies do not emit manual journal events. Only the
+// authenticated HTTP path supplies a manual-start callback.
 func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, networkApplyResponse) {
+	return a.executeProviderProfileApplyWithStart(req, nil)
+}
+
+func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onManualStart func(providerPlanResponse)) (int, networkApplyResponse) {
 	profileID := strings.TrimSpace(req.ProfileID)
 	selectionToken := strings.TrimSpace(req.SelectionToken)
 	select {
@@ -568,13 +587,14 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "another FreeNet operation is already running"}
 	}
 
-	// Internal AUTO and Best Server paths must obey the same persistent
-	// UNKNOWN fence as authenticated browser operations and shell helpers.
+	// Manual and AUTO share the same production Xray. An UNKNOWN rollback
+	// stops *all* new profile mutations until read-only reconciliation proves
+	// the live state. An explicit manual override cannot clear that safety latch.
 	if automationMutationBlockedState() {
 		return http.StatusConflict, networkApplyResponse{
 			Success: false, Operation: "provider", ProfileID: profileID,
 			RollbackState: "FAILED/UNKNOWN",
-			Error: "Xray state is unresolved after rollback; read-only reconciliation required before another VPN switch",
+			Error: "Xray state is unresolved after rollback; read-only recovery acceptance is required before another VPN switch",
 		}
 	}
 
@@ -587,7 +607,16 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 	)
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
-	if selectionToken != "" {
+	if req.ManualOverride {
+		if selectionToken != "" {
+			return http.StatusBadRequest, networkApplyResponse{Success:false, Operation:"provider", ProfileID:profileID, RollbackState:"NOT_APPLIED", Error:"manual override cannot combine with measured selection token"}
+		}
+		selected, err = a.localManualProviderCandidate(profileID, req.ExpectedEndpoint)
+		if err != nil { return http.StatusConflict, networkApplyResponse{Success:false,Operation:"provider",ProfileID:profileID,RollbackState:"NOT_APPLIED",Error:err.Error()} }
+		useSnapshot = true
+		manualRTT = true
+		providerPlan = providerPlanResponse{Success:true, ProfileID:selected.Profile.ID, ProfileName:selected.Profile.Name, Endpoint:profileEndpoint(selected.Profile),Mutation:"NONE"}
+	} else if selectionToken != "" {
 		selected, manualRTT, err = a.loadBestServerSelectionCandidateWithPurpose(selectionToken, profileID, currentEndpoint, currentFilter)
 		if err != nil {
 			return http.StatusConflict, networkApplyResponse{
@@ -625,34 +654,63 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		}
 	}
 
-	manualName := strings.ReplaceAll(sanitizeProfileName(providerPlan.ProfileName), "|", "/")
-	if strings.TrimSpace(manualName) == "" {
-		manualName = "Extra-профиль"
+	if onManualStart != nil {
+		onManualStart(providerPlan)
 	}
-	v3AppendEvent("vpn_manual", "start", "Сервер: "+manualName+" | Итог: начата попытка подключения")
+
+	// Old XKeen init scripts use pidof xray for their startup readiness gate.
+	// Let every in-flight FreeNet isolated RTT/quality/health worker exit before
+	// the shell helper can stop the production core, then exclude new workers
+	// until apply and any rollback are terminal. No PID is killed by this gate.
+	quiesceCtx, cancelQuiesce := context.WithTimeout(context.Background(), 12*time.Second)
+	releaseProbes, quiesced := acquireExclusiveIsolatedXrayProbe(quiesceCtx)
+	cancelQuiesce()
+	if !quiesced {
+		return http.StatusConflict, networkApplyResponse{
+			Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+			ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED",
+			Error: "isolated Xray diagnostics are still running; production VPN was not changed",
+		}
+	}
+	defer releaseProbes()
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	defer cancel()
 	var output []byte
 	var cmdErr error
 	if useSnapshot {
-		mode := "apply"
-		if manualRTT {
-			// Do not tear down XKeen firewall rules on emergency RTT cutover.
-			mode = "apply-core"
-		}
-		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, mode, selected, manualRTT)
+		// Protected AUTO/Best/manual snapshot switches preserve XKeen/netfilter
+		// during Xray cutover and rollback. AUTO/Best retains route preflight;
+		// only explicit measured manual RTT skips its duplicate preflight.
+		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, "apply-core", selected, manualRTT)
 	} else {
+		// Unmeasured legacy/no-token setup retains its established apply path.
 		output, cmdErr = runCommand(ctx, providerHelperPath(), "apply", profileID)
 	}
 	safeOutput := sanitizeOutput(string(output))
 	if ctx.Err() == context.DeadlineExceeded {
 		cmdErr = errors.New("provider profile apply timed out")
 	}
+	if cmdErr == nil && req.ManualOverride && !strings.Contains(safeOutput, "[FreeNet Provider] RESULT=SUCCESS") {
+		// A zero exit without an acceptance receipt may hide a partial cutover.
+		// Do not mutate again until the router state is reconciled read-only.
+		setAutomationMutationBlocked(true)
+		return http.StatusBadGateway, networkApplyResponse{
+			Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+			ProviderPlan: &providerPlan, PrimaryError: "VPN helper did not confirm post-apply HTTPS",
+			RollbackState: "FAILED/UNKNOWN", Error: "manual VPN apply result is unknown",
+		}
+	}
 	if cmdErr != nil {
 		primary, rollback := classifyApplyFailure(safeOutput)
 		if primary == "" {
 			primary = cmdErr.Error()
+		}
+		// Do not let AUTO VPN run after a manual apply whose rollback is
+		// FAILED/UNKNOWN. Timeout with no terminal rollback result is equally
+		// ambiguous because the helper may have changed the live config.
+		if automationRollbackBlocksMutation(rollback) || (ctx.Err() == context.DeadlineExceeded && strings.TrimSpace(rollback) == "") {
+			setAutomationMutationBlocked(true)
 		}
 		return http.StatusBadGateway, networkApplyResponse{
 			Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
@@ -668,21 +726,53 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 	// Never refresh the subscription again just to tell the browser what was
 	// applied: the provider may rotate endpoint immediately after the
 	// transaction. The live outbound is the authoritative post-apply endpoint.
-	if liveEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath); liveEndpoint != "" {
+	liveEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+	if liveEndpoint != "" {
 		appliedPlan.Endpoint = liveEndpoint
 	}
-	postNetwork, _ := a.runNetworkPlan()
-	// The provider helper reports success only after the fresh candidate and the
-	// live post-apply VPN route both pass application-level probes. That is
-	// sufficient factual acceptance to retire a stale rollback latch inherited
-	// from an older release and to acknowledge the current post-update hold.
-	setAutomationMutationBlocked(false)
-	if target := automationPendingPostUpdateTarget(a); target != "" {
-		setAutomationPostUpdateAck(target)
+	if req.ManualOverride {
+		// Only an explicit contradiction in the live outbounds is a hard
+		// mismatch; legacy XKeen layouts may not expose an easily readable
+		// endpoint even when the helper has verified the chosen HTTPS path.
+		if liveEndpoint != "" && liveEndpoint != profileEndpoint(selected.Profile) {
+			setAutomationMutationBlocked(true)
+			return http.StatusBadGateway, networkApplyResponse{
+				Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+				ProviderPlan: &appliedPlan, PrimaryError: "live Xray endpoint differs from manual selection",
+				RollbackState: "FAILED/UNKNOWN", Error: "exact manual VPN acceptance is unresolved",
+			}
+		}
+		if err := recordAutomationManualSwitch(time.Now().UTC()); err != nil {
+			setAutomationMutationBlocked(true)
+			return http.StatusBadGateway, networkApplyResponse{
+				Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+				ProviderPlan: &appliedPlan, PrimaryError: err.Error(),
+				RollbackState: "FAILED/UNKNOWN", Error: "manual VPN applied but AUTO handoff is not confirmed",
+			}
+		}
+		if err := clearAutomationEmergencyCooldown(); err != nil {
+			appendAutomationRecoveryStage("manual_handoff", "retry_reset_failed", "Не удалось сбросить устаревшую паузу аварийных попыток.")
+		}
+		appendAutomationRecoveryStage("manual_handoff", "success", "AUTO VPN остаётся включённым и следит за вручную выбранным сервером.")
+	}
+	// A verified manual VPN cutover must never be delayed by an unrelated
+	// network/DNS plan. The helper already performs Xray and HTTPS acceptance.
+	var postNetwork networkPlanResponse
+	if !req.ManualOverride {
+		postNetwork, _ = a.runNetworkPlan()
+	}
+	// Manual mode skips only the *pre-apply* isolated route probe: the
+	// production helper still performs post-apply HTTPS and rollback if it
+	// fails. It must not clear a previously unresolved persistent STOP.
+	if !req.ManualOverride {
+		setAutomationMutationBlocked(false)
+		if target := automationPendingPostUpdateTarget(a); target != "" {
+			setAutomationPostUpdateAck(target)
+		}
 	}
 	return http.StatusOK, networkApplyResponse{
 		Success: true, Applied: true, Operation: "provider", ProfileID: profileID,
-		Message: "VPN-профиль применён, интернет через него проверен.", RollbackState: "NOT_NEEDED",
+		Message: providerApplySuccessMessage(req.ManualOverride), RollbackState: "NOT_NEEDED",
 		Plan: postNetwork, ProviderPlan: &appliedPlan,
 	}
 }
@@ -994,4 +1084,9 @@ func parseProviderPlan(output string) (providerPlanResponse, error) {
 		CandidateRouteOK: values["CANDIDATE_ROUTE_OK"] == "yes", ExpectedDelta: values["EXPECTED_DELTA"],
 		ExpectedNoDelta: values["EXPECTED_NO_DELTA"], Mutation: values["MUTATION"],
 	}, nil
+}
+
+func providerApplySuccessMessage(manualOverride bool) string {
+	if manualOverride { return "Конфигурация применена; HTTPS-маршрут через VPN проверен на роутере. Доступность LAN-клиентов отдельно не проверялась." }
+	return "VPN-профиль применён, интернет через него проверен."
 }

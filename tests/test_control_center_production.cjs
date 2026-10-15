@@ -100,9 +100,10 @@ async function capture(label){
     }
     if(url.pathname==='/api/network-profile/apply'){
       const body=JSON.parse(req.postData());
-      const expectedKeys=body.selection_token?['confirm','operation','profile_id','selection_token']:['confirm','operation','profile_id'];
+      const expectedKeys=body.manual_override?['confirm','expected_endpoint','manual_override','operation','profile_id']:(body.selection_token?['confirm','operation','profile_id','selection_token']:['confirm','operation','profile_id']);
       assert.deepEqual(Object.keys(body).sort(),expectedKeys);
-      if(body.selection_token)assert.equal(body.selection_token,manualRTTToken,'manual apply must bind the RTT snapshot');
+      if(body.manual_override){const bound=profiles.find(p=>p.id===body.profile_id);assert.ok(bound);assert.equal(body.expected_endpoint,ep(bound),'manual apply requires exact endpoint');assert.equal(body.selection_token,undefined,'manual apply never requires measured token');}
+      if(body.selection_token)assert.equal(body.selection_token,manualRTTToken,'Best measured apply keeps exact RTT snapshot');
       assert.equal(body.operation,'provider');assert.equal(body.confirm,true);
       const selected=profiles.find(p=>p.id===body.profile_id);assert.ok(selected);
       if(applyMode==='unknown')return answer(route,{success:false,error:'Результат операции не подтверждён',rollback_state:'UNKNOWN'},502);
@@ -256,10 +257,15 @@ async function capture(label){
   await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','connected country');await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='success','verified apply');
   assert.equal(countApply(),1,'double click cannot apply twice');assert.equal(await page.locator(C).isDisabled(),true);
   await page.locator('#fnVpnPickerV2Reset').click();planDelay=0;planMode='error';
-  // Explicitly remove the measured snapshot to test the legacy no-RTT fallback.
+  // Preflight failure must not disable an explicit manual choice. Only a
+  // guarded apply may validate Xray+HTTPS or perform rollback.
   await page.evaluate(()=>{window.freenetManualRTTSelection=null;});
+  const planReadsBeforeManual=calls.filter(c=>c.path==='/api/provider-profile/plan').length;
   await page.locator(S).fill('NL');await page.locator(R+' button').first().click();
-  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','validation error');assert.equal(await page.locator(C).isDisabled(),true);assert.match(await page.locator('#fnVpnPickerV2Detail').textContent(),/Xray/);await geometry('validation-error');assert.equal(countApply(),1);
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','manual choice without plan');
+  assert.equal(await page.locator(C).isDisabled(),false,'manual Connect must be available without preflight');
+  assert.equal(calls.filter(c=>c.path==='/api/provider-profile/plan').length,planReadsBeforeManual,'selection must not trigger provider network plan');
+  await geometry('manual-choice-ready');assert.equal(countApply(),1,'manual selection alone must not mutate Xray');
   await page.locator('#fnVpnPickerV2Reset').click();planMode='offline';await page.evaluate(()=>loadNetworkPlan());await page.locator(S).fill('');
   await until(()=>document.querySelectorAll('#fnVpnPickerV2Results button').length===49,'cached list');await until(()=>!document.querySelector('#fnVpnPickerV2Stale').hidden,'stale banner');assert.equal(countApply(),1);
 

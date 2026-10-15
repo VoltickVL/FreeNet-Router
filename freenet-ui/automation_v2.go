@@ -25,6 +25,9 @@ const (
 	automationCountryAllowlist = "allowlist"
 
 	automationBestCooldown   = 6 * time.Hour
+	// Manual adoption suppresses only immediate healthy-server optimization.
+	// Critical AUTO recovery and genuinely degraded candidates still run.
+	automationManualSettlingWindow = 5 * time.Minute
 	automationBestBudgetSlack = 10 * time.Second
 )
 
@@ -490,6 +493,44 @@ func automationCooldownActive(lastSwitch, now time.Time) bool {
 	return !lastSwitch.IsZero() && now.Before(lastSwitch.Add(automationBestCooldown))
 }
 
+// The normal Best selector keeps running after a manual switch. Do not
+// immediately replace a healthy manual selection for a minor speed advantage.
+// This gate is never consulted by critical health recovery.
+func automationOptimizationCooldownActive(path string, now time.Time) bool {
+	state := parseAutomationState(path)
+	lastSwitch, err := time.Parse(time.RFC3339, strings.TrimSpace(state["LAST_SWITCH"]))
+	if err != nil || lastSwitch.IsZero() {
+		return false
+	}
+	window := automationBestCooldown
+	if state["LAST_SWITCH_ORIGIN"] == "manual" {
+		window = automationManualSettlingWindow
+	}
+	return now.Before(lastSwitch.Add(window))
+}
+
+// A successful manual apply changes the current AUTO baseline, not the AUTO
+// configuration or scheduling. Leave LAST_RUN, enabled/auto_apply/mode/policy,
+// rollback/STOP and post-update acknowledgement exactly as they were.
+func recordAutomationManualSwitch(now time.Time) error {
+	if automationMutationBlockedState() {
+		return errors.New("cannot adopt manually selected VPN while rollback is unknown")
+	}
+	path := automationStatePath()
+	previous := parseAutomationState(path)
+	previous["LAST_SWITCH"] = now.UTC().Format(time.RFC3339)
+	previous["LAST_SWITCH_ORIGIN"] = "manual"
+	writeAutomationStatePayload(path, previous)
+	// The legacy writer ignores IO errors: require the persisted handoff.
+	stored := parseAutomationState(path)
+	if stored["LAST_SWITCH"] != previous["LAST_SWITCH"] ||
+		stored["LAST_SWITCH_ORIGIN"] != "manual" ||
+		stored["MUTATION_BLOCKED"] != previous["MUTATION_BLOCKED"] {
+		return errors.New("manual VPN applied but AUTO handoff state not persisted")
+	}
+	return nil
+}
+
 func sanitizeAutomationReason(reason string) string {
 	reason = sanitizeOutput(reason)
 	reason = strings.ReplaceAll(reason, "\t", " ")
@@ -532,6 +573,7 @@ func writeAutomationStatePayload(path string, values map[string]string) {
 		"LAST_REASON=" + sanitizeAutomationReason(values["LAST_REASON"]),
 		"ROLLBACK_READY=" + sanitizeAutomationReason(values["ROLLBACK_READY"]),
 		"LAST_SWITCH=" + sanitizeAutomationReason(values["LAST_SWITCH"]),
+		"LAST_SWITCH_ORIGIN=" + sanitizeAutomationReason(values["LAST_SWITCH_ORIGIN"]),
 		"MUTATION_BLOCKED=" + sanitizeAutomationReason(values["MUTATION_BLOCKED"]),
 		"POST_UPDATE_ACK=" + sanitizeAutomationReason(values["POST_UPDATE_ACK"]),
 	}, "\n") + "\n"
@@ -602,8 +644,10 @@ func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 	path := automationStatePath()
 	previous := parseAutomationState(path)
 	lastSwitch := previous["LAST_SWITCH"]
+	lastSwitchOrigin := previous["LAST_SWITCH_ORIGIN"]
 	if switched {
 		lastSwitch = time.Now().UTC().Format(time.RFC3339)
+		lastSwitchOrigin = "auto"
 	}
 	if rollback == "" {
 		rollback = "no"
@@ -615,6 +659,7 @@ func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 		"LAST_REASON": reason,
 		"ROLLBACK_READY": rollback,
 		"LAST_SWITCH": lastSwitch,
+		"LAST_SWITCH_ORIGIN": lastSwitchOrigin,
 		"MUTATION_BLOCKED": "no",
 		"POST_UPDATE_ACK": strings.TrimSpace(previous["POST_UPDATE_ACK"]),
 	}
@@ -889,7 +934,7 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 		appendAutomationHistoryV2("same", reason)
 		return automationBestCycleResult{Result: "same", Reason: reason, ProfileID: candidate.ID}, nil
 	}
-	if currentState == "healthy" && automationCooldownActive(parseAutomationLastSwitch(automationStatePath()), time.Now().UTC()) {
+	if currentState == "healthy" && automationOptimizationCooldownActive(automationStatePath(), time.Now().UTC()) {
 		reason := automationCooldownReason(candidate)
 		writeAutomationStateV2("cooldown", reason, "no", false)
 		appendAutomationHistoryV2("cooldown", reason)

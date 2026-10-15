@@ -75,7 +75,7 @@ EXPECTED_NO_DELTA=ISP/DNS/routing unchanged
 MUTATION=NONE
 ========== END ==========
 EOF
-if [ "$1" = apply ]; then
+if [ "$1" = apply-core ]; then
   cat > "$FREENET_TEST_OUT_PATH" <<'EOF'
 {"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"203.0.113.10","port":443}]}}]}
 EOF
