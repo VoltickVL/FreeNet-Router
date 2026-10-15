@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - stable/v0.7
+      - beta/v0.8.0
     paths:
       - VERSION
 
@@ -27,16 +28,25 @@ jobs:
         id: version
         run: |
           VERSION="$(tr -d '\r\n' < VERSION)"
-          case "$VERSION" in
-            v[0-9]*.[0-9]*.[0-9]*) ;;
-            *) echo "Invalid VERSION: $VERSION" >&2; exit 1 ;;
+          case "$GITHUB_REF_NAME" in
+            stable/v0.7)
+              echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
+                { echo "Stable branch refuses Beta tags: $VERSION" >&2; exit 1; }
+              CHANNEL=stable ;;
+            beta/v0.8.0)
+              echo "$VERSION" | grep -Eq '^v0\.8\.0-beta\.([1-9]|[1-9][0-9])$' ||
+                { echo "Beta branch requires exact v0.8.0-beta.N tag: $VERSION" >&2; exit 1; }
+              CHANNEL=beta ;;
+            *) echo "Unsupported release branch $GITHUB_REF_NAME" >&2; exit 1 ;;
           esac
-          PATCH="${VERSION##*.}"
+          CORE="${VERSION%%-beta.*}"
+          PATCH="${CORE##*.}"
           case "$PATCH" in
             ''|*[!0-9]*) echo "Invalid VERSION patch: $VERSION" >&2; exit 1 ;;
           esac
-          [ "$PATCH" -le 99 ] || { echo "Invalid VERSION: patch .100+ is forbidden; roll minor version (v0.3.99 -> v0.4.0)" >&2; exit 1; }
+          [ "$PATCH" -le 99 ] || { echo "Invalid VERSION patch: $VERSION" >&2; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
 
       - name: Проверить русское описание выпуска
         env:
@@ -254,7 +264,16 @@ jobs:
             exit 1
           fi
           NOTES_FILE="docs/releases/${VERSION}.md"
-          gh release create "$VERSION" dist/* \
-            --target "$GITHUB_SHA" \
-            --title "FreeNet Router $VERSION" \
-            --notes-file "$NOTES_FILE"
+          if [ "${{ steps.version.outputs.channel }}" = beta ]; then
+            # Pre-releases must NEVER replace the Stable /releases/latest.
+            gh release create "$VERSION" dist/* \
+              --target "$GITHUB_SHA" \
+              --title "FreeNet Router $VERSION · BETA" \
+              --prerelease --latest=false \
+              --notes-file "$NOTES_FILE"
+          else
+            gh release create "$VERSION" dist/* \
+              --target "$GITHUB_SHA" \
+              --title "FreeNet Router $VERSION" \
+              --notes-file "$NOTES_FILE"
+          fi

@@ -27,6 +27,7 @@ var (
 	selfUpdateReleaseCache = struct {
 		sync.Mutex
 		at time.Time
+		channel string
 		items []selfUpdateRelease
 	}{}
 )
@@ -37,12 +38,14 @@ type selfUpdateRelease struct {
 	ReleaseNotes string `json:"release_notes,omitempty"`
 	Current     bool   `json:"current"`
 	Latest      bool   `json:"latest"`
+	Prerelease  bool   `json:"prerelease,omitempty"`
 }
 
 type selfUpdateReleaseCatalogResponse struct {
 	Success        bool                `json:"success"`
 	CurrentVersion string              `json:"current_version"`
 	LatestVersion  string              `json:"latest_version,omitempty"`
+	Channel        string              `json:"channel,omitempty"`
 	Releases       []selfUpdateRelease `json:"releases,omitempty"`
 	Degraded       bool                `json:"degraded,omitempty"`
 	Warning        string              `json:"warning,omitempty"`
@@ -59,10 +62,11 @@ type githubFreeNetRelease struct {
 
 func releaseVersionParts(tag string) ([3]int, bool) {
 	var out [3]int
-	if !validReleaseTag(tag) {
+	if !validSelectableReleaseTag(tag) {
 		return out, false
 	}
-	parts := strings.Split(strings.TrimPrefix(tag, "v"), ".")
+	base := strings.SplitN(strings.TrimPrefix(tag, "v"), "-beta.", 2)[0]
+	parts := strings.Split(base, ".")
 	for i := range parts {
 		var n int
 		if _, err := fmt.Sscanf(parts[i], "%d", &n); err != nil {
@@ -77,12 +81,25 @@ func releaseVersionGreater(a, b string) bool {
 	av, aok := releaseVersionParts(a)
 	bv, bok := releaseVersionParts(b)
 	if !aok || !bok {
-		return a > b
+		return false
 	}
 	for i := 0; i < len(av); i++ {
 		if av[i] != bv[i] {
 			return av[i] > bv[i]
 		}
+	}
+	// For identical core version, stable > any beta; higher beta number wins.
+	aBeta, bBeta := validBetaReleaseTag(a), validBetaReleaseTag(b)
+	if aBeta != bBeta {
+		return !aBeta
+	}
+	if aBeta {
+		aSeq := strings.TrimPrefix(strings.SplitN(a, "-beta.", 2)[1], "")
+		bSeq := strings.SplitN(b, "-beta.", 2)[1]
+		var an, bn int
+		_, _ = fmt.Sscanf(aSeq, "%d", &an)
+		_, _ = fmt.Sscanf(bSeq, "%d", &bn)
+		return an > bn
 	}
 	return false
 }
@@ -99,19 +116,29 @@ func boundedSelfUpdateReleaseNotes(body string) string {
 }
 
 func normalizeSelfUpdateReleases(raw []githubFreeNetRelease, current string) []selfUpdateRelease {
+	return normalizeSelfUpdateReleasesForChannel(raw, current, "stable")
+}
+
+func normalizeSelfUpdateReleasesForChannel(raw []githubFreeNetRelease, current, channel string) []selfUpdateRelease {
 	seen := make(map[string]bool)
 	out := make([]selfUpdateRelease, 0, len(raw))
 	for _, item := range raw {
 		tag := strings.TrimSpace(item.TagName)
-		if item.Draft || item.Prerelease || !validReleaseTag(tag) || seen[tag] {
+		if item.Draft || seen[tag] {
+			continue
+		}
+		if channel == "beta" {
+			if !item.Prerelease || !validBetaReleaseTag(tag) {
+				continue
+			}
+		} else if item.Prerelease || !validReleaseTag(tag) {
 			continue
 		}
 		seen[tag] = true
 		out = append(out, selfUpdateRelease{
-			Version: tag,
-			PublishedAt: strings.TrimSpace(item.PublishedAt),
+			Version: tag, PublishedAt: strings.TrimSpace(item.PublishedAt),
 			ReleaseNotes: boundedSelfUpdateReleaseNotes(item.Body),
-			Current: tag == current,
+			Current: tag == current, Prerelease: item.Prerelease,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -138,8 +165,15 @@ func selfUpdateReleaseCacheUsable(at time.Time, itemCount int, forceFresh bool, 
 }
 
 func fetchSelfUpdateReleaseCatalog(ctx context.Context, current string, forceFresh bool) ([]selfUpdateRelease, error) {
+	return fetchSelfUpdateReleaseCatalogForChannel(ctx, current, forceFresh, "stable")
+}
+
+func fetchSelfUpdateReleaseCatalogForChannel(ctx context.Context, current string, forceFresh bool, channel string) ([]selfUpdateRelease, error) {
+	if channel != "stable" && channel != "beta" {
+		return nil, errors.New("unknown FreeNet release channel")
+	}
 	selfUpdateReleaseCache.Lock()
-	if selfUpdateReleaseCacheUsable(selfUpdateReleaseCache.at, len(selfUpdateReleaseCache.items), forceFresh, time.Now()) {
+	if selfUpdateReleaseCache.channel == channel && selfUpdateReleaseCacheUsable(selfUpdateReleaseCache.at, len(selfUpdateReleaseCache.items), forceFresh, time.Now()) {
 		cached := append([]selfUpdateRelease(nil), selfUpdateReleaseCache.items...)
 		selfUpdateReleaseCache.Unlock()
 		for i := range cached {
@@ -166,11 +200,12 @@ func fetchSelfUpdateReleaseCatalog(ctx context.Context, current string, forceFre
 		}
 	}
 
-	items := normalizeSelfUpdateReleases(all, current)
+	items := normalizeSelfUpdateReleasesForChannel(all, current, channel)
 	if len(items) == 0 {
-		return nil, errors.New("no published stable FreeNet releases found")
+		return nil, fmt.Errorf("no published %s FreeNet releases found", channel)
 	}
 	selfUpdateReleaseCache.Lock()
+	selfUpdateReleaseCache.channel = channel
 	selfUpdateReleaseCache.at = time.Now()
 	selfUpdateReleaseCache.items = append([]selfUpdateRelease(nil), items...)
 	selfUpdateReleaseCache.Unlock()
@@ -196,9 +231,17 @@ func selfUpdateRequestCanceled(r *http.Request, err error) bool {
 
 func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 	current := "v" + version
+	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
+	if channel == "" {
+		channel = "stable"
+	}
+	if channel != "stable" && channel != "beta" {
+		writeJSON(w, http.StatusBadRequest, selfUpdateReleaseCatalogResponse{Success:false,CurrentVersion:current,Error:"invalid release channel"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
 	forceFresh := r.URL.Query().Get("fresh") == "1"
-	items, err := fetchSelfUpdateReleaseCatalog(ctx, current, forceFresh)
+	items, err := fetchSelfUpdateReleaseCatalogForChannel(ctx, current, forceFresh, channel)
 	cancel()
 	degraded := false
 	warning := ""
@@ -211,6 +254,15 @@ func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 		}
 		primary := err.Error()
 		v3AppendEvent("freenet_release_catalog", "degraded", "PRIMARY ERROR: "+primary)
+		// /releases/latest is always Stable. Do not silently present that as
+		// the Beta catalog or install Stable when explicit Beta lookup fails.
+		if channel == "beta" {
+			writeJSON(w, http.StatusBadGateway, selfUpdateReleaseCatalogResponse{
+				Success:false, CurrentVersion:current, Channel:channel,
+				Error:"Beta release catalog unavailable; no update was started",
+			})
+			return
+		}
 		fallbackCtx, fallbackCancel := context.WithTimeout(r.Context(), 15*time.Second)
 		latest, fallbackErr := recoveryLatestTag(fallbackCtx)
 		fallbackCancel()
@@ -248,6 +300,7 @@ func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 		Success: true,
 		CurrentVersion: current,
 		LatestVersion: latest,
+		Channel: channel,
 		Releases: items,
 		Degraded: degraded,
 		Warning: warning,

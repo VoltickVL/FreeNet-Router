@@ -61,11 +61,20 @@ normalize_current() {
     valid_tag "$CURRENT_VERSION"
 }
 
+beta_tag() {
+    printf '%s\n' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-beta\.([1-9]|[1-9][0-9])$'
+}
+
 valid_tag() {
     TAG="$1"
-    printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' || return 1
-    PATCH="${TAG##*.}"
+    printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.([1-9]|[1-9][0-9]))?$' || return 1
+    CORE="${TAG%%-beta.*}"
+    PATCH="${CORE##*.}"
     [ "$PATCH" -le 99 ]
+}
+
+beta_opted_in() {
+    ! beta_tag "$1" || [ "${FREENET_UPDATE_BETA_OPT_IN:-no}" = yes ]
 }
 
 version_gt() {
@@ -77,6 +86,13 @@ version_gt() {
             av=A[i]+0; bv=B[i]+0;
             if (av > bv) exit 0;
             if (av < bv) exit 1;
+        }
+        ab=index(a,"-beta."); bb=index(b,"-beta.");
+        if (ab && !bb) exit 1;
+        if (!ab && bb) exit 0;
+        if (ab && bb) {
+            an=substr(a,ab+6)+0; bn=substr(b,bb+6)+0;
+            if (an>bn) exit 0;
         }
         exit 1;
     }'
@@ -300,7 +316,12 @@ fetch_release_metadata() {
     META_PRE="$(jq -r '.prerelease // false' "$META" 2>/dev/null)"
     [ "$META_TAG" = "$TAG" ] || return 1
     [ "$META_DRAFT" != true ] || return 1
-    [ "$META_PRE" != true ] || return 1
+    if beta_tag "$TAG"; then
+        beta_opted_in "$TAG" || return 1
+        [ "$META_PRE" = true ] || return 1
+    else
+        [ "$META_PRE" != true ] || return 1
+    fi
     RELEASE_META_TAG="$TAG"
     RELEASE_META_FILE="$META"
     return 0
@@ -650,7 +671,8 @@ run_plan() {
         PLAN_TARGET="$LATEST"
     fi
     valid_tag "$PLAN_TARGET" || { plan_error 'target release tag is invalid'; return 1; }
-    fetch_release_metadata "$PLAN_TARGET" || { plan_error 'target release is not a published stable FreeNet release'; return 1; }
+    beta_opted_in "$PLAN_TARGET" || { plan_error 'explicit Beta opt-in required'; return 1; }
+    fetch_release_metadata "$PLAN_TARGET" || { plan_error 'target release metadata or Beta channel is not verified'; return 1; }
     fetch_manifest "$PLAN_TARGET" || { plan_error 'release manifest is unavailable or incomplete'; return 1; }
     RELEASE_NOTES="$(release_notes "$PLAN_TARGET" 2>/dev/null || true)"
 
@@ -708,12 +730,13 @@ fail_after_mutation() {
 run_apply() {
     detect_current || fail_before_mutation 'current FreeNet version is invalid'
     valid_tag "$TARGET_TAG" || fail_before_mutation 'target release tag is invalid'
-    [ "$TARGET_TAG" != "$CURRENT_VERSION" ] || fail_before_mutation 'target FreeNet version is already installed'
+    beta_opted_in "$TARGET_TAG" || fail_before_mutation 'explicit Beta opt-in required'
+    [ "$TARGET_TAG" != "$CURRENT_VERSION" || fail_before_mutation 'target FreeNet version is already installed'
     get_arch || fail_before_mutation 'unsupported Entware architecture'
     for T in curl sha256sum sed awk grep cmp mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || fail_before_mutation "required command missing: $T"
     done
-    fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release is not a published stable FreeNet release'
+    fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release metadata or Beta channel is not verified'
 
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
         write_state BUSY "$TARGET_TAG" 'Другая операция обновления уже выполняется' 'update lock is already held' NOT_NEEDED '' || true
