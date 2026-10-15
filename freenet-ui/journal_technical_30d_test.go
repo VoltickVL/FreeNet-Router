@@ -140,7 +140,7 @@ func TestThirtyDayTechnicalJournalMarksDailyQuotaGap(t *testing.T) {
 }
 
 func TestThirtyDayArchiveUIAndAuthenticatedEndpointContract(t *testing.T) {
-	ui, err := webFS.ReadFile("web/settings-v3-core.js")
+	ui, err := os.ReadFile("web/settings-v3-core.js")
 	if err != nil { t.Fatal(err) }
 	if !strings.Contains(string(ui), `id="fn3JournalArchive30d"`) ||
 		!strings.Contains(string(ui), "/api/journal/technical-archive") {
