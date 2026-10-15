@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 )
 
 const isolatedXrayProbeLimit = 2
@@ -25,6 +26,45 @@ func acquireIsolatedXrayProbe(ctx context.Context) (func(), bool) {
 	case <-ctx.Done():
 		return nil, false
 	}
+}
+
+
+// acquireExclusiveIsolatedXrayProbe drains both shared probe slots before a
+// production Xray cutover. The legacy XKeen init script checks "pidof xray"
+// without distinguishing the live core from a background RTT/health probe.
+// Holding every slot until the complete apply/rollback helper returns stops
+// FreeNet from presenting an isolated worker as XKeen's production process.
+// This is deliberately a bounded wait, not a forced kill of any Xray process.
+// Unknown/external workers are independently rejected by the shell preflight.
+func acquireExclusiveIsolatedXrayProbe(ctx context.Context) (func(), bool) {
+	if ctx == nil || ctx.Err() != nil {
+		return nil, false
+	}
+	count := 0
+	release := func() {
+		for i := 0; i < count; i++ {
+			<-isolatedXrayProbeGate
+		}
+	}
+	for count < cap(isolatedXrayProbeGate) {
+		if ctx.Err() != nil {
+			release()
+			return nil, false
+		}
+		select {
+		case isolatedXrayProbeGate <- struct{}{}:
+			count++
+		case <-ctx.Done():
+			release()
+			return nil, false
+		}
+	}
+	if ctx.Err() != nil {
+		release()
+		return nil, false
+	}
+	var once sync.Once
+	return func() { once.Do(release) }, true
 }
 
 func prepareIsolatedProbeOutbound(outbound map[string]any) (map[string]any, error) {
