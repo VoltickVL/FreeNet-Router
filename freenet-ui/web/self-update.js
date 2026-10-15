@@ -194,8 +194,16 @@
     mountModalLayer();
     const root = qs('#fnModalRoot');
     if (root.hidden) modalFocusBeforeOpen = document.activeElement;
+    // The anchored release picker writes inline left/top/width. Those offsets
+    // MUST NOT survive when the Beta confirmation becomes a centered modal.
+    // Otherwise CSS position:relative applies them a second time and pushes
+    // the confirmation off the right edge of the viewport.
+    const modal = qs('.fn-modal', root);
+    if (!anchored && modal) {
+      for (const property of ['left', 'top', 'width']) modal.style.removeProperty(property);
+    }
     root.classList.toggle('fn-version-picker-mode', !!anchored);
-    qs('.fn-modal', root)?.setAttribute('aria-modal', anchored ? 'false' : 'true');
+    modal?.setAttribute('aria-modal', anchored ? 'false' : 'true');
     qs('#topFreenetUpdate')?.setAttribute('aria-expanded', anchored ? 'true' : 'false');
     qs('#fnModalKicker').textContent = kicker;
     qs('#fnModalTitle').textContent = title || 'FreeNet';
@@ -1139,7 +1147,7 @@
           const url = option.id === 'beta'
             ? '/api/system/update/releases?channel=beta&fresh=1'
             : '/api/system/update/releases?fresh=1';
-          const response = await fetch(url, {cache:'no-store'});
+          const response = await fetch(url, {cache:'no-store', signal: AbortSignal.timeout(12000)});
           const next = await response.json().catch(() => ({}));
           if (!response.ok || !next.success || !Array.isArray(next.releases)) {
             throw new Error(next.error || 'Каталог канала недоступен');
@@ -1150,7 +1158,10 @@
           renderVersionManager(next);
         } catch (e) {
           detail.className = 'fn-version-detail bad';
-          detail.textContent = 'Канал не переключён: ' + (e.message || 'нет данных') + '. Текущая версия не меняется.';
+          const reason = e.name === 'TypeError'
+            ? 'нет связи с FreeNet — проверьте подключение и повторите открытие списка версий'
+            : (e.name === 'TimeoutError' ? 'превышено время ожидания FreeNet' : (e.message || 'нет данных'));
+          detail.textContent = 'Канал не переключён: ' + reason + '. Текущая версия не меняется.';
         }
       });
       channelChoice.appendChild(button);

@@ -95,7 +95,8 @@ func TestSelfUpdateReleaseCachePolicy(t *testing.T) {
 func resetSelfUpdateReleaseCacheForTest() {
 	selfUpdateReleaseCache.Lock()
 	selfUpdateReleaseCache.at = time.Time{}
-	selfUpdateReleaseCache.items = nil
+	selfUpdateReleaseCache.stable = nil
+	selfUpdateReleaseCache.beta = nil
 	selfUpdateReleaseCache.Unlock()
 }
 
