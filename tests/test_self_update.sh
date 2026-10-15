@@ -57,6 +57,7 @@ EOF
     cp "$SCRIPT" "$D/self_update.sh"
     printf '%s\n' 'PIN_POLICY_VERSION=TEST' > "$D/upstream-pins.env"
     printf '%s\n' "{\"tag_name\":\"$RELEASE_TAG\",\"draft\":false,\"prerelease\":false,\"body\":\"## What's Changed\\n* Исправлено отображение release notes by @VoltickVL in https://github.com/VoltickVL/FreeNet-Router/pull/551\\n* release: $RELEASE_TAG by @VoltickVL in https://github.com/VoltickVL/FreeNet-Router/pull/552\\n\\n**Full Changelog**: https://example.invalid\"}" > "$D/release.json"
+    cp "$D/release.json" "$D/release-metadata.json"
     chmod 755 "$D/freenet-ui-arm64-v8a" "$D/freenet" "$D/vpn" "$D/blanc_xkeen_update_outbounds.sh" \
         "$D/migrate_split_dns.sh" "$D/apply_network_profile.sh" "$D/apply_provider_profile.sh" \
         "$D/finalize_setup.sh" "$D/bootstrap_entware.sh" "$D/self_update.sh"
@@ -67,6 +68,7 @@ EOF
             freenet-ui-arm64-v8a freenet vpn blanc_xkeen_update_outbounds.sh \
             migrate_split_dns.sh apply_network_profile.sh apply_provider_profile.sh \
             finalize_setup.sh bootstrap_entware.sh upstream-pins.env self_update.sh \
+            release-metadata.json \
             > SHA256SUMS
     )
 }
@@ -169,6 +171,70 @@ env \
     sh "$SCRIPT" plan v0.2.28 > "$TMP/exact-target.out" || fail 'exact target plan should not require latest lookup'
 grep -Fq 'TARGET_TAG=v0.2.28' "$TMP/exact-target.out" || fail 'exact target plan target missing'
 grep -Fq 'MANIFEST_VERIFIED=yes' "$TMP/exact-target.out" || fail 'exact target plan must still verify manifest'
+
+# GitHub REST API can be unreachable from router shell even if the
+# verified GitHub Release download is reachable through a separate path.
+# The fallback uses only release-metadata.json listed in SHA256SUMS.
+make_root "$R"
+make_release "$D" v0.7.17
+FREENET_TEST_META_API_FAIL=yes run_plan "$R" "$D" v0.7.15 v0.7.17 v0.7.17 > "$TMP/meta-api-offline.out" || {
+    cat "$TMP/meta-api-offline.out" >&2
+    fail 'verified release metadata must work while GitHub REST is offline'
+}
+grep -Fq 'READY=yes' "$TMP/meta-api-offline.out" || fail 'verified offline metadata not ready'
+grep -Fq 'MANIFEST_VERIFIED=yes' "$TMP/meta-api-offline.out" || fail 'offline metadata missing manifest'
+grep -Fq 'MUTATION=NONE' "$TMP/meta-api-offline.out" || fail 'offline metadata plan mutated router'
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'offline metadata plan touched UI'
+
+# A mismatching asset hash must STOP before mutation, even when the
+# prerelease flag and tag appear correct inside the tampered JSON.
+printf '\nTAMPER\n' >> "$D/release-metadata.json"
+if FREENET_TEST_META_API_FAIL=yes run_plan "$R" "$D" v0.7.15 v0.7.17 v0.7.17 > "$TMP/meta-tampered.out"; then
+    fail 'modified release-metadata.json bypassed SHA256SUMS'
+fi
+grep -Fq 'release-metadata.json SHA-256 mismatch' "$TMP/meta-tampered.out" || fail 'metadata checksum failure not diagnosable'
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'invalid metadata changed UI'
+
+make_release "$D" v0.7.17
+sed -i '/release-metadata.json$/d' "$D/SHA256SUMS"
+if FREENET_TEST_META_API_FAIL=yes run_plan "$R" "$D" v0.7.15 v0.7.17 v0.7.17 > "$TMP/meta-not-listed.out"; then
+    fail 'unsigned release metadata was accepted'
+fi
+grep -Fq 'verified release metadata is missing from SHA256SUMS' "$TMP/meta-not-listed.out" || fail 'unsigned metadata failure missing'
+
+# Even a checksum-consistent, syntactically valid metadata asset cannot
+# claim the wrong channel: Beta cannot impersonate a Stable release.
+make_release "$D" v0.7.17
+sed -i 's/"prerelease":false/"prerelease":true/' "$D/release-metadata.json"
+sed -i '/release-metadata.json$/d' "$D/SHA256SUMS"
+(cd "$D" && sha256sum release-metadata.json >> SHA256SUMS)
+if FREENET_TEST_META_API_FAIL=yes run_plan "$R" "$D" v0.7.15 v0.7.17 v0.7.17 > "$TMP/meta-wrong-channel.out"; then
+    fail 'signed metadata with the wrong Stable/Beta field was accepted'
+fi
+grep -Fq 'exact release tag, draft flag or Stable/Beta channel mismatch' "$TMP/meta-wrong-channel.out" || fail 'wrong-channel metadata reason missing'
+
+# Do not regress explicit Beta opt-in even when the REST API is offline.
+make_release "$D" v0.8.0-beta.1
+sed -i 's/"prerelease":false/"prerelease":true/' "$D/release-metadata.json"
+sed -i '/release-metadata.json$/d' "$D/SHA256SUMS"
+(cd "$D" && sha256sum release-metadata.json >> SHA256SUMS)
+if FREENET_TEST_META_API_FAIL=yes run_plan "$R" "$D" v0.7.15 v0.8.0-beta.1 v0.8.0-beta.1 > "$TMP/meta-beta-no-consent.out"; then
+    fail 'offline Beta was accepted without explicit opt-in'
+fi
+grep -Fq 'explicit Beta opt-in required' "$TMP/meta-beta-no-consent.out" || fail 'offline Beta consent refusal missing'
+FREENET_UPDATE_BETA_OPT_IN=yes FREENET_TEST_META_API_FAIL=yes run_plan "$R" "$D" v0.7.15 v0.8.0-beta.1 v0.8.0-beta.1 > "$TMP/meta-beta-consent.out" || {
+    cat "$TMP/meta-beta-consent.out" >&2
+    fail 'verified, explicit Beta failed when GitHub REST unavailable'
+}
+grep -Fq 'TARGET_TAG=v0.8.0-beta.1' "$TMP/meta-beta-consent.out" || fail 'offline Beta target changed'
+make_release "$D" v0.2.28
+
+# Release workflow must publish the same exact-tag metadata asset inside
+# the integrity manifest so the recovery helper can authenticate it.
+grep -Fq 'dist/release-metadata.json' "$ROOT_DIR/.github/workflows/release.yml" ||
+    fail 'release workflow does not generate release metadata'
+grep -Fq 'release-metadata.json' "$ROOT_DIR/.github/workflows/release.yml" ||
+    fail 'release workflow does not checksum release metadata'
 
 # Already-current is a valid plan but never offers mutation.
 run_plan "$R" "$D" v0.2.28 v0.2.28 > "$TMP/current.out" || fail 'already-current plan should succeed'

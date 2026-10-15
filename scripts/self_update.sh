@@ -245,16 +245,33 @@ download_url() {
             CONNECT_TIMEOUT=5
             MAX_TIME=12
         fi
-        IP="$(bootstrap_ip "$H")"
-        if [ -n "$IP" ]; then
-            curl -fsS --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" --resolve "$H:443:$IP" -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
-            RC=$?
+        # Prefer the router's normal DNS/HTTPS path, like FreeNet's Go API.
+        # Only after a bounded network failure try the external-DNS IP
+        # fallback. TLS certificate/hostname verification remains required.
+        CURL_MAX="$MAX_TIME"
+        CURL_CONNECT="$CONNECT_TIMEOUT"
+        if [ "$MODE" = plan ]; then
+            CURL_MAX=6
+            CURL_CONNECT=3
         else
-            curl -fsS --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
-            RC=$?
+            CURL_MAX=15
+            CURL_CONNECT=5
         fi
+        curl -fsS -A 'FreeNet-Router-Updater' --connect-timeout "$CURL_CONNECT" --max-time "$CURL_MAX" -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
+        RC=$?
+        case "$RC" in
+            6|7|28|35)
+                IP="$(bootstrap_ip "$H")"
+                if [ -n "$IP" ]; then
+                    rm -f "$HDR" "$BODY" "$ERRFILE"
+                    curl -fsS -A 'FreeNet-Router-Updater' --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" --resolve "$H:443:$IP" -D "$HDR" "$CUR" -o "$BODY" 2>"$ERRFILE"
+                    RC=$?
+                fi
+                ;;
+        esac
         if [ "$RC" -ne 0 ]; then
-            LAST_DOWNLOAD_ERROR="curl failed for $H"
+            CODE="$(awk '/^HTTP\// {code=$2} END {print code}' "$HDR" 2>/dev/null)"
+            LAST_DOWNLOAD_ERROR="HTTPS $H failed (curl $RC, HTTP ${CODE:-unknown})"
             return 1
         fi
 
@@ -293,6 +310,28 @@ latest_tag() {
     printf '%s\n' "$TAG"
 }
 
+# Exact release metadata is also published as a SHA-256-listed asset.
+# If the GitHub REST endpoint is unavailable on the router, this
+# independent release-download path remains fail-closed.
+fetch_verified_release_metadata_asset() {
+    VERIFIED_TAG="$1"
+    VERIFIED_OUT="$2"
+    fetch_manifest "$VERIFIED_TAG" || return 1
+    EXPECTED_META_SHA="$(manifest_expected release-metadata.json)"
+    printf '%s\n' "$EXPECTED_META_SHA" | grep -Eq '^[0-9a-f]{64}$' || {
+        LAST_DOWNLOAD_ERROR="verified release metadata is missing from SHA256SUMS"
+        return 1
+    }
+    META_URL="https://github.com/$REPO/releases/download/$VERIFIED_TAG/release-metadata.json"
+    download_url "$META_URL" "$VERIFIED_OUT" || return 1
+    ACTUAL_META_SHA="$(sha256sum "$VERIFIED_OUT" | awk '{print $1}')"
+    [ "$ACTUAL_META_SHA" = "$EXPECTED_META_SHA" ] || {
+        LAST_DOWNLOAD_ERROR="release-metadata.json SHA-256 mismatch"
+        return 1
+    }
+    return 0
+}
+
 fetch_release_metadata() {
     TAG="$1"
     if [ "$RELEASE_META_TAG" = "$TAG" ] && [ -n "$RELEASE_META_FILE" ] && [ -s "$RELEASE_META_FILE" ]; then
@@ -300,33 +339,47 @@ fetch_release_metadata() {
     fi
     make_tmp || return 1
     META="$TMP_DIR/release-meta.json"
-    if [ -n "$TEST_RELEASE_DIR" ]; then
+    API_OK=no
+    API_ERROR=""
+    if [ "$TEST_MODE" = yes ] && [ "${FREENET_TEST_META_API_FAIL:-no}" = yes ]; then
+        API_ERROR="simulated GitHub API network outage"
+    elif [ -n "$TEST_RELEASE_DIR" ]; then
         if [ -f "$TEST_RELEASE_DIR/release.json" ]; then
             cp "$TEST_RELEASE_DIR/release.json" "$META" || return 1
+            API_OK=yes
         elif [ "$TEST_MODE" = yes ]; then
             printf '{"tag_name":"%s","draft":false,"prerelease":false}\n' "$TAG" > "$META" || return 1
+            API_OK=yes
         else
+            API_ERROR="release metadata test fixture missing"
+        fi
+    elif download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META"; then
+        API_OK=yes
+    else
+        API_ERROR="$LAST_DOWNLOAD_ERROR"
+    fi
+    if [ "$API_OK" != yes ]; then
+        if ! fetch_verified_release_metadata_asset "$TAG" "$META"; then
+            FALLBACK_ERROR="$LAST_DOWNLOAD_ERROR"
+            LAST_DOWNLOAD_ERROR="GitHub API: ${API_ERROR:-unavailable}; verified release metadata: $FALLBACK_ERROR"
             return 1
         fi
-    else
-        download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META" || return 1
     fi
-    META_TAG="$(jq -r '.tag_name // empty' "$META" 2>/dev/null)"
-    META_DRAFT="$(jq -r '.draft // false' "$META" 2>/dev/null)"
-    META_PRE="$(jq -r '.prerelease // false' "$META" 2>/dev/null)"
-    [ "$META_TAG" = "$TAG" ] || return 1
-    [ "$META_DRAFT" != true ] || return 1
+    EXPECT_PRE=false
     if beta_tag "$TAG"; then
-        beta_opted_in "$TAG" || return 1
-        [ "$META_PRE" = true ] || return 1
-    else
-        [ "$META_PRE" != true ] || return 1
+        beta_opted_in "$TAG" || { LAST_DOWNLOAD_ERROR="explicit Beta opt-in required"; return 1; }
+        EXPECT_PRE=true
+    fi
+    if ! jq -e --arg tag "$TAG" --argjson pre "$EXPECT_PRE" \
+        'type == "object" and .tag_name == $tag and .draft == false and .prerelease == $pre' "$META" >/dev/null 2>&1; then
+        LAST_DOWNLOAD_ERROR="exact release tag, draft flag or Stable/Beta channel mismatch"
+        return 1
     fi
     RELEASE_META_TAG="$TAG"
     RELEASE_META_FILE="$META"
+    LAST_DOWNLOAD_ERROR=""
     return 0
 }
-
 release_notes() {
     TAG="$1"
     fetch_release_metadata "$TAG" || return 1
@@ -402,6 +455,7 @@ manifest_complete() {
 fetch_manifest() {
     TAG="$1"
     make_tmp || return 1
+    [ -s "$TMP_DIR/SHA256SUMS" ] && manifest_complete && return 0
     BASE="https://github.com/$REPO/releases/download/$TAG"
     download_file_with_retry "SHA256SUMS" "$BASE/SHA256SUMS" "$TMP_DIR/SHA256SUMS" || return 1
     if ! manifest_complete; then
@@ -672,7 +726,7 @@ run_plan() {
     fi
     valid_tag "$PLAN_TARGET" || { plan_error 'target release tag is invalid'; return 1; }
     beta_opted_in "$PLAN_TARGET" || { plan_error 'explicit Beta opt-in required'; return 1; }
-    fetch_release_metadata "$PLAN_TARGET" || { plan_error 'target release metadata or Beta channel is not verified'; return 1; }
+    fetch_release_metadata "$PLAN_TARGET" || { plan_error "target release metadata or Beta channel is not verified: ${LAST_DOWNLOAD_ERROR:-no verified evidence}"; return 1; }
     fetch_manifest "$PLAN_TARGET" || { plan_error 'release manifest is unavailable or incomplete'; return 1; }
     RELEASE_NOTES="$(release_notes "$PLAN_TARGET" 2>/dev/null || true)"
 
@@ -736,7 +790,7 @@ run_apply() {
     for T in curl sha256sum sed awk grep cmp mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || fail_before_mutation "required command missing: $T"
     done
-    fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release metadata or Beta channel is not verified'
+    fetch_release_metadata "$TARGET_TAG" || fail_before_mutation "target release metadata or Beta channel is not verified: ${LAST_DOWNLOAD_ERROR:-no verified evidence}"
 
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
         write_state BUSY "$TARGET_TAG" 'Другая операция обновления уже выполняется' 'update lock is already held' NOT_NEEDED '' || true
