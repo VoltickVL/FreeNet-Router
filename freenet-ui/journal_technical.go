@@ -4,7 +4,6 @@ import (
  "bufio"
  "encoding/json"
  "os"
- "path/filepath"
  "strconv"
  "strings"
  "sync"
@@ -165,45 +164,28 @@ func technicalJournalObserve(path, line string) {
 }
 
 func appendTechnicalJournalRecord(path string, record technicalJournalRecord) error {
- payload, err := json.Marshal(record)
- if err != nil { return err }
- payload = append(payload,'\n')
- if err = os.MkdirAll(filepath.Dir(path),0700);err != nil {return err}
- if info, statErr := os.Stat(path);statErr == nil && info.Size()+int64(len(payload)) > technicalJournalMaxBytes {
-  _ = os.Remove(path+".1")
-  if err := os.Rename(path,path+".1");err != nil { return err }
- }
- f, err := os.OpenFile(path,os.O_CREATE|os.O_APPEND|os.O_WRONLY,0600)
- if err != nil { return err }
- _, err = f.Write(payload)
- closeErr := f.Close()
- if err != nil {return err}
- return closeErr
+	payload, err := json.Marshal(record)
+	if err != nil { return err }
+	return appendTechnicalJournalDaily(path, record, append(payload, '\n'))
 }
-
 func readTechnicalJournalRecords(path string, limit int) []technicalJournalRecord {
- if limit <= 0 || limit > technicalJournalMaxExportLines {limit = technicalJournalMaxExportLines}
- all := make([]technicalJournalRecord,0,limit)
- for _, part := range []string{path+".1",path} {
-  file,err := os.Open(part)
-  if err!=nil {continue}
-  scanner := bufio.NewScanner(file)
-  scanner.Buffer(make([]byte,4096),32*1024)
-  for scanner.Scan() {
-   var record technicalJournalRecord
-   if json.Unmarshal(scanner.Bytes(),&record)==nil {
-    // Defense in depth for historical files from another build.
-    record.Message = journalDiagnosticRedact(record.Message)
-    record.Kind = journalDiagnosticRedact(record.Kind)
-    record.Result = journalDiagnosticRedact(record.Result)
-    record.Incident = journalDiagnosticRedact(record.Incident)
-    record.State.AutoResult = journalDiagnosticRedact(record.State.AutoResult)
-    record.State.HealthResult = journalDiagnosticRedact(record.State.HealthResult)
-    all = append(all,record)
-    if len(all)>limit {all = all[1:]}
-   }
-  }
-  _ = file.Close()
- }
- return all
+	if limit <= 0 || limit > technicalJournalMaxExportLines { limit = technicalJournalMaxExportLines }
+	all := make([]technicalJournalRecord, 0, limit)
+	now := time.Now().UTC()
+	for _, part := range technicalJournalReadPaths(path, now) {
+		file, err := os.Open(part)
+		if err != nil { continue }
+		scanner := bufio.NewScanner(file)
+		scanner.Buffer(make([]byte, 4096), 32*1024)
+		for scanner.Scan() {
+			var record technicalJournalRecord
+			if json.Unmarshal(scanner.Bytes(), &record) == nil &&
+				technicalJournalRecordInWindow(record, now) {
+				all = append(all, sanitizeTechnicalJournalRecord(record))
+				if len(all) > limit { all = all[1:] }
+			}
+		}
+		_ = file.Close()
+	}
+	return all
 }

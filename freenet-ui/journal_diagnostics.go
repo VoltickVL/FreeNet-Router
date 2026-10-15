@@ -47,6 +47,7 @@ type journalDiagnosticReport struct {
 	Version       string                   `json:"version"`
 	Mode          string                   `json:"mode"`
 	Window        string                   `json:"window"`
+	TechnicalRetentionDays int            `json:"technical_retention_days"`
 	AutoVPN       journalDiagnosticAuto    `json:"auto_vpn"`
 	Update        journalDiagnosticUpdate  `json:"update"`
 	Environment journalDiagnosticEnvironment `json:"environment"`
@@ -120,6 +121,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 		Version: version,
 		Mode: "read-only",
 		Window: "latest 2000 original events per source; no deduplication",
+		TechnicalRetentionDays: technicalJournalRetentionDays,
 		AutoVPN: journalDiagnosticAuto{
 			Enabled: settings.Enabled,
 			Mode: settings.Mode,
@@ -157,6 +159,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 			"Original on-disk journals are unchanged; these entries bypass display deduplication.",
 			"Only an allowlist of state fields is included; credentials and endpoint addresses are redacted.",
 			"Source counts indicate selected tail events, not all historical events.",
+			"Full technical archive: /api/journal/technical-archive contains 30 UTC days of date-based gzip JSONL with explicit truncation markers.",
 		},
 	}
 }

@@ -53,15 +53,23 @@ func TestTechnicalJournalRedactsBeforeQueueAndDoesNotBlock(t *testing.T) {
 }
 
 func TestTechnicalJournalIsBoundedAndCanBeRead(t *testing.T) {
- root:=t.TempDir()
- path:=filepath.Join(root,"technical.jsonl")
- // Force a realistic rotation boundary without writing many repeated events.
- if err:=os.WriteFile(path,[]byte(strings.Repeat(" ",int(technicalJournalMaxBytes)-60)),0600);err!=nil{t.Fatal(err)}
- record:=technicalJournalRecord{ObservedAt:"2026-10-10T00:43:00Z",Kind:"AUTO VPN",Result:"incident:failed",Message:"detected confirmed failure"}
- if err:=appendTechnicalJournalRecord(path,record);err!=nil{t.Fatal(err)}
- if _,err:=os.Stat(path+".1");err!=nil{t.Fatalf("rotation backup missing: %v",err)}
- rows:=readTechnicalJournalRecords(path,10)
- if len(rows)!=1||rows[0].Result!="incident:failed"{t.Fatalf("rotated record unavailable: %+v",rows)}
- st,err:=os.Stat(path);if err!=nil{t.Fatal(err)}
- if st.Size()>=technicalJournalMaxBytes {t.Fatalf("unbounded log grew to %d",st.Size())}
+	root := t.TempDir()
+	path := filepath.Join(root, "technical.jsonl")
+	now := time.Now().UTC()
+	daily := technicalJournalDailyFilename(path, now)
+	// One day is capped, but a terminal incident uses its reserved critical
+	// segment rather than disappearing after a routine diagnostic storm.
+	if err := os.WriteFile(daily, []byte(strings.Repeat(" ", int(technicalJournalDailyQuota)-32)), 0600); err != nil { t.Fatal(err) }
+	record := technicalJournalRecord{
+		ObservedAt: now.Format(time.RFC3339Nano), EventAt: now.Format(time.RFC3339),
+		Kind: "AUTO VPN", Result: "incident:failed", Severity: "critical",
+		Message: "detected confirmed failure",
+	}
+	if err := appendTechnicalJournalRecord(path, record); err != nil { t.Fatal(err) }
+	if _, err := os.Stat(daily+".critical"); err != nil { t.Fatalf("critical reserve missing: %v", err) }
+	rows := readTechnicalJournalRecords(path, 10)
+	if len(rows)!=1 || rows[0].Result!="incident:failed" { t.Fatalf("critical record unavailable: %+v", rows) }
+	st, err := os.Stat(daily+".critical")
+	if err!=nil { t.Fatal(err) }
+	if st.Size() >= technicalJournalCriticalQuota { t.Fatalf("critical reserve grew unbounded: %d", st.Size()) }
 }
