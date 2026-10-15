@@ -731,7 +731,7 @@ run_apply() {
     detect_current || fail_before_mutation 'current FreeNet version is invalid'
     valid_tag "$TARGET_TAG" || fail_before_mutation 'target release tag is invalid'
     beta_opted_in "$TARGET_TAG" || fail_before_mutation 'explicit Beta opt-in required'
-    [ "$TARGET_TAG" != "$CURRENT_VERSION" || fail_before_mutation 'target FreeNet version is already installed'
+    [ "$TARGET_TAG" != "$CURRENT_VERSION" ] || fail_before_mutation 'target FreeNet version is already installed'
     get_arch || fail_before_mutation 'unsupported Entware architecture'
     for T in curl sha256sum sed awk grep cmp mktemp jq; do
         command -v "$T" >/dev/null 2>&1 || fail_before_mutation "required command missing: $T"
