@@ -56,11 +56,19 @@ func TestReleaseCacheIsolatedByChannel(t *testing.T) {
   calls++
   return []byte("[{\"tag_name\":\"v0.7.14\"},{\"tag_name\":\"v0.8.0-beta.1\",\"prerelease\":true}]"),nil
  }
- stable,err:=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.7.14",false,"stable")
- if err!=nil || len(stable)!=1 || stable[0].Version!="v0.7.14" {t.Fatalf("stable: %+v %v",stable,err)}
- beta,err:=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.7.14",false,"beta")
- if err!=nil || len(beta)!=1 || beta[0].Version!="v0.8.0-beta.1" {t.Fatalf("beta: %+v %v",beta,err)}
- if calls!=2 {t.Fatalf("cached Stable leaked into Beta: requests=%d",calls)}
+ stable,err:=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.7.14",true,"stable")
+ if err!=nil || len(stable)!=1 || stable[0].Version!="v0.7.14" || !stable[0].Current {t.Fatalf("stable: %+v %v",stable,err)}
+ beta,err:=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.7.14",true,"beta")
+ if err!=nil || len(beta)!=1 || beta[0].Version!="v0.8.0-beta.1" || !beta[0].Prerelease {t.Fatalf("beta: %+v %v",beta,err)}
+ if calls!=1 {t.Fatalf("Stable to Beta downloaded same published catalog twice: requests=%d",calls)}
+ stable,err=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.8.0-beta.1",true,"stable")
+ if err!=nil || len(stable)!=1 || stable[0].Current {t.Fatalf("cached channel leaked wrong current flag: %+v %v",stable,err)}
+ if calls!=1 {t.Fatalf("Beta to Stable repeated download: requests=%d",calls)}
+ selfUpdateReleaseCache.Lock()
+ selfUpdateReleaseCache.at=selfUpdateReleaseCache.at.Add(-2*60*1000000000)
+ selfUpdateReleaseCache.Unlock()
+ _,err=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.7.14",true,"beta")
+ if err!=nil || calls!=2 {t.Fatalf("expired fresh snapshot was not refreshed: requests=%d error=%v",calls,err)}
 }
 
 func TestBetaUnavailableNeverFallsBackToStableLatest(t *testing.T) {
@@ -71,7 +79,7 @@ func TestBetaUnavailableNeverFallsBackToStableLatest(t *testing.T) {
  t.Setenv("FREENET_SETTINGS_V3_HISTORY",t.TempDir()+"/history.tsv")
  rr:=httptest.NewRecorder()
  (&app{}).handleSelfUpdateReleases(rr,httptest.NewRequest("GET","/api/system/update/releases?channel=beta",nil))
- if rr.Code!=http.StatusBadGateway || !strings.Contains(rr.Body.String(),"Beta release catalog unavailable") {
+ if rr.Code!=http.StatusBadGateway || !strings.Contains(rr.Body.String(),"Каталог Beta сейчас недоступен") {
   t.Fatalf("Beta fail-open into Stable: status=%d body=%s",rr.Code,rr.Body.String())
  }
 }

@@ -28,8 +28,8 @@ jobs:
         id: version
         run: |
           VERSION="$(tr -d '\r\n' < VERSION)"
-          if [ "$GITHUB_REF_NAME" = "maintenance/v0.7-bridge" ] && [ "$VERSION" != "v0.7.15" ]; then
-            echo "Bridge branch publishes only the explicitly reviewed v0.7.15" >&2
+          if [ "$GITHUB_REF_NAME" = "maintenance/v0.7-bridge" ] && [ "$VERSION" != "v0.7.15" ] && [ "$VERSION" != "v0.7.16" ]; then
+            echo "Bridge branch publishes only the explicitly reviewed v0.7.15 or v0.7.16" >&2
             exit 1
           fi
           case "$VERSION" in

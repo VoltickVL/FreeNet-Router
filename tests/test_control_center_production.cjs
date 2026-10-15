@@ -159,6 +159,36 @@ async function capture(label){
   assert.equal(calls.filter(c=>c.path==='/api/system/update/apply').length,beforeVersionMutations,'read-only Beta selection');
   await page.locator('.fn-version-apply').click();
   await until(()=>document.querySelector('#fnModalBody')?.textContent?.includes('Это предварительная версия'),'Beta requires confirmation');
+  // Regression: anchored picker used to leave its inline left/top/width on the
+  // fullscreen confirmation and made all controls appear off-screen.
+  const confirmFits = async (width, height) => {
+    await page.setViewportSize({width,height});
+    const geometry = await page.evaluate(() => {
+      const modal=document.querySelector('#fnModalRoot .fn-modal');
+      const rect=modal.getBoundingClientRect();
+      const buttons=[document.querySelector('#fnModalCancel'),document.querySelector('#fnModalConfirm')];
+      return {
+        rect:{left:rect.left,right:rect.right,top:rect.top,bottom:rect.bottom},
+        viewport:{width:innerWidth,height:innerHeight},
+        inline:{left:modal.style.left,top:modal.style.top,width:modal.style.width},
+        buttons:buttons.map(btn=>{const r=btn.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,hidden:btn.hidden,disabled:btn.disabled}})
+      };
+    });
+    assert.deepEqual(geometry.inline,{left:'',top:'',width:''},'anchored coordinates must be cleared for confirmation');
+    const r=geometry.rect;
+    assert.ok(r.left>=-1 && r.right<=geometry.viewport.width+1 && r.top>=-1 && r.bottom<=geometry.viewport.height+1,
+      'Beta confirmation must fit viewport '+width+'x'+height+': '+JSON.stringify(geometry));
+    for(const b of geometry.buttons) {
+      assert.equal(b.hidden,false,'Beta confirmation actions visible');
+      assert.equal(b.disabled,false,'Beta confirmation actions enabled');
+      assert.ok(b.left>=-1 && b.right<=geometry.viewport.width+1 && b.top>=-1 && b.bottom<=geometry.viewport.height+1,
+        'Beta confirmation button must fit viewport '+width+'x'+height+': '+JSON.stringify(b));
+    }
+  };
+  await confirmFits(1440,1000);
+  await confirmFits(820,700);
+  await confirmFits(390,740);
+  await page.setViewportSize({width:1440,height:1000});
   assert.equal(calls.filter(c=>c.path==='/api/system/update/apply').length,beforeVersionMutations,'confirm shown before mutation');
   await page.getByRole('button',{name:'Остаться на текущей версии'}).click();
   await until(()=>document.querySelector('#fnModalRoot')?.hidden,'Beta confirmation dismissed');

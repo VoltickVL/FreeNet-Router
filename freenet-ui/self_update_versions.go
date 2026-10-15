@@ -27,8 +27,8 @@ var (
 	selfUpdateReleaseCache = struct {
 		sync.Mutex
 		at time.Time
-		channel string
-		items []selfUpdateRelease
+		stable []selfUpdateRelease
+		beta []selfUpdateRelease
 	}{}
 )
 
@@ -173,9 +173,21 @@ func fetchSelfUpdateReleaseCatalogForChannel(ctx context.Context, current string
 		return nil, errors.New("unknown FreeNet release channel")
 	}
 	selfUpdateReleaseCache.Lock()
-	if selfUpdateReleaseCache.channel == channel && selfUpdateReleaseCacheUsable(selfUpdateReleaseCache.at, len(selfUpdateReleaseCache.items), forceFresh, time.Now()) {
-		cached := append([]selfUpdateRelease(nil), selfUpdateReleaseCache.items...)
+	// GitHub returns Stable and Beta in one response. Cache both filtered
+	// views from that snapshot, so channel switching does not repeat
+	// the remote download (important for unreliable router connections).
+	usable := selfUpdateReleaseCacheUsable(selfUpdateReleaseCache.at,
+		len(selfUpdateReleaseCache.stable)+len(selfUpdateReleaseCache.beta), forceFresh, time.Now())
+	if usable {
+		selected := selfUpdateReleaseCache.stable
+		if channel == "beta" {
+			selected = selfUpdateReleaseCache.beta
+		}
+		cached := append([]selfUpdateRelease(nil), selected...)
 		selfUpdateReleaseCache.Unlock()
+		if len(cached) == 0 {
+			return nil, fmt.Errorf("no published %s FreeNet releases found", channel)
+		}
 		for i := range cached {
 			cached[i].Current = cached[i].Version == current
 		}
@@ -200,14 +212,19 @@ func fetchSelfUpdateReleaseCatalogForChannel(ctx context.Context, current string
 		}
 	}
 
-	items := normalizeSelfUpdateReleasesForChannel(all, current, channel)
+	stable := normalizeSelfUpdateReleasesForChannel(all, current, "stable")
+	beta := normalizeSelfUpdateReleasesForChannel(all, current, "beta")
+	items := stable
+	if channel == "beta" {
+		items = beta
+	}
 	if len(items) == 0 {
 		return nil, fmt.Errorf("no published %s FreeNet releases found", channel)
 	}
 	selfUpdateReleaseCache.Lock()
-	selfUpdateReleaseCache.channel = channel
 	selfUpdateReleaseCache.at = time.Now()
-	selfUpdateReleaseCache.items = append([]selfUpdateRelease(nil), items...)
+	selfUpdateReleaseCache.stable = append([]selfUpdateRelease(nil), stable...)
+	selfUpdateReleaseCache.beta = append([]selfUpdateRelease(nil), beta...)
 	selfUpdateReleaseCache.Unlock()
 	return items, nil
 }
@@ -239,7 +256,13 @@ func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, selfUpdateReleaseCatalogResponse{Success:false,CurrentVersion:current,Error:"invalid release channel"})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	deadline := 25 * time.Second
+	if channel == "beta" {
+		// Cold Beta catalog failures must return a JSON STOP before common
+		// remote reverse-proxy timeouts; a warm cache returns immediately.
+		deadline = 10 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), deadline)
 	forceFresh := r.URL.Query().Get("fresh") == "1"
 	items, err := fetchSelfUpdateReleaseCatalogForChannel(ctx, current, forceFresh, channel)
 	cancel()
@@ -259,7 +282,7 @@ func (a *app) handleSelfUpdateReleases(w http.ResponseWriter, r *http.Request) {
 		if channel == "beta" {
 			writeJSON(w, http.StatusBadGateway, selfUpdateReleaseCatalogResponse{
 				Success:false, CurrentVersion:current, Channel:channel,
-				Error:"Beta release catalog unavailable; no update was started",
+				Error:"Каталог Beta сейчас недоступен. Обновление не запущено; причина сохранена в Журнале FreeNet.",
 			})
 			return
 		}
