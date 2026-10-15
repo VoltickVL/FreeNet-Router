@@ -119,8 +119,11 @@ func TestHealthyVPNAt220msDoesNotTriggerEmergencyQualityScan(t *testing.T) {
 	if got := classifyAutomationReachableQuality(300, 4, 4); got.State != automationHealthUncertain {
 		t.Fatalf("quality degradation at 300ms must be observable without recovery: %+v", got)
 	}
-	if got := classifyAutomationReachableQuality(180, 0, 4); got.State != automationHealthFailed {
-		t.Fatalf("real service outage must not be hidden: %+v", got)
+	if got := classifyAutomationReachableQuality(180, 0, 4); got.State != automationHealthUncertain || !got.QualityDegraded || got.QualityPoints != 0 {
+		t.Fatalf("0/4 media with generic HTTPS alive must be QoE only: %+v", got)
+	}
+	if got := classifyAutomationApplicationFailure(false, true); got.State != automationHealthFailed {
+		t.Fatalf("fully failed named HTTPS and fixed-IP transport must still be a VPN outage: %+v", got)
 	}
 }
 

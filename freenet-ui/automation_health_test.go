@@ -248,15 +248,15 @@ func TestAutomationReachableQualityUsesSeverityWithoutTriggeringRecovery(t *test
 		{"moderate-latency", 398, 4, 4, automationHealthUncertain, 1},
 		{"strong-latency", 420, 4, 4, automationHealthUncertain, 2},
 		{"severe-latency", 650, 4, 4, automationHealthUncertain, 3},
-		{"partial-3-of-4", 180, 3, 4, automationHealthUncertain, 1},
-		{"partial-2-of-4", 180, 2, 4, automationHealthUncertain, 2},
-		{"zero-of-4", 180, 0, 4, automationHealthFailed, 0},
+		{"partial-3-of-4", 180, 3, 4, automationHealthUncertain, 0},
+		{"partial-2-of-4", 180, 2, 4, automationHealthUncertain, 0},
+		{"zero-of-4", 180, 0, 4, automationHealthUncertain, 0},
 		{"stronger-signal-wins", 420, 3, 4, automationHealthUncertain, 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := classifyAutomationReachableQuality(tc.appMS, tc.serviceOK, tc.serviceTotal)
-			if got.State != tc.wantState || got.QualityPoints != tc.wantPoints || got.QualityDegraded != (tc.wantPoints > 0) {
+			if got.State != tc.wantState || got.QualityPoints != tc.wantPoints || got.QualityDegraded != (tc.wantPoints > 0 || tc.serviceOK < tc.serviceTotal) {
 				t.Fatalf("result=%+v want state=%s points=%d", got, tc.wantState, tc.wantPoints)
 			}
 		})
@@ -366,47 +366,55 @@ func TestAutomationQualityOptimizationCooldownDependsOnSeverity(t *testing.T) {
 	}
 }
 
-func TestAutomationAllIndependentServicesDownNeedsTwoFailuresAndWAN(t *testing.T) {
-	failed := classifyAutomationReachableQuality(178, 0, 4)
-	if failed.State != automationHealthFailed || failed.QualityDegraded {
-		t.Fatalf("0/4 independent services must be confirmable outage, not weak optimization: %+v", failed)
-	}
-	if got := classifyAutomationHealth(failed, true, automationHealthProbe{State: automationHealthHealthy}); got.State != automationHealthHealthy {
-		t.Fatalf("one transient 0/4 must not switch a recovered VPN: %+v", got)
-	}
-	if got := classifyAutomationHealth(failed, false, failed); got.State != automationHealthUncertain {
-		t.Fatalf("failed WAN must prevent VPN switch: %+v", got)
-	}
-	if got := classifyAutomationHealth(failed, true, failed); got.State != automationHealthCritical {
-		t.Fatalf("two independent 0/4 observations with healthy WAN must trigger recovery: %+v", got)
-	}
-	for _, ok := range []int{1,2,3} {
-		if got := classifyAutomationReachableQuality(180, ok, 4); got.State == automationHealthFailed {
-			t.Fatalf("%d/4 partial service health must remain quality-only, got %+v", ok, got)
+func TestAutomationMediaOnlyDegradationNeverConfirmsGlobalVPNOutage(t *testing.T) {
+	for _, serviceOK := range []int{0, 1, 2, 3} {
+		probe := classifyAutomationReachableQuality(178, serviceOK, 4)
+		if probe.State != automationHealthUncertain || !probe.QualityDegraded || probe.QualityPoints != 0 {
+			t.Fatalf("verified generic VPN with service %d/4 must be QoE only: %+v", serviceOK, probe)
+		}
+		if got := classifyAutomationHealth(probe, true, probe); got.State == automationHealthCritical {
+			t.Fatalf("media-only 2x warning authorized emergency replacement: %+v", got)
+		}
+		state := map[string]string{}
+		now := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
+		for i := 0; i < 10; i++ {
+			updates, due := automationQualityOptimizationPlan(state, now.Add(time.Duration(i)*30*time.Second), probe.QualityPoints)
+			for k, v := range updates {
+				state[k] = v
+			}
+			if due {
+				t.Fatalf("media-only warning authorized Top-3 quality scan on iteration %d", i)
+			}
 		}
 	}
 }
 
 func TestAutomationCompleteNamedHTTPSBlackholeTriggersOnlyConfirmedRecovery(t *testing.T) {
+	// Rejected named origins with fixed-IP VPN success are not a global VPN
+	// outage; the positive transport signal must not be disregarded.
+	if got := classifyAutomationApplicationFailure(true, true); got.State != automationHealthUncertain {
+		t.Fatalf("named origins blocked, fixed-IP still works: %+v", got)
+	}
 	for _, transportOK := range []bool{true, false} {
-		if got := classifyAutomationApplicationFailure(transportOK, true); got.State != automationHealthFailed {
-			t.Fatalf("two independent failed HTTPS origins + transport=%t state=%q want failed", transportOK, got.State)
-		}
 		if got := classifyAutomationApplicationFailure(transportOK, false); got.State != automationHealthUncertain {
-			t.Fatalf("partial/uncertain HTTPS evidence must not authorize recovery: transport=%t state=%q", transportOK, got.State)
+			t.Fatalf("partial/timeout evidence cannot authorize recovery: %+v", got)
 		}
 	}
-	// This is a failed *observation*, never permission to apply by itself.
-	failed := classifyAutomationApplicationFailure(true, true)
+	// True VPN outage still requires both independent named origins and the
+	// fixed-IP transport conclusively failed in *both* observations, plus WAN.
+	failed := classifyAutomationApplicationFailure(false, true)
+	if failed.State != automationHealthFailed {
+		t.Fatalf("complete 2 named + IP failure must classify as DOWN: %+v", failed)
+	}
 	healthy := automationHealthProbe{State: automationHealthHealthy}
 	if got := classifyAutomationHealth(failed, true, healthy); got.State != automationHealthHealthy {
-		t.Fatalf("a recovered second probe must cancel recovery: %+v", got)
+		t.Fatalf("recovered second probe must cancel recovery: %+v", got)
 	}
 	if got := classifyAutomationHealth(failed, false, failed); got.State != automationHealthUncertain {
-		t.Fatalf("without healthy DIRECT WAN no failover is allowed: %+v", got)
+		t.Fatalf("without healthy DIRECT WAN no failover: %+v", got)
 	}
 	if got := classifyAutomationHealth(failed, true, failed); got.State != automationHealthCritical {
-		t.Fatalf("two complete app failures with healthy WAN must enter bounded recovery: %+v", got)
+		t.Fatalf("confirmed 2 origin + IP outage with WAN healthy must enter bounded recovery: %+v", got)
 	}
 }
 
