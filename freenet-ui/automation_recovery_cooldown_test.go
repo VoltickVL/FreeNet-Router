@@ -113,8 +113,11 @@ func TestHealthyVPNAt220msDoesNotTriggerEmergencyQualityScan(t *testing.T) {
 	if got.State != automationHealthHealthy || got.QualityDegraded {
 		t.Fatalf("4/4 sites at 220ms must remain available: %+v", got)
 	}
-	if got := classifyAutomationReachableQuality(235, 4, 4); got.State != automationHealthUncertain {
-		t.Fatalf("mild degradation at 235ms must remain observable: %+v", got)
+	if got := classifyAutomationReachableQuality(235, 4, 4); got.State != automationHealthHealthy {
+		t.Fatalf("normal 235ms jitter with 4/4 services must remain healthy: %+v", got)
+	}
+	if got := classifyAutomationReachableQuality(300, 4, 4); got.State != automationHealthUncertain {
+		t.Fatalf("quality degradation at 300ms must be observable without recovery: %+v", got)
 	}
 	if got := classifyAutomationReachableQuality(180, 0, 4); got.State != automationHealthFailed {
 		t.Fatalf("real service outage must not be hidden: %+v", got)

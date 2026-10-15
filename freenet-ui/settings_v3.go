@@ -1787,6 +1787,40 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settingsV3ActionResponse{Success: true, Message: message, BackupInfo: backupInfo})
 }
 
+// Individual application RTT fluctuations must not fill the raw Journal every
+// 30 seconds. The live HEALTH_LAST/RESULT/MESSAGE continue to update on every
+// completed check; only non-critical *quality-only* event emission is throttled.
+// Confirmed outages, recovery results, rollback and manual operations are never
+// covered by this rule.
+const healthQualityJournalWindow = 15 * time.Minute
+
+func healthQualityJournalDecision(previous map[string]string, result automationHealthResult, now time.Time) (bool, bool) {
+	if previous["HEALTH_RESULT"] == result.State && previous["HEALTH_MESSAGE"] == result.Reason {
+		return false, false
+	}
+	oldQuality := journalEventIsPendingQualityObservation(automationEvent{
+		Kind: "auto_vpn", Result: previous["HEALTH_RESULT"], Message: previous["HEALTH_MESSAGE"],
+	})
+	newQuality := journalEventIsPendingQualityObservation(automationEvent{
+		Kind: "auto_vpn", Result: result.State, Message: result.Reason,
+	})
+	// Only latency/service-quality chatter is throttleable. A different
+	// uncertain cause (probe infrastructure, rollback guard, invalid state)
+	// must be recorded immediately even if the previous row was quality.
+	qualityFlap := (oldQuality && newQuality) ||
+		(oldQuality && result.State == automationHealthHealthy) ||
+		(newQuality && previous["HEALTH_RESULT"] == automationHealthHealthy)
+	if !qualityFlap {
+		// The first pending-quality row also starts the heartbeat window.
+		return true, newQuality
+	}
+	if last, err := time.Parse(time.RFC3339, previous["HEALTH_QUALITY_LOG_LAST"]); err == nil &&
+		!now.Before(last) && now.Sub(last) < healthQualityJournalWindow {
+		return false, false
+	}
+	return true, true
+}
+
 func recordSettingsV3Health(result automationHealthResult) {
 	// "busy" is scheduler contention, not a health observation. It must not
 	// advance HEALTH_LAST or postpone the next real liveness check.
@@ -1794,13 +1828,15 @@ func recordSettingsV3Health(result automationHealthResult) {
 		return
 	}
 	previous := v3ParseState(settingsV3StatePath())
-	now := time.Now().UTC().Format(time.RFC3339)
-	_ = v3WriteState(map[string]string{"HEALTH_LAST": now, "HEALTH_RESULT": result.State, "HEALTH_MESSAGE": result.Reason})
-
-	// Keep the configured health timestamp current without flooding the Journal
-	// with identical rows. Recovery transitions and reason changes are still
-	// recorded immediately and remain visible much longer in the bounded log.
-	if previous["HEALTH_RESULT"] == result.State && previous["HEALTH_MESSAGE"] == result.Reason {
+	now := time.Now().UTC()
+	stamp := now.Format(time.RFC3339)
+	emit, qualityLog := healthQualityJournalDecision(previous, result, now)
+	next := map[string]string{"HEALTH_LAST": stamp, "HEALTH_RESULT": result.State, "HEALTH_MESSAGE": result.Reason}
+	if qualityLog {
+		next["HEALTH_QUALITY_LOG_LAST"] = stamp
+	}
+	_ = v3WriteState(next)
+	if !emit {
 		return
 	}
 	resultCode := result.State
