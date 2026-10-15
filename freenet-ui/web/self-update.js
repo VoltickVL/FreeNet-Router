@@ -6,6 +6,8 @@
   let updateProgressTimer = null;
   let updateProgressStarted = 0;
   let versionCatalog = null;
+  let versionChannel = 'stable';
+  const betaTag = tag => /^v\d+\.\d+\.\d+-beta\.([1-9]|[1-9][0-9])$/.test(String(tag || ''));
   let versionTargetPlan = null;
   let versionSelectionToken = 0;
   let modalFocusBeforeOpen = null;
@@ -611,7 +613,7 @@
       const r = await fetch('/api/system/update/apply', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({target_tag: plan.target_tag})
+        body: JSON.stringify({target_tag: plan.target_tag, ...(betaTag(plan.target_tag) ? {beta_acknowledged: true} : {})})
       });
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || 'Не удалось запустить обновление');
@@ -1030,7 +1032,8 @@
     appendVersionReleaseNotes(detail, release);
     requestAnimationFrame(positionVersionPicker);
     try {
-      const r = await fetch(`/api/system/update/plan?target=${encodeURIComponent(release.version)}`, {cache:'no-store'});
+      const mode = release.prerelease ? '&channel=beta' : '';
+      const r = await fetch(`/api/system/update/plan?target=${encodeURIComponent(release.version)}${mode}`, {cache:'no-store'});
       const p = await r.json().catch(() => ({}));
       if (token !== versionSelectionToken) return;
       if (!r.ok || !p.success || !p.ready || !p.manifest_verified) {
@@ -1056,6 +1059,18 @@
         action.addEventListener('click', async () => {
           if (stateApplyingVersion()) return;
           plan = p;
+          if (release.prerelease) {
+            openModal({
+              kicker: 'FreeNet · BETA',
+              title: `Установить экспериментальную ${p.target_tag}?`,
+              body: 'Это предварительная версия. Для неё не подтверждены все аппаратные сценарии Keenetic/XKeen. Рабочий VPN может потребовать отката. При удалённом доступе через сервис, который удаляется в 0.8, переход запрещён до независимого резервного канала.',
+              meta: 'Установка только по вашему явному выбору. FreeNet сначала сверит exact release, SHA-256, сохранит snapshot и при ошибке попытается восстановить прежнюю версию.',
+              confirmText: `Да, установить BETA ${p.target_tag}`,
+              cancelText: 'Остаться на текущей версии',
+              onConfirm: startUpdate
+            });
+            return;
+          }
           await startUpdate();
         });
         detail.appendChild(action);
@@ -1104,8 +1119,48 @@
     detail.className = 'fn-version-detail';
     detail.textContent = 'Проверяем доступное обновление…';
 
+    const channel = catalog.channel === 'beta' ? 'beta' : 'stable';
+    const channelChoice = document.createElement('div');
+    channelChoice.className = 'fn-version-channels';
+    channelChoice.setAttribute('role', 'group');
+    channelChoice.setAttribute('aria-label', 'Канал обновлений FreeNet');
+    for (const option of [{id:'stable',label:'Stable'}, {id:'beta',label:'Beta · тестовая'}]) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'fn-version-channel' + (option.id === channel ? ' selected' : '');
+      button.textContent = option.label;
+      button.setAttribute('aria-pressed', String(option.id === channel));
+      button.addEventListener('click', async () => {
+        if (option.id === channel) return;
+        detail.textContent = option.id === 'beta'
+          ? 'Открываем тестовые версии только по вашему выбору…'
+          : 'Показываем только стабильные версии…';
+        try {
+          const url = option.id === 'beta'
+            ? '/api/system/update/releases?channel=beta&fresh=1'
+            : '/api/system/update/releases?fresh=1';
+          const response = await fetch(url, {cache:'no-store'});
+          const next = await response.json().catch(() => ({}));
+          if (!response.ok || !next.success || !Array.isArray(next.releases)) {
+            throw new Error(next.error || 'Каталог канала недоступен');
+          }
+          versionChannel = option.id;
+          versionCatalog = next;
+          ++versionSelectionToken;
+          renderVersionManager(next);
+        } catch (e) {
+          detail.className = 'fn-version-detail bad';
+          detail.textContent = 'Канал не переключён: ' + (e.message || 'нет данных') + '. Текущая версия не меняется.';
+        }
+      });
+      channelChoice.appendChild(button);
+    }
+
     const releases = Array.isArray(catalog.releases) ? catalog.releases : [];
-    const latest = releases.find(item => item.latest && !item.current) || null;
+    // If running Beta, do not automatically propose an older stable release
+    // as an "upgrade"; returning to Stable requires choosing a version.
+    const latest = channel === 'stable' && betaTag(catalog.current_version)
+      ? null : (releases.find(item => item.latest && !item.current) || null);
     const draw = () => {
       const q = search.value.trim().toLowerCase();
       list.textContent = '';
@@ -1148,7 +1203,13 @@
       requestAnimationFrame(positionVersionPicker);
     };
     search.addEventListener('input', draw);
-    body.append(summary);
+    body.append(summary, channelChoice);
+    if (channel === 'beta') {
+      const warning = document.createElement('p');
+      warning.className = 'fn-version-beta-warning';
+      warning.textContent = 'Beta — предварительные сборки. Не устанавливаются автоматически и не влияют на Stable. Выберите конкретную Beta только для испытаний.';
+      body.appendChild(warning);
+    }
     if (degraded) body.append(degraded);
     body.append(search, list, detail);
     draw();
@@ -1158,7 +1219,9 @@
       void selectVersionTarget(latest, detail);
     } else {
       detail.className = 'fn-version-detail ready';
-      detail.textContent = 'Установлена актуальная версия FreeNet.';
+      detail.textContent = channel === 'stable' && betaTag(catalog.current_version)
+        ? 'Выберите Stable для добровольного возврата или перейдите на вкладку Beta.'
+        : 'Установлена актуальная версия FreeNet.';
     }
   }
 
@@ -1180,6 +1243,7 @@
       const catalog = await r.json().catch(() => ({}));
       if (!r.ok || !catalog.success || !Array.isArray(catalog.releases)) throw new Error(catalog.error || 'Каталог релизов недоступен');
       versionCatalog = catalog;
+      versionChannel = 'stable';
       renderVersionManager(catalog);
     } catch (e) {
       qs('#fnModalBody').className = 'fn-modal-body';
@@ -1201,7 +1265,7 @@
       if (!catalog.success) return;
       const current = catalog.current_version || '';
       const latest = catalog.latest_version || '';
-      renderTopbarVersion(current, !!latest && latest !== current, latest);
+      renderTopbarVersion(current, !betaTag(current) && !!latest && latest !== current, latest);
     } catch (_) {}
   }
 
@@ -1223,6 +1287,10 @@
         .fn-version-control.update-available .fn-version-copy small,.fn-version-control.update-available .fn-version-copy strong{color:#c9f7dc}
         .fn-version-manager-body{white-space:normal!important;padding:12px 14px 14px!important}.fn-version-summary{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;padding:10px 12px;border:1px solid #29445f;border-radius:10px;background:#0a1929;font-size:11px}.fn-version-summary span{color:#8fa4bf}.fn-version-summary strong{color:#f2f7ff}
         .fn-version-warning{margin-top:8px;padding:8px 10px;border:1px solid rgba(240,184,75,.35);border-radius:9px;background:rgba(102,73,18,.18);color:#e6c77f;font-size:10.5px;line-height:1.4}
+        .fn-version-channels{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+        .fn-version-channel{appearance:none;border:1px solid #29445f;border-radius:9px;background:#0a1929;color:#b8c9df;min-height:42px;cursor:pointer;font:inherit;font-size:12px;font-weight:700}
+        .fn-version-channel.selected{border-color:#5a8dcc;background:#183450;color:#fff}
+        .fn-version-beta-warning{font-size:11px;line-height:1.5;color:#e7cb84;margin:9px 0 0}
         .fn-version-search{width:100%;height:42px;margin-top:10px;padding:0 12px;border:1px solid #315070;border-radius:10px;background:#081624;color:#eef5ff;font:inherit;font-size:11.5px;outline:none}.fn-version-search:focus{border-color:#6094df;box-shadow:0 0 0 2px rgba(96,148,223,.12)}
         .fn-version-list{display:grid;gap:6px;margin-top:8px;padding:0;max-height:236px;overflow-y:auto;overscroll-behavior:contain}.fn-version-release{appearance:none;display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:42px;padding:8px 10px;border:1px solid #29445f;border-radius:9px;background:#0a1929;color:#dbe8f8;text-align:left;cursor:pointer}.fn-version-release:hover,.fn-version-release.selected{border-color:#5a8dcc;background:#12304d}.fn-version-release.current{box-shadow:inset 3px 0 #39d79a}.fn-version-release-main{display:flex;align-items:center;gap:6px}.fn-version-release-main strong{font-size:12.5px}.fn-version-release em{padding:2px 6px;border-radius:999px;background:#173652;color:#a9caff;font-size:8px;font-style:normal;font-weight:800}.fn-version-release em.current{background:rgba(52,221,159,.14);color:#65e3aa}.fn-version-release em.latest{background:rgba(81,137,255,.18);color:#8bb4ff}.fn-version-release small{color:#8198b5;font-size:9px}
         .fn-version-detail{display:grid;gap:7px;margin-top:10px;padding:11px 12px;border:1px solid #29445f;border-radius:10px;background:#091827;color:#9fb2ca;font-size:11px;line-height:1.35} .fn-version-detail strong{color:#f2f7ff;font-size:12.5px}.fn-version-detail.ready{border-color:#35658e}.fn-version-detail.bad{border-color:rgba(255,104,115,.45);color:#ffd0d4}.fn-version-detail.checking{color:#c4d7ee}.fn-version-apply{min-height:44px;margin-top:3px;width:100%;font-size:13px!important}.fn-version-empty{padding:11px;text-align:center;color:#839ab8;border:1px dashed #29445f;border-radius:8px;font-size:10.5px}

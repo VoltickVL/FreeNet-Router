@@ -301,6 +301,56 @@ if run_apply "$R" "$D" "" v0.2.27 v0.2.26 v0.2.28 > "$TMP/prerelease.out" 2>&1; 
     fail 'prerelease target unexpectedly succeeded'
 fi
 [ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'prerelease rejection mutated UI'
-grep -Fq 'target release is not a published stable FreeNet release' "$R/var/run/update.state" || fail 'prerelease rejection reason missing'
+grep -Fq 'target release metadata or Beta channel is not verified' "$R/var/run/update.state" || fail 'prerelease rejection reason missing'
 
-echo 'web self update transactional contract: PASS'
+# Beta is never implicit: no opt-in, wrong GitHub metadata, malformed tag,
+# or wrong source channel must stop BEFORE touching any live FreeNet asset.
+make_root "$R"
+make_release "$D" v0.8.0-beta.1
+sed -i 's/"prerelease":false/"prerelease":true/' "$D/release.json"
+if run_plan "$R" "$D" v0.7.4 v0.7.14 v0.8.0-beta.1 > "$TMP/beta-no-opt-in.out" 2>&1; then
+    fail 'Beta plan unexpectedly accepted without opt-in'
+fi
+grep -Fq 'explicit Beta opt-in required' "$TMP/beta-no-opt-in.out" || fail 'Beta opt-in rejection reason missing'
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'Beta plan mutated live UI'
+
+FREENET_UPDATE_BETA_OPT_IN=yes run_plan "$R" "$D" v0.7.4 v0.7.14 v0.8.0-beta.1 > "$TMP/beta-plan.out" || {
+    cat "$TMP/beta-plan.out" >&2
+    fail 'explicit exact Beta plan failed'
+}
+grep -Fq 'TARGET_TAG=v0.8.0-beta.1' "$TMP/beta-plan.out" || fail 'Beta exact target changed'
+grep -Fq 'MANIFEST_VERIFIED=yes' "$TMP/beta-plan.out" || fail 'Beta manifest verification missing'
+grep -Fq 'DIRECTION=upgrade' "$TMP/beta-plan.out" || fail 'Beta upgrade version order incorrect'
+grep -Fq 'MUTATION=NONE' "$TMP/beta-plan.out" || fail 'Beta plan mutated state'
+
+# Published tag and prerelease field MUST agree even after explicit opt-in.
+sed -i 's/"prerelease":true/"prerelease":false/' "$D/release.json"
+if FREENET_UPDATE_BETA_OPT_IN=yes run_plan "$R" "$D" v0.7.4 v0.7.14 v0.8.0-beta.1 > "$TMP/beta-mislabel.out" 2>&1; then
+    fail 'mislabelled prerelease metadata was accepted'
+fi
+grep -Fq 'target release metadata or Beta channel is not verified' "$TMP/beta-mislabel.out" || fail 'mislabel rejection reason missing'
+sed -i 's/"prerelease":false/"prerelease":true/' "$D/release.json"
+
+# A verified Beta can be applied transactionally with explicit consent, and
+# Xray, subscription and routing config MUST remain unchanged.
+make_root "$R"
+XRAY_BEFORE="$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')"
+SUB_BEFORE="$(sha256sum "$R/etc/freenet/subscription-sentinel" | awk '{print $1}')"
+run_apply "$R" "$D" "FREENET_UPDATE_BETA_OPT_IN=yes" v0.7.4 v0.8.0-beta.1 v0.7.14 > "$TMP/beta-apply.out" 2>&1 || {
+    cat "$TMP/beta-apply.out" >&2
+    fail 'explicit Beta apply/rollback contract failed'
+}
+grep -Fq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'Beta not accepted'
+grep -Fq 'TARGET_VERSION=v0.8.0-beta.1' "$R/var/run/update.state" || fail 'Beta version not persisted'
+[ "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" | awk '{print $1}')" = "$XRAY_BEFORE" ] || fail 'Beta apply mutated Xray'
+[ "$(sha256sum "$R/etc/freenet/subscription-sentinel" | awk '{print $1}')" = "$SUB_BEFORE" ] || fail 'Beta apply mutated subscription'
+[ ! -e "$R/var/run/update.lock" ] || fail 'Beta apply left a lock'
+
+# Explicit return from Beta to the same-core Stable is an UPGRADE, not a
+# downgrade. Stable remains compatible with the regular no-Beta plan.
+make_root "$R"
+make_release "$D" v0.8.0
+run_plan "$R" "$D" v0.8.0-beta.1 v0.8.0 v0.8.0 > "$TMP/beta-to-stable.out" || fail 'Beta-to-Stable plan unavailable'
+grep -Fq 'DIRECTION=upgrade' "$TMP/beta-to-stable.out" || fail 'stable must sort after same-core prerelease'
+
+echo 'web self update transactional + explicit Beta channel contract: PASS'

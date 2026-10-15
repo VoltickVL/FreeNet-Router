@@ -39,7 +39,7 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 		`Что изменилось в`,
 		`Откатить до`,
 		`AbortSignal.timeout(15000)`,
-		`renderTopbarVersion(current, !!latest && latest !== current, latest)`,
+		`renderTopbarVersion(current, !betaTag(current) && !!latest && latest !== current, latest)`,
 		`catalog.degraded && catalog.warning`,
 		`fn-version-warning`,
 		`await startUpdate()`,
@@ -77,8 +77,11 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 			t.Fatalf("topbar update must not own XKeen or restyle approved sidebar: %q", unwanted)
 		}
 	}
-	if strings.Count(s, "/api/system/update/releases?fresh=1") != 1 {
-		t.Fatal("explicit version picker must have exactly one fresh release-catalog request")
+	if strings.Count(s, "fetch('/api/system/update/releases?fresh=1'") != 1 {
+		t.Fatal("topbar version picker must issue one default Stable release-catalog request")
+	}
+	if !strings.Contains(s, "option.id === 'beta'") || !strings.Contains(s, "/api/system/update/releases?channel=beta&fresh=1") {
+		t.Fatal("Beta catalog must be fetched only when explicitly selected")
 	}
 	if !strings.Contains(s, "fetch('/api/system/update/releases', {cache: 'no-store', signal: AbortSignal.timeout(15000)})") {
 		t.Fatal("background topbar polling must keep the cached release-catalog endpoint")
