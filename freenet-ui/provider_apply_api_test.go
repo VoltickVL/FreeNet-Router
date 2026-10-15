@@ -151,7 +151,7 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 	automationState := filepath.Join(dir, "automation.state")
 	updateState := filepath.Join(dir, "self-update.state")
 	t.Setenv("FREENET_AUTOMATION_STATE", automationState)
-	if err := os.WriteFile(automationState, []byte("LAST_RUN=2026-10-03T08:00:00Z\nROLLBACK_READY=no\nMUTATION_BLOCKED=yes\n"), 0600); err != nil {
+	if err := os.WriteFile(automationState, []byte("LAST_RUN=2026-10-03T08:00:00Z\nROLLBACK_READY=no\nMUTATION_BLOCKED=no\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(updateState, []byte("STATE=SUCCESS\nTARGET_VERSION=v"+version+"\nUPDATED_AT=2026-10-03T08:00:00Z\n"), 0600); err != nil {
@@ -203,7 +203,7 @@ func TestProviderApplyRequiresConfirmAndFreshPlan(t *testing.T) {
 		t.Fatalf("response lost exact endpoint reported by apply transaction: %+v", resp.ProviderPlan)
 	}
 	if automationMutationBlockedState() {
-		t.Fatal("accepted manual VPN switch did not clear inherited mutation block")
+		t.Fatal("accepted manual VPN switch unexpectedly introduced a mutation block")
 	}
 	if got := parseAutomationState(automationState)["POST_UPDATE_ACK"]; got != "v"+version {
 		t.Fatalf("accepted manual VPN switch did not acknowledge post-update hold: %q", got)

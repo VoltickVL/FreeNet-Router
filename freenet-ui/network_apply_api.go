@@ -568,6 +568,16 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "another FreeNet operation is already running"}
 	}
 
+	// Internal AUTO and Best Server paths must obey the same persistent
+	// UNKNOWN fence as authenticated browser operations and shell helpers.
+	if automationMutationBlockedState() {
+		return http.StatusConflict, networkApplyResponse{
+			Success: false, Operation: "provider", ProfileID: profileID,
+			RollbackState: "FAILED/UNKNOWN",
+			Error: "Xray state is unresolved after rollback; read-only reconciliation required before another VPN switch",
+		}
+	}
+
 	var (
 		providerPlan providerPlanResponse
 		selected     bestServerInternalCandidate
