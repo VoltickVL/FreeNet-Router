@@ -28,8 +28,8 @@ jobs:
         id: version
         run: |
           VERSION="$(tr -d '\r\n' < VERSION)"
-          if [ "$GITHUB_REF_NAME" = "maintenance/v0.7-bridge" ] && [ "$VERSION" != "v0.7.15" ] && [ "$VERSION" != "v0.7.16" ]; then
-            echo "Bridge branch publishes only the explicitly reviewed v0.7.15 or v0.7.16" >&2
+          if [ "$GITHUB_REF_NAME" = "maintenance/v0.7-bridge" ] && [ "$VERSION" != "v0.7.15" ] && [ "$VERSION" != "v0.7.16" ] && [ "$VERSION" != "v0.7.17" ]; then
+            echo "Bridge branch publishes only explicitly reviewed v0.7.15, v0.7.16 or v0.7.17" >&2
             exit 1
           fi
           case "$VERSION" in
@@ -204,6 +204,11 @@ jobs:
           cp install.sh dist/freenet
           cp config/freenet.conf.example dist/freenet.conf.example
 
+          # Alternate metadata path when GitHub REST is inaccessible.
+          # The exact release metadata asset is listed in SHA256SUMS.
+          export FREENET_RELEASE_TAG="$(tr -d '\r\n' < VERSION)"
+          python3 -c 'import json,os,pathlib; t=os.environ["FREENET_RELEASE_TAG"]; body=pathlib.Path("docs/releases/"+t+".md").read_text(encoding="utf-8"); v={"tag_name":t,"draft":False,"prerelease":"-beta." in t,"body":body}; pathlib.Path("dist/release-metadata.json").write_text(json.dumps(v,ensure_ascii=False)+"\n",encoding="utf-8")'
+
           chmod 755 \
             dist/bootstrap.sh \
             dist/freenet-ui-arm64-v8a \
@@ -239,6 +244,7 @@ jobs:
               bootstrap_entware.sh \
               bootstrap_router_ultra.sh \
               self_update.sh \
+              release-metadata.json \
               legacy_update_bridge.sh \
               upstream-pins.env \
               freenet \
