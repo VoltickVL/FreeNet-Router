@@ -166,7 +166,7 @@
     if (typeof renderProfileOptions === 'function') renderProfileOptions();
     showExactMode(true);
     selectedCardText(`Выбрано: ${selectedProviderName}`, profileEndpoint(p),
-      'Ручной выбор без долгого предварительного сканирования. После переключения FreeNet проверит HTTPS и выполнит откат при отказе.', 'ready');
+      'Ручной выбор без долгого предварительного сканирования. После переключения FreeNet проверит HTTPS и выполнит откат при отказе. DNS при этом не изменяется.', 'ready');
     const controls = mountExactConnectControls();
     if (controls?.connect) {
       controls.connect.disabled = false;

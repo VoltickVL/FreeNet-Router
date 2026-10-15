@@ -76,7 +76,7 @@ const server = http.createServer((req,res)=>{
           safeProfile(current)
         ];
         return answer(route,{
-          success:true,cached:false,mutation:'NONE',fresh:true,catalog_source:'direct',selection_token:manualRTTToken,profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
+          success:true,cached:false,mutation:'NONE',selection_token:manualRTTToken,profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
           results:[
             {profile_id:second.id,endpoint:second.endpoint,rtt_ms:92,jitter_ms:3,reachable:true,attempted:true,status:'reachable'},
             {profile_id:winner.id,endpoint:rttMode==='malformed'?'192.0.2.98:443':winnerEndpoint,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
@@ -183,6 +183,50 @@ const server = http.createServer((req,res)=>{
       return Array.from(summary.children).map(node => node.matches('.fn-xray-topbar')?'xray':node.id==='fnVpnPickerV2Host'?'vpn':node.id==='topFreenetUpdate'?'freenet':/DNS/i.test(node.textContent||'')?'dns':'other').filter(x=>x!=='other');
     });
     assert.deepEqual(topbarOrder,['xray','vpn','dns','freenet'],'topbar order must be Xray -> VPN -> DNS -> FreeNet');
+
+    // UI-only acceptance: measure computed chrome geometry, not media-query intent.
+    await page.waitForFunction(() => !!document.querySelector('#topFreenetUpdate .fn-version-copy small'));
+    for (const width of [320,390,430,768,1024,1440]) {
+      await page.setViewportSize({width,height:900});
+      const chrome = await page.evaluate(() => {
+        const summary = document.querySelector('#overviewApprovedTop');
+        const tiles = [...summary.children].slice(0,4).map(node => {
+          const r = node.getBoundingClientRect();
+          return {x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height),visible:r.width>30&&r.height>30};
+        });
+        const label = document.querySelector('#topFreenetUpdate .fn-version-copy small');
+        const lr = label?.getBoundingClientRect();
+        const xr = document.querySelector('#xrayTopbarChip .fn-xray-chip');
+        const xrayRect = xr?.getBoundingClientRect();
+        return {
+          viewport:innerWidth,scroll:document.documentElement.scrollWidth,tiles,
+          freenetLabel:label?.textContent?.trim(),
+          freenetLabelVisible:!!lr&&lr.width>0&&lr.height>0&&getComputedStyle(label).display!=='none',
+          xrayTextAlign:xr?getComputedStyle(xr).textAlign:'',
+          xrayTextWidth:xrayRect?.width||0
+        };
+      });
+      console.log('CHROME_VISUAL',JSON.stringify({width,...chrome}));
+      assert.equal(chrome.tiles.length,4,'four canonical controls are required');
+      assert.equal(chrome.tiles.every(tile=>tile.visible),true,'missing chrome tile at '+width+': '+JSON.stringify(chrome));
+      assert.equal(chrome.freenetLabel,'FreeNet','FreeNet label missing at '+width);
+      assert.equal(chrome.freenetLabelVisible,true,'FreeNet label hidden at '+width);
+      assert.equal(chrome.xrayTextAlign,'left','Xray value not left-aligned at '+width);
+      assert.ok(chrome.xrayTextWidth>20,'Xray value collapsed at '+width);
+      assert.ok(chrome.scroll<=chrome.viewport+1,'horizontal page overflow at '+width+': '+JSON.stringify(chrome));
+      if(width<=980){
+        assert.ok(Math.abs(chrome.tiles[0].y-chrome.tiles[1].y)<=2,'first chrome row unaligned at '+width);
+        assert.ok(Math.abs(chrome.tiles[2].y-chrome.tiles[3].y)<=2,'second chrome row unaligned at '+width);
+        assert.ok(chrome.tiles[2].y>chrome.tiles[0].y,'mobile chrome is not 2x2 at '+width);
+      }else{
+        assert.ok(chrome.tiles.every(tile=>Math.abs(tile.y-chrome.tiles[0].y)<=2),'desktop chrome is not one row at '+width);
+      }
+      assert.ok(Math.max(...chrome.tiles.map(tile=>tile.height))-Math.min(...chrome.tiles.map(tile=>tile.height))<=2,
+        'chrome cards are not equally tall at '+width);
+      if(width===390||width===1440) await page.screenshot({path:path.join(artifacts,'chrome-'+width+'.png')});
+    }
+    await page.setViewportSize({width:1440,height:1000});
+
     await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Польша');
     assert.equal(await page.locator('#fnVpnPickerV2Flag').evaluate(node=>node.classList.contains('flag-pl')),true,'VPN chip must expose current country flag');
     assert.equal(await page.locator('#fnVpnPickerV2Panel').isHidden(),true,'VPN selector popover must be closed by default');
@@ -272,7 +316,6 @@ const server = http.createServer((req,res)=>{
       const flag = document.querySelector('#bestCurrentFlag');
       const name = document.querySelector('#bestCurrentName');
       const badge = document.querySelector('.fn-current-connected');
-      const setup = document.querySelector('#setupSummary');
       const fr = flag.getBoundingClientRect(), nr = name.getBoundingClientRect();
       return {
         headerDisplay: getComputedStyle(header).display,
@@ -280,14 +323,20 @@ const server = http.createServer((req,res)=>{
         flagRight: fr.right,
         nameLeft: nr.left,
         badgeMarginLeft: badge ? parseFloat(getComputedStyle(badge).marginLeft) : 0,
-        setupRadius: setup ? parseFloat(getComputedStyle(setup).borderRadius) : 0,
-        setupDisplay: setup ? getComputedStyle(setup).display : ''
+        legacySetupBadges: ['setupSummary','overviewSetupState','setupState','setupCompleteBanner','systemSetup'].filter(id => document.getElementById(id)),
+        overviewHasSetupSuccess: /Настройка (?:не )?завершена|Требуется настройка/.test(document.querySelector('[data-page-view="overview"]')?.innerText || '')
       };
     });
     assert.equal(overviewPolish.headerDisplay, 'grid', `current VPN identity must use the unified grid header: ${JSON.stringify(overviewPolish)}`);
     assert.ok(overviewPolish.flagRight <= overviewPolish.nameLeft + 1, `flag must sit immediately before current VPN copy: ${JSON.stringify(overviewPolish)}`);
     assert.ok(overviewPolish.badgeMarginLeft >= 7, `connected badge needs breathing room: ${JSON.stringify(overviewPolish)}`);
-    assert.ok(overviewPolish.setupRadius >= 14 && ['flex','inline-flex'].includes(overviewPolish.setupDisplay), `setup complete state must render as a status chip: ${JSON.stringify(overviewPolish)}`);
+    assert.deepEqual(overviewPolish.legacySetupBadges, [], `obsolete setup badges must not exist in UI: ${JSON.stringify(overviewPolish)}`);
+    assert.equal(overviewPolish.overviewHasSetupSuccess, false, 'Overview must not equate SETUP_COMPLETE with real VPN readiness');
+    status={...status,setup_complete:false};
+    await page.evaluate(()=>loadStatus());
+    assert.equal(await page.locator('[data-page-view="overview"]').evaluate(node=>/Настройка (?:не )?завершена|Требуется настройка/.test(node.innerText)),false,'incomplete setup must not introduce a global false warning');
+    status={...status,setup_complete:true};
+    await page.evaluate(()=>loadStatus());
     fs.mkdirSync(artifacts,{recursive:true});
     await page.screenshot({path:path.join(artifacts,'vpn-desktop-initial.png'),fullPage:true});
 
@@ -331,7 +380,7 @@ const server = http.createServer((req,res)=>{
     assert.match(missingSpeedMetrics,/Скорость VPN/,'current VPN keeps the canonical speed metric owner');
     assert.doesNotMatch(missingSpeedMetrics,/Мбит\/с/,'no alternative throughput value may replace a failed canonical measurement');
     assert.doesNotMatch(missingSpeedMetrics,/Быстрый|не для сравнения/i,'non-comparable speed UX must not return');
-    assert.match(await page.locator('#bestCurrentQuality').textContent(),/Скорость не измерена:/,'failed canonical speed must remain explicit');
+    assert.match(await page.locator('#bestCurrentQuality').textContent(),/Замер скорости:/,'failed canonical speed must remain explicit');
 
     bestMode='no-current';
     await page.locator('#bestServerRefresh').click();
