@@ -147,6 +147,8 @@ type selfUpdatePlanResponse struct {
 
 type selfUpdateApplyRequest struct {
 	TargetTag string `json:"target_tag"`
+	// A prerelease requires a separate explicit Browser confirmation.
+	BetaAcknowledged bool `json:"beta_acknowledged,omitempty"`
 }
 
 type selfUpdateStateResponse struct {
@@ -459,13 +461,31 @@ func (a *app) selfUpdateCommand(args ...string) *exec.Cmd {
 		"FREENET_UPDATE_STATE_FILE="+a.cfg.UpdateState,
 		"FREENET_UPDATE_LOCK_DIR="+a.cfg.UpdateLock,
 	)
+	// The helper refuses all prereleases without an explicit exact target.
+	// This is only reached after the authenticated Browser acknowledges Beta.
+	if len(args) >= 2 && validBetaReleaseTag(args[len(args)-1]) {
+		cmd.Env = append(cmd.Env, "FREENET_UPDATE_BETA_OPT_IN=yes")
+	}
 	return cmd
 }
 
 func (a *app) handleSelfUpdatePlan(w http.ResponseWriter, r *http.Request) {
 	target := strings.TrimSpace(r.URL.Query().Get("target"))
-	if target != "" && !validReleaseTag(target) {
+	channel := strings.TrimSpace(r.URL.Query().Get("channel"))
+	if channel != "" && channel != "stable" && channel != "beta" {
+		writeJSON(w, http.StatusBadRequest, selfUpdatePlanResponse{Success:false, Ready:false, CurrentVersion:"v"+version, Error:"invalid release channel"})
+		return
+	}
+	if target != "" && !validSelectableReleaseTag(target) {
 		writeJSON(w, http.StatusBadRequest, selfUpdatePlanResponse{Success: false, Ready: false, CurrentVersion: "v" + version, Error: "invalid target release"})
+		return
+	}
+	if validBetaReleaseTag(target) && channel != "beta" {
+		writeJSON(w, http.StatusForbidden, selfUpdatePlanResponse{Success:false, Ready:false, CurrentVersion:"v"+version, Error:"Beta target requires explicit Beta channel"})
+		return
+	}
+	if channel == "beta" && !validBetaReleaseTag(target) {
+		writeJSON(w, http.StatusBadRequest, selfUpdatePlanResponse{Success:false, Ready:false, CurrentVersion:"v"+version, Error:"Beta channel requires an exact prerelease tag"})
 		return
 	}
 	if _, err := os.Stat(a.cfg.SelfUpdatePath); err != nil {
@@ -480,6 +500,9 @@ func (a *app) handleSelfUpdatePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	cmd := exec.CommandContext(ctx, "/bin/sh", args...)
 	cmd.Env = a.selfUpdateCommand().Env
+	if validBetaReleaseTag(target) {
+		cmd.Env = append(cmd.Env, "FREENET_UPDATE_BETA_OPT_IN=yes")
+	}
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		writeJSON(w, http.StatusGatewayTimeout, selfUpdatePlanResponse{Success: false, Ready: false, CurrentVersion: "v" + version, Error: "update check timed out"})
@@ -531,6 +554,26 @@ func validReleaseTag(tag string) bool {
 	return patch >= 0 && patch <= 99
 }
 
+// Beta is a separately named prerelease, never a stable update or implicit
+// latest release. Only canonical tags vM.m.p-beta.N (N=1..99) are accepted.
+func validBetaReleaseTag(tag string) bool {
+	base, seq, ok := strings.Cut(tag, "-beta.")
+	if !ok || !validReleaseTag(base) || seq == "" {
+		return false
+	}
+	for _, ch := range seq {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	n, err := strconv.Atoi(seq)
+	return err == nil && n >= 1 && n <= 99 && strconv.Itoa(n) == seq
+}
+
+func validSelectableReleaseTag(tag string) bool {
+	return validReleaseTag(tag) || validBetaReleaseTag(tag)
+}
+
 func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 	if !sameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, actionResult{Success: false, Error: "cross-origin request rejected"})
@@ -545,8 +588,12 @@ func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(body)
 	dec.DisallowUnknownFields()
 	var req selfUpdateApplyRequest
-	if err := dec.Decode(&req); err != nil || !validReleaseTag(req.TargetTag) {
+	if err := dec.Decode(&req); err != nil || !validSelectableReleaseTag(req.TargetTag) {
 		writeJSON(w, http.StatusBadRequest, actionResult{Success: false, Error: "invalid target release"})
+		return
+	}
+	if validBetaReleaseTag(req.TargetTag) && !req.BetaAcknowledged {
+		writeJSON(w, http.StatusForbidden, actionResult{Success: false, Error: "explicit Beta confirmation required"})
 		return
 	}
 	if _, err := os.Stat(a.cfg.SelfUpdatePath); err != nil {

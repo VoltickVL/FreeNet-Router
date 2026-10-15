@@ -122,6 +122,19 @@ async function capture(label){
     if(url.pathname==='/api/automation')return answer(route,{success:true,settings:{enabled:true,country_scope:'region',countries:[]},current_profile:status.profile_label,current_endpoint:status.endpoint,country_code:status.country_code,events:[]});
     if(url.pathname==='/api/settings-v3/countries')return answer(route,{success:true,countries:[...locations.map(([code,,name])=>({code,name,available:true})),{code:'ua',name:'Украина',available:true}],selected:['ua'],fresh:true});
     if(url.pathname==='/api/geodata/files')return answer(route,{success:true,files:[],search_enabled:false});
+    if(url.pathname==='/api/system/update/releases'){
+      const beta=url.searchParams.get('channel')==='beta';
+      const stable={version:'v0.7.14',current:false,latest:true,prerelease:false,published_at:'2026-10-10T00:00:00Z'};
+      const preview={version:'v0.8.0-beta.1',current:false,latest:true,prerelease:true,published_at:'2026-10-15T00:00:00Z'};
+      return answer(route,{success:true,current_version:'v'+fixtureVersion,channel:beta?'beta':'stable',latest_version:beta?preview.version:stable.version,releases:beta?[preview]:[stable]});
+    }
+    if(url.pathname==='/api/system/update/plan'){
+      const chosen=url.searchParams.get('target')||'v0.7.14';
+      const beta=chosen.includes('-beta.');
+      assert.equal(url.searchParams.get('channel'),beta?'beta':null,'Beta plan requires explicit channel');
+      return answer(route,{success:true,ready:true,current_version:'v'+fixtureVersion,target_tag:chosen,latest_version:chosen,update_available:true,direction:'upgrade',manifest_verified:true,expected_no_delta:'Xray unchanged'});
+    }
+    if(url.pathname==='/api/system/update/apply')throw new Error('Browser Beta selection must not perform a mutation without confirmation');
     if(url.pathname.startsWith('/api/system/update/'))return answer(route,{success:true,ready:true,state:'IDLE',current_version:'v'+fixtureVersion,latest_version:'v'+fixtureVersion,update_available:false,rollback_state:'NOT_NEEDED'});
     if(req.method()!=='GET')throw new Error('Unexpected mutation '+url.pathname);
     unhandled.push(url.pathname);return answer(route,{success:true,available:false,configured:true,active:false,events:[]});
@@ -133,6 +146,22 @@ async function capture(label){
   };
   await page.goto(base);await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','canonical boot');
   await verifyCanonicalSidebar('cold start');
+  // Bridge update: stable remains the default; Beta needs opt-in and a separate confirmation.
+  const beforeVersionMutations=calls.filter(c=>c.path==='/api/system/update/apply'&&c.method==='POST').length;
+  await page.locator('#topFreenetUpdate').click();
+  await until(()=>document.querySelectorAll('#fnVersionList .fn-version-release').length===1,'stable catalog opens');
+  assert.match(await page.locator('#fnVersionList').textContent(),/v0[.]7[.]14/);
+  assert.doesNotMatch(await page.locator('#fnVersionList').textContent(),/beta/);
+  await page.getByRole('button',{name:'Beta · тестовая'}).click();
+  await until(()=>document.querySelector('#fnVersionList')?.textContent?.includes('v0.8.0-beta.1'),'explicit Beta catalog');
+  assert.match(await page.locator('#fnModalBody').textContent(),/предварительные сборки/);
+  await until(()=>document.querySelector('.fn-version-apply')!==null,'verified Beta plan');
+  assert.equal(calls.filter(c=>c.path==='/api/system/update/apply').length,beforeVersionMutations,'read-only Beta selection');
+  await page.locator('.fn-version-apply').click();
+  await until(()=>document.querySelector('#fnModalBody')?.textContent?.includes('Это предварительная версия'),'Beta requires confirmation');
+  assert.equal(calls.filter(c=>c.path==='/api/system/update/apply').length,beforeVersionMutations,'confirm shown before mutation');
+  await page.keyboard.press('Escape');
+
   await page.locator('.nav-btn[data-page="admin"]').click();
   await until(()=>document.querySelector('[data-page-view="admin"]')?.classList.contains('active'),'Administration visible');
   await page.locator('#adminCommandInput').fill('dns sg.api.io.mi.com');
