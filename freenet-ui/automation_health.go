@@ -31,9 +31,9 @@ const (
 	// attempt is also cooled down independently from the existing post-switch
 	// cooldown, so a noisy line cannot trigger repeated Top-3 scans.
 	// 300 ms is a *quality* hint, never evidence of a VPN outage. Two or
-	// more independent degraded observations within five minutes are required
+	// more independent degraded observations within twenty minutes are required
 	// even when a single latency sample is extreme. A good sample clears them.
-	automationQualityStrikeWindow          = 5 * time.Minute
+	automationQualityStrikeWindow          = 20 * time.Minute
 	automationQualityStrikeThreshold       = 4
 	automationQualityMinObservations       = 2
 	automationQualityOptimizationCooldown  = 1 * time.Hour

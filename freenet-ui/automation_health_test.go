@@ -312,6 +312,16 @@ func TestAutomationQualityOptimizationUsesWeightedSeverity(t *testing.T) {
 	if state["QUALITY_DEGRADED_SAMPLES"] != "1" {
 		t.Fatalf("expired evidence was not reset: %+v", state)
 	}
+
+	// The explicit 5-minute watchdog setting still needs a functioning
+	// quality optimizer: four consecutive 5-minute samples fit the window.
+	state = map[string]string{}
+	for i := 0; i < 4; i++ {
+		due := observe(base.Add(time.Duration(i)*5*time.Minute), 1)
+		if due != (i == 3) {
+			t.Fatalf("5-minute watchdog sample=%d due=%v state=%+v", i, due, state)
+		}
+	}
 }
 
 func TestAutomationQualityOptimizationCooldownDependsOnSeverity(t *testing.T) {
