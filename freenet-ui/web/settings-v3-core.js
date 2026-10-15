@@ -155,7 +155,7 @@
         .fn3-journal-toolbar{grid-template-columns:minmax(0,1fr)}
         .fn3-journal-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
         .fn3-journal-actions>button{width:100%;min-width:0;min-height:44px;white-space:normal;overflow-wrap:anywhere}
-        #fn3JournalDiagnostics{grid-column:1/-1}
+        #fn3JournalDiagnostics,#fn3JournalArchive30d{grid-column:1/-1}
         .fn3-journal-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
         .fn3-journal-filter-row{min-width:0}
         .fn3-journal-range,.fn3-journal-filters{min-width:0;max-width:100%}
@@ -1129,7 +1129,7 @@
         </div>
       </section>
       <section class="fn3-journal-control-card">
-        <div class="fn3-journal-toolbar"><input id="fn3JournalSearch" class="fn3-journal-search" type="search" autocomplete="off" placeholder="Поиск: сервер, AUTO, ошибка, обновление, 189 мс…"><div class="fn3-journal-actions"><button id="fn3JournalFiltersToggle" class="fn3-journal-filter-toggle" type="button" aria-expanded="false">Фильтры</button><button id="fn3JournalExport" class="fn3-journal-export" type="button">Экспорт CSV</button><button id="fn3JournalDiagnostics" class="fn3-journal-export" type="button" title="Исходные этапы инцидентов и состояния без запуска проверок VPN">Скачать технический лог</button><button id="fn3JournalLive" class="fn3-journal-live active" type="button" aria-pressed="true" title="Остановить автообновление журнала"><span class="fn3-journal-live-dot"></span>Пауза</button><button id="fn3JournalRefresh" class="fn3-journal-refresh" type="button">Обновить</button></div></div>
+        <div class="fn3-journal-toolbar"><input id="fn3JournalSearch" class="fn3-journal-search" type="search" autocomplete="off" placeholder="Поиск: сервер, AUTO, ошибка, обновление, 189 мс…"><div class="fn3-journal-actions"><button id="fn3JournalFiltersToggle" class="fn3-journal-filter-toggle" type="button" aria-expanded="false">Фильтры</button><button id="fn3JournalExport" class="fn3-journal-export" type="button">Экспорт CSV</button><button id="fn3JournalDiagnostics" class="fn3-journal-export" type="button" title="Недавние исходные события без запуска проверок VPN">Скачать технический лог</button><button id="fn3JournalArchive30d" class="fn3-journal-export" type="button" title="Архив значимых технических событий до 30 дней, потоковый сжатый JSONL, без новых проверок VPN">Архив за 30 дней (.gz)</button><button id="fn3JournalLive" class="fn3-journal-live active" type="button" aria-pressed="true" title="Остановить автообновление журнала"><span class="fn3-journal-live-dot"></span>Пауза</button><button id="fn3JournalRefresh" class="fn3-journal-refresh" type="button">Обновить</button></div></div>
         <div id="fn3JournalMeta" class="fn3-journal-meta">Журнал показывает значимые события; технический лог содержит отдельную хронологию, состояния защит и исходные этапы без агрегации.</div>
         <div id="fn3JournalAdvancedFilters" class="fn3-journal-filter-groups" hidden>
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Период</span><div class="fn3-journal-range">${ranges.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-range="${key}">${label}</button>`).join('')}<span id="fn3JournalCustomRange" class="fn3-journal-custom" hidden><input id="fn3JournalFrom" type="datetime-local" aria-label="Начало периода"><input id="fn3JournalTo" type="datetime-local" aria-label="Конец периода"></span></div></div>
@@ -1141,7 +1141,7 @@
       <section class="fn3-journal-stream-card">
         <div class="fn3-journal-stream-head"><div><h2>События</h2><p>Новое сверху · подробные этапы инцидента сохраняются без агрегации</p></div></div>
         <div id="fn3JournalFull" class="fn3-journal-event-list"></div>
-        <div class="fn3-journal-pager"><span class="fn3-journal-retention">Исходная история автоматически ограничена 20 000 строками на файл; старые записи удаляются без ручной очистки.</span><div class="fn3-journal-pager-controls"><label class="fn3-journal-page-label">На странице <select id="fn3JournalPageSize" class="fn3-journal-page-size"><option>50</option><option selected>100</option><option>200</option><option>500</option></select></label><button id="fn3JournalPrev" class="fn3-journal-page-btn" type="button">← Назад</button><span id="fn3JournalPageLabel" class="fn3-journal-page-label">Страница 1 из 1</span><button id="fn3JournalNext" class="fn3-journal-page-btn" type="button">Вперёд →</button></div></div>
+        <div class="fn3-journal-pager"><span class="fn3-journal-retention">Обычный журнал ограничен по строкам; технические события сохраняются по UTC-дням до 30 дней. Если дневной лимит достигнут, архив помечает пропуск.</span><div class="fn3-journal-pager-controls"><label class="fn3-journal-page-label">На странице <select id="fn3JournalPageSize" class="fn3-journal-page-size"><option>50</option><option selected>100</option><option>200</option><option>500</option></select></label><button id="fn3JournalPrev" class="fn3-journal-page-btn" type="button">← Назад</button><span id="fn3JournalPageLabel" class="fn3-journal-page-label">Страница 1 из 1</span><button id="fn3JournalNext" class="fn3-journal-page-btn" type="button">Вперёд →</button></div></div>
       </section>`;
 
       qa('[data-journal-filter]', page).forEach(button => button.onclick = () => {
@@ -1187,6 +1187,10 @@
       const diagnosticButton = q('#fn3JournalDiagnostics', page);
       if (diagnosticButton) diagnosticButton.onclick = () => {
         window.location.href = '/api/journal/diagnostics';
+      };
+      const archiveButton = q('#fn3JournalArchive30d', page);
+      if (archiveButton) archiveButton.onclick = () => {
+        window.location.href = '/api/journal/technical-archive';
       };
       const pageSize = q('#fn3JournalPageSize', page);
       if (pageSize) pageSize.onchange = () => {
