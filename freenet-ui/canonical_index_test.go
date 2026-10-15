@@ -72,8 +72,7 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 		`html.freenet-canonical-boot body>*{visibility:hidden!important}`,
 		`radial-gradient(circle at 68% -15%,#17345c 0,#0d1d32 42%,#081523 72%,#07101b 100%)`,
 		`id="freenetCanonicalBootRelease"`,
-		`document.getElementById('freenetAcceptedUXStyles')`,
-		`document.getElementById('freenetFinalShellPolishStyles')`,
+		`document.getElementById('freenetUnifiedDesignStyles')`,
 		`document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')`,
 		`const canonicalRoutes = ['overview','settings','network','journal']`,
 		`document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]')`,
@@ -87,9 +86,9 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 	}
 
 	bootStyleAt := strings.Index(html, `id="freenetCanonicalBootStyle"`)
-	legacyStyleAt := strings.Index(html, `<style>`) // static legacy stylesheet from index.html
-	if bootStyleAt < 0 || legacyStyleAt < 0 || bootStyleAt > legacyStyleAt {
-		t.Fatalf("boot gate must be delivered before legacy stylesheet: boot=%d legacy=%d", bootStyleAt, legacyStyleAt)
+	unifiedStyleAt := strings.Index(html, `id='freenetUnifiedDesignStyles'`)
+	if bootStyleAt < 0 || unifiedStyleAt < 0 || bootStyleAt > unifiedStyleAt {
+		t.Fatalf("boot gate must be delivered before the unified stylesheet: boot=%d legacy=%d", bootStyleAt, unifiedStyleAt)
 	}
 	if strings.Contains(html, `setTimeout(()=>{root.classList.remove('freenet-canonical-boot')`) {
 		t.Fatal("boot gate must not fail-open to a legacy shell on a timer")

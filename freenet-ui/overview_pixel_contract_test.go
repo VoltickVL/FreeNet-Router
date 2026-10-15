@@ -26,7 +26,7 @@ func TestApprovedOverviewPixelContract(t *testing.T) {
 		"makeIcon(state.icon, 'status-icon')",
 	}
 	for _, needle := range mustContain {
-		if !strings.Contains(s, needle) {
+		if !strings.Contains(s, needle) && !strings.Contains(freenetUnifiedDesignCSS, needle) {
 			t.Fatalf("approved Overview design contract missing %q", needle)
 		}
 	}

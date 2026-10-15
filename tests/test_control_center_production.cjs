@@ -139,6 +139,50 @@ async function capture(label){
   };
   await page.goto(base);await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','canonical boot');
   await verifyCanonicalSidebar('cold start');
+
+  // Unified design regression: short desktop windows must not shrink VPN cards
+  // to 7px. Long labels must wrap, not clip, and canonical navigation is unique.
+  const readabilityViewports=[[1650,760],[1440,720],[980,700],[390,844]];
+  for(const [width,height] of readabilityViewports){
+    await page.setViewportSize({width,height});
+    const visual=await page.evaluate(()=>{
+      const result=document.querySelector('#bestServerResult');
+      const previous=result.className;
+      result.classList.add('show');
+      const card=document.createElement('article');
+      card.className='vpn-option vpn-best';
+      card.innerHTML='<div class="vpn-option-head"><div class="vpn-option-title"><h4>Очень длинное название проверенного альтернативного VPN-профиля для проверки переноса текста</h4></div><div class="vpn-option-actions"><button class="btn" type="button">Использовать</button></div></div><div class="best-v4-metrics">'+
+        Array.from({length:4},()=>'<div class="best-v4-pill"><div class="metric-copy"><span class="metric-label">Отклик сайтов</span><div class="metric-value-line"><b>198 мс</b></div></div></div>').join('')+'</div>';
+      result.appendChild(card);
+      const size=s=>parseFloat(getComputedStyle(card.querySelector(s)).fontSize);
+      const geometry=card.getBoundingClientRect();
+      const visual={
+        label:size('.metric-label'), value:size('.metric-value-line b'),
+        title:size('.vpn-option-title h4'),
+        cardOverflow:getComputedStyle(card).overflowX,
+        alternativesOverflow:getComputedStyle(document.querySelector('.vpn-alternatives-panel')).overflowX,
+        titleWhiteSpace:getComputedStyle(card.querySelector('h4')).whiteSpace,
+        width:innerWidth, cardRight:geometry.right,
+        navCount:document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]').length,
+        unifiedOwner:!!document.querySelector('style#freenetUnifiedDesignStyles'),
+        legacyOwners:document.querySelectorAll('style[id^="FreeNetIssue"]').length
+      };
+      card.remove();result.className=previous;
+      return visual;
+    });
+    assert.ok(visual.label>=11, 'readable VPN metric label at '+width+'x'+height+': '+JSON.stringify(visual));
+    assert.ok(visual.value>=14, 'readable VPN metric value at '+width+'x'+height+': '+JSON.stringify(visual));
+    assert.ok(visual.title>=14, 'readable candidate name at '+width+'x'+height+': '+JSON.stringify(visual));
+    assert.notEqual(visual.cardOverflow,'hidden','candidate clipping is forbidden');
+    assert.notEqual(visual.alternativesOverflow,'hidden','alternatives panel clipping is forbidden');
+    assert.notEqual(visual.titleWhiteSpace,'nowrap','long candidate titles must wrap');
+    assert.ok(visual.cardRight<=width+2,'candidate must fit viewport: '+JSON.stringify(visual));
+    assert.equal(visual.navCount,4,'sidebar must have no phantom navigation entries');
+    assert.equal(visual.unifiedOwner,true,'one unified design owner required');
+    assert.equal(visual.legacyOwners,0,'retired issue-specific style owners must not reappear');
+  }
+  await page.setViewportSize({width:1440,height:1000});
+
   // Real browser regression: Stable is default, Beta requires a deliberate
   // channel switch AND another explicit confirmation before any POST.
   const beforeVersionMutations=calls.filter(c=>c.path==='/api/system/update/apply'&&c.method==='POST').length;

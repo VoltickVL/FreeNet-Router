@@ -26,7 +26,7 @@ func TestApprovedOverviewReadabilityContract(t *testing.T) {
 		"current-health",
 		"vpn-detail-chip",
 	} {
-		if !strings.Contains(s, needle) {
+		if !strings.Contains(s, needle) && !strings.Contains(freenetUnifiedDesignCSS, needle) {
 			t.Fatalf("approved Overview contract missing %q", needle)
 		}
 	}
