@@ -34,7 +34,9 @@ type technicalDayFile struct {
 }
 
 func technicalJournalStartUTC(now time.Time) time.Time {
-	return now.UTC().Truncate(24*time.Hour).AddDate(0, 0, -(technicalJournalRetentionDays - 1))
+	// Retain the full rolling 30*24h interval. Its first and last instants
+	// normally occupy 31 distinct UTC calendar files.
+	return now.UTC().Add(-time.Duration(technicalJournalRetentionDays) * 24 * time.Hour)
 }
 
 func technicalJournalObservedTime(record technicalJournalRecord) (time.Time, bool) {
@@ -56,7 +58,7 @@ func technicalJournalDailyFiles(base string, now time.Time) ([]technicalDayFile,
 	if err != nil {
 		return nil, nil
 	}
-	cutoff := technicalJournalStartUTC(now)
+	cutoff := technicalJournalStartUTC(now).Truncate(24 * time.Hour)
 	end := now.UTC().Truncate(24 * time.Hour)
 	files := make([]technicalDayFile, 0, technicalJournalRetentionDays*2)
 	truncated := []string{}
@@ -102,7 +104,7 @@ func pruneTechnicalJournalDays(base string, now time.Time) error {
 		return err
 	}
 	prefix := filepath.Base(base) + "."
-	cutoff := technicalJournalStartUTC(now)
+	cutoff := technicalJournalStartUTC(now).Truncate(24 * time.Hour)
 	for _, entry := range entries {
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasPrefix(entry.Name(), prefix) {
 			continue

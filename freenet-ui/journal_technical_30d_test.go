@@ -139,6 +139,23 @@ func TestThirtyDayTechnicalJournalMarksDailyQuotaGap(t *testing.T) {
 	}
 }
 
+func TestThirtyDayTechnicalWindowCoversFullRollingDuration(t *testing.T) {
+	now := time.Date(2026, 10, 15, 3, 38, 0, 0, time.UTC)
+	from := technicalJournalStartUTC(now)
+	if !from.Equal(now.Add(-30 * 24 * time.Hour)) {
+		t.Fatalf("retention must cover exactly 30 rolling days, got %s", from)
+	}
+	within := technicalJournalRecord{ObservedAt: from.Format(time.RFC3339Nano)}
+	before := technicalJournalRecord{ObservedAt: from.Add(-time.Second).Format(time.RFC3339Nano)}
+	if !technicalJournalRecordInWindow(within, now) || technicalJournalRecordInWindow(before, now) {
+		t.Fatal("rolling 30-day archive silently omitted or extended boundary")
+	}
+	// Exact rolling 30-day coverage generally spans 31 UTC calendar files.
+	if !technicalJournalStartUTC(now).Truncate(24 * time.Hour).Before(now.AddDate(0, 0, -29)) {
+		t.Fatal("earliest calendar segment should cover partial preceding day")
+	}
+}
+
 func TestThirtyDayArchiveUIAndAuthenticatedEndpointContract(t *testing.T) {
 	ui, err := os.ReadFile("web/settings-v3-core.js")
 	if err != nil { t.Fatal(err) }
