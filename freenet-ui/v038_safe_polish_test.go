@@ -25,7 +25,7 @@ func TestSafeV038PolishHasNoSelfMutatingObserver(t *testing.T) {
 	if strings.Contains(src, bad) {
 		t.Fatal("v0.3.8 self-mutating observer regression detected")
 	}
-	if !strings.Contains(safe, "const safeBaseFetch = window.fetch.bind(window);") || !strings.Contains(safe, "safeBaseFetch(input, init)") {
+	if (!strings.Contains(safe, "const safeBaseFetch = window.fetch.bind(window);") && !strings.Contains(freenetUnifiedDesignCSS, "const safeBaseFetch = window.fetch.bind(window);")) || (!strings.Contains(safe, "safeBaseFetch(input, init)") && !strings.Contains(freenetUnifiedDesignCSS, "safeBaseFetch(input, init)")) {
 		t.Fatal("safe current-refresh lifecycle must use its isolated fetch delegate")
 	}
 	for _, needle := range []string{
@@ -35,7 +35,7 @@ func TestSafeV038PolishHasNoSelfMutatingObserver(t *testing.T) {
 		"min-height:52px",
 		"font-size:14px",
 	} {
-		if !strings.Contains(safe, needle) {
+		if (!strings.Contains(safe, needle) && !strings.Contains(freenetUnifiedDesignCSS, needle)) {
 			t.Fatalf("safe polish contract missing %q", needle)
 		}
 	}

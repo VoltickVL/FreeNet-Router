@@ -47,8 +47,8 @@ func TestCanonicalIndexDeliversLayoutBeforeLegacyPaint(t *testing.T) {
 
 	bootAt := strings.Index(html, `id="freenetCanonicalBootStyle"`)
 	layoutAt := strings.Index(html, `id="freenetLayoutCoherenceStyles"`)
-	legacyAt := strings.Index(html, `<style>`)
-	if bootAt < 0 || layoutAt < 0 || legacyAt < 0 || bootAt > layoutAt || layoutAt > legacyAt {
-		t.Fatalf("layout must be delivered with first-paint head styles: boot=%d layout=%d legacy=%d", bootAt, layoutAt, legacyAt)
+	unifiedAt := strings.Index(html, `id='freenetUnifiedDesignStyles'`)
+	if bootAt < 0 || layoutAt < 0 || unifiedAt < 0 || bootAt > layoutAt || layoutAt > unifiedAt {
+		t.Fatalf("unified CSS must follow the first-paint layout: boot=%d layout=%d legacy=%d", bootAt, layoutAt, unifiedAt)
 	}
 }

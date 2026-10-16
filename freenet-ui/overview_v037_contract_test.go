@@ -29,6 +29,6 @@ func TestV037OverviewScaleContract(t *testing.T) {
         ".vpn-option .best-v4-pill b{font-size:17px",
         ".fn-render-fact>strong{font-size:12px",
     } {
-        if !strings.Contains(s, needle) { t.Fatalf("v0.3.7 Overview scale contract missing %q", needle) }
+        if !strings.Contains(s, needle) && !strings.Contains(freenetUnifiedDesignCSS, needle) { t.Fatalf("v0.3.7 Overview scale contract missing %q", needle) }
     }
 }

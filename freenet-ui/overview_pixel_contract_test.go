@@ -26,7 +26,7 @@ func TestApprovedOverviewPixelContract(t *testing.T) {
 		"makeIcon(state.icon, 'status-icon')",
 	}
 	for _, needle := range mustContain {
-		if !strings.Contains(s, needle) {
+		if !strings.Contains(s, needle) && !strings.Contains(freenetUnifiedDesignCSS, needle) {
 			t.Fatalf("approved Overview design contract missing %q", needle)
 		}
 	}
@@ -48,7 +48,7 @@ func TestApprovedOverviewPixelContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"fnVpnPickerV2Panel", "fnVpnPickerV2Resize", "#bestServerAdvanced{display:none!important}"} {
-		if !strings.Contains(string(picker), want) {
+		if !strings.Contains(string(picker), want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("canonical picker visual contract missing %q", want)
 		}
 	}

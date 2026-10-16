@@ -208,6 +208,7 @@ const server = http.createServer((req,res)=>{
       });
       console.log('CHROME_VISUAL',JSON.stringify({width,...chrome}));
       assert.equal(chrome.tiles.length,4,'four canonical controls are required');
+      console.log('CSS_DIAGNOSTIC_MOBILE',JSON.stringify(await page.evaluate(()=>{let s=document.querySelector('style#freenetUnifiedDesignStyles');return{css:s?.textContent.length,rules:(()=>{try{return s?.sheet?.cssRules.length}catch(e){return e.message}})(),nodes:[...document.querySelectorAll('#overviewApprovedTop > *')].map(e=>({tag:e.tagName,id:e.id,display:getComputedStyle(e).display,w:e.getBoundingClientRect().width}))}})));
       assert.equal(chrome.tiles.every(tile=>tile.visible),true,'missing chrome tile at '+width+': '+JSON.stringify(chrome));
       assert.equal(chrome.freenetLabel,'FreeNet','FreeNet label missing at '+width);
       assert.equal(chrome.freenetLabelVisible,true,'FreeNet label hidden at '+width);

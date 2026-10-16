@@ -20,43 +20,8 @@
   }
 
   function mountExactSelectorStyles() {
-    if (qs('#freenetExactSelectorStyles')) return;
-    const style = document.createElement('style');
-    style.id = 'freenetExactSelectorStyles';
-    style.textContent = `
-      #profilesList .field{border:0!important;background:transparent!important;padding:0!important}
-      #profilesList .field>label{display:none!important}
-      #profileSearch,#profilesTrigger{min-height:44px!important;border-radius:12px!important;border:1px solid #315273!important;background:linear-gradient(180deg,#0d2035,#0a192a)!important;box-shadow:inset 0 1px rgba(255,255,255,.025)!important}
-      #profileSearch{padding:0 14px!important;color:#eef5ff!important}
-      #profileSearch:focus,#profilesTrigger:focus-visible{border-color:#5b93dc!important;box-shadow:0 0 0 3px rgba(91,147,220,.13)!important;outline:0!important}
-      #profilesTrigger{padding:0 14px!important}
-      #profilesMenu{top:calc(100% + 8px)!important;border-radius:14px!important;border-color:#345878!important;background:rgba(6,19,33,.98)!important;box-shadow:0 24px 60px rgba(0,0,0,.48)!important;padding:7px!important}
-      #profilesMenu .profile-option{min-height:50px!important;border:1px solid transparent!important;border-radius:10px!important;padding:8px 10px!important}
-      #profilesMenu .profile-option:hover,#profilesMenu .profile-option[aria-selected="true"]{border-color:#2d567b!important;background:linear-gradient(180deg,#15304d,#102640)!important}
-      #selectedProfileCard.fn-selector-state{position:relative!important;margin-top:8px!important;min-height:68px!important;padding:10px 12px 10px 16px!important;border:1px solid #315273!important;border-radius:14px!important;background:linear-gradient(180deg,rgba(13,34,56,.98),rgba(8,25,42,.98))!important;box-shadow:0 14px 34px rgba(0,0,0,.18)!important;color:#aebfd4!important;overflow:hidden!important}
-      #selectedProfileCard.fn-selector-state:before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:#6685aa}
-      #selectedProfileCard.fn-selector-state.is-checking:before{background:#5b8cff}
-      #selectedProfileCard.fn-selector-state.is-ready{border-color:rgba(73,218,146,.46)!important;background:linear-gradient(180deg,rgba(13,54,48,.96),rgba(8,37,36,.96))!important}
-      #selectedProfileCard.fn-selector-state.is-ready:before{background:#49da92}
-      #selectedProfileCard.fn-selector-state.is-error{border-color:rgba(255,112,112,.46)!important;background:linear-gradient(180deg,rgba(58,26,34,.96),rgba(38,19,29,.96))!important}
-      #selectedProfileCard.fn-selector-state.is-error:before{background:#ff7070}
-      #selectedProfileCard.fn-selector-state.is-applying:before{background:#81a7ff}
-      .fn-selector-state-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important}
-      .fn-selector-state-head strong{margin:0!important;min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;font-size:12.5px!important;color:#f4f8ff!important}
-      .fn-selector-state-badge{flex:0 0 auto;display:inline-flex;align-items:center;min-height:22px;padding:3px 8px;border:1px solid rgba(129,167,255,.26);border-radius:999px;background:rgba(91,140,255,.09);color:#bcd1f5;font-size:9.5px;font-weight:800;letter-spacing:.02em}
-      .is-ready .fn-selector-state-badge{border-color:rgba(73,218,146,.32);background:rgba(73,218,146,.09);color:#9aebbf}
-      .is-error .fn-selector-state-badge{border-color:rgba(255,112,112,.32);background:rgba(255,112,112,.08);color:#ffc0c0}
-      #selectedProfileCard.fn-selector-state .selected-endpoint{margin-top:5px!important;color:#d4e1f3!important;font-size:10.5px!important}
-      #selectedProfileCard.fn-selector-state .selected-note{margin-top:4px!important;color:#93a8c2!important;font-size:10.5px!important;line-height:1.35!important}
-      #exactConnectRow{margin-top:8px!important;grid-template-columns:minmax(150px,1fr) auto!important;gap:8px!important}
-      #exactConnectRow .btn{min-height:40px!important;border-radius:11px!important;padding:9px 14px!important;font-size:11.5px!important}
-      #exactCancelBtn{min-width:118px!important}
-      @media(max-width:760px){
-        #exactConnectRow{grid-template-columns:1fr!important}
-        #exactCancelBtn{min-width:0!important}
-        #selectedProfileCard.fn-selector-state{min-height:0!important}
-      }`;
-    document.head.appendChild(style);
+    if ((document.documentElement.dataset.freenetStylevpnuxfixjs1 === "1")) return;
+    document.documentElement.dataset.freenetStylevpnuxfixjs1 = "1";
   }
 
   function humanProviderPlanError(value) {
@@ -440,11 +405,8 @@
   const policyPreview = {mode: 'geosite', query: '', selected: null, action: 'DIRECT', files: []};
 
   function installPolicyPreviewStyles() {
-    if (qs('#policyPreviewStyles')) return;
-    const style = document.createElement('style');
-    style.id = 'policyPreviewStyles';
-    style.textContent = '.policy-preview{margin-top:14px}.policy-tabs,.policy-actions{display:flex;gap:8px;flex-wrap:wrap}.policy-tab,.policy-action{appearance:none;border:1px solid #2b405e;background:#0c1726;color:#a9b7ca;border-radius:10px;padding:9px 12px;cursor:pointer;font-weight:700;font-size:12px}.policy-tab.active,.policy-action.active{color:#fff;border-color:#5b8cff;background:#18325a}.policy-action[data-action="DIRECT"].active{border-color:#49da92;background:#123729}.policy-action[data-action="BLOCK"].active{border-color:#ff7070;background:#3a1d27}.policy-search-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin-top:10px}.policy-search-row input{width:100%;border:1px solid #2b405e;background:#09121e;color:#f4f7fb;border-radius:11px;padding:11px 12px;outline:none}.policy-results{display:grid;gap:7px;margin-top:10px}.policy-result{appearance:none;width:100%;border:1px solid #26364d;background:#09121e;color:#f4f7fb;border-radius:11px;padding:10px 12px;text-align:left;cursor:pointer}.policy-result:hover,.policy-result.active{border-color:#5b8cff;background:#13243d}.policy-result b{display:block;font-size:12px}.policy-result span{display:block;color:#8fa0b8;font-size:10px;margin-top:3px}.policy-draft{margin-top:12px;padding:12px;border:1px solid #26364d;border-radius:12px;background:#09121e}.policy-draft-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}.policy-leg{padding:9px;border-radius:10px;background:#0f1c2d;border:1px solid #20334d}.policy-leg b{display:block;font-size:11px}.policy-leg span{display:block;color:#8fa0b8;font-size:10px;margin-top:3px}.policy-muted{color:#8fa0b8;font-size:11px;line-height:1.45}.policy-badge{display:inline-flex;align-items:center;border:1px solid #334967;border-radius:999px;padding:4px 8px;color:#b9c7da;font-size:10px;font-weight:700}.policy-exact{margin-top:8px}.policy-readonly{color:#f1b84b;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase}@media(max-width:760px){.policy-search-row{grid-template-columns:1fr}.policy-draft-grid{grid-template-columns:1fr}}';
-    document.head.appendChild(style);
+    if ((document.documentElement.dataset.freenetStylevpnuxfixjs2 === "1")) return;
+    document.documentElement.dataset.freenetStylevpnuxfixjs2 = "1";
   }
 
   function policyModeMeta() { return policyPreview.mode === 'geoip' ? {apiKind:'geoip',exactKind:'ip',placeholder:'Например, 1.1.1.1',title:'IP / GeoIP'} : {apiKind:'geosite',exactKind:'domain',placeholder:'Например, plati.market или youtube',title:'Домен / GeoSite'}; }

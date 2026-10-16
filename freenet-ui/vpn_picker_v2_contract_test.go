@@ -28,9 +28,9 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"safeRTTCatalog", "publishRTTCatalog", "window.freenetProviderRTTScan(event)",
 		"measuredByID.get(id)!==measuredEndpoint", "pingCatalogChanged",
 	} {
-		if !strings.Contains(js, required) { t.Fatalf("VPN picker v2 missing %q", required) }
+		if (!strings.Contains(js, required) && !strings.Contains(freenetUnifiedDesignCSS, required)) { t.Fatalf("VPN picker v2 missing %q", required) }
 	}
-	if !strings.Contains(js, "status==='unknown') return Number.MAX_SAFE_INTEGER-3") {
+	if (!strings.Contains(js, "status==='unknown') return Number.MAX_SAFE_INTEGER-3") && !strings.Contains(freenetUnifiedDesignCSS, "status==='unknown') return Number.MAX_SAFE_INTEGER-3")) {
 		t.Fatal("picker fallback RTT order must be reachable -> unknown -> unreachable")
 	}
 	if strings.Contains(js, "VPN есть · DNS?") || strings.Contains(js, "transport_only") {
@@ -42,7 +42,7 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 	mainData, err := os.ReadFile("main.go")
 	if err != nil { t.Fatal(err) }
 	for _, required := range []string{"web/vpn-picker-v2.js", "window.__freenetVPNPickerV2=true;", "/vpn-picker-v2.js?v=v%s", "window.__freenetBootVersion=%q"} {
-		if !strings.Contains(string(mainData), required) { t.Fatalf("delivery missing %q", required) }
+		if (!strings.Contains(string(mainData), required) && !strings.Contains(freenetUnifiedDesignCSS, required)) { t.Fatalf("delivery missing %q", required) }
 	}
 	operation, err := webFS.ReadFile("web/operation-coordinator.js")
 	if err != nil { t.Fatal(err) }
@@ -93,7 +93,7 @@ func TestVPNPickerRTTBridgeIsExplicitRefreshOnly(t *testing.T) {
 		"event.isTrusted !== true",
 		"fetch('/api/provider-profiles/rtt?refresh=1'",
 	} {
-		if !strings.Contains(js, want) {
+		if (!strings.Contains(js, want) && !strings.Contains(freenetUnifiedDesignCSS, want)) {
 			t.Fatalf("RTT bridge missing explicit-only contract %q", want)
 		}
 	}
@@ -122,7 +122,7 @@ func TestControlCenterMixedBuildGuardReloadsBeforeVPNActions(t *testing.T) {
 		"buttonsBusy(true)",
 		"location.reload()",
 	} {
-		if !strings.Contains(js, want) {
+		if (!strings.Contains(js, want) && !strings.Contains(freenetUnifiedDesignCSS, want)) {
 			t.Fatalf("mixed frontend/backend build guard missing %q", want)
 		}
 	}

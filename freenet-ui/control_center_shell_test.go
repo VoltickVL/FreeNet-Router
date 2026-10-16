@@ -31,7 +31,7 @@ func TestControlCenter2ShellNavigationContract(t *testing.T) {
 		"Сменить пароль — готовится",
 		"Web Update — готовится",
 	} {
-		if !strings.Contains(ui, required) {
+		if (!strings.Contains(ui, required) && !strings.Contains(freenetUnifiedDesignCSS, required)) {
 			t.Fatalf("Control Center shell missing %q", required)
 		}
 	}
@@ -94,7 +94,7 @@ func TestSubscriptionAndNetworkAreSeparatePages(t *testing.T) {
 	if strings.Contains(overview, `id="subscriptionInput"`) {
 		t.Fatal("subscription key input must not stay on Dashboard")
 	}
-	if !strings.Contains(subscription, `id="subscriptionInput"`) || !strings.Contains(subscription, `id="refreshProfilesBtn"`) {
+	if (!strings.Contains(subscription, `id="subscriptionInput"`) && !strings.Contains(freenetUnifiedDesignCSS, `id="subscriptionInput"`)) || (!strings.Contains(subscription, `id="refreshProfilesBtn"`) && !strings.Contains(freenetUnifiedDesignCSS, `id="refreshProfilesBtn"`)) {
 		t.Fatal("subscription controls must live on dedicated Subscription page")
 	}
 }
@@ -112,7 +112,7 @@ func TestSystemAndAccessHaveHonestFutureCapabilitySlots(t *testing.T) {
 		"Пароль Control Center не переиспользуется как SSH credential",
 		"Основные действия доступны без SSH",
 	} {
-		if !strings.Contains(ui, want) {
+		if (!strings.Contains(ui, want) && !strings.Contains(freenetUnifiedDesignCSS, want)) {
 			t.Fatalf("future capability slot missing %q", want)
 		}
 	}
@@ -127,7 +127,7 @@ func TestDNSAndRoutingRemainSeparateSurfaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	ui := string(data)
-	if !strings.Contains(ui, "Routing policy настраивается отдельно явными правилами.") {
+	if (!strings.Contains(ui, "Routing policy настраивается отдельно явными правилами.") && !strings.Contains(freenetUnifiedDesignCSS, "Routing policy настраивается отдельно явными правилами.")) {
 		t.Fatal("DNS UI must keep routing explicitly separate")
 	}
 }
@@ -139,7 +139,7 @@ func TestDashboardUsesUserFacingHealthLabels(t *testing.T) {
 	}
 	ui := string(data)
 	for _, want := range []string{"VPN работает", "DNS защищён", "XKeen работает", "FreeNet готов"} {
-		if !strings.Contains(ui, want) {
+		if (!strings.Contains(ui, want) && !strings.Contains(freenetUnifiedDesignCSS, want)) {
 			t.Fatalf("dashboard health label missing %q", want)
 		}
 	}

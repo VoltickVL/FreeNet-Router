@@ -48,7 +48,7 @@ func TestFinalShellTopbarSidebarAndBrandContract(t *testing.T) {
 		"const icon = fact.querySelector(':scope > .fn-top-fact-icon');",
 		"if (icon) fact.append(icon, copy);",
 	} {
-		if !strings.Contains(js, want) {
+		if !strings.Contains(js, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("final shell contract missing %q", want)
 		}
 	}

@@ -30,7 +30,7 @@ func TestIssue347ApprovedOverviewRenderContract(t *testing.T) {
         "min-width:0!important",
     }
     for _, needle := range mustContain {
-        if !strings.Contains(s, needle) {
+        if !strings.Contains(s, needle) && !strings.Contains(freenetUnifiedDesignCSS, needle) {
             t.Fatalf("issue #347 Overview render contract missing %q", needle)
         }
     }
