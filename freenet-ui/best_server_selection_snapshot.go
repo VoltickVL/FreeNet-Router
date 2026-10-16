@@ -311,8 +311,12 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 
 	cmd := exec.CommandContext(ctx, providerHelperPath(), mode, candidate.Profile.ID)
 	rttFlag := "0"
-	if manualRTT && mode == "apply-core" {
+	if manualRTT && (mode == "apply-core" || mode == "recover-core") {
 		rttFlag = "1"
+	}
+	recoveryFlag := "0"
+	if manualRTT && mode == "recover-core" {
+		recoveryFlag = "1"
 	}
 	cmd.Env = append(os.Environ(),
 		"PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin",
@@ -320,6 +324,7 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 		"FREENET_PROVIDER_SUBSCRIPTION_CACHE="+cachePath,
 		"FREENET_PROVIDER_SUBSCRIPTION_SOURCE="+sourcePath,
 		"FREENET_PROVIDER_RTT_MANUAL="+rttFlag,
+		"FREENET_PROVIDER_RECOVERY_MANUAL="+recoveryFlag,
 	)
 	cmd.WaitDelay = 2 * time.Second
 	output, err := cmd.CombinedOutput()
