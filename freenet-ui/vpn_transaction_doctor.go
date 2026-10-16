@@ -130,6 +130,12 @@ func (a *app) vpnTransactionDoctor() vpnTransactionDoctorResponse {
 		return resp
 	}
 	resp.Checkpoint = "pending"
+	// A previous manual recovery that died between snapshot and commit must
+	// never be overwritten. Both before generations are protected evidence.
+	if _, recoveryErr := os.Lstat(filepath.Join(checkpoint, "recovery.pending")); recoveryErr == nil || !os.IsNotExist(recoveryErr) {
+		resp.Decision = "STOP_RECOVERY_INTERRUPTED"
+		return resp
+	}
 	if a == nil {
 		resp.Decision = "STOP_RUNTIME_UNKNOWN"
 		return resp
@@ -148,6 +154,26 @@ func (a *app) vpnTransactionDoctor() vpnTransactionDoctorResponse {
 	// Never clear a checkpoint based on bytes matching: original VPN service
 	// may already have been down when the failed replacement was attempted.
 	return resp
+}
+
+// A pending checkpoint is not an indefinite manual-operation lock. It is
+// eligible for a SEPARATE, explicitly confirmed recovery transaction only
+// when the original checkpoint is coherent and the active core is known.
+// "different" is allowed: it means the interrupted AUTO may have partially
+// applied its candidate; the recovery helper snapshots the actual live files.
+func vpnManualRecoveryEligible(resp vpnTransactionDoctorResponse) bool {
+	if resp.Checkpoint != "pending" || resp.XrayCore != "running" {
+		return false
+	}
+	if resp.Decision != "STOP_VPN_UNVERIFIED" && resp.Decision != "STOP_FILES_UNRESOLVED" {
+		return false
+	}
+	for _, status := range []string{resp.Outbound, resp.Profile, resp.Filter} {
+		if status != "matched" && status != "different" {
+			return false
+		}
+	}
+	return true
 }
 
 func registerVPNTransactionDoctor(mux *http.ServeMux, a *app) {
