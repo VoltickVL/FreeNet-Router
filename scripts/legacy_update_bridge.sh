@@ -26,7 +26,11 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 valid_tag() {
-    printf '%s\n' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'
+    printf '%s\n' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.([1-9]|[1-9][0-9]))?$'
+}
+
+beta_tag() {
+    printf '%s\n' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-beta\.([1-9]|[1-9][0-9])$'
 }
 
 make_tmp() {
@@ -177,7 +181,7 @@ verify_updater() {
 case "$MODE" in
     plan|apply) ;;
     *)
-        err "usage: legacy_update_bridge.sh <plan|apply> <vX.Y.Z>"
+        err "usage: legacy_update_bridge.sh <plan|apply> <vX.Y.Z[-beta.N]>"
         exit 2
         ;;
 esac
@@ -190,6 +194,13 @@ valid_tag "$TARGET_TAG" || {
     err "target release tag is invalid"
     exit 2
 }
+
+# A Beta apply is an explicit one-time recovery decision, never an implicit fallback
+# from a legacy Browser Recovery latest-Stable request. Read-only plan is allowed.
+if beta_tag "$TARGET_TAG" && [ "$MODE" = apply ] && [ "${FREENET_BRIDGE_BETA_ACK:-no}" != yes ]; then
+    err "explicit Beta bridge acknowledgment required before apply"
+    exit 2
+fi
 
 for T in curl sha256sum awk grep sed tr tail mktemp cp chmod mv sleep; do
     command -v "$T" >/dev/null 2>&1 || {
@@ -231,8 +242,14 @@ chmod 755 "$TMP_DIR/self_update.sh" || {
 
 say "UPDATER_VERIFIED=yes"
 
-sh "$TMP_DIR/self_update.sh" "$MODE" "$TARGET_TAG"
-RC=$?
+if beta_tag "$TARGET_TAG"; then
+    # The verified target updater independently checks explicit Beta opt-in.
+    FREENET_UPDATE_BETA_OPT_IN=yes sh "$TMP_DIR/self_update.sh" "$MODE" "$TARGET_TAG"
+    RC=$?
+else
+    sh "$TMP_DIR/self_update.sh" "$MODE" "$TARGET_TAG"
+    RC=$?
+fi
 if [ "$RC" -eq 0 ]; then
     exit 0
 fi
