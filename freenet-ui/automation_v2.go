@@ -513,19 +513,35 @@ func automationOptimizationCooldownActive(path string, now time.Time) bool {
 // configuration or scheduling. Leave LAST_RUN, enabled/auto_apply/mode/policy,
 // rollback/STOP and post-update acknowledgement exactly as they were.
 func recordAutomationManualSwitch(now time.Time) error {
-	if automationMutationBlockedState() {
+	return recordAutomationManualSwitchWithRecovery(now, false)
+}
+
+// Commit the manual recovery handoff atomically: the old persistent checkpoint
+// must already be archived by the shell after successful HTTPS acceptance.
+// The previously blocked AUTO engine starts from this newly selected baseline.
+func recordAutomationManualSwitchWithRecovery(now time.Time, recovered bool) error {
+	if recovered {
+		if vpnTransactionPending() {
+			return errors.New("recovery checkpoint remains pending after manual VPN acceptance")
+		}
+	} else if automationMutationBlockedState() {
 		return errors.New("cannot adopt manually selected VPN while rollback is unknown")
 	}
 	path := automationStatePath()
 	previous := parseAutomationState(path)
 	previous["LAST_SWITCH"] = now.UTC().Format(time.RFC3339)
 	previous["LAST_SWITCH_ORIGIN"] = "manual"
+	if recovered {
+		previous["MUTATION_BLOCKED"] = "no"
+		previous["ROLLBACK_READY"] = "NOT_NEEDED"
+	}
 	writeAutomationStatePayload(path, previous)
 	// The legacy writer ignores IO errors: require the persisted handoff.
 	stored := parseAutomationState(path)
 	if stored["LAST_SWITCH"] != previous["LAST_SWITCH"] ||
 		stored["LAST_SWITCH_ORIGIN"] != "manual" ||
-		stored["MUTATION_BLOCKED"] != previous["MUTATION_BLOCKED"] {
+		stored["MUTATION_BLOCKED"] != previous["MUTATION_BLOCKED"] ||
+		(recovered && stored["ROLLBACK_READY"] != "NOT_NEEDED") {
 		return errors.New("manual VPN applied but AUTO handoff state not persisted")
 	}
 	return nil

@@ -55,8 +55,82 @@ mutation_forbidden() {
     transaction_pending || grep -qs '^MUTATION_BLOCKED=yes$' "$AUTOMATION_STATE" 2>/dev/null
 }
 
+# Only user-confirmed manual recovery can enter this mode. The original PENDING
+# checkpoint must remain verifiable and available until a separate snapshot and
+# the selected live VPN pass acceptance.
+valid_recovery_checkpoint() {
+    [ -d "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ] || return 1
+    [ -f "$CHECKPOINT_DIR/state" ] && [ ! -L "$CHECKPOINT_DIR/state" ] || return 1
+    [ "$(cat "$CHECKPOINT_DIR/state" 2>/dev/null)" = PENDING ] || return 1
+    [ ! -e "$CHECKPOINT_DIR/recovery.pending" ] && [ ! -L "$CHECKPOINT_DIR/recovery.pending" ] || return 1
+    for RECOVERY_KIND in out profile filter; do
+        RECOVERY_BEFORE="$CHECKPOINT_DIR/$RECOVERY_KIND.before"
+        RECOVERY_ABSENT="$CHECKPOINT_DIR/$RECOVERY_KIND.absent"
+        [ ! -L "$RECOVERY_BEFORE" ] && [ ! -L "$RECOVERY_ABSENT" ] || return 1
+        if [ -f "$RECOVERY_BEFORE" ]; then
+            [ ! -e "$RECOVERY_ABSENT" ] || return 1
+            [ "$(wc -c < "$RECOVERY_BEFORE" 2>/dev/null)" -le 2097152 ] || return 1
+        else
+            [ ! -e "$RECOVERY_BEFORE" ] && [ -f "$RECOVERY_ABSENT" ] || return 1
+            [ "$(wc -c < "$RECOVERY_ABSENT" 2>/dev/null)" -eq 0 ] || return 1
+        fi
+    done
+    for RECOVERY_LIVE in "$OUT_FILE" "$PROFILE_FILE" "$FILTER_FILE"; do
+        [ ! -L "$RECOVERY_LIVE" ] || return 1
+        [ ! -e "$RECOVERY_LIVE" ] || [ -f "$RECOVERY_LIVE" ] || return 1
+    done
+    return 0
+}
+
+# A second durable checkpoint captures ACTUAL live bytes. The original
+# PENDING marker continues to fence AUTO and survives process death.
+begin_recovery_checkpoint() {
+    RECOVERY_DIR="$CHECKPOINT_DIR/recovery.pending"
+    umask 077
+    mkdir "$RECOVERY_DIR" || return 1
+    chmod 700 "$RECOVERY_DIR" || return 1
+    for RECOVERY_KIND in out profile filter; do
+        case "$RECOVERY_KIND" in
+            out) RECOVERY_SRC="$OUT_BEFORE"; RECOVERY_PRESENT="$OUT_BEFORE_EXISTS" ;;
+            profile) RECOVERY_SRC="$PROFILE_BEFORE"; RECOVERY_PRESENT="$PROFILE_BEFORE_EXISTS" ;;
+            filter) RECOVERY_SRC="$FILTER_BEFORE"; RECOVERY_PRESENT="$FILTER_BEFORE_EXISTS" ;;
+        esac
+        if [ "$RECOVERY_PRESENT" = yes ]; then
+            cp "$RECOVERY_SRC" "$RECOVERY_DIR/$RECOVERY_KIND.before" || return 1
+            chmod 600 "$RECOVERY_DIR/$RECOVERY_KIND.before" || return 1
+        else
+            : > "$RECOVERY_DIR/$RECOVERY_KIND.absent" || return 1
+        fi
+    done
+    printf 'PENDING\n' > "$RECOVERY_DIR/state" || return 1
+    chmod 600 "$RECOVERY_DIR/state" || return 1
+    if command -v sync >/dev/null 2>&1; then sync || return 1; fi
+    [ -s "$RECOVERY_DIR/state" ]
+}
+
+# Archive BOTH generations of protected snapshots after confirmed live HTTPS.
+# A rename within the same filesystem removes the pending marker only after
+# candidate acceptance; the AUTO latch remains until Go adopts manual server.
+archive_recovery_checkpoint() {
+    RECOVERY_ARCHIVE_ROOT="$(dirname "$CHECKPOINT_DIR")/vpn-transaction.recovered"
+    if [ -e "$RECOVERY_ARCHIVE_ROOT" ]; then
+        [ -d "$RECOVERY_ARCHIVE_ROOT" ] && [ ! -L "$RECOVERY_ARCHIVE_ROOT" ] || return 1
+    else
+        umask 077
+        mkdir "$RECOVERY_ARCHIVE_ROOT" || return 1
+        chmod 700 "$RECOVERY_ARCHIVE_ROOT" || return 1
+    fi
+    RECOVERY_ARCHIVE="$RECOVERY_ARCHIVE_ROOT/$(date -u '+%Y%m%dT%H%M%SZ').$$"
+    [ ! -e "$RECOVERY_ARCHIVE" ] && [ ! -L "$RECOVERY_ARCHIVE" ] || return 1
+    [ -d "$RECOVERY_DIR" ] && [ -f "$RECOVERY_DIR/state" ] || return 1
+    mv "$CHECKPOINT_DIR" "$RECOVERY_ARCHIVE" || return 1
+    [ ! -e "$CHECKPOINT_DIR" ] && [ -d "$RECOVERY_ARCHIVE" ] || return 1
+    if command -v sync >/dev/null 2>&1; then sync || return 1; fi
+    return 0
+}
+
 acquire_mutation_lock() {
-    mutation_forbidden && return 1
+    [ "${1:-normal}" = recover-core ] || { mutation_forbidden && return 1; }
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         LOCK_HELD=1
         printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null || {
@@ -709,7 +783,7 @@ restart_xray_core() {
 
 restart_if_needed() {
     [ "$WAS_RUNNING" -eq 1 ] || return 0
-    if [ "$MODE" = apply-core ]; then
+    if [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; then
         restart_xray_core no
         return $?
     fi
@@ -787,7 +861,7 @@ rollback_state() {
         RB=1
     fi
     if [ "$WAS_RUNNING" -eq 1 ]; then
-        if [ "$MODE" = apply-core ]; then
+        if [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; then
             if restart_xray_core yes; then
                 ROLLBACK_CORE_STATUS="RESTORED"
             else
@@ -840,6 +914,10 @@ fail_apply() {
     append_provider_history 'failed' "VPN server apply failed: $MESSAGE"
     if [ "$APPLIED" -eq 1 ] && [ "$ROLLBACK_ACTIVE" -eq 0 ]; then
         if rollback_state; then
+            if [ "$MODE" = recover-core ]; then
+                err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN (original checkpoint retained after manual recovery)'
+                exit 2
+            fi
             if clear_checkpoint; then
                 err 'ROLLBACK ERROR/STATE: rollback success'
                 exit 1
@@ -871,7 +949,7 @@ if [ "$MODE" = core-restart ]; then
     exit 0
 fi
 
-case "$MODE" in plan|apply|apply-core) ;; *) err 'usage: apply_provider_profile.sh [plan|apply|apply-core|core-restart] PROFILE_ID'; exit 2 ;; esac
+case "$MODE" in plan|apply|apply-core|recover-core) ;; *) err 'usage: apply_provider_profile.sh [plan|apply|apply-core|recover-core|core-restart] PROFILE_ID'; exit 2 ;; esac
 case "$REQUESTED_ID" in
     ''|*[!0-9a-f]*) err 'PROFILE_ID must be 16 lowercase hex characters'; exit 2 ;;
 esac
@@ -886,9 +964,20 @@ done
 [ -s "$SUB_FILE" ] || { err 'subscription is not configured'; exit 1; }
 
 if [ "$MODE" != plan ]; then
-    mutation_forbidden && fail_apply 'pending VPN transaction requires read-only reconciliation'
-    acquire_mutation_lock || fail_apply 'another VPN mutation is already running'
-    mutation_forbidden && fail_apply 'pending VPN transaction requires read-only reconciliation'
+    if [ "$MODE" = recover-core ]; then
+        [ "${FREENET_PROVIDER_RECOVERY_MANUAL:-0}" = 1 ] &&
+            [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] ||
+            fail_apply 'manual recovery requires explicit authenticated selection'
+        valid_recovery_checkpoint ||
+            fail_apply 'protected VPN checkpoint is incomplete or recovery was interrupted; STOP'
+        acquire_mutation_lock recover-core || fail_apply 'another VPN mutation is already running'
+        valid_recovery_checkpoint ||
+            fail_apply 'protected VPN checkpoint changed before manual recovery; STOP'
+    else
+        mutation_forbidden && fail_apply 'pending VPN transaction requires read-only reconciliation'
+        acquire_mutation_lock || fail_apply 'another VPN mutation is already running'
+        mutation_forbidden && fail_apply 'pending VPN transaction requires read-only reconciliation'
+    fi
 fi
 
 SUB_URL="$(tr -d '\r\n' < "$SUB_FILE")"
@@ -924,7 +1013,7 @@ validate_candidate || { err 'candidate Xray configuration validation failed'; ex
 # The Xray config test above, state snapshot, live post-check and rollback
 # below remain mandatory and are never bypassed.
 CANDIDATE_ROUTE_STATUS=yes
-if [ "$MODE" = apply-core ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
+if { [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; } && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
     CANDIDATE_ROUTE_STATUS=skipped
 else
     provider_route_probe "$CANDIDATE_OUT" || { err 'candidate VPN application route validation failed'; exit 1; }
@@ -941,7 +1030,7 @@ say "CANDIDATE_ROUTE_OK=$CANDIDATE_ROUTE_STATUS"
 say 'EXPECTED_DELTA=install or replace exactly one vless-reality outbound; preserve existing non-VLESS outbounds; persist safe preferred profile name and exact active profile filter'
 say 'EXPECTED_NO_DELTA=subscription URL and VLESS/Reality credentials are never printed; ISP/DNS/routing are not changed by this helper'
 case "$MODE" in
-    apply|apply-core) say 'MUTATION=PENDING' ;;
+    apply|apply-core|recover-core) say 'MUTATION=PENDING' ;;
     *) say 'MUTATION=NONE' ;;
 esac
 say '========== END =========='
@@ -949,11 +1038,15 @@ say '========== END =========='
 [ "$MODE" = plan ] && exit 0
 
 snapshot_state || fail_apply 'cannot snapshot current provider state'
-if [ "$MODE" = apply-core ]; then
+if [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; then
     [ "$WAS_RUNNING" -eq 1 ] || fail_apply 'safe core-only Xray restart requires exactly one running Xray process'
     core_restart_preflight || fail_apply 'safe core-only Xray restart is unavailable or runtime state is ambiguous'
 fi
-begin_checkpoint || fail_apply 'cannot persist protected VPN transaction checkpoint; STOP before mutation'
+if [ "$MODE" = recover-core ]; then
+    begin_recovery_checkpoint || fail_apply 'cannot persist separate protected manual recovery snapshot; STOP before mutation'
+else
+    begin_checkpoint || fail_apply 'cannot persist protected VPN transaction checkpoint; STOP before mutation'
+fi
 APPLIED=1
 mkdir -p "$(dirname "$PROFILE_FILE")" || fail_apply 'cannot create FreeNet config directory'
 mkdir -p "$(dirname "$FILTER_FILE")" || fail_apply 'cannot create profile filter directory'
@@ -972,7 +1065,16 @@ XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > 
     || fail_apply 'live Xray configuration validation failed after provider apply'
 provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
 
-clear_checkpoint || { err 'PRIMARY ERROR: VPN applied but checkpoint cleanup is UNKNOWN; STOP'; exit 2; }
+if [ "$MODE" = recover-core ]; then
+    archive_recovery_checkpoint || {
+        err 'PRIMARY ERROR: manual VPN connected but original checkpoint archive is UNKNOWN; STOP'
+        err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
+        exit 2
+    }
+    say '[FreeNet Provider] RECOVERY=COMPLETED'
+else
+    clear_checkpoint || { err 'PRIMARY ERROR: VPN applied but checkpoint cleanup is UNKNOWN; STOP'; exit 2; }
+fi
 append_provider_history 'success' "VPN server applied: $SELECTED_NAME · $SELECTED_ADDRESS:$SELECTED_PORT"
 say '[FreeNet Provider] RESULT=SUCCESS'
 say '[FreeNet Provider] ROLLBACK=NOT_NEEDED'

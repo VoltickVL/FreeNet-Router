@@ -474,6 +474,44 @@ grep -Fq 'pending VPN transaction requires read-only reconciliation' "$TMP/old-d
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/old-down.out" "$TMP/old-down.err" "$TMP/old-down-blocked.err"; then
     fail 'old-down stage detail leaked credentials'
 fi
+# Production recovery: explicit user-selected VPN may recover from the exact
+# old-down pending checkpoint. The original snapshot and ACTUAL live snapshot
+# must both survive, then the selected HTTPS works and the checkpoint archives.
+CORE_HELPER="$TMP/bin/core-restart"
+export CORE_HELPER
+printf '%s\n' pass > "$TMP/route-probe.mode"
+RECOVERY_ORIGINAL_HASH="$(sha256sum "$TMP/provider-transaction.pending/out.before" | awk '{print $1}')"
+if run_helper recover-core "$PROFILE_ID" > "$TMP/recovery-no-confirm.out" 2> "$TMP/recovery-no-confirm.err"; then
+    fail 'manual recovery accepted missing explicit confirmation'
+fi
+[ -d "$TMP/provider-transaction.pending" ] || fail 'unconfirmed recovery removed original checkpoint'
+[ ! -e "$TMP/provider-transaction.pending/recovery.pending" ] || fail 'unconfirmed recovery created new snapshot'
+
+ln -s "$TMP/configs" "$TMP/provider-transaction.pending/recovery.pending"
+if FREENET_PROVIDER_RECOVERY_MANUAL=1 FREENET_PROVIDER_RTT_MANUAL=1 run_helper recover-core "$PROFILE_ID" > "$TMP/recovery-interrupted.out" 2> "$TMP/recovery-interrupted.err"; then
+    fail 'incomplete prior recovery unexpectedly allowed another mutation'
+fi
+[ "$(sha256sum "$TMP/configs/04_outbounds.json" | awk '{print $1}')" = "$OLD_DOWN_HASH" ] || fail 'interrupted recovery changed live outbound'
+rm -f "$TMP/provider-transaction.pending/recovery.pending"
+
+if ! FREENET_PROVIDER_RECOVERY_MANUAL=1 FREENET_PROVIDER_RTT_MANUAL=1 run_helper recover-core "$PROFILE_ID" > "$TMP/recovery-ok.out" 2> "$TMP/recovery-ok.err"; then
+    cat "$TMP/recovery-ok.err" >&2 || true
+    fail 'manual recovery could not safely replace a pending AUTO VPN server'
+fi
+grep -Fq '[FreeNet Provider] RECOVERY=COMPLETED' "$TMP/recovery-ok.out" || fail 'manual recovery missing durable terminal receipt'
+grep -Fq '[FreeNet Provider] RESULT=SUCCESS' "$TMP/recovery-ok.out" || fail 'manual recovery did not confirm live HTTPS'
+[ ! -e "$TMP/provider-transaction.pending" ] || fail 'accepted manual recovery left stale pending STOP'
+RECOVERY_ARCHIVE="$(find "$TMP/vpn-transaction.recovered" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+[ -n "$RECOVERY_ARCHIVE" ] && [ -d "$RECOVERY_ARCHIVE" ] || fail 'manual recovery discarded original protected evidence'
+[ "$(sha256sum "$RECOVERY_ARCHIVE/out.before" | awk '{print $1}')" = "$RECOVERY_ORIGINAL_HASH" ] || fail 'manual recovery changed original snapshot'
+[ -s "$RECOVERY_ARCHIVE/recovery.pending/out.before" ] || fail 'manual recovery lost second live snapshot'
+[ -s "$RECOVERY_ARCHIVE/recovery.pending/state" ] || fail 'manual recovery lost second durable marker'
+[ "$(cat "$TMP/etc/vpn_profile_name")" = "$PROFILE_NAME" ] || fail 'manual recovery failed to persist selected server'
+if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/recovery-ok.out" "$TMP/recovery-ok.err"; then
+    fail 'manual recovery leaked credentials'
+fi
+unset CORE_HELPER
+
 # Reset only isolated test fixtures, never an actual router checkpoint.
 rm -rf "$TMP/provider-transaction.pending" "$TMP/vpn-mutation.lock"
 printf '%s\n' pass > "$TMP/route-probe.mode"

@@ -282,7 +282,11 @@ func (a *app) handleProviderProfilePlan(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) {
-	if a.mutationBlockedBySelfUpdate(w) {
+	// Updating FreeNet and changing live network state must not overlap. The
+	// pending VPN guard is checked after decoding: only an explicitly confirmed
+	// provider manual recovery may reach the separate protected recovery path.
+	if a.updateLockHeld() {
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "FreeNet update is in progress"})
 		return
 	}
 	if !sameOrigin(r) {
@@ -311,6 +315,10 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 	operation := strings.TrimSpace(req.Operation)
 	if operation == "" {
 		operation = "network"
+	}
+	if automationMutationBlockedState() && !(operation == "provider" && req.ManualOverride) {
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "VPN transaction pending/unknown: read-only reconciliation required"})
+		return
 	}
 	if operation == "provider" {
 		a.handleProviderProfileApply(w, r, req)
@@ -587,15 +595,19 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "another FreeNet operation is already running"}
 	}
 
-	// Manual and AUTO share the same production Xray. An UNKNOWN rollback
-	// stops *all* new profile mutations until read-only reconciliation proves
-	// the live state. An explicit manual override cannot clear that safety latch.
+	// AUTO remains fenced after UNKNOWN. Explicit manual selection may start
+	// only a separately snapshotted recovery transaction when the protected
+	// checkpoint is coherent and the production core is unambiguous.
+	manualRecovery := false
 	if automationMutationBlockedState() {
-		return http.StatusConflict, networkApplyResponse{
-			Success: false, Operation: "provider", ProfileID: profileID,
-			RollbackState: "FAILED/UNKNOWN",
-			Error: "Xray state is unresolved after rollback; read-only recovery acceptance is required before another VPN switch",
+		if !req.ManualOverride || !vpnTransactionPending() || !vpnManualRecoveryEligible(a.vpnTransactionDoctor()) {
+			return http.StatusConflict, networkApplyResponse{
+				Success: false, Operation: "provider", ProfileID: profileID,
+				RollbackState: "FAILED/UNKNOWN",
+				Error: "Xray recovery checkpoint is incomplete or runtime is unknown; no config was changed",
+			}
 		}
+		manualRecovery = true
 	}
 
 	var (
@@ -682,7 +694,11 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		// Protected AUTO/Best/manual snapshot switches preserve XKeen/netfilter
 		// during Xray cutover and rollback. AUTO/Best retains route preflight;
 		// only explicit measured manual RTT skips its duplicate preflight.
-		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, "apply-core", selected, manualRTT)
+		mode := "apply-core"
+		if manualRecovery {
+			mode = "recover-core"
+		}
+		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, mode, selected, manualRTT)
 	} else {
 		// Unmeasured legacy/no-token setup retains its established apply path.
 		output, cmdErr = runCommand(ctx, providerHelperPath(), "apply", profileID)
@@ -691,7 +707,9 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	if ctx.Err() == context.DeadlineExceeded {
 		cmdErr = errors.New("provider profile apply timed out")
 	}
-	if cmdErr == nil && req.ManualOverride && !strings.Contains(safeOutput, "[FreeNet Provider] RESULT=SUCCESS") {
+	if cmdErr == nil && req.ManualOverride &&
+		(!strings.Contains(safeOutput, "[FreeNet Provider] RESULT=SUCCESS") ||
+			(manualRecovery && !strings.Contains(safeOutput, "[FreeNet Provider] RECOVERY=COMPLETED"))) {
 		// A zero exit without an acceptance receipt may hide a partial cutover.
 		// Do not mutate again until the router state is reconciled read-only.
 		setAutomationMutationBlocked(true)
@@ -742,7 +760,18 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 				RollbackState: "FAILED/UNKNOWN", Error: "exact manual VPN acceptance is unresolved",
 			}
 		}
-		if err := recordAutomationManualSwitch(time.Now().UTC()); err != nil {
+		// The helper archives BOTH protected checkpoint generations only
+		// after HTTPS acceptance. Atomically adopt the recovered profile and
+		// lift the old AUTO latch as one persisted state update.
+		if manualRecovery && vpnTransactionPending() {
+			setAutomationMutationBlocked(true)
+			return http.StatusBadGateway, networkApplyResponse{
+				Success: false, Operation: "provider", ProfileID: profileID,
+				ProviderPlan: &appliedPlan, PrimaryError: "manual recovery checkpoint was not archived",
+				RollbackState: "FAILED/UNKNOWN", Error: "VPN recovery requires read-only reconciliation",
+			}
+		}
+		if err := recordAutomationManualSwitchWithRecovery(time.Now().UTC(), manualRecovery); err != nil {
 			setAutomationMutationBlocked(true)
 			return http.StatusBadGateway, networkApplyResponse{
 				Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
