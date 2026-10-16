@@ -171,13 +171,13 @@ func TestBrowserRecoveryExactBetaWithPendingVPNCheckpoint(t *testing.T) {
 	if err := os.Mkdir(pending, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(pending, "state"), []byte("PENDING\\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(pending, "state"), []byte("PENDING\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("FREENET_VPN_TRANSACTION_DIR", pending)
 	autoState := filepath.Join(dir, "auto.state")
 	t.Setenv("FREENET_AUTOMATION_STATE", autoState)
-	if err := os.WriteFile(autoState, []byte("MUTATION_BLOCKED=yes\\n"), 0600); err != nil {
+	if err := os.WriteFile(autoState, []byte("MUTATION_BLOCKED=yes\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	marker := filepath.Join(dir, "applied")
@@ -200,7 +200,7 @@ case "$1" in
     ;;
   apply)
     [ "$2" = v0.8.0-beta.2 ] || exit 23
-    printf '%s\\n' "$2" > "$RECOVERY_MARKER"
+    printf '%s\n' "$2" > "$RECOVERY_MARKER"
     ;;
   *) exit 24 ;;
 esac
@@ -210,7 +210,7 @@ esac
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/releases/download/v0.8.0-beta.2/SHA256SUMS":
-			fmt.Fprintf(w, "%s  self_update.sh\\n", sum)
+			fmt.Fprintf(w, "%s  self_update.sh\n", sum)
 		case "/releases/download/v0.8.0-beta.2/self_update.sh":
 			_, _ = w.Write(helper)
 		default:
