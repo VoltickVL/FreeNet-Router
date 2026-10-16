@@ -135,19 +135,32 @@ func recoveryManifestSHA(manifest []byte, name string) (string, error) {
 }
 
 func (a *app) recoveryUpdaterEnv(target string) []string {
-	return append(os.Environ(),
+	env := append(os.Environ(),
 		"PATH=/opt/bin:/opt/sbin:/opt/usr/bin:/opt/usr/sbin:/bin:/sbin:/usr/bin:/usr/sbin",
 		"FREENET_CURRENT_VERSION=v"+version,
 		"FREENET_UPDATE_STATE_FILE="+a.cfg.UpdateState,
 		"FREENET_UPDATE_LOCK_DIR="+a.cfg.UpdateLock,
 		"FREENET_LATEST_TAG="+target,
 	)
+	if validBetaReleaseTag(target) {
+		// Exact Beta is allowed ONLY after authenticated, explicit opt-in.
+		// Both the verified helper's read-only plan and apply enforce this.
+		env = append(env, "FREENET_UPDATE_BETA_OPT_IN=yes")
+	}
+	return env
 }
 
-func (a *app) prepareVerifiedRecoveryUpdater(ctx context.Context) (string, string, selfUpdatePlanResponse, error) {
-	target, err := recoveryLatestTag(ctx)
-	if err != nil {
-		return "", "", selfUpdatePlanResponse{}, err
+func (a *app) prepareVerifiedRecoveryUpdater(ctx context.Context, exactTarget string) (string, string, selfUpdatePlanResponse, error) {
+	target := strings.TrimSpace(exactTarget)
+	if target == "" {
+		latest, err := recoveryLatestTag(ctx)
+		if err != nil {
+			return "", "", selfUpdatePlanResponse{}, err
+		}
+		target = latest
+	}
+	if !validSelectableReleaseTag(target) {
+		return "", "", selfUpdatePlanResponse{}, errors.New("recovery target release is invalid")
 	}
 	base := recoveryReleaseBase(target)
 	manifest, err := recoveryDownload(ctx, base+"/SHA256SUMS", 2*1024*1024)
@@ -221,10 +234,39 @@ func (a *app) releaseRecoveryLaunch() {
 	a.updateMu.Unlock()
 }
 
+type recoveryUpdateSelection struct {
+	TargetTag        string `json:"target_tag"`
+	BetaAcknowledged bool   `json:"beta_acknowledged"`
+}
+
 func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 	if !sameOrigin(r) {
 		writeJSON(w, http.StatusForbidden, actionResult{Success: false, Error: "cross-origin request rejected"})
 		return
+	}
+	// Empty body is the historical latest-Stable recovery, unchanged. An
+	// exact target (especially Beta) is accepted only from a confirmed JSON
+	// request; never infer Beta from the implicit Stable latest endpoint.
+	exactTarget := ""
+	if r.ContentLength != 0 {
+		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
+			writeJSON(w, http.StatusUnsupportedMediaType, actionResult{Success: false, Error: "application/json required"})
+			return
+		}
+		body := http.MaxBytesReader(w, r.Body, 512)
+		defer body.Close()
+		dec := json.NewDecoder(body)
+		dec.DisallowUnknownFields()
+		var choice recoveryUpdateSelection
+		if err := dec.Decode(&choice); err != nil || !validSelectableReleaseTag(strings.TrimSpace(choice.TargetTag)) {
+			writeJSON(w, http.StatusBadRequest, actionResult{Success: false, Error: "invalid exact recovery target"})
+			return
+		}
+		exactTarget = strings.TrimSpace(choice.TargetTag)
+		if validBetaReleaseTag(exactTarget) && !choice.BetaAcknowledged {
+			writeJSON(w, http.StatusForbidden, actionResult{Success: false, Error: "explicit Beta recovery confirmation required"})
+			return
+		}
 	}
 
 	stateKV := readStateFile(a.cfg.UpdateState)
@@ -271,7 +313,7 @@ func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 80*time.Second)
 	defer cancel()
-	dir, script, plan, err := a.prepareVerifiedRecoveryUpdater(ctx)
+	dir, script, plan, err := a.prepareVerifiedRecoveryUpdater(ctx, exactTarget)
 	if err != nil {
 		a.releaseRecoveryLaunch()
 		v3AppendEvent("freenet_update_recovery", "failed", "Browser recovery остановлен до mutation: "+err.Error())
