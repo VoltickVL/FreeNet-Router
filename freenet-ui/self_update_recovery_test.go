@@ -163,3 +163,117 @@ func TestBrowserRecoveryPreservesRollbackFailedHardStop(t *testing.T) {
 		t.Fatalf("hard-stop lock was removed: %v", err)
 	}
 }
+
+
+func TestBrowserRecoveryExactBetaWithPendingVPNCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	pending := filepath.Join(dir, "vpn-transaction.pending")
+	if err := os.Mkdir(pending, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pending, "state"), []byte("PENDING\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FREENET_VPN_TRANSACTION_DIR", pending)
+	autoState := filepath.Join(dir, "auto.state")
+	t.Setenv("FREENET_AUTOMATION_STATE", autoState)
+	if err := os.WriteFile(autoState, []byte("MUTATION_BLOCKED=yes\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dir, "applied")
+	t.Setenv("RECOVERY_MARKER", marker)
+	const target = "v0.8.0-beta.2"
+	helper := []byte(`#!/bin/sh
+[ "$FREENET_UPDATE_BETA_OPT_IN" = yes ] || exit 21
+[ "$FREENET_LATEST_TAG" = v0.8.0-beta.2 ] || exit 22
+case "$1" in
+  plan)
+    echo SUCCESS=yes
+    echo READY=yes
+    echo CURRENT_VERSION=v0.8.0-beta.1
+    echo LATEST_VERSION=v0.8.0-beta.2
+    echo TARGET_TAG=v0.8.0-beta.2
+    echo UPDATE_AVAILABLE=yes
+    echo MANIFEST_VERIFIED=yes
+    echo EXPECTED_DELTA=verified-freenet-assets-only
+    echo EXPECTED_NO_DELTA=xray-and-checkpoint
+    ;;
+  apply)
+    [ "$2" = v0.8.0-beta.2 ] || exit 23
+    printf '%s\n' "$2" > "$RECOVERY_MARKER"
+    ;;
+  *) exit 24 ;;
+esac
+`)
+	digest := sha256.Sum256(helper)
+	sum := hex.EncodeToString(digest[:])
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/releases/download/v0.8.0-beta.2/SHA256SUMS":
+			fmt.Fprintf(w, "%s  self_update.sh\n", sum)
+		case "/releases/download/v0.8.0-beta.2/self_update.sh":
+			_, _ = w.Write(helper)
+		default:
+			http.NotFound(w, r) // exact target must never downgrade to latest Stable
+		}
+	}))
+	defer server.Close()
+	t.Setenv("FREENET_RECOVERY_RELEASE_ROOT", server.URL+"/releases/download")
+	t.Setenv("FREENET_RECOVERY_LATEST_URL", server.URL+"/forbidden-latest")
+	a := &app{cfg: config{
+		SelfUpdatePath: filepath.Join(dir, "missing-installed-updater.sh"),
+		UpdateState: filepath.Join(dir, "update.state"),
+		UpdateLock: filepath.Join(dir, "update.lock"),
+	}}
+	url := "http://router.test/api/system/update/recover"
+	body := `{"target_tag":"v0.8.0-beta.2","beta_acknowledged":true}`
+	r := httptest.NewRequest(http.MethodPost, url, strings.NewReader(body))
+	r.Host = "router.test"
+	r.Header.Set("Origin", "http://router.test")
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	a.handleSelfUpdateRecover(w, r)
+	if w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), target) {
+		t.Fatalf("Beta Recovery rejected a SHA-verified exact target: %d %s", w.Code, w.Body.String())
+	}
+	deadline := time.Now().Add(3*time.Second)
+	for time.Now().Before(deadline) {
+		if data, err := os.ReadFile(marker); err == nil {
+			if strings.TrimSpace(string(data)) != target {
+				t.Fatalf("wrong release applied: %q", data)
+			}
+			if !vpnTransactionPending() || !automationMutationBlockedState() {
+				t.Fatal("code-only Beta recovery removed the VPN checkpoint or unlocked AUTO")
+			}
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatal("verified recovery Beta helper was not started")
+}
+
+func TestBrowserRecoveryRejectsUnconfirmedOrInvalidBeta(t *testing.T) {
+	dir := t.TempDir()
+	a := &app{cfg: config{UpdateState: filepath.Join(dir, "update.state"), UpdateLock: filepath.Join(dir, "update.lock")}}
+	for _, tt := range []struct {
+		name string
+		body string
+		want int
+	}{
+		{"Beta without acknowledgment", `{"target_tag":"v0.8.0-beta.2"}`, http.StatusForbidden},
+		{"Untrusted tag", `{"target_tag":"v0.8.0-beta.2/../other","beta_acknowledged":true}`, http.StatusBadRequest},
+		{"Unknown payload property", `{"target_tag":"v0.8.0-beta.2","beta_acknowledged":true,"ignore_guard":true}`, http.StatusBadRequest},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodPost, "http://router.test/api/system/update/recover", strings.NewReader(tt.body))
+			r.Host = "router.test"
+			r.Header.Set("Origin", "http://router.test")
+			r.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			a.handleSelfUpdateRecover(w, r)
+			if w.Code != tt.want {
+				t.Fatalf("recovery accepted unsafe request: %d %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}

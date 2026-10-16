@@ -537,7 +537,14 @@
     });
   }
 
-  async function startUpdateRecovery() {
+  async function startUpdateRecovery(targetTag = '') {
+    // The normal no-argument Recovery still targets latest Stable. A selected
+    // exact Beta uses this path only after the user's explicit confirmation.
+    const exact = typeof targetTag === 'string' ? targetTag.trim() : '';
+    if (exact && !betaTag(exact)) {
+      updateNotice('Неверная Beta-версия для Recovery', 'bad');
+      return;
+    }
     const check = qs('#webUpdateCheckBtn');
     const recover = qs('#webUpdateRecoverBtn');
     const apply = qs('#webUpdateApplyBtn');
@@ -548,10 +555,9 @@
     updateNotice('Проверяем release manifest и новый updater независимо от установленного helper.');
     modalProgress('Восстанавливаем механизм обновления…', 'FreeNet проверяет exact release и SHA-256. До подтверждения нового updater persistent mutation не выполняется.');
     try {
-      const r = await fetch('/api/system/update/recover', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'}
-      });
+      const recoveryRequest = {method: 'POST', headers: {'Content-Type': 'application/json'}};
+      if (exact) recoveryRequest.body = JSON.stringify({target_tag: exact, beta_acknowledged: true});
+      const r = await fetch('/api/system/update/recover', recoveryRequest);
       const j = await r.json();
       if (!r.ok || !j.success) throw new Error(j.error || 'Не удалось восстановить updater');
       const target = String(j.operation_id || '').trim();
@@ -1068,6 +1074,23 @@
           if (stateApplyingVersion()) return;
           plan = p;
           if (release.prerelease) {
+            let protectedRecovery = false;
+            try {
+              const statusResponse = await fetch('/api/status', {cache: 'no-store', signal: AbortSignal.timeout(6000)});
+              if (statusResponse.ok) protectedRecovery = (await statusResponse.json()).mutation_blocked === true;
+            } catch (_) {}
+            if (protectedRecovery) {
+              openModal({
+                kicker: 'FreeNet · аварийный Recovery',
+                title: `Установить ${p.target_tag} без изменения VPN?`,
+                body: 'Предыдущая VPN-транзакция незавершена. Обычное обновление заблокировано. Recovery проверит точный Beta-релиз и SHA-256, сохранит резервную копию FreeNet и установит только компоненты Control Center.',
+                meta: 'Исходный VPN checkpoint, Xray, XKeen, DNS и routing сохраняются. После установки используйте ручной выбор сервера для подтверждённого восстановления VPN. При ошибке обновления FreeNet попытается вернуть прежние файлы; неопределённый rollback остановит дальнейшие изменения.',
+                confirmText: `Да, Recovery ${p.target_tag}`,
+                cancelText: 'Ничего не менять',
+                onConfirm: () => startUpdateRecovery(p.target_tag)
+              });
+              return;
+            }
             openModal({
               kicker: 'FreeNet · BETA',
               title: `Установить экспериментальную ${p.target_tag}?`,
