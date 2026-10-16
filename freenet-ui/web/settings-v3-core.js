@@ -1109,6 +1109,41 @@
     void loadJournal(true);
   }
 
+  // Read-only transaction checkpoint display: never unlocks or restarts Xray.
+  async function loadVPNTransactionDoctor() {
+    const target = q('#fn3VPNTransactionDoctor');
+    if (!target) return;
+    target.textContent = 'Проверяем защищённую VPN-транзакцию…';
+    try {
+      const response = await fetch('/api/vpn/transaction-doctor', {cache:'no-store', signal:AbortSignal.timeout(10000)});
+      if (!response.ok) throw new Error('status '+response.status);
+      const data = await response.json();
+      if (data.mode !== 'read-only' || data.mutation !== 'NONE') throw new Error('unexpected mutation policy');
+      const blocked = data.mutation_blocked === true || data.checkpoint !== 'absent';
+      const labels = {matched:'совпадает',different:'изменён',missing:'отсутствует',
+        invalid:'повреждён',unknown:'не определён','not-applicable':'не требуется'};
+      const detail = key => labels[data[key]] || 'не определён';
+      target.replaceChildren();
+      const headline = document.createElement('strong');
+      headline.textContent = blocked ? 'VPN-транзакция: защитная блокировка активна' : 'VPN-транзакция: незавершённого checkpoint нет';
+      target.append(headline);
+      const status = document.createElement('p');
+      status.textContent = blocked
+        ? 'Никакие переключения VPN не выполняйте, пока исходное состояние не подтверждено. Ручной сброс checkpoint запрещён.'
+        : 'Защищённый checkpoint отсутствует. Это не является проверкой доступности VPN.';
+      target.append(status);
+      if (blocked) {
+        const detailNode = document.createElement('p');
+        const core = data.xray_core === 'running' ? 'процесс запущен' : 'не подтверждён';
+        detailNode.textContent = 'Исходящие: '+detail('outbound')+' · Профиль: '+detail('profile')+
+          ' · Фильтр: '+detail('filter')+' · Xray: '+core+' · Решение: '+String(data.decision||'STOP_UNKNOWN');
+        target.append(detailNode);
+      }
+    } catch (_) {
+      target.textContent = 'Не удалось получить read-only состояние VPN-транзакции. Статус защиты неизвестен: не запускайте переключение без диагностики.';
+    }
+  }
+
   function mountJournalPage() {
     const page = q('[data-page-view="journal"]'); if (!page) return;
     state.journalFiltersOpen = false;
@@ -1136,6 +1171,10 @@
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Событие</span><div class="fn3-journal-filters">${filters.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-filter="${key}">${label}</button>`).join('')}</div></div>
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Результат</span><div class="fn3-journal-filters">${results.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-result="${key}">${label}</button>`).join('')}</div></div>
         </div>
+      </section>
+      <section class="fn3-journal-control-card" aria-label="Состояние восстановления VPN">
+        <div class="fn3-journal-stream-head"><h2>Восстановление VPN · только диагностика</h2></div>
+        <div id="fn3VPNTransactionDoctor" role="status" aria-live="polite">Проверяем защищённую VPN-транзакцию…</div>
       </section>
       <div id="fn3JournalSummary" class="fn3-journal-summary"></div>
       <section class="fn3-journal-stream-card">
@@ -1204,6 +1243,7 @@
     }
     renderJournalPageState();
     ensureJournalLiveTimer();
+    void loadVPNTransactionDoctor();
     void loadJournal(true);
   }
 
