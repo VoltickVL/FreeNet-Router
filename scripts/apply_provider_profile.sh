@@ -55,8 +55,82 @@ mutation_forbidden() {
     transaction_pending || grep -qs '^MUTATION_BLOCKED=yes$' "$AUTOMATION_STATE" 2>/dev/null
 }
 
+# Only user-confirmed manual recovery can enter this mode. The original PENDING
+# checkpoint must remain verifiable and available until a separate snapshot and
+# the selected live VPN pass acceptance.
+valid_recovery_checkpoint() {
+    [ -d "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ] || return 1
+    [ -f "$CHECKPOINT_DIR/state" ] && [ ! -L "$CHECKPOINT_DIR/state" ] || return 1
+    [ "$(cat "$CHECKPOINT_DIR/state" 2>/dev/null)" = PENDING ] || return 1
+    [ ! -e "$CHECKPOINT_DIR/recovery.pending" ] && [ ! -L "$CHECKPOINT_DIR/recovery.pending" ] || return 1
+    for RECOVERY_KIND in out profile filter; do
+        RECOVERY_BEFORE="$CHECKPOINT_DIR/$RECOVERY_KIND.before"
+        RECOVERY_ABSENT="$CHECKPOINT_DIR/$RECOVERY_KIND.absent"
+        [ ! -L "$RECOVERY_BEFORE" ] && [ ! -L "$RECOVERY_ABSENT" ] || return 1
+        if [ -f "$RECOVERY_BEFORE" ]; then
+            [ ! -e "$RECOVERY_ABSENT" ] || return 1
+            [ "$(wc -c < "$RECOVERY_BEFORE" 2>/dev/null)" -le 2097152 ] || return 1
+        else
+            [ ! -e "$RECOVERY_BEFORE" ] && [ -f "$RECOVERY_ABSENT" ] || return 1
+            [ "$(wc -c < "$RECOVERY_ABSENT" 2>/dev/null)" -eq 0 ] || return 1
+        fi
+    done
+    for RECOVERY_LIVE in "$OUT_FILE" "$PROFILE_FILE" "$FILTER_FILE"; do
+        [ ! -L "$RECOVERY_LIVE" ] || return 1
+        [ ! -e "$RECOVERY_LIVE" ] || [ -f "$RECOVERY_LIVE" ] || return 1
+    done
+    return 0
+}
+
+# A second durable checkpoint captures ACTUAL live bytes. The original
+# PENDING marker continues to fence AUTO and survives process death.
+begin_recovery_checkpoint() {
+    RECOVERY_DIR="$CHECKPOINT_DIR/recovery.pending"
+    umask 077
+    mkdir "$RECOVERY_DIR" || return 1
+    chmod 700 "$RECOVERY_DIR" || return 1
+    for RECOVERY_KIND in out profile filter; do
+        case "$RECOVERY_KIND" in
+            out) RECOVERY_SRC="$OUT_BEFORE"; RECOVERY_PRESENT="$OUT_BEFORE_EXISTS" ;;
+            profile) RECOVERY_SRC="$PROFILE_BEFORE"; RECOVERY_PRESENT="$PROFILE_BEFORE_EXISTS" ;;
+            filter) RECOVERY_SRC="$FILTER_BEFORE"; RECOVERY_PRESENT="$FILTER_BEFORE_EXISTS" ;;
+        esac
+        if [ "$RECOVERY_PRESENT" = yes ]; then
+            cp "$RECOVERY_SRC" "$RECOVERY_DIR/$RECOVERY_KIND.before" || return 1
+            chmod 600 "$RECOVERY_DIR/$RECOVERY_KIND.before" || return 1
+        else
+            : > "$RECOVERY_DIR/$RECOVERY_KIND.absent" || return 1
+        fi
+    done
+    printf 'PENDING\n' > "$RECOVERY_DIR/state" || return 1
+    chmod 600 "$RECOVERY_DIR/state" || return 1
+    if command -v sync >/dev/null 2>&1; then sync || return 1; fi
+    [ -s "$RECOVERY_DIR/state" ]
+}
+
+# Archive BOTH generations of protected snapshots after confirmed live HTTPS.
+# A rename within the same filesystem removes the pending marker only after
+# candidate acceptance; the AUTO latch remains until Go adopts manual server.
+archive_recovery_checkpoint() {
+    RECOVERY_ARCHIVE_ROOT="$(dirname "$CHECKPOINT_DIR")/vpn-transaction.recovered"
+    if [ -e "$RECOVERY_ARCHIVE_ROOT" ]; then
+        [ -d "$RECOVERY_ARCHIVE_ROOT" ] && [ ! -L "$RECOVERY_ARCHIVE_ROOT" ] || return 1
+    else
+        umask 077
+        mkdir "$RECOVERY_ARCHIVE_ROOT" || return 1
+        chmod 700 "$RECOVERY_ARCHIVE_ROOT" || return 1
+    fi
+    RECOVERY_ARCHIVE="$RECOVERY_ARCHIVE_ROOT/$(date -u '+%Y%m%dT%H%M%SZ').$$"
+    [ ! -e "$RECOVERY_ARCHIVE" ] && [ ! -L "$RECOVERY_ARCHIVE" ] || return 1
+    [ -d "$RECOVERY_DIR" ] && [ -f "$RECOVERY_DIR/state" ] || return 1
+    mv "$CHECKPOINT_DIR" "$RECOVERY_ARCHIVE" || return 1
+    [ ! -e "$CHECKPOINT_DIR" ] && [ -d "$RECOVERY_ARCHIVE" ] || return 1
+    if command -v sync >/dev/null 2>&1; then sync || return 1; fi
+    return 0
+}
+
 acquire_mutation_lock() {
-    mutation_forbidden && return 1
+    [ "${1:-normal}" = recover-core ] || { mutation_forbidden && return 1; }
     if mkdir "$LOCK_DIR" 2>/dev/null; then
         LOCK_HELD=1
         printf '%s\n' "$$" > "$LOCK_DIR/pid" 2>/dev/null || {
