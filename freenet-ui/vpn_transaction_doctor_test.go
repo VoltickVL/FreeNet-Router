@@ -161,3 +161,94 @@ func TestAutomationApplyFailureUsesPrimaryError(t *testing.T) {
 		t.Fatalf("missing fallback is misleading: %q", got)
 	}
 }
+
+
+func TestManualVPNRecoveryRequiresCoherentProtectedCheckpoint(t *testing.T) {
+	base := vpnTransactionDoctorResponse{
+		Checkpoint: "pending", Outbound: "matched", Profile: "matched",
+		Filter: "matched", XrayCore: "running", Decision: "STOP_VPN_UNVERIFIED",
+	}
+	if !vpnManualRecoveryEligible(base) {
+		t.Fatal("manual recovery blocked despite verified original snapshot and running core")
+	}
+	partial := base
+	partial.Outbound = "different"
+	partial.Decision = "STOP_FILES_UNRESOLVED"
+	if !vpnManualRecoveryEligible(partial) {
+		t.Fatal("an interrupted AUTO live outbound must be recoverable after separately snapshotting it")
+	}
+	for _, test := range []struct {
+		name string
+		edit func(*vpnTransactionDoctorResponse)
+	}{
+		{"stopped-core", func(r *vpnTransactionDoctorResponse) { r.XrayCore = "stopped-or-unknown" }},
+		{"invalid-checkpoint", func(r *vpnTransactionDoctorResponse) { r.Checkpoint = "invalid" }},
+		{"missing-snapshot", func(r *vpnTransactionDoctorResponse) { r.Filter = "invalid" }},
+		{"unreadable-snapshot", func(r *vpnTransactionDoctorResponse) { r.Profile = "unknown" }},
+		{"unfinished-previous-recovery", func(r *vpnTransactionDoctorResponse) { r.Decision = "STOP_RECOVERY_INTERRUPTED" }},
+		{"unknown-safety-decision", func(r *vpnTransactionDoctorResponse) { r.Decision = "STOP_CHECKPOINT_INVALID" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			input := base
+			test.edit(&input)
+			if vpnManualRecoveryEligible(input) {
+				t.Fatalf("unsafe manual recovery eligible for %s: %+v", test.name, input)
+			}
+		})
+	}
+}
+
+func TestManualVPNRecoveryInterruptedCheckpointRemainsSTOP(t *testing.T) {
+	a, checkpoint, _ := newVPNTransactionDoctorFixture(t)
+	if err := os.Mkdir(filepath.Join(checkpoint, "recovery.pending"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	r := a.vpnTransactionDoctor()
+	if r.Decision != "STOP_RECOVERY_INTERRUPTED" || vpnManualRecoveryEligible(r) || !r.MutationBlocked {
+		t.Fatalf("interrupted manual transaction must be fail-closed: %+v", r)
+	}
+	if !vpnTransactionPending() {
+		t.Fatal("doctor discarded evidence of interrupted recovery")
+	}
+}
+
+func TestManualVPNRecoveryAdoptsAutoBaselineOnlyAfterArchive(t *testing.T) {
+	root := t.TempDir()
+	pending := filepath.Join(root, "vpn-transaction.pending")
+	archived := filepath.Join(root, "vpn-transaction.recovered")
+	state := filepath.Join(root, "auto.state")
+	t.Setenv("FREENET_VPN_TRANSACTION_DIR", pending)
+	t.Setenv("FREENET_AUTOMATION_STATE", state)
+	if err := os.Mkdir(pending, 0700); err != nil {
+		t.Fatal(err)
+	}
+	initial := "LAST_RUN=2026-10-16T01:12:02Z\\nLAST_SWITCH=2026-10-15T00:00:00Z\\nLAST_SWITCH_ORIGIN=auto\\nMUTATION_BLOCKED=yes\\nROLLBACK_READY=FAILED/UNKNOWN\\nPOST_UPDATE_ACK=v0.8.0-beta.1\\n"
+	if err := os.WriteFile(state, []byte(strings.ReplaceAll(initial, "\\n", "\n")), 0600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 10, 16, 10, 15, 0, 0, time.UTC)
+	if err := recordAutomationManualSwitchWithRecovery(now, true); err == nil {
+		t.Fatal("manual recovery cleared AUTO latch before protected checkpoint archive")
+	}
+	if !automationMutationBlockedState() {
+		t.Fatal("failed early handoff unblocked AUTO")
+	}
+	if err := os.Rename(pending, archived); err != nil {
+		t.Fatal(err)
+	}
+	if err := recordAutomationManualSwitchWithRecovery(now, true); err != nil {
+		t.Fatalf("successfully archived manual recovery failed AUTO adoption: %v", err)
+	}
+	values := parseAutomationState(state)
+	if values["MUTATION_BLOCKED"] != "no" || values["ROLLBACK_READY"] != "NOT_NEEDED" ||
+		values["LAST_SWITCH_ORIGIN"] != "manual" || values["LAST_SWITCH"] != now.Format(time.RFC3339) ||
+		values["LAST_RUN"] != "2026-10-16T01:12:02Z" || values["POST_UPDATE_ACK"] != "v0.8.0-beta.1" {
+		t.Fatalf("manual recovery did not atomically preserve settings and clear stale latch: %+v", values)
+	}
+	if automationMutationBlockedState() {
+		t.Fatal("manual recovery was accepted but AUTO remained blocked")
+	}
+	if _, err := os.Stat(archived); err != nil {
+		t.Fatal("original protected evidence was not preserved")
+	}
+}
