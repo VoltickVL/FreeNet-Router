@@ -234,6 +234,24 @@ const server = http.createServer((req,res)=>{
     const rttCallsBeforeOpen=calls.filter(x=>x.path==='/api/provider-profiles/rtt').length;
     await openPicker();
     await page.locator('#fnVpnPickerV2Results').waitFor({state:'visible'});
+    // Readability contract: users must read server names, endpoints and RTT
+    // without browser zoom; this change must not invoke any VPN mutation.
+    const pickerTypography = await page.evaluate(() => {
+      const size = selector => Number.parseFloat(getComputedStyle(document.querySelector(selector)).fontSize);
+      const option = document.querySelector('#fnVpnPickerV2Results .fnv2-option');
+      return {
+        server:size('#fnVpnPickerV2Results .fnv2-option-copy strong'),
+        endpoint:size('#fnVpnPickerV2Results .fnv2-option-copy small'),
+        rtt:size('#fnVpnPickerV2Results .fnv2-rtt'),
+        feedback:size('#fnVpnPickerV2Status'),
+        minRow:Number.parseFloat(getComputedStyle(option).minHeight),
+        nowrap:getComputedStyle(document.querySelector('#fnVpnPickerV2Results .fnv2-option-copy strong')).whiteSpace
+      };
+    });
+    assert.ok(pickerTypography.server >= 15 && pickerTypography.endpoint >= 12 && pickerTypography.rtt >= 12 && pickerTypography.feedback >= 14,
+      'VPN selector tiny fonts are not accessible: '+JSON.stringify(pickerTypography));
+    assert.ok(pickerTypography.minRow >= 58 && pickerTypography.nowrap !== 'nowrap',
+      'VPN selector must allow readable multi-line server labels: '+JSON.stringify(pickerTypography));
     await page.waitForTimeout(200);
     assert.equal(calls.filter(x=>x.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen,'opening selector must be network-idle and never auto-start RTT');
     const initialRTT=await page.locator('#fnVpnPickerV2Results .fnv2-option .fnv2-rtt').evaluateAll(nodes=>nodes.map(n=>n.textContent||''));
