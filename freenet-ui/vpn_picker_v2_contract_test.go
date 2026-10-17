@@ -21,7 +21,7 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"selectProviderProfile(profile)", "e.button.click()", "e.button.disabled",
 		"observer.disconnect()", "requestAnimationFrame", "text(connect,L.connect)",
 		"0x1F1E6", "cached rows may belong to another router",
-		"height:min(760px,var(--fnv2-space,760px))", "flex:1 1 auto",
+		"height:min(790px,var(--fnv2-space,790px))", "flex:1 1 auto",
 		"fnVpnPickerV2Resize", "setPointerCapture", "dataset.userHeight",
 		"завершён частично", "не проверен",
 		"refresh.addEventListener('click',event => { if (event.isTrusted === true) void refreshRTT(event); })",
