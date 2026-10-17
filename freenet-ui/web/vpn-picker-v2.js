@@ -531,7 +531,7 @@
   function uncertain(e) { return /ROLLBACK_FAILED|ROLLBACK_UNKNOWN|FAILED_UNKNOWN|\bUNKNOWN\b/.test(e.note + ' ' + e.title); }
   function canConnect(e=engine()) { return !!(selected && selected.id===e.id && e.ready && e.card?.classList.contains('is-ready') && e.button && !e.button.disabled && !sent && !busy() && !rttScanning && !uncertain(e)); }
   async function choose(profile) {
-    if (rttScanning || busy() || uncertain(engine()) || typeof selectProviderProfile !== 'function') return;
+    if (rttScanning || busy() || typeof selectProviderProfile !== 'function') return;
     selected=profile; choosing=true; sent=false; error=''; listKey=''; paint();
     try { await selectProviderProfile(profile); } catch (_) { error=L.failed; }
     finally { choosing=false; paint(); }
@@ -636,7 +636,9 @@
   }
 
   function renderList() {
-    const disabled=rttScanning || busy() || uncertain(engine());
+    // UNKNOWN blocks blind apply, not a new user-selected recovery candidate.
+    // Backend validates checkpoint integrity and denies unsafe mutations.
+    const disabled=rttScanning || busy();
     const key=JSON.stringify([sourceKey,search.value,selected?.id,disabled,rttVersion,rttScanning]);
     if (key===listKey) return;
     listKey=key;
@@ -691,7 +693,8 @@
       else if (sent) {state='applying';title=L.applying;note=e.note || L.blocked;}
     } else if (busy()) {title=L.busy;}
     footer.dataset.state=state; text(statusText,title); text(detail,note);
-    connect.disabled=!canConnect(e); reset.disabled=!selected || busy() || uncertain(e);
+    connect.disabled=!canConnect(e); // Reset discards only the in-browser selection; it never writes Xray.
+    reset.disabled=!selected || busy();
     if (refresh) { refresh.disabled=rttScanning || busy(); refresh.dataset.busy=String(rttScanning); }
     const rttState=q('#fnVpnPickerV2RTTState');
     if (rttState) {

@@ -375,7 +375,22 @@ async function capture(label){
   assert.equal(await page.locator(T).count(),1);assert.equal(await page.locator(P).count(),1);assert.equal(countApply(),1);
   status={...connectedStatus,xray_online:false};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Не подключён','offline');await page.locator(T).click();assert.equal(await page.locator('#fnVpnPickerV2State').getAttribute('data-online'),'false');
   status={...status,xray_online:true};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','online again');await page.locator(S).fill('FI');await page.locator(R+' button').first().click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','ready before unknown');
-  applyMode='unknown';await page.locator(C).click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','unknown result');assert.equal(await page.locator(C).isDisabled(),true);assert.equal(await page.locator('#fnVpnPickerV2Reset').isDisabled(),true);assert.equal(await page.locator(R+' button:not(:disabled)').count(),0,'unknown rollback STOP');await page.locator(C).dispatchEvent('click');assert.equal(countApply(),2,'no blind retry');assert.deepEqual(errors,[]);
+  applyMode='unknown';await page.locator(C).click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','unknown result');
+    assert.equal(await page.locator(C).isDisabled(),true,'UNKNOWN disables the used apply receipt, never blind retry');
+    assert.equal(await page.locator('#fnVpnPickerV2Reset').isDisabled(),false,'UNKNOWN must not lock UI-only Reset');
+    assert.ok(await page.locator(R+' button:not(:disabled)').count()>0,'UNKNOWN must allow a new explicit manual recovery choice');
+    await page.locator(C).dispatchEvent('click');
+    assert.equal(countApply(),2,'no blind retry after UNKNOWN');
+    // A new deliberate user click may select a different candidate, but
+    // selection remains read-only: only the backend may admit rescue apply.
+    await page.locator(S).fill('DE');
+    await page.locator(R+' button[data-profile-id="fixture-1"]').click();
+    await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','explicit reselection after UNKNOWN');
+    assert.equal(await page.locator(C).isDisabled(),false,'new confirmed candidate must have a Connect action');
+    assert.equal(countApply(),2,'manual reselection must not trigger hidden VPN apply');
+    await page.locator('#fnVpnPickerV2Reset').click();
+    assert.equal(countApply(),2,'Reset must not mutate Xray or retry apply');
+    assert.deepEqual(errors,[]);
   console.log('PASS: actual production HTML/CSP, canonical flags, current identity, Ukraine exclusion, RTT refresh/sort, search, read-only check, exact apply, cache, errors/STOP, five viewports, navigation and liveness.');console.log('Other mocked GET surfaces: '+JSON.stringify([...new Set(unhandled)]));
 })().catch(async error=>{
   console.error(error);
