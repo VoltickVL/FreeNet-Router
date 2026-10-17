@@ -356,6 +356,9 @@ const server = http.createServer(async (req, res) => {
     await page.locator('#csInput').fill(JSON.stringify({routing:{domainStrategy:'AsIs',rules:[
       {type:'field',domain:['domain:draft.test'],outboundTag:'direct'}
     ]}},null,2));
+    // A browser textarea update and a Routing v2 workspace refresh can race.
+    // Dispatch external apply only after the authoritative draft map is dirty.
+    await page.waitForFunction(() => window.FreeNetConfigStudio?.hasDirtyDrafts() === true);
     await page.evaluate(() => document.dispatchEvent(new CustomEvent('freenet:xray-config-applied', {
       detail:{source:'rules',files:['05_routing','06_policy']}
     })));
@@ -366,7 +369,8 @@ const server = http.createServer(async (req, res) => {
     await page.waitForFunction(() => document.querySelector('#csApply')?.disabled === true, null, {timeout:10000});
     assert.equal(await page.locator('#csApply').isDisabled(),true,'stale Config Studio draft must be blocked, not overwritten or applied');
     await page.locator('#csReset').click();
-    await page.waitForFunction(() => (document.querySelector('#csInput')?.value || '').includes('studio.test'));
+    await page.waitForFunction(() => (document.querySelector('#csInput')?.value || '').includes('studio.test') &&
+      window.FreeNetConfigStudio?.hasDirtyDrafts() === false && document.querySelector('#csApply')?.disabled === true);
     assert.doesNotMatch(await page.locator('#csInput').inputValue(),/draft\.test/);
 
     // Deterministic race: a GET issued before a local edit must NOT overwrite
@@ -383,6 +387,7 @@ const server = http.createServer(async (req, res) => {
       {type:'field',domain:['domain:late-draft.test'],outboundTag:'direct'}
     ]}},null,2);
     await page.locator('#csInput').fill(lateDraft);
+    await page.waitForFunction(() => window.FreeNetConfigStudio?.hasDirtyDrafts() === true);
     await page.evaluate(()=>document.dispatchEvent(new CustomEvent('freenet:xray-config-applied',{
       detail:{source:'rules',files:['05_routing','06_policy']}
     })));
@@ -395,7 +400,9 @@ const server = http.createServer(async (req, res) => {
     await page.waitForFunction(() => document.querySelector('#csApply')?.disabled === true, null, {timeout:10000});
     assert.equal(await page.locator('#csApply').isDisabled(),true,'late read must preserve STALE block');
     await page.locator('#csReset').click();
-    await page.waitForFunction(()=>(document.querySelector('#csInput')?.value||'').includes('studio.test'));
+    await page.waitForFunction(()=>(document.querySelector('#csInput')?.value||'').includes('studio.test') &&
+      window.FreeNetConfigStudio?.hasDirtyDrafts() === false && document.querySelector('#csApply')?.disabled === true,
+      null, {timeout:10000});
     assert.doesNotMatch(await page.locator('#csInput').inputValue(),new RegExp('late-draft[.]test'));
     assert.equal(await page.locator('#csApply').isDisabled(),true,'reset to live must be clean');
 
