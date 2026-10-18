@@ -817,6 +817,16 @@ fail_after_mutation() {
     exit 2
 }
 
+previous_update_receipt_safe() {
+    [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ] || return 0
+    [ -f "$STATE_FILE" ] && [ ! -L "$STATE_FILE" ] && [ -r "$STATE_FILE" ] || return 1
+    [ "$(wc -c < "$STATE_FILE")" -le 131072 ] || return 1
+    OLD_UPDATE_STATE="$(sed -n 's/^STATE=//p' "$STATE_FILE")"
+    OLD_UPDATE_ROLLBACK="$(sed -n 's/^ROLLBACK_STATE=//p' "$STATE_FILE")"
+    case "$OLD_UPDATE_STATE" in ''|IDLE|BUSY|CHECKING|SNAPSHOT|FAILED|SUCCESS) ;; *) return 1 ;; esac
+    case "$OLD_UPDATE_ROLLBACK" in ''|NOT_NEEDED|SUCCESS) return 0 ;; *) return 1 ;; esac
+}
+
 run_apply() {
     umask 077
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -824,6 +834,11 @@ run_apply() {
         exit 3
     fi
     LOCK_HELD=1
+    if ! previous_update_receipt_safe; then
+        KEEP_LOCK=1
+        err 'previous application receipt is unknown; original state preserved'
+        exit 2
+    fi
     if [ -e "$STATE_FILE" ] && [ ! -r "$STATE_FILE" ]; then
         KEEP_LOCK=1; err 'update state is unreadable'; exit 2
     fi

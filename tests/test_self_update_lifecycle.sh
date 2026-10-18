@@ -81,4 +81,11 @@ UNKNOWN_BEFORE="$(cat "$R/var/run/update.state")"
 if run_apply "$R" "$D" '' > "$TMP/missing-lock.out" 2>&1; then fail 'missing lock bypassed unresolved rollback'; fi
 [ "$UNKNOWN_BEFORE" = "$(cat "$R/var/run/update.state")" ] || fail 'retry erased unresolved rollback evidence'
 
+# Unknown textual rollback is not permission to start over.
+make_root "$R"
+printf 'STATE=FAILED\nROLLBACK_STATE=UNKNOWN\n' > "$R/var/run/update.state"
+BEFORE_UNKNOWN="$(cat "$R/var/run/update.state")"
+if run_apply "$R" "$D" '' > "$TMP/unknown-receipt.out" 2>&1; then fail 'unknown receipt accepted'; fi
+[ "$BEFORE_UNKNOWN" = "$(cat "$R/var/run/update.state")" ] || fail 'unknown receipt overwritten'
+
 echo 'self-update lifecycle: pending-safe update, compatibility, writer fencing, PID, signal rollback PASS'

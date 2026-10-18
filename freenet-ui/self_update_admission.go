@@ -38,6 +38,11 @@ func (a *app) selfUpdateStateAdmission() error {
 	default:
 		return errors.New("Неизвестная стадия предыдущего обновления приложения; изменения не начаты.")
 	}
+	switch rollback {
+	case "", "NOT_NEEDED", "SUCCESS", "PENDING":
+	default:
+		return errors.New("Неизвестный результат отката приложения; состояние сохранено для Recovery.")
+	}
 	if (rollback == "PENDING" || state == "UPDATING" || state == "RECONNECTING") && !a.updateLockHeld() {
 		return errors.New("Предыдущее обновление прервано без подтверждённого отката; состояние сохранено для Recovery.")
 	}

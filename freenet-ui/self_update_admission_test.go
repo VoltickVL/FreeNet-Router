@@ -124,3 +124,28 @@ func TestSelfUpdateLifecycleShellMatrix(t *testing.T) {
 		t.Fatalf("lifecycle matrix: %v\n%s", err, out)
 	}
 }
+
+func TestUpdateOperationSlotAndUnknownRollback(t *testing.T) {
+	a := &app{sem: make(chan struct{}, 1)}
+	first, ok := a.reserveApplicationUpdateSlot()
+	if !ok {
+		t.Fatal("free slot unavailable")
+	}
+	if _, ok := a.reserveApplicationUpdateSlot(); ok {
+		t.Fatal("overlapping application mutation accepted")
+	}
+	first()
+	first()
+	release, ok := a.reserveApplicationUpdateSlot()
+	if !ok {
+		t.Fatal("idempotent release lost slot")
+	}
+	release()
+	root := t.TempDir()
+	state := filepath.Join(root, "state")
+	a.cfg.UpdateState = state
+	os.WriteFile(state, []byte("STATE=FAILED\nROLLBACK_STATE=UNKNOWN\n"), 0600)
+	if a.selfUpdateStateAdmission() == nil {
+		t.Fatal("unknown rollback result accepted")
+	}
+}
