@@ -19,39 +19,10 @@ const canonicalFirstPaintNav = `<nav class="nav" aria-label="Навигация 
       <button class="nav-btn" data-page="journal"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg></span><span>Журнал</span></button>
     </nav>`
 
-const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
-(() => {
-  const root = document.documentElement;
-  let frames = 0;
-  const canonicalRoutes = ['overview','settings','network','journal'];
-  const canonicalNavReady = () => {
-    const buttons = Array.from(document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]'));
-    return buttons.length === canonicalRoutes.length && buttons.every((button, index) =>
-      button.dataset.page === canonicalRoutes[index] &&
-      !!button.querySelector('.nav-icon[data-freenet-shell="1"] svg')
-    );
-  };
-  const canonicalReady = () => !!(
-    document.getElementById('freenetUnifiedDesignStyles') &&
-    document.querySelector('.sidebar>.brand .fn-brand-lockup-svg') &&
-    canonicalNavReady()
-  );
-  const release = () => {
-    if (canonicalReady()) {
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        root.classList.remove('freenet-canonical-boot');
-        root.dataset.freenetCanonicalReady = '1';
-      }));
-      return;
-    }
-    frames += 1;
-    if (frames < 600) requestAnimationFrame(release);
-    else root.dataset.freenetCanonicalBootStalled = '1';
-  };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', release, {once:true});
-  else release();
-})();
-</script>`
+//go:embed web/canonical-boot.js
+var canonicalBootJS string
+
+var canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">` + canonicalBootJS + `</script>`
 
 // The first visible shell already uses final Settings/Journal routes. Routing keeps
 // the historical internal "network" anchor because Routing v2 owns that page, but
@@ -120,11 +91,43 @@ let localPending=`
 	}
 	routingV2 := `<script id="freenetRoutingV2">` + canonicalRoutingV2Script() + `</script>`
 	configStudio := `<script id="freenetConfigStudioParity">` + string(configStudioParityAsset) + `</script>`
-	progressive := `<script src="/api/settings-v3/assets/dns-ui.js"></script>` + routingV2 + configStudio
+	progressive := `<script id="freenetSettingsDNSUI" data-source="/api/settings-v3/assets/dns-ui.js">` + string(settingsDNSUI) + `</script>` + routingV2 + configStudio
 	vpnReconcile := `<script id="freenetVPNSelectorReconcile">` + string(vpnSelectorReconcileAsset) + `</script>`
+	if strings.Contains(raw, `id="freenetVPNSelectorReconcile"`) {
+		vpnReconcile = ""
+	}
 	routingApply := `<script id="freenetRoutingApplyUI">` + string(routingApplyUIAsset) + `</script>`
 	profileHygiene := `<script id="freenetProfileLabelHygiene">` + string(profileLabelHygieneAsset) + `</script>`
-	raw = strings.Replace(raw, `</body>`, progressive+vpnReconcile+routingApply+profileHygiene+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
+	// The accepted UX asset route historically appended this browser-only bundle.
+	// Inline its complete composition, not just the raw accepted-ux.js file.
+	// Core precedes its wrapper so the latter does not fetch another copy.
+	var automationUI strings.Builder
+	for _, name := range []string{"runtime-acceptance", "automation", "automation-async", "settings-v3-core", "settings-v3"} {
+		asset, err := automationWebFS.ReadFile("web/" + name + ".js")
+		if err != nil {
+			return "", err
+		}
+		automationUI.WriteString(`<script id="freenetAsset-` + name + `">`)
+		automationUI.WriteString(strings.ReplaceAll(string(asset), "</script", `<\/script`))
+		automationUI.WriteString(`</script>`)
+	}
+	raw = strings.Replace(raw, `</body>`, progressive+automationUI.String()+vpnReconcile+routingApply+profileHygiene+overviewCurrentQualityMemoryScript+canonicalBootReleaseScript+`</body>`, 1)
+	// Critical first-party UI modules travel with this exact HTML build. A lost
+	// secondary JS request must not reveal the retired static Overview. Asset
+	// routes stay available for independent callers and regression fixtures.
+	for _, name := range []string{"self-update", "vpn-ux-fix", "operation-coordinator", "accepted-ux", "vpn-picker-v2"} {
+		source := "/" + name + ".js?v=v" + version
+		tag := `<script src="` + source + `"></script>`
+		if !strings.Contains(raw, tag) {
+			continue
+		}
+		asset, err := webFS.ReadFile("web/" + name + ".js")
+		if err != nil {
+			return "", err
+		}
+		inline := strings.ReplaceAll(string(asset), "</script", `<\/script`)
+		raw = strings.Replace(raw, tag, `<script id="freenetAsset-`+name+`" data-source="`+source+`">`+inline+`</script>`, 1)
+	}
 	return raw, nil
 }
 

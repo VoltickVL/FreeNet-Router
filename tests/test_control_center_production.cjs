@@ -141,6 +141,43 @@ async function capture(label){
   console.log('CSS_DIAGNOSTIC_PRODUCTION',JSON.stringify(await page.evaluate(()=>{const s=document.querySelector('style#freenetUnifiedDesignStyles');const h=document.querySelector('.fn-version-copy strong');return{css:s?.textContent.length,rules:(()=>{try{return s?.sheet?.cssRules.length}catch(e){return e.message}})(),label:h?.textContent,styleCount:document.querySelectorAll('style').length}})));
   await verifyCanonicalSidebar('cold start');
 
+  // Critical UI scripts come from this exact HTML build, not separate requests.
+  const shipped=await (await page.request.get(base)).text();
+  for(const name of ['self-update','vpn-ux-fix','operation-coordinator','accepted-ux','vpn-picker-v2']){
+    assert.ok(shipped.includes('id="freenetAsset-'+name+'"'),'missing bundled module '+name);
+    assert.ok(!shipped.includes('<script src="/'+name+'.js'),'external critical module '+name);
+  }
+  assert.equal((shipped.match(/id="freenetVPNSelectorReconcile"/g)||[]).length,1,'one reconciliation owner');
+  const writesBeforeFault=calls.filter(call=>call.method!=='GET').length;
+  const missingOverview=shipped.replace(/<script id="freenetAsset-operation-coordinator"[^>]*>[\s\S]*?<\/script>/,'');
+  assert.notEqual(missingOverview,shipped,'fault injection must remove the actual coordinator');
+  const rootURL=new URL(base).origin+'/';
+  await page.route(rootURL,route=>route.fulfill({status:200,contentType:'text/html',body:missingOverview}));
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.locator('#freenetBootFailure').waitFor({state:'visible',timeout:16000});
+  const failedBoot=await page.evaluate(()=>({
+    ready:document.documentElement.dataset.freenetCanonicalReady,
+    missing:document.documentElement.dataset.freenetCanonicalMissing,
+    gate:document.documentElement.classList.contains('freenet-canonical-boot'),
+    appInert:document.querySelector('#controlCenter').inert,
+    appVisibility:getComputedStyle(document.querySelector('#controlCenter')).visibility
+  }));
+  assert.notEqual(failedBoot.ready,'1','a shell without Overview must never be ready');
+  assert.match(failedBoot.missing,/overview/);
+  assert.equal(failedBoot.gate,true,'legacy shell stays hidden');
+  assert.equal(failedBoot.appInert,true,'no action from incomplete UI');
+  assert.equal(failedBoot.appVisibility,'hidden');
+  assert.equal(await page.locator('#freenetBootFailure a').getAttribute('href'),'/recovery');
+  assert.equal(calls.filter(call=>call.method!=='GET').length,writesBeforeFault,'boot must not mutate router');
+  fs.mkdirSync(artifacts,{recursive:true});
+  await page.screenshot({path:path.join(artifacts,'boot-missing-overview.png')});
+  await page.unroute(rootURL);
+  await page.locator('#freenetBootRetry').click();
+  await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','boot after explicit page reload');
+  assert.equal(await page.locator('#freenetBootFailure').count(),0,'no phantom failure panel after retry');
+  await verifyCanonicalSidebar('after missing-module recovery');
+
+
   // Unified design regression: short desktop windows must not shrink VPN cards
   // to 7px. Long labels must wrap, not clip, and canonical navigation is unique.
   const readabilityViewports=[[1650,760],[1440,720],[980,700],[390,844]];

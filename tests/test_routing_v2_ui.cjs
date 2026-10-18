@@ -197,7 +197,7 @@ const server=http.createServer(async(req,res)=>{
     await page.locator('.rv2-mode[data-mode="rules"]').click();
     await page.waitForSelector('#rv2RulesPanel',{state:'visible'});
 
-    // Wide desktop canvas must use the available viewport instead of the old 1180px cap.
+    // Use the production row-board layout and shared canvas, not the retired raw-JS columns.
     const desktopLayout=await page.evaluate(()=> {
       const content=document.querySelector('.content')?.getBoundingClientRect();
       const boards=[...document.querySelectorAll('.rv4-board')].map(node=>node.getBoundingClientRect());
@@ -208,8 +208,8 @@ const server=http.createServer(async(req,res)=>{
         innerWidth:window.innerWidth
       };
     });
-    assert.ok(desktopLayout.contentWidth>=1280,'desktop content canvas must be >=1280px at 1600px viewport, got '+desktopLayout.contentWidth);
-    assert.equal(new Set(desktopLayout.boardTops).size,1,'DIRECT/VPN/BLOCK boards must remain in one desktop row');
+    assert.ok(desktopLayout.contentWidth>=1100 && desktopLayout.contentWidth<=1181,'canonical content canvas must retain the shared 1180px maximum: '+desktopLayout.contentWidth);
+    assert.equal(new Set(desktopLayout.boardTops).size,3,'canonical DIRECT/VPN/BLOCK row boards must stack vertically');
     assert.ok(desktopLayout.scrollWidth<=desktopLayout.innerWidth+1,'wide canvas must not create horizontal overflow');
 
     // Routing UX v4 is an action board: destinations first, categories inside.

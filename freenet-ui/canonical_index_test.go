@@ -143,3 +143,32 @@ func TestCanonicalIndexExactRootKeepsAssetFallback(t *testing.T) {
 		t.Fatalf("asset fallback content-type=%q", got)
 	}
 }
+
+func TestCanonicalIndexBundlesCriticalAssetsAndRejectsPartialOverview(t *testing.T) {
+	a := &app{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", a.handleIndex)
+	registerCanonicalIndexRoute(mux, a)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "http://router/", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("HTTP %d", w.Code)
+	}
+	html := w.Body.String()
+	for _, name := range []string{"self-update", "vpn-ux-fix", "operation-coordinator", "accepted-ux", "vpn-picker-v2", "runtime-acceptance", "automation", "automation-async", "settings-v3-core", "settings-v3"} {
+		if !strings.Contains(html, `id="freenetAsset-`+name+`"`) || strings.Contains(html, `<script src="/`+name+`.js`) {
+			t.Fatalf("critical module must be bundled exactly once: %s", name)
+		}
+	}
+	if strings.Count(html, `id="freenetVPNSelectorReconcile"`) != 1 {
+		t.Fatal("duplicate selector reconciliation owner")
+	}
+	for _, want := range []string{"bestCurrentHealth", "#bestCurrentMetrics .best-v4-pill", "freenetBootFailure", "freenetCanonicalMissing", "app.inert = true", "12000"} {
+		if !strings.Contains(canonicalBootJS, want) {
+			t.Fatalf("incomplete boot protection: %s", want)
+		}
+	}
+	if strings.Contains(canonicalBootJS, "fetch(") {
+		t.Fatal("boot readiness must not depend on network or mutate runtime")
+	}
+}
