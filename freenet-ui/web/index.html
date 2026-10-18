@@ -90,6 +90,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
     <p id="authSubtitle">Проверяем состояние авторизации…</p>
     <div class="field"><label for="authPassword">Пароль администратора</label><input id="authPassword" type="password" autocomplete="current-password" maxlength="256" placeholder="Не менее 12 символов"></div>
     <div id="authConfirmField" class="field" style="margin-top:9px" hidden><label for="authPasswordConfirm">Повторите пароль</label><input id="authPasswordConfirm" type="password" autocomplete="new-password" maxlength="256"></div>
+    <label id="authRememberRow" class="fn-remember"><input id="authRemember" type="checkbox" checked><span>Оставаться в системе 30 дней</span></label>
     <div class="auth-actions"><button id="authSubmitBtn" class="btn primary" type="button">Продолжить</button></div>
     <div id="authNotice" class="notice"></div>
   </div>
@@ -254,8 +255,40 @@ function renderHeroFlag(code,country){const n=el('heroFlag'),safe=String(code||'
 function setPage(page){if(page==='subscription')page='settings';if(!pageLabels[page])page='overview';document.querySelectorAll('[data-page-view]').forEach(n=>n.classList.toggle('active',n.dataset.pageView===page));document.querySelectorAll('.nav-btn').forEach(n=>n.classList.toggle('active',n.dataset.page===page));el('pageTitle').textContent=pageLabels[page];el('sidebar').classList.remove('open');history.replaceState(null,'','#'+page)}
 document.querySelectorAll('.nav-btn').forEach(b=>b.addEventListener('click',()=>setPage(b.dataset.page)));el('mobileMenuBtn').addEventListener('click',()=>el('sidebar').classList.toggle('open'));
 function renderAuth(s){authConfigured=!!(s&&s.configured);authAuthenticated=!!(s&&s.authenticated);el('authSection').hidden=authAuthenticated;el('controlCenter').hidden=!authAuthenticated;el('authConfirmField').hidden=authConfigured;el('authTitle').textContent=authConfigured?'Вход в FreeNet':'Первичная защита FreeNet';el('authSubtitle').textContent=authConfigured?'Введите пароль администратора.':'Создайте пароль администратора. Он хранится на роутере только как salted adaptive hash и не выводится в API/журнал.';el('authSubmitBtn').textContent=authConfigured?'Войти':'Создать пароль и войти';el('authPassword').autocomplete=authConfigured?'current-password':'new-password';if(authAuthenticated)startControlCenter();else stopControlCenter();document.dispatchEvent(new CustomEvent('freenet:auth-changed',{detail:{authenticated:authAuthenticated}}))}
-async function loadAuthStatus(){try{const r=await fetch('/api/auth/status',{cache:'no-store'}),s=await r.json();renderAuth(s)}catch(e){el('authSection').hidden=false;showBox('authNotice','FreeNet Control Center недоступен','bad')}}
-async function submitAuth(){hideBox('authNotice');const password=el('authPassword').value,confirm=el('authPasswordConfirm').value;if(!authConfigured&&password!==confirm){showBox('authNotice','Пароли не совпадают','bad');return}const path=authConfigured?'/api/auth/login':'/api/auth/setup';try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})}),j=await r.json();if(!r.ok){showBox('authNotice',j.error||'Ошибка авторизации','bad');return}el('authPassword').value='';el('authPasswordConfirm').value='';await loadAuthStatus()}catch(e){showBox('authNotice','Нет связи с FreeNet','bad')}}
+let authStatusGeneration=0;
+let authSubmitting=false;
+async function loadAuthStatus(){
+  const generation=++authStatusGeneration;
+  try{
+    const r=await fetch('/api/auth/status',{cache:'no-store',credentials:'include'});
+    if(!r.ok)throw new Error("auth status unavailable");
+    const s=await r.json();
+    if(!s||typeof s.configured!=="boolean"||typeof s.authenticated!=="boolean")throw new Error("invalid auth status");
+    if(generation!==authStatusGeneration)return;
+    renderAuth(s);
+  }catch(e){
+    if(generation!==authStatusGeneration)return;
+    // A proxy/network error is not proof that a valid login expired.
+    if(!authAuthenticated){el("authSection").hidden=false;showBox("authNotice","Нет связи с FreeNet. Состояние входа пока не подтверждено.","bad")}
+  }
+}
+async function submitAuth(){
+  if(authSubmitting)return;
+  hideBox("authNotice");
+  const password=el("authPassword").value,confirm=el("authPasswordConfirm").value;
+  if(!authConfigured&&password!==confirm){showBox("authNotice","Пароли не совпадают","bad");return}
+  const path=authConfigured?"/api/auth/login":"/api/auth/setup";
+  const remember=!!el("authRemember")?.checked;
+  authSubmitting=true;++authStatusGeneration;el("authSubmitBtn").disabled=true;
+  try{
+    const r=await fetch(path,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({password,remember})}),j=await r.json();
+    if(!r.ok||!j||j.configured!==true||j.authenticated!==true){showBox("authNotice",j?.error||"Ошибка авторизации","bad");return}
+    ++authStatusGeneration;
+    el("authPassword").value="";el("authPasswordConfirm").value="";
+    renderAuth(j);
+  }catch(e){showBox("authNotice","Нет связи с FreeNet","bad")}
+  finally{authSubmitting=false;el("authSubmitBtn").disabled=false}
+}
 async function logout(all){try{await fetch(all?'/api/auth/logout-all':'/api/auth/logout',{method:'POST'})}catch(e){}stopControlCenter();lastStatus=null;await loadAuthStatus()}
 el('authSubmitBtn').addEventListener('click',submitAuth);el('authPassword').addEventListener('keydown',e=>{if(e.key==='Enter')submitAuth()});el('logoutBtn').addEventListener('click',()=>logout(false));el('logoutAllBtn').addEventListener('click',()=>logout(true));
 function healthClass(id,ok){const n=el(id);if(n)n.className='health '+(ok?'ok':'bad')}
