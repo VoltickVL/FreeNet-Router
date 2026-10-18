@@ -136,7 +136,7 @@ func (a *app) handleRecoveryLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	password := r.FormValue("password")
-	payload, _ := json.Marshal(passwordRequest{Password: password})
+	payload, _ := json.Marshal(passwordRequest{Password: password, Remember: r.FormValue("remember") == "yes"})
 	capture := newRecoveryCaptureWriter()
 	loginReq := recoveryAPIRequest(r, http.MethodPost, "/api/auth/login", payload)
 	a.handleAuthLogin(capture, loginReq)
@@ -308,6 +308,7 @@ main{max-width:760px;margin:0 auto}.brand{display:block;width:126px;height:28px;
 h1{font-size:27px;margin:0 0 6px}h2{font-size:18px;margin:0 0 14px}.muted{color:#9eb4ca;line-height:1.55}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.fact{border:1px solid #21486c;border-radius:12px;padding:12px;background:#091c30}.fact small{display:block;color:#8da8c3;margin-bottom:4px}.fact strong{overflow-wrap:anywhere}
 .ok{color:#4be3ae}.warn{color:#ffcc70}.bad{color:#ff8b8b}.notice{border:1px solid #23785f;background:#0a332c;border-radius:12px;padding:12px;line-height:1.5}.error{border:1px solid #914454;background:#351823;border-radius:12px;padding:12px;line-height:1.5}
 form{margin-top:14px}label{display:block;color:#a8bdd1;font-size:13px;margin-bottom:6px}input{width:100%;padding:12px 13px;border-radius:10px;border:1px solid #315f86;background:#071522;color:#fff;font-size:15px;outline:none}input:focus{border-color:#68a8ff}
+.remember{display:flex;align-items:center;gap:9px;margin-top:12px}.remember input{width:18px;height:18px;flex:none}
 button,.button{display:inline-block;border:0;border-radius:10px;padding:11px 16px;background:#2f7df4;color:white;font-weight:700;text-decoration:none;cursor:pointer}.secondary{background:#173451;border:1px solid #315f86}.unlockButton{background:#4d3914;border:1px solid #9a7124;color:#ffe7a7}.dangerButton{background:#cc4d55}button:disabled{opacity:.5;cursor:not-allowed}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
 code{color:#d7eaff}.foot{font-size:12px;color:#7892aa;margin-top:18px;line-height:1.6}@media(max-width:620px){body{padding:16px}.grid{grid-template-columns:1fr}.card{padding:17px}}
 </style>
@@ -337,6 +338,7 @@ code{color:#d7eaff}.foot{font-size:12px;color:#7892aa;margin-top:18px;line-heigh
 <form method="post" action="/recovery/login" autocomplete="off">
 <label for="password">Пароль администратора</label>
 <input id="password" name="password" type="password" minlength="12" maxlength="256" required autocomplete="current-password">
+<label class="remember"><input name="remember" type="checkbox" value="yes" checked> Оставаться в системе 30 дней</label>
 <div class="actions"><button type="submit">Войти</button><a class="button secondary" href="/">Обычный Control Center</a></div>
 </form>
 {{else}}
