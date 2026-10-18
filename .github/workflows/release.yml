@@ -209,6 +209,16 @@ jobs:
           cp install.sh dist/freenet
           cp config/freenet.conf.example dist/freenet.conf.example
 
+          # Capabilities are part of the exact release SHA manifest, not inferred
+          # from a newer version number or mutable REST metadata.
+          python3 - <<'PYMETA'
+          import json, pathlib
+          tag = pathlib.Path('VERSION').read_text().strip()
+          notes = pathlib.Path('docs/releases/' + tag + '.md').read_text()
+          pathlib.Path('dist/recovery-protocol.json').write_text(json.dumps({'tag':tag,'protocol':2})+'\n')
+          pathlib.Path('dist/release-metadata.json').write_text(json.dumps({'tag_name':tag,'draft':False,'prerelease':'-beta.' in tag,'body':notes},ensure_ascii=False)+'\n')
+          PYMETA
+
           chmod 755 \
             dist/bootstrap.sh \
             dist/freenet-ui-arm64-v8a \
@@ -244,6 +254,8 @@ jobs:
               bootstrap_entware.sh \
               bootstrap_router_ultra.sh \
               self_update.sh \
+              recovery-protocol.json \
+              release-metadata.json \
               legacy_update_bridge.sh \
               upstream-pins.env \
               freenet \

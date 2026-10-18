@@ -13,7 +13,13 @@ ARCH="${FREENET_ARCH:-}"
 STATE_FILE="${FREENET_UPDATE_STATE_FILE:-$ROOT/var/run/freenet-self-update.state}"
 VERSION_FILE="${FREENET_VERSION_FILE:-$ROOT/etc/freenet/version}"
 LOCK_DIR="${FREENET_UPDATE_LOCK_DIR:-/tmp/freenet-self-update.lock}"
+MUTATION_LOCK_DIR="${FREENET_UPDATE_MUTATION_LOCK:-/tmp/blanc_xkeen_update.lock}"
+CHECKPOINT_DIR="${FREENET_VPN_TRANSACTION_DIR:-$ROOT/var/lib/freenet/vpn-transaction.pending}"
+AUTOMATION_STATE="${FREENET_AUTOMATION_STATE:-$ROOT/var/run/freenet-automation.state}"
 TEST_MODE="${FREENET_SELF_UPDATE_TEST_MODE:-no}"
+if [ "$TEST_MODE" = yes ] && [ -z "${FREENET_UPDATE_MUTATION_LOCK:-}" ]; then
+    MUTATION_LOCK_DIR="$ROOT/var/run/vpn-mutation.lock"
+fi
 TEST_RELEASE_DIR="${FREENET_TEST_RELEASE_DIR:-}"
 LATEST_OVERRIDE="${FREENET_LATEST_TAG:-}"
 FAIL_STAGE="${FREENET_TEST_FAIL_STAGE:-}"
@@ -34,6 +40,7 @@ fi
 TMP_DIR=""
 BACKUP_DIR=""
 LOCK_HELD=0
+MUTATION_LOCK_HELD=0
 KEEP_LOCK=0
 MUTATED=0
 LAST_DOWNLOAD_ERROR=""
@@ -45,12 +52,25 @@ err() { printf '[FreeNet Web Update] ERROR: %s\n' "$*" >&2; }
 
 cleanup() {
     [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] && rm -rf "$TMP_DIR" 2>/dev/null || true
+    if [ "$MUTATION_LOCK_HELD" = 1 ] && [ "$KEEP_LOCK" = 0 ]; then
+        rm -rf "$MUTATION_LOCK_DIR" 2>/dev/null || true
+        MUTATION_LOCK_HELD=0
+    fi
     if [ "$LOCK_HELD" = 1 ] && [ "$KEEP_LOCK" = 0 ]; then
         rm -rf "$LOCK_DIR" 2>/dev/null || true
         LOCK_HELD=0
     fi
 }
-trap cleanup 0 1 2 15
+trap cleanup 0
+on_update_signal() {
+    if [ "$MUTATED" = 1 ]; then
+        trap '' 1 2 15
+        fail_after_mutation 'update interrupted; restoring application snapshot'
+    fi
+    [ "$LOCK_HELD" = 1 ] && fail_before_mutation 'update interrupted before mutation'
+    exit 1
+}
+trap on_update_signal 1 2 15
 
 normalize_current() {
     case "$CURRENT_VERSION" in
@@ -309,7 +329,10 @@ fetch_release_metadata() {
             return 1
         fi
     else
-        download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META" || return 1
+        if ! download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META"; then
+            fetch_manifest "$TAG" || return 1
+            download_verified_asset release-metadata.json "https://github.com/$REPO/releases/download/$TAG/release-metadata.json" "$META" || return 1
+        fi
     fi
     META_TAG="$(jq -r '.tag_name // empty' "$META" 2>/dev/null)"
     META_DRAFT="$(jq -r '.draft // false' "$META" 2>/dev/null)"
@@ -351,7 +374,31 @@ release_notes() {
     '
 }
 
+recovery_bridge_target() {
+    beta_tag "$CURRENT_VERSION" && [ "${1:-$TARGET_TAG}" = v0.7.18 ]
+}
+
+compatible_update_target() {
+    COMPAT_TARGET="$1"
+    if [ ! -e "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ] &&
+       ! grep -qs '^MUTATION_BLOCKED=yes$' "$AUTOMATION_STATE" 2>/dev/null; then
+        return 0
+    fi
+    # The reviewed bridge runs only Recovery and preserves Beta VPN helpers.
+    recovery_bridge_target "$COMPAT_TARGET" && return 0
+    # Exact .6 introduced the protocol; later releases must declare it in
+    # SHA-verified metadata (this is not inferred merely from a larger number).
+    fetch_manifest "$COMPAT_TARGET" || return 1
+    PROTOCOL_FILE="$TMP_DIR/recovery-protocol.json"
+    download_verified_asset recovery-protocol.json "https://github.com/$REPO/releases/download/$COMPAT_TARGET/recovery-protocol.json" "$PROTOCOL_FILE" || return 1
+    jq -e --arg tag "$COMPAT_TARGET" '.protocol == 2 and .tag == $tag' "$PROTOCOL_FILE" >/dev/null 2>&1
+}
+
 asset_list() {
+    if recovery_bridge_target; then
+        printf '%s\n' "freenet-ui-$ARCH" self_update.sh
+        return
+    fi
     echo "freenet-ui-$ARCH"
     echo "freenet"
     echo "vpn"
@@ -504,6 +551,10 @@ download_assets() {
 validate_stage() {
     [ "$FAIL_STAGE" = staging ] && return 1
     [ -s "$TMP_DIR/freenet-ui-$ARCH" ] || return 1
+    if recovery_bridge_target; then
+        sh -n "$TMP_DIR/self_update.sh" >/dev/null 2>&1
+        return $?
+    fi
     for NAME in freenet vpn blanc_xkeen_update_outbounds.sh migrate_split_dns.sh apply_network_profile.sh apply_provider_profile.sh finalize_setup.sh bootstrap_entware.sh self_update.sh; do
         sh -n "$TMP_DIR/$NAME" >/dev/null 2>&1 || return 1
     done
@@ -531,17 +582,48 @@ backup_one() {
     fi
 }
 
+snapshot_preserved_state() {
+    PRESERVED_OUT="$1"
+    : > "$PRESERVED_OUT" || return 1
+    for PRESERVED_PATH in "$ROOT/etc/freenet/freenet.conf" \
+        "$ROOT/etc/freenet/vpn_profile_name" "$ROOT/etc/xray/blanc_profile_filter.regex" \
+        "$ROOT/etc/xray/blanc_subscription.url"; do
+        [ ! -L "$PRESERVED_PATH" ] || return 1
+        if [ -f "$PRESERVED_PATH" ]; then
+            sha256sum "$PRESERVED_PATH" >> "$PRESERVED_OUT" || return 1
+        else
+            [ ! -e "$PRESERVED_PATH" ] || return 1
+            printf 'ABSENT %s\n' "$PRESERVED_PATH" >> "$PRESERVED_OUT" || return 1
+        fi
+    done
+    if [ -e "$CHECKPOINT_DIR" ] || [ -L "$CHECKPOINT_DIR" ]; then
+        [ -d "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ] || return 1
+        [ -z "$(find "$CHECKPOINT_DIR" -type l -print)" ] || return 1
+        printf 'CHECKPOINT_PRESENT\n' >> "$PRESERVED_OUT" || return 1
+        find "$CHECKPOINT_DIR" -type f -print | sort | while IFS= read -r PRESERVED_FILE; do
+            sha256sum "$PRESERVED_FILE" || exit 1
+        done >> "$PRESERVED_OUT" || return 1
+    else
+        printf 'CHECKPOINT_ABSENT\n' >> "$PRESERVED_OUT" || return 1
+    fi
+}
+
 prepare_backup() {
     STAMP="$(date +%Y%m%d-%H%M%S 2>/dev/null)"
     [ -n "$STAMP" ] || STAMP="$$"
-    BACKUP_DIR="$ROOT/backups/freenet-web-update-$STAMP"
-    mkdir -p "$BACKUP_DIR" || return 1
+    BACKUP_DIR="$ROOT/backups/freenet-web-update-$STAMP.$$"
+    umask 077
+    mkdir -p "$ROOT/backups" || return 1
+    mkdir "$BACKUP_DIR" || return 1
+    chmod 700 "$BACKUP_DIR" || return 1
     I=0
     for NAME in $(asset_list); do
         I=$((I + 1))
         DEST="$(asset_dest "$NAME")" || return 1
         backup_one "$DEST" "asset-$I" || return 1
     done
+    backup_one "$VERSION_FILE" version-marker || return 1
+    snapshot_preserved_state "$BACKUP_DIR/preserved.before" || return 1
     snapshot_xray "$BACKUP_DIR/xray-hashes.before" || return 1
 }
 
@@ -610,6 +692,8 @@ accept_runtime() {
         [ "$OK" = yes ] || return 1
     fi
 
+    snapshot_preserved_state "$TMP_DIR/preserved.after" || return 1
+    cmp -s "$BACKUP_DIR/preserved.before" "$TMP_DIR/preserved.after" || return 1
     snapshot_xray "$TMP_DIR/xray-hashes.after" || return 1
     cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.after" >/dev/null 2>&1 || return 1
     return 0
@@ -624,6 +708,7 @@ rollback_assets() {
         DEST="$(asset_dest "$NAME")" || return 1
         restore_one "$DEST" "asset-$I" || return 1
     done
+    restore_one "$VERSION_FILE" version-marker || return 1
     restart_ui "$CURRENT_VERSION" || return 1
     if [ "$TEST_MODE" = no ]; then
         PORT="$(ui_port)"
@@ -636,6 +721,8 @@ rollback_assets() {
         done
         [ "$V" = "$CURRENT_VERSION" ] || return 1
     fi
+    snapshot_preserved_state "$TMP_DIR/preserved.rollback" || return 1
+    cmp -s "$BACKUP_DIR/preserved.before" "$TMP_DIR/preserved.rollback" || return 1
     snapshot_xray "$TMP_DIR/xray-hashes.rollback" || return 1
     cmp "$BACKUP_DIR/xray-hashes.before" "$TMP_DIR/xray-hashes.rollback" >/dev/null 2>&1 || return 1
     return 0
@@ -673,7 +760,9 @@ run_plan() {
     valid_tag "$PLAN_TARGET" || { plan_error 'target release tag is invalid'; return 1; }
     beta_opted_in "$PLAN_TARGET" || { plan_error 'explicit Beta opt-in required'; return 1; }
     fetch_release_metadata "$PLAN_TARGET" || { plan_error 'target release metadata or Beta channel is not verified'; return 1; }
+    TARGET_TAG="$PLAN_TARGET"
     fetch_manifest "$PLAN_TARGET" || { plan_error 'release manifest is unavailable or incomplete'; return 1; }
+    compatible_update_target "$PLAN_TARGET" || { plan_error 'target cannot preserve pending VPN recovery state; choose a recovery-protocol-2 release or the v0.7.18 recovery bridge'; return 1; }
     RELEASE_NOTES="$(release_notes "$PLAN_TARGET" 2>/dev/null || true)"
 
     AVAILABLE=yes
@@ -696,6 +785,7 @@ run_plan() {
     say "DIRECTION=$DIRECTION"
     say "ARCH=$ARCH"
     say 'MANIFEST_VERIFIED=yes'
+    say 'COMPATIBILITY_VERIFIED=yes'
     say "RELEASE_NOTES=$RELEASE_NOTES"
     say 'COMPONENTS=FreeNet UI; manager; VPN/updater helpers; network/provider/finalize helpers; bootstrap helper; self-update helper; upstream pins'
     if [ "$AVAILABLE" = yes ]; then
@@ -709,7 +799,7 @@ run_plan() {
 
 fail_before_mutation() {
     MSG="$1"
-    write_state FAILED "$TARGET_TAG" 'Обновление не началось: проверка не пройдена' "$MSG" NOT_NEEDED "$BACKUP_DIR" || true
+    [ "$LOCK_HELD" = 1 ] && write_state FAILED "$TARGET_TAG" 'Обновление не началось: проверка не пройдена' "$MSG" NOT_NEEDED "$BACKUP_DIR" || true
     err "$MSG"
     exit 1
 }
@@ -719,7 +809,7 @@ fail_after_mutation() {
     err "$MSG"
     if rollback_assets; then
         MUTATED=0
-        write_state FAILED "$TARGET_TAG" 'Обновление отменено; предыдущее состояние восстановлено' "$MSG" SUCCESS "$BACKUP_DIR" || true
+        [ "$LOCK_HELD" = 1 ] && write_state FAILED "$TARGET_TAG" 'Обновление отменено; предыдущее состояние восстановлено' "$MSG" SUCCESS "$BACKUP_DIR" || true
         exit 1
     fi
     KEEP_LOCK=1
@@ -727,7 +817,46 @@ fail_after_mutation() {
     exit 2
 }
 
+previous_update_receipt_safe() {
+    [ -e "$STATE_FILE" ] || [ -L "$STATE_FILE" ] || return 0
+    [ -f "$STATE_FILE" ] && [ ! -L "$STATE_FILE" ] && [ -r "$STATE_FILE" ] || return 1
+    [ "$(wc -c < "$STATE_FILE")" -le 131072 ] || return 1
+    OLD_UPDATE_STATE="$(sed -n 's/^STATE=//p' "$STATE_FILE")"
+    OLD_UPDATE_ROLLBACK="$(sed -n 's/^ROLLBACK_STATE=//p' "$STATE_FILE")"
+    case "$OLD_UPDATE_STATE" in ''|IDLE|BUSY|CHECKING|SNAPSHOT|FAILED|SUCCESS) ;; *) return 1 ;; esac
+    case "$OLD_UPDATE_ROLLBACK" in ''|NOT_NEEDED|SUCCESS) return 0 ;; *) return 1 ;; esac
+}
+
 run_apply() {
+    umask 077
+    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+        err 'update lock is already held; existing state preserved'
+        exit 3
+    fi
+    LOCK_HELD=1
+    if ! previous_update_receipt_safe; then
+        KEEP_LOCK=1
+        err 'previous application receipt is unknown; original state preserved'
+        exit 2
+    fi
+    if [ -e "$STATE_FILE" ] && [ ! -r "$STATE_FILE" ]; then
+        KEEP_LOCK=1; err 'update state is unreadable'; exit 2
+    fi
+    # A missing lock never clears a previous unconfirmed application rollback.
+    if [ -L "$STATE_FILE" ] || { [ -e "$STATE_FILE" ] && [ ! -f "$STATE_FILE" ]; } ||
+       grep -Eq '^(STATE=(ROLLBACK_FAILED|UPDATING|RECONNECTING)|ROLLBACK_STATE=(FAILED_UNKNOWN|PENDING))$' "$STATE_FILE" 2>/dev/null; then
+        KEEP_LOCK=1
+        err 'previous application update is unresolved; state and backup preserved'
+        exit 2
+    fi
+    printf '%s\n' "$$" > "$LOCK_DIR/owner.pid" || fail_before_mutation 'cannot persist update owner'
+    printf '%s\n' "$TARGET_TAG" > "$LOCK_DIR/target" || fail_before_mutation 'cannot persist update target'
+    if ! mkdir "$MUTATION_LOCK_DIR" 2>/dev/null; then
+        fail_before_mutation 'another VPN/network operation is active; update not started'
+    fi
+    MUTATION_LOCK_HELD=1
+    printf '%s\n' "$$" > "$MUTATION_LOCK_DIR/pid" || fail_before_mutation 'cannot persist network fence owner'
+    printf '%s\n' "$LOCK_DIR" > "$MUTATION_LOCK_DIR/freenet-update-owner" || fail_before_mutation 'cannot persist fence ownership'
     detect_current || fail_before_mutation 'current FreeNet version is invalid'
     valid_tag "$TARGET_TAG" || fail_before_mutation 'target release tag is invalid'
     beta_opted_in "$TARGET_TAG" || fail_before_mutation 'explicit Beta opt-in required'
@@ -738,14 +867,8 @@ run_apply() {
     done
     fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release metadata or Beta channel is not verified'
 
-    if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-        write_state BUSY "$TARGET_TAG" 'Другая операция обновления уже выполняется' 'update lock is already held' NOT_NEEDED '' || true
-        exit 3
-    fi
-    LOCK_HELD=1
-    printf '%s\n' "$" > "$LOCK_DIR/owner.pid" 2>/dev/null || true
-    printf '%s\n' "$TARGET_TAG" > "$LOCK_DIR/target" 2>/dev/null || true
-    write_state CHECKING "$TARGET_TAG" 'Проверяем выбранный exact release и SHA-256' '' NOT_NEEDED '' || true
+    compatible_update_target "$TARGET_TAG" || fail_before_mutation 'target cannot preserve pending VPN recovery state; choose a recovery-protocol-2 release or the v0.7.18 recovery bridge'
+    write_state CHECKING "$TARGET_TAG" 'Проверяем выбранный exact release и SHA-256' '' NOT_NEEDED '' || fail_before_mutation 'cannot persist update state'
 
     make_tmp || fail_before_mutation 'cannot create staging directory'
     download_assets "$TARGET_TAG" || fail_before_mutation "${LAST_DOWNLOAD_ERROR:-release asset download or SHA-256 verification failed}"
@@ -753,17 +876,18 @@ run_apply() {
     write_state SNAPSHOT "$TARGET_TAG" 'Создаём snapshot FreeNet-owned файлов' '' NOT_NEEDED '' || true
     prepare_backup || fail_before_mutation 'cannot create pre-update snapshot'
 
+    write_state UPDATING "$TARGET_TAG" 'Применяем проверенные FreeNet assets' '' PENDING "$BACKUP_DIR" || fail_before_mutation 'cannot persist update checkpoint'
     MUTATED=1
-    write_state UPDATING "$TARGET_TAG" 'Применяем проверенные FreeNet assets' '' PENDING "$BACKUP_DIR" || true
     install_assets || fail_after_mutation 'live asset replacement failed'
 
     write_state RECONNECTING "$TARGET_TAG" 'FreeNet перезапускается; подтверждаем фактическое состояние' '' PENDING "$BACKUP_DIR" || true
+    [ "$FAIL_STAGE" != interrupt-after-replace ] || kill -TERM "$$"
     restart_ui "$TARGET_TAG" || fail_after_mutation 'FreeNet UI restart failed'
     accept_runtime "$TARGET_TAG" || fail_after_mutation 'post-update runtime acceptance failed'
     persist_version "$TARGET_TAG" || fail_after_mutation 'cannot persist installed version marker'
 
+    write_state SUCCESS "$TARGET_TAG" 'Выбранная версия FreeNet установлена и проверена' '' NOT_NEEDED "$BACKUP_DIR" || fail_after_mutation 'cannot persist update acceptance'
     MUTATED=0
-    write_state SUCCESS "$TARGET_TAG" 'Выбранная версия FreeNet установлена и проверена' '' NOT_NEEDED "$BACKUP_DIR" || true
     say "RESULT=SUCCESS"
     say "TARGET_VERSION=$TARGET_TAG"
     say "BACKUP_DIR=$BACKUP_DIR"
