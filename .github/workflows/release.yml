@@ -28,8 +28,8 @@ jobs:
         id: version
         run: |
           VERSION="$(tr -d '\r\n' < VERSION)"
-          if [ "$GITHUB_REF_NAME" = "maintenance/v0.7-bridge" ] && [ "$VERSION" != "v0.7.15" ] && [ "$VERSION" != "v0.7.16" ] && [ "$VERSION" != "v0.7.17" ]; then
-            echo "Bridge branch publishes only explicitly reviewed v0.7.15, v0.7.16 or v0.7.17" >&2
+          if [ "$GITHUB_REF_NAME" = "maintenance/v0.7-bridge" ] && [ "$VERSION" != "v0.7.15" ] && [ "$VERSION" != "v0.7.16" ] && [ "$VERSION" != "v0.7.17" ] && [ "$VERSION" != "v0.7.18" ]; then
+            echo "Bridge branch publishes only explicitly reviewed v0.7.15, v0.7.16, v0.7.17 or v0.7.18" >&2
             exit 1
           fi
           case "$VERSION" in
@@ -199,6 +199,11 @@ jobs:
           cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh
           cp scripts/bootstrap_router_ultra.sh dist/bootstrap_router_ultra.sh
           cp scripts/self_update.sh dist/self_update.sh
+          if [ "$(tr -d '\r\n' < VERSION)" = "v0.7.18" ]; then
+            python3 scripts/build_legacy_recovery_updater.py scripts/self_update.sh dist/self_update.sh
+            sh -n dist/self_update.sh
+            grep -Fq 'BEGIN FREENET LEGACY BETA HANDOFF POLICY' dist/self_update.sh
+          fi
           cp scripts/legacy_update_bridge.sh dist/legacy_update_bridge.sh
           cp config/upstream-pins.env dist/upstream-pins.env
           cp install.sh dist/freenet
