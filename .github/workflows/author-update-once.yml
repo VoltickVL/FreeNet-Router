@@ -1,0 +1,23 @@
+name: Update lifecycle authoring workspace
+on:
+  push:
+    branches: [fix/beta08-update-lifecycle]
+    paths: [.github/workflows/author-update-once.yml]
+permissions:
+  contents: read
+jobs:
+  workspace:
+    if: github.repository == 'VoltickVL/FreeNet-Router'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Export exact audited source
+        run: |
+          test "$(git rev-parse HEAD^)" = b1640ec06740b1e26b4553fbd3f9c6eb4e7d20b3
+          git archive --format=tar HEAD > /tmp/freenet-update-source.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freenet-update-source
+          path: /tmp/freenet-update-source.tar
+          retention-days: 1
