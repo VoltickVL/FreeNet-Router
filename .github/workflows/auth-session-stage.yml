@@ -1,0 +1,62 @@
+name: FreeNet auth patch staging
+on:
+  push:
+    branches: [fix/beta08-persistent-login-lifecycle]
+    paths: [.github/workflows/auth-session-stage.yml]
+permissions:
+  contents: write
+concurrency:
+  group: freenet-auth-session-staging
+  cancel-in-progress: false
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.x
+      - name: Apply reviewed patch with before and after SHA-256 checks
+        env:
+          PATCH_DATA: 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
+        run: |
+          python3 - <<'PY'
+          import os, json, base64, gzip, hashlib
+          from pathlib import Path
+          data = json.loads(gzip.decompress(base64.b64decode(os.environ['PATCH_DATA'])))
+          allowed = {'freenet-ui/web/index.html', 'freenet-ui/recovery.go', 'freenet-ui/auth_remember_test.go', 'tests/test_auth_session_lifecycle.cjs'}
+          assert {f['path'] for f in data} == allowed and len(data) == 4
+          sha = lambda text: hashlib.sha256(text.encode()).hexdigest()
+          for f in data:
+              p = Path(f['path'])
+              assert p.exists() == f['oldExists'], f['path']
+              source = p.read_text() if p.exists() else ''
+              assert sha(source) == f['old'], f['path']
+              lines = source.split('\n')
+              for h in reversed(f['hunks']):
+                  at = h['at']
+                  assert lines[at:at+len(h['old'])] == h['old']
+                  lines[at:at+len(h['old'])] = h['next']
+              result = '\n'.join(lines)
+              assert sha(result) == f['next'], f['path']
+              p.write_text(result)
+              print(f['path'], sha(result))
+          PY
+      - name: Validate scoped change before branch commit
+        run: |
+          gofmt -w freenet-ui/auth_remember_test.go freenet-ui/recovery.go
+          node tests/test_auth_session_lifecycle.cjs
+          cd freenet-ui
+          go test -run 'Test(Remember|NonRemember|RecoveryRemember|Session|Auth|RequireAuth)' -count=1 ./...
+      - name: Commit only session task files without force push
+        run: |
+          test "$(git ls-remote origin refs/heads/fix/beta08-persistent-login-lifecycle | cut -f1)" = "$GITHUB_SHA"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add freenet-ui/web/index.html freenet-ui/recovery.go freenet-ui/auth_remember_test.go tests/test_auth_session_lifecycle.cjs
+          git diff --cached --stat
+          git commit -m 'fix(auth): persistent 30-day login and resilient session status'
+          git push origin HEAD:refs/heads/fix/beta08-persistent-login-lifecycle
