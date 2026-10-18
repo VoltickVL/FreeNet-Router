@@ -109,6 +109,7 @@ func TestManualCatalogReadRepairsDisplayDriftWithoutNetworkOrWrites(t *testing.T
 				if strings.Contains(string(encoded), forbidden) {
 					t.Fatal("safe catalog response contains credential-bearing source data")
 				}
+			}
 			if !reflect.DeepEqual(before, manualCatalogFileSnapshot(t, dir)) {
 				t.Fatal("catalog read changed persistent files or checkpoint")
 			}
