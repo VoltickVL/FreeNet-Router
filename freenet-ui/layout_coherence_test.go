@@ -8,9 +8,9 @@ import (
 func TestControlCenterLayoutCoherenceContract(t *testing.T) {
 	for _, want := range []string{
 		`html{scrollbar-gutter:stable}`,
-		 `#controlCenter .main{--fn-center-max:1180px;--fn-center-gutter:24px}`,
-    `body #controlCenter .main .content{width:min(var(--fn-center-max),calc(100% - 2 * var(--fn-center-gutter)))!important`,
-    `body #controlCenter .main>.topbar.overview-approved{padding-right:max(var(--fn-center-gutter),calc((100% - var(--fn-center-max)) / 2))!important`,
+		`#controlCenter .main{--fn-center-max:1180px;--fn-center-gutter:24px}`,
+		`body #controlCenter .main .content{width:min(var(--fn-center-max),calc(100% - 2 * var(--fn-center-gutter)))!important`,
+		`body #controlCenter .main>.topbar.overview-approved{padding-right:max(var(--fn-center-gutter),calc((100% - var(--fn-center-max)) / 2))!important`,
 		`#controlCenter .fn3-dns-layout{grid-template-columns:minmax(0,1fr)!important}`,
 		`#controlCenter .fn3-dns-modes{grid-template-columns:repeat(2,minmax(0,1fr))!important}`,
 		`#controlCenter .fn3-dns-resolvers{grid-template-columns:repeat(2,minmax(0,1fr))!important}`,
@@ -18,7 +18,7 @@ func TestControlCenterLayoutCoherenceContract(t *testing.T) {
 		`translateY(4px)`,
 		`@media(prefers-reduced-motion:reduce)`,
 	} {
-		if !strings.Contains(controlCenterLayoutCoherenceStyle, want) {
+		if !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("shared layout contract missing %q", want)
 		}
 	}
@@ -29,7 +29,7 @@ func TestControlCenterLayoutCoherenceKeepsMobileStack(t *testing.T) {
 		`@media(max-width:820px){#controlCenter .main{--fn-center-gutter:10px}body #controlCenter .main .content{width:calc(100% - 20px)!important}}`,
 		`@media(max-width:720px){#controlCenter .fn3-dns-modes,#controlCenter .fn3-dns-resolvers{grid-template-columns:minmax(0,1fr)!important}}`,
 	} {
-		if !strings.Contains(controlCenterLayoutCoherenceStyle, want) {
+		if !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("responsive layout contract missing %q", want)
 		}
 	}
@@ -45,10 +45,14 @@ func TestCanonicalIndexDeliversLayoutBeforeLegacyPaint(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bootAt := strings.Index(html, `id="freenetCanonicalBootStyle"`)
-	layoutAt := strings.Index(html, `id="freenetLayoutCoherenceStyles"`)
-	legacyAt := strings.Index(html, `<style>`)
-	if bootAt < 0 || layoutAt < 0 || legacyAt < 0 || bootAt > layoutAt || layoutAt > legacyAt {
-		t.Fatalf("layout must be delivered with first-paint head styles: boot=%d layout=%d legacy=%d", bootAt, layoutAt, legacyAt)
+	unifiedAt := strings.Index(html, `id='freenetUnifiedDesignStyles'`)
+	bootAt := strings.Index(html, `html.freenet-canonical-boot`)
+	layoutAt := strings.Index(html, `--fn-center-max:1180px`)
+	scriptAt := strings.Index(html, `<script`)
+	if unifiedAt < 0 || bootAt < unifiedAt || layoutAt < unifiedAt || layoutAt > scriptAt || bootAt > scriptAt {
+		t.Fatalf("boot and layout must be in the single stylesheet before scripts: CSS=%d boot=%d layout=%d script=%d", unifiedAt, bootAt, layoutAt, scriptAt)
+	}
+	if strings.Contains(html, `id="freenetLayoutCoherenceStyles"`) || strings.Contains(html, `id="freenetCanonicalBootStyle"`) {
+		t.Fatal("retired Go style owners must not be emitted")
 	}
 }

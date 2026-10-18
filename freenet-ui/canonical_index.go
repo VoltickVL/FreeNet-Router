@@ -2,11 +2,15 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
 )
+
+//go:embed web/design-system.css
+var freenetUnifiedDesignCSS string
 
 const canonicalFirstPaintNav = `<nav class="nav" aria-label="Навигация Control Center">
       <button class="nav-btn active" data-page="overview"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-8Z"/><path d="M9.5 20v-6h5v6"/></svg></span><span>Обзор</span></button>
@@ -14,14 +18,6 @@ const canonicalFirstPaintNav = `<nav class="nav" aria-label="Навигация 
       <button class="nav-btn" data-page="network"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h14m0 0-3-3m3 3-3 3M20 16H6m0 0 3-3m-3 3 3 3"/></svg></span><span>Маршрутизация</span></button>
       <button class="nav-btn" data-page="journal"><span class="nav-icon" data-freenet-shell="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h8M8 12h8M8 16h6"/></svg></span><span>Журнал</span></button>
     </nav>`
-
-const canonicalBootStyle = `<style id="freenetCanonicalBootStyle">
-html.freenet-canonical-boot,html.freenet-canonical-boot body{min-height:100%;background:#07101b}
-html.freenet-canonical-boot body{overflow:hidden;background:radial-gradient(circle at 68% -15%,#17345c 0,#0d1d32 42%,#081523 72%,#07101b 100%)}
-html.freenet-canonical-boot body>*{visibility:hidden!important}
-html.freenet-canonical-boot body::before{content:'';visibility:visible!important;position:fixed;inset:0;z-index:2147483646;background:radial-gradient(circle at 68% -15%,#17345c 0,#0d1d32 42%,#081523 72%,#07101b 100%)}
-html.freenet-canonical-boot body::after{content:'FreeNet';visibility:visible!important;position:fixed;z-index:2147483647;left:50%;top:50%;transform:translate(-50%,-50%);font:900 25px/1 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:-.055em;color:#f7f9ff;text-shadow:0 0 26px rgba(105,159,255,.22)}
-</style>`
 
 const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
 (() => {
@@ -36,8 +32,7 @@ const canonicalBootReleaseScript = `<script id="freenetCanonicalBootRelease">
     );
   };
   const canonicalReady = () => !!(
-    document.getElementById('freenetAcceptedUXStyles') &&
-    document.getElementById('freenetFinalShellPolishStyles') &&
+    document.getElementById('freenetUnifiedDesignStyles') &&
     document.querySelector('.sidebar>.brand .fn-brand-lockup-svg') &&
     canonicalNavReady()
   );
@@ -78,7 +73,7 @@ let localPending=`
 	// background gate and shared page geometry in the first HTML bytes. The gate
 	// is removed only after the accepted shell styles and vector brand are mounted.
 	raw = strings.Replace(raw, htmlStart, `<html lang="ru" class="freenet-canonical-boot">`, 1)
-	raw = strings.Replace(raw, headStart, headStart+canonicalBootStyle+controlCenterLayoutCoherenceStyle, 1)
+	raw = strings.Replace(raw, headStart, headStart+"<style id='freenetUnifiedDesignStyles'>"+freenetUnifiedDesignCSS+"</style>", 1)
 
 	start := strings.Index(raw, navStart)
 	if start < 0 {

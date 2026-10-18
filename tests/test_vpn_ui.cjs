@@ -21,7 +21,7 @@ let status = {version:'0.2.88',country:'Польша',city:'Варшава',coun
 const server = http.createServer((req,res)=>{
   const url = new URL(req.url,'http://localhost');
   if(url.pathname==='/') {
-    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>', ['self-update.js','vpn-ux-fix.js','topbar-settings-profile-cache.js','operation-coordinator.js','xray-core-manager.js','vpn-picker-v2.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
+    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</head>', '<style id="freenetUnifiedDesignStyles">'+fs.readFileSync(path.join(web,'design-system.css'),'utf8')+'</style></head>').replace('</body>', ['self-update.js','vpn-ux-fix.js','topbar-settings-profile-cache.js','operation-coordinator.js','xray-core-manager.js','vpn-picker-v2.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
     res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);return;
   }
   if(['/self-update.js','/vpn-ux-fix.js','/operation-coordinator.js','/topbar-settings-profile-cache.js','/xray-core-manager.js','/vpn-picker-v2.js'].includes(url.pathname)){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(path.join(web,url.pathname.slice(1))));return;}
@@ -208,6 +208,7 @@ const server = http.createServer((req,res)=>{
       });
       console.log('CHROME_VISUAL',JSON.stringify({width,...chrome}));
       assert.equal(chrome.tiles.length,4,'four canonical controls are required');
+      console.log('CSS_DIAGNOSTIC_MOBILE',JSON.stringify(await page.evaluate(()=>{let s=document.querySelector('style#freenetUnifiedDesignStyles');return{css:s?.textContent.length,rules:(()=>{try{return s?.sheet?.cssRules.length}catch(e){return e.message}})(),nodes:[...document.querySelectorAll('#overviewApprovedTop > *')].map(e=>({tag:e.tagName,id:e.id,display:getComputedStyle(e).display,w:e.getBoundingClientRect().width}))}})));
       assert.equal(chrome.tiles.every(tile=>tile.visible),true,'missing chrome tile at '+width+': '+JSON.stringify(chrome));
       assert.equal(chrome.freenetLabel,'FreeNet','FreeNet label missing at '+width);
       assert.equal(chrome.freenetLabelVisible,true,'FreeNet label hidden at '+width);

@@ -19,7 +19,7 @@ func TestRuntimePickerParityContract(t *testing.T) {
 		"return 'Раздельный';",
 		"return 'Прямой';",
 	} {
-		if !strings.Contains(runtime, want) {
+		if !strings.Contains(runtime, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("runtime DNS parity missing %q", want)
 		}
 	}
@@ -37,7 +37,7 @@ func TestRuntimePickerParityContract(t *testing.T) {
 		"body.append(search, list, detail)",
 		"Найти версию FreeNet",
 	} {
-		if !strings.Contains(freeNet, want) {
+		if !strings.Contains(freeNet, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("FreeNet picker parity missing %q", want)
 		}
 	}
@@ -57,7 +57,7 @@ func TestRuntimePickerParityContract(t *testing.T) {
 		"className = 'xcm-selection'",
 		"Найти версию Xray",
 	} {
-		if !strings.Contains(xray, want) {
+		if !strings.Contains(xray, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("Xray picker parity missing %q", want)
 		}
 	}

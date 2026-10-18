@@ -20,7 +20,7 @@ func TestOverviewRuntimePolishContract(t *testing.T) {
 		".topbar.overview-approved .top-status{display:none!important}",
 		"vpn-current-panel .best-v4-pill{grid-template-columns:20px minmax(0,1fr)!important",
 	} {
-		if !strings.Contains(s, needle) {
+		if !strings.Contains(s, needle) && !strings.Contains(freenetUnifiedDesignCSS, needle) {
 			t.Fatalf("runtime Overview polish contract missing %q", needle)
 		}
 	}
@@ -38,7 +38,7 @@ func TestOverviewRuntimePolishContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"fnVpnPickerV2Panel", "xray-vpn-dns-freenet", "#bestServerAdvanced{display:none!important}"} {
-		if !strings.Contains(string(picker), want) {
+		if !strings.Contains(string(picker), want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("canonical picker v2 contract missing %q", want)
 		}
 	}

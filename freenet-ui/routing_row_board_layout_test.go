@@ -8,7 +8,6 @@ import (
 func TestCanonicalRoutingV2UsesRowBoardPolish(t *testing.T) {
 	script := canonicalRoutingV2Script()
 	checks := []string{
-		"routingV2RowPolishStyles",
 		".rv4-board-grid{grid-template-columns:1fr!important",
 		".rv4-board{display:block!important;border-left:4px solid var(--accent)!important;overflow:hidden!important",
 		".rv4-board-title-line strong{white-space:normal!important;overflow:visible!important;text-overflow:clip!important",
@@ -19,20 +18,15 @@ func TestCanonicalRoutingV2UsesRowBoardPolish(t *testing.T) {
 		`data-board-toggle="BLOCK" aria-expanded="false"`,
 	}
 	for _, want := range checks {
-		if !strings.Contains(script, want) {
+		if !strings.Contains(script, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("canonical routing script missing row-board polish %q", want)
 		}
 	}
 
-	legacyColumns := ".rv4-board-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(270px,1fr) minmax(240px,.85fr)"
-	legacyIndex := strings.LastIndex(script, legacyColumns)
-	polishIndex := strings.LastIndex(script, "routingV2RowPolishStyles")
-	if legacyIndex < 0 {
-		t.Fatalf("legacy Routing v2 column grid was not found; row-board override may no longer target the delivered surface")
+	if strings.Contains(script, "routingV2RowPolishStyles") || strings.Contains(script, "createElement('style')") {
+		t.Fatal("Routing must not append a legacy column override stylesheet")
 	}
-	if polishIndex <= legacyIndex {
-		t.Fatalf("row-board polish must be appended after legacy column CSS so it wins in production delivery")
-	}
+
 }
 
 func TestRoutingPolicyDirectionMappingsRemainCanonical(t *testing.T) {

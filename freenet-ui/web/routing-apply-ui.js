@@ -45,18 +45,7 @@
     }
   }
 
-  function installCompatibilityStyle() {
-    if (q('#freenetRoutingV2CanonicalCompat')) return;
-    const style = document.createElement('style');
-    style.id = 'freenetRoutingV2CanonicalCompat';
-    style.textContent = `
-      [data-page-view="routing"].fn-routing-v2>.card.fn-routing-v2-legacy{display:none!important}
-      [data-page-view="routing"].fn-routing-v2>#policyBuilderPreview{display:none!important}
-      .rv2-apply-preview{margin-top:10px;padding:10px 11px;border:1px solid #294866;border-radius:11px;background:#081522;color:#9eb2ca;font-size:12px;line-height:1.5;white-space:pre-wrap}
-      .rv2-apply-stop{border-color:#9b3b51!important;background:#351725!important;color:#ffd0d8!important}
-    `;
-    document.head.appendChild(style);
-  }
+  
 
   function invalidateCandidate(message = '') {
     validatedCandidate = null;
@@ -254,7 +243,7 @@
     const page = routingPage();
     const workspace = page && q('#routingV2Workspace', page);
     if (!workspace) return false;
-    installCompatibilityStyle();
+    ;
     canonicalHead(page);
     q('#policyBuilderPreview', page)?.remove();
 
@@ -332,7 +321,7 @@
   }
 
   function settle() {
-    installCompatibilityStyle();
+    ;
     const page = routingPage();
     if (!page) return;
     if (!enhanceWorkspace()) showMountFailure();

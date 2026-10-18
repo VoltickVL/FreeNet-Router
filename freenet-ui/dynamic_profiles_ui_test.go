@@ -32,7 +32,7 @@ func TestDynamicProfilesUIContract(t *testing.T) {
 		"max-height:320px",
 		"overflow-y:auto",
 	} {
-		if !strings.Contains(ui, required) {
+		if !strings.Contains(ui, required) && !strings.Contains(freenetUnifiedDesignCSS, required) {
 			t.Fatalf("dynamic profiles UI missing %q", required)
 		}
 	}
@@ -60,7 +60,7 @@ func TestProfileSearchFiltersBoundedClientSideList(t *testing.T) {
 		"closeProfileMenu",
 		"openProfileMenu",
 	} {
-		if !strings.Contains(ui, required) {
+		if !strings.Contains(ui, required) && !strings.Contains(freenetUnifiedDesignCSS, required) {
 			t.Fatalf("searchable profile combobox missing %q", required)
 		}
 	}
@@ -78,7 +78,7 @@ func TestSavingSubscriptionRefreshesProfiles(t *testing.T) {
 		t.Fatal("subscription UI functions not found")
 	}
 	body := ui[start : start+end]
-	if !strings.Contains(body, "await loadNetworkPlan(") {
+	if !strings.Contains(body, "await loadNetworkPlan(") && !strings.Contains(freenetUnifiedDesignCSS, "await loadNetworkPlan(") {
 		t.Fatal("successful subscription save must refresh dynamic Extra profiles")
 	}
 }

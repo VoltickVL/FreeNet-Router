@@ -12,22 +12,24 @@ func TestTypographyReadabilityLayer(t *testing.T) {
 	}
 	asset := string(assetData)
 	for _, required := range []string{
-		"mountTypographyReadability",
 		"--fn-text-body:14px",
 		".page-head p{font-size:14px",
 		".hint{font-size:12.5px",
 		".notice{font-size:12.5px",
-		".status-pill span{font-size:11.5px",
+		".status-pill span{font-size:12px",
 		".profile-option-main{font-size:13.5px",
 		".profile-option-endpoint{font-size:12.5px",
 		".nav-btn{font-size:14px",
 		"@media(max-width:600px)",
 	} {
-		if !strings.Contains(asset, required) {
+		if !strings.Contains(asset, required) && !strings.Contains(freenetUnifiedDesignCSS, required) {
 			t.Fatalf("typography readability contract missing %q", required)
 		}
 	}
 
+	if strings.Contains(asset, "mountTypographyReadability") {
+		t.Fatal("obsolete late typography owner must be removed")
+	}
 	if strings.Contains(asset, ".hint{font-size:9px") || strings.Contains(asset, ".notice{font-size:10px") {
 		t.Fatal("semantic helper text must not regress to micro typography")
 	}

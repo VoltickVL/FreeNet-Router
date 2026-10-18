@@ -49,7 +49,7 @@ const scripts=['vpn-ux-fix.js','automation.js','xray-core-manager.js','routing-v
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost'); calls.push(`${req.method} ${url.pathname}${url.search}`);
   if(url.pathname==='/'){
-    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>',scripts.map(n=>`<script src="/${n}"></script>`).join('')+'</body>');
+    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</head>', '<style id="freenetUnifiedDesignStyles">'+fs.readFileSync(path.join(web,'design-system.css'),'utf8')+'</style></head>').replace('</body>',scripts.map(n=>`<script src="/${n}"></script>`).join('')+'</body>');
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});res.end(html);return;
   }
   if(url.pathname==='/routing-v2-canonical.js'){res.writeHead(200,{'Content-Type':'application/javascript'});res.end(canonicalRoutingV2Source());return;}
@@ -209,6 +209,7 @@ const server=http.createServer(async(req,res)=>{
       };
     });
     assert.ok(desktopLayout.contentWidth>=1280,'desktop content canvas must be >=1280px at 1600px viewport, got '+desktopLayout.contentWidth);
+    console.log('CSS_DIAGNOSTIC_ROUTING',JSON.stringify(await page.evaluate(()=>{const grid=document.querySelector('.rv4-board-grid'),s=document.querySelector('style#freenetUnifiedDesignStyles');return{gridDisplay:grid?getComputedStyle(grid).display:null,gridTemplate:grid?getComputedStyle(grid).gridTemplateColumns:null,gridWidth:grid?.getBoundingClientRect().width,css:s?.textContent.length,rules:(()=>{try{return s?.sheet?.cssRules.length}catch(e){return e.message}})(),textSearch:s?.textContent.indexOf('.rv4-board-grid{')}}})));
     assert.equal(new Set(desktopLayout.boardTops).size,1,'DIRECT/VPN/BLOCK boards must remain in one desktop row');
     assert.ok(desktopLayout.scrollWidth<=desktopLayout.innerWidth+1,'wide canvas must not create horizontal overflow');
 

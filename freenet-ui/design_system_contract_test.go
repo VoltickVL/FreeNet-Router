@@ -40,7 +40,7 @@ func TestAcceptedUXSharedDesignSystemContract(t *testing.T) {
 		".subscription-approved .fn-sub-table{",
 		".subscription-approved .fn-sub-info-grid dt{",
 	} {
-		if !strings.Contains(asset, want) {
+		if !strings.Contains(asset, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("shared design-system contract missing %q", want)
 		}
 	}
