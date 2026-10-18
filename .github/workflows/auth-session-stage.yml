@@ -14,49 +14,87 @@ jobs:
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
       - uses: actions/setup-go@v5
         with:
           go-version: 1.23.x
-      - name: Apply reviewed patch with before and after SHA-256 checks
-        env:
-          PATCH_DATA: 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
+          cache: false
+      - name: Apply exact reviewed auth source changes
         run: |
           python3 - <<'PY'
-          import os, json, base64, gzip, hashlib
+          import hashlib
           from pathlib import Path
-          data = json.loads(gzip.decompress(base64.b64decode(os.environ['PATCH_DATA'])))
-          allowed = {'freenet-ui/web/index.html', 'freenet-ui/recovery.go', 'freenet-ui/auth_remember_test.go', 'tests/test_auth_session_lifecycle.cjs'}
-          assert {f['path'] for f in data} == allowed and len(data) == 4
-          sha = lambda text: hashlib.sha256(text.encode()).hexdigest()
-          for f in data:
-              p = Path(f['path'])
-              assert p.exists() == f['oldExists'], f['path']
-              source = p.read_text() if p.exists() else ''
-              assert sha(source) == f['old'], f['path']
-              lines = source.split('\n')
-              for h in reversed(f['hunks']):
-                  at = h['at']
-                  assert lines[at:at+len(h['old'])] == h['old']
-                  lines[at:at+len(h['old'])] = h['next']
-              result = '\n'.join(lines)
-              assert sha(result) == f['next'], f['path']
-              p.write_text(result)
-              print(f['path'], sha(result))
+          def replace_once(text, old, new):
+              assert text.count(old) == 1, old[:100]
+              return text.replace(old, new, 1)
+          def blob(text):
+              b = text.encode()
+              return hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+          p = Path('freenet-ui/web/index.html')
+          source = p.read_text()
+          source = replace_once(source, '    <div class="auth-actions"><button id="authSubmitBtn"', '    <label id="authRememberRow" class="fn-remember"><input id="authRemember" type="checkbox" checked><span>Оставаться в системе 30 дней</span></label>\n    <div class="auth-actions"><button id="authSubmitBtn"')
+          old_status = [l for l in source.splitlines() if l.startswith('async function loadAuthStatus()')]
+          old_submit = [l for l in source.splitlines() if l.startswith('async function submitAuth()')]
+          assert len(old_status) == len(old_submit) == 1
+          status = '''let authStatusGeneration=0;
+          let authSubmitting=false;
+          async function loadAuthStatus(){
+            const generation=++authStatusGeneration;
+            try{
+              const r=await fetch('/api/auth/status',{cache:'no-store',credentials:'include'});
+              if(!r.ok)throw new Error("auth status unavailable");
+              const s=await r.json();
+              if(!s||typeof s.configured!=="boolean"||typeof s.authenticated!=="boolean")throw new Error("invalid auth status");
+              if(generation!==authStatusGeneration)return;
+              renderAuth(s);
+            }catch(e){
+              if(generation!==authStatusGeneration)return;
+              // A proxy/network error is not proof that a valid login expired.
+              if(!authAuthenticated){el("authSection").hidden=false;showBox("authNotice","Нет связи с FreeNet. Состояние входа пока не подтверждено.","bad")}
+            }
+          }'''
+          submit = '''async function submitAuth(){
+            if(authSubmitting)return;
+            hideBox("authNotice");
+            const password=el("authPassword").value,confirm=el("authPasswordConfirm").value;
+            if(!authConfigured&&password!==confirm){showBox("authNotice","Пароли не совпадают","bad");return}
+            const path=authConfigured?"/api/auth/login":"/api/auth/setup";
+            const remember=!!el("authRemember")?.checked;
+            authSubmitting=true;++authStatusGeneration;el("authSubmitBtn").disabled=true;
+            try{
+              const r=await fetch(path,{method:"POST",credentials:"include",headers:{"Content-Type":"application/json"},body:JSON.stringify({password,remember})}),j=await r.json();
+              if(!r.ok||!j||j.configured!==true||j.authenticated!==true){showBox("authNotice",j?.error||"Ошибка авторизации","bad");return}
+              ++authStatusGeneration;
+              el("authPassword").value="";el("authPasswordConfirm").value="";
+              renderAuth(j);
+            }catch(e){showBox("authNotice","Нет связи с FreeNet","bad")}
+            finally{authSubmitting=false;el("authSubmitBtn").disabled=false}
+          }'''
+          source = replace_once(source, old_status[0], status)
+          source = replace_once(source, old_submit[0], submit)
+          q = Path('freenet-ui/recovery.go')
+          recovery = q.read_text()
+          recovery = replace_once(recovery, 'json.Marshal(passwordRequest{Password: password})', 'json.Marshal(passwordRequest{Password: password, Remember: r.FormValue("remember") == "yes"})')
+          password = '<input id="password" name="password" type="password" minlength="12" maxlength="256" required autocomplete="current-password">'
+          recovery = replace_once(recovery, password, password+'\n<label class="remember"><input name="remember" type="checkbox" value="yes" checked> Оставаться в системе 30 дней</label>')
+          recovery = replace_once(recovery, 'input:focus{border-color:#68a8ff}', 'input:focus{border-color:#68a8ff}\n.remember{display:flex;align-items:center;gap:9px;margin-top:12px}.remember input{width:18px;height:18px;flex:none}')
+          assert blob(source) == '0c63105417d85f5886213043734626fb91fe1a4c', blob(source)
+          assert blob(recovery) == '3475c91ed54d5f7975ba673cb9b722c77c67373b', blob(recovery)
+          p.write_text(source)
+          q.write_text(recovery)
+          print('Verified local-tested source hashes; only canonical login and Recovery changed')
           PY
-      - name: Validate scoped change before branch commit
+      - name: Validate source and focused auth regression
         run: |
-          gofmt -w freenet-ui/auth_remember_test.go freenet-ui/recovery.go
+          gofmt -w freenet-ui/auth_persistence_lifecycle_test.go freenet-ui/recovery.go
           node tests/test_auth_session_lifecycle.cjs
           cd freenet-ui
           go test -run 'Test(Remember|NonRemember|RecoveryRemember|Session|Auth|RequireAuth)' -count=1 ./...
-      - name: Commit only session task files without force push
+      - name: Commit source to isolated branch with expected-head guard
         run: |
           test "$(git ls-remote origin refs/heads/fix/beta08-persistent-login-lifecycle | cut -f1)" = "$GITHUB_SHA"
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add freenet-ui/web/index.html freenet-ui/recovery.go freenet-ui/auth_remember_test.go tests/test_auth_session_lifecycle.cjs
+          git add freenet-ui/web/index.html freenet-ui/recovery.go freenet-ui/auth_persistence_lifecycle_test.go
           git diff --cached --stat
           git commit -m 'fix(auth): persistent 30-day login and resilient session status'
           git push origin HEAD:refs/heads/fix/beta08-persistent-login-lifecycle
