@@ -465,7 +465,7 @@ fi
 [ "$(cat "$TMP/old-down-core.count")" = '2' ] || fail 'old-down rollback did not restart restored Xray'
 grep -Fq 'stage=restart-helper; code=7' "$TMP/old-down.err" || fail 'core restart stage and numeric code missing'
 grep -Fq 'ROLLBACK DETAIL: files=RESTORED; core=RESTORED; vpn=UNREACHABLE' "$TMP/old-down.err" || fail 'old-down rollback phases conflated'
-grep -Fq 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN' "$TMP/old-down.err" || fail 'old-down rollback incorrectly cleared STOP'
+grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/old-down.err" || fail 'verified file/core restoration conflated with old VPN reachability'
 [ -d "$TMP/provider-transaction.pending" ] || fail 'old-down rollback discarded private checkpoint'
 if run_helper apply-core "$PROFILE_ID" > "$TMP/old-down-blocked.out" 2> "$TMP/old-down-blocked.err"; then
     fail 'pending rollback unexpectedly allowed another VPN apply'

@@ -67,6 +67,8 @@ func TestManualOverrideRequiresKnownRuntimeAndAppliesWithoutExtraPlan(t *testing
     a := testNetworkApp(t, "DNS_MODE=firmware\n")
     a.cfg.SubPath = sourcePath
     a.cfg.OutPath = filepath.Join(dir, "04_outbounds.json")
+    t.Setenv("FREENET_XRAY_PROC_ROOT", t.TempDir())
+    if err := a.setXrayRuntimeDesiredState(xrayRuntimeDesiredStopped); err != nil { t.Fatal(err) }
     a.cfg.FilterPath = filepath.Join(dir, "filter")
     if err := os.WriteFile(a.cfg.OutPath, []byte(`{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"192.0.2.99","port":443}]}}]}`), 0600); err != nil { t.Fatal(err) }
     if err := os.WriteFile(a.cfg.FilterPath, []byte("^old$\n"), 0600); err != nil { t.Fatal(err) }
@@ -134,6 +136,7 @@ echo '[FreeNet Provider] RESULT=SUCCESS'
     }
     if code != http.StatusOK || !result.Success || !result.Applied { t.Fatalf("explicit manual apply unavailable: %d %+v",code,result) }
     // Successful manual apply updates the AUTO baseline, not the AUTO mode.
+    if a.xrayRuntimeDesiredState() != xrayRuntimeDesiredRunning { t.Fatal("manual connection did not re-enable controlled Xray runtime intent") }
     handoff := parseAutomationState(statePath)
     if handoff["LAST_SWITCH_ORIGIN"] != "manual" || handoff["LAST_SWITCH"] == "" {
         t.Fatalf("manual selected VPN was not adopted by AUTO: %+v", handoff)

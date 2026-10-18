@@ -22,6 +22,7 @@ type vpnTransactionDoctorResponse struct {
 	XrayCore        string `json:"xray_core"`
 	MutationBlocked bool   `json:"mutation_blocked"`
 	Decision        string `json:"decision"`
+	RecoveryAttempt string `json:"recovery_attempt,omitempty"`
 }
 
 // The path is private and is never part of any HTTP response or journal.
@@ -78,11 +79,11 @@ func vpnTransactionFileMatch(checkpoint, kind, live string) string {
 		if len(absence) != 0 {
 			return "invalid"
 		}
-		_, err := os.Lstat(live)
+		info, err := os.Lstat(live)
 		if os.IsNotExist(err) {
 			return "matched"
 		}
-		if err != nil {
+		if err != nil || !info.Mode().IsRegular() || info.Size() > 2*1024*1024 {
 			return "unknown"
 		}
 		return "different"
@@ -105,10 +106,7 @@ func (a *app) vpnTransactionDoctor() vpnTransactionDoctorResponse {
 		Mode: "read-only", Mutation: "NONE", Checkpoint: "absent",
 		Outbound: "not-applicable", Profile: "not-applicable", Filter: "not-applicable",
 		MutationBlocked: automationMutationBlockedState(), Decision: "NO_CHECKPOINT",
-		XrayCore: "stopped-or-unknown",
-	}
-	if a != nil && a.liveXrayRunning() {
-		resp.XrayCore = "running"
+		XrayCore: a.manualRecoveryCoreState(),
 	}
 	checkpoint := vpnTransactionCheckpointPath()
 	info, err := os.Lstat(checkpoint)
@@ -133,8 +131,12 @@ func (a *app) vpnTransactionDoctor() vpnTransactionDoctorResponse {
 	// A previous manual recovery that died between snapshot and commit must
 	// never be overwritten. Both before generations are protected evidence.
 	if _, recoveryErr := os.Lstat(filepath.Join(checkpoint, "recovery.pending")); recoveryErr == nil || !os.IsNotExist(recoveryErr) {
-		resp.Decision = "STOP_RECOVERY_INTERRUPTED"
-		return resp
+		resp.RecoveryAttempt = "unresolved"
+		if !a.manualRecoveryAttemptReadable(checkpoint) {
+			resp.Decision = "STOP_RECOVERY_INTERRUPTED"
+			return resp
+		}
+		resp.RecoveryAttempt = "complete-readable"
 	}
 	if a == nil {
 		resp.Decision = "STOP_RUNTIME_UNKNOWN"
@@ -162,10 +164,10 @@ func (a *app) vpnTransactionDoctor() vpnTransactionDoctorResponse {
 // "different" is allowed: it means the interrupted AUTO may have partially
 // applied its candidate; the recovery helper snapshots the actual live files.
 func vpnManualRecoveryEligible(resp vpnTransactionDoctorResponse) bool {
-	if resp.Checkpoint != "pending" || resp.XrayCore != "running" {
+	if resp.Checkpoint != "pending" || (resp.XrayCore != "running" && resp.XrayCore != "stopped") {
 		return false
 	}
-	if resp.Decision != "STOP_VPN_UNVERIFIED" && resp.Decision != "STOP_FILES_UNRESOLVED" {
+	if resp.Decision != "STOP_VPN_UNVERIFIED" && resp.Decision != "STOP_FILES_UNRESOLVED" && !(resp.Decision == "STOP_XRAY_NOT_CONFIRMED" && resp.XrayCore == "stopped") {
 		return false
 	}
 	for _, status := range []string{resp.Outbound, resp.Profile, resp.Filter} {

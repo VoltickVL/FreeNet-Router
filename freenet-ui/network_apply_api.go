@@ -619,6 +619,9 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	)
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
+	if req.ManualOverride && a.manualRecoveryCoreState() == "unknown" {
+		return http.StatusConflict, networkApplyResponse{Success:false,Operation:"provider",ProfileID:profileID,RollbackState:"NOT_APPLIED",Error:"production Xray process inventory is ambiguous; no config was changed"}
+	}
 	if req.ManualOverride {
 		if selectionToken != "" {
 			return http.StatusBadRequest, networkApplyResponse{Success:false, Operation:"provider", ProfileID:profileID, RollbackState:"NOT_APPLIED", Error:"manual override cannot combine with measured selection token"}
@@ -770,6 +773,10 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 				ProviderPlan: &appliedPlan, PrimaryError: "manual recovery checkpoint was not archived",
 				RollbackState: "FAILED/UNKNOWN", Error: "VPN recovery requires read-only reconciliation",
 			}
+		}
+		if err := a.setXrayRuntimeDesiredState(xrayRuntimeDesiredRunning); err != nil {
+			setAutomationMutationBlocked(true)
+			return http.StatusBadGateway, networkApplyResponse{Success:false, Operation:"provider", ProfileID:profileID, ProviderPlan:&appliedPlan, PrimaryError:err.Error(), RollbackState:"FAILED/UNKNOWN", Error:"selected VPN connected but persistent Xray running intent is not confirmed"}
 		}
 		if err := recordAutomationManualSwitchWithRecovery(time.Now().UTC(), manualRecovery); err != nil {
 			setAutomationMutationBlocked(true)
