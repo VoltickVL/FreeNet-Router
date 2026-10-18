@@ -69,18 +69,48 @@ func selectableSubscriptionProfiles(profiles []subscriptionProfile) []subscripti
 	return out
 }
 
-// Read paths consume the last successful safe catalog without forcing a
-// provider fetch every time an unrelated page requests a plan. A fresh fetch
-// is used only to bootstrap the cache when no last-known-good catalog exists.
+// Read paths must not offer an ID absent from the protected manual catalog.
+// A display-only JSON cache can outlive a parser version or a provider-cache
+// refresh. Prefer a safe projection of the source-bound LKG on disagreement;
+// never refresh a subscription or run a probe just to repair that projection.
 func (a *app) subscriptionProfilesForRead(ctx context.Context) (subscriptionRefreshResult, error) {
 	cacheInfo, cacheErr := os.Stat(subscriptionProfilesCachePath())
 	subInfo, subErr := os.Stat(a.cfg.SubPath)
 	cacheMatchesSource := cacheErr == nil && subErr == nil && !cacheInfo.ModTime().Before(subInfo.ModTime())
+	var cached subscriptionRefreshResult
+	cacheValid := false
 	if cacheMatchesSource {
-		if cached, err := loadSubscriptionProfilesCache(); err == nil {
+		var err error
+		cached, err = loadSubscriptionProfilesCache()
+		cacheValid = err == nil
+	}
+	if candidates, updatedAt, err := a.localManualProviderCatalog(); err == nil {
+		profiles := make([]subscriptionProfile, 0, len(candidates))
+		for _, candidate := range candidates {
+			// Copy only the public, credential-free value. Never expose Raw.
+			profiles = append(profiles, candidate.Profile)
+		}
+		visible := selectableSubscriptionProfiles(cached.Profiles)
+		matches := cacheValid && len(visible) == len(profiles)
+		if matches {
+			for i := range profiles {
+				if visible[i] != profiles[i] {
+					matches = false
+					break
+				}
+			}
+		}
+		if matches {
 			cached.Stale = false
 			return cached, nil
 		}
+		return subscriptionRefreshResult{Profiles: profiles, UpdatedAt: updatedAt, Stale: true}, nil
+	}
+	// Preserve legacy display/bootstrap behavior when the protected source is
+	// unavailable. Actual manual admission remains fail-closed in that case.
+	if cacheValid {
+		cached.Stale = false
+		return cached, nil
 	}
 	return a.refreshSubscriptionProfiles(ctx)
 }
