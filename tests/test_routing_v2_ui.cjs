@@ -519,13 +519,9 @@ const server=http.createServer(async(req,res)=>{
     assert.match(preview,/06_policy\.json: без изменений/);
 
     const before=calls.filter(x=>x==='POST /api/routing/apply').length;
-    await page.locator('#rv2ApplyConfig').click();
-    await page.waitForFunction(()=>document.querySelector('#rv2ApplyResult')?.textContent.includes('APPLIED'));
-    const after=calls.filter(x=>x==='POST /api/routing/apply').length;
-    assert.equal(after,before+1,'controlled apply must issue exactly one routing mutation');
-    const result=await page.locator('#rv2ApplyResult').textContent();
-    assert.match(result,/Результат: APPLIED/);assert.match(result,/Откат: NOT_NEEDED/);assert.match(result,/Xray Core restarted/);
+    assert.equal(await page.locator('#rv2ApplyConfig').isHidden(),true,'legacy raw-config apply must stay hidden because Config Studio owns the interactive raw-config mutation path');
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,before,'raw-config validation must not mutate routing by itself');
     assert.equal(errors.length,0,errors.join('\n'));assert.equal(consoleErrors.length,0,consoleErrors.join('\n'));
-    console.log('ROUTING_V2_RUNTIME',JSON.stringify(pre));console.log('ROUTING_V2_APPLY_CALLS',after);
+    console.log('ROUTING_V2_RUNTIME',JSON.stringify(pre));console.log('ROUTING_V2_APPLY_CALLS',before);
   }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});
