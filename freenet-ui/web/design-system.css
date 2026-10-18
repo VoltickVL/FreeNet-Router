@@ -745,8 +745,16 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
         #quickActionsSection{overflow:visible!important}
         .best-v4-current{border-radius:12px 12px 0 0!important}
         .best-v4-endpoint{border-radius:0 0 12px 12px!important}
-        
-        
+        /* On narrow screens keep the title, recommendation and action inside
+           the same card; do not compress readable text or clip the controls. */
+        .vpn-option-head{flex-wrap:wrap!important;align-items:flex-start!important}
+        .vpn-option-title{flex:1 1 100%!important}
+        .vpn-option-actions{flex:1 1 100%!important;width:100%!important;max-width:100%!important;min-width:0!important;
+          flex-direction:row!important;justify-content:flex-start!important;align-items:flex-start!important;
+          flex-wrap:wrap!important;gap:8px!important}
+        .vpn-option-actions .vpn-state-badge{max-width:100%!important;min-width:0!important;
+          white-space:normal!important;overflow-wrap:anywhere!important}
+        .vpn-option-actions .vpn-option-apply{max-width:100%!important}
       }
     
 
