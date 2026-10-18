@@ -8,6 +8,10 @@ const { chromium } = require('playwright');
 
 const uxScript = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'config-studio-ux.js'), 'utf8');
 const managerScript = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'xray-core-manager.js'), 'utf8');
+const canonicalHTML = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'index.html'), 'utf8');
+const renderAuth = canonicalHTML.match(/function renderAuth\(s\)\{[^\n]+/)[0];
+assert.ok(renderAuth.includes('freenet:auth-changed'), 'fixture must use the canonical authentication lifecycle');
+let serviceGets = 0;
 let catalogGets = 0;
 let applyPosts = 0;
 let applyBody = null;
@@ -22,6 +26,8 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>Xray Core 
 <style>
 .cs-notice{display:block}.cs-notice.show{display:block}.cs-notice.bad{display:block}
 </style></head><body>
+<section id="authSection"><div id="authConfirmField"></div><h1 id="authTitle"></h1><p id="authSubtitle"></p><button id="authSubmitBtn"></button><input id="authPassword"></section>
+<div id="controlCenter" hidden>
 <header class="topbar overview-approved"><div id="overviewApprovedTop" class="overview-approved-top fn-render-facts"><div id="dnsFact">DNS</div><div id="freenetFact">FreeNet</div></div><div class="top-actions"></div></header>
 <button data-page="access" id="journalNav">Журнал</button>
 <div class="rv2-modebar"><span id="rv2WorkspaceState" class="rv2-state">DRAFT · MUTATION: NONE</span></div>
@@ -34,6 +40,14 @@ const html = `<!doctype html><html><head><meta charset="utf-8"><title>Xray Core 
   <div id="csNotice" class="cs-notice show ok">Candidate прошёл xray run -test -confdir. Live config не изменён. MUTATION: NONE</div>
   <div id="csApplyNote">Live snapshot: 05_routing deadbeef · 06_policy cafebabe<br>Чтобы применить изменения, сначала выполните Проверить Xray.</div>
 </section>
+</div>
+<script>
+let authAuthenticated = false, authConfigured = true;
+const el = id => document.getElementById(id);
+function startControlCenter() {}
+function stopControlCenter() {}
+${renderAuth}
+</script>
 <script src="/config-studio-ux.js"></script><script src="/xray-core-manager.js"></script>
 </body></html>`;
 
@@ -56,6 +70,7 @@ const server = http.createServer((req, res) => {
   if (req.url === '/config-studio-ux.js') { res.writeHead(200, {'content-type':'application/javascript'}); res.end(uxScript); return; }
   if (req.url === '/xray-core-manager.js') { res.writeHead(200, {'content-type':'application/javascript'}); res.end(managerScript); return; }
   if (req.url === '/api/xray/service' && req.method === 'GET') {
+    serviceGets += 1;
     res.writeHead(200, {'content-type':'application/json'});
     res.end(JSON.stringify({success:true, online:serviceOnline, version:`${serviceVersion} (Xray, Penetrates Everything.) 52a412d (go1.27.1 linux/arm64)`, events:serviceEvents}));
     return;
@@ -118,7 +133,15 @@ const server = http.createServer((req, res) => {
   const page = await browser.newPage();
   try {
     await page.goto(`http://127.0.0.1:${port}/`);
+    await page.waitForSelector('#xrayTopbarChip', {state:'attached'});
+    await page.waitForTimeout(1200);
+    assert.equal(serviceGets, 0, 'before canonical login no service request may consume the hydration budget');
+    await page.evaluate(() => renderAuth({configured:true, authenticated:true}));
     await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.includes('v26.9.9'));
+    assert.equal(serviceGets, 1, 'canonical login must hydrate the installed Xray version without a click');
+    await page.locator('#xrayTopbarChip').evaluate(node => node.remove());
+    await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent === 'v26.9.9');
+    assert.equal(serviceGets, 1, 'remounted chip must render cached status without another request');
     assert.equal(await page.locator('#csServiceVersion').count(), 0, 'version has one canonical owner, not a Config Studio duplicate');
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'topbar Xray version must be compact');
     assert.equal(await page.locator('#overviewApprovedTop > :first-child').getAttribute('id'), 'xrayTopbarChip', 'Xray must appear before DNS / FreeNet facts in the topbar');
