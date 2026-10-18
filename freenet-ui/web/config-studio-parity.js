@@ -9,6 +9,8 @@
 
   const state = {
     mounted: false,
+    externalBusy: false,
+    applying: false,
     loading: false,
     loadPromise: null,
     active: '',
@@ -230,11 +232,15 @@
     const listTab = tab && tab.kind === 'list';
     const hasError = state.errors.has(state.active);
     const dirty = isDirty(state.active);
+    const blocked = state.externalBusy || state.applying;
+    const input = qs('#csInput');
+    if (input) input.readOnly = blocked;
+    document.querySelectorAll('.cs-shell .cs-tab').forEach(button => { button.disabled = blocked; });
     const format = qs('#csFormat'), reset = qs('#csReset'), apply = qs('#csApply');
-    if (format) format.disabled = !jsonEditable || listTab;
-    if (reset) reset.disabled = !jsonEditable || !dirty;
+    if (format) format.disabled = !jsonEditable || listTab || blocked;
+    if (reset) reset.disabled = !jsonEditable || !dirty || blocked;
     if (apply) {
-      apply.disabled = !jsonEditable || !dirty || hasError || state.stale;
+      apply.disabled = !jsonEditable || !dirty || hasError || state.stale || blocked;
       apply.textContent = 'Применить';
     }
   }
@@ -584,6 +590,7 @@
   }
 
   function formatActive() {
+    if (state.externalBusy || state.applying) return;
     const tab = activeTab();
     if (!tab || !JSON_TABS.has(tab.name)) return;
     const diagnostic = syntaxDiagnostic(activeText());
@@ -597,6 +604,7 @@
   }
 
   function resetActive() {
+    if (state.externalBusy || state.applying) return;
     if (state.stale) {
       void reloadWorkspace('Черновик отменён. Загружена актуальная live-конфигурация.', true, true);
       return;
@@ -646,7 +654,9 @@
 
   async function applyActive() {
     const tab = activeTab();
-    if (!tab || !isDirty(tab.name) || state.errors.has(tab.name) || state.stale) return;
+    if (!tab || !isDirty(tab.name) || state.errors.has(tab.name) || state.stale || state.externalBusy || state.applying) return;
+    state.applying = true;
+    renderStatusAndActions();
     const appliedTab = tab.name;
     const button = qs('#csApply');
     if (button) { button.disabled = true; button.textContent = 'Применяю…'; }
@@ -671,6 +681,7 @@
     } catch (error) {
       setNotice(`Apply не завершён: ${error.message || 'неизвестная ошибка'}. Blind retry не запускается. Проверьте результат/rollback перед повтором.`, 'bad');
     } finally {
+      state.applying = false;
       if (button) button.textContent = 'Применить';
       renderStatusAndActions();
     }
@@ -704,6 +715,12 @@
     if (mode !== 'config' || hasDirtyDrafts() || state.stale) return;
     await reloadWorkspace('', true);
   }
+
+  // The editor owns its disabled state; background polling cannot clear STALE.
+  document.addEventListener('freenet:controls-busy', event => {
+    state.externalBusy = !!event.detail;
+    renderStatusAndActions();
+  });
 
   document.addEventListener('freenet:xray-config-applied', event => { void handleExternalConfigApplied(event); });
   document.addEventListener('freenet:routing-mode-changed', event => { void handleRoutingModeChanged(event); });

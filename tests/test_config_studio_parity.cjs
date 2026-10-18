@@ -238,6 +238,9 @@ const server = http.createServer(async (req, res) => {
     assert.equal(await page.locator('#csApply').isDisabled(),false,'valid dirty draft must be saveable; backend validates during apply');
     const beforeValidate = calls.filter(x => x === 'POST /api/config-studio/validate').length;
     const beforeOut = calls.filter(x => x === 'POST /api/config-studio/apply').length;
+    await page.evaluate(() => buttonsBusy(true));
+    assert.equal(await page.locator('#csApply').isDisabled(),true,'editor must observe an external mutation');
+    await page.evaluate(() => buttonsBusy(false));
     await page.locator('#csApply').click();
     await page.waitForFunction(() => (document.querySelector('#csNotice')?.textContent || '').includes('post-validation'));
     assert.match(await page.locator('#csNotice').textContent(),/Xray Core.*core-only path/);
@@ -364,6 +367,9 @@ const server = http.createServer(async (req, res) => {
     })));
     await page.waitForFunction(() => (document.querySelector('#csNotice')?.textContent || '').includes('Локальный черновик сохранён'));
     assert.match(await page.locator('#csInput').inputValue(),/draft\.test/);
+    // Reproduce the former global poll overwriting the editor-owned STOP.
+    await page.evaluate(() => buttonsBusy(false));
+    assert.equal(await page.locator('#csApply').isDisabled(),true,'idle status poll must preserve STALE');
     // The routing/config modes also emit asynchronous workspace refreshes.
     // Wait for the *guarded state* to settle, not only for notice text.
     await page.waitForFunction(() => document.querySelector('#csApply')?.disabled === true, null, {timeout:10000});
@@ -395,6 +401,8 @@ const server = http.createServer(async (req, res) => {
     releaseStudioResponse();
     await page.waitForFunction(()=>window.__configReloadOutcome==='discarded');
     assert.match(await page.locator('#csInput').inputValue(),new RegExp('late-draft[.]test'),'late read must not overwrite draft');
+    await page.evaluate(() => { buttonsBusy(true); buttonsBusy(false); });
+    assert.equal(await page.locator('#csApply').isDisabled(),true,'busy/idle polling must not erase the stale draft guard');
     // A delayed GET may settle after its response has been released; the
     // stale marker and disabled Apply must remain authoritative.
     await page.waitForFunction(() => document.querySelector('#csApply')?.disabled === true, null, {timeout:10000});
