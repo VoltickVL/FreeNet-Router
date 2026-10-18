@@ -62,7 +62,9 @@ valid_recovery_checkpoint() {
     [ -d "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ] || return 1
     [ -f "$CHECKPOINT_DIR/state" ] && [ ! -L "$CHECKPOINT_DIR/state" ] || return 1
     [ "$(cat "$CHECKPOINT_DIR/state" 2>/dev/null)" = PENDING ] || return 1
-    [ ! -e "$CHECKPOINT_DIR/recovery.pending" ] && [ ! -L "$CHECKPOINT_DIR/recovery.pending" ] || return 1
+    if [ -e "$CHECKPOINT_DIR/recovery.pending" ] || [ -L "$CHECKPOINT_DIR/recovery.pending" ]; then
+        valid_recovery_attempt || return 1
+    fi
     for RECOVERY_KIND in out profile filter; do
         RECOVERY_BEFORE="$CHECKPOINT_DIR/$RECOVERY_KIND.before"
         RECOVERY_ABSENT="$CHECKPOINT_DIR/$RECOVERY_KIND.absent"
@@ -80,6 +82,48 @@ valid_recovery_checkpoint() {
         [ ! -e "$RECOVERY_LIVE" ] || [ -f "$RECOVERY_LIVE" ] || return 1
     done
     return 0
+}
+
+# A previous fully written recovery snapshot is preserved before the next
+# explicit attempt. Incomplete snapshots and unknown writers remain STOP.
+valid_recovery_attempt() {
+    ATTEMPT="$CHECKPOINT_DIR/recovery.pending"
+    [ -d "$ATTEMPT" ] && [ ! -L "$ATTEMPT" ] || return 1
+    [ -f "$ATTEMPT/state" ] && [ ! -L "$ATTEMPT/state" ] || return 1
+    [ "$(cat "$ATTEMPT/state")" = PENDING ] || return 1
+    if [ -e "$ATTEMPT/core.before" ] || [ -L "$ATTEMPT/core.before" ]; then
+        [ -f "$ATTEMPT/core.before" ] && [ ! -L "$ATTEMPT/core.before" ] || return 1
+        case "$(cat "$ATTEMPT/core.before")" in running|stopped) ;; *) return 1 ;; esac
+    fi
+    for KIND in out profile filter; do
+        BEFORE="$ATTEMPT/$KIND.before"; ABSENT="$ATTEMPT/$KIND.absent"
+        [ ! -L "$BEFORE" ] && [ ! -L "$ABSENT" ] || return 1
+        if [ -f "$BEFORE" ]; then
+            [ ! -e "$ABSENT" ] && [ -r "$BEFORE" ] || return 1
+            [ "$(wc -c < "$BEFORE")" -le 2097152 ] || return 1
+        else
+            [ ! -e "$BEFORE" ] && [ -f "$ABSENT" ] || return 1
+            [ "$(wc -c < "$ABSENT")" -eq 0 ] || return 1
+        fi
+    done
+}
+
+archive_recovery_attempt() {
+    ATTEMPT_RESULT="$1"
+    ATTEMPT_ROOT="$(dirname "$CHECKPOINT_DIR")/vpn-transaction.attempts"
+    if [ -e "$ATTEMPT_ROOT" ] || [ -L "$ATTEMPT_ROOT" ]; then
+        [ -d "$ATTEMPT_ROOT" ] && [ ! -L "$ATTEMPT_ROOT" ] || return 1
+    else
+        (umask 077; mkdir "$ATTEMPT_ROOT") || return 1
+    fi
+    chmod 700 "$ATTEMPT_ROOT" || return 1
+    ATTEMPT_DEST="$ATTEMPT_ROOT/$(date -u '+%Y%m%dT%H%M%SZ').$$"
+    [ ! -e "$ATTEMPT_DEST" ] && [ ! -L "$ATTEMPT_DEST" ] || return 1
+    # Do not rewrite either generation of saved configuration bytes.
+    printf '%s\n' "$ATTEMPT_RESULT" > "$CHECKPOINT_DIR/recovery.pending/result" || return 1
+    mv "$CHECKPOINT_DIR/recovery.pending" "$ATTEMPT_DEST" || return 1
+    if command -v sync >/dev/null 2>&1; then sync || return 1; fi
+    [ ! -e "$CHECKPOINT_DIR/recovery.pending" ] && [ -d "$ATTEMPT_DEST" ]
 }
 
 # A second durable checkpoint captures ACTUAL live bytes. The original
@@ -102,6 +146,9 @@ begin_recovery_checkpoint() {
             : > "$RECOVERY_DIR/$RECOVERY_KIND.absent" || return 1
         fi
     done
+    if [ "$WAS_RUNNING" -eq 1 ]; then BEFORE_CORE=running; else BEFORE_CORE=stopped; fi
+    printf '%s\n' "$BEFORE_CORE" > "$RECOVERY_DIR/core.before" || return 1
+    chmod 600 "$RECOVERY_DIR/core.before" || return 1
     printf 'PENDING\n' > "$RECOVERY_DIR/state" || return 1
     chmod 600 "$RECOVERY_DIR/state" || return 1
     if command -v sync >/dev/null 2>&1; then sync || return 1; fi
@@ -488,16 +535,60 @@ build_vless_object() {
           )
         }' > "$VLESS_OBJECT"
 }
+jsonc_normalize() {
+    awk '
+        BEGIN { in_string=0; escaped=0; block=0; pending=0; ws="" }
+        function flush_pending() { if (pending) { printf ",%s", ws; pending=0; ws="" } }
+        {
+            line=$0; i=1
+            while (i <= length(line)) {
+                c=substr(line,i,1); n=(i < length(line) ? substr(line,i+1,1) : "")
+                if (block) {
+                    if (c == "*" && n == "/") { block=0; i+=2 } else i++
+                    continue
+                }
+                if (in_string) {
+                    printf "%s", c
+                    if (escaped) escaped=0
+                    else if (c == "\\") escaped=1
+                    else if (c == "\"") in_string=0
+                    i++; continue
+                }
+                if (c == "/" && n == "/") break
+                if (c == "/" && n == "*") { block=1; i+=2; continue }
+                if (pending) {
+                    if (c == " " || c == "\t" || c == "\r") { ws=ws c; i++; continue }
+                    if (c == "}" || c == "]") { printf "%s%s", ws, c; pending=0; ws=""; i++; continue }
+                    flush_pending()
+                }
+                if (c == "\"") { in_string=1; printf "%s", c; i++; continue }
+                if (c == ",") { pending=1; ws=""; i++; continue }
+                printf "%s", c; i++
+            }
+            if (pending) ws=ws "\n"; else printf "\n"
+        }
+        END {
+            if (pending) printf ",%s", ws
+            if (block || in_string) exit 2
+        }
+    ' "$1"
+}
+
 build_candidate() {
-    if [ -f "$OUT_FILE" ] && jq -e '(.outbounds | type) == "array"' "$OUT_FILE" >/dev/null 2>&1; then
+    if [ -e "$OUT_FILE" ] || [ -L "$OUT_FILE" ]; then
+        [ -f "$OUT_FILE" ] && [ ! -L "$OUT_FILE" ] && [ -r "$OUT_FILE" ] || return 1
+        NORMALIZED_OUT="$TMP_DIR/current-outbounds.json"
+        jsonc_normalize "$OUT_FILE" > "$NORMALIZED_OUT" || return 1
+        jq -e '(.outbounds | type) == "array"' "$NORMALIZED_OUT" >/dev/null 2>&1 || return 1
         jq --slurpfile replacement "$VLESS_OBJECT" '
           .outbounds as $old
           | ($old | map(select(.tag != "vless-reality"))) as $rest0
           | ($rest0 | if any(.[]; .tag == "direct") then . else . + [{tag:"direct",protocol:"freedom",streamSettings:{sockopt:{mark:255}}}] end) as $rest1
           | ($rest1 | if any(.[]; .tag == "block") then . else . + [{tag:"block",protocol:"blackhole"}] end) as $rest2
           | .outbounds = ([$replacement[0]] + $rest2)
-        ' "$OUT_FILE" > "$CANDIDATE_OUT" || return 1
+        ' "$NORMALIZED_OUT" > "$CANDIDATE_OUT" || return 1
     else
+        [ ! -e "$OUT_FILE" ] && [ ! -L "$OUT_FILE" ] || { err 'existing outbound is unreadable or invalid; candidate did not replace it'; return 1; }
         jq -n --slurpfile replacement "$VLESS_OBJECT" '
           {outbounds:[$replacement[0],{tag:"direct",protocol:"freedom",streamSettings:{sockopt:{mark:255}}},{tag:"block",protocol:"blackhole"}]}
         ' > "$CANDIDATE_OUT" || return 1
@@ -678,13 +769,22 @@ single_xray_pid() {
 }
 
 core_restart_preflight() {
+    PIDS="$(pidof xray 2>/dev/null || true)"
+    set -- $PIDS
+    [ "$#" -le 1 ] || return 1
+    if [ "$#" -eq 0 ]; then
+        [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] || return 1
+    else
+        case "$1" in ''|0|*[!0-9]*) return 1 ;; esac
+    fi
     if [ -n "$CORE_RESTART_HELPER" ]; then
         [ -x "$CORE_RESTART_HELPER" ] || return 1
         return 0
     fi
     command -v kill >/dev/null 2>&1 || return 1
     [ -x "$XKEEN_BIN" ] || return 1
-    single_xray_pid >/dev/null 2>&1
+    if single_xray_pid >/dev/null 2>&1; then return 0; fi
+    [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] && [ -z "$(pidof xray 2>/dev/null || true)" ]
 }
 
 # Only stage names and numeric exit codes are reported; XKeen output may
@@ -782,11 +882,15 @@ restart_xray_core() {
 }
 
 restart_if_needed() {
-    [ "$WAS_RUNNING" -eq 1 ] || return 0
     if [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; then
-        restart_xray_core no
+        if [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
+            restart_xray_core yes
+        else
+            restart_xray_core no
+        fi
         return $?
     fi
+    [ "$WAS_RUNNING" -eq 1 ] || return 0
     CORE_RESTART_STAGE="xkeen-full-restart"
     if "$XKEEN_BIN" -restart >/dev/null 2>&1; then
         sleep 4
@@ -821,6 +925,28 @@ verify_restored_provider_files() {
         [ ! -e "$FILTER_FILE" ] && [ ! -L "$FILTER_FILE" ] || return 1
     fi
     return 0
+}
+
+restore_previously_stopped_core() {
+    if [ -n "$CORE_RESTART_HELPER" ]; then
+        "$CORE_RESTART_HELPER" stop || return 1
+        [ -z "$(pidof xray 2>/dev/null || true)" ]
+        return $?
+    fi
+    PIDS="$(pidof xray 2>/dev/null || true)"
+    set -- $PIDS
+    [ "$#" -eq 0 ] && return 0
+    [ "$#" -eq 1 ] || return 1
+    STOP_PID="$1"
+    kill "$STOP_PID" 2>/dev/null || return 1
+    I=0
+    while kill -0 "$STOP_PID" 2>/dev/null && [ "$I" -lt 40 ]; do short_pause; I=$((I + 1)); done
+    if kill -0 "$STOP_PID" 2>/dev/null; then
+        kill -9 "$STOP_PID" 2>/dev/null || return 1
+        I=0
+        while kill -0 "$STOP_PID" 2>/dev/null && [ "$I" -lt 10 ]; do short_pause; I=$((I + 1)); done
+    fi
+    [ -z "$(pidof xray 2>/dev/null || true)" ]
 }
 
 rollback_state() {
@@ -877,14 +1003,23 @@ rollback_state() {
             fi
         fi
     else
-        ROLLBACK_CORE_STATUS="PREVIOUSLY_STOPPED"
+        if { [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; } && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
+            if restore_previously_stopped_core; then
+                ROLLBACK_CORE_STATUS="PREVIOUSLY_STOPPED"
+            else
+                ROLLBACK_CORE_STATUS="FAILED"
+                RB=1
+            fi
+        else
+            ROLLBACK_CORE_STATUS="PREVIOUSLY_STOPPED"
+        fi
     fi
     if [ "$RB" -eq 0 ]; then
         if provider_route_probe "$OUT_FILE"; then
             ROLLBACK_VPN_STATUS="REACHABLE"
         else
             ROLLBACK_VPN_STATUS="UNREACHABLE"
-            RB=1
+            # An already-dead endpoint does not invalidate restored files/core.
         fi
     else
         ROLLBACK_VPN_STATUS="NOT_TESTED"
@@ -915,8 +1050,16 @@ fail_apply() {
     if [ "$APPLIED" -eq 1 ] && [ "$ROLLBACK_ACTIVE" -eq 0 ]; then
         if rollback_state; then
             if [ "$MODE" = recover-core ]; then
-                err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN (original checkpoint retained after manual recovery)'
+                if archive_recovery_attempt ROLLED_BACK; then
+                    err 'ROLLBACK ERROR/STATE: rollback success (original checkpoint retained; another explicit candidate is allowed)'
+                    exit 1
+                fi
+                err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN (attempt archive not confirmed)'
                 exit 2
+            fi
+            if [ "$ROLLBACK_VPN_STATUS" != REACHABLE ] || { [ "$ROLLBACK_CORE_STATUS" = PREVIOUSLY_STOPPED ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; }; then
+                err 'ROLLBACK ERROR/STATE: rollback success (files/core restored, old VPN unavailable; protected manual recovery is available)'
+                exit 1
             fi
             if clear_checkpoint; then
                 err 'ROLLBACK ERROR/STATE: rollback success'
@@ -1039,10 +1182,14 @@ say '========== END =========='
 
 snapshot_state || fail_apply 'cannot snapshot current provider state'
 if [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; then
-    [ "$WAS_RUNNING" -eq 1 ] || fail_apply 'safe core-only Xray restart requires exactly one running Xray process'
+    [ "$WAS_RUNNING" -eq 1 ] || [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] || fail_apply 'safe core-only Xray restart requires exactly one running Xray process'
     core_restart_preflight || fail_apply 'safe core-only Xray restart is unavailable or runtime state is ambiguous'
 fi
 if [ "$MODE" = recover-core ]; then
+    if [ -e "$CHECKPOINT_DIR/recovery.pending" ]; then
+        # Candidate/config validation and the writer fence precede reconciliation.
+        archive_recovery_attempt RECONCILED || fail_apply 'cannot archive complete prior recovery evidence; STOP before mutation'
+    fi
     begin_recovery_checkpoint || fail_apply 'cannot persist separate protected manual recovery snapshot; STOP before mutation'
 else
     begin_checkpoint || fail_apply 'cannot persist protected VPN transaction checkpoint; STOP before mutation'

@@ -116,7 +116,7 @@ if manual_recover "$PROFILE_ID" > "$TMP/ambiguous.out" 2>&1; then fail 'multiple
 echo running > "$TMP/core.state"
 mkdir "$TMP/vpn-mutation.lock"; echo 9001 > "$TMP/vpn-mutation.lock/pid"
 if manual_recover "$PROFILE_ID" > "$TMP/busy.out" 2>&1; then fail 'foreign writer bypassed'; fi
-[ "$(cat "$TMP/vpn-mutation.lock/pid")" ] = 9001 || fail 'writer lock stolen'
+[ "$(cat "$TMP/vpn-mutation.lock/pid")" = 9001 ] || fail 'writer lock stolen'
 [ "$BEFORE" = "$(sha256sum "$TMP/configs/04_outbounds.json")" ] || fail 'busy recovery mutated config'
 
 if grep -Eq 'TEST-ID-|TEST-PBK-|TEST-SID-|private-token|vless://' "$TMP/manual-start.out" "$TMP/fail-stopped.out" "$TMP/next-start.out" "$TMP/interrupted.out"; then fail 'recovery output leaked synthetic secrets'; fi
