@@ -140,6 +140,7 @@ func (a *app) recoveryUpdaterEnv(target string) []string {
 		"FREENET_CURRENT_VERSION=v"+version,
 		"FREENET_UPDATE_STATE_FILE="+a.cfg.UpdateState,
 		"FREENET_UPDATE_LOCK_DIR="+a.cfg.UpdateLock,
+		"FREENET_UPDATE_MUTATION_LOCK="+a.cfg.LockPath,
 		"FREENET_LATEST_TAG="+target,
 	)
 	if validBetaReleaseTag(target) {
@@ -269,6 +270,10 @@ func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := a.selfUpdateStateAdmission(); err != nil {
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: err.Error()})
+		return
+	}
 	stateKV := readStateFile(a.cfg.UpdateState)
 	state := strings.TrimSpace(stateKV["STATE"])
 	rollback := strings.TrimSpace(stateKV["ROLLBACK_STATE"])
@@ -307,6 +312,12 @@ func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "Updater начал другую операцию. Recovery ничего не изменил."})
 		return
 	}
+	releaseSlot, reserved := a.reserveApplicationUpdateSlot()
+	if !reserved {
+		a.updateMu.Unlock()
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "Другая операция FreeNet ещё выполняется; Recovery не начал изменений."})
+		return
+	}
 	a.updateLaunching = true
 	a.updateTarget = "recovery"
 	a.updateMu.Unlock()
@@ -315,6 +326,7 @@ func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	dir, script, plan, err := a.prepareVerifiedRecoveryUpdater(ctx, exactTarget)
 	if err != nil {
+		releaseSlot()
 		a.releaseRecoveryLaunch()
 		v3AppendEvent("freenet_update_recovery", "failed", "Browser recovery остановлен до mutation: "+err.Error())
 		writeJSON(w, http.StatusBadGateway, actionResult{Success: false, Error: "Восстановление updater не подтверждено: " + err.Error()})
@@ -332,6 +344,7 @@ func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 	cmd.Stderr = nil
 	if err := cmd.Start(); err != nil {
 		os.RemoveAll(dir)
+		releaseSlot()
 		a.releaseRecoveryLaunch()
 		v3AppendEvent("freenet_update_recovery", "failed", "Verified updater подтверждён, но процесс apply не запустился.")
 		writeJSON(w, http.StatusInternalServerError, actionResult{Success: false, Error: "Проверенный updater подтверждён, но не удалось запустить apply."})
@@ -343,6 +356,7 @@ func (a *app) handleSelfUpdateRecover(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		_ = cmd.Wait()
 		os.RemoveAll(dir)
+		releaseSlot()
 		a.releaseRecoveryLaunch()
 	}()
 

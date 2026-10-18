@@ -1,0 +1,291 @@
+name: FreeNet Router Release
+
+on:
+  push:
+    branches:
+      - stable/v0.7
+      - beta/v0.8.0
+    paths:
+      - VERSION
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: freenet-ui/go.mod
+
+      - name: Read version
+        id: version
+        run: |
+          VERSION="$(tr -d '\r\n' < VERSION)"
+          case "$GITHUB_REF_NAME" in
+            stable/v0.7)
+              echo "$VERSION" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$' ||
+                { echo "Stable branch refuses Beta tags: $VERSION" >&2; exit 1; }
+              CHANNEL=stable ;;
+            beta/v0.8.0)
+              echo "$VERSION" | grep -Eq '^v0\.8\.0-beta\.([1-9]|[1-9][0-9])$' ||
+                { echo "Beta branch requires exact v0.8.0-beta.N tag: $VERSION" >&2; exit 1; }
+              CHANNEL=beta ;;
+            *) echo "Unsupported release branch $GITHUB_REF_NAME" >&2; exit 1 ;;
+          esac
+          CORE="${VERSION%%-beta.*}"
+          PATCH="${CORE##*.}"
+          case "$PATCH" in
+            ''|*[!0-9]*) echo "Invalid VERSION patch: $VERSION" >&2; exit 1 ;;
+          esac
+          [ "$PATCH" -le 99 ] || { echo "Invalid VERSION patch: $VERSION" >&2; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      - name: Проверить русское описание выпуска
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          NOTES_FILE="docs/releases/${VERSION}.md"
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "Нет обязательного русского списка изменений: $NOTES_FILE" >&2
+            exit 1
+          fi
+          if ! grep -Fq '## Что изменилось' "$NOTES_FILE"; then
+            echo "В описании нет заголовка «Что изменилось»" >&2
+            exit 1
+          fi
+          if [ "$(wc -c < "$NOTES_FILE")" -gt 10000 ]; then
+            echo "Описание выпуска слишком длинное" >&2
+            exit 1
+          fi
+      - name: Stamp UI version from VERSION
+        run: |
+          VERSION="$(tr -d '\r\n' < VERSION)"
+          UI_VERSION="${VERSION#v}"
+          sed -i "s/^const version = \".*\"$/const version = \"$UI_VERSION\"/" freenet-ui/main.go
+          grep -Fq "const version = \"$UI_VERSION\"" freenet-ui/main.go
+          echo "FreeNet UI version: $UI_VERSION"
+
+      - name: Tests
+        working-directory: freenet-ui
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Shell syntax
+        run: |
+          sh -n bootstrap.sh
+          sh -n install.sh
+          sh -n scripts/vpn
+          sh -n scripts/vpn_quality_probe.sh
+          sh -n scripts/blanc_xkeen_update_outbounds.sh
+          sh -n scripts/migrate_split_dns.sh
+          sh -n scripts/bootstrap_entware.sh
+          sh -n scripts/bootstrap_router_ultra.sh
+          sh -n scripts/apply_network_profile.sh
+          sh -n scripts/apply_provider_profile.sh
+          sh -n scripts/finalize_setup.sh
+          sh -n scripts/self_update.sh
+          sh -n scripts/legacy_update_bridge.sh
+          sh -n tests/test_vpn_quality_probe.sh
+          sh -n tests/test_split_dns_migration.sh
+          sh -n tests/test_bootstrap_contract.sh
+          sh -n tests/test_product_bootstrap_contract.sh
+          sh -n tests/test_router_stage0_bootstrap.sh
+          sh -n tests/test_network_profile_contract.sh
+          sh -n tests/test_retired_network_product.sh
+          sh -n tests/test_network_partial_native_recovery.sh
+          sh -n tests/test_provider_profile_apply.sh
+          sh -n tests/test_provider_route_probe_builtin.sh
+          sh -n tests/test_finalize_setup.sh
+          sh -n tests/test_self_update.sh
+          sh -n tests/test_legacy_update_bridge.sh
+          sh -n deploy/S99freenet-ui
+
+      - name: VPN quality read-only contract test
+        run: sh tests/test_vpn_quality_probe.sh
+
+      - name: Split DNS migration candidate test
+        run: sh tests/test_split_dns_migration.sh
+
+      - name: Entware bootstrap contract test
+        run: sh tests/test_bootstrap_contract.sh
+
+      - name: Product bootstrap contract test
+        run: sh tests/test_product_bootstrap_contract.sh
+
+      - name: Router stage-0 bootstrap contract test
+        run: sh tests/test_router_stage0_bootstrap.sh
+
+      - name: DNS topology contract test
+        run: sh tests/test_network_profile_contract.sh
+
+      - name: Retired network product source gate
+        run: sh tests/test_retired_network_product.sh
+
+      - name: Partial native control-plane recovery test
+        run: sh tests/test_network_partial_native_recovery.sh
+
+      - name: Provider profile transactional test
+        run: sh tests/test_provider_profile_apply.sh
+
+      - name: Provider built-in route probe runtime test
+        run: sh tests/test_provider_route_probe_builtin.sh
+
+      - name: Browser setup completion contract test
+        run: sh tests/test_finalize_setup.sh
+
+      - name: Web self update transactional contract
+        run: sh tests/test_self_update.sh
+
+      - name: Legacy updater bridge contract
+        run: sh tests/test_legacy_update_bridge.sh
+
+      - name: Installer contract
+        run: |
+          grep -q 'REPO="VoltickVL/FreeNet-Router"' install.sh
+          grep -q 'bootstrap_ip' install.sh
+          grep -q 'normalize_legacy_cron' install.sh
+          grep -q 'migrate_split_dns.sh' install.sh
+          grep -q 'abort_signal' install.sh
+          ! grep -q 'setup.sh' install.sh
+          grep -q 'cp bootstrap.sh dist/bootstrap.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/vpn_quality_probe.sh dist/vpn_quality_probe.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/apply_network_profile.sh dist/apply_network_profile.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/apply_provider_profile.sh dist/apply_provider_profile.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/finalize_setup.sh dist/finalize_setup.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/bootstrap_router_ultra.sh dist/bootstrap_router_ultra.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/self_update.sh dist/self_update.sh' .github/workflows/release.yml
+          grep -q 'cp scripts/legacy_update_bridge.sh dist/legacy_update_bridge.sh' .github/workflows/release.yml
+          grep -q 'cp config/upstream-pins.env dist/upstream-pins.env' .github/workflows/release.yml
+          grep -q 'Stamp UI version from VERSION' .github/workflows/release.yml
+
+      - name: Secret surface guard
+        run: |
+          ! grep -Rni --exclude='*_test.go' -E \
+            'vless://[0-9A-Fa-f-]{36}@|withblancvpn\.online|87\.86\.183\.|46\.37\.141\.4|blanc_subscription\.url.*https?://|"publicKey"[[:space:]]*:[[:space:]]*"[^$]' \
+            bootstrap.sh install.sh scripts tests config freenet-ui deploy README.md docs
+
+      - name: Build direct router assets
+        run: |
+          mkdir -p dist
+          (
+            cd freenet-ui
+            CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+              go build -trimpath -ldflags='-s -w' -o ../dist/freenet-ui-arm64-v8a .
+          )
+          (
+            cd freenet-ui
+            CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat \
+              go build -trimpath -ldflags='-s -w' -o ../dist/freenet-ui-mips32le .
+          )
+          (
+            cd freenet-ui
+            CGO_ENABLED=0 GOOS=linux GOARCH=mips GOMIPS=softfloat \
+              go build -trimpath -ldflags='-s -w' -o ../dist/freenet-ui-mips32 .
+          )
+
+          cp bootstrap.sh dist/bootstrap.sh
+          cp scripts/vpn dist/vpn
+          cp scripts/vpn_quality_probe.sh dist/vpn_quality_probe.sh
+          cp scripts/blanc_xkeen_update_outbounds.sh dist/blanc_xkeen_update_outbounds.sh
+          cp scripts/migrate_split_dns.sh dist/migrate_split_dns.sh
+          cp scripts/apply_network_profile.sh dist/apply_network_profile.sh
+          cp scripts/apply_provider_profile.sh dist/apply_provider_profile.sh
+          cp scripts/finalize_setup.sh dist/finalize_setup.sh
+          cp scripts/bootstrap_entware.sh dist/bootstrap_entware.sh
+          cp scripts/bootstrap_router_ultra.sh dist/bootstrap_router_ultra.sh
+          cp scripts/self_update.sh dist/self_update.sh
+          cp scripts/legacy_update_bridge.sh dist/legacy_update_bridge.sh
+          cp config/upstream-pins.env dist/upstream-pins.env
+          cp install.sh dist/freenet
+          cp config/freenet.conf.example dist/freenet.conf.example
+
+          # Capabilities are part of the exact release SHA manifest, not inferred
+          # from a newer version number or mutable REST metadata.
+          python3 - <<'PYMETA'
+          import json, pathlib
+          tag = pathlib.Path('VERSION').read_text().strip()
+          notes = pathlib.Path('docs/releases/' + tag + '.md').read_text()
+          pathlib.Path('dist/recovery-protocol.json').write_text(json.dumps({'tag':tag,'protocol':2})+'\n')
+          pathlib.Path('dist/release-metadata.json').write_text(json.dumps({'tag_name':tag,'draft':False,'prerelease':'-beta.' in tag,'body':notes},ensure_ascii=False)+'\n')
+          PYMETA
+
+          chmod 755 \
+            dist/bootstrap.sh \
+            dist/freenet-ui-arm64-v8a \
+            dist/freenet-ui-mips32le \
+            dist/freenet-ui-mips32 \
+            dist/vpn \
+            dist/vpn_quality_probe.sh \
+            dist/blanc_xkeen_update_outbounds.sh \
+            dist/migrate_split_dns.sh \
+            dist/apply_network_profile.sh \
+            dist/apply_provider_profile.sh \
+            dist/finalize_setup.sh \
+            dist/bootstrap_entware.sh \
+            dist/bootstrap_router_ultra.sh \
+            dist/self_update.sh \
+            dist/legacy_update_bridge.sh \
+            dist/freenet
+
+          (
+            cd dist
+            sha256sum \
+              bootstrap.sh \
+              freenet-ui-arm64-v8a \
+              freenet-ui-mips32le \
+              freenet-ui-mips32 \
+              vpn \
+              vpn_quality_probe.sh \
+              blanc_xkeen_update_outbounds.sh \
+              migrate_split_dns.sh \
+              apply_network_profile.sh \
+              apply_provider_profile.sh \
+              finalize_setup.sh \
+              bootstrap_entware.sh \
+              bootstrap_router_ultra.sh \
+              self_update.sh \
+              recovery-protocol.json \
+              release-metadata.json \
+              legacy_update_bridge.sh \
+              upstream-pins.env \
+              freenet \
+              freenet.conf.example \
+              > SHA256SUMS
+          )
+
+          file dist/freenet-ui-*
+          cat dist/SHA256SUMS
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists; VERSION must be bumped." >&2
+            exit 1
+          fi
+          NOTES_FILE="docs/releases/${VERSION}.md"
+          if [ "${{ steps.version.outputs.channel }}" = beta ]; then
+            # Pre-releases must NEVER replace the Stable /releases/latest.
+            gh release create "$VERSION" dist/* \
+              --target "$GITHUB_SHA" \
+              --title "FreeNet Router $VERSION · BETA" \
+              --prerelease --latest=false \
+              --notes-file "$NOTES_FILE"
+          else
+            gh release create "$VERSION" dist/* \
+              --target "$GITHUB_SHA" \
+              --title "FreeNet Router $VERSION" \
+              --notes-file "$NOTES_FILE"
+          fi

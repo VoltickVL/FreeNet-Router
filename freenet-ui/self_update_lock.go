@@ -20,7 +20,8 @@ func selfUpdateProcRoot() string {
 func updaterCmdlineMatches(data []byte, helper string) bool {
 	parts := bytes.Split(data, []byte{0})
 	for i := 0; i < len(parts); i++ {
-		if string(parts[i]) != helper {
+		candidate := string(parts[i])
+		if candidate != helper && !temporaryRecoveryUpdaterPath(candidate) {
 			continue
 		}
 		if i+1 < len(parts) && string(parts[i+1]) == "apply" {
@@ -40,8 +41,12 @@ func (a *app) selfUpdateProcessActivity() (active bool, observable bool) {
 
 	if b, err := os.ReadFile(filepath.Join(a.cfg.UpdateLock, "owner.pid")); err == nil {
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil && pid > 0 {
-			if cmdline, err := os.ReadFile(filepath.Join(root, strconv.Itoa(pid), "cmdline")); err == nil && updaterCmdlineMatches(cmdline, a.cfg.SelfUpdatePath) {
+			cmdline, readErr := os.ReadFile(filepath.Join(root, strconv.Itoa(pid), "cmdline"))
+			if readErr == nil && updaterCmdlineMatches(cmdline, a.cfg.SelfUpdatePath) {
 				return true, true
+			}
+			if readErr != nil && !os.IsNotExist(readErr) {
+				return false, false
 			}
 		}
 	}
@@ -71,7 +76,7 @@ func staleUpdateUnlockSafe(kv map[string]string) bool {
 		return false
 	}
 	switch state {
-	case "", "IDLE", "CHECKING", "BUSY", "FAILED", "SUCCESS":
+	case "", "IDLE", "CHECKING", "SNAPSHOT", "BUSY", "FAILED", "SUCCESS":
 		return rollback == "" || rollback == "NOT_NEEDED" || rollback == "SUCCESS"
 	default:
 		return false
@@ -160,6 +165,9 @@ func (a *app) unlockStaleUpdateLock() error {
 	}
 	if !observable {
 		return errors.New("updater process state cannot be verified")
+	}
+	if err := a.releaseStaleUpdateFence(); err != nil {
+		return err
 	}
 	if err := os.RemoveAll(a.cfg.UpdateLock); err != nil {
 		return errors.New("cannot remove stale update lock")

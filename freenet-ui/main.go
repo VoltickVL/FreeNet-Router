@@ -462,6 +462,7 @@ func (a *app) selfUpdateCommand(args ...string) *exec.Cmd {
 		"FREENET_CURRENT_VERSION=v"+version,
 		"FREENET_UPDATE_STATE_FILE="+a.cfg.UpdateState,
 		"FREENET_UPDATE_LOCK_DIR="+a.cfg.UpdateLock,
+		"FREENET_UPDATE_MUTATION_LOCK="+a.cfg.LockPath,
 	)
 	// The helper refuses all prereleases without an explicit exact target.
 	// This is only reached after the authenticated Browser acknowledges Beta.
@@ -577,8 +578,10 @@ func validSelectableReleaseTag(tag string) bool {
 }
 
 func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
-	if automationMutationBlockedState() {
-		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "VPN transaction pending/unknown: self-update blocked"})
+	// Updating application files is independent from VPN availability. The
+	// helper serializes against live network writers and preserves VPN evidence.
+	if err := a.selfUpdateStateAdmission(); err != nil {
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: err.Error()})
 		return
 	}
 	if !sameOrigin(r) {
@@ -648,6 +651,12 @@ func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	releaseSlot, reserved := a.reserveApplicationUpdateSlot()
+	if !reserved {
+		a.updateMu.Unlock()
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "Другая операция FreeNet ещё выполняется; обновление не начато."})
+		return
+	}
 	cmd := a.selfUpdateCommand("apply", req.TargetTag)
 	cmd.Stdin = nil
 	cmd.Stdout = nil
@@ -655,6 +664,7 @@ func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 	a.updateLaunching = true
 	a.updateTarget = req.TargetTag
 	if err := cmd.Start(); err != nil {
+		releaseSlot()
 		a.updateLaunching = false
 		a.updateTarget = ""
 		a.updateMu.Unlock()
@@ -667,6 +677,7 @@ func (a *app) handleSelfUpdateApply(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		_ = cmd.Wait()
+		releaseSlot()
 		a.updateMu.Lock()
 		if a.updateTarget == target {
 			a.updateLaunching = false
