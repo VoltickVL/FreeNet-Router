@@ -12,9 +12,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: b1640ec06740b1e26b4553fbd3f9c6eb4e7d20b3
       - name: Export exact audited source
         run: |
-          test "$(git rev-parse HEAD^)" = b1640ec06740b1e26b4553fbd3f9c6eb4e7d20b3
+          test "$(git rev-parse HEAD)" = b1640ec06740b1e26b4553fbd3f9c6eb4e7d20b3
           git archive --format=tar HEAD > /tmp/freenet-update-source.tar
       - uses: actions/upload-artifact@v4
         with:
