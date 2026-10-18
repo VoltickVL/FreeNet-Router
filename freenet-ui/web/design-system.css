@@ -785,7 +785,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
       }
       .best-v4-current .fn-current-connected{
         grid-column:3!important;align-self:center!important;
-        min-height:26px!important;padding:4px 9px!important
+        margin-left:9px!important;min-height:26px!important;padding:4px 9px!important
       }
       .best-v4-endpoint{
         margin:0 0 12px!important;padding:6px 2px 12px 44px!important;
