@@ -66,6 +66,11 @@ func legacyHandoffState(path string) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if strings.TrimSpace(line) != "" && !strings.Contains(line, "=") {
+			return nil, errors.New("state syntax is not understood")
+		}
+	}
 	return parseKVOutput(string(data)), nil
 }
 
@@ -119,11 +124,20 @@ func init() {
 
 func legacyHandoffUpdateBlocked(a *app) bool {
 	state, err := legacyHandoffState(a.cfg.UpdateState)
-	if err != nil {
+	if err != nil || a.updateLockHeld() {
 		return true
 	}
-	return state["STATE"] == "ROLLBACK_FAILED" || state["ROLLBACK_STATE"] == "PENDING" ||
-		state["ROLLBACK_STATE"] == "FAILED_UNKNOWN" || a.updateLockHeld()
+	// Continuation requires a KNOWN terminal first-hop result. A missing,
+	// malformed, active or unrecognized updater state is never an unlock.
+	rollback := state["ROLLBACK_STATE"]
+	switch state["STATE"] {
+	case "SUCCESS":
+		return rollback != "NOT_NEEDED" && rollback != "SUCCESS"
+	case "FAILED":
+		return rollback != "NOT_NEEDED" && rollback != "SUCCESS"
+	default:
+		return true
+	}
 }
 
 func legacyHandoffPlan(a *app, r *http.Request) (selfUpdatePlanResponse, int) {
@@ -262,6 +276,7 @@ var legacyHandoffTemplate = template.Must(template.New("legacy-handoff").Parse(`
 FROM={{.State.FromVersion}}
 TARGET={{.State.TargetVersion}}
 ROLLBACK={{.State.RollbackState}}
+PRIMARY_ERROR={{.State.PrimaryError}}
 {{.State.Message}}</pre>{{if .Blocked}}<p>Обновление ещё выполняется или его откат требует проверки. Следующее применение запрещено.</p>{{end}}<p><a href="/recovery">Перечитать состояние</a></p></section>
 <section><h2>Продолжить на {{.Target}}</h2><p>Это экспериментальная Beta. После обновления отдельно проверяются восстановление VPN и интернет у клиентов. Секреты и checkpoint не удаляются.</p><p>{{.Message}}</p>
 {{if not .Blocked}}<p><a href="/recovery?check=1">Проверить точный Beta-релиз и SHA-256 — без установки</a></p>{{end}}
