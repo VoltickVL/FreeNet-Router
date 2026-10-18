@@ -1,0 +1,33 @@
+name: Update lifecycle review
+on:
+  push:
+    branches: [fix/beta08-update-lifecycle]
+    paths: [.github/workflows/author-update-once.yml]
+permissions:
+  contents: write
+jobs:
+  review:
+    if: github.repository == 'VoltickVL/FreeNet-Router'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache-dependency-path: freenet-ui/go.mod
+      - name: Apply reviewed hard-stop parser
+        run: |
+          python3 scripts/.task-update-hardstop.py
+          gofmt -w freenet-ui/self_update_admission.go freenet-ui/self_update_admission_test.go
+          sh -n scripts/self_update.sh
+          sh tests/test_self_update.sh
+          sh tests/test_self_update_lifecycle.sh
+          (cd freenet-ui && go test -run 'Test(UpdateOperationSlot|PendingVPNDoesNotBlock|UpdateAdmission|TemporaryVerifiedUpdater|StaleUpdaterCan|SelfUpdateLifecycle|SelfUpdate|UpdateLock|BrowserRecovery|Recovery)' -count=1 ./...)
+      - name: Commit reviewed files
+        run: |
+          git config user.name 'FreeNet source authoring'
+          git config user.email 'actions@users.noreply.github.com'
+          git add freenet-ui/self_update_admission.go freenet-ui/self_update_admission_test.go scripts/self_update.sh tests/test_self_update_lifecycle.sh
+          git commit -m 'fix(update): never overwrite unknown application rollback receipt'
+          git push origin HEAD:fix/beta08-update-lifecycle
