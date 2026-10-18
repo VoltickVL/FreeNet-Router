@@ -212,7 +212,6 @@ const server = http.createServer(async (req, res) => {
     assert.ok(editorFooter.toolbarTop >= editorFooter.bodyBottom - 1, `Config Studio actions must render below the editor: ${JSON.stringify(editorFooter)}`);
     assert.match(await outInput.inputValue(), /TEST-UUID-00000000/);
     assert.match(await outInput.inputValue(), /"outbounds"/);
-    console.log('CSS_DIAGNOSTIC_CONFIG',JSON.stringify(await page.evaluate(()=>{const e=document.querySelector('.cs-editor'),s=document.querySelector('style#freenetUnifiedDesignStyles');return{resize:e?getComputedStyle(e).resize:null,css:s?.textContent.length,rules:(()=>{try{return s?.sheet?.cssRules.length}catch(e){return e.message}})(),textSearch:s?.textContent.indexOf('.cs-editor{'),styles:[...document.querySelectorAll('style')].map(x=>[x.id,x.textContent.length])}})));
     assert.equal(await page.locator('.cs-editor').evaluate(node => getComputedStyle(node).resize), 'vertical', 'Config Studio editor must be vertically resizable');
     await page.evaluate(() => { document.querySelector('.cs-editor').style.height = '620px'; });
     await page.waitForTimeout(80);

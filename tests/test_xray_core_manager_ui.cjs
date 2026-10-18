@@ -5,6 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { chromium } = require('playwright');
+const canonicalCSS = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'design-system.css'), 'utf8');
 
 const uxScript = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'config-studio-ux.js'), 'utf8');
 const managerScript = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'xray-core-manager.js'), 'utf8');
@@ -22,7 +23,7 @@ let serviceEvents = [
 ];
 const serviceActions = [];
 
-const html = `<!doctype html><html><head><meta charset="utf-8"><title>Xray Core Manager fixture</title>
+const html = `<!doctype html><html><head><meta charset="utf-8"><style id="freenetUnifiedDesignStyles">${canonicalCSS}</style><title>Xray Core Manager fixture</title>
 <style>
 .cs-notice{display:block}.cs-notice.show{display:block}.cs-notice.bad{display:block}
 </style></head><body>

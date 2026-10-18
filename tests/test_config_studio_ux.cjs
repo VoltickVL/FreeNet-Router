@@ -5,6 +5,7 @@ const fs = require('fs');
 const http = require('http');
 const path = require('path');
 const { chromium } = require('playwright');
+const canonicalCSS = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'design-system.css'), 'utf8');
 
 const uxScript = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', 'web', 'config-studio-ux.js'), 'utf8');
 let restartPosts = 0;
@@ -12,7 +13,7 @@ let startPosts = 0;
 let serviceOnline = true;
 let events = [{at:'2026-09-17T10:01:00Z', kind:'xray', result:'success', message:'Предыдущая операция Xray завершена.'}];
 
-const html = `<!doctype html><html><head><meta charset="utf-8"><title>Config Studio UX fixture</title></head><body>
+const html = `<!doctype html><html><head><meta charset="utf-8"><style id="freenetUnifiedDesignStyles">${canonicalCSS}</style><title>Config Studio UX fixture</title></head><body>
 <button id="xrayTopbarChip" type="button">Xray owner</button>
 <button data-page="access" id="journalNav">Журнал</button>
 <div class="rv2-modebar"><span id="rv2WorkspaceState" class="rv2-state">DRAFT · MUTATION: NONE</span></div>
