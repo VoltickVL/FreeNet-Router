@@ -1181,14 +1181,12 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
       /* Use the same CSS flags as Overview instead of platform-dependent emoji glyphs. */
       #fn3Flag.flag-icon{width:28px!important;height:19px!important;font-size:0!important;line-height:0!important;border-radius:4px!important}
 
-      /* Current server title on Overview may use the whole current-VPN panel width. */
-      .best-v4-current{position:relative!important;display:block!important;min-width:0!important}
-      .best-v4-current-main{display:block!important;width:100%!important;min-width:0!important}
-      .best-v4-current #bestCurrentFlag{position:absolute!important;left:0!important;top:2px!important;margin:0!important}
-      .best-v4-current .best-v4-label{display:flex!important;align-items:center!important;min-height:24px!important;padding-left:45px!important;padding-right:94px!important}
+      /* Keep the accepted Overview identity on the canonical grid owner above.
+         Only relax copy width here; do not re-position the flag or connected badge. */
+      .best-v4-current{position:relative!important;display:grid!important;min-width:0!important}
+      .best-v4-current-main{width:100%!important;min-width:0!important}
       .best-v4-current .best-v4-name{display:block!important;width:100%!important;max-width:none!important;word-break:normal!important}
       .best-v4-current .best-v4-endpoint{display:block!important;width:100%!important}
-      .best-v4-current .fn-current-connected{position:absolute!important;right:0!important;top:0!important;margin:0!important}
 
       @media(max-width:1320px){body.fn-settings-accepted .fn3-grid{grid-template-columns:minmax(0,1.04fr) minmax(0,1fr)!important}}
       @media(max-width:1120px){body.fn-settings-accepted .fn3-grid{grid-template-columns:1fr!important}}
