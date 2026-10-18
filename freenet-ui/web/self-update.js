@@ -963,6 +963,9 @@
     if (!actions) return null;
     control = document.createElement('button');
     control.id = 'topFreenetUpdate';
+    // Semantic content exists before asynchronous version requests complete.
+    // Unknown is explicit; never create a blank version control during login/remount.
+    control.innerHTML = '<span class="fn-version-icon" aria-hidden="true">◈</span><span class="fn-version-copy"><small>FreeNet</small><strong>—</strong></span>';
     control.type = 'button';
     control.className = 'mini-link fn-version-control';
     control.setAttribute('aria-haspopup', 'dialog');
