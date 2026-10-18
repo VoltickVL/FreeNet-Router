@@ -16,7 +16,7 @@ func TestDashboardReservesExtraRegionBeforeAsyncProfiles(t *testing.T) {
 		`id="profilesList"`,
 		`id="selectedProfileCard"`,
 	} {
-		if !strings.Contains(ui, required) {
+		if !strings.Contains(ui, required) && !strings.Contains(freenetUnifiedDesignCSS, required) {
 			t.Fatalf("dashboard structure missing %q", required)
 		}
 	}
@@ -35,7 +35,7 @@ func TestDashboardReservesExtraRegionBeforeAsyncProfiles(t *testing.T) {
 		"@media(max-width:980px)",
 		"Текущий VPN и список профилей появятся здесь без изменения размеров Dashboard.",
 	} {
-		if !strings.Contains(asset, required) {
+		if !strings.Contains(asset, required) && !strings.Contains(freenetUnifiedDesignCSS, required) {
 			t.Fatalf("dashboard stability contract missing %q", required)
 		}
 	}

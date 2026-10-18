@@ -70,7 +70,7 @@ const server = http.createServer(async (req, res) => {
   calls.push(`${req.method} ${url.pathname}`);
 
   if (url.pathname === '/') {
-    const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8')
+    const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8').replace('</head>', '<style id="freenetUnifiedDesignStyles">'+fs.readFileSync(path.join(web,'design-system.css'),'utf8')+'</style></head>')
       .replace('</body>', scripts.map(n => `<script src="/${n}"></script>`).join('') + '</body>');
     res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
     res.end(html);

@@ -25,7 +25,7 @@ func TestTopbarSettingsProfileCacheContract(t *testing.T) {
 		"fn3-backup-actions .btn",
 		"height:56px!important",
 	} {
-		if !strings.Contains(ux, required) {
+		if !strings.Contains(ux, required) && !strings.Contains(freenetUnifiedDesignCSS, required) {
 			t.Fatalf("topbar/settings profile cache contract missing %q", required)
 		}
 	}

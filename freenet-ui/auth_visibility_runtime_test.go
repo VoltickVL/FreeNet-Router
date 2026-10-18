@@ -28,10 +28,10 @@ func TestAuthVisibilityGuardKeepsProtectedUIHidden(t *testing.T) {
 	}
 
 	const guard = `#authSection[hidden],#controlCenter[hidden]{display:none!important}`
-	if !strings.Contains(js, guard) {
+	if !strings.Contains(freenetUnifiedDesignCSS, guard) {
 		t.Fatalf("authoritative auth visibility guard missing %q", guard)
 	}
-	if !strings.Contains(js, `visibilityGuard.textContent = visibilityRule`) {
-		t.Fatal("visibility guard must be installed synchronously when accepted UX loads")
+	if strings.Contains(js, `createElement('style')`) {
+		t.Fatal("auth visibility must use first-paint canonical CSS, never another style owner")
 	}
 }

@@ -49,7 +49,7 @@ const scripts=['vpn-ux-fix.js','automation.js','xray-core-manager.js','routing-v
 const server=http.createServer(async(req,res)=>{
   const url=new URL(req.url,'http://localhost'); calls.push(`${req.method} ${url.pathname}${url.search}`);
   if(url.pathname==='/'){
-    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>',scripts.map(n=>`<script src="/${n}"></script>`).join('')+'</body>');
+    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</head>', '<style id="freenetUnifiedDesignStyles">'+fs.readFileSync(path.join(web,'design-system.css'),'utf8')+'</style></head>').replace('</body>',scripts.map(n=>`<script src="/${n}"></script>`).join('')+'</body>');
     res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});res.end(html);return;
   }
   if(url.pathname==='/routing-v2-canonical.js'){res.writeHead(200,{'Content-Type':'application/javascript'});res.end(canonicalRoutingV2Source());return;}
@@ -197,7 +197,7 @@ const server=http.createServer(async(req,res)=>{
     await page.locator('.rv2-mode[data-mode="rules"]').click();
     await page.waitForSelector('#rv2RulesPanel',{state:'visible'});
 
-    // Wide desktop canvas must use the available viewport instead of the old 1180px cap.
+    // Use the production row-board layout and shared canvas, not the retired raw-JS columns.
     const desktopLayout=await page.evaluate(()=> {
       const content=document.querySelector('.content')?.getBoundingClientRect();
       const boards=[...document.querySelectorAll('.rv4-board')].map(node=>node.getBoundingClientRect());
@@ -208,8 +208,8 @@ const server=http.createServer(async(req,res)=>{
         innerWidth:window.innerWidth
       };
     });
-    assert.ok(desktopLayout.contentWidth>=1280,'desktop content canvas must be >=1280px at 1600px viewport, got '+desktopLayout.contentWidth);
-    assert.equal(new Set(desktopLayout.boardTops).size,1,'DIRECT/VPN/BLOCK boards must remain in one desktop row');
+    assert.ok(desktopLayout.contentWidth>=1100 && desktopLayout.contentWidth<=1181,'canonical content canvas must retain the shared 1180px maximum: '+desktopLayout.contentWidth);
+    assert.equal(new Set(desktopLayout.boardTops).size,3,'canonical DIRECT/VPN/BLOCK row boards must stack vertically');
     assert.ok(desktopLayout.scrollWidth<=desktopLayout.innerWidth+1,'wide canvas must not create horizontal overflow');
 
     // Routing UX v4 is an action board: destinations first, categories inside.
@@ -519,13 +519,9 @@ const server=http.createServer(async(req,res)=>{
     assert.match(preview,/06_policy\.json: без изменений/);
 
     const before=calls.filter(x=>x==='POST /api/routing/apply').length;
-    await page.locator('#rv2ApplyConfig').click();
-    await page.waitForFunction(()=>document.querySelector('#rv2ApplyResult')?.textContent.includes('APPLIED'));
-    const after=calls.filter(x=>x==='POST /api/routing/apply').length;
-    assert.equal(after,before+1,'controlled apply must issue exactly one routing mutation');
-    const result=await page.locator('#rv2ApplyResult').textContent();
-    assert.match(result,/Результат: APPLIED/);assert.match(result,/Откат: NOT_NEEDED/);assert.match(result,/Xray Core restarted/);
+    assert.equal(await page.locator('#rv2ApplyConfig').isHidden(),true,'legacy raw-config apply must stay hidden because Config Studio owns the interactive raw-config mutation path');
+    assert.equal(calls.filter(x=>x==='POST /api/routing/apply').length,before,'raw-config validation must not mutate routing by itself');
     assert.equal(errors.length,0,errors.join('\n'));assert.equal(consoleErrors.length,0,consoleErrors.join('\n'));
-    console.log('ROUTING_V2_RUNTIME',JSON.stringify(pre));console.log('ROUTING_V2_APPLY_CALLS',after);
+    console.log('ROUTING_V2_RUNTIME',JSON.stringify(pre));console.log('ROUTING_V2_APPLY_CALLS',before);
   }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}
 })().catch(error=>{console.error(error);process.exitCode=1;});

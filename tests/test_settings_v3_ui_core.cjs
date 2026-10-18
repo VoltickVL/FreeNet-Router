@@ -83,7 +83,7 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   calls.push(`${req.method} ${url.pathname}${url.search}`);
   if (url.pathname === '/' || url.pathname === '/settings' || url.pathname === '/routing') {
-    const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8')
+    const html = fs.readFileSync(path.join(web, 'index.html'), 'utf8').replace('</head>', '<style id="freenetUnifiedDesignStyles">'+fs.readFileSync(path.join(web,'design-system.css'),'utf8')+'</style></head>')
       .replace('</body>', scripts.map(name => `<script src="/${name}"></script>`).join('') + '</body>');
     res.writeHead(200, {'Content-Type':'text/html; charset=utf-8'}); res.end(html); return;
   }

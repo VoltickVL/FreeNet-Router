@@ -21,7 +21,7 @@ let status = {version:'0.2.88',country:'Польша',city:'Варшава',coun
 const server = http.createServer((req,res)=>{
   const url = new URL(req.url,'http://localhost');
   if(url.pathname==='/') {
-    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</body>', ['self-update.js','vpn-ux-fix.js','topbar-settings-profile-cache.js','operation-coordinator.js','xray-core-manager.js','vpn-picker-v2.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
+    const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</head>', '<style id="freenetUnifiedDesignStyles">'+fs.readFileSync(path.join(web,'design-system.css'),'utf8')+'</style></head>').replace('</body>', ['self-update.js','vpn-ux-fix.js','topbar-settings-profile-cache.js','operation-coordinator.js','xray-core-manager.js','vpn-picker-v2.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
     res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);return;
   }
   if(['/self-update.js','/vpn-ux-fix.js','/operation-coordinator.js','/topbar-settings-profile-cache.js','/xray-core-manager.js','/vpn-picker-v2.js'].includes(url.pathname)){res.setHeader('Content-Type','application/javascript');res.end(fs.readFileSync(path.join(web,url.pathname.slice(1))));return;}
@@ -478,7 +478,21 @@ const server = http.createServer((req,res)=>{
     assert.doesNotMatch(await page.locator('#bestServerResult').textContent(),/Скорость ниже 20|Отклик сайтов выше 220 мс/,'rejected diagnostic reasons must not leak into final choice cards');
     await page.setViewportSize({width:1366,height:768});
     await page.screenshot({path:path.join(artifacts,'vpn-rejected-desktop.png'),fullPage:true});
-    assert.equal(await page.evaluate(()=>document.documentElement.scrollHeight<=innerHeight),true,'diagnostics fit desktop');
+    const desktopAccessibility=await page.evaluate(()=>{
+      const root=document.documentElement, scroll=document.scrollingElement||root;
+      const previous=scroll.scrollTop, required=Math.max(0,root.scrollHeight-innerHeight);
+      scroll.scrollTop=required;
+      const reached=required<=1 || scroll.scrollTop>=required-2;
+      scroll.scrollTop=previous;
+      const action=document.querySelector('#bestServerRefresh');
+      const label=document.querySelector('.best-v4-label');
+      return {horizontalOverflow:root.scrollWidth-innerWidth,required,reached,
+        actionVisible:!!action&&getComputedStyle(action).visibility==='visible'&&action.getBoundingClientRect().height>0,
+        labelFont:label?parseFloat(getComputedStyle(label).fontSize):0};
+    });
+    assert.ok(desktopAccessibility.horizontalOverflow<=1,'desktop diagnostics must not overflow horizontally: '+JSON.stringify(desktopAccessibility));
+    assert.ok(desktopAccessibility.reached,'readable desktop diagnostics must remain vertically scrollable instead of clipping content: '+JSON.stringify(desktopAccessibility));
+    assert.ok(desktopAccessibility.actionVisible&&desktopAccessibility.labelFont>=12,'diagnostic actions and readable text must remain available without 7-9px compression: '+JSON.stringify(desktopAccessibility));
     await page.setViewportSize({width:390,height:844});
     await page.screenshot({path:path.join(artifacts,'vpn-rejected-mobile.png'),fullPage:true});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'diagnostics have no horizontal overflow');

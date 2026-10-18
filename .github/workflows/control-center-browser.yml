@@ -44,8 +44,8 @@ jobs:
         run: |
           set -o pipefail
           node tests/test_control_center_production.cjs 2>&1 | tee test-artifacts/control-center/browser.log
-      - name: Upload reproduction bundle on failure only
-        if: failure()
+      - name: Upload production UI acceptance evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: control-center-production-browser

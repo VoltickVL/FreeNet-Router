@@ -13,68 +13,7 @@
   let settingsWasActive = false;
   let runtimeRefreshInFlight = false;
 
-  function installStyle() {
-    if (q('#freenetAcceptedSettingsGeometry')) return;
-    const style = document.createElement('style');
-    style.id = 'freenetAcceptedSettingsGeometry';
-    style.textContent = `
-      /* Keep the shared Control Center shell exactly the same on Settings. */
-      body.fn-settings-accepted .content{width:min(1288px,calc(100% - 36px))!important;padding-top:14px!important;padding-bottom:42px!important}
-      body.fn-settings-accepted .fn3-head{margin-bottom:13px!important}
-      body.fn-settings-accepted .fn3-head h1{font-size:29px!important;line-height:1.08!important}
-      body.fn-settings-accepted .fn3-head p{font-size:13px!important;margin-top:5px!important}
-      body.fn-settings-accepted .fn3-save{width:208px!important;min-width:208px!important;height:40px!important;min-height:40px!important;border-radius:10px!important}
-      body.fn-settings-accepted .fn3-grid{grid-template-columns:640px minmax(0,1fr)!important;gap:14px!important}
-      body.fn-settings-accepted .fn3-card{border-radius:var(--fn-ui-panel-radius,14px)!important}
-      body.fn-settings-accepted .fn3-left>.fn3-card:first-child{min-height:518px!important}
-      body.fn-settings-accepted .fn3-right>.fn3-card:first-child{min-height:293px!important}
-      body.fn-settings-accepted .fn3-right>.fn3-card:nth-child(2){min-height:213px!important}
-      body.fn-settings-accepted .fn3-extra{min-height:299px!important;padding:11px 6px!important}
-      body.fn-settings-accepted .fn3-extra-grid{gap:var(--fn-ui-section-gap,12px)!important}
-      body.fn-settings-accepted .fn3-extra-card{min-height:0!important}
-      /* The canonical Settings SVG is shared with DNS/Subscription/Services; no CSS text icon. */
-      body.fn-settings-accepted .fn3-auto-actions .btn svg{width:18px!important;height:18px!important}
-      body.fn-settings-accepted .fn3-extra-action svg,
-      body.fn-settings-accepted .fn3-backup-actions .btn svg{width:16px!important;height:16px!important}
-
-      /* Slightly increase micro-copy readability without changing the shared shell geometry. */
-      body.fn-settings-accepted .fn3-scope small{font-size:11.5px!important}
-      body.fn-settings-accepted .fn3-recommended{font-size:10px!important}
-      body.fn-settings-accepted .fn3-safety{font-size:11.5px!important}
-      body.fn-settings-accepted .fn3-control small{font-size:10.5px!important}
-      body.fn-settings-accepted .fn3-fact span{font-size:10px!important}
-      body.fn-settings-accepted .fn3-metric span{font-size:10px!important}
-      body.fn-settings-accepted .fn3-health{font-size:11.5px!important}
-      body.fn-settings-accepted .fn3-link{font-size:12px!important}
-      body.fn-settings-accepted .fn3-table{font-size:12.5px!important;line-height:1.42!important}
-      body.fn-settings-accepted .fn3-extra-card p{font-size:11.5px!important}
-      body.fn-settings-accepted .fn3-extra-row label{font-size:10.5px!important}
-      body.fn-settings-accepted .fn3-extra-row select{font-size:11px!important}
-      body.fn-settings-accepted .fn3-extra-meta{font-size:10px!important}
-      body.fn-settings-accepted .fn3-extra-action{font-size:11px!important}
-      body.fn-settings-accepted .fn3-backup-actions .btn{font-size:10.5px!important}
-
-      /* The switch is already the AUTO VPN state indicator. Avoid duplicate status copy. */
-      #fn3AutoLabel,.fn3-enabled-badge{display:none!important}
-      #fn3VPNState{display:none!important}
-
-      /* Use the same CSS flags as Overview instead of platform-dependent emoji glyphs. */
-      #fn3Flag.flag-icon{width:28px!important;height:19px!important;font-size:0!important;line-height:0!important;border-radius:4px!important}
-
-      /* Current server title on Overview may use the whole current-VPN panel width. */
-      .best-v4-current{position:relative!important;display:block!important;min-width:0!important}
-      .best-v4-current-main{display:block!important;width:100%!important;min-width:0!important}
-      .best-v4-current #bestCurrentFlag{position:absolute!important;left:0!important;top:2px!important;margin:0!important}
-      .best-v4-current .best-v4-label{display:flex!important;align-items:center!important;min-height:24px!important;padding-left:45px!important;padding-right:94px!important}
-      .best-v4-current .best-v4-name{display:block!important;width:100%!important;max-width:none!important;word-break:normal!important}
-      .best-v4-current .best-v4-endpoint{display:block!important;width:100%!important}
-      .best-v4-current .fn-current-connected{position:absolute!important;right:0!important;top:0!important;margin:0!important}
-
-      @media(max-width:1320px){body.fn-settings-accepted .fn3-grid{grid-template-columns:minmax(0,1.04fr) minmax(0,1fr)!important}}
-      @media(max-width:1120px){body.fn-settings-accepted .fn3-grid{grid-template-columns:1fr!important}}
-    `;
-    document.head.appendChild(style);
-  }
+  
 
   function codeFromFlagText(value) {
     const text = String(value || '').trim();
@@ -256,7 +195,7 @@
   }
 
   function applyPresentation() {
-    installStyle();
+    ;
     ensureJournalPresentation();
     const active = pageIsActive();
     document.body?.classList.toggle('fn-settings-accepted', active);

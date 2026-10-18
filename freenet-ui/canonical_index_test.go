@@ -68,12 +68,11 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 
 	for _, want := range []string{
 		`<html lang="ru" class="freenet-canonical-boot">`,
-		`id="freenetCanonicalBootStyle"`,
+		`id='freenetUnifiedDesignStyles'`,
 		`html.freenet-canonical-boot body>*{visibility:hidden!important}`,
 		`radial-gradient(circle at 68% -15%,#17345c 0,#0d1d32 42%,#081523 72%,#07101b 100%)`,
 		`id="freenetCanonicalBootRelease"`,
-		`document.getElementById('freenetAcceptedUXStyles')`,
-		`document.getElementById('freenetFinalShellPolishStyles')`,
+		`document.getElementById('freenetUnifiedDesignStyles')`,
 		`document.querySelector('.sidebar>.brand .fn-brand-lockup-svg')`,
 		`const canonicalRoutes = ['overview','settings','network','journal']`,
 		`document.querySelectorAll('.sidebar .nav>.nav-btn[data-page]')`,
@@ -86,10 +85,11 @@ func TestCanonicalizeControlCenterIndexGatesLegacyPaintUntilAcceptedShellReady(t
 		}
 	}
 
-	bootStyleAt := strings.Index(html, `id="freenetCanonicalBootStyle"`)
-	legacyStyleAt := strings.Index(html, `<style>`) // static legacy stylesheet from index.html
-	if bootStyleAt < 0 || legacyStyleAt < 0 || bootStyleAt > legacyStyleAt {
-		t.Fatalf("boot gate must be delivered before legacy stylesheet: boot=%d legacy=%d", bootStyleAt, legacyStyleAt)
+	cssAt := strings.Index(html, `id='freenetUnifiedDesignStyles'`)
+	bootAt := strings.Index(html, `html.freenet-canonical-boot`)
+	scriptAt := strings.Index(html, `<script`)
+	if cssAt < 0 || bootAt < cssAt || scriptAt < bootAt {
+		t.Fatalf("boot gate must be in the first stylesheet before scripts: css=%d boot=%d script=%d", cssAt, bootAt, scriptAt)
 	}
 	if strings.Contains(html, `setTimeout(()=>{root.classList.remove('freenet-canonical-boot')`) {
 		t.Fatal("boot gate must not fail-open to a legacy shell on a timer")
@@ -141,5 +141,34 @@ func TestCanonicalIndexExactRootKeepsAssetFallback(t *testing.T) {
 	}
 	if got := assetRec.Header().Get("Content-Type"); !strings.Contains(got, "application/javascript") {
 		t.Fatalf("asset fallback content-type=%q", got)
+	}
+}
+
+func TestCanonicalIndexBundlesCriticalAssetsAndRejectsPartialOverview(t *testing.T) {
+	a := &app{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /", a.handleIndex)
+	registerCanonicalIndexRoute(mux, a)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest("GET", "http://router/", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("HTTP %d", w.Code)
+	}
+	html := w.Body.String()
+	for _, name := range []string{"self-update", "vpn-ux-fix", "operation-coordinator", "accepted-ux", "vpn-picker-v2", "runtime-acceptance", "automation", "automation-async", "settings-v3-core", "settings-v3"} {
+		if !strings.Contains(html, `id="freenetAsset-`+name+`"`) || strings.Contains(html, `<script src="/`+name+`.js`) {
+			t.Fatalf("critical module must be bundled exactly once: %s", name)
+		}
+	}
+	if strings.Count(html, `id="freenetVPNSelectorReconcile"`) != 1 {
+		t.Fatal("duplicate selector reconciliation owner")
+	}
+	for _, want := range []string{"bestCurrentHealth", "#bestCurrentMetrics .best-v4-pill", "freenetBootFailure", "freenetCanonicalMissing", "app.inert = true", "12000"} {
+		if !strings.Contains(canonicalBootJS, want) {
+			t.Fatalf("incomplete boot protection: %s", want)
+		}
+	}
+	if strings.Contains(canonicalBootJS, "fetch(") {
+		t.Fatal("boot readiness must not depend on network or mutate runtime")
 	}
 }
