@@ -8,6 +8,10 @@
   let applying = false;
   let topbarVersionLoading = false;
   let topbarVersionAttempts = 0;
+  let topbarRetryTimer = null;
+  let topbarReadController = null;
+  let topbarReadGeneration = 0;
+  const topbarMaxAttempts = 4;
   let serviceMutationUnknown = false;
 
   function installStyles() {
@@ -108,30 +112,90 @@
       const actions = qs('.top-actions');
       topbar.insertBefore(chip, actions || null);
     }
+    if (serviceState) syncTopbarService(serviceState);
     return chip;
   }
 
+  function authenticatedTopbar() {
+    if (typeof authAuthenticated === 'boolean') return authAuthenticated;
+    return qs('#controlCenter')?.hidden === false;
+  }
+
+  function resetTopbarRead() {
+    topbarReadGeneration += 1;
+    clearTimeout(topbarRetryTimer);
+    topbarRetryTimer = null;
+    topbarReadController?.abort();
+    topbarReadController = null;
+    topbarVersionLoading = false;
+    topbarVersionAttempts = 0;
+  }
+
   async function refreshTopbarVersion() {
-    if (topbarVersionLoading) return;
+    if (!authenticatedTopbar() || topbarVersionLoading || topbarRetryTimer !== null || topbarVersionAttempts >= topbarMaxAttempts) return;
     const chip = mountTopbarChip();
-    if (!chip) return;
+    if (!chip) return; // The mount observer retries when the shell arrives.
+    const generation = topbarReadGeneration;
+    const controller = new AbortController();
+    topbarReadController = controller;
     topbarVersionLoading = true;
     topbarVersionAttempts += 1;
+    const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-      const response = await fetch('/api/xray/service', {cache:'no-store'});
+      const response = await fetch('/api/xray/service', {cache:'no-store', signal:controller.signal});
+      if (generation !== topbarReadGeneration || !authenticatedTopbar()) return;
       if (response.status === 401) {
-        if (topbarVersionAttempts < 4) setTimeout(refreshTopbarVersion, 900);
-        return;
+        serviceState = null;
+        syncTopbarVersion('вход требуется');
+        return; // Authentication, not a timer, restarts the request budget.
       }
       const result = await response.json();
-      if (response.ok && result && result.success) {
-        syncServiceSurfaces(result);
+      if (generation !== topbarReadGeneration || !authenticatedTopbar()) return;
+      if (!response.ok || !result?.success || (result.online !== false && !compactVersion(result.version || result.current_version))) {
+        throw new Error('Xray status is not available');
       }
+      chip.title = 'Управление Xray';
+      // Background hydration never clears an unresolved mutation guard.
+      syncServiceSurfaces(result);
     } catch (_) {
-      if (topbarVersionAttempts < 3) setTimeout(refreshTopbarVersion, 1200);
+      if (generation !== topbarReadGeneration || !authenticatedTopbar()) return;
+      if (!serviceState) syncTopbarVersion('недоступно');
+      chip.title = 'Не удалось прочитать состояние Xray; это не означает остановку сервиса';
+      if (topbarVersionAttempts < topbarMaxAttempts) {
+        topbarRetryTimer = setTimeout(() => {
+          topbarRetryTimer = null;
+          refreshTopbarVersion();
+        }, 700 * topbarVersionAttempts);
+      }
     } finally {
-      topbarVersionLoading = false;
+      clearTimeout(timeout);
+      if (generation === topbarReadGeneration && topbarReadController === controller) {
+        topbarReadController = null;
+        topbarVersionLoading = false;
+      }
     }
+  }
+
+  function hydrateTopbar() {
+    mountTopbarChip();
+    if (!serviceState) refreshTopbarVersion();
+  }
+
+  function topbarAuthenticationChanged() {
+    resetTopbarRead();
+    serviceState = null;
+    if (authenticatedTopbar()) {
+      syncTopbarVersion('версия…');
+      hydrateTopbar();
+    } else {
+      syncTopbarVersion('вход требуется');
+    }
+  }
+
+  function resumeTopbarRead() {
+    if (!authenticatedTopbar() || document.visibilityState === 'hidden') return;
+    resetTopbarRead();
+    refreshTopbarVersion();
   }
 
   function body() { return qs('#xcmBody', ensureRoot()); }
@@ -696,14 +760,19 @@
     openManager();
   });
   const bootTopbar = () => {
-    mountTopbarChip();
-    refreshTopbarVersion();
-    setTimeout(mountTopbarChip, 250);
-    setTimeout(mountTopbarChip, 900);
+    hydrateTopbar();
+    // A delayed shell or recreated topbar must hydrate independently of clicks.
+    const observer = new MutationObserver(() => {
+      if (!qs('#xrayTopbarChip') && qs('.topbar')) hydrateTopbar();
+    });
+    observer.observe(document.body, {childList:true, subtree:true});
   };
+  document.addEventListener('freenet:auth-changed', topbarAuthenticationChanged);
+  document.addEventListener('visibilitychange', resumeTopbarRead);
+  window.addEventListener('online', resumeTopbarRead);
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootTopbar, {once:true});
   else bootTopbar();
-  window.addEventListener('hashchange', mountTopbarChip);
+  window.addEventListener('hashchange', hydrateTopbar);
   window.addEventListener('resize', positionManager);
   window.visualViewport?.addEventListener('resize', positionManager);
   document.addEventListener('click', event => {
