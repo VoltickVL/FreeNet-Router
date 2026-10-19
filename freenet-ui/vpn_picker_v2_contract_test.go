@@ -27,7 +27,7 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"fnVpnPickerV2Resize", "setPointerCapture", "dataset.userHeight",
 		"завершён частично", "не проверен",
 		"refresh.addEventListener('click',event => { if (event.isTrusted === true) void refreshRTT(event); })",
-		"safeRTTCatalog", "publishRTTCatalog", "window.freenetProviderRTTScan(event)",
+		"safeRTTCatalog", "publishRTTCatalog", "window.freenetProviderRTTScan(event, (completed,total)", "L.pingBusy",
 		"measuredByID.get(id)!==measuredEndpoint", "pingCatalogChanged",
 	} {
 		if !strings.Contains(js, required) && !strings.Contains(freenetUnifiedDesignCSS, required) {
@@ -102,28 +102,38 @@ func TestControlCenterBrowserServer(t *testing.T) {
 	}
 }
 
-func TestVPNPickerRTTBridgeIsExplicitRefreshOnly(t *testing.T) {
+func TestVPNPickerRTTBridgeIsTrustedClickWithBoundedBusyRetry(t *testing.T) {
 	data, err := os.ReadFile("web/vpn-ux-fix.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(data)
 	for _, want := range []string{
-		"async function scanProviderProfileRTT(event)",
+		"async function scanProviderProfileRTT(event, onProgress)",
 		"event.isTrusted !== true",
-		"fetch('/api/provider-profiles/rtt?refresh=1'",
+		"fetch('/api/provider-profiles/rtt/jobs',",
+		"method:'POST'",
+		"created?.mutation !== 'NONE'",
+		"'/api/provider-profiles/rtt/jobs?id='",
+		"const busyDelays = [4000, 6000, 8000]",
+		"start.status === 409",
+		"state.error_code === 'busy'",
+		"data.mutation !== 'NONE'",
+		"throw new Error('rtt-busy')",
+		"window.freenetProviderRTTScan = scanProviderProfileRTT",
 	} {
 		if !strings.Contains(js, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
-			t.Fatalf("RTT bridge missing explicit-only contract %q", want)
+			t.Fatalf("RTT bridge missing trusted-click/async-job contract %q", want)
 		}
 	}
 	for _, forbidden := range []string{
 		"scanProviderProfileRTT(force",
-		"force ? '?refresh=1' : ''",
-		"fetch('/api/provider-profiles/rtt',",
+		"fetch('/api/provider-profiles/rtt?refresh=1'",
+		"setInterval(",
+		"window.freenetProviderRTTScan()",
 	} {
 		if strings.Contains(js, forbidden) {
-			t.Fatalf("RTT bridge must not expose hidden cache/auto mode: found %q", forbidden)
+			t.Fatalf("RTT bridge must not start hidden or long synchronous scans: found %q", forbidden)
 		}
 	}
 }

@@ -227,25 +227,86 @@
     }
   }
 
-  async function scanProviderProfileRTT(event) {
-    // Physical product gate: a full-pool RTT sweep may only originate from a
-    // trusted user click on the selector refresh control. Programmatic calls,
-    // repaint/open hooks and synthetic .click() events must fail closed.
+  async function scanProviderProfileRTT(event, onProgress) {
+    // Only a trusted user click may launch an isolated RTT scan. The scan
+    // runs in one bounded server job so CrazeDNS/cloud never has to hold one
+    // HTTPS response open for the full 48-profile sweep.
     if (!event || event.type !== 'click' || event.isTrusted !== true) {
       throw new Error('RTT scan requires explicit user action');
     }
-    const r = await fetch('/api/provider-profiles/rtt?refresh=1', {cache:'no-store'});
-    if (r.status === 401) {
-      if (typeof loadAuthStatus === 'function') await loadAuthStatus();
-      throw new Error('authentication required');
+    const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const busyDelays = [4000, 6000, 8000]; // AUTO/emergency recovery has priority
+    for (let attempt = 0; attempt <= busyDelays.length; attempt++) {
+      const start = await fetch('/api/provider-profiles/rtt/jobs', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:'{}', cache:'no-store', credentials:'include'
+      });
+      if (start.status === 401) {
+        if (typeof loadAuthStatus === 'function') await loadAuthStatus();
+        throw new Error('authentication required');
+      }
+      let created = null;
+      try { created = await start.json(); } catch (_) {}
+      if (start.status === 409 && created?.error_code === 'busy' && created?.mutation === 'NONE') {
+        if (attempt === busyDelays.length) throw new Error('rtt-busy');
+        await sleep(busyDelays[attempt]);
+        continue;
+      }
+      const id = String(created?.id || '');
+      if (start.status !== 202 || created?.mutation !== 'NONE' || !/^[0-9a-f]{32}$/.test(id)) {
+        throw new Error('rtt-unavailable');
+      }
+      // Each status poll is fast and never starts another scan. A temporary
+      // proxy error does not lose the job or trigger a blind second scan.
+      let interrupted = 0;
+      let retryBusy = false;
+      for (let poll = 0; poll < 115; poll++) {
+        let response;
+        try {
+          response = await fetch('/api/provider-profiles/rtt/jobs?id=' + encodeURIComponent(id), {
+            cache:'no-store', credentials:'include'
+          });
+        } catch (_) {
+          interrupted++;
+          if (interrupted > 3) throw new Error('rtt-unavailable');
+          await sleep(2000);
+          continue;
+        }
+        if (response.status === 401) {
+          if (typeof loadAuthStatus === 'function') await loadAuthStatus();
+          throw new Error('authentication required');
+        }
+        let state = null;
+        try { state = await response.json(); } catch (_) {}
+        if (!response.ok || !state || state.id !== id) throw new Error('rtt-unavailable');
+        interrupted = 0;
+        if (typeof onProgress === 'function') {
+          onProgress(Number(state.completed || 0), Number(state.total || 0));
+        }
+        if (state.state === 'completed') {
+          const data = state.result;
+          if (!data || !data.success || !Array.isArray(data.results) || data.mutation !== 'NONE') {
+            throw new Error('rtt-unavailable');
+          }
+          return data;
+        }
+        if (state.state === 'failed') {
+          if (state.error_code === 'busy') {
+            retryBusy = true;
+            break;
+          }
+          throw new Error(state.error_code === 'timeout' ? 'rtt-timeout' : 'rtt-unavailable');
+        }
+        if (state.state !== 'running') throw new Error('rtt-unavailable');
+        await sleep(2000);
+      }
+      if (!retryBusy) throw new Error('rtt-timeout');
+      if (attempt === busyDelays.length) throw new Error('rtt-busy');
+      await sleep(busyDelays[attempt]);
     }
-    let data = null;
-    try { data = await r.json(); } catch (_) {}
-    if (!r.ok || !data || !data.success || !Array.isArray(data.results) || data.mutation !== 'NONE') {
-      throw new Error((data && data.error) || 'RTT scan unavailable');
-    }
-    return data;
+    throw new Error('rtt-busy');
   }
+
   window.freenetProviderRTTScan = scanProviderProfileRTT;
 
   function patchProfileSelection() {

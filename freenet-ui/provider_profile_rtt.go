@@ -49,6 +49,7 @@ type providerProfileRTTResponse struct {
 	CatalogUpdatedAt string `json:"catalog_updated_at,omitempty"`
 	Mutation        string                   `json:"mutation"`
 	Error           string                   `json:"error,omitempty"`
+	ErrorCode       string                   `json:"error_code,omitempty"`
 }
 
 type providerRTTProbe func(context.Context, bestServerInternalCandidate) bestServerProbeResult
@@ -464,8 +465,14 @@ func (a *app) storeProviderRTTSelectionSnapshot(internal []bestServerInternalCan
 func (a *app) handleProviderProfilesRTT(w http.ResponseWriter, r *http.Request) {
 	releaseGuards, guardError := acquireProviderProfileRTTGuards(a)
 	if releaseGuards == nil {
+		// Competing AUTO recovery/quality measurement is not an RTT failure.
+		// Keep the error machine-readable so the explicit user action may
+		// retry without starting overlapping isolated Xray processes.
+		w.Header().Set("Retry-After", "4")
 		writeJSON(w, http.StatusConflict, providerProfileRTTResponse{
-			Success: false, Results: []providerProfileRTTItem{}, Fresh: false, ProbeMode: "logical_vpn_https_ip", Mutation: "NONE", Error: guardError,
+			Success: false, Results: []providerProfileRTTItem{}, Fresh: false,
+			ProbeMode: "logical_vpn_https_ip", Mutation: "NONE",
+			ErrorCode: "busy", Error: guardError,
 		})
 		return
 	}
