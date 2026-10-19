@@ -227,14 +227,14 @@
     }
   }
 
-  async function scanProviderProfileRTT(event, forceFresh = false) {
-    // Only a real user click starts read-only RTT work. The first click may
-    // reuse source-bound 5-minute measurements; a second click forces a sweep.
-    // Busy AUTO recovery has priority over manual RTT and is never interrupted.
+  async function scanProviderProfileRTT(event) {
+    // Only a real user click starts a fresh read-only RTT sweep. Do not
+    // show cached evidence as a new manual measurement. Busy AUTO recovery
+    // has priority and must never be interrupted by this diagnostic.
     if (!event || event.type !== 'click' || event.isTrusted !== true) {
       throw new Error('RTT scan requires explicit user action');
     }
-    const url = '/api/provider-profiles/rtt' + (forceFresh ? '?refresh=1' : '');
+    const url = '/api/provider-profiles/rtt?refresh=1';
     const busyDelays = [4000, 6000, 8000]; // bounded, never a polling loop
     for (let attempt = 0; attempt <= busyDelays.length; attempt++) {
       const r = await fetch(url, {cache:'no-store'});
