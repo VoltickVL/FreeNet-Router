@@ -27,7 +27,7 @@ func TestVPNPickerV2CanonicalContract(t *testing.T) {
 		"fnVpnPickerV2Resize", "setPointerCapture", "dataset.userHeight",
 		"завершён частично", "не проверен",
 		"refresh.addEventListener('click',event => { if (event.isTrusted === true) void refreshRTT(event); })",
-		"safeRTTCatalog", "publishRTTCatalog", "window.freenetProviderRTTScan(event, rttRanked)", "L.pingBusy", "Результаты из кеша",
+		"safeRTTCatalog", "publishRTTCatalog", "window.freenetProviderRTTScan(event)", "L.pingBusy",
 		"measuredByID.get(id)!==measuredEndpoint", "pingCatalogChanged",
 	} {
 		if !strings.Contains(js, required) && !strings.Contains(freenetUnifiedDesignCSS, required) {
@@ -109,9 +109,9 @@ func TestVPNPickerRTTBridgeIsTrustedClickWithBoundedBusyRetry(t *testing.T) {
 	}
 	js := string(data)
 	for _, want := range []string{
-		"async function scanProviderProfileRTT(event, forceFresh = false)",
+		"async function scanProviderProfileRTT(event)",
 		"event.isTrusted !== true",
-		"const url = '/api/provider-profiles/rtt' + (forceFresh ? '?refresh=1' : '')",
+		"const url = '/api/provider-profiles/rtt?refresh=1'",
 		"const busyDelays = [4000, 6000, 8000]",
 		"r.status === 409",
 		"data.mutation === 'NONE'",
