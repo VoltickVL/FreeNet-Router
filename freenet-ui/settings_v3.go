@@ -159,6 +159,7 @@ type settingsV3ActionResponse struct {
 
 func registerSettingsV3API(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/settings-v3", a.requireAuth(a.handleSettingsV3Get))
+	mux.HandleFunc("GET /api/settings-v3/scheduler-doctor", a.requireAuth(a.handleGeoDataSchedulerDoctor))
 	mux.HandleFunc("GET /api/journal", a.requireAuth(a.handleJournalGet))
 	mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))
 	mux.HandleFunc("GET /api/journal/diagnostics", a.requireAuth(a.handleJournalDiagnostics))
@@ -786,6 +787,12 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 	if v3IntervalDuration(endpointInterval) <= 0 {
 		endpointInterval = v3DefaultInterval("auto_vpn_endpoint")
 	}
+	geoData := v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_GEODATA", "geodata", automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA", "yes") == "yes")
+	if geoData.Enabled {
+		geoData.NextRun = nextGeoDataCronFire(geoData.Interval, time.Now())
+	} else {
+		geoData.NextRun = ""
+	}
 	return settingsV3Response{
 		Success: true,
 		AutoVPN: settingsV3AutoVPN{
@@ -794,7 +801,7 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 		},
 		Automation: auto,
 		Subscription: subscription,
-		GeoData: v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_GEODATA", "geodata", automationConfigValue(a.cfg.ConfigPath, "AUTO_XKEEN_GEODATA", "yes") == "yes"),
+		GeoData: geoData,
 		FreeNet:    v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_FREENET_CHECK", "freenet", false),
 		Backup:     v3ScheduleFromConfig(a.cfg.ConfigPath, "AUTO_BACKUP", "backup", false),
 		BackupInfo: a.v3BackupInfo(),
@@ -1399,23 +1406,45 @@ func (a *app) saveSettingsV3(req settingsV3SaveRequest) error {
 	if err != nil {
 		return errors.New("FreeNet config is unavailable")
 	}
-	beforeCron := readAutomationCrontab()
-	if err := writeAutomationConfigValues(a.cfg.ConfigPath, values); err != nil {
-		return errors.New("cannot stage settings")
+	readCtx, cancelRead := context.WithTimeout(context.Background(), settingsSchedulerReconcileTimeout)
+	beforeCron, err := readAutomationCrontabStrict(readCtx)
+	cancelRead()
+	if err != nil {
+		return errors.New("cannot inspect current crontab safely; STOP before settings mutation")
 	}
-	managed, err := buildManagedAutomationCronV3(a, beforeCron, values)
-	if err == nil {
-		err = installAutomationCrontab(managed)
+	// One canonical strict scheduler writer; never accept a configuration save
+	// until the installed crontab has been read back and verified.
+	applyErr := writeAutomationConfigValues(a.cfg.ConfigPath, values)
+	if applyErr == nil {
+		_, applyErr = a.reconcileSettingsV3Scheduler()
 	}
-	if err == nil {
+	if applyErr == nil {
 		return nil
 	}
 	rollbackConfigErr := os.WriteFile(a.cfg.ConfigPath, beforeConfig, 0600)
-	rollbackCronErr := installAutomationCrontab(beforeCron)
-	if rollbackConfigErr != nil || rollbackCronErr != nil {
-		return errors.New("settings apply failed; rollback failed or is unknown")
+	configNow, configReadErr := os.ReadFile(a.cfg.ConfigPath)
+	if rollbackConfigErr != nil || configReadErr != nil || !bytes.Equal(configNow, beforeConfig) {
+		return errors.New("settings apply failed; config rollback failed or is unknown; STOP")
 	}
-	return errors.New("settings apply failed; previous config and scheduler restored")
+	verifyCtx, cancelVerify := context.WithTimeout(context.Background(), settingsSchedulerReconcileTimeout)
+	observedCron, verifyErr := readAutomationCrontabStrict(verifyCtx)
+	cancelVerify()
+	if verifyErr == nil && !bytes.Equal(observedCron, beforeCron) {
+		rollbackCtx, cancelRollback := context.WithTimeout(context.Background(), settingsSchedulerReconcileTimeout)
+		rollbackErr := installAutomationCrontabStrict(rollbackCtx, beforeCron)
+		cancelRollback()
+		if rollbackErr == nil {
+			verifyCtx2, cancelVerify2 := context.WithTimeout(context.Background(), settingsSchedulerReconcileTimeout)
+			observedCron, verifyErr = readAutomationCrontabStrict(verifyCtx2)
+			cancelVerify2()
+		} else {
+			verifyErr = rollbackErr
+		}
+	}
+	if verifyErr != nil || !bytes.Equal(observedCron, beforeCron) {
+		return errors.New("settings apply failed; scheduler rollback failed or is unknown; STOP")
+	}
+	return errors.New("settings apply failed; previous config and scheduler restored and verified")
 }
 
 func (a *app) handleSettingsV3Save(w http.ResponseWriter, r *http.Request) {
