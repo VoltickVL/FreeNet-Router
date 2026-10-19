@@ -789,6 +789,40 @@ core_restart_preflight() {
 
 # Only stage names and numeric exit codes are reported; XKeen output may
 # contain local paths/credentials and is never copied to the public journal.
+# A zombie still answers kill -0; a reused PID must never be signalled.
+# Only the original /proc identity may be treated as the previous core.
+# The optional proc root exists only for isolated fixture tests.
+xray_pid_lifecycle() {
+    XRAY_PID="$1"
+    XRAY_EXPECTED_START="$2"
+    XRAY_PROC_ROOT="${3:-/proc}"
+    case "$XRAY_PID" in ''|0|*[!0-9]*) printf unknown; return ;; esac
+    XRAY_STAT="$XRAY_PROC_ROOT/$XRAY_PID/stat"
+    if [ ! -r "$XRAY_STAT" ]; then
+        if kill -0 "$XRAY_PID" 2>/dev/null; then printf unknown; else printf gone; fi
+        return
+    fi
+    XRAY_CURRENT_START="$(awk '{print $22}' "$XRAY_STAT" 2>/dev/null)"
+    if [ -z "$XRAY_EXPECTED_START" ] || [ -z "$XRAY_CURRENT_START" ]; then
+        printf unknown
+        return
+    fi
+    if [ "$XRAY_CURRENT_START" != "$XRAY_EXPECTED_START" ]; then
+        printf reused
+        return
+    fi
+    XRAY_PROC_STATE="$(awk '$1 == "State:" {print $2; exit}' "$XRAY_PROC_ROOT/$XRAY_PID/status" 2>/dev/null)"
+    if [ -z "$XRAY_PROC_STATE" ]; then
+        if kill -0 "$XRAY_PID" 2>/dev/null; then printf unknown; else printf gone; fi
+        return
+    fi
+    case "$XRAY_PROC_STATE" in
+        Z|X|x) printf zombie ;;
+        R|S|D|T|t|I|W|P) printf 'live:%s' "$XRAY_PROC_STATE" ;;
+        *) printf unknown ;;
+    esac
+}
+
 restart_xray_core() {
     ALLOW_STOPPED="${1:-no}"
     CORE_RESTART_STAGE="process-inventory"
@@ -822,31 +856,74 @@ restart_xray_core() {
     esac
 
     if [ -n "$OLD_PID" ]; then
-        CORE_RESTART_STAGE="terminate-old-core"
-        if ! kill "$OLD_PID" 2>/dev/null; then
-            CORE_RESTART_EXIT="signal-failed"
-            return 1
-        fi
-        I=0
-        while kill -0 "$OLD_PID" 2>/dev/null && [ "$I" -lt 40 ]; do
-            short_pause
-            I=$((I + 1))
-        done
-        if kill -0 "$OLD_PID" 2>/dev/null; then
-            if ! kill -9 "$OLD_PID" 2>/dev/null; then
-                CORE_RESTART_EXIT="forced-signal-failed"
-                return 1
-            fi
-            I=0
-            while kill -0 "$OLD_PID" 2>/dev/null && [ "$I" -lt 10 ]; do
-                short_pause
-                I=$((I + 1))
-            done
-        fi
-        if kill -0 "$OLD_PID" 2>/dev/null; then
-            CORE_RESTART_EXIT="old-core-still-running"
-            return 1
-        fi
+        CORE_RESTART_STAGE="inspect-old-core"
+        OLD_START="$(awk '{print $22}' "/proc/$OLD_PID/stat" 2>/dev/null)"
+        case "$OLD_START" in
+            ''|*[!0-9]*) CORE_RESTART_EXIT="old-core-identity-unknown"; return 1 ;;
+        esac
+        OLD_STATE="$(xray_pid_lifecycle "$OLD_PID" "$OLD_START")"
+        case "$OLD_STATE" in
+            gone|zombie) ;;
+            live:*)
+                CORE_RESTART_STAGE="terminate-old-core"
+                if ! kill "$OLD_PID" 2>/dev/null; then
+                    OLD_STATE="$(xray_pid_lifecycle "$OLD_PID" "$OLD_START")"
+                    case "$OLD_STATE" in
+                        gone|zombie) ;;
+                        *) CORE_RESTART_EXIT="signal-failed"; return 1 ;;
+                    esac
+                fi
+                I=0
+                while [ "$I" -lt 40 ]; do
+                    OLD_STATE="$(xray_pid_lifecycle "$OLD_PID" "$OLD_START")"
+                    case "$OLD_STATE" in
+                        live:*) short_pause; I=$((I + 1)) ;;
+                        *) break ;;
+                    esac
+                done
+                case "$OLD_STATE" in
+                    live:*)
+                        # Recheck identity immediately before a forced signal.
+                        OLD_STATE="$(xray_pid_lifecycle "$OLD_PID" "$OLD_START")"
+                        case "$OLD_STATE" in
+                            live:*)
+                                if ! kill -9 "$OLD_PID" 2>/dev/null; then
+                                    OLD_STATE="$(xray_pid_lifecycle "$OLD_PID" "$OLD_START")"
+                                    case "$OLD_STATE" in
+                                        gone|zombie) ;;
+                                        *) CORE_RESTART_EXIT="forced-signal-failed"; return 1 ;;
+                                    esac
+                                fi
+                                I=0
+                                while [ "$I" -lt 10 ]; do
+                                    OLD_STATE="$(xray_pid_lifecycle "$OLD_PID" "$OLD_START")"
+                                    case "$OLD_STATE" in
+                                        live:*) short_pause; I=$((I + 1)) ;;
+                                        *) break ;;
+                                    esac
+                                done
+                                ;;
+                        esac
+                        ;;
+                esac
+                ;;
+        esac
+        OLD_STATE="$(xray_pid_lifecycle "$OLD_PID" "$OLD_START")"
+        case "$OLD_STATE" in
+            gone|zombie) ;;
+            reused) CORE_RESTART_EXIT="old-core-pid-reused"; return 1 ;;
+            live:D) CORE_RESTART_EXIT="old-core-uninterruptible"; return 1 ;;
+            live:*) CORE_RESTART_EXIT="old-core-still-running"; return 1 ;;
+            *) CORE_RESTART_EXIT="old-core-identity-unknown"; return 1 ;;
+        esac
+    fi
+
+    # Never run XKeen against another live/probe PID. Its legacy pidof cannot
+    # reliably distinguish managed Xray from probes or unreaped zombies.
+    CORE_RESTART_STAGE="process-inventory-after-stop"
+    if [ -n "$(pidof xray 2>/dev/null || true)" ]; then
+        CORE_RESTART_EXIT="unexpected-xray-process"
+        return 1
     fi
 
     # Preserve XKeen/netfilter ownership, never call the full XKeen restart.
