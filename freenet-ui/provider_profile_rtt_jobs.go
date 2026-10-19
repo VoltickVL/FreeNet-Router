@@ -97,6 +97,21 @@ func (a *app) handleProviderRTTJobStart(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusAccepted, map[string]string{"id": id, "state": "running", "mutation": "NONE"})
 }
 
+// The runner is injectable only for isolated, no-router tests. Production
+// always executes the existing safe single-flight RTT handler.
+var providerRTTJobScan = func(a *app, ctx context.Context) (providerProfileRTTResponse, int, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1/api/provider-profiles/rtt?refresh=1", nil)
+	writer := &providerRTTBufferWriter{}
+	if err == nil {
+		a.handleProviderProfilesRTT(writer, request)
+	}
+	var result providerProfileRTTResponse
+	if err == nil {
+		err = json.Unmarshal(writer.body.Bytes(), &result)
+	}
+	return result, writer.status, err
+}
+
 func (a *app) executeProviderRTTJob(job *providerRTTAsyncJob) {
 	ctx, cancel := context.WithTimeout(context.Background(), providerRTTAsyncTimeout)
 	defer cancel()
@@ -107,26 +122,17 @@ func (a *app) executeProviderRTTJob(job *providerRTTAsyncJob) {
 		}
 		providerRTTAsyncJobs.Unlock()
 	})
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1/api/provider-profiles/rtt?refresh=1", nil)
-	writer := &providerRTTBufferWriter{}
-	if err == nil {
-		a.handleProviderProfilesRTT(writer, request)
-	}
-
-	var result providerProfileRTTResponse
-	if err == nil {
-		err = json.Unmarshal(writer.body.Bytes(), &result)
-	}
+	result, status, err := providerRTTJobScan(a, ctx)
 	providerRTTAsyncJobs.Lock()
 	defer providerRTTAsyncJobs.Unlock()
 	if providerRTTAsyncJobs.job != job {
 		return
 	}
 	job.State = "failed"
-	if err != nil || writer.status != http.StatusOK || !result.Success || result.Mutation != "NONE" {
+	if err != nil || status != http.StatusOK || !result.Success || result.Mutation != "NONE" {
 		job.ErrorCode = "unavailable"
 		job.Error = "RTT measurement did not finish safely"
-		if writer.status == http.StatusConflict && result.ErrorCode == "busy" {
+		if status == http.StatusConflict && result.ErrorCode == "busy" {
 			job.ErrorCode = "busy"
 			job.Error = "AUTO VPN or another router operation is active"
 		}
