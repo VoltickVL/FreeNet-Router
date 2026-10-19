@@ -1619,18 +1619,62 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 	return nil
 }
 
-func (a *app) runV3GeoData(ctx context.Context) error {
+// xkeen -ug can restart a running Xray. Keep the native updater behind the
+// same atomic process lock used by provider apply; the Xray watchdog observes
+// this lock and must not perform a competing recovery during GeoData updates.
+// Tests inject only this subprocess call; production arguments remain fixed.
+var settingsV3RunGeoDataXKeen = func(ctx context.Context, path string) error {
+	cmd := exec.CommandContext(ctx, path, "-ug")
+	_, err := cmd.CombinedOutput()
+	return err
+}
+
+func (a *app) runV3GeoData(ctx context.Context) (runErr error) {
+	if a == nil || strings.TrimSpace(a.cfg.LockPath) == "" {
+		v3Mark("geodata", "failed", "GeoData: общий блокирующий механизм FreeNet недоступен; STOP.")
+		return errors.New("geodata mutation lock is unavailable")
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if _, err := os.Stat(a.cfg.XKeenPath); err != nil {
 		v3Mark("geodata", "failed", "XKeen updater недоступен.")
 		return errors.New("xkeen updater is unavailable")
 	}
-	cmd := exec.CommandContext(ctx, a.cfg.XKeenPath, "-ug")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		_ = out
-		v3Mark("geodata", "failed", "GeoData / GeoIP не обновлены.")
-		return err
+	// A failed/unknown VPN rollback, update, or provider apply is a hard STOP:
+	// do not let a scheduled GeoData restart race the protected live core.
+	if automationMutationBlockedState() || a.updateLockHeld() {
+		v3AppendEvent("geodata", "blocked", "GeoData отложены: текущие изменения FreeNet или VPN заблокированы; Xray не затронут.")
+		return errors.New("geodata update blocked by active/unknown router mutation")
 	}
-	v3Mark("geodata", "success", "GeoData / GeoIP обновлены.")
+	lockPath := a.cfg.LockPath
+	if err := os.Mkdir(lockPath, 0700); err != nil {
+		v3AppendEvent("geodata", "busy", "GeoData отложены: другое изменение VPN/Xray уже выполняется; Xray не затронут.")
+		return errors.New("geodata mutation lock is already held or unavailable")
+	}
+	defer func() {
+		if err := os.Remove(lockPath); err != nil {
+			v3Mark("geodata", "failed", "GeoData: не удалось освободить блокировку Xray; STOP.")
+			if runErr == nil {
+				runErr = errors.New("geodata mutation lock cleanup failed or unknown")
+			}
+		}
+	}()
+	if automationMutationBlockedState() || a.updateLockHeld() {
+		v3AppendEvent("geodata", "blocked", "GeoData отложены: безопасное состояние изменилось до запуска XKeen.")
+		return errors.New("router mutation state changed before geodata update")
+	}
+	wasRunning := xrayRuntimeProcessRunning(a)
+	if err := settingsV3RunGeoDataXKeen(ctx, a.cfg.XKeenPath); err != nil {
+		v3Mark("geodata", "failed", "GeoData / GeoIP не обновлены: native XKeen завершился с ошибкой.")
+		return errors.New("native geodata update failed")
+	}
+	isRunning := xrayRuntimeProcessRunning(a)
+	if wasRunning != isRunning {
+		v3Mark("geodata", "failed", "GeoData обновлены, но Xray не вернулся в исходное состояние: STOP, нужна диагностика.")
+		return errors.New("geodata update changed Xray runtime state; manual diagnosis required")
+	}
+	v3Mark("geodata", "success", "GeoData / GeoIP обновлены, состояние Xray проверено.")
 	return nil
 }
 
