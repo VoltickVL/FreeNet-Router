@@ -236,6 +236,8 @@ func main() {
 	mux.HandleFunc("GET /api/network-profile/plan", a.requireAuth(a.handleNetworkProfilePlan))
 	mux.HandleFunc("GET /api/provider-profile/plan", a.requireAuth(a.handleProviderProfilePlan))
 	mux.HandleFunc("GET /api/provider-profiles/rtt", a.requireAuth(a.handleProviderProfilesRTT))
+	mux.HandleFunc("POST /api/provider-profiles/rtt/jobs", a.requireAuth(a.handleProviderRTTJobStart))
+	mux.HandleFunc("GET /api/provider-profiles/rtt/jobs", a.requireAuth(a.handleProviderRTTJobStatus))
 	mux.HandleFunc("POST /api/network-profile/apply", a.requireAuth(a.handleNetworkProfileApply))
 	registerVPNOutboundDoctor(mux, a)
 	registerVPNTransactionDoctor(mux, a)
