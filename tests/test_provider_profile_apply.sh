@@ -570,4 +570,57 @@ fi
 if grep -Eq 'TEST-ID-A|TEST-PBK|TEST-SID|private-token|vless://' "$TMP/blocked-apply.err" "$TMP/blocked-core.err" "$TMP/killed-apply.err"; then
     fail 'checkpoint path leaked credentials in diagnostics'
 fi
+
+# Linux kill -0 also succeeds for zombie PIDs; the core-only cutover must
+# distinguish a retired core, an uninterruptible live core and a reused PID.
+LIFECYCLE_FUNC="$TMP/xray-lifecycle-function.sh"
+sed -n '/^xray_pid_lifecycle() {/,/^}/p' "$SCRIPT" > "$LIFECYCLE_FUNC"
+[ -s "$LIFECYCLE_FUNC" ] || fail 'PID lifecycle reader is missing'
+. "$LIFECYCLE_FUNC"
+PROC_FIX="$TMP/proc-fixture"
+mkdir -p "$PROC_FIX"
+# /proc/self/stat in awk exposes the live parent test shell PID.
+TEST_PID="$(awk '{print $4}' /proc/self/stat)"
+case "$TEST_PID" in ''|*[!0-9]*) fail 'test PID was not numeric' ;; esac
+write_process_state() {
+    FIX_PID="$1"
+    FIX_START="$2"
+    FIX_STATE="$3"
+    mkdir -p "$PROC_FIX/$FIX_PID"
+    printf '%s (xray) %s' "$FIX_PID" "$FIX_STATE" > "$PROC_FIX/$FIX_PID/stat"
+    FIX_FIELD=4
+    while [ "$FIX_FIELD" -lt 22 ]; do
+        printf ' 0' >> "$PROC_FIX/$FIX_PID/stat"
+        FIX_FIELD=$((FIX_FIELD + 1))
+    done
+    printf ' %s 0\n' "$FIX_START" >> "$PROC_FIX/$FIX_PID/stat"
+    printf 'Name:\txray\nState:\t%s (fixture)\n' "$FIX_STATE" > "$PROC_FIX/$FIX_PID/status"
+}
+write_process_state "$TEST_PID" 123456 Z
+kill -0 "$TEST_PID" 2>/dev/null || fail 'PID-0 fixture does not reproduce a live kernel PID'
+[ "$(xray_pid_lifecycle "$TEST_PID" 123456 "$PROC_FIX")" = zombie ] ||
+    fail 'zombie was misclassified as running by PID lifecycle reader'
+write_process_state "$TEST_PID" 123456 S
+[ "$(xray_pid_lifecycle "$TEST_PID" 123456 "$PROC_FIX")" = live:S ] ||
+    fail 'live Xray state was misclassified as exited'
+write_process_state "$TEST_PID" 123456 D
+[ "$(xray_pid_lifecycle "$TEST_PID" 123456 "$PROC_FIX")" = live:D ] ||
+    fail 'D-state Xray must remain a live unsafe process'
+[ "$(xray_pid_lifecycle "$TEST_PID" 999999 "$PROC_FIX")" = reused ] ||
+    fail 'reused Xray PID was not detected'
+printf 'truncated stat' > "$PROC_FIX/$TEST_PID/stat"
+[ "$(xray_pid_lifecycle "$TEST_PID" 123456 "$PROC_FIX")" = unknown ] ||
+    fail 'uninspectable core PID must remain UNKNOWN'
+[ "$(xray_pid_lifecycle 999999 123456 "$PROC_FIX")" = gone ] ||
+    fail 'absent core PID must be classified as gone'
+# These apply to both the forward and rollback core-only paths.
+grep -Fq 'xray_pid_lifecycle "$OLD_PID" "$OLD_START"' "$SCRIPT" ||
+    fail 'core cutover does not inspect process identity during termination'
+grep -Fq 'CORE_RESTART_EXIT="old-core-pid-reused"' "$SCRIPT" ||
+    fail 'PID reuse does not fail closed'
+grep -Fq 'CORE_RESTART_EXIT="old-core-uninterruptible"' "$SCRIPT" ||
+    fail 'uninterruptible core has no specific STOP result'
+grep -Fq 'CORE_RESTART_STAGE="process-inventory-after-stop"' "$SCRIPT" ||
+    fail 'restart can bypass the post-stop isolated process fence'
+
 echo 'provider profile apply test PASS'
