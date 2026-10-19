@@ -44,6 +44,7 @@ const server = http.createServer((req,res)=>{
     const calls=[];let pending=[];let mode='ok';let bestMode='winner';let rttMode='ok';
     let rttJobId='',rttJobResult=null,rttJobSequence=0;
     const rttJobStarts=()=>calls.filter(c=>c.path==='/api/provider-profiles/rtt/jobs'&&c.method==='POST');
+    const mutationPosts=()=>calls.filter(c=>c.method==='POST'&&c.path!=='/api/provider-profiles/rtt/jobs');
     let applyMode='ok', operation=null, operationReads=0, providerPlanMode='ok';
     const answer = (route,body,code=200)=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
     await page.route('**/api/**',async route=>{
@@ -519,7 +520,7 @@ const server = http.createServer((req,res)=>{
     assert.equal(await page.locator('#bestServerApply').isVisible(),true);
     assert.match(await page.locator('#bestServerReason').textContent(),/Скорость \+25.7/);
     assert.match(await page.locator('.vpn-option').nth(2).textContent(),/Скорость −11.1.*Отклик медленнее на 40 мс/,'slower alternatives must disclose both drawbacks');
-    assert.equal(calls.filter(c=>c.method==='POST').length,0,'checks never mutate VPN');
+    assert.equal(mutationPosts().length,0,'checks never mutate VPN');
     assert.equal(await page.locator('.vpn-option').count(),3,'show up to three distinct measured foreign comparisons');
     assert.equal(await page.locator('#fnVpnPickerV2Toggle').isVisible(),true,'manual choice is always available through the stable topbar selector');
     assert.equal(await page.locator('#bestCurrentMetrics').isVisible(),true);
@@ -570,7 +571,7 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
     await page.locator('#bestServerApply').click();
     await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent==='VPN переключён. Соединение проверено.');
-    assert.equal(calls.filter(c=>c.method==='POST').length,1,'apply issues one transactional request');
+    assert.equal(mutationPosts().length,1,'apply issues one transactional request');
     assert.match(await page.locator('#bestCurrentName').textContent(),/Германия/);
     expectedApply=second;
     status={...status,endpoint:current.endpoint,country:'Польша',city:'Варшава',country_code:'pl'};
@@ -589,7 +590,7 @@ const server = http.createServer((req,res)=>{
       await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
       await page.locator('#bestServerRefresh').click();
       await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
-      const postsBefore=calls.filter(c=>c.method==='POST').length;
+      const postsBefore=mutationPosts().length;
       await page.locator('#bestServerApply').click();
       if(scenario==='failed')await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent.includes('Проверка соединения не пройдена'));
       else if(scenario==='other')await page.waitForFunction(()=>document.querySelector('#bestServerStatus').textContent.includes('пока не подтверждён'));
@@ -598,7 +599,7 @@ const server = http.createServer((req,res)=>{
         assert.match(await page.locator('#bestCurrentName').textContent(),/Германия|Germany/);
         assert.equal(await page.locator('#bestServerCheckCurrent').isDisabled(),false);
       }
-      assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1,scenario+': no second POST');
+      assert.equal(mutationPosts().length,postsBefore+1,scenario+': no second POST');
       assert.ok(operationReads>=1,scenario+': operation state was read');
       assert.equal(await page.locator('#bestServerApply').isVisible(),false,scenario+': stale apply cannot be repeated');
     }
@@ -606,7 +607,7 @@ const server = http.createServer((req,res)=>{
     status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};
     await page.goto(base);
     await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
-    const providerErrorPosts=calls.filter(c=>c.method==='POST').length;
+    const providerErrorPosts=mutationPosts().length;
     const manualPlanReads=calls.filter(c=>c.path==='/api/provider-profile/plan').length;
     await openPicker();
     await page.locator('#fnVpnPickerV2Results').waitFor({state:'visible'});
@@ -615,7 +616,7 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-ready'));
     assert.equal(await page.locator('#exactConnectBtn').isDisabled(),false,'dead/untested server must be selectable');
     assert.equal(calls.filter(c=>c.path==='/api/provider-profile/plan').length,manualPlanReads,'manual selection must not fetch provider plan');
-    assert.equal(calls.filter(c=>c.method==='POST').length,providerErrorPosts,'selection is read-only');
+    assert.equal(mutationPosts().length,providerErrorPosts,'selection is read-only');
     await page.setViewportSize({width:1366,height:768});
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'desktop overflow');
     await page.setViewportSize({width:390,height:844});
@@ -659,21 +660,21 @@ const server = http.createServer((req,res)=>{
       status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:'',endpoint:current.endpoint};
       await page.goto(base);
       await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
-      const postsBefore=calls.filter(c=>c.method==='POST').length;
+      const postsBefore=mutationPosts().length;
       await openPicker();
       await page.locator('#fnVpnPickerV2Results').waitFor({state:'visible'});
       await page.locator('#fnVpnPickerV2Results [data-profile-id="fixture-lt"]').click();
       assert.equal(await page.locator('#fnVpnPickerV2Panel').isVisible(),true,'exact candidate checking must remain inside the open popover');
       await page.waitForFunction(()=>!document.querySelector('#exactConnectBtn').disabled);
-      assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore,'manual selection only validates');
+      assert.equal(mutationPosts().length,postsBefore,'manual selection only validates');
       await page.locator('#fnVpnPickerV2Connect').click();
       if(scenario==='other')await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('пока не подтверждён'));
       else await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Конфигурация применена:'));
       assert.equal(status.country_code,'','exact Extra acceptance must not depend on legacy country mapping');
-      assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1);
+      assert.equal(mutationPosts().length,postsBefore+1);
       await page.evaluate(()=>{buttonsBusy(false);document.querySelector('#exactConnectBtn').click();});
       assert.equal(await page.locator('#exactConnectBtn').isDisabled(),true,'used manual plan cannot be re-enabled by polling');
-      assert.equal(calls.filter(c=>c.method==='POST').length,postsBefore+1,'no blind manual repeat');
+      assert.equal(mutationPosts().length,postsBefore+1,'no blind manual repeat');
     }
     assert.equal(errors.length,0,errors.join('\n'));
     console.log('PASS: shipped-page startup, explicit current/full scans, fresh-current retention, 3 comparison rows, CSS flags, RU exclusion, transactional apply reconciliation, exact-profile fallback and responsive layout.');
