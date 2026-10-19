@@ -15,7 +15,7 @@
     failed:'Проверка не пройдена', empty:'Список серверов недоступен. Проверьте подписку.',
     noMatch:'Ничего не найдено. Измените запрос.', stale:'Показан последний успешный список.',
     busy:'Другая операция VPN ещё выполняется.', blocked:'Результат нужно подтвердить. Повтор заблокирован.',
-    ping:'Измерить задержку через каждый VPN', pinging:'Проверяем задержку через каждый VPN…', pingFailed:'Не удалось измерить RTT серверов.',
+    ping:'Измерить задержку через каждый VPN', pinging:'Проверяем задержку через каждый VPN…', pingFailed:'RTT серверов не получен. Соединение не менялось.', pingBusy:'AUTO VPN или другая проверка заняты. Повторите измерение через несколько минут.',
     pingCatalogChanged:'Список VPN изменился во время проверки. Нажмите ↻ ещё раз.'
   };
   const countries = (() => { try { return new Intl.DisplayNames(['ru'], {type:'region'}); } catch (_) { return null; } })();
@@ -226,7 +226,7 @@
     rttScanning=true; rttError=''; rttSummary=''; listKey=''; window.freenetManualRTTSelection = null; paint();
     try {
       if (typeof window.freenetProviderRTTScan!=='function') throw new Error('rtt');
-      const data=await window.freenetProviderRTTScan(event);
+      const data=await window.freenetProviderRTTScan(event, rttRanked);
       const measuredCatalog=safeRTTCatalog(data);
       if (!measuredCatalog || measuredCatalog.length!==Number(data.profiles||0)) throw new Error('catalog-changed');
       const measuredByID=new Map(measuredCatalog.map(profile=>[profile.id,profile.endpoint]));
@@ -259,12 +259,13 @@
       const serverChecked=Number.isFinite(Number(data.checked))?Number(data.checked):checked;
       const serverUnknown=Number.isFinite(Number(data.unknown))?Number(data.unknown):unknown;
       const serverReachable=Number.isFinite(Number(data.reachable))?Number(data.reachable):reachable;
-      rttSummary=data.partial
+      const cacheHint=data.cached?'Результаты из кеша (не старше пяти минут). Нажмите ↻ ещё раз для нового измерения. ':'';
+      rttSummary=cacheHint+(data.partial
         ? `VPN-пинг: завершён частично — ответили ${serverReachable} из ${serverChecked}, не проверено ${serverUnknown} из ${total}.`
-        : `VPN-пинг: проверено ${serverChecked} из ${total}, ответили ${serverReachable}. Список отсортирован от меньшей задержки к большей.`;
+        : `VPN-пинг: проверено ${serverChecked} из ${total}, ответили ${serverReachable}. Список отсортирован от меньшей задержки к большей.`);
     } catch (error) {
       rttByID.clear(); rttRanked=false; rttVersion++; window.freenetManualRTTSelection = null;
-      rttError=error&&error.message==='catalog-changed'?L.pingCatalogChanged:L.pingFailed;
+      rttError=error?.message==='catalog-changed'?L.pingCatalogChanged:error?.message==='rtt-busy'?L.pingBusy:L.pingFailed;
     } finally {
       rttScanning=false; listKey=''; paint();
     }
