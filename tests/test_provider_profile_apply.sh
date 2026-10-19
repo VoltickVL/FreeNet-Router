@@ -579,6 +579,9 @@ sed -n '/^xray_pid_lifecycle() {/,/^}/p' "$SCRIPT" > "$LIFECYCLE_FUNC"
 . "$LIFECYCLE_FUNC"
 PROC_FIX="$TMP/proc-fixture"
 mkdir -p "$PROC_FIX"
+# /proc/self/stat in awk exposes the live parent test shell PID.
+TEST_PID="$(awk '{print $4}' /proc/self/stat)"
+case "$TEST_PID" in ''|*[!0-9]*) fail 'test PID was not numeric' ;; esac
 write_process_state() {
     FIX_PID="$1"
     FIX_START="$2"
@@ -593,20 +596,20 @@ write_process_state() {
     printf ' %s 0\n' "$FIX_START" >> "$PROC_FIX/$FIX_PID/stat"
     printf 'Name:\txray\nState:\t%s (fixture)\n' "$FIX_STATE" > "$PROC_FIX/$FIX_PID/status"
 }
-write_process_state "$" 123456 Z
-kill -0 "$" 2>/dev/null || fail 'PID-0 fixture does not reproduce a live kernel PID'
-[ "$(xray_pid_lifecycle "$" 123456 "$PROC_FIX")" = zombie ] ||
+write_process_state "$TEST_PID" 123456 Z
+kill -0 "$TEST_PID" 2>/dev/null || fail 'PID-0 fixture does not reproduce a live kernel PID'
+[ "$(xray_pid_lifecycle "$TEST_PID" 123456 "$PROC_FIX")" = zombie ] ||
     fail 'zombie was misclassified as running by PID lifecycle reader'
-write_process_state "$" 123456 S
-[ "$(xray_pid_lifecycle "$" 123456 "$PROC_FIX")" = live:S ] ||
+write_process_state "$TEST_PID" 123456 S
+[ "$(xray_pid_lifecycle "$TEST_PID" 123456 "$PROC_FIX")" = live:S ] ||
     fail 'live Xray state was misclassified as exited'
-write_process_state "$" 123456 D
-[ "$(xray_pid_lifecycle "$" 123456 "$PROC_FIX")" = live:D ] ||
+write_process_state "$TEST_PID" 123456 D
+[ "$(xray_pid_lifecycle "$TEST_PID" 123456 "$PROC_FIX")" = live:D ] ||
     fail 'D-state Xray must remain a live unsafe process'
-[ "$(xray_pid_lifecycle "$" 999999 "$PROC_FIX")" = reused ] ||
+[ "$(xray_pid_lifecycle "$TEST_PID" 999999 "$PROC_FIX")" = reused ] ||
     fail 'reused Xray PID was not detected'
-printf 'truncated stat' > "$PROC_FIX/$/stat"
-[ "$(xray_pid_lifecycle "$" 123456 "$PROC_FIX")" = unknown ] ||
+printf 'truncated stat' > "$PROC_FIX/$TEST_PID/stat"
+[ "$(xray_pid_lifecycle "$TEST_PID" 123456 "$PROC_FIX")" = unknown ] ||
     fail 'uninspectable core PID must remain UNKNOWN'
 [ "$(xray_pid_lifecycle 999999 123456 "$PROC_FIX")" = gone ] ||
     fail 'absent core PID must be classified as gone'
