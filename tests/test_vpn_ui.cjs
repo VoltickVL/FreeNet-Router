@@ -42,6 +42,8 @@ const server = http.createServer((req,res)=>{
     });
     const errors=[];page.on('pageerror',e=>errors.push(e.message));
     const calls=[];let pending=[];let mode='ok';let bestMode='winner';let rttMode='ok';
+    let rttJobId='',rttJobResult=null,rttJobSequence=0;
+    const rttJobStarts=()=>calls.filter(c=>c.path==='/api/provider-profiles/rtt/jobs'&&c.method==='POST');
     let applyMode='ok', operation=null, operationReads=0, providerPlanMode='ok';
     const answer = (route,body,code=200)=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
     await page.route('**/api/**',async route=>{
@@ -63,7 +65,7 @@ const server = http.createServer((req,res)=>{
           :{success:true,profile_id:id,candidate_xray_valid:true,mutation:'NONE',endpoint:selected.endpoint};
         return answer(route,providerPlan,providerPlan.success?200:409);
       }
-      if(url.pathname==='/api/provider-profiles/rtt'){
+      if(url.pathname==='/api/provider-profiles/rtt'||url.pathname==='/api/provider-profiles/rtt/jobs'){
         const winnerEndpoint=rttMode==='rotate'?'192.0.2.99:443':winner.endpoint;
         const safeProfile=(p,forcedEndpoint='')=>{
           const value=forcedEndpoint||p.endpoint;
@@ -75,14 +77,24 @@ const server = http.createServer((req,res)=>{
           safeProfile(winner,winnerEndpoint),
           safeProfile(current)
         ];
-        return answer(route,{
-          success:true,cached:false,mutation:'NONE',selection_token:manualRTTToken,profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
+        const measured={success:true,cached:false,mutation:'NONE',selection_token:manualRTTToken,profiles:3,catalog,catalog_key:'fixture-catalog',checked:3,reachable:3,unknown:0,partial:false,
           results:[
             {profile_id:second.id,endpoint:second.endpoint,rtt_ms:92,jitter_ms:3,reachable:true,attempted:true,status:'reachable'},
             {profile_id:winner.id,endpoint:rttMode==='malformed'?'192.0.2.98:443':winnerEndpoint,rtt_ms:121,jitter_ms:4,reachable:true,attempted:true,status:'reachable'},
             {profile_id:current.id,endpoint:current.endpoint,rtt_ms:148,jitter_ms:5,reachable:true,attempted:true,status:'reachable'}
-          ]
-        });
+          ]};
+        if(url.pathname==='/api/provider-profiles/rtt')return answer(route,measured);
+        if(req.method()==='POST'){
+          assert.equal(req.postData(),'{}','RTT job launch must be read-only, without any credentials');
+          rttJobId=(++rttJobSequence).toString(16).padStart(32,'0');
+          rttJobResult=measured;
+          return answer(route,{id:rttJobId,state:'running',mutation:'NONE'},202);
+        }
+        if(req.method()==='GET'){
+          if(url.searchParams.get('id')!==rttJobId||!rttJobResult)return answer(route,{error:'job unavailable'},404);
+          return answer(route,{id:rttJobId,state:'completed',completed:3,total:3,result:rttJobResult});
+        }
+        throw new Error('Unexpected RTT job method');
       }
       if(url.pathname==='/api/network-profile/plan'){
         const hasProvider=url.searchParams.has('provider_profile_id');
@@ -231,7 +243,7 @@ const server = http.createServer((req,res)=>{
     assert.equal(await page.locator('#fnVpnPickerV2Flag').evaluate(node=>node.classList.contains('flag-pl')),true,'VPN chip must expose current country flag');
     assert.equal(await page.locator('#fnVpnPickerV2Panel').isHidden(),true,'VPN selector popover must be closed by default');
     const topbarHeightClosed = await page.locator('.topbar').evaluate(node => Math.round(node.getBoundingClientRect().height));
-    const rttCallsBeforeOpen=calls.filter(x=>x.path==='/api/provider-profiles/rtt').length;
+    const rttCallsBeforeOpen=rttJobStarts().length;
     await openPicker();
     await page.locator('#fnVpnPickerV2Results').waitFor({state:'visible'});
     // Readability contract: users must read server names, endpoints and RTT
@@ -253,24 +265,24 @@ const server = http.createServer((req,res)=>{
     assert.ok(pickerTypography.minRow >= 58 && pickerTypography.nowrap !== 'nowrap',
       'VPN selector must allow readable multi-line server labels: '+JSON.stringify(pickerTypography));
     await page.waitForTimeout(200);
-    assert.equal(calls.filter(x=>x.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen,'opening selector must be network-idle and never auto-start RTT');
+    assert.equal(rttJobStarts().length,rttCallsBeforeOpen,'opening selector must be network-idle and never auto-start RTT');
     const initialRTT=await page.locator('#fnVpnPickerV2Results .fnv2-option .fnv2-rtt').evaluateAll(nodes=>nodes.map(n=>n.textContent||''));
     assert.ok(initialRTT.every(v=>v===''),'selector without explicit RTT refresh must not invent measurement state');
     await page.evaluate(()=>document.querySelector('#fnVpnPickerV2Refresh').click());
     await page.waitForTimeout(120);
-    assert.equal(calls.filter(x=>x.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen,'synthetic refresh click must never start RTT');
+    assert.equal(rttJobStarts().length,rttCallsBeforeOpen,'synthetic refresh click must never start RTT');
     await page.locator('#fnVpnPickerV2Refresh').click();
     await page.waitForFunction(()=>!document.querySelector('#fnVpnPickerV2Refresh').disabled);
     await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2RTTState')?.textContent.includes('Список отсортирован'));
     let rttOrder=await page.locator('#fnVpnPickerV2Results .fnv2-option').evaluateAll(nodes=>nodes.map(n=>({id:n.dataset.profileId,rtt:n.querySelector('.fnv2-rtt')?.textContent||''})));
     assert.deepEqual(rttOrder.slice(0,3).map(x=>x.id),[second.id,winner.id,current.id],'explicit RTT refresh must sort measured profiles by canonical VPN RTT');
     assert.deepEqual(rttOrder.slice(0,3).map(x=>x.rtt),['92 мс','121 мс','148 мс'],'explicit RTT refresh must show RTT for every measured profile');
-    let forcedRTTCalls=calls.filter(x=>x.path==='/api/provider-profiles/rtt'&&x.query.includes('refresh=1')).length;
-    assert.equal(forcedRTTCalls,1,'one explicit refresh must start exactly one full-pool RTT sweep');
+    let forcedRTTCalls=rttJobStarts().length;
+    assert.equal(forcedRTTCalls,1,'one explicit refresh must launch exactly one bounded read-only RTT job');
     await page.locator('#fnVpnPickerV2Close').click();
     await openPicker();
     await page.waitForTimeout(200);
-    assert.equal(calls.filter(x=>x.path==='/api/provider-profiles/rtt').length,rttCallsBeforeOpen+1,'reopening selector must not start another RTT sweep');
+    assert.equal(rttJobStarts().length,rttCallsBeforeOpen+1,'reopening selector must not start another RTT sweep');
 
     rttMode='rotate';
     await page.locator('#fnVpnPickerV2Refresh').click();
