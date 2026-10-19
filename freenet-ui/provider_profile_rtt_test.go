@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -403,5 +407,36 @@ func TestConfirmProviderProfileRTTLeadersRemeasuresOnlyBoundedLeaders(t *testing
 	}
 	if len(got) != 4 || got[0].ProfileID != "b" || got[0].RTTMS != 90 || got[1].ProfileID != "c" || got[1].RTTMS != 120 {
 		t.Fatalf("confirmed leaders were not merged/resorted correctly: %#v", got)
+	}
+}
+
+func TestProviderProfileRTTBusyIsRetriableAndNeverStartsAProbe(t *testing.T) {
+	t.Setenv("FREENET_AUTO_HEALTH_LOCK", filepath.Join(t.TempDir(), "auto-health.lock"))
+	release, err := acquireAutomationHealthLock()
+	if err != nil {
+		t.Fatalf("cannot prepare active AUTO health fence: %v", err)
+	}
+	defer release()
+
+	a := &app{sem: make(chan struct{}, 1)}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/provider-profiles/rtt", nil)
+	a.handleProviderProfilesRTT(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d want 409", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") != "4" {
+		t.Fatalf("missing bounded retry guidance: %q", rec.Header().Get("Retry-After"))
+	}
+	var result providerProfileRTTResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Success || result.Mutation != "NONE" || result.ErrorCode != "busy" || result.ProbeMode != "logical_vpn_https_ip" {
+		t.Fatalf("AUTO contention must not be reported as dead VPN or mutation: %+v", result)
+	}
+	if len(result.Results) != 0 || len(a.sem) != 0 {
+		t.Fatal("busy RTT request started probes or retained an operation gate")
 	}
 }
