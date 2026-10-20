@@ -623,4 +623,115 @@ grep -Fq 'CORE_RESTART_EXIT="old-core-uninterruptible"' "$SCRIPT" ||
 grep -Fq 'CORE_RESTART_STAGE="process-inventory-after-stop"' "$SCRIPT" ||
     fail 'restart can bypass the post-stop isolated process fence'
 
+# The final pidof inventory must allow bounded reaping only for the
+# original identity-verified zombie. A foreign process must never be ignored.
+INVENTORY_FUNC="$TMP/xray-inventory-function.sh"
+sed -n '/^wait_xray_post_stop_inventory() {/,/^}/p' "$SCRIPT" > "$INVENTORY_FUNC"
+[ -s "$INVENTORY_FUNC" ] || fail 'post-stop Xray inventory helper is missing'
+. "$INVENTORY_FUNC"
+# Avoid 20 real sleeps in the unreaped-zombie fault injection.
+short_pause() { :; }
+OLD_PID="$TEST_PID"
+OLD_START=123456
+TEST_PIDOF_COUNT_FILE="$TMP/post-stop-pidof-count"
+export TEST_PID TEST_PIDOF_COUNT_FILE
+cat > "$TMP/bin/pidof" <<'EOF'
+#!/bin/sh
+[ "$1" = xray ] || exit 1
+case "${TEST_PIDOF_MODE:-}" in
+  zombie-clears)
+    N=0
+    [ -f "$TEST_PIDOF_COUNT_FILE" ] && N="$(cat "$TEST_PIDOF_COUNT_FILE")"
+    N=$((N + 1))
+    printf '%s\n' "$N" > "$TEST_PIDOF_COUNT_FILE"
+    [ "$N" -le 2 ] && { printf '%s\n' "$TEST_PID"; exit 0; }
+    exit 1
+    ;;
+  original)
+    printf '%s\n' "$TEST_PID"
+    ;;
+  foreign)
+    printf '%s\n' 424242
+    ;;
+  mixed)
+    printf '%s %s\n' "$TEST_PID" 424242
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+EOF
+chmod 755 "$TMP/bin/pidof"
+
+write_process_state "$TEST_PID" 123456 Z
+TEST_PIDOF_MODE=zombie-clears
+export TEST_PIDOF_MODE
+rm -f "$TEST_PIDOF_COUNT_FILE"
+CORE_RESTART_EXIT="not-run"
+wait_xray_post_stop_inventory "$PROC_FIX" || fail 'original zombie did not clear in bounded inventory'
+[ "$(cat "$TEST_PIDOF_COUNT_FILE")" = 3 ] || fail 'inventory did not wait for original zombie to disappear'
+
+TEST_PIDOF_MODE=original
+export TEST_PIDOF_MODE
+CORE_RESTART_EXIT="not-run"
+if wait_xray_post_stop_inventory "$PROC_FIX"; then
+    fail 'unreaped original zombie wrongly allowed XKeen startup'
+fi
+[ "$CORE_RESTART_EXIT" = old-core-zombie-unreaped ] || fail 'unreaped zombie did not receive a specific STOP result'
+
+write_process_state "$TEST_PID" 123456 S
+CORE_RESTART_EXIT="not-run"
+if wait_xray_post_stop_inventory "$PROC_FIX"; then
+    fail 'live original process wrongly allowed XKeen startup'
+fi
+[ "$CORE_RESTART_EXIT" = old-core-still-running ] || fail 'live process was not classified as STOP'
+
+write_process_state "$TEST_PID" 123456 D
+CORE_RESTART_EXIT="not-run"
+if wait_xray_post_stop_inventory "$PROC_FIX"; then
+    fail 'uninterruptible Xray wrongly allowed XKeen startup'
+fi
+[ "$CORE_RESTART_EXIT" = old-core-uninterruptible ] || fail 'D-state process was not classified as STOP'
+
+write_process_state "$TEST_PID" 999999 Z
+CORE_RESTART_EXIT="not-run"
+if wait_xray_post_stop_inventory "$PROC_FIX"; then
+    fail 'reused zombie PID wrongly allowed XKeen startup'
+fi
+[ "$CORE_RESTART_EXIT" = old-core-pid-reused ] || fail 'reused zombie was not classified as STOP'
+
+printf 'truncated stat' > "$PROC_FIX/$TEST_PID/stat"
+CORE_RESTART_EXIT="not-run"
+if wait_xray_post_stop_inventory "$PROC_FIX"; then
+    fail 'unknown original identity wrongly allowed XKeen startup'
+fi
+[ "$CORE_RESTART_EXIT" = old-core-identity-unknown ] || fail 'unreadable identity was not classified as STOP'
+
+write_process_state "$TEST_PID" 123456 Z
+TEST_PIDOF_MODE=foreign
+export TEST_PIDOF_MODE
+CORE_RESTART_EXIT="not-run"
+if wait_xray_post_stop_inventory "$PROC_FIX"; then
+    fail 'foreign Xray PID was ignored'
+fi
+[ "$CORE_RESTART_EXIT" = unexpected-xray-process ] || fail 'foreign process lacked fail-closed STOP'
+
+TEST_PIDOF_MODE=mixed
+export TEST_PIDOF_MODE
+CORE_RESTART_EXIT="not-run"
+if wait_xray_post_stop_inventory "$PROC_FIX"; then
+    fail 'original zombie + foreign Xray were wrongly allowed'
+fi
+[ "$CORE_RESTART_EXIT" = unexpected-xray-process ] || fail 'mixed inventory lacked fail-closed STOP'
+
+OLD_PID=""
+TEST_PIDOF_MODE=foreign
+export TEST_PIDOF_MODE
+CORE_RESTART_EXIT="not-run"
+if wait_xray_post_stop_inventory "$PROC_FIX"; then
+    fail 'unexpected Xray was allowed without a captured old identity'
+fi
+[ "$CORE_RESTART_EXIT" = unexpected-xray-process ] || fail 'unknown old identity was not STOP'
+[ -z "$(grep -E '(^|[[:space:];])kill[[:space:]]' "$INVENTORY_FUNC" || true)" ] || fail 'post-stop inventory must not signal any PID'
+
 echo 'provider profile apply test PASS'
