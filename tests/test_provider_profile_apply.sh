@@ -625,6 +625,10 @@ grep -Fq 'CORE_RESTART_STAGE="process-inventory-after-stop"' "$SCRIPT" ||
 
 # The final pidof inventory must allow bounded reaping only for the
 # original identity-verified zombie. A foreign process must never be ignored.
+# The helper runs with TMP/bin prepended by run_helper. Source-level
+# fixtures execute in this test shell and need the identical PATH.
+PATH="$TMP/bin:$PATH"
+export PATH
 INVENTORY_FUNC="$TMP/xray-inventory-function.sh"
 sed -n '/^wait_xray_post_stop_inventory() {/,/^}/p' "$SCRIPT" > "$INVENTORY_FUNC"
 [ -s "$INVENTORY_FUNC" ] || fail 'post-stop Xray inventory helper is missing'
