@@ -823,6 +823,47 @@ xray_pid_lifecycle() {
     esac
 }
 
+# The production core's PID must be fully absent from pidof before XKeen
+# starts. Only the original PID with its captured /proc starttime can be
+# tolerated in zombie state for a bounded reaping interval. No signals are
+# sent here, and an unrelated or unknown Xray always blocks the cutover.
+# An alternate proc root is for isolated fixture tests only.
+wait_xray_post_stop_inventory() {
+    POST_STOP_PROC_ROOT="${1:-/proc}"
+    POST_STOP_WAIT=0
+    while :; do
+        POST_STOP_PIDS="$(pidof xray 2>/dev/null || true)"
+        set -- $POST_STOP_PIDS
+        [ "$#" -gt 0 ] || return 0
+        for POST_STOP_PID in "$@"; do
+            case "$POST_STOP_PID" in
+                ''|0|*[!0-9]*)
+                    CORE_RESTART_EXIT="unexpected-xray-process"
+                    return 1
+                    ;;
+            esac
+            if [ -z "$OLD_PID" ] || [ "$POST_STOP_PID" != "$OLD_PID" ]; then
+                CORE_RESTART_EXIT="unexpected-xray-process"
+                return 1
+            fi
+            POST_STOP_STATE="$(xray_pid_lifecycle "$OLD_PID" "$OLD_START" "$POST_STOP_PROC_ROOT")"
+            case "$POST_STOP_STATE" in
+                gone|zombie) ;;
+                reused) CORE_RESTART_EXIT="old-core-pid-reused"; return 1 ;;
+                live:D) CORE_RESTART_EXIT="old-core-uninterruptible"; return 1 ;;
+                live:*) CORE_RESTART_EXIT="old-core-still-running"; return 1 ;;
+                *) CORE_RESTART_EXIT="old-core-identity-unknown"; return 1 ;;
+            esac
+        done
+        if [ "$POST_STOP_WAIT" -ge 20 ]; then
+            CORE_RESTART_EXIT="old-core-zombie-unreaped"
+            return 1
+        fi
+        short_pause
+        POST_STOP_WAIT=$((POST_STOP_WAIT + 1))
+    done
+}
+
 restart_xray_core() {
     ALLOW_STOPPED="${1:-no}"
     CORE_RESTART_STAGE="process-inventory"
@@ -918,11 +959,11 @@ restart_xray_core() {
         esac
     fi
 
-    # Never run XKeen against another live/probe PID. Its legacy pidof cannot
-    # reliably distinguish managed Xray from probes or unreaped zombies.
+    # XKeen's legacy pidof may still report our original unreaped zombie.
+    # Wait only for that proven retired process to leave the inventory.
+    # Every other process (including an unknown/reused PID) remains STOP.
     CORE_RESTART_STAGE="process-inventory-after-stop"
-    if [ -n "$(pidof xray 2>/dev/null || true)" ]; then
-        CORE_RESTART_EXIT="unexpected-xray-process"
+    if ! wait_xray_post_stop_inventory; then
         return 1
     fi
 
