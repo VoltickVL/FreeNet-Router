@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"net/url"
 	"os"
@@ -350,31 +349,18 @@ func (a *app) probeBestServerApplication(ctx context.Context, candidate bestServ
 		return bestServerProbeResult{}
 	}
 
+	// Endpoint readiness must use the same independent HTTPS origins and HTTP
+	// response-phase RTT as Best Server. Connection/TLS setup time is not the
+	// application RTT compared with bestServerQualityMaxApplicationMS.
+	socks := fmt.Sprintf("127.0.0.1:%d", port)
 	samples := make([]int, 0, bestServerApplicationRuns)
 	for i := 0; i < bestServerApplicationRuns; i++ {
 		probeCtx, cancel := context.WithTimeout(ctx, bestServerApplicationLimit)
-		output, err := exec.CommandContext(probeCtx, curlPath,
-			"--socks5-hostname", fmt.Sprintf("127.0.0.1:%d", port),
-			"-sS", "--connect-timeout", "3", "--max-time", "6",
-			"-o", "/dev/null", "-w", "%{http_code}\t%{time_total}", bestServerProbeURL,
-		).Output()
+		ms, _, ok := probeBestServerHTTPAny(probeCtx, curlPath, socks)
 		cancel()
-		if err != nil {
-			continue
+		if ok {
+			samples = append(samples, ms)
 		}
-		fields := strings.Fields(string(output))
-		if len(fields) != 2 || len(fields[0]) != 3 || fields[0][0] < '2' || fields[0][0] > '4' {
-			continue
-		}
-		seconds, err := strconv.ParseFloat(fields[1], 64)
-		if err != nil || seconds <= 0 {
-			continue
-		}
-		ms := int(math.Round(seconds * 1000))
-		if ms < 1 {
-			ms = 1
-		}
-		samples = append(samples, ms)
 	}
 	return summarizeBestServerSamples(samples, bestServerApplicationRuns)
 }
