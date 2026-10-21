@@ -570,6 +570,251 @@ for STAT_CASE in unsupported empty bad_hex extra_field wrong_path multiline form
 done
 echo 'BusyBox stat feature-off: protected apply, exact path/schema, pinned provider and changed identity/time STOP gates PASS'
 
+# A completed rollback can have moved recovery.pending into attempts before
+# its owner exited without releasing the VPN lock. Only the newest, complete,
+# owner-bound ROLLED_BACK attempt may supply evidence for an app-only claim.
+make_archived_fixture() {
+    make_orphan_fixture
+    rm -rf "$P/recovery.pending"
+    A_ROOT="$R/var/lib/freenet/vpn-transaction.attempts"
+    A="$A_ROOT/20261021T155153Z.9001"
+    mkdir -p "$A_ROOT/20261021T155113Z.9001" "$A"
+    echo RECONCILED > "$A_ROOT/20261021T155113Z.9001/result"
+    # Create all selected archive files after the fixture lock exists.
+    echo PENDING > "$A/state"
+    echo ROLLED_BACK > "$A/result"
+    echo running > "$A/core.before"
+    cp "$R/etc/xray/configs/04_outbounds.json" "$A/out.before"
+    cp "$R/etc/freenet/vpn_profile_name" "$A/profile.before"
+    cp "$R/etc/xray/blanc_profile_filter.regex" "$A/filter.before"
+}
+
+archive_protected_hash() {
+    find "$R/etc" "$R/sbin" "$R/bin" "$R/lib" "$R/var/lib/freenet" \
+        -type f ! -path '*/vpn-lock-recovery-history/*' -exec sha256sum '{}' ';' | sort | sha256sum
+}
+
+archive_assert_stopped() {
+    [ "$(cat "$R/var/run/vpn-mutation.lock/pid")" = 9001 ] || fail "archive STOP lost orphan owner: $1"
+    [ "$BASE_ARCHIVE_PROTECTED" = "$(archive_protected_hash)" ] || fail "archive STOP changed protected/app files: $1"
+    [ ! -e "$R/var/run/vpn-mutation.lock.recovery-guard" ] || fail "archive STOP retained its guard: $1"
+    [ ! -e "$R/var/run/update.lock" ] || fail "archive STOP retained its app lock: $1"
+    for ARCHIVE_QUARANTINE in "$R/var/run/vpn-mutation.lock".orphaned.*; do
+        [ ! -e "$ARCHIVE_QUARANTINE" ] && [ ! -L "$ARCHIVE_QUARANTINE" ] || fail "archive STOP quarantined owner: $1"
+    done
+    if [ -d "$R/var/lib/freenet/vpn-lock-recovery-history" ]; then
+        [ "${2:-no}" = observed ] || fail "archive STOP wrote claim history: $1"
+        for ARCHIVE_RECEIPT in "$R/var/lib/freenet/vpn-lock-recovery-history"/*.state; do
+            [ -f "$ARCHIVE_RECEIPT" ] || continue
+            grep -Fxq STATE=OBSERVED "$ARCHIVE_RECEIPT" || fail "archive STOP advanced claim history: $1"
+        done
+    fi
+}
+
+for ARCHIVE_STAT_PROVIDER in format terse; do
+    make_archived_fixture
+    [ "$ARCHIVE_STAT_PROVIDER" != terse ] || echo stopped > "$A/core.before"
+    BASE_PENDING="$(find "$P" "$A_ROOT" -type f -exec sha256sum '{}' ';' | sort | sha256sum)"
+    BASE_LIVE="$(sha256sum "$R/etc/xray/configs/04_outbounds.json" "$R/etc/freenet/vpn_profile_name" "$R/etc/xray/blanc_profile_filter.regex")"
+    if [ "$ARCHIVE_STAT_PROVIDER" = terse ]; then
+        stat_apply terse > "$TMP/archive-$ARCHIVE_STAT_PROVIDER.out" 2>&1 || fail 'terse archived rollback bridge rejected complete evidence'
+        [ "$(grep -c '^format$' "$STAT_TRACE")" = 1 ] || fail 'archive file proof changed the pinned terse provider'
+    else
+        run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/archive-$ARCHIVE_STAT_PROVIDER.out" 2>&1 || fail 'formatted archived rollback bridge rejected complete evidence'
+    fi
+    grep -Fxq STATE=SUCCESS "$R/var/run/update.state" || fail 'archived rollback app update did not complete'
+    grep -Fq VPN_LOCK_RECOVERY=ORPHAN_QUARANTINED "$TMP/archive-$ARCHIVE_STAT_PROVIDER.out" || fail 'archived rollback quarantine receipt missing'
+    [ "$BASE_PENDING" = "$(find "$P" "$A_ROOT" -type f -exec sha256sum '{}' ';' | sort | sha256sum)" ] || fail 'app bridge changed original or archived evidence'
+    [ "$BASE_LIVE" = "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" "$R/etc/freenet/vpn_profile_name" "$R/etc/xray/blanc_profile_filter.regex")" ] || fail 'archived rollback app bridge changed live VPN'
+    [ "$(cat "$P/state")" = PENDING ] && [ ! -e "$P/recovery.pending" ] || fail 'app bridge recreated/cleared a checkpoint'
+    [ ! -e "$R/var/run/vpn-mutation.lock" ] && [ ! -e "$R/var/run/update.lock" ] || fail 'archived rollback bridge retained its locks'
+done
+
+for ARCHIVE_CASE in live_owner other_writer wrong_owner missing_result unknown_result noncanonical_marker missing_core unknown_core \
+    incomplete_archive incomplete_original original_absent archive_absent mismatched_live incomplete_nested \
+    root_symlink archive_symlink file_symlink live_symlink hidden_root hidden_archive unexpected_root \
+    invalid_name newer_other_owner newer_unknown latest_tie over_limit; do
+    make_archived_fixture
+    case "$ARCHIVE_CASE" in
+        live_owner) mkdir "$R/proc/9001" ;;
+        other_writer)
+            mkdir "$R/proc/8123"
+            echo '/opt/lib/freenet/apply_provider_profile.sh recover-core' > "$R/proc/8123/cmdline"
+            ;;
+        wrong_owner) mv "$A" "$A_ROOT/20261021T155153Z.8123" ;;
+        missing_result) rm "$A/result" ;;
+        unknown_result) echo UNKNOWN > "$A/result" ;;
+        noncanonical_marker) printf 'ROLLED_BACK\000\n' > "$A/result" ;;
+        missing_core) rm "$A/core.before" ;;
+        unknown_core) echo unknown > "$A/core.before" ;;
+        incomplete_archive) rm "$A/filter.before" ;;
+        incomplete_original) rm "$P/filter.before" ;;
+        original_absent) : > "$P/filter.absent" ;;
+        archive_absent) : > "$A/filter.absent" ;;
+        mismatched_live) echo CHANGED >> "$R/etc/freenet/vpn_profile_name" ;;
+        incomplete_nested) mkdir "$P/recovery.pending"; echo PENDING > "$P/recovery.pending/state" ;;
+        root_symlink) mv "$A_ROOT" "$A_ROOT.saved"; ln -s "$A_ROOT.saved" "$A_ROOT" ;;
+        archive_symlink) mv "$A" "$R/var/lib/freenet/saved-attempt"; ln -s "$R/var/lib/freenet/saved-attempt" "$A" ;;
+        file_symlink) mv "$A/out.before" "$R/etc/freenet/saved-out"; ln -s "$R/etc/freenet/saved-out" "$A/out.before" ;;
+        live_symlink) mv "$R/etc/freenet/vpn_profile_name" "$R/etc/freenet/saved-profile"; ln -s "$R/etc/freenet/saved-profile" "$R/etc/freenet/vpn_profile_name" ;;
+        hidden_root) mkdir "$A_ROOT/.hidden" ;;
+        hidden_archive) : > "$A/.hidden" ;;
+        unexpected_root) echo UNKNOWN > "$A_ROOT/unexpected" ;;
+        invalid_name) mkdir "$A_ROOT/20260230T120000Z.8123" ;;
+        newer_other_owner) cp -R "$A" "$A_ROOT/20261021T155154Z.8123" ;;
+        newer_unknown) cp -R "$A" "$A_ROOT/20261021T155154Z.9001"; echo UNKNOWN > "$A_ROOT/20261021T155154Z.9001/result" ;;
+        latest_tie) cp -R "$A" "$A_ROOT/20261021T155153Z.8123" ;;
+        over_limit)
+            ARCHIVE_I=0
+            while [ "$ARCHIVE_I" -lt 62 ]; do
+                ARCHIVE_I=$((ARCHIVE_I + 1))
+                mkdir "$A_ROOT/20261020T000000Z.$((10000 + ARCHIVE_I))"
+            done
+            # The first 64 sorted entries end in the good archive. A reader
+            # that truncates there would miss this newer, unsafe 65th entry.
+            cp -R "$A" "$A_ROOT/20261021T155154Z.8123"
+            echo UNKNOWN > "$A_ROOT/20261021T155154Z.8123/result"
+            ;;
+    esac
+    BASE_ARCHIVE_PROTECTED="$(archive_protected_hash)"
+    if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/archive-$ARCHIVE_CASE.out" 2>&1; then
+        fail "unsafe archived rollback accepted: $ARCHIVE_CASE"
+    fi
+    archive_assert_stopped "$ARCHIVE_CASE"
+done
+
+# Ctime freshness must distinguish adjacent integers above awk's exact numeric
+# range; failure on a regular file must not switch the already selected mode.
+ARCHIVE_TIME_BIN="$TMP/archive-time-bin"
+mkdir "$ARCHIVE_TIME_BIN"
+cat > "$ARCHIVE_TIME_BIN/stat" <<'EOF'
+#!/bin/sh
+set -eu
+[ "$1" = -c ] && [ "$#" = 3 ] || { echo terse >> "$FREENET_TEST_STAT_TRACE"; exit 1; }
+echo format >> "$FREENET_TEST_STAT_TRACE"
+value="$("$FREENET_TEST_REAL_STAT" "$@")"
+ctime=9007199254740993
+case "$FREENET_TEST_ARCHIVE_TIME" in
+    stale_dir) [ "$3" != "$FREENET_TEST_ARCHIVE_DIR" ] || ctime=9007199254740992 ;;
+    stale_file) [ "$3" != "$FREENET_TEST_ARCHIVE_DIR/filter.before" ] || ctime=9007199254740992 ;;
+    negative_lock) [ "$3" != "$FREENET_ROOT/var/run/vpn-mutation.lock" ] || ctime=-1 ;;
+    negative_file) [ "$3" != "$FREENET_TEST_ARCHIVE_DIR/filter.before" ] || ctime=-1 ;;
+    malformed_file) [ "$3" != "$FREENET_TEST_ARCHIVE_DIR/filter.before" ] || ctime=unknown ;;
+esac
+printf '%s:%s\n' "${value%:*}" "$ctime"
+EOF
+chmod 755 "$ARCHIVE_TIME_BIN/stat"
+archive_time_apply() {
+    : > "$STAT_TRACE"
+    PATH="$ARCHIVE_TIME_BIN:$PATH" FREENET_TEST_REAL_STAT="$STAT_REAL" FREENET_TEST_STAT_TRACE="$STAT_TRACE" \
+        FREENET_TEST_ARCHIVE_DIR="$A" FREENET_TEST_ARCHIVE_TIME="$1" \
+        run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14
+}
+make_archived_fixture
+archive_time_apply equal > "$TMP/archive-time-equal.out" 2>&1 || fail 'exact large equal ctimes rejected'
+grep -Fxq STATE=SUCCESS "$R/var/run/update.state" || fail 'large equal ctime fixture did not complete the app update'
+for ARCHIVE_TIME in stale_dir stale_file negative_lock negative_file malformed_file; do
+    make_archived_fixture
+    BASE_ARCHIVE_PROTECTED="$(archive_protected_hash)"
+    if archive_time_apply "$ARCHIVE_TIME" > "$TMP/archive-time-$ARCHIVE_TIME.out" 2>&1; then
+        fail "unsafe archived ctime accepted: $ARCHIVE_TIME"
+    fi
+    archive_assert_stopped "$ARCHIVE_TIME"
+    if grep -q '^terse$' "$STAT_TRACE"; then fail "archived file metadata failure changed stat mode: $ARCHIVE_TIME"; fi
+done
+
+# Exercise the full production claim, including the second and final evidence
+# checks. Shims only modify this test's fixture at an existing stage boundary.
+ARCHIVE_RACE_BIN="$TMP/archive-race-bin"
+ARCHIVE_REAL_SLEEP="$(command -v sleep)"
+ARCHIVE_REAL_DATE="$(command -v date)"
+ARCHIVE_REAL_MV="$(command -v mv)"
+mkdir "$ARCHIVE_RACE_BIN"
+cat > "$ARCHIVE_RACE_BIN/stage-command" <<'EOF'
+#!/bin/sh
+set -eu
+name="${0##*/}"
+trigger=no
+if [ ! -e "$FREENET_TEST_ARCHIVE_FIRED" ]; then
+    case "$name:$FREENET_TEST_ARCHIVE_RACE" in
+        sleep:replace_archive|sleep:change_original|sleep:change_live_and_archive|sleep:newer_wait|sleep:nested_appears)
+            [ "${1:-}" != 1 ] || trigger=yes
+            ;;
+        date:final_newer)
+            for receipt in "$FREENET_ROOT/var/lib/freenet/vpn-lock-recovery-history"/*.state; do
+                [ -f "$receipt" ] || continue
+                if grep -Fxq STATE=OBSERVED "$receipt"; then trigger=yes; fi
+            done
+            ;;
+        mv:after_install)
+            last=''
+            for arg in "$@"; do last="$arg"; done
+            [ "$last" != "$FREENET_ROOT/sbin/freenet-ui" ] || trigger=yes
+            ;;
+    esac
+fi
+if [ "$trigger" = yes ]; then
+    : > "$FREENET_TEST_ARCHIVE_FIRED"
+    archive="$FREENET_TEST_ARCHIVE_DIR"
+    pending="$FREENET_ROOT/var/lib/freenet/vpn-transaction.pending"
+    case "$FREENET_TEST_ARCHIVE_RACE" in
+        replace_archive|after_install)
+            cp "$archive/out.before" "$archive/out.replacement"
+            "$FREENET_TEST_REAL_MV" "$archive/out.replacement" "$archive/out.before"
+            ;;
+        change_original) echo EXTERNAL-WRITER >> "$pending/out.before" ;;
+        change_live_and_archive)
+            echo EXTERNAL-WRITER >> "$archive/out.before"
+            echo EXTERNAL-WRITER >> "$FREENET_ROOT/etc/xray/configs/04_outbounds.json"
+            ;;
+        newer_wait|final_newer) cp -R "$archive" "$(dirname "$archive")/20261021T155154Z.9001" ;;
+        nested_appears) cp -R "$archive" "$pending/recovery.pending" ;;
+    esac
+    find "$FREENET_ROOT/etc" "$FREENET_ROOT/sbin" "$FREENET_ROOT/bin" "$FREENET_ROOT/lib" "$FREENET_ROOT/var/lib/freenet" \
+        -type f ! -path '*/vpn-lock-recovery-history/*' -exec sha256sum '{}' ';' | sort | sha256sum > "$FREENET_TEST_ARCHIVE_EXPECTED"
+fi
+case "$name" in
+    sleep) exec "$FREENET_TEST_REAL_SLEEP" "$@" ;;
+    date) exec "$FREENET_TEST_REAL_DATE" "$@" ;;
+    mv) exec "$FREENET_TEST_REAL_MV" "$@" ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod 755 "$ARCHIVE_RACE_BIN/stage-command"
+for ARCHIVE_COMMAND in sleep date mv; do ln -s stage-command "$ARCHIVE_RACE_BIN/$ARCHIVE_COMMAND"; done
+archive_race_apply() {
+    rm -f "$TMP/archive-race-fired" "$TMP/archive-race-expected"
+    PATH="$ARCHIVE_RACE_BIN:$PATH" FREENET_TEST_ARCHIVE_DIR="$A" FREENET_TEST_ARCHIVE_RACE="$1" \
+        FREENET_TEST_ARCHIVE_FIRED="$TMP/archive-race-fired" FREENET_TEST_ARCHIVE_EXPECTED="$TMP/archive-race-expected" \
+        FREENET_TEST_REAL_SLEEP="$ARCHIVE_REAL_SLEEP" FREENET_TEST_REAL_DATE="$ARCHIVE_REAL_DATE" FREENET_TEST_REAL_MV="$ARCHIVE_REAL_MV" \
+        run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14
+}
+for ARCHIVE_RACE in replace_archive change_original change_live_and_archive newer_wait nested_appears final_newer; do
+    make_archived_fixture
+    if archive_race_apply "$ARCHIVE_RACE" > "$TMP/archive-race-$ARCHIVE_RACE.out" 2>&1; then
+        fail "changed archived proof accepted: $ARCHIVE_RACE"
+    fi
+    [ -f "$TMP/archive-race-fired" ] && [ -s "$TMP/archive-race-expected" ] || fail "archive race fixture did not reach its boundary: $ARCHIVE_RACE"
+    BASE_ARCHIVE_PROTECTED="$(cat "$TMP/archive-race-expected")"
+    ARCHIVE_HISTORY=no
+    [ "$ARCHIVE_RACE" != final_newer ] || ARCHIVE_HISTORY=observed
+    archive_assert_stopped "$ARCHIVE_RACE" "$ARCHIVE_HISTORY"
+done
+
+# Replacing an archive file with identical bytes after app installation still
+# invalidates its pinned identity. Acceptance and rollback remain fail-closed;
+# the updater must retain its fence instead of reporting preserved evidence.
+make_archived_fixture
+BASE_ARCHIVE_PROTECTED="$(archive_protected_hash)"
+if archive_race_apply after_install > "$TMP/archive-after-install.out" 2>&1; then
+    fail 'app acceptance ignored changed archive identity after claim'
+fi
+[ -f "$TMP/archive-race-fired" ] || fail 'archive preservation fixture did not reach installation'
+grep -Fxq STATE=ROLLBACK_FAILED "$R/var/run/update.state" || fail 'changed archive preservation was reported as an accepted rollback'
+[ -d "$R/var/run/vpn-mutation.lock" ] && [ -d "$R/var/run/update.lock" ] || fail 'unconfirmed archive preservation released fences'
+[ "$BASE_ARCHIVE_PROTECTED" = "$(archive_protected_hash)" ] || fail 'app rollback changed protected bytes after external archive replacement'
+echo 'archived rollback bridge: global bounded inventory, owner/freshness/content identity, stage rechecks and preservation gates PASS'
+
 make_orphan_fixture
 echo BAD_ASSET >> "$D/vpn"
 if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/orphan-bad-sha.out" 2>&1; then
