@@ -12,8 +12,13 @@
         return {kind: 'quick', target: body.action, startedAt: Date.now()};
       }
       if (url === '/api/network-profile/apply' && body && body.operation === 'provider' && typeof body.profile_id === 'string' && body.profile_id) {
+        const profileID = body.profile_id.trim();
         const token = typeof body.selection_token === 'string' ? body.selection_token.trim() : '';
-        return {kind: 'provider', target: token ? body.profile_id + '@' + token : body.profile_id, profileID: body.profile_id, startedAt: Date.now()};
+        let target = token ? profileID + '@' + token : profileID;
+        if (body.manual_override === true) {
+          target += '@manual:' + (typeof body.expected_endpoint === 'string' ? body.expected_endpoint : '');
+        }
+        return {kind: 'provider', target, profileID, startedAt: Date.now()};
       }
       if (url === '/api/vpn/current-refresh' && body && body.confirm === true) {
         return {kind: 'refresh', target: 'current', startedAt: Date.now()};
@@ -72,7 +77,7 @@
   }
 
   async function reconcile(meta) {
-    const deadline = Date.now() + (meta.kind === 'refresh' ? 240000 : 120000);
+    const deadline = Date.now() + (meta.kind === 'refresh' || meta.kind === 'provider' ? 240000 : 120000);
     while (Date.now() < deadline) {
       const state = await readOperationState(Math.max(1, Math.min(7000, deadline - Date.now())));
       const op = state && state.operation;

@@ -19,6 +19,7 @@ const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
 let status={version:fixtureVersion,country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
 let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict',rttMode='ok',updateMode='idle';
+let manualReconcile=null;
 const manualRTTToken='abcdef0123456789abcdef0123456789';
 const calls=[],unhandled=[],errors=[];
 let rttJobId='',rttJobResult=null,rttJobSequence=0;
@@ -64,7 +65,24 @@ async function capture(label){
     calls.push({path:url.pathname,method:req.method(),query:url.search,body:req.postData()});
     if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
     if(url.pathname==='/api/status')return answer(route,status);
-    if(url.pathname==='/api/operation/state')return answer(route,{success:true,active:false});
+    if(url.pathname==='/api/operation/state'){
+      if(!manualReconcile)return answer(route,{success:true,active:false});
+      assert.equal(req.method(),'GET','reconciliation must only read operation state');
+      const fixture=manualReconcile,first=++fixture.polls===1;
+      if(fixture.mode==='reconcile-match'){
+        fixture.states.push(first?'running':'success');
+        if(first){
+          // Advance the deadline clock past 120s without changing real polling timers.
+          await page.evaluate(()=>{window.__manualReconcileDateNow=Date.now;const now=Date.now;Date.now=()=>now()+130000;});
+        }else{
+          status={...status,country:'',city:'',country_code:'',profile_label:fixture.selected.name,endpoint:ep(fixture.selected)};
+        }
+        return answer(route,{success:true,active:first,operation:{...fixture.operation,state:first?'running':'success',result:first?'':'SUCCESS'}});
+      }
+      // Ignore a terminal receipt for another endpoint, then stop on its new active operation.
+      fixture.states.push(first?'success':'running');
+      return answer(route,{success:true,active:!first,operation:{...fixture.operation,id:fixture.operation.id+(first?'':'-next'),state:first?'success':'running',result:first?'SUCCESS':''}});
+    }
     if(url.pathname==='/api/subscription')return answer(route,{success:true,configured:true});
     if(url.pathname==='/api/vpn/current-quality'&&url.searchParams.get('job')==='cache'){
       const p=profiles.find(p=>ep(p)===status.endpoint)||current;
@@ -125,6 +143,14 @@ async function capture(label){
       assert.equal(body.operation,'provider');assert.equal(body.confirm,true);
       const selected=profiles.find(p=>p.id===body.profile_id);assert.ok(selected);
       if(applyMode==='unknown')return answer(route,{success:false,error:'Результат операции не подтверждён',rollback_state:'UNKNOWN'},502);
+      if(applyMode==='reconcile-match'||applyMode==='reconcile-mismatch'){
+        assert.equal(req.method(),'POST');
+        assert.equal(body.manual_override,true,'the real upper picker must issue an explicit manual apply');
+        // Server target comes independently from the selected fixture, never client coordinator metadata.
+        const endpoint=applyMode==='reconcile-match'?ep(selected):ep(profiles[4]);
+        manualReconcile={mode:applyMode,selected,polls:0,states:[],operation:{id:'manual-'+applyMode,kind:'provider',target:selected.id+'@manual:'+endpoint,started_at:new Date().toISOString()}};
+        return route.fulfill({status:502,contentType:'text/plain',body:'Fixture gateway response unavailable'});
+      }
       await delay(250);status={...status,country:'',city:'',country_code:'',profile_label:selected.name,endpoint:ep(selected)};
       return answer(route,{success:true,applied:true,rollback_state:'NOT_NEEDED'});
     }
@@ -538,8 +564,50 @@ async function capture(label){
     assert.equal(countApply(),2,'manual reselection must not trigger hidden VPN apply');
     await page.locator('#fnVpnPickerV2Reset').click();
     assert.equal(countApply(),2,'Reset must not mutate Xray or retry apply');
-    assert.deepEqual(errors,[]);
-  console.log('PASS: actual production HTML/CSP, canonical flags, current identity, Ukraine exclusion, RTT refresh/sort, search, read-only check, exact apply, cache, errors/STOP, five viewports, navigation and liveness.');console.log('Other mocked GET surfaces: '+JSON.stringify([...new Set(unhandled)]));
+
+  // A lost HTTP response after a real manual click reconciles the exact Go target
+  // with one POST. A matching running operation may still finish after 120s.
+  applyMode='reconcile-match';
+  const manualMatchStart=calls.length,manualMatchApplies=countApply();
+  await page.locator(S).fill('NL');await page.locator(R+' button[data-profile-id="fixture-2"]').click();
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','manual reconciliation ready');
+  try{
+    await page.locator(C).click();
+    await until(()=>['success','error'].includes(document.querySelector('#fnVpnPickerV2Footer').dataset.state),'manual reconciliation terminal');
+    assert.equal(await page.locator(F).getAttribute('data-state'),'success','exact manual target must reconcile after the 120s boundary');
+    assert.deepEqual(manualReconcile.states,['running','success'],'provider reconciliation must retain its 240s budget');
+    assert.equal(manualReconcile.polls,2);
+    assert.equal(status.endpoint,ep(profiles[2]));
+    const manualRequest=JSON.parse(calls.slice(manualMatchStart).find(c=>c.path==='/api/network-profile/apply').body);
+    assert.deepEqual(manualRequest,{operation:'provider',profile_id:profiles[2].id,expected_endpoint:ep(profiles[2]),manual_override:true,confirm:true});
+    assert.equal(manualReconcile.operation.target,profiles[2].id+'@manual:'+ep(profiles[2]),'fixture must expose the exact Go manual target');
+    assert.equal(await page.locator(C).isDisabled(),true,'completed manual request cannot be replayed');
+    await page.locator(C).dispatchEvent('click');
+    assert.equal(countApply(),manualMatchApplies+1,'ambiguous response and completion must never repeat the manual POST');
+    assert.ok(calls.slice(manualMatchStart).filter(c=>c.path==='/api/operation/state').every(c=>c.method==='GET'));
+  }finally{
+    await page.evaluate(()=>{if(window.__manualReconcileDateNow){Date.now=window.__manualReconcileDateNow;delete window.__manualReconcileDateNow;}});
+  }
+  manualReconcile=null;await page.locator('#fnVpnPickerV2Reset').click();
+
+  // A fresh SUCCESS for the same profile at another endpoint is not our result.
+  applyMode='reconcile-mismatch';
+  const manualMismatchStart=calls.length,manualMismatchApplies=countApply(),endpointBeforeMismatch=status.endpoint;
+  await page.locator(S).fill('FI');await page.locator(R+' button[data-profile-id="fixture-3"]').click();
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','mismatched manual receipt ready');
+  await page.locator(C).click();
+  await until(()=>['success','error'].includes(document.querySelector('#fnVpnPickerV2Footer').dataset.state),'mismatched manual receipt terminal');
+  assert.equal(await page.locator(F).getAttribute('data-state'),'error','another endpoint must never produce false manual success');
+  assert.deepEqual(manualReconcile.states,['success','running'],'foreign terminal receipt is ignored before the active-operation conflict');
+  assert.equal(manualReconcile.polls,2);
+  assert.equal(status.endpoint,endpointBeforeMismatch);
+  assert.equal(await page.locator(C).isDisabled(),true,'unknown result consumes the used manual selection');
+  await page.locator(C).dispatchEvent('click');
+  assert.equal(countApply(),manualMismatchApplies+1,'mismatched receipt must never trigger a retry');
+  assert.ok(calls.slice(manualMismatchStart).filter(c=>c.path==='/api/operation/state').every(c=>c.method==='GET'));
+  manualReconcile=null;applyMode='ok';await page.locator('#fnVpnPickerV2Reset').click();
+  assert.deepEqual(errors,[]);
+  console.log('PASS: actual production HTML/CSP, canonical flags, current identity, Ukraine exclusion, RTT refresh/sort, search, read-only check, exact apply, manual response reconciliation, cache, errors/STOP, five viewports, navigation and liveness.');console.log('Other mocked GET surfaces: '+JSON.stringify([...new Set(unhandled)]));
 })().catch(async error=>{
   console.error(error);
   if(page){try{fs.mkdirSync(artifacts,{recursive:true});await page.screenshot({path:path.join(artifacts,'failure.png')});console.error('BODY '+(await page.locator('body').innerText()).slice(0,2500));console.error('PAGE ERRORS '+JSON.stringify(errors));console.error('VPN REQUESTS '+JSON.stringify(calls.filter(c=>c.path.startsWith('/api/vpn/'))));console.error('ENGINE '+JSON.stringify(await page.evaluate(()=>({card:document.querySelector('#selectedProfileCard')?.outerHTML,button:document.querySelector('#exactConnectBtn')?.outerHTML,currentFlag:document.querySelector('#bestCurrentFlag')?.outerHTML}))));}catch(_){}}
