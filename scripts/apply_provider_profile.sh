@@ -792,28 +792,44 @@ core_restart_preflight() {
 # A zombie still answers kill -0; a reused PID must never be signalled.
 # Only the original /proc identity may be treated as the previous core.
 # The optional proc root exists only for isolated fixture tests.
+# A failed proc read is not proof that the task exited. Require agreement
+# between an accessible proc root, an absent PID entry and kill -0. Recheck
+# absence after kill -0 so a newly visible/reused PID remains STOP.
+xray_pid_confirmed_gone() {
+    XRAY_ABSENT_PID="$1"
+    XRAY_ABSENT_ROOT="$2"
+    [ -d "$XRAY_ABSENT_ROOT" ] && [ -r "$XRAY_ABSENT_ROOT" ] &&
+        [ -x "$XRAY_ABSENT_ROOT" ] || return 1
+    [ ! -e "$XRAY_ABSENT_ROOT/$XRAY_ABSENT_PID" ] &&
+        [ ! -L "$XRAY_ABSENT_ROOT/$XRAY_ABSENT_PID" ] || return 1
+    if kill -0 "$XRAY_ABSENT_PID" 2>/dev/null; then return 1; fi
+    [ ! -e "$XRAY_ABSENT_ROOT/$XRAY_ABSENT_PID" ] &&
+        [ ! -L "$XRAY_ABSENT_ROOT/$XRAY_ABSENT_PID" ]
+}
+
 xray_pid_lifecycle() {
     XRAY_PID="$1"
     XRAY_EXPECTED_START="$2"
     XRAY_PROC_ROOT="${3:-/proc}"
     case "$XRAY_PID" in ''|0|*[!0-9]*) printf unknown; return ;; esac
+    case "$XRAY_EXPECTED_START" in ''|*[!0-9]*) printf unknown; return ;; esac
     XRAY_STAT="$XRAY_PROC_ROOT/$XRAY_PID/stat"
     if [ ! -r "$XRAY_STAT" ]; then
-        if kill -0 "$XRAY_PID" 2>/dev/null; then printf unknown; else printf gone; fi
+        if xray_pid_confirmed_gone "$XRAY_PID" "$XRAY_PROC_ROOT"; then printf gone; else printf unknown; fi
         return
     fi
-    XRAY_CURRENT_START="$(awk '{print $22}' "$XRAY_STAT" 2>/dev/null)"
-    if [ -z "$XRAY_EXPECTED_START" ] || [ -z "$XRAY_CURRENT_START" ]; then
-        printf unknown
+    XRAY_CURRENT_START="$(awk '{print $22}' "$XRAY_STAT" 2>/dev/null)" || XRAY_CURRENT_START=""
+    if [ -z "$XRAY_CURRENT_START" ]; then
+        if xray_pid_confirmed_gone "$XRAY_PID" "$XRAY_PROC_ROOT"; then printf gone; else printf unknown; fi
         return
     fi
     if [ "$XRAY_CURRENT_START" != "$XRAY_EXPECTED_START" ]; then
         printf reused
         return
     fi
-    XRAY_PROC_STATE="$(awk '$1 == "State:" {print $2; exit}' "$XRAY_PROC_ROOT/$XRAY_PID/status" 2>/dev/null)"
+    XRAY_PROC_STATE="$(awk '$1 == "State:" {print $2; exit}' "$XRAY_PROC_ROOT/$XRAY_PID/status" 2>/dev/null)" || XRAY_PROC_STATE=""
     if [ -z "$XRAY_PROC_STATE" ]; then
-        if kill -0 "$XRAY_PID" 2>/dev/null; then printf unknown; else printf gone; fi
+        if xray_pid_confirmed_gone "$XRAY_PID" "$XRAY_PROC_ROOT"; then printf gone; else printf unknown; fi
         return
     fi
     case "$XRAY_PROC_STATE" in
