@@ -87,6 +87,8 @@ type bestServerQualityResponse struct {
 	Available         bool                         `json:"available"`
 	ScannedAt         string                       `json:"scanned_at,omitempty"`
 	CurrentEndpoint   string                       `json:"current_endpoint,omitempty"`
+	CurrentIdentity   string                       `json:"current_identity,omitempty"`
+	DisplayThroughput *bestServerDisplayThroughput  `json:"display_throughput,omitempty"`
 	Recommendation    *bestServerQualityCandidate  `json:"recommendation,omitempty"`
 	Candidates        []bestServerQualityCandidate `json:"candidates"`
 	ProfilesScanned   int                          `json:"profiles_scanned"`

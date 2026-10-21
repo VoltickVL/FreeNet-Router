@@ -4,11 +4,14 @@ import (
 	"context"
 	"net/http"
 	"regexp"
+	"strconv"
 	"sync"
 	"time"
 )
 
 const bestServerAsyncJobTimeout = 360 * time.Second
+const bestServerAutomaticCurrentRetryInterval = 10 * time.Minute
+const bestServerAutomaticCurrentRetryIdentities = 8
 
 // One bounded, read-only quality job per app. Polling never starts a scan.
 // The Best Server job is intentionally capped at 360 s. Canonical VPN RTT ranking scans
@@ -31,6 +34,41 @@ type bestServerJob struct {
 type bestServerJobs struct {
 	mu  sync.Mutex
 	job *bestServerJob
+	automaticCurrentAttempts map[string]time.Time
+}
+
+// Called with jobs.mu held. Automatic retries are bounded across page reloads
+// and tabs; explicit checks keep their existing admission rules.
+func (jobs *bestServerJobs) automaticCurrentRetryRemaining(identity string, now time.Time) time.Duration {
+	for key, attemptedAt := range jobs.automaticCurrentAttempts {
+		if !now.Before(attemptedAt.Add(bestServerAutomaticCurrentRetryInterval)) {
+			delete(jobs.automaticCurrentAttempts, key)
+		}
+	}
+	if attemptedAt, ok := jobs.automaticCurrentAttempts[identity]; ok {
+		return attemptedAt.Add(bestServerAutomaticCurrentRetryInterval).Sub(now)
+	}
+	if len(jobs.automaticCurrentAttempts) >= bestServerAutomaticCurrentRetryIdentities {
+		// Keep every still-active identity's limit. A ninth profile waits for
+		// the earliest slot instead of evicting evidence of a recent attempt.
+		var earliest time.Duration
+		for _, attemptedAt := range jobs.automaticCurrentAttempts {
+			remaining := attemptedAt.Add(bestServerAutomaticCurrentRetryInterval).Sub(now)
+			if earliest == 0 || remaining < earliest {
+				earliest = remaining
+			}
+		}
+		return earliest
+	}
+	return 0
+}
+
+func (jobs *bestServerJobs) recordAutomaticCurrentAttempt(identity string, now time.Time) {
+	if jobs.automaticCurrentAttempts == nil {
+		jobs.automaticCurrentAttempts = make(map[string]time.Time)
+	}
+	// automaticCurrentRetryRemaining already reserved capacity under jobs.mu.
+	jobs.automaticCurrentAttempts[identity] = now
 }
 
 type bestServerProgressKey struct{}
@@ -64,6 +102,11 @@ func (jobs *bestServerJobs) wrap(a *app, mode string, legacy http.HandlerFunc, s
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Invalid quality job request"})
 			return
 		}
+		automatic := r.URL.Query().Get("automatic")
+		if automatic != "" && (automatic != "1" || mode != "current" || action != "start") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": "Automatic retry is only available for a current VPN check"})
+			return
+		}
 		jobs.mu.Lock()
 		defer jobs.mu.Unlock()
 		if jobs.job != nil && jobs.job.ID == id && jobs.job.Mode == mode {
@@ -89,6 +132,35 @@ func (jobs *bestServerJobs) wrap(a *app, mode string, legacy http.HandlerFunc, s
 			releaseAutomationFence()
 			writeJSON(w, http.StatusConflict, map[string]any{"error": "Another operation is active; scan was not started"})
 			return
+		}
+		if automatic == "1" {
+			// Read identity only after both operation fences are held. A retry
+			// cannot be charged to a profile that changed while waiting.
+			endpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+			filter := readBestServerCurrentFilter(a.cfg.FilterPath)
+			if endpoint == "" {
+				<-a.sem
+				releaseAutomationFence()
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "Current VPN is not ready for a speed check"})
+				return
+			}
+			if latest, _, ok := loadBestServerCurrentQualityForDisplay(endpoint, filter); ok &&
+				latest.DownloadMbps > 0 && latest.ThroughputSource == bestServerThroughputStrictAggregate {
+				<-a.sem
+				releaseAutomationFence()
+				writeJSON(w, http.StatusOK, a.currentVPNQualityCacheResponse())
+				return
+			}
+			now := time.Now().UTC()
+			identity := bestServerCurrentQualityIdentityHash(endpoint, filter)
+			if remaining := jobs.automaticCurrentRetryRemaining(identity, now); remaining > 0 {
+				<-a.sem
+				releaseAutomationFence()
+				w.Header().Set("Retry-After", strconv.Itoa(int((remaining+time.Second-1)/time.Second)))
+				writeJSON(w, http.StatusConflict, map[string]any{"error": "Automatic speed retry is cooling down"})
+				return
+			}
+			jobs.recordAutomaticCurrentAttempt(identity, now)
 		}
 		job := &bestServerJob{ID: id, Mode: mode, State: "running", Stage: "discovery", StartedAt: time.Now().UTC()}
 		jobs.job = job

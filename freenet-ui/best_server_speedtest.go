@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os/exec"
 	"sort"
@@ -27,7 +30,66 @@ const (
 	bestServerSpeedtestExtendedRunTimeout = 24 * time.Second
 	bestServerSpeedtestServerTries      = 3
 	bestServerSpeedtestServerLimit      = 8
+	bestServerCurlCompletionReserve    = time.Second
 )
+
+// Curl must finish its own bounded transfer and emit -w before the supervisor
+// stops it. The timer starts after Start so process startup does not consume
+// the completion reserve. The caller still owns the unchanged hard deadline.
+func runBestServerSpeedtestCurl(ctx context.Context, curlPath string, workTimeout time.Duration, args ...string) ([]byte, error) {
+	return runBestServerSpeedtestCurlWithReserve(ctx, curlPath, workTimeout, bestServerCurlCompletionReserve, args...)
+}
+
+func runBestServerSpeedtestCurlWithReserve(ctx context.Context, curlPath string, workTimeout, reserve time.Duration, args ...string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if workTimeout <= 0 || reserve <= 0 {
+		return nil, errors.New("invalid bounded curl deadline")
+	}
+	work := workTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline) - reserve; remaining < work {
+			work = remaining
+		}
+	}
+	// Round down, never up past the parent reserve. A zero --max-time would
+	// disable curl's timeout, so a sub-millisecond window must not start.
+	work = work.Truncate(time.Millisecond)
+	if work <= 0 {
+		return nil, context.DeadlineExceeded
+	}
+	curlArgs := append([]string{"--max-time", strconv.FormatFloat(work.Seconds(), 'f', 3, 64)}, args...)
+	cmd := exec.CommandContext(ctx, curlPath, curlArgs...)
+	var output bytes.Buffer
+	cmd.Stdin = strings.NewReader("")
+	cmd.Stdout = &output
+	cmd.Stderr = io.Discard
+	cmd.WaitDelay = reserve
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	timer := time.NewTimer(work + reserve)
+	defer timer.Stop()
+	select {
+	case err := <-done:
+		return output.Bytes(), err
+	case <-timer.C:
+		// Prefer an already completed child over a simultaneous timer tick.
+		select {
+		case err := <-done:
+			return output.Bytes(), err
+		default:
+		}
+		_ = cmd.Process.Kill()
+		err := <-done
+		// Capture output only after Wait: useful partial -w metrics remain
+		// valid for the existing strict parser even when curl exits nonzero.
+		return output.Bytes(), errors.Join(context.DeadlineExceeded, err)
+	}
+}
 
 type bestServerSpeedtestServer struct {
 	URL  string `json:"url"`
@@ -72,13 +134,11 @@ func bestServerSpeedtestDownloadURL(server bestServerSpeedtestServer, nonce int6
 }
 
 func discoverBestServerSpeedtestServers(ctx context.Context, curlPath, socks string) ([]bestServerSpeedtestServer, string) {
-	listCtx, cancel := context.WithTimeout(ctx, bestServerSpeedtestListTimeout)
-	defer cancel()
-	output, err := exec.CommandContext(listCtx, curlPath,
+	output, err := runBestServerSpeedtestCurl(ctx, curlPath, bestServerSpeedtestListTimeout,
 		"--socks5-hostname", socks,
-		"-sS", "--connect-timeout", "3", "--max-time", "8",
+		"-sS", "--connect-timeout", "3",
 		bestServerSpeedtestServersURL,
-	).Output()
+	)
 	if err != nil {
 		return nil, "Speedtest server list unavailable"
 	}
@@ -121,8 +181,6 @@ func qualifyBestServerSpeedtestServers(ctx context.Context, curlPath, socks stri
 	if len(servers) == 0 {
 		return nil
 	}
-	preflightCtx, cancelAll := context.WithTimeout(ctx, bestServerSpeedtestPreflightTimeout)
-	defer cancelAll()
 	results := make(chan bestServerSpeedtestPreflightResult, len(servers))
 	var wg sync.WaitGroup
 	for index, server := range servers {
@@ -136,15 +194,13 @@ func qualifyBestServerSpeedtestServers(ctx context.Context, curlPath, socks stri
 				results <- bestServerSpeedtestPreflightResult{Index: index}
 				return
 			}
-			probeCtx, cancel := context.WithTimeout(preflightCtx, bestServerSpeedtestPreflightTimeout)
-			output, err := exec.CommandContext(probeCtx, curlPath,
+			output, err := runBestServerSpeedtestCurl(ctx, curlPath, bestServerSpeedtestPreflightTimeout,
 				"--socks5-hostname", socks,
-				"-sS", "--connect-timeout", "2", "--max-time", "4",
+				"-sS", "--connect-timeout", "2",
 				"-o", "/dev/null",
 				"-w", "%{http_code}\t%{size_download}",
 				downloadURL,
-			).Output()
-			cancel()
+			)
 			results <- bestServerSpeedtestPreflightResult{Index: index, OK: err == nil && parseBestServerSpeedtestPreflight(string(output))}
 		}()
 	}
@@ -186,15 +242,13 @@ func probeBestServerFallbackConcurrentSized(ctx context.Context, curlPath, socks
 			defer wg.Done()
 			nonce := time.Now().UnixNano() + int64(stream)
 			downloadURL := bestServerFallbackSpeedURL + "?bytes=" + strconv.FormatInt(transferBytes, 10) + "&nocache=" + strconv.FormatInt(nonce, 10)
-			runCtx, cancel := context.WithTimeout(ctx, runTimeout)
-			output, transferErr := exec.CommandContext(runCtx, curlPath,
+			output, transferErr := runBestServerSpeedtestCurl(ctx, curlPath, runTimeout,
 				"--socks5-hostname", socks,
-				"-sS", "--connect-timeout", "3", "--max-time", fmt.Sprintf("%.0f", runTimeout.Seconds()),
+				"-sS", "--connect-timeout", "3",
 				"-o", "/dev/null",
 				"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
 				downloadURL,
-			).Output()
-			cancel()
+			)
 			minimum := transferBytes / 5
 			if mbps, ok := parseBestServerDownloadMbpsAtLeast(string(output), minimum); ok {
 				results <- bestServerSpeedtestStreamResult{Mbps: mbps, OK: true}
@@ -298,15 +352,13 @@ func probeBestServerSpeedtestConcurrentSized(ctx context.Context, curlPath, sock
 					results <- bestServerSpeedtestStreamResult{Issue: "Speedtest download URL invalid"}
 					return
 				}
-				runCtx, cancel := context.WithTimeout(ctx, runTimeout)
-				output, transferErr := exec.CommandContext(runCtx, curlPath,
+				output, transferErr := runBestServerSpeedtestCurl(ctx, curlPath, runTimeout,
 					"--socks5-hostname", socks,
-					"-sS", "--connect-timeout", "3", "--max-time", fmt.Sprintf("%.0f", runTimeout.Seconds()),
+					"-sS", "--connect-timeout", "3",
 					"-o", "/dev/null",
 					"-w", "%{http_code}\t%{size_download}\t%{time_starttransfer}\t%{time_total}",
 					downloadURL,
-				).Output()
-				cancel()
+				)
 				minimum := transferBytes / 5
 				if mbps, ok := parseBestServerDownloadMbpsAtLeast(string(output), minimum); ok {
 					results <- bestServerSpeedtestStreamResult{Mbps: mbps, OK: true}

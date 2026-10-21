@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const http = require('node:http');
+const runCurrentQualityUIContract = require('./current_quality_ui_contract.cjs');
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui/web');
 const artifacts = process.env.FREENET_UI_ARTIFACTS || path.join(root, 'test-artifacts');
@@ -120,7 +121,7 @@ const server = http.createServer((req,res)=>{
         if(mode==='incomplete')return answer(route,{success:true});
         if(mode==='empty')return answer(route,{success:true,available:false,candidates:[],profiles_scanned:0});
         if(mode==='speed-missing' && url.pathname==='/api/vpn/current-quality') {
-          const speedMissing={...current,eligible:false,download_mbps:0,throughput_source:'',download_issue:'Speedtest throughput unavailable',media_samples:0,media_stalls:0,media_grade:'unknown'};
+          const speedMissing={...current,eligible:false,download_mbps:0,throughput_source:'',media_samples:2,media_stalls:0,media_grade:'unknown',rejections:['Недостаточно завершённых замеров скорости']};
           return answer(route,{success:true,available:false,candidates:[speedMissing],profiles_scanned:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
         }
         if(mode==='dead' && url.pathname==='/api/vpn/current-quality') {
@@ -417,7 +418,8 @@ const server = http.createServer((req,res)=>{
     assert.match(missingSpeedMetrics,/Скорость VPN/,'current VPN keeps the canonical speed metric owner');
     assert.doesNotMatch(missingSpeedMetrics,/Мбит\/с/,'no alternative throughput value may replace a failed canonical measurement');
     assert.doesNotMatch(missingSpeedMetrics,/Быстрый|не для сравнения/i,'non-comparable speed UX must not return');
-    assert.match(await page.locator('#bestCurrentQuality').textContent(),/Замер скорости:/,'failed canonical speed must remain explicit');
+    assert.match(await page.locator('#bestCurrentQuality').textContent(),/Последняя проверка:/,'a partial check keeps its actual check time');
+    assert.doesNotMatch(await page.locator('#bestCurrentQuality').textContent(),/ошиб|причин|критери|замеров|Speedtest/i,'main speed caption stays friendly without technical diagnostics');
 
     bestMode='no-current';
     await page.locator('#bestServerRefresh').click();
@@ -427,7 +429,7 @@ const server = http.createServer((req,res)=>{
     bestMode='winner';
     mode='dead';
     await currentCheck();
-    assert.match(await page.locator('#bestCurrentHealth').textContent(),/VPN-путь не подтвердил доступ к интернету/);
+    assert.match(await page.locator('#bestCurrentHealth').textContent(),/Интернет через VPN недоступен/);
     await page.waitForFunction(()=>document.querySelector('#bestCurrentConnection')?.textContent.includes('VPN не работает'));
     assert.equal(await page.locator('#bestCurrentConnection').textContent(),'● VPN не работает');
     mode='ok';
@@ -682,6 +684,7 @@ const server = http.createServer((req,res)=>{
       assert.equal(await page.locator('#exactConnectBtn').isDisabled(),true,'used manual plan cannot be re-enabled by polling');
       assert.equal(mutationPosts().length,postsBefore+1,'no blind manual repeat');
     }
+    await runCurrentQualityUIContract({browser, base, root});
     assert.equal(errors.length,0,errors.join('\n'));
     console.log('PASS: shipped-page startup, explicit current/full scans, fresh-current retention, 3 comparison rows, CSS flags, RU exclusion, transactional apply reconciliation, exact-profile fallback and responsive layout.');
   } finally {await browser.close();server.close();}

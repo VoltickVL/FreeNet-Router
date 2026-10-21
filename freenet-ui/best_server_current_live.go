@@ -203,11 +203,16 @@ func markBestServerCurrentProbeFailure(candidate *bestServerQualityCandidate) {
 }
 
 func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, currentFilter string) bestServerQualityResponse {
+	currentIdentity := ""
+	if strings.TrimSpace(currentEndpoint) != "" {
+		currentIdentity = bestServerCurrentQualityIdentityHash(currentEndpoint, currentFilter)
+	}
 	outbound, activeEndpoint, ok := readBestServerActiveOutbound(a.cfg.OutPath)
 	if !ok || !endpointsEqual(activeEndpoint, currentEndpoint) {
 		return bestServerQualityResponse{
 			Success: true, Available: false, Candidates: []bestServerQualityCandidate{}, ProfilesScanned: 0, ProfilesTotal: 1,
 			Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
+			CurrentIdentity: currentIdentity,
 			Message: "Активный VPN-профиль не удалось безопасно прочитать; другие VPN не проверялись.",
 		}
 	}
@@ -236,9 +241,16 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 	cancel()
 	if !probe.OK {
 		markBestServerCurrentProbeFailure(&candidate)
+		storedAt, displayThroughput := storeBestServerCurrentQualityDisplaySnapshot(currentEndpoint, currentFilter, candidate)
+		scannedAt := time.Now().UTC().Format(time.RFC3339Nano)
+		if !storedAt.IsZero() {
+			scannedAt = storedAt.UTC().Format(time.RFC3339Nano)
+		}
 		return bestServerQualityResponse{
 			Success: true, Available: false, Candidates: []bestServerQualityCandidate{candidate}, ProfilesScanned: 1, ProfilesTotal: 1,
-			Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
+			Mutation: "NONE", ScannedAt: scannedAt, CurrentEndpoint: currentEndpoint,
+			CurrentIdentity: currentIdentity,
+			DisplayThroughput: displayThroughput,
 			Message: "Текущий VPN найден, но активный VPN-путь не подтвердил доступ к интернету; скорость недоступна. Другие VPN не проверялись.",
 		}
 	}
@@ -272,8 +284,13 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 	response := bestServerQualityResponse{
 		Success: true, Available: candidate.Eligible, Candidates: []bestServerQualityCandidate{candidate}, ProfilesScanned: 1, ProfilesTotal: 1,
 		Mutation: "NONE", ScannedAt: time.Now().UTC().Format(time.RFC3339), CurrentEndpoint: currentEndpoint,
+		CurrentIdentity: currentIdentity,
 		Message: "Проверен фактический текущий VPN; поиск других серверов не запускался.",
 	}
-	storeBestServerCurrentQuality(currentEndpoint, currentFilter, candidate)
+	storedAt, displayThroughput := storeBestServerCurrentQualityDisplaySnapshot(currentEndpoint, currentFilter, candidate)
+	if !storedAt.IsZero() {
+		response.ScannedAt = storedAt.UTC().Format(time.RFC3339Nano)
+		response.DisplayThroughput = displayThroughput
+	}
 	return response
 }
