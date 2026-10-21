@@ -357,4 +357,105 @@ if FREENET_INSTALL_RELEASE_TAG=v0.8.0-beta.1 sh "$ROOT_DIR/install.sh" > "$TMP/b
 fi
 grep -Fq 'Beta installation requires explicit' "$TMP/beta-install-refused.out" || fail 'Beta installer refusal reason missing'
 
+
+# P0: verified updater bridge quarantines only a proven orphaned VPN lock.
+# No VPN restoration happens here; both original generations remain PENDING.
+make_orphan_fixture() {
+    make_root "$R"
+    mkdir -p "$R/proc" "$R/var/lib/freenet/vpn-transaction.pending/recovery.pending"
+    P="$R/var/lib/freenet/vpn-transaction.pending"
+    echo PENDING > "$P/state"
+    echo PENDING > "$P/recovery.pending/state"
+    echo running > "$P/recovery.pending/core.before"
+    echo LIVE-PROFILE > "$R/etc/freenet/vpn_profile_name"
+    echo LIVE-FILTER > "$R/etc/xray/blanc_profile_filter.regex"
+    for kind in out profile filter; do
+        case "$kind" in
+            out) live="$R/etc/xray/configs/04_outbounds.json" ;;
+            profile) live="$R/etc/freenet/vpn_profile_name" ;;
+            filter) live="$R/etc/xray/blanc_profile_filter.regex" ;;
+        esac
+        cp "$live" "$P/$kind.before"
+        echo ORIGINAL-SNAPSHOT >> "$P/$kind.before"
+        cp "$live" "$P/recovery.pending/$kind.before"
+        echo NESTED-SNAPSHOT >> "$P/recovery.pending/$kind.before"
+        if cmp -s "$P/$kind.before" "$live" || cmp -s "$P/recovery.pending/$kind.before" "$live"; then
+            fail 'fixture must have live bytes different from both protected generations'
+        fi
+    done
+    mkdir "$R/var/run/vpn-mutation.lock"
+    echo 9001 > "$R/var/run/vpn-mutation.lock/pid"
+}
+
+make_release "$D" v0.8.0-beta.14
+sed -i 's/"prerelease":false/"prerelease":true/' "$D/release.json"
+echo '{"protocol":2,"tag":"v0.8.0-beta.14"}' > "$D/recovery-protocol.json"
+(cd "$D" && sha256sum recovery-protocol.json >> SHA256SUMS)
+P0_ENV="FREENET_UPDATE_BETA_OPT_IN=yes FREENET_UPDATE_PROC_ROOT=$R/proc"
+
+make_orphan_fixture
+BASE_PENDING="$(find "$P" -type f -exec sha256sum '{}' ';' | sort | sha256sum)"
+BASE_LIVE="$(sha256sum "$R/etc/xray/configs/04_outbounds.json" "$R/etc/freenet/vpn_profile_name" "$R/etc/xray/blanc_profile_filter.regex")"
+if ! run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/orphan-ok.out" 2>&1; then
+    cat "$TMP/orphan-ok.out" >&2
+    fail 'verified exact Beta bridge rejected complete orphaned dual checkpoint'
+fi
+grep -Fq 'VPN_LOCK_RECOVERY=ORPHAN_QUARANTINED' "$TMP/orphan-ok.out" || fail 'orphan lock transfer receipt absent'
+grep -Fxq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'application bridge failed'
+[ "$BASE_PENDING" = "$(find "$P" -type f -exec sha256sum '{}' ';' | sort | sha256sum)" ] || fail 'bridge changed protected original or nested snapshot'
+[ "$BASE_LIVE" = "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" "$R/etc/freenet/vpn_profile_name" "$R/etc/xray/blanc_profile_filter.regex")" ] || fail 'bridge changed live VPN'
+[ -d "$P/recovery.pending" ] && [ "$(cat "$P/state")" = PENDING ] || fail 'bridge cleared pending checkpoint'
+[ ! -e "$R/var/run/vpn-mutation.lock" ] || fail 'bridge left its network lock'
+[ ! -e "$R/var/run/update.lock" ] || fail 'bridge left update lock'
+QUARANTINE="$(find "$R/var/run" -maxdepth 1 -name 'vpn-mutation.lock.orphaned.*' -type d -print)"
+[ -n "$QUARANTINE" ] && [ "$(cat "$QUARANTINE/pid")" = 9001 ] || fail 'original orphaned owner not preserved'
+find "$R/var/lib/freenet/vpn-lock-recovery-history" -name '*.state' -exec grep -l 'STATE=CLAIMED' '{}' ';' | grep -q . || fail 'persistent lock recovery evidence missing'
+
+make_orphan_fixture
+mkdir "$R/proc/9001"
+if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/orphan-live-pid.out" 2>&1; then
+    fail 'live/reused owner PID bypassed lock'
+fi
+[ "$(cat "$R/var/run/vpn-mutation.lock/pid")" = 9001 ] || fail 'live owner lost lock'
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'live owner guard changed application'
+[ ! -d "$R/var/lib/freenet/vpn-lock-recovery-history" ] || fail 'live owner case wrote persistent reclaim record'
+
+make_orphan_fixture
+echo /tmp/foreign-updater > "$R/var/run/vpn-mutation.lock/freenet-update-owner"
+if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/orphan-updater-owner.out" 2>&1; then
+    fail 'other updater fence bypassed'
+fi
+[ -d "$R/var/run/vpn-mutation.lock" ] || fail 'other updater lock removed'
+
+make_orphan_fixture
+rm "$P/recovery.pending/filter.before"
+if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/orphan-incomplete.out" 2>&1; then
+    fail 'incomplete nested recovery accepted'
+fi
+[ -d "$R/var/run/vpn-mutation.lock" ] && [ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'incomplete snapshot had mutation'
+
+make_orphan_fixture
+echo corrupt > "$R/var/run/vpn-mutation.lock/pid"
+if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/orphan-invalid-pid.out" 2>&1; then
+    fail 'corrupt lock owner accepted'
+fi
+[ "$(cat "$R/var/run/vpn-mutation.lock/pid")" = corrupt ] || fail 'corrupt owner evidence changed'
+
+make_orphan_fixture
+mkdir "$R/proc/8123"
+echo '/opt/lib/freenet/apply_provider_profile.sh apply-core' > "$R/proc/8123/cmdline"
+if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/orphan-other-writer.out" 2>&1; then
+    fail 'another active FreeNet writer accepted'
+fi
+[ -d "$R/var/run/vpn-mutation.lock" ] || fail 'active writer lock archived'
+
+make_orphan_fixture
+echo BAD_ASSET >> "$D/vpn"
+if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/orphan-bad-sha.out" 2>&1; then
+    fail 'checksum failure still claimed orphan lock'
+fi
+[ -d "$R/var/run/vpn-mutation.lock" ] && [ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'checksum mismatch mutated files or lock'
+[ ! -d "$R/var/lib/freenet/vpn-lock-recovery-history" ] || fail 'checksum mismatch wrote recovery history'
+echo 'verified orphan VPN lock bridge: successful exact Beta app update and protected STOP gates PASS'
+
 echo 'web self update transactional + explicit Beta channel contract: PASS'
