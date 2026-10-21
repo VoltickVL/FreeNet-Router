@@ -125,6 +125,13 @@
   let alternatives = [];
   let selectionToken = '';
   let currentQuality = null;
+  let currentCheckedAt = '';
+  let currentResultIdentity = '';
+  let currentResultSource = '';
+  let currentDisplayThroughput = null;
+  let currentStatus = null;
+  let currentGeneration = 0;
+  let automaticRefreshKey = '';
   let scanBusy = false;
   let applyBusy = false;
   let externalBusy = false;
@@ -309,6 +316,7 @@
     const previous = updateStatusViews;
     const wrapped = function(status) {
       const result = previous.apply(this, arguments);
+      document.dispatchEvent(new CustomEvent('freenet:status-updated', {detail:status}));
       queueMicrotask(() => renderOverviewTopbarFromStatus(status));
       return result;
     };
@@ -320,7 +328,7 @@
     if (!candidate) return '—';
     if (key === 'speed') {
       const n = Number(candidate.download_mbps || 0);
-      return n > 0 ? `${n.toFixed(n >= 100 ? 0 : 1)} Мбит/с` : '—';
+      return Number.isFinite(n) && n > 0 ? `${n.toFixed(n >= 100 ? 0 : 1)} Мбит/с` : '—';
     }
     if (key === 'http') return candidate.application_rtt_ms ? `${candidate.application_rtt_ms} мс` : '—';
     if (key === 'vpn') return candidate.vpn_rtt_ms ? `${candidate.vpn_rtt_ms} мс` : '—';
@@ -355,11 +363,12 @@
     return node;
   }
 
-  function renderMetrics(root, candidate, baseline = null) {
+  function renderMetrics(root, candidate, baseline = null, displayThroughput = undefined) {
     if (!root) return;
     root.textContent = '';
     const strictSpeed = Number(candidate?.download_mbps || 0) > 0 && candidate?.throughput_source === 'strict_aggregate';
-    root.appendChild(metricPill('Скорость VPN', metric(candidate, 'speed'), 'speed', strictSpeed && candidate?.eligible === true, null, 'Пропускная способность VPN. После достаточного уровня имеет меньший приоритет, чем задержка и стабильность.'));
+    const speed = displayThroughput === undefined ? candidate : displayThroughput;
+    root.appendChild(metricPill('Скорость VPN', metric(speed, 'speed'), 'speed', strictSpeed && candidate?.eligible === true && !displayThroughput?.historical, null, 'Измеренная скорость подключения через VPN.'));
     root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline), 'Медианный HTTPS-отклик реальных сайтов через VPN. Чем меньше, тем отзывчивее веб и приложения.'));
     root.appendChild(metricPill('VPN-пинг', metric(candidate, 'vpn'), 'tcp', false, null, 'Базовая задержка рабочего VPN-тракта: фиксированный HTTPS RTT через VPN без DNS. Это не ICMP-пинг непосредственно до VPN-сервера.'));
     root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter'), 'jitter', false, null, 'Разброс серии измерений отклика (джиттер/spread). Чем меньше, тем ровнее соединение.'));
@@ -369,8 +378,38 @@
     return Array.isArray(data && data.candidates) ? data.candidates.find(item => item && item.current) || null : null;
   }
 
+  function qualityIdentity(value) {
+    const identity = String(value || '').trim().toLowerCase();
+    return /^[a-f0-9]{64}$/.test(identity) ? identity : '';
+  }
+
+  function qualityStamp(value) {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
+    const calendar = new Date(value.slice(0, 19) + 'Z');
+    if (!Number.isFinite(calendar.getTime()) || calendar.toISOString().slice(0, 19) !== value.slice(0, 19)) return null;
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? {value, ms} : null;
+  }
+
+  function currentStatusKey(status = currentStatus) {
+    return status ? qualityIdentity(status.current_identity) || String(status.endpoint || '').trim() : '';
+  }
+
+  function resetCurrentQuality() {
+    currentQuality = null;
+    currentCheckedAt = '';
+    currentResultIdentity = '';
+    currentResultSource = '';
+    currentDisplayThroughput = null;
+    automaticRefreshKey = '';
+  }
+
   function renderCurrentIdentity(status) {
     if (!status) return;
+    const nextStatus = {endpoint:String(status.endpoint || '').trim(), current_identity:qualityIdentity(status.current_identity)};
+    const changed = currentStatus && (currentStatus.endpoint !== nextStatus.endpoint || currentStatusKey() !== currentStatusKey(nextStatus));
+    currentStatus = nextStatus;
+    if (changed) currentGeneration++;
     setText(qs('#bestCurrentName'), statusDisplayName(status));
     setText(qs('#bestCurrentEndpoint'), status.endpoint || '—');
     const flag = qs('#bestCurrentFlag');
@@ -379,12 +418,12 @@
       flag.className = `flag-icon ${flagClass(currentCode)}`;
       flag.hidden = !currentCode;
     }
-    if (!applyBusy && currentQuality && currentQuality.endpoint !== status.endpoint) {
-      currentQuality = null;
+    if (changed || (currentQuality && (currentQuality.endpoint !== nextStatus.endpoint || (nextStatus.current_identity && currentResultIdentity !== nextStatus.current_identity)))) {
+      resetCurrentQuality();
       clearAlternatives('Текущий сервер изменился. Подберите варианты заново.');
       renderMetrics(qs('#bestCurrentMetrics'), null);
-      renderCurrentHealth(null);
-      setText(qs('#bestCurrentQuality'), 'Качество ещё не проверено');
+      renderCurrentHealth(null, status);
+      setBusy(scanMode);
     }
   }
 
@@ -405,33 +444,87 @@
     if (!box) return;
     if (liveVPNOnline(status) === false) {
       box.className = 'current-health offline';
-      box.textContent = 'VPN сейчас не подключен.\nПоказанные метрики — последний подтверждённый замер.';
+      box.textContent = 'VPN сейчас не подключен.';
       return;
     }
     if (!candidate) {
       box.className = 'current-health neutral';
-      box.textContent = 'Проверка качества ещё не выполнялась.';
+      box.textContent = 'Проверка подключения ещё не выполнялась.';
       return;
     }
     if (candidate.tested && candidate.available === false) {
       box.className = 'current-health offline';
-      box.textContent = 'VPN-путь не подтвердил доступ к интернету.\nFreeNet должен считать это неисправным VPN, а не подключённым состоянием.';
-    } else if (candidate.eligible) {
+      box.textContent = 'Интернет через VPN недоступен.';
+    } else if (candidate.available === true) {
       box.className = 'current-health';
-      box.textContent = 'Текущий VPN работает стабильно.\nСкорость и отклик в норме.';
-    } else if (latencyOnlyWarning(candidate)) {
-      box.className = 'current-health warning';
-      box.textContent = 'VPN доступен, но отклик выше целевого порога AUTO VPN.\nАвтоматическое переключение на такой профиль запрещено.';
+      box.textContent = 'VPN работает.';
     } else {
       box.className = 'current-health neutral';
-      box.textContent = 'VPN доступен, но часть критериев качества не пройдена.';
+      box.textContent = 'Ожидаем проверку подключения.';
     }
   }
 
-  function renderCurrentQuality(data) {
+  function displayThroughput(data, candidate, stamp) {
+    const display = data && data.display_throughput;
+    if (display && display.throughput_source === 'strict_aggregate' && typeof display.historical === 'boolean' &&
+        Number.isFinite(display.download_mbps) && display.download_mbps > 0 && qualityStamp(display.measured_at)) {
+      return {download_mbps:display.download_mbps, measured_at:display.measured_at, historical:display.historical, throughput_source:'strict_aggregate'};
+    }
+    // Older responses can still display their own measured value and timestamp.
+    if (candidate && candidate.throughput_source === 'strict_aggregate' && Number.isFinite(candidate.download_mbps) && candidate.download_mbps > 0 && stamp) {
+      return {download_mbps:candidate.download_mbps, measured_at:stamp.value, historical:false, throughput_source:'strict_aggregate'};
+    }
+    return null;
+  }
+
+  function renderCurrentQualityCaption() {
+    const node = qs('#bestCurrentQuality');
+    if (!node) return;
+    const formatTime = (value, withDate = false) => {
+      const stamp = qualityStamp(value);
+      return stamp ? new Date(stamp.ms).toLocaleString('ru-RU', {hour:'2-digit', minute:'2-digit', ...(withDate ? {day:'2-digit', month:'2-digit'} : {})}) : '';
+    };
+    node.dataset.checkedAt = currentCheckedAt;
+    node.dataset.speedMeasuredAt = currentDisplayThroughput ? currentDisplayThroughput.measured_at : '';
+    const updating = scanMode === 'current' || (automaticRefreshKey && automaticRefreshKey === currentStatusKey());
+    const parts = [updating ? 'Обновляем…' : currentQuality ? 'Последняя проверка: ' + (formatTime(currentCheckedAt) || 'время неизвестно') : 'Скорость ещё не измерена'];
+    if (currentDisplayThroughput) {
+      parts.push(metric(currentDisplayThroughput, 'speed'));
+      if (updating || currentDisplayThroughput.historical || currentDisplayThroughput.measured_at !== currentCheckedAt) {
+        parts.push('замер ' + formatTime(currentDisplayThroughput.measured_at, true));
+      }
+    }
+    setText(node, parts.join(' · '));
+  }
+
+  function currentResultMatches(data, candidate, requestContext = null, source = 'manual') {
+    const endpoint = String(candidate && candidate.endpoint || '').trim();
+    const liveEndpoint = currentStatus ? currentStatus.endpoint : String(qs('#bestCurrentEndpoint')?.textContent || '').trim();
+    if (!endpoint || (liveEndpoint && liveEndpoint !== '—' && endpoint !== liveEndpoint)) return false;
+    const identity = qualityIdentity(data && data.current_identity);
+    if (source !== 'comparison' && currentStatus?.current_identity && identity !== currentStatus.current_identity) return false;
+    if (requestContext && (requestContext.generation !== currentGeneration || (requestContext.endpoint && requestContext.endpoint !== endpoint) || (requestContext.identity && requestContext.identity !== identity))) return false;
+    return true;
+  }
+
+  function renderCurrentQuality(data, source = 'manual', requestContext = null) {
     const candidate = currentCandidate(data);
-    if (candidate) currentQuality = candidate;
-    const shown = candidate || currentQuality;
+    if (candidate) {
+      if (!currentResultMatches(data, candidate, requestContext, source)) return false;
+      const stamp = source === 'comparison' ? null : qualityStamp(data && data.scanned_at);
+      const previous = qualityStamp(currentCheckedAt);
+      if (source === 'cache' && (scanMode === 'current' || applyBusy || !stamp || (previous && stamp.ms <= previous.ms) || (!previous && currentResultSource === 'manual'))) return false;
+      if (source === 'comparison' && currentQuality) return false;
+      if (source === 'manual' && previous && (!stamp || stamp.ms < previous.ms)) return false;
+      currentQuality = Object.assign({}, candidate, {current:true});
+      currentResultIdentity = qualityIdentity(data && data.current_identity) || (source === 'comparison' ? currentStatus?.current_identity || '' : '');
+      currentResultSource = source;
+      currentCheckedAt = stamp ? stamp.value : '';
+      currentDisplayThroughput = displayThroughput(data, candidate, stamp);
+    } else if (requestContext && requestContext.generation !== currentGeneration) {
+      return false;
+    }
+    const shown = currentQuality;
     if (candidate) {
       setText(qs('#bestCurrentName'), profileDisplayName(candidate, 'Текущий VPN'));
       setText(qs('#bestCurrentEndpoint'), candidate.endpoint || '—');
@@ -441,22 +534,15 @@
         flag.hidden = !profileCode(candidate);
       }
     }
-    renderMetrics(qs('#bestCurrentMetrics'), shown);
+    renderMetrics(qs('#bestCurrentMetrics'), shown, null, currentDisplayThroughput);
     renderCurrentHealth(shown);
-    const stamp = new Date(data && data.scanned_at || Date.now());
-    const time = Number.isNaN(stamp.getTime()) ? '' : stamp.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'});
+    renderCurrentQualityCaption();
     if (shown) {
-      const strictMeasured = Number(shown.download_mbps) > 0 && shown.throughput_source === 'strict_aggregate';
-      const speedSuffix = strictMeasured ? ' · ' + metric(shown, 'speed') : '';
-      setText(qs('#bestCurrentQuality'), `Последняя проверка: ${time || 'сейчас'}${speedSuffix}`);
       setText(qs('#bestServerStatus'), candidate ? 'Проверка текущего VPN завершена.' : 'Проверка текущего VPN завершена. Показан последний подтверждённый замер.');
     } else {
-      setText(qs('#bestCurrentQuality'), 'Недостаточно данных для оценки');
       setText(qs('#bestServerStatus'), 'Текущий профиль не удалось определить. Другие серверы не проверялись.');
     }
-    if (shown?.download_issue && Number(shown.download_mbps || 0) <= 0) {
-      setText(qs('#bestCurrentQuality'), 'Замер скорости: ' + shown.download_issue);
-    }
+    return !!candidate;
   }
 
   function comparableSpeed(candidate) {
@@ -569,11 +655,11 @@
     status.appendChild(copy);
   }
 
-  function renderBestResult(data) {
+  function renderBestResult(data, currentContext = null) {
     clearAlternatives();
     selectionToken = String(data && data.selection_token || '').trim();
     const current = currentCandidate(data);
-    if (current) renderCurrentQuality({scanned_at: data.scanned_at, candidates: [current]});
+    if (current) renderCurrentQuality({candidates:[current]}, 'comparison', currentContext);
     const baseline = current || currentQuality;
     alternatives = comparisonCandidates(data, current);
     const box = qs('#bestServerResult');
@@ -658,7 +744,7 @@
     if (currentPanel && !qs('#bestCurrentHealth')) {
       const health = document.createElement('div'); health.id = 'bestCurrentHealth'; health.className = 'current-health neutral'; health.textContent = 'Проверка качества ещё не выполнялась.';
       currentPanel.appendChild(health);
-      const help = document.createElement('p'); help.id = 'bestCurrentHelp'; help.className = 'current-help'; help.textContent = 'Проверка качества запускается вручную. Автовосстановление VPN контролирует доступность отдельно и при необходимости подбирает проверенную замену.';
+      const help = document.createElement('p'); help.id = 'bestCurrentHelp'; help.className = 'current-help'; help.textContent = 'Скорость обновляется при проверке подключения.';
       currentPanel.appendChild(help);
     }
     const measureNote = qs('.vpn-measure-note'); if (measureNote) measureNote.remove();
@@ -679,7 +765,7 @@
     if (searchField && !searchField.querySelector('.manual-search-icon')) searchField.prepend(makeIcon('search', 'manual-search-icon'));
     const currentMetrics = qs('#bestCurrentMetrics');
     if (currentQuality || !currentMetrics || currentMetrics.children.length === 0) {
-      renderMetrics(currentMetrics, currentQuality);
+      renderMetrics(currentMetrics, currentQuality, null, currentDisplayThroughput);
       renderCurrentHealth(currentQuality);
     }
     try { if (typeof lastStatus !== 'undefined' && lastStatus) renderCurrentIdentity(lastStatus); } catch (_) {}
@@ -689,14 +775,17 @@
   function setBusy(mode) {
     scanMode = mode;
     scanBusy = !!mode;
+    const busy = scanBusy || applyBusy || !!automaticRefreshKey;
+    const blocked = busy || externalBusy;
     const current = qs('#bestServerCheckCurrent'), best = qs('#bestServerRefresh');
-    if (current) { current.disabled = scanBusy || applyBusy || externalBusy; current.textContent = mode === 'current' ? 'Проверяем текущий…' : 'Проверить текущий VPN'; }
-    if (best) { best.disabled = scanBusy || applyBusy || externalBusy; setButtonLabel(best, mode === 'best' ? 'Подбираем…' : 'Подобрать серверы', 'search'); }
-    document.querySelectorAll('.vpn-option-apply,.vpn-option-retry').forEach(button => { button.disabled = scanBusy || applyBusy || externalBusy; });
-    const manual = qs('#bestServerAdvanced'); if (manual) manual.inert = scanBusy || applyBusy || externalBusy;
-    const maintenance = qs('.vpn-current-panel>.action-row'); if (maintenance) maintenance.inert = scanBusy || applyBusy || externalBusy;
-    const status = qs('#bestServerStatus'); if (status) status.classList.toggle('busy', !!mode || applyBusy);
-    qs('#bestServerShell')?.setAttribute('aria-busy', String(scanBusy || applyBusy));
+    if (current) { current.disabled = blocked; current.textContent = mode === 'current' ? 'Проверяем текущий…' : 'Проверить текущий VPN'; }
+    if (best) { best.disabled = blocked; setButtonLabel(best, mode === 'best' ? 'Подбираем…' : 'Подобрать серверы', 'search'); }
+    document.querySelectorAll('.vpn-option-apply,.vpn-option-retry').forEach(button => { button.disabled = blocked; });
+    const manual = qs('#bestServerAdvanced'); if (manual) manual.inert = blocked;
+    const maintenance = qs('.vpn-current-panel>.action-row'); if (maintenance) maintenance.inert = blocked;
+    const status = qs('#bestServerStatus'); if (status) status.classList.toggle('busy', busy);
+    qs('#bestServerShell')?.setAttribute('aria-busy', String(busy));
+    renderCurrentQualityCaption();
   }
 
   function qualityJobID() {
@@ -743,16 +832,25 @@
   }
 
   async function scanCurrentVPN() {
-    if (scanBusy || applyBusy || externalBusy) return;
+    if (scanBusy || applyBusy || externalBusy || automaticRefreshKey) return;
+    syncOverviewTopbar();
+    const requestContext = {generation:currentGeneration, endpoint:currentStatus?.endpoint || '', identity:currentStatus?.current_identity || ''};
+    let measured = null;
     try {
       mountBestServerUI(); setBusy('current'); setText(qs('#bestServerStatus'),'Проверяем текущий VPN… Это может занять до минуты.');
       const response=await requestQuality('/api/vpn/current-quality','current');const body=await response.json().catch(()=>null);
-      if(!response.ok||!body||!body.success){setText(qs('#bestServerStatus'),(body&&body.error)||'Не удалось проверить текущий VPN.');return;}renderCurrentQuality(body);
+      if(!response.ok||!body||!body.success){setText(qs('#bestServerStatus'),(body&&body.error)||'Не удалось проверить текущий VPN.');return;}
+      syncOverviewTopbar();
+      if (renderCurrentQuality(body, 'manual', requestContext)) measured = body;
+      else if (currentCandidate(body)) setText(qs('#bestServerStatus'), requestContext.generation !== currentGeneration ? 'Текущий VPN изменился. Можно проверить новое подключение.' : 'Показан последний замер текущего VPN.');
     } catch (_) {setText(qs('#bestServerStatus'),'Не удалось завершить проверку текущего VPN. Проверьте связь с FreeNet.');} finally {setBusy(false);}
+    if (measured) document.dispatchEvent(new CustomEvent('freenet:current-quality-measured', {detail:measured}));
   }
 
   async function scanBestServer() {
-    if (scanBusy || applyBusy || externalBusy) return;
+    if (scanBusy || applyBusy || externalBusy || automaticRefreshKey) return;
+    syncOverviewTopbar();
+    const currentContext = {generation:currentGeneration, endpoint:currentStatus?.endpoint || ''};
     try {
       mountBestServerUI();setBusy('best');clearAlternatives('Сравниваем реальный отклик и измеряем качество…');setText(qs('#bestServerStatus'),'Сравниваем зарубежные серверы… Текущий VPN продолжает работать.');
       const response=await requestQuality('/api/vpn/best-foreign','best');const body=await response.json().catch(()=>null);
@@ -761,7 +859,8 @@
         const detail=body&&typeof body.error==='string'?body.error:response.status===504?'Шлюз не дождался ответа FreeNet.':response.status===502?'Шлюз не получил корректный ответ FreeNet.':response.status===401?'Требуется войти в FreeNet заново.':response.ok?'Ответ FreeNet не содержит результатов проверки.':'Сервер вернул ошибку.';
         setText(qs('#bestServerStatus'),`Подбор не завершён (HTTP ${response.status}). ${detail}`);return;
       }
-      renderBestResult(body);if(body.partial)setText(qs('#bestServerStatus'),'Проверка завершена в пределах лимита времени. Показаны только измеренные варианты; часть кандидатов не проверена.');
+      syncOverviewTopbar();
+      renderBestResult(body, currentContext);if(body.partial)setText(qs('#bestServerStatus'),'Проверка завершена в пределах лимита времени. Показаны только измеренные варианты; часть кандидатов не проверена.');
     } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено безопасное время ожидания ответа.':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
   }
 
@@ -786,7 +885,7 @@
   }
 
   async function applyCandidate(candidate) {
-    if(applyBusy||scanBusy||externalBusy||!candidate||candidate.current||!candidate.id||!candidate.eligible||isRussianProfile(candidate))return;
+    if(applyBusy||scanBusy||externalBusy||automaticRefreshKey||!candidate||candidate.current||!candidate.id||!candidate.eligible||isRussianProfile(candidate))return;
     if(!/^[a-f0-9]{32}$/.test(selectionToken)){
       setText(qs('#bestServerStatus'),'Результат подбора больше нельзя безопасно применить. Подберите серверы заново.');
       clearAlternatives('Результаты подбора устарели. Для переключения подберите серверы снова.');
@@ -800,12 +899,12 @@
       if(!response.ok||!body||!body.success){const detail=body&&(body.primary_error||body.error);setText(qs('#bestServerStatus'),detail||'Результат переключения не подтверждён. Не повторяйте операцию.');if(!body||body.result_unknown)recommendation=null;return;}
       const appliedEndpoint=String(body?.provider_plan?.endpoint||'').trim();
       const status=await waitForAppliedProvider(candidate,appliedEndpoint);if(!status){setText(qs('#bestServerStatus'),'Переключение ещё не подтверждено. Проверьте состояние системы перед повторной попыткой.');return;}
-      recommendation=null;currentQuality=null;renderOverviewTopbarFromStatus(status);renderMetrics(qs('#bestCurrentMetrics'),null);renderCurrentHealth(null);setText(qs('#bestCurrentQuality'),'Качество ещё не проверено');setText(qs('#bestServerStatus'),'VPN переключён. Соединение проверено.');
+      recommendation=null;resetCurrentQuality();renderOverviewTopbarFromStatus(status);renderMetrics(qs('#bestCurrentMetrics'),null);renderCurrentHealth(null);renderCurrentQualityCaption();setText(qs('#bestServerStatus'),'VPN переключён. Соединение проверено.');
     }catch(_){recommendation=null;setText(qs('#bestServerStatus'),'Связь прервалась во время переключения. Результат не подтверждён — проверьте состояние системы перед повторной попыткой.');}finally{clearAlternatives('Результаты подбора израсходованы. Для нового переключения подберите серверы снова.');applyBusy=false;setBusy(false);}
   }
 
   async function retryCandidate(candidate, button) {
-    if (scanBusy || applyBusy || externalBusy || !candidate || !candidate.id) return;
+    if (scanBusy || applyBusy || externalBusy || automaticRefreshKey || !candidate || !candidate.id) return;
     const original = button && button.textContent;
     try {
       setBusy('retry');
@@ -835,7 +934,7 @@
   }
 
   async function refreshCurrentVPN() {
-    if (scanBusy || applyBusy || externalBusy) return;
+    if (scanBusy || applyBusy || externalBusy || automaticRefreshKey) return;
     const update = qs('#updateBtn');
     applyBusy = true;
     setBusy(false);
@@ -849,7 +948,7 @@
         setText(qs('#bestServerStatus'), detail || 'Безопасное обновление не завершено. Не повторяйте операцию до проверки состояния.');
         return;
       }
-      if (body.current) renderCurrentQuality({scanned_at:new Date().toISOString(), candidates:[Object.assign({}, body.current, {current:true})]});
+      if (body.current) renderCurrentQuality({candidates:[Object.assign({}, body.current, {current:true})]}, 'comparison');
       if (body.outcome === 'applied') {
         const expected = body.candidate && body.candidate.endpoint;
         const status = expected ? await waitForEndpoint(expected) : null;
@@ -857,9 +956,9 @@
           setText(qs('#bestServerStatus'), 'Свежий endpoint применён, но live-state ещё не подтверждён в браузере. Не повторяйте операцию.');
           return;
         }
-        currentQuality = body.candidate ? Object.assign({}, body.candidate, {current:true}) : null;
+        resetCurrentQuality();
         renderOverviewTopbarFromStatus(status);
-        if (currentQuality) renderCurrentQuality({scanned_at:new Date().toISOString(), candidates:[currentQuality]});
+        if (body.candidate) renderCurrentQuality({candidates:[Object.assign({}, body.candidate, {current:true})]}, 'comparison');
         clearAlternatives('Текущий endpoint обновлён. Для нового сравнения подберите серверы снова.');
       }
       setText(qs('#bestServerStatus'), body.message || ({no_new:'Нового endpoint нет. Текущий VPN сохранён.',current_better:'Текущий VPN лучше. Переключение не выполнялось.',check_failed:'Свежий endpoint не прошёл проверку. Текущий VPN сохранён.',applied:'Свежий endpoint применён и проверен.'}[body.outcome] || 'Проверка завершена.'));
@@ -886,13 +985,19 @@
     const acceptHydration = detail => {
       const candidate = detail && detail.candidate;
       if (!candidate || candidate.current !== true || !candidate.endpoint) return;
-      const liveEndpoint = String(qs('#bestCurrentEndpoint')?.textContent || '').trim();
-      if (liveEndpoint && liveEndpoint !== '—' && liveEndpoint !== candidate.endpoint) return;
-      currentQuality = Object.assign({}, candidate, {current:true});
-      renderCurrentQuality({scanned_at: detail.scanned_at || '', candidates:[currentQuality]});
-      if (detail.status) renderCurrentHealth(currentQuality, detail.status);
+      if (!currentStatus && detail.status) renderOverviewTopbarFromStatus(detail.status);
+      renderCurrentQuality({scanned_at:detail.scanned_at || '', candidates:[candidate], current_identity:detail.current_identity, display_throughput:detail.display_throughput}, 'cache');
     };
     document.addEventListener('freenet:current-quality-display', event => acceptHydration(event && event.detail));
+    document.addEventListener('freenet:status-updated', event => {
+      if (event && event.detail) renderOverviewTopbarFromStatus(event.detail);
+    });
+    document.addEventListener('freenet:current-quality-refresh', event => {
+      const detail = event && event.detail;
+      if (!detail || !currentResultMatches(detail, {endpoint:detail.endpoint})) return;
+      automaticRefreshKey = detail.running ? currentStatusKey() : '';
+      setBusy(scanMode);
+    });
     if (window.__freenetCurrentQualityHydration) queueMicrotask(() => acceptHydration(window.__freenetCurrentQualityHydration));
   }
 
@@ -1257,22 +1362,10 @@
 (() => {
   const q = (selector, root = document) => root.querySelector(selector);
 
-  function syncCurrentFlagFallback() {
-    const flag = q('#bestCurrentFlag');
-    if (!flag || !flag.hidden) return;
-    let label = '';
-    try { label = String(lastStatus && lastStatus.profile_label || ''); } catch (_) {}
-    const code = profileCode({name: label});
-    if (!code) return;
-    flag.className = `flag-icon ${flagClass(code)}`;
-    flag.hidden = false;
-  }
-
   function install() {
     if (q('#FreeNetIssue559VisualPolish')) return;
     document.documentElement.dataset.freenetStyleoperationcoordinatorjs6 = "1";
-    syncCurrentFlagFallback();
-    document.addEventListener('freenet:status-updated', syncCurrentFlagFallback);
+    // The current identity renderer owns the flag, including label fallback.
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});

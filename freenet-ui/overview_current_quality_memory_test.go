@@ -54,10 +54,19 @@ func TestOverviewCurrentQualityMemoryIsHydrateOnly(t *testing.T) {
 		}
 	}
 	for _, want := range []string{
-		`if (publish(data, status)) return;`,
+		`publish(data, status, generation) && hasCurrentSpeed(data)`,
 		`void seedMissingMeasurement(status);`,
 		`candidate.endpoint`,
 		`status.endpoint`,
+		`seededIdentities.has(key)`,
+		`seededIdentities.add(key)`,
+		`'&automatic=1'`,
+		`response.status === 200`,
+		`status.mutation_blocked`,
+		`freenet:current-quality-measured`,
+		`current_identity: identity(data && data.current_identity)`,
+		`display_throughput: data && data.display_throughput`,
+		`generation !== identityGeneration`,
 	} {
 		if !strings.Contains(overviewCurrentQualityMemoryScript, want) {
 			t.Fatalf("hydrate-only memory missing %q", want)
@@ -99,9 +108,14 @@ func TestOverviewCurrentQualityMemoryBridgesSingleCoordinatorRenderer(t *testing
 		"installCurrentQualityMemoryBridge",
 		"freenet:current-quality-display",
 		"currentQuality = Object.assign({}, candidate, {current:true})",
-		"renderCurrentQuality({scanned_at: detail.scanned_at || '', candidates:[currentQuality]})",
+		"renderCurrentQuality({scanned_at:detail.scanned_at || '', candidates:[candidate], current_identity:detail.current_identity, display_throughput:detail.display_throughput}, 'cache')",
 		"window.__freenetCurrentQualityHydration",
 		"strict_aggregate",
+		"requestContext.generation !== currentGeneration",
+		"stamp.ms <= previous.ms",
+		"currentDisplayThroughput.measured_at",
+		"resetCurrentQuality()",
+		"new CustomEvent('freenet:status-updated', {detail:status})",
 	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("Overview coordinator ownership contract missing %q", want)

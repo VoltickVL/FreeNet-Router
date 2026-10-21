@@ -78,6 +78,7 @@ type statusResponse struct {
 	City                   string       `json:"city"`
 	ProfileLabel           string       `json:"profile_label"`
 	Endpoint               string       `json:"endpoint"`
+	CurrentIdentity        string       `json:"current_identity,omitempty"`
 	XrayOnline             bool         `json:"xray_online"`
 	XKeenUI                bool         `json:"xkeen_ui_online"`
 	DNSOut                 bool         `json:"dns_out_present"`
@@ -1058,6 +1059,14 @@ func atomicWrite(path string, data []byte, mode os.FileMode) error {
 	return os.Rename(name, path)
 }
 
+func (a *app) currentVPNQualityStatusIdentity(endpoint string) string {
+	canonical := readBestServerCurrentEndpoint(a.cfg.OutPath)
+	if canonical == "" || canonical != endpoint {
+		return ""
+	}
+	return bestServerCurrentQualityIdentityHash(canonical, readBestServerCurrentFilter(a.cfg.FilterPath))
+}
+
 func (a *app) status() statusResponse {
 	code := detectCountry(a.cfg.FilterPath)
 	p := profiles[code]
@@ -1065,6 +1074,7 @@ func (a *app) status() statusResponse {
 		p.Label = label
 	}
 	endpoint, dnsOut := readOutbound(a.cfg.OutPath)
+	currentIdentity := a.currentVPNQualityStatusIdentity(endpoint)
 	dnsMode := readDNSModeConfig(a.cfg.ConfigPath)
 	installScenario, setupComplete := readSetupState(a.cfg.ConfigPath)
 
@@ -1082,6 +1092,7 @@ func (a *app) status() statusResponse {
 		City:                   p.City,
 		ProfileLabel:           p.Label,
 		Endpoint:               endpoint,
+		CurrentIdentity:        currentIdentity,
 		XrayOnline:             a.liveXrayRunning(),
 		XKeenUI:                processRunning("xkeen-ui"),
 		DNSOut:                 dnsOut,

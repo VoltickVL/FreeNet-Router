@@ -178,7 +178,7 @@
     if (nodes.some((n,i)=>summary.children[i]!==n)) nodes.forEach(n=>summary.appendChild(n));
     summary.dataset.vpnOrder = 'xray-vpn-dns-freenet';
   }
-  function busy() { const s=runtime(); return choosing || engine().applying || !!(s?.busy || s?.updater_busy); }
+  function busy() { const s=runtime(); return choosing || engine().applying || q('#bestServerShell')?.getAttribute('aria-busy') === 'true' || !!(s?.busy || s?.updater_busy); }
   function uncertain(e) { return /ROLLBACK_FAILED|ROLLBACK_UNKNOWN|FAILED_UNKNOWN|\bUNKNOWN\b/.test(e.note + ' ' + e.title); }
   function canConnect(e=engine()) { return !!(selected && selected.id===e.id && e.ready && e.card?.classList.contains('is-ready') && e.button && !e.button.disabled && !sent && !busy() && !rttScanning && !uncertain(e)); }
   async function choose(profile) {
@@ -393,6 +393,7 @@
     document.addEventListener('visibilitychange',schedulePaint);
     document.addEventListener('freenet:controls-busy',schedulePaint);
     document.addEventListener('freenet:status-updated',schedulePaint);
+    document.addEventListener('freenet:current-quality-refresh',schedulePaint);
     document.addEventListener('freenet:settings-v3-updated',schedulePaint);
     document.addEventListener('pointerdown',e=>{if(panel && !panel.hidden && !panel.contains(e.target) && !host.contains(e.target))close();},true);
     document.addEventListener('keydown',e=>{if(e.key==='Escape' && panel && !panel.hidden){e.preventDefault();close(true);}});
