@@ -707,7 +707,7 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		output, cmdErr = runCommand(ctx, providerHelperPath(), "apply", profileID)
 	}
 	safeOutput := sanitizeOutput(string(output))
-	if ctx.Err() == context.DeadlineExceeded {
+	if !useSnapshot && ctx.Err() == context.DeadlineExceeded {
 		cmdErr = errors.New("provider profile apply timed out")
 	}
 	if cmdErr == nil && req.ManualOverride &&
@@ -724,6 +724,11 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	}
 	if cmdErr != nil {
 		primary, rollback := classifyApplyFailure(safeOutput)
+		if useSnapshot && providerFinalizationUnknown(cmdErr) {
+			// A hard stop or missing owned terminal receipt remains UNKNOWN,
+			// even if an earlier stdout line claimed a successful rollback.
+			rollback = "UNKNOWN"
+		}
 		if primary == "" {
 			primary = cmdErr.Error()
 		}

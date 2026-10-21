@@ -44,6 +44,8 @@ MUTATION_LOCK_HELD=0
 RECOVERY_GUARD_HELD=0
 RECOVERY_GUARD_DIR="$MUTATION_LOCK_DIR.recovery-guard"
 ORPHAN_LOCK_ARCHIVE=""
+ORPHAN_EVIDENCE_MODE=""
+ORPHAN_ARCHIVE_PROOF=""
 NETWORK_FENCE_DEFERRED=0
 KEEP_LOCK=0
 MUTATED=0
@@ -614,6 +616,9 @@ snapshot_preserved_state() {
     else
         printf 'CHECKPOINT_ABSENT\n' >> "$PRESERVED_OUT" || return 1
     fi
+    # The archived-rollback claim also pins evidence outside CHECKPOINT_DIR.
+    # Keep the ordinary snapshot format unchanged, including the pre-claim one.
+    [ "$ORPHAN_EVIDENCE_MODE" != archived ] || vpn_lock_recovery_evidence_safe
 }
 
 prepare_backup() {
@@ -838,7 +843,7 @@ previous_update_receipt_safe() {
 # This is an application-only recovery bridge, never a VPN rollback.
 # It runs ONLY from a staged, SHA-verified, exact Beta update with opt-in.
 # A missing PID alone never authorizes removing or overwriting a VPN lock.
-vpn_lock_recovery_evidence_safe() {
+vpn_lock_dual_recovery_evidence_safe() {
     [ -d "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ] || return 1
     [ -z "$(find "$CHECKPOINT_DIR" -type l -print 2>/dev/null)" ] || return 1
     for RECOVERY_LAYER in "$CHECKPOINT_DIR" "$CHECKPOINT_DIR/recovery.pending"; do
@@ -865,6 +870,180 @@ vpn_lock_recovery_evidence_safe() {
         [ "$(wc -c < "$LIVE" 2>/dev/null)" -le 2097152 ] || return 1
     done
     return 0
+}
+
+# Compare ctimes as decimal strings. Entware shell arithmetic may be 32-bit,
+# and awk numbers cannot represent every inode/timestamp string exactly.
+vpn_recovery_ctime_at_least() (
+    LC_ALL=C awk -v newer="$1" -v older="$2" 'BEGIN {
+        if (newer !~ /^[0-9]+$/ || older !~ /^[0-9]+$/) exit 1
+        sub(/^0+/, "", newer); sub(/^0+/, "", older)
+        if (length(newer) != length(older)) exit (length(newer) > length(older) ? 0 : 1)
+        exit ("x" newer >= "x" older ? 0 : 1)
+    }'
+)
+
+# A content proof includes the exact filesystem identity on both sides of the
+# read. Never print file contents; callers retain this metadata in memory only.
+vpn_recovery_file_proof() (
+    RECOVERY_FILE="$1"
+    [ -f "$RECOVERY_FILE" ] && [ ! -L "$RECOVERY_FILE" ] && [ -r "$RECOVERY_FILE" ] || return 1
+    RECOVERY_FILE_SIGNATURE="$(vpn_recovery_stat_signature "$RECOVERY_FILE")" || return 1
+    [ "$(wc -c < "$RECOVERY_FILE" 2>/dev/null)" -le "$2" ] || return 1
+    if [ -n "${3:-}" ]; then
+        vpn_recovery_ctime_at_least "${RECOVERY_FILE_SIGNATURE##*:}" "$3" || return 1
+    fi
+    RECOVERY_FILE_SHA="$(sha256sum < "$RECOVERY_FILE")" || return 1
+    RECOVERY_FILE_SHA="${RECOVERY_FILE_SHA%% *}"
+    [ "${#RECOVERY_FILE_SHA}" -eq 64 ] || return 1
+    case "$RECOVERY_FILE_SHA" in *[!0-9a-fA-F]*) return 1 ;; esac
+    [ -f "$RECOVERY_FILE" ] && [ ! -L "$RECOVERY_FILE" ] && [ -r "$RECOVERY_FILE" ] || return 1
+    RECOVERY_FILE_AFTER="$(vpn_recovery_stat_signature "$RECOVERY_FILE")" || return 1
+    [ "$RECOVERY_FILE_AFTER" = "$RECOVERY_FILE_SIGNATURE" ] || return 1
+    printf '%s:%s\n' "$RECOVERY_FILE_SIGNATURE" "$RECOVERY_FILE_SHA"
+)
+
+# Transaction helpers write these markers with printf '%s\n'. Match the hash
+# already sampled by file_proof, rather than reading a different value later.
+vpn_recovery_proof_matches_marker() (
+    RECOVERY_MARKER_SHA="$(printf '%s\n' "$2" | sha256sum)" || return 1
+    [ "${1##*:}" = "${RECOVERY_MARKER_SHA%% *}" ]
+)
+
+# Inspect every immediate entry, including hidden entries. Overflow is STOP,
+# never a truncated search that could overlook a newer failed/foreign attempt.
+vpn_recovery_archive_names() (
+    RECOVERY_ARCHIVE_COUNT=0
+    for RECOVERY_ARCHIVE_ENTRY in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+        if [ ! -e "$RECOVERY_ARCHIVE_ENTRY" ] && [ ! -L "$RECOVERY_ARCHIVE_ENTRY" ]; then
+            case "$RECOVERY_ARCHIVE_ENTRY" in "$1/*"|"$1/.[!.]*"|"$1/..?*") continue ;; *) return 1 ;; esac
+        fi
+        RECOVERY_ARCHIVE_COUNT=$((RECOVERY_ARCHIVE_COUNT + 1))
+        [ "$RECOVERY_ARCHIVE_COUNT" -le 64 ] || return 1
+        [ -d "$RECOVERY_ARCHIVE_ENTRY" ] && [ ! -L "$RECOVERY_ARCHIVE_ENTRY" ] || return 1
+        RECOVERY_ARCHIVE_NAME="${RECOVERY_ARCHIVE_ENTRY##*/}"
+        # Reject separators/control characters before creating a line manifest.
+        case "$RECOVERY_ARCHIVE_NAME" in ''|*[!0-9TZ.]*) return 1 ;; esac
+        printf '%s\n' "$RECOVERY_ARCHIVE_NAME"
+    done
+    [ "$RECOVERY_ARCHIVE_COUNT" -gt 0 ]
+)
+
+vpn_recovery_archive_files_exact() (
+    RECOVERY_ARCHIVE_COUNT=0
+    for RECOVERY_ARCHIVE_ENTRY in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+        if [ ! -e "$RECOVERY_ARCHIVE_ENTRY" ] && [ ! -L "$RECOVERY_ARCHIVE_ENTRY" ]; then
+            case "$RECOVERY_ARCHIVE_ENTRY" in "$1/*"|"$1/.[!.]*"|"$1/..?*") continue ;; *) return 1 ;; esac
+        fi
+        RECOVERY_ARCHIVE_COUNT=$((RECOVERY_ARCHIVE_COUNT + 1))
+        [ "$RECOVERY_ARCHIVE_COUNT" -le 6 ] || return 1
+        case "${RECOVERY_ARCHIVE_ENTRY##*/}" in state|result|core.before|out.before|profile.before|filter.before) ;; *) return 1 ;; esac
+        [ -f "$RECOVERY_ARCHIVE_ENTRY" ] && [ ! -L "$RECOVERY_ARCHIVE_ENTRY" ] && [ -r "$RECOVERY_ARCHIVE_ENTRY" ] || return 1
+    done
+    [ "$RECOVERY_ARCHIVE_COUNT" -eq 6 ]
+)
+
+# This branch is available only after the nested checkpoint was fully archived.
+# A ROLLED_BACK label alone is insufficient: bind the newest global attempt to
+# the orphan owner, require its before-files to equal live VPN bytes, and pin
+# the original checkpoint, archive inventory, selected archive and live files.
+vpn_lock_archived_recovery_proof() (
+    LC_ALL=C
+    export LC_ALL
+    [ -d "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ] || return 1
+    [ ! -e "$CHECKPOINT_DIR/recovery.pending" ] && [ ! -L "$CHECKPOINT_DIR/recovery.pending" ] || return 1
+    ARCHIVED_LINKS="$(find "$CHECKPOINT_DIR" -type l -print 2>/dev/null)" || return 1
+    [ -z "$ARCHIVED_LINKS" ] || return 1
+    ARCHIVED_ORIGINAL_SIGNATURE="$(vpn_lock_stat_signature "$CHECKPOINT_DIR")" || return 1
+    ARCHIVED_ROOT="$(dirname "$CHECKPOINT_DIR")/vpn-transaction.attempts"
+    [ -d "$ARCHIVED_ROOT" ] && [ ! -L "$ARCHIVED_ROOT" ] && [ -r "$ARCHIVED_ROOT" ] && [ -x "$ARCHIVED_ROOT" ] || return 1
+    ARCHIVED_ROOT_SIGNATURE="$(vpn_lock_stat_signature "$ARCHIVED_ROOT")" || return 1
+    ARCHIVED_NAMES="$(vpn_recovery_archive_names "$ARCHIVED_ROOT")" || return 1
+    ARCHIVED_NAMES="$(printf '%s\n' "$ARCHIVED_NAMES" | sort)" || return 1
+    ARCHIVED_NAME="$(printf '%s\n' "$ARCHIVED_NAMES" | awk '
+        {
+            if (split($0, part, /\./) != 2 || length(part[2]) > 32 || part[2] !~ /^[1-9][0-9]*$/) { invalid=1; next }
+            stamp=part[1]
+            if (length(stamp) != 16 || substr(stamp,9,1) != "T" || substr(stamp,16,1) != "Z" ||
+                substr(stamp,1,8) !~ /^[0-9]+$/ || substr(stamp,10,6) !~ /^[0-9]+$/) { invalid=1; next }
+            year=substr(stamp,1,4)+0; month=substr(stamp,5,2)+0; day=substr(stamp,7,2)+0
+            hour=substr(stamp,10,2)+0; minute=substr(stamp,12,2)+0; second=substr(stamp,14,2)+0
+            if (year < 1 || month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59) { invalid=1; next }
+            days=31
+            if (month==4 || month==6 || month==9 || month==11) days=30
+            if (month==2) days=(year%4==0 && (year%100!=0 || year%400==0) ? 29 : 28)
+            if (day > days) { invalid=1; next }
+            if (latest=="" || "x" stamp > "x" latest) { latest=stamp; selected=$0; ties=1 }
+            else if (stamp==latest) ties++
+        }
+        END { if (NR==0 || invalid || ties!=1) exit 1; print selected }
+    ')" || return 1
+    [ "${ARCHIVED_NAME##*.}" = "$ORPHAN_PID" ] || return 1
+    ARCHIVED_DIR="$ARCHIVED_ROOT/$ARCHIVED_NAME"
+    [ -d "$ARCHIVED_DIR" ] && [ ! -L "$ARCHIVED_DIR" ] && [ -r "$ARCHIVED_DIR" ] && [ -x "$ARCHIVED_DIR" ] || return 1
+    ARCHIVED_DIR_SIGNATURE="$(vpn_lock_stat_signature "$ARCHIVED_DIR")" || return 1
+    ARCHIVED_LOCK_CTIME="${ORPHAN_SIGNATURE##*:}"
+    vpn_recovery_ctime_at_least "${ARCHIVED_DIR_SIGNATURE##*:}" "$ARCHIVED_LOCK_CTIME" || return 1
+    vpn_recovery_archive_files_exact "$ARCHIVED_DIR" || return 1
+    printf 'ORIGINAL_DIR %s\nARCHIVE_ROOT %s\nARCHIVE_NAMES\n%s\nARCHIVE_DIR %s %s\n' \
+        "$ARCHIVED_ORIGINAL_SIGNATURE" "$ARCHIVED_ROOT_SIGNATURE" "$ARCHIVED_NAMES" "$ARCHIVED_NAME" "$ARCHIVED_DIR_SIGNATURE"
+    ARCHIVED_PROOF="$(vpn_recovery_file_proof "$CHECKPOINT_DIR/state" 128)" || return 1
+    vpn_recovery_proof_matches_marker "$ARCHIVED_PROOF" PENDING || return 1
+    printf 'ORIGINAL_STATE %s\n' "$ARCHIVED_PROOF"
+    for ARCHIVED_META in state result core.before; do
+        ARCHIVED_PROOF="$(vpn_recovery_file_proof "$ARCHIVED_DIR/$ARCHIVED_META" 128 "$ARCHIVED_LOCK_CTIME")" || return 1
+        case "$ARCHIVED_META" in
+            state) vpn_recovery_proof_matches_marker "$ARCHIVED_PROOF" PENDING ;;
+            result) vpn_recovery_proof_matches_marker "$ARCHIVED_PROOF" ROLLED_BACK ;;
+            core.before) vpn_recovery_proof_matches_marker "$ARCHIVED_PROOF" running || vpn_recovery_proof_matches_marker "$ARCHIVED_PROOF" stopped ;;
+        esac || return 1
+        printf 'ARCHIVE_%s %s\n' "$ARCHIVED_META" "$ARCHIVED_PROOF"
+    done
+    for ARCHIVED_KIND in out profile filter; do
+        case "$ARCHIVED_KIND" in
+            out) ARCHIVED_LIVE="$ROOT/etc/xray/configs/04_outbounds.json" ;;
+            profile) ARCHIVED_LIVE="$ROOT/etc/freenet/vpn_profile_name" ;;
+            filter) ARCHIVED_LIVE="$ROOT/etc/xray/blanc_profile_filter.regex" ;;
+        esac
+        [ ! -e "$CHECKPOINT_DIR/$ARCHIVED_KIND.absent" ] && [ ! -L "$CHECKPOINT_DIR/$ARCHIVED_KIND.absent" ] || return 1
+        ARCHIVED_ORIGINAL="$(vpn_recovery_file_proof "$CHECKPOINT_DIR/$ARCHIVED_KIND.before" 2097152)" || return 1
+        ARCHIVED_BEFORE="$(vpn_recovery_file_proof "$ARCHIVED_DIR/$ARCHIVED_KIND.before" 2097152 "$ARCHIVED_LOCK_CTIME")" || return 1
+        ARCHIVED_CURRENT="$(vpn_recovery_file_proof "$ARCHIVED_LIVE" 2097152)" || return 1
+        [ "${ARCHIVED_BEFORE##*:}" = "${ARCHIVED_CURRENT##*:}" ] || return 1
+        cmp -s "$ARCHIVED_DIR/$ARCHIVED_KIND.before" "$ARCHIVED_LIVE" || return 1
+        printf 'ORIGINAL_%s %s\nARCHIVE_%s %s\nLIVE_%s %s\n' \
+            "$ARCHIVED_KIND" "$ARCHIVED_ORIGINAL" "$ARCHIVED_KIND" "$ARCHIVED_BEFORE" "$ARCHIVED_KIND" "$ARCHIVED_CURRENT"
+    done
+    # Re-list as well as checking ctime: filesystem timestamps can have only
+    # one-second resolution, including during a directory-entry replacement.
+    ARCHIVED_NAMES_AFTER="$(vpn_recovery_archive_names "$ARCHIVED_ROOT")" || return 1
+    ARCHIVED_NAMES_AFTER="$(printf '%s\n' "$ARCHIVED_NAMES_AFTER" | sort)" || return 1
+    [ "$ARCHIVED_NAMES_AFTER" = "$ARCHIVED_NAMES" ] || return 1
+    vpn_recovery_archive_files_exact "$ARCHIVED_DIR" || return 1
+    [ "$(vpn_lock_stat_signature "$CHECKPOINT_DIR")" = "$ARCHIVED_ORIGINAL_SIGNATURE" ] || return 1
+    [ "$(vpn_lock_stat_signature "$ARCHIVED_ROOT")" = "$ARCHIVED_ROOT_SIGNATURE" ] || return 1
+    [ "$(vpn_lock_stat_signature "$ARCHIVED_DIR")" = "$ARCHIVED_DIR_SIGNATURE" ] || return 1
+    [ ! -e "$CHECKPOINT_DIR/recovery.pending" ] && [ ! -L "$CHECKPOINT_DIR/recovery.pending" ]
+)
+
+vpn_lock_recovery_evidence_safe() {
+    if [ -e "$CHECKPOINT_DIR/recovery.pending" ] || [ -L "$CHECKPOINT_DIR/recovery.pending" ]; then
+        RECOVERY_EVIDENCE_MODE=dual
+    else
+        RECOVERY_EVIDENCE_MODE=archived
+    fi
+    [ -z "$ORPHAN_EVIDENCE_MODE" ] || [ "$ORPHAN_EVIDENCE_MODE" = "$RECOVERY_EVIDENCE_MODE" ] || return 1
+    if [ "$RECOVERY_EVIDENCE_MODE" = dual ]; then
+        vpn_lock_dual_recovery_evidence_safe || return 1
+    else
+        RECOVERY_ARCHIVE_PROOF="$(vpn_lock_archived_recovery_proof)" || return 1
+        if [ -n "$ORPHAN_ARCHIVE_PROOF" ]; then
+            [ "$RECOVERY_ARCHIVE_PROOF" = "$ORPHAN_ARCHIVE_PROOF" ] || return 1
+        else
+            ORPHAN_ARCHIVE_PROOF="$RECOVERY_ARCHIVE_PROOF"
+        fi
+    fi
+    ORPHAN_EVIDENCE_MODE="$RECOVERY_EVIDENCE_MODE"
 }
 
 # Fail closed if another known FreeNet writer is running, even if the former
@@ -897,9 +1076,9 @@ vpn_lock_recovery_writers_absent() {
 # ctime identity; keep the hex device and decimal inode as strings (no 32-bit
 # shell arithmetic or floating-point awk conversion). Exit 2 means the stat
 # command failed; malformed successful output must not select another format.
-vpn_lock_stat_signature() (
+vpn_recovery_stat_signature() (
     LOCK_STAT_PATH="$1"
-    [ -d "$LOCK_STAT_PATH" ] && [ ! -L "$LOCK_STAT_PATH" ] || return 1
+    { [ -d "$LOCK_STAT_PATH" ] || [ -f "$LOCK_STAT_PATH" ]; } && [ ! -L "$LOCK_STAT_PATH" ] || return 1
     if printf '%s' "$LOCK_STAT_PATH" | LC_ALL=C grep -q '[[:cntrl:]]'; then
         return 1
     fi
@@ -944,6 +1123,12 @@ vpn_lock_stat_signature() (
         *) return 1 ;;
     esac
 )
+
+vpn_lock_stat_signature() {
+    # The existing owner/quarantine reader remains directory-only.
+    [ -d "$1" ] && [ ! -L "$1" ] || return 1
+    vpn_recovery_stat_signature "$1"
+}
 
 vpn_lock_recovery_same_owner() {
     [ -d "$MUTATION_LOCK_DIR" ] && [ ! -L "$MUTATION_LOCK_DIR" ] || return 1
@@ -1004,6 +1189,9 @@ claim_verified_orphan_vpn_lock() {
 
     ORPHAN_LOCK_ARCHIVE="$MUTATION_LOCK_DIR.orphaned.$(date -u '+%Y%m%dT%H%M%SZ').$$"
     [ ! -e "$ORPHAN_LOCK_ARCHIVE" ] && [ ! -L "$ORPHAN_LOCK_ARCHIVE" ] || return 1
+    if [ "$ORPHAN_EVIDENCE_MODE" = archived ]; then
+        vpn_lock_recovery_evidence_safe || return 1
+    fi
     vpn_lock_recovery_same_owner && vpn_lock_recovery_writers_absent || return 1
     mv "$MUTATION_LOCK_DIR" "$ORPHAN_LOCK_ARCHIVE" 2>/dev/null || return 1
     ARCHIVE_SIGNATURE="$(vpn_lock_stat_signature "$ORPHAN_LOCK_ARCHIVE")" || return 1
@@ -1049,7 +1237,7 @@ run_apply() {
         printf '%s\n' "$LOCK_DIR" > "$MUTATION_LOCK_DIR/freenet-update-owner" || fail_before_mutation 'cannot persist fence ownership'
     else
         # This is not an unlock: any recovery remains behind exact release
-        # staging + dual checkpoint verification and a protected claim.
+        # staging + protected checkpoint verification and a protected claim.
         NETWORK_FENCE_DEFERRED=1
     fi
     detect_current || fail_before_mutation 'current FreeNet version is invalid'
