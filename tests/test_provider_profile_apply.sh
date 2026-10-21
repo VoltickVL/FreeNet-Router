@@ -574,7 +574,7 @@ fi
 # Linux kill -0 also succeeds for zombie PIDs; the core-only cutover must
 # distinguish a retired core, an uninterruptible live core and a reused PID.
 LIFECYCLE_FUNC="$TMP/xray-lifecycle-function.sh"
-sed -n '/^xray_pid_lifecycle() {/,/^}/p' "$SCRIPT" > "$LIFECYCLE_FUNC"
+sed -n '/^xray_pid_confirmed_gone() {/,/^}/p; /^xray_pid_lifecycle() {/,/^}/p' "$SCRIPT" > "$LIFECYCLE_FUNC"
 [ -s "$LIFECYCLE_FUNC" ] || fail 'PID lifecycle reader is missing'
 . "$LIFECYCLE_FUNC"
 PROC_FIX="$TMP/proc-fixture"
@@ -737,5 +737,198 @@ if wait_xray_post_stop_inventory "$PROC_FIX"; then
 fi
 [ "$CORE_RESTART_EXIT" = unexpected-xray-process ] || fail 'unknown old identity was not STOP'
 [ -z "$(grep -E '(^|[[:space:];])kill[[:space:]]' "$INVENTORY_FUNC" || true)" ] || fail 'post-stop inventory must not signal any PID'
+
+
+# Exercise the actual proc reader while the task vanishes after the readable
+# check but before awk opens stat. All process visibility/signals below are
+# fixture functions in a subshell: no real task is signalled or started.
+(
+    PROC_FIX="$TMP/proc-exit-race"
+    TEST_PID=314159
+    TEST_NEW_PID=314160
+    TEST_READ_MODE="$TMP/core-race-read-mode"
+    TEST_READ_COUNT="$TMP/core-race-read-count"
+    TEST_READ_EVENTS="$TMP/core-race-read-events"
+    TEST_LIVE="$TMP/core-race-live"
+    TEST_NEW_LIVE="$TMP/core-race-new-live"
+    TEST_INVENTORY="$TMP/core-race-inventory"
+    TEST_SIGNALS="$TMP/core-race-signals"
+    TEST_STARTS="$TMP/core-race-starts"
+    TEST_UNEXPECTED="$TMP/core-race-unexpected"
+    TEST_PERMIT_TERM=no
+    TEST_TERM_MODE=final-gone
+    export TEST_NEW_PID TEST_NEW_LIVE TEST_INVENTORY TEST_STARTS
+
+    prepare_lifecycle_fixture() {
+        rm -rf "$PROC_FIX"
+        mkdir -p "$PROC_FIX"
+        write_process_state "$TEST_PID" 123456 S
+        printf 'normal\n' > "$TEST_READ_MODE"
+        printf '0\n' > "$TEST_READ_COUNT"
+        printf 'yes\n' > "$TEST_LIVE"
+        printf 'no\n' > "$TEST_NEW_LIVE"
+        printf '%s\n' "$TEST_PID" > "$TEST_INVENTORY"
+        : > "$TEST_READ_EVENTS"
+        : > "$TEST_SIGNALS"
+        : > "$TEST_STARTS"
+        : > "$TEST_UNEXPECTED"
+        TEST_PERMIT_TERM=no
+    }
+
+    kill() {
+        if [ "$#" -eq 2 ] && [ "$1" = -0 ]; then
+            case "$2" in
+                "$TEST_PID") [ "$(cat "$TEST_LIVE")" = yes ]; return $? ;;
+                "$TEST_NEW_PID") [ "$(cat "$TEST_NEW_LIVE")" = yes ]; return $? ;;
+            esac
+        elif [ "$#" -eq 1 ] && [ "$1" = "$TEST_PID" ] && [ "$TEST_PERMIT_TERM" = yes ]; then
+            printf 'TERM\n' >> "$TEST_SIGNALS"
+            write_process_state "$TEST_PID" 123456 Z
+            printf '%s\n' "$TEST_TERM_MODE" > "$TEST_READ_MODE"
+            printf '0\n' > "$TEST_READ_COUNT"
+            return 0
+        fi
+        printf 'unexpected-signal\n' >> "$TEST_UNEXPECTED"
+        return 1
+    }
+
+    awk() {
+        [ "$#" -eq 2 ] || { printf 'unexpected-awk\n' >> "$TEST_UNEXPECTED"; return 2; }
+        TEST_AWK_FILE="$2"
+        # restart_xray_core has a literal initial /proc read. Redirect only
+        # this exact synthetic PID; the production reader uses its fixture root.
+        [ "$TEST_AWK_FILE" != "/proc/$TEST_PID/stat" ] || TEST_AWK_FILE="$PROC_FIX/$TEST_PID/stat"
+        if [ "$TEST_AWK_FILE" = "$PROC_FIX/$TEST_PID/stat" ]; then
+            TEST_AWK_MODE="$(cat "$TEST_READ_MODE")"
+            case "$TEST_AWK_MODE" in
+                final-gone|final-visible-empty)
+                    TEST_AWK_COUNT="$(cat "$TEST_READ_COUNT")"
+                    TEST_AWK_COUNT=$((TEST_AWK_COUNT + 1))
+                    printf '%s\n' "$TEST_AWK_COUNT" > "$TEST_READ_COUNT"
+                    if [ "$TEST_AWK_COUNT" -eq 2 ]; then
+                        case "$TEST_AWK_MODE" in final-gone) TEST_AWK_MODE=gone ;; *) TEST_AWK_MODE=visible-empty ;; esac
+                    else
+                        TEST_AWK_MODE=normal
+                    fi
+                    ;;
+            esac
+            case "$TEST_AWK_MODE" in
+                gone|gone-live|visible-empty)
+                    [ -r "$TEST_AWK_FILE" ] || { printf 'race-not-readable\n' >> "$TEST_UNEXPECTED"; return 2; }
+                    printf '%s\n' "$TEST_AWK_MODE" >> "$TEST_READ_EVENTS"
+                    printf 'normal\n' > "$TEST_READ_MODE"
+                    if [ "$TEST_AWK_MODE" = visible-empty ]; then
+                        : > "$TEST_AWK_FILE"
+                    else
+                        rm -rf "$PROC_FIX/$TEST_PID"
+                        : > "$TEST_INVENTORY"
+                    fi
+                    [ "$TEST_AWK_MODE" = gone-live ] || printf 'no\n' > "$TEST_LIVE"
+                    ;;
+                error)
+                    printf 'error\n' >> "$TEST_READ_EVENTS"
+                    return 2
+                    ;;
+            esac
+        fi
+        case "$TEST_AWK_FILE" in
+            "$PROC_FIX/$TEST_PID/stat"|"$PROC_FIX/$TEST_PID/status")
+                command awk "$1" "$TEST_AWK_FILE"
+                ;;
+            *) printf 'unexpected-proc-read\n' >> "$TEST_UNEXPECTED"; return 2 ;;
+        esac
+    }
+
+    assert_lifecycle_case() {
+        TEST_CASE="$1"
+        TEST_EXPECTED_START="$2"
+        TEST_WANT="$3"
+        prepare_lifecycle_fixture
+        case "$TEST_CASE" in
+            gone|gone-live|visible-empty|error) printf '%s\n' "$TEST_CASE" > "$TEST_READ_MODE" ;;
+            missing-stat) rm -f "$PROC_FIX/$TEST_PID/stat" ;;
+            missing-stat-denied) rm -f "$PROC_FIX/$TEST_PID/stat"; printf 'denied\n' > "$TEST_LIVE" ;;
+            missing-status) rm -f "$PROC_FIX/$TEST_PID/status"; printf 'no\n' > "$TEST_LIVE" ;;
+            absent) rm -rf "$PROC_FIX/$TEST_PID"; printf 'no\n' > "$TEST_LIVE" ;;
+            missing-root) rm -rf "$PROC_FIX"; printf 'no\n' > "$TEST_LIVE" ;;
+            dangling-pid) rm -rf "$PROC_FIX/$TEST_PID"; ln -s "$PROC_FIX/missing-task" "$PROC_FIX/$TEST_PID"; printf 'no\n' > "$TEST_LIVE" ;;
+            reused) write_process_state "$TEST_PID" 999999 S ;;
+            zombie) write_process_state "$TEST_PID" 123456 Z ;;
+            unknown-state) write_process_state "$TEST_PID" 123456 '?' ;;
+            truncated) printf 'truncated stat\n' > "$PROC_FIX/$TEST_PID/stat" ;;
+            *) fail 'unknown lifecycle fixture case' ;;
+        esac
+        if TEST_GOT="$(xray_pid_lifecycle "$TEST_PID" "$TEST_EXPECTED_START" "$PROC_FIX")"; then :; else fail "lifecycle $TEST_CASE returned a reader error"; fi
+        [ "$TEST_GOT" = "$TEST_WANT" ] || fail "lifecycle $TEST_CASE: expected $TEST_WANT, got $TEST_GOT"
+        [ ! -s "$TEST_SIGNALS" ] && [ ! -s "$TEST_UNEXPECTED" ] || fail "lifecycle $TEST_CASE escaped read-only fixture"
+        case "$TEST_CASE" in
+            gone|gone-live|visible-empty|error)
+                [ "$(cat "$TEST_READ_EVENTS")" = "$TEST_CASE" ] || fail "lifecycle $TEST_CASE did not reach the actual read boundary"
+                ;;
+        esac
+    }
+
+    assert_lifecycle_case gone 123456 gone
+    assert_lifecycle_case gone-live 123456 unknown
+    assert_lifecycle_case visible-empty 123456 unknown
+    assert_lifecycle_case error 123456 unknown
+    assert_lifecycle_case missing-stat 123456 unknown
+    assert_lifecycle_case missing-stat-denied 123456 unknown
+    assert_lifecycle_case missing-status 123456 unknown
+    assert_lifecycle_case absent '' unknown
+    assert_lifecycle_case absent invalid unknown
+    assert_lifecycle_case missing-root 123456 unknown
+    assert_lifecycle_case dangling-pid 123456 unknown
+    assert_lifecycle_case reused 123456 reused
+    assert_lifecycle_case zombie 123456 zombie
+    assert_lifecycle_case unknown-state 123456 unknown
+    assert_lifecycle_case truncated 123456 unknown
+
+    # Run the production preflight and termination loop. Only the proc root
+    # is injected into the real reader; no lifecycle result is stubbed.
+    LOOP_FUNCTIONS="$TMP/core-race-loop-functions.sh"
+    sed -n '/^single_xray_pid() {/,/^}/p; /^core_restart_preflight() {/,/^}/p; /^restart_xray_core() {/,/^}/p' "$SCRIPT" > "$LOOP_FUNCTIONS"
+    . "$LOOP_FUNCTIONS"
+    READER_FUNCTION="$TMP/core-race-reader-function.sh"
+    sed -n '/^xray_pid_lifecycle() {/,/^}/p' "$SCRIPT" | sed '1s/xray_pid_lifecycle/xray_pid_lifecycle_fixture/' > "$READER_FUNCTION"
+    . "$READER_FUNCTION"
+    xray_pid_lifecycle() { xray_pid_lifecycle_fixture "$1" "$2" "$PROC_FIX"; }
+    pidof() {
+        [ "$#" -eq 1 ] && [ "$1" = xray ] || { printf 'unexpected-pidof\n' >> "$TEST_UNEXPECTED"; return 1; }
+        [ -s "$TEST_INVENTORY" ] || return 1
+        cat "$TEST_INVENTORY"
+    }
+    short_pause() { :; }
+    CORE_RESTART_HELPER=""
+    XKEEN_BIN="$TMP/bin/core-race-xkeen"
+    cat > "$XKEEN_BIN" <<'EOF'
+#!/bin/sh
+[ "$#" -eq 1 ] && [ "$1" = -start ] && [ "$XKEEN_FOREGROUND" = 1 ] || exit 23
+printf 'start\n' >> "$TEST_STARTS"
+printf '%s\n' "$TEST_NEW_PID" > "$TEST_INVENTORY"
+printf 'yes\n' > "$TEST_NEW_LIVE"
+EOF
+    chmod 755 "$XKEEN_BIN"
+
+    prepare_lifecycle_fixture
+    TEST_PERMIT_TERM=yes
+    TEST_TERM_MODE=final-gone
+    core_restart_preflight || fail 'production preflight rejected the known fixture core'
+    restart_xray_core yes || fail "production termination race: $CORE_RESTART_STAGE/$CORE_RESTART_EXIT"
+    [ "$CORE_RESTART_STAGE" = ready ] && [ "$CORE_RESTART_EXIT" = 0 ] || fail 'retired core did not reach readiness'
+    [ "$(cat "$TEST_READ_COUNT")" = 2 ] && [ "$(cat "$TEST_READ_EVENTS")" = gone ] || fail 'race was not injected on the final identity read'
+    [ "$(cat "$TEST_SIGNALS")" = TERM ] && [ "$(cat "$TEST_STARTS")" = start ] || fail 'cutover did not use exactly one TERM and one startup'
+    [ ! -s "$TEST_UNEXPECTED" ] || fail 'production cutover escaped the isolated fixture'
+
+    prepare_lifecycle_fixture
+    TEST_PERMIT_TERM=yes
+    TEST_TERM_MODE=final-visible-empty
+    core_restart_preflight || fail 'negative fixture preflight unexpectedly failed'
+    if restart_xray_core yes; then fail 'uninspectable visible task permitted startup'; fi
+    [ "$CORE_RESTART_STAGE" = terminate-old-core ] && [ "$CORE_RESTART_EXIT" = old-core-identity-unknown ] || fail 'visible task lost its fail-closed identity result'
+    [ "$(cat "$TEST_READ_COUNT")" = 2 ] && [ "$(cat "$TEST_READ_EVENTS")" = visible-empty ] || fail 'negative final-read race was not reached'
+    [ "$(cat "$TEST_SIGNALS")" = TERM ] && [ ! -s "$TEST_STARTS" ] || fail 'unknown core triggered a forced signal or startup'
+    [ ! -s "$TEST_UNEXPECTED" ] || fail 'negative cutover escaped the isolated fixture'
+)
 
 echo 'provider profile apply test PASS'
