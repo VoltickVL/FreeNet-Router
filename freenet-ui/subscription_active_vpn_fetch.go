@@ -23,6 +23,13 @@ func (a *app) fetchSubscriptionBodyViaActiveVPN(ctx context.Context, subscriptio
 	if subscriptionURL == nil || subscriptionURL.Scheme != "https" || subscriptionURL.Hostname() == "" || subscriptionURL.User != nil {
 		return nil, errors.New("stored subscription URL is invalid")
 	}
+	// Keep the caller's complete fetch budget, including time waiting for a
+	// slot. One lease covers validation, fetch, child Wait and temp cleanup.
+	releaseProbe, ok := acquireIsolatedXrayProbe(ctx)
+	if !ok {
+		return nil, errors.New("active VPN subscription fetch could not acquire an isolated probe slot")
+	}
+	defer releaseProbe()
 	outbound, _, ok := readBestServerActiveOutbound(a.cfg.OutPath)
 	if !ok {
 		return nil, errors.New("active VPN outbound is unavailable")
@@ -32,6 +39,14 @@ func (a *app) fetchSubscriptionBodyViaActiveVPN(ctx context.Context, subscriptio
 		xrayPath = defaultBestServerXrayPath
 	}
 	if _, err := os.Stat(xrayPath); err != nil {
+		return nil, errors.New("Xray binary is unavailable")
+	}
+	xrayPath, err := exec.LookPath(xrayPath)
+	if err != nil {
+		return nil, errors.New("Xray binary is unavailable")
+	}
+	xrayPath, err = filepath.Abs(xrayPath)
+	if err != nil {
 		return nil, errors.New("Xray binary is unavailable")
 	}
 	curlPath, err := exec.LookPath("curl")
@@ -48,6 +63,10 @@ func (a *app) fetchSubscriptionBodyViaActiveVPN(ctx context.Context, subscriptio
 	}
 	defer os.RemoveAll(tmpDir)
 	_ = os.Chmod(tmpDir, 0700)
+	probeXrayPath, err := isolatedXrayProbePath(tmpDir, xrayPath)
+	if err != nil {
+		return nil, errors.New("cannot prepare isolated active VPN subscription fetch")
+	}
 
 	config := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
@@ -72,9 +91,9 @@ func (a *app) fetchSubscriptionBodyViaActiveVPN(ctx context.Context, subscriptio
 		return nil, errors.New("cannot stage active VPN subscription fetch")
 	}
 
-	env := append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir())
+	env := isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir()))
 	testCtx, cancelTest := context.WithTimeout(ctx, 5*time.Second)
-	testCmd := exec.CommandContext(testCtx, xrayPath, "run", "-test", "-confdir", tmpDir)
+	testCmd := exec.CommandContext(testCtx, probeXrayPath, "run", "-test", "-confdir", tmpDir)
 	testCmd.Env = env
 	testCmd.Stdout = io.Discard
 	testCmd.Stderr = io.Discard
@@ -86,7 +105,7 @@ func (a *app) fetchSubscriptionBodyViaActiveVPN(ctx context.Context, subscriptio
 
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
-	xrayCmd := exec.CommandContext(runCtx, xrayPath, "run", "-confdir", tmpDir)
+	xrayCmd := exec.CommandContext(runCtx, probeXrayPath, "run", "-confdir", tmpDir)
 	xrayCmd.Env = env
 	xrayCmd.Stdout = io.Discard
 	xrayCmd.Stderr = io.Discard

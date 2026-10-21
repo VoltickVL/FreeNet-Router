@@ -240,11 +240,7 @@ func (a *app) validateRoutingCandidate(parent context.Context, routing, policy j
 
 	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, a.routingXrayBin(), "run", "-test", "-confdir", tmpDir)
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+a.routingAssetDir())
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
+	if err := runReadOnlyXrayValidation(ctx, a.routingXrayBin(), a.routingAssetDir(), tmpDir); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return errRoutingXrayTimeout
 		}

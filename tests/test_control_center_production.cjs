@@ -19,7 +19,7 @@ const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
 let status={version:fixtureVersion,country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
 let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict',rttMode='ok',updateMode='idle';
-let manualReconcile=null;
+let manualReconcile=null,currentRefreshReconcile=null;
 const manualRTTToken='abcdef0123456789abcdef0123456789';
 const calls=[],unhandled=[],errors=[];
 let rttJobId='',rttJobResult=null,rttJobSequence=0;
@@ -66,18 +66,37 @@ async function capture(label){
     if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
     if(url.pathname==='/api/status')return answer(route,status);
     if(url.pathname==='/api/operation/state'){
+      if(currentRefreshReconcile){
+        assert.equal(req.method(),'GET','refresh reconciliation must only read operation state');
+        const fixture=currentRefreshReconcile,first=++fixture.polls===1;
+        fixture.states.push(first?'running':'success');
+        if(first){
+          // Pass the full 497s server envelope, inside the 540s refresh budget.
+          await page.evaluate(()=>{window.__refreshReconcileDateNow=Date.now;const now=Date.now;Date.now=()=>now()+510000;});
+        }else{
+          fixture.completedAfterMS=await page.evaluate(startedAt=>Date.now()-Date.parse(startedAt),fixture.operation.started_at);
+        }
+        return answer(route,{success:true,active:first,operation:{...fixture.operation,state:first?'running':'success',result:first?'':'SUCCESS'}});
+      }
       if(!manualReconcile)return answer(route,{success:true,active:false});
       assert.equal(req.method(),'GET','reconciliation must only read operation state');
       const fixture=manualReconcile,first=++fixture.polls===1;
       if(fixture.mode==='reconcile-match'){
         fixture.states.push(first?'running':'success');
         if(first){
-          // Advance the deadline clock past 120s without changing real polling timers.
-          await page.evaluate(()=>{window.__manualReconcileDateNow=Date.now;const now=Date.now;Date.now=()=>now()+130000;});
+          // Advance past 240s, inside the 360s provider budget, without delaying real polling.
+          await page.evaluate(()=>{window.__manualReconcileDateNow=Date.now;const now=Date.now;Date.now=()=>now()+270000;});
         }else{
+          fixture.completedAfterMS=await page.evaluate(startedAt=>Date.now()-Date.parse(startedAt),fixture.operation.started_at);
           status={...status,country:'',city:'',country_code:'',profile_label:fixture.selected.name,endpoint:ep(fixture.selected)};
         }
         return answer(route,{success:true,active:first,operation:{...fixture.operation,state:first?'running':'success',result:first?'':'SUCCESS'}});
+      }
+      if(fixture.mode==='reconcile-failed'){
+        fixture.states.push(first?'running':'failed');
+        if(!first)status={...status,country:'',city:'',country_code:'',profile_label:fixture.selected.name,endpoint:ep(fixture.selected)};
+        // Go stores only the generic error here, without primary/rollback fields.
+        return answer(route,{success:true,active:first,operation:{...fixture.operation,state:first?'running':'failed',result:first?'':'FAIL',error:first?'':'provider profile apply failed'}});
       }
       // Ignore a terminal receipt for another endpoint, then stop on its new active operation.
       fixture.states.push(first?'success':'running');
@@ -142,17 +161,30 @@ async function capture(label){
       if(body.selection_token)assert.equal(body.selection_token,manualRTTToken,'Best measured apply keeps exact RTT snapshot');
       assert.equal(body.operation,'provider');assert.equal(body.confirm,true);
       const selected=profiles.find(p=>p.id===body.profile_id);assert.ok(selected);
-      if(applyMode==='unknown')return answer(route,{success:false,error:'Результат операции не подтверждён',rollback_state:'UNKNOWN'},502);
-      if(applyMode==='reconcile-match'||applyMode==='reconcile-mismatch'){
+      if(['unknown','timeout-no-receipt','timeout-not-applied','timeout-rolled-back'].includes(applyMode)){
+        // Only uncertain fixtures expose a changed live profile. Explicit
+        // no-apply/rollback receipts leave the prior endpoint in place.
+        if(applyMode==='unknown'||applyMode==='timeout-no-receipt')status={...status,country:'',city:'',country_code:'',profile_label:selected.name,endpoint:ep(selected)};
+        const primary_error=applyMode==='unknown'?'provider profile apply timed out before terminal finalization':'provider profile apply timed out';
+        const rollback_state=({'unknown':'UNKNOWN','timeout-not-applied':'NOT_APPLIED','timeout-rolled-back':'SUCCESS'})[applyMode];
+        return answer(route,{success:false,applied:false,operation:'provider',profile_id:selected.id,error:'provider profile apply failed',primary_error,...(rollback_state?{rollback_state}:{})},502);
+      }
+      if(['reconcile-match','reconcile-failed','reconcile-mismatch'].includes(applyMode)){
         assert.equal(req.method(),'POST');
         assert.equal(body.manual_override,true,'the real upper picker must issue an explicit manual apply');
         // Server target comes independently from the selected fixture, never client coordinator metadata.
-        const endpoint=applyMode==='reconcile-match'?ep(selected):ep(profiles[4]);
+        const endpoint=applyMode==='reconcile-mismatch'?ep(profiles[4]):ep(selected);
         manualReconcile={mode:applyMode,selected,polls:0,states:[],operation:{id:'manual-'+applyMode,kind:'provider',target:selected.id+'@manual:'+endpoint,started_at:new Date().toISOString()}};
         return route.fulfill({status:502,contentType:'text/plain',body:'Fixture gateway response unavailable'});
       }
       await delay(250);status={...status,country:'',city:'',country_code:'',profile_label:selected.name,endpoint:ep(selected)};
       return answer(route,{success:true,applied:true,rollback_state:'NOT_NEEDED'});
+    }
+    if(url.pathname==='/api/vpn/current-refresh'){
+      assert.equal(req.method(),'POST');
+      assert.deepEqual(JSON.parse(req.postData()),{confirm:true});
+      currentRefreshReconcile={polls:0,states:[],operation:{id:'current-refresh-delayed',kind:'refresh',target:'current',started_at:new Date().toISOString()}};
+      return route.fulfill({status:502,contentType:'text/plain',body:'Fixture gateway response unavailable'});
     }
     if(url.pathname==='/api/xray/service')return answer(route,{success:true,version:'v26.9.9',current_version:'v26.9.9',online:true});
     if(url.pathname==='/api/settings-v3')return answer(route,{success:true,auto_vpn:{enabled:true,country_scope:'region',countries:[]},automation:{success:true,current_profile:status.profile_label,current_endpoint:status.endpoint,country_code:status.country_code,settings:{enabled:true},events:[]},subscription:{enabled:false,interval:'6h'},geodata:{enabled:true,interval:'3h'},freenet:{enabled:false,interval:'12h'},backup:{enabled:false,interval:'24h'},events:[]});
@@ -554,7 +586,20 @@ async function capture(label){
   assert.equal(await page.locator(T).count(),1);assert.equal(await page.locator(P).count(),1);assert.equal(countApply(),1);
   status={...connectedStatus,xray_online:false};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Не подключён','offline');await page.locator(T).click();assert.equal(await page.locator('#fnVpnPickerV2State').getAttribute('data-online'),'false');
   status={...status,xray_online:true};await page.evaluate(()=>loadStatus());await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','online again');await page.locator(S).fill('FI');await page.locator(R+' button').first().click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','ready before unknown');
+  const endpointBeforeUnknown=status.endpoint;
   applyMode='unknown';await page.locator(C).click();await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','unknown result');
+    await page.evaluate(()=>loadStatus());
+    await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Финляндия','changed live profile after unknown apply');
+    assert.notEqual(status.endpoint,endpointBeforeUnknown,'UNKNOWN fixture must expose an already changed live endpoint');
+    for(const selector of ['#selectedProfileCard',F]){
+      const copy=await page.locator(selector).innerText();
+      assert.match(copy,/Результат (?:переключения )?не подтверждён/,'unknown apply must retain uncertain outcome');
+      assert.match(copy,/UNKNOWN/,'unknown rollback marker must survive humanization');
+      assert.match(copy,/Основная ошибка: provider profile apply timed out before terminal finalization/,'the primary failure must remain visible');
+      assert.match(copy,/Откат: UNKNOWN/,'the server rollback state must remain visible');
+      assert.doesNotMatch(copy,/Текущий VPN не изменён|Текущий VPN не менялся/,'timeout cannot prove the VPN was unchanged');
+    }
+    assert.match(await page.locator(F).innerText(),/Результат нужно подтвердить\. Повтор заблокирован\./,'the picker must retain its existing uncertain-result presentation');
     assert.equal(await page.locator(C).isDisabled(),true,'UNKNOWN disables the used apply receipt, never blind retry');
     assert.equal(await page.locator('#fnVpnPickerV2Reset').isDisabled(),false,'UNKNOWN must not lock UI-only Reset');
     assert.ok(await page.locator(R+' button:not(:disabled)').count()>0,'UNKNOWN must allow a new explicit manual recovery choice');
@@ -570,8 +615,48 @@ async function capture(label){
     await page.locator('#fnVpnPickerV2Reset').click();
     assert.equal(countApply(),2,'Reset must not mutate Xray or retry apply');
 
+  // A timeout without a rollback receipt is not proof of an unchanged VPN.
+  applyMode='timeout-no-receipt';
+  const timeoutApplies=countApply();
+  await page.locator(S).fill('ES');await page.locator(R+' button[data-profile-id="fixture-4"]').click();
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','timeout without receipt ready');
+  await page.locator(C).click();
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','timeout without receipt terminal');
+  const timeoutCopy=await page.locator(F).innerText();
+  assert.match(timeoutCopy,/Операция не завершилась в отведённое время/);
+  assert.match(await page.locator('#selectedProfileCard strong').innerText(),/^Результат не подтверждён:/,'timeout without proof must have an uncertain title');
+  assert.match(timeoutCopy,/Результат нужно подтвердить\. Повтор заблокирован\./,'timeout without proof must retain uncertain picker state');
+  assert.match(timeoutCopy,/Основная ошибка: provider profile apply timed out/,'unclassified timeout keeps its primary failure');
+  assert.doesNotMatch(timeoutCopy,/Текущий VPN не изменён|Текущий VPN не менялся|Откат:/,'no rollback receipt must not invent restoration or a rollback status');
+  assert.equal(await page.locator(C).isDisabled(),true,'a timed-out request consumes its selection');
+  await page.locator(C).dispatchEvent('click');
+  assert.equal(countApply(),timeoutApplies+1,'timeout must never repeat the manual POST');
+  await page.locator('#fnVpnPickerV2Reset').click();
+  assert.equal(countApply(),timeoutApplies+1,'Reset after timeout remains read-only');
+
+  // Explicit terminal proof must not be reclassified as UNKNOWN just because
+  // the primary failure contains a timeout.
+  for(const [mode,rollback] of [['timeout-not-applied','NOT_APPLIED'],['timeout-rolled-back','SUCCESS']]){
+    applyMode=mode;
+    const proofApplies=countApply(),endpointBeforeProof=status.endpoint;
+    await page.locator(S).fill('DE');await page.locator(R+' button[data-profile-id="fixture-1"]').click();
+    await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','terminal proof ready');
+    await page.locator(C).click();
+    await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','terminal proof error');
+    const proofCopy=await page.locator(F).innerText();
+    assert.equal(status.endpoint,endpointBeforeProof,'explicit proof fixture preserves the prior endpoint');
+    assert.match(await page.locator('#selectedProfileCard strong').innerText(),/^Не подключено:/,'known failed apply stays separate from an unknown outcome');
+    assert.ok(proofCopy.includes('Откат: '+rollback),'exact server rollback proof must remain visible');
+    assert.match(proofCopy,/Основная ошибка: provider profile apply timed out/);
+    assert.doesNotMatch(proofCopy,/UNKNOWN|Результат нужно подтвердить/,'confirmed no-apply/rollback is not unknown');
+    await page.locator(C).dispatchEvent('click');
+    assert.equal(countApply(),proofApplies+1,'a terminal failed apply cannot replay its POST');
+    await page.locator('#fnVpnPickerV2Reset').click();
+    assert.equal(countApply(),proofApplies+1,'Reset after terminal proof remains read-only');
+  }
+
   // A lost HTTP response after a real manual click reconciles the exact Go target
-  // with one POST. A matching running operation may still finish after 120s.
+  // with one POST. Matching completion after 240s must fit inside the 360s budget.
   applyMode='reconcile-match';
   const manualMatchStart=calls.length,manualMatchApplies=countApply();
   await page.locator(S).fill('NL');await page.locator(R+' button[data-profile-id="fixture-2"]').click();
@@ -579,8 +664,9 @@ async function capture(label){
   try{
     await page.locator(C).click();
     await until(()=>['success','error'].includes(document.querySelector('#fnVpnPickerV2Footer').dataset.state),'manual reconciliation terminal');
-    assert.equal(await page.locator(F).getAttribute('data-state'),'success','exact manual target must reconcile after the 120s boundary');
-    assert.deepEqual(manualReconcile.states,['running','success'],'provider reconciliation must retain its 240s budget');
+    assert.equal(await page.locator(F).getAttribute('data-state'),'success','exact manual target must reconcile after the 240s boundary');
+    assert.deepEqual(manualReconcile.states,['running','success'],'provider reconciliation must retain its 360s budget');
+    assert.ok(manualReconcile.completedAfterMS>240000&&manualReconcile.completedAfterMS<360000,'fixture terminal receipt must arrive after 240s but before 360s');
     assert.equal(manualReconcile.polls,2);
     assert.equal(status.endpoint,ep(profiles[2]));
     const manualRequest=JSON.parse(calls.slice(manualMatchStart).find(c=>c.path==='/api/network-profile/apply').body);
@@ -594,6 +680,37 @@ async function capture(label){
     await page.evaluate(()=>{if(window.__manualReconcileDateNow){Date.now=window.__manualReconcileDateNow;delete window.__manualReconcileDateNow;}});
   }
   manualReconcile=null;await page.locator('#fnVpnPickerV2Reset').click();
+
+  // A matching FAIL after a lost response has no structured rollback proof.
+  // Its generic error contains no timeout, even when the live profile changed.
+  applyMode='reconcile-failed';
+  const manualFailedStart=calls.length,manualFailedApplies=countApply(),endpointBeforeFailed=status.endpoint;
+  await page.locator(S).fill('ES');await page.locator(R+' button[data-profile-id="fixture-4"]').click();
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='ready','failed manual reconciliation ready');
+  await page.locator(C).click();
+  await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='error','failed manual reconciliation terminal');
+  assert.deepEqual(manualReconcile.states,['running','failed']);
+  assert.equal(manualReconcile.polls,2);
+  assert.equal(manualReconcile.operation.target,profiles[4].id+'@manual:'+ep(profiles[4]),'failed receipt must match the exact Go manual target');
+  assert.equal(status.endpoint,ep(profiles[4]));
+  assert.notEqual(status.endpoint,endpointBeforeFailed,'failed reconciliation fixture must expose an already changed endpoint');
+  await page.evaluate(()=>loadStatus());
+  await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Испания','changed live profile after failed reconciliation');
+  assert.match(await page.locator('#selectedProfileCard strong').innerText(),/^Результат не подтверждён:/,'failed provider state without a rollback receipt must stay uncertain');
+  for(const selector of ['#selectedProfileCard',F]){
+    const copy=await page.locator(selector).innerText();
+    assert.match(copy,/UNKNOWN/,'reconciled failed outcome must not become an ordinary no-apply error');
+    assert.match(copy,/provider profile apply failed/,'preserve the generic operation error actually provided by Go');
+    assert.doesNotMatch(copy,/timed out|Текущий VPN не изменён|Текущий VPN не менялся|Откат:|Основная ошибка:/,'no timeout or missing receipt may be invented during reconciliation');
+  }
+  assert.match(await page.locator(F).innerText(),/Результат нужно подтвердить\. Повтор заблокирован\./);
+  assert.equal(await page.locator(C).isDisabled(),true);
+  await page.locator(C).dispatchEvent('click');
+  assert.equal(countApply(),manualFailedApplies+1,'failed state reconciliation must never repeat the manual POST');
+  assert.ok(calls.slice(manualFailedStart).filter(c=>c.path==='/api/operation/state').every(c=>c.method==='GET'));
+  assert.equal(await page.locator('#fnVpnPickerV2Reset').isDisabled(),false,'unknown reconciliation keeps UI-only Reset available');
+  manualReconcile=null;await page.locator('#fnVpnPickerV2Reset').click();
+  assert.equal(countApply(),manualFailedApplies+1,'Reset after failed reconciliation remains read-only');
 
   // A fresh SUCCESS for the same profile at another endpoint is not our result.
   applyMode='reconcile-mismatch';
@@ -611,6 +728,32 @@ async function capture(label){
   assert.equal(countApply(),manualMismatchApplies+1,'mismatched receipt must never trigger a retry');
   assert.ok(calls.slice(manualMismatchStart).filter(c=>c.path==='/api/operation/state').every(c=>c.method==='GET'));
   manualReconcile=null;applyMode='ok';await page.locator('#fnVpnPickerV2Reset').click();
+
+  // Exercise the real production fetch coordinator after a lost current-refresh response.
+  // Only API receipts and wall-clock age are controlled; no second mutation is allowed.
+  const refreshStart=calls.length;
+  try{
+    const reconciled=await page.evaluate(async()=>{
+      const response=await fetch('/api/vpn/current-refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});
+      return{status:response.status,body:await response.json()};
+    });
+    assert.equal(reconciled.status,200);
+    assert.equal(reconciled.body.success,true);
+    assert.equal(reconciled.body.outcome,'applied');
+    assert.equal(reconciled.body.operation_id,'current-refresh-delayed');
+    assert.deepEqual(currentRefreshReconcile.states,['running','success'],'refresh must retain its 540s reconciliation budget');
+    assert.ok(currentRefreshReconcile.completedAfterMS>497000&&currentRefreshReconcile.completedAfterMS<540000,'refresh terminal receipt must arrive after the server envelope but before the browser budget');
+    assert.equal(currentRefreshReconcile.polls,2);
+    assert.equal(currentRefreshReconcile.operation.kind,'refresh');
+    assert.equal(currentRefreshReconcile.operation.target,'current');
+    const refreshCalls=calls.slice(refreshStart);
+    assert.equal(refreshCalls.filter(c=>c.method==='POST').length,1,'lost refresh response must not repeat any mutation');
+    assert.equal(refreshCalls.filter(c=>c.path==='/api/vpn/current-refresh'&&c.method==='POST').length,1);
+    assert.equal(refreshCalls.filter(c=>c.path==='/api/operation/state'&&c.method==='GET').length,2);
+  }finally{
+    await page.evaluate(()=>{if(window.__refreshReconcileDateNow){Date.now=window.__refreshReconcileDateNow;delete window.__refreshReconcileDateNow;}});
+    currentRefreshReconcile=null;
+  }
   assert.deepEqual(errors,[]);
   console.log('PASS: actual production HTML/CSP, canonical flags, current identity, Ukraine exclusion, RTT refresh/sort, search, read-only check, exact apply, manual response reconciliation, cache, errors/STOP, five viewports, navigation and liveness.');console.log('Other mocked GET surfaces: '+JSON.stringify([...new Set(unhandled)]));
 })().catch(async error=>{

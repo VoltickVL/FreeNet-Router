@@ -28,7 +28,7 @@
     if (lower.includes('candidate xray') || lower.includes('проверку xray')) return 'Конфигурация этого сервера не прошла проверку Xray.';
     if (lower.includes('subscription') || lower.includes('подпис')) return 'Не удалось обновить список VPN-серверов из подписки.';
     if (lower.includes('not present') || lower.includes('больше не найден')) return 'Этот сервер исчез из свежего списка подписки. Обновите список серверов.';
-    if (lower.includes('timed out') || lower.includes('не завершилась вовремя')) return 'Проверка сервера заняла слишком много времени. Текущий VPN не изменён.';
+    if (lower.includes('timed out') || lower.includes('не завершилась вовремя')) return 'Операция не завершилась в отведённое время. Итоговое состояние VPN необходимо проверить перед повторным подключением.';
     return text;
   }
 
@@ -182,10 +182,20 @@
       }
       const j = await r.json();
       if (!r.ok || !j.success) {
-        const parts = [j.error || 'VPN-профиль не подключён'];
+        const parts = [j.error || 'Результат применения VPN-профиля не подтверждён'];
         if (j.primary_error) parts.push('Основная ошибка: ' + j.primary_error);
         if (j.rollback_state) parts.push('Откат: ' + j.rollback_state);
-        selectedCardText(`${j.result_unknown ? 'Результат не подтверждён' : 'Не подключено'}: ${p.name || 'Extra-профиль'}`, expectedEndpoint, humanProviderPlanError(parts.join(' · ')), 'error');
+        const rollbackState = String(j.rollback_state || '').trim().toUpperCase();
+        const details = parts.join(' · ');
+        const timeoutWithoutProof = /timed out|не завершилась вовремя/i.test(details) && !['NOT_APPLIED', 'SUCCESS', 'SUCCESS_OR_NOT_APPLIED'].includes(rollbackState);
+        const resultUnknown = j.result_unknown === true || /(^|[/_])UNKNOWN($|[/_])/.test(rollbackState) || timeoutWithoutProof;
+        // A timeout without a terminal rollback proof can follow live changes.
+        // Preserve explicit no-apply/rollback outcomes and the original details.
+        const message = resultUnknown
+          ? (timeoutWithoutProof ? 'Операция не завершилась в отведённое время. ' : '') + 'Результат переключения не подтверждён (UNKNOWN). VPN мог измениться. Не повторяйте подключение до проверки фактического состояния.'
+          : humanProviderPlanError(details);
+        const note = message === details ? details : message + ' ' + details;
+        selectedCardText(`${resultUnknown ? 'Результат не подтверждён' : 'Не подключено'}: ${p.name || 'Extra-профиль'}`, expectedEndpoint, note, 'error');
         if (typeof showBox === 'function') showBox('notice', parts.join('\n'), 'bad');
         return;
       }

@@ -238,16 +238,11 @@ func TestCurrentEndpointRefreshDoesNotUseFullBestServerQualityGate(t *testing.T)
 	if next >= 0 {
 		applyBody = src[applyStart : applyStart+1+next]
 	}
-	if !strings.Contains(applyBody, `providerHelperPath(), "apply-core"`) {
-		t.Fatal("same-profile endpoint apply must use core-only provider cutover")
+	if !strings.Contains(applyBody, `a.runProviderSelectionCommand(applyCtx, "apply-core", target)`) {
+		t.Fatal("same-profile endpoint apply must use the managed core-only provider cutover")
 	}
-	if !strings.Contains(applyBody, "context.WithTimeout(ctx, a.cfg.Timeout)") ||
-		!strings.Contains(applyBody, "context.WithTimeout(ctx, automationHealthProbeTimeout)") {
-		t.Fatal("endpoint apply and post-check must inherit the caller deadline")
-	}
-	if strings.Contains(applyBody, "context.WithTimeout(context.Background()") {
-		t.Fatal("endpoint fast-path must not escape its parent deadline with Background context")
-	}
+	// Admission/transaction deadlines and probe fences are exercised by the
+	// real helper lifecycle in best_server_refresh_transaction_test.go.
 }
 
 

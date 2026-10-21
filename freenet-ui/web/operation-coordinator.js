@@ -64,8 +64,10 @@
       });
     }
     if (op.state === 'failed' && op.result === 'FAIL') {
+      // Operation state has no structured apply/rollback receipt after a lost response.
       return jsonResponse(502, {
         success: false,
+        result_unknown: meta.kind === 'provider' ? true : undefined,
         operation: meta.kind === 'provider' ? 'provider' : undefined,
         profile_id: meta.kind === 'provider' ? (meta.profileID || meta.target) : undefined,
         action: meta.kind === 'quick' ? meta.target : undefined,
@@ -77,7 +79,7 @@
   }
 
   async function reconcile(meta) {
-    const deadline = Date.now() + (meta.kind === 'refresh' || meta.kind === 'provider' ? 240000 : 120000);
+    const deadline = Date.now() + (meta.kind === 'provider' ? 360000 : meta.kind === 'refresh' ? 540000 : 120000);
     while (Date.now() < deadline) {
       const state = await readOperationState(Math.max(1, Math.min(7000, deadline - Date.now())));
       const op = state && state.operation;

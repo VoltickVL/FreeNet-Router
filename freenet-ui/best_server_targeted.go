@@ -14,8 +14,17 @@ import (
 const (
 	bestServerTargetedRetryTimeout     = 75 * time.Second
 	bestServerRefreshTimeout           = 150 * time.Second
+	bestServerRefreshQuiesceTimeout    = 12 * time.Second
 	bestServerEndpointReadinessTimeout = 20 * time.Second
 )
+
+// Admission remains short; an admitted provider transaction owns its bounded
+// work/finalization budget even if the HTTP caller disconnects.
+func bestServerRefreshResponseTimeout(cfg config) time.Duration {
+	return bestServerRefreshTimeout + bestServerRefreshQuiesceTimeout +
+		providerWorkTimeout(cfg) + providerFinalizationGrace +
+		automationHealthProbeTimeout + 15*time.Second
+}
 
 type bestServerRefreshRequest struct {
 	Confirm bool `json:"confirm"`
@@ -87,6 +96,10 @@ func (a *app) restoreEndpointRefreshFiles(s endpointRefreshSnapshot) error {
 		return err
 	}
 	return nil
+}
+
+var bestServerRefreshPostProbe = func(a *app, ctx context.Context) automationHealthProbe {
+	return a.probeAutomationCurrentVPN(ctx)
 }
 
 var bestServerEndpointTCPProbe = defaultBestServerTCPProbe
@@ -310,7 +323,7 @@ func (a *app) handleBestServerCurrentRefresh(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(bestServerRefreshTimeout + 15*time.Second)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(bestServerRefreshResponseTimeout(a.cfg))); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		result := bestServerRefreshResponse{Success: false, Outcome: "check_failed", Mutation: "NONE", Error: "unable to prepare bounded refresh response deadline"}
 		vpnOperations.finish(op, http.StatusServiceUnavailable, result, false, "", result.Error)
 		writeJSON(w, http.StatusServiceUnavailable, result)
@@ -433,41 +446,95 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 		}
 	}
 
-	applyStatus, applied := a.applyBestServerRefreshCandidate(ctx, fresh)
+	applyStatus, applied := a.applyBestServerRefreshCandidate(ctx, fresh, currentEndpoint, currentFilter)
 	applied.Current = current
 	applied.Candidate = candidate
 	return applyStatus, applied
 }
 
-func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestServerInternalCandidate) (int, bestServerRefreshResponse) {
-	snap, err := a.takeEndpointRefreshSnapshot()
-	if err != nil {
+func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestServerInternalCandidate, currentEndpoint, currentFilter string) (int, bestServerRefreshResponse) {
+	admissionStopped := func() (int, bestServerRefreshResponse) {
+		return http.StatusGatewayTimeout, bestServerRefreshResponse{
+			Success: false, Outcome: "check_failed", Applied: false, Mutation: "NONE", RollbackState: "NOT_APPLIED",
+			Error: "fresh endpoint admission ended before mutation; current VPN was preserved",
+		}
+	}
+	unknown := func(primary, rollback string) (int, bestServerRefreshResponse) {
+		setAutomationMutationBlocked(true)
+		return http.StatusBadGateway, bestServerRefreshResponse{
+			Success: false, Outcome: "check_failed", Applied: false, Mutation: "UNKNOWN",
+			PrimaryError: primary, RollbackState: rollback,
+			Error: "Результат обновления текущего VPN не подтверждён. VPN мог измениться; дальнейшие автоматические изменения остановлены.",
+		}
+	}
+	if ctx.Err() != nil {
+		return admissionStopped()
+	}
+	// Preserve the existing pre-apply readability guard. The provider helper
+	// owns the durable checkpoint and is the sole apply/rollback engine.
+	if _, err := a.takeEndpointRefreshSnapshot(); err != nil {
 		return http.StatusInternalServerError, bestServerRefreshResponse{
 			Success: false, Outcome: "check_failed", Applied: false, Mutation: "NONE", RollbackState: "NOT_APPLIED",
 			PrimaryError: "cannot create pre-apply VPN snapshot", Error: "refresh stopped before mutation",
 		}
 	}
 
-	applyCtx, cancel := context.WithTimeout(ctx, a.cfg.Timeout)
-	output, cmdErr := runCommand(applyCtx, providerHelperPath(), "apply-core", target.Profile.ID)
-	cancel()
+	quiesceCtx, cancelQuiesce := context.WithTimeout(ctx, bestServerRefreshQuiesceTimeout)
+	releaseProbes, quiesced := acquireExclusiveIsolatedXrayProbe(quiesceCtx)
+	cancelQuiesce()
+	if !quiesced {
+		if ctx.Err() != nil {
+			return admissionStopped()
+		}
+		return http.StatusConflict, bestServerRefreshResponse{
+			Success: false, Outcome: "check_failed", Applied: false, Mutation: "NONE", RollbackState: "NOT_APPLIED",
+			Error: "isolated Xray diagnostics are still running; current VPN was preserved",
+		}
+	}
+	defer releaseProbes()
+	if ctx.Err() != nil {
+		return admissionStopped()
+	}
+	if readBestServerCurrentEndpoint(a.cfg.OutPath) != currentEndpoint || readBestServerCurrentFilter(a.cfg.FilterPath) != currentFilter {
+		return http.StatusConflict, bestServerRefreshResponse{
+			Success: false, Outcome: "check_failed", Applied: false, Mutation: "NONE", RollbackState: "NOT_APPLIED",
+			Error: "current VPN changed during refresh admission; refresh stopped without mutation",
+		}
+	}
+
+	if ctx.Err() != nil {
+		return admissionStopped()
+	}
+
+	// The caller still owns a.sem. Only an admitted transaction gets a new
+	// finite work budget; short AUTO discovery deadlines cannot kill it midway.
+	applyCtx, cancelApply := context.WithTimeout(context.Background(), providerWorkTimeout(a.cfg))
+	output, cmdErr := a.runProviderSelectionCommand(applyCtx, "apply-core", target)
+	cancelApply()
+	// This returns only after owned children and the helper have been waited.
+	// The read-only post-probe needs a shared slot, so release before starting it.
+	releaseProbes()
 	safeOutput := sanitizeOutput(string(output))
 	if cmdErr != nil {
 		primary, rollback := classifyApplyFailure(safeOutput)
+		if providerFinalizationUnknown(cmdErr) {
+			rollback = "UNKNOWN"
+		}
 		if primary == "" {
 			primary = cmdErr.Error()
 		}
-		if rollback == "UNKNOWN" || rollback == "FAILED/UNKNOWN" {
-			if rbErr := a.restoreEndpointRefreshSnapshotCoreOnly(snap); rbErr == nil {
-				rollback = "SUCCESS"
-			} else {
-				rollback = "FAILED/UNKNOWN"
-			}
+		if automationRollbackBlocksMutation(rollback) {
+			return unknown(primary, rollback)
+		}
+		mutation := "ROLLED_BACK"
+		message := "Обновление текущего VPN не принято; результат отката подтверждён."
+		if rollback == "NOT_APPLIED" {
+			mutation = "NONE"
+			message = "Обновление текущего VPN остановлено до изменения конфигурации."
 		}
 		return http.StatusBadGateway, bestServerRefreshResponse{
-			Success: false, Outcome: "check_failed", Applied: false, Mutation: "ROLLED_BACK",
-			PrimaryError: primary, RollbackState: rollback,
-			Error: "свежий endpoint не был принят; текущий VPN восстановлен либо операция остановлена для проверки состояния",
+			Success: false, Outcome: "check_failed", Applied: false, Mutation: mutation,
+			PrimaryError: primary, RollbackState: rollback, Error: message,
 		}
 	}
 
@@ -480,49 +547,22 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 		postOK = postOK && activeLabel == expectedLabel
 	}
 	if !postOK {
-		rollback := "SUCCESS"
-		if rbErr := a.restoreEndpointRefreshSnapshotCoreOnly(snap); rbErr != nil {
-			rollback = "FAILED/UNKNOWN"
-		}
-		return http.StatusBadGateway, bestServerRefreshResponse{
-			Success: false, Outcome: "check_failed", Applied: false, Mutation: "ROLLED_BACK",
-			PrimaryError: "post-apply exact endpoint acceptance failed", RollbackState: rollback,
-			Error: "post-apply проверка не подтвердила свежий endpoint; выполнен откат к предыдущему VPN",
-		}
+		return unknown("post-apply exact endpoint acceptance failed", "UNKNOWN")
 	}
 
-	probeCtx, cancelProbe := context.WithTimeout(ctx, automationHealthProbeTimeout)
-	postProbe := a.probeAutomationCurrentVPN(probeCtx)
+	// Retain the extra Internet acceptance gate, after the helper's mandatory
+	// live HTTPS. A failed check is unresolved acceptance, never a second apply.
+	probeCtx, cancelProbe := context.WithTimeout(context.Background(), automationHealthProbeTimeout)
+	postProbe := bestServerRefreshPostProbe(a, probeCtx)
 	cancelProbe()
 	if postProbe.State != automationHealthHealthy {
-		rollback := "SUCCESS"
-		if rbErr := a.restoreEndpointRefreshSnapshotCoreOnly(snap); rbErr != nil {
-			rollback = "FAILED/UNKNOWN"
-		}
-		return http.StatusBadGateway, bestServerRefreshResponse{
-			Success: false, Outcome: "check_failed", Applied: false, Mutation: "ROLLED_BACK",
-			PrimaryError: "post-apply VPN Internet probe did not confirm the refreshed endpoint", RollbackState: rollback,
-			Error: "свежий endpoint применён, но проверка доступа через VPN не подтвердилась; выполнен откат либо операция остановлена для проверки состояния",
-		}
+		return unknown("post-apply VPN Internet probe did not confirm the refreshed endpoint", "UNKNOWN")
 	}
 
 	return http.StatusOK, bestServerRefreshResponse{
 		Success: true, Outcome: "applied", Applied: true, Mutation: "APPLIED", RollbackState: "NOT_NEEDED",
 		Message: "Свежий endpoint текущего VPN проверен, применён и подтверждён доступом через VPN.",
 	}
-}
-
-func (a *app) restoreEndpointRefreshSnapshotCoreOnly(s endpointRefreshSnapshot) error {
-	if err := a.restoreEndpointRefreshFiles(s); err != nil {
-		return err
-	}
-	restartCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	output, err := runCommand(restartCtx, providerHelperPath(), "core-restart")
-	if err != nil {
-		return errors.New("core-only Xray rollback restart failed: " + sanitizeOutput(string(output)))
-	}
-	return nil
 }
 
 func bestServerCandidateByID(candidates []bestServerInternalCandidate, id string) (bestServerInternalCandidate, bool) {

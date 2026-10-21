@@ -303,6 +303,13 @@ func (a *app) runProviderSelectionCommand(ctx context.Context, mode string, cand
 // isolated preflight. Candidate Xray validation, backup, live acceptance and
 // rollback remain mandatory in the provider helper.
 func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode string, candidate bestServerInternalCandidate, manualRTT bool) ([]byte, error) {
+	if mode == "plan" {
+		release, ok := acquireIsolatedXrayProbe(ctx)
+		if !ok {
+			return nil, errors.New("provider plan is waiting for isolated Xray diagnostics")
+		}
+		defer release()
+	}
 	cachePath, sourcePath, cleanup, err := a.materializeBestServerSelectionProviderCache(candidate)
 	if err != nil {
 		return nil, err
@@ -311,7 +318,7 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 
 	managedFinalization := mode == "apply-core" || mode == "recover-core"
 	var cmd *exec.Cmd
-	if managedFinalization {
+	if managedFinalization || mode == "plan" || mode == "apply" {
 		// The managed runner may reserve time only after the helper has
 		// finished every apply/rollback step and entered finalization.
 		cmd = exec.Command(providerHelperPath(), mode, candidate.Profile.ID)
@@ -337,6 +344,9 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 	cmd.WaitDelay = 2 * time.Second
 	if managedFinalization {
 		return runProviderCommandWithFinalization(ctx, cmd, filepath.Dir(cachePath))
+	}
+	if mode == "plan" || mode == "apply" {
+		return runProviderCommandWithOwnedXray(ctx, cmd, filepath.Dir(cachePath), mode == "apply")
 	}
 	output, err := cmd.CombinedOutput()
 	if errors.Is(err, exec.ErrWaitDelay) && ctx.Err() == nil {
