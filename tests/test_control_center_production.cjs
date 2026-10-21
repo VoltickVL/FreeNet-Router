@@ -18,7 +18,7 @@ const ukraine={id:'fixture-ua',name:'UA Kyiv, Ukraine, Extra',country_code:'ua',
 const catalogProfiles=[...profiles,ukraine];
 const current=profiles[0],target=profiles[1],ep=p=>`${p.address}:${p.port}`;
 let status={version:fixtureVersion,country:'Бельгия',city:'Брюссель',country_code:'be',profile_label:current.name,endpoint:ep(current),xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true,busy:false,updater_busy:false};
-let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict',rttMode='ok';
+let planMode='ok',planDelay=0,applyMode='ok',currentCacheMode='strict',rttMode='ok',updateMode='idle';
 const manualRTTToken='abcdef0123456789abcdef0123456789';
 const calls=[],unhandled=[],errors=[];
 let rttJobId='',rttJobResult=null,rttJobSequence=0;
@@ -144,6 +144,16 @@ async function capture(label){
       const beta=chosen.includes('-beta.');
       assert.equal(url.searchParams.get('channel'),beta?'beta':null,'Beta plan requires explicit channel');
       return answer(route,{success:true,ready:true,current_version:'v'+fixtureVersion,target_tag:chosen,latest_version:chosen,update_available:true,direction:'upgrade',manifest_verified:true,expected_no_delta:'Xray unchanged'});
+    }
+    if(url.pathname==='/api/system/update/state'&&updateMode!=='idle'){
+      const active=updateMode==='active';
+      return answer(route,{success:true,state:active?'UPDATING':'FAILED',update_lock_held:active,target_version:'v0.8.0-beta.1',rollback_state:active?'PENDING':'NOT_NEEDED',message:active?'Fixture updater is active':'Fixture updater stopped before mutation'});
+    }
+    if(url.pathname==='/api/system/update/recover'){
+      assert.equal(updateMode,'orphan','unexpected Recovery request');
+      assert.equal(req.method(),'POST');
+      // Capture the real dialog request, then stop before polling or reload.
+      return answer(route,{success:false,error:'Fixture Recovery stopped before mutation'},409);
     }
     if(url.pathname==='/api/system/update/apply')throw new Error('Browser Beta selection must not perform a mutation without confirmation');
     if(url.pathname.startsWith('/api/system/update/'))return answer(route,{success:true,ready:true,state:'IDLE',current_version:'v'+fixtureVersion,latest_version:'v'+fixtureVersion,update_available:false,rollback_state:'NOT_NEEDED'});
@@ -287,6 +297,43 @@ async function capture(label){
   await page.setViewportSize({width:1440,height:1000});
   assert.equal(calls.filter(c=>c.path==='/api/system/update/apply').length,beforeVersionMutations,'Beta confirmation must not preemptively mutate');
   await page.keyboard.press('Escape');
+
+  // A cold UI with an orphaned VPN fence must still expose exact Beta Recovery.
+  const beforeBusyStatus={...status};
+  const updatePosts=()=>calls.filter(c=>c.path.startsWith('/api/system/update/')&&c.method==='POST');
+  const beforeRecoveryPosts=updatePosts().length;
+  updateMode='orphan';status={...status,busy:true,updater_busy:true,mutation_blocked:true};
+  await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','busy canonical boot');
+  await page.evaluate(()=>loadStatus());
+  assert.equal(await page.locator('#topFreenetUpdate').isEnabled(),true,'version navigation remains available while VPN is blocked');
+  assert.equal(await page.locator('#bestServerCheckCurrent').isDisabled(),true,'other busy controls remain protected');
+  await page.locator('#topFreenetUpdate').click();
+  await page.getByRole('button',{name:'Beta · тестовая'}).click();
+  await until(()=>document.querySelector('#fnVersionList .fn-version-release[data-version="v0.8.0-beta.1"]')!==null,'busy exact Beta catalog');
+  await until(()=>document.querySelector('#fnVersionDetail')?.classList.contains('ready')&&document.querySelector('.fn-version-apply')!==null,'busy exact Beta plan');
+  await page.locator('.fn-version-apply').click();
+  await until(()=>document.querySelector('#fnModalConfirm')?.textContent==='Да, Recovery v0.8.0-beta.1','protected Recovery confirmation');
+  assert.equal(updatePosts().length,beforeRecoveryPosts,'opening versions and choosing Recovery never posts before confirmation');
+  const recoveryResponse=page.waitForResponse(response=>new URL(response.url()).pathname==='/api/system/update/recover'&&response.request().method()==='POST');
+  await page.locator('#fnModalConfirm').click();await recoveryResponse;
+  await until(()=>document.querySelector('#fnModalTitle')?.textContent==='Updater не восстановлен','controlled Recovery rejection');
+  const recoveryPosts=updatePosts().slice(beforeRecoveryPosts);
+  assert.equal(recoveryPosts.length,1,'one explicit confirmation produces exactly one request');
+  assert.equal(recoveryPosts[0].path,'/api/system/update/recover','protected Beta uses verified Recovery instead of regular apply');
+  assert.deepEqual(JSON.parse(recoveryPosts[0].body),{target_tag:'v0.8.0-beta.1',beta_acknowledged:true},'Recovery binds the exact selected Beta and acknowledgment');
+
+  // A live updater also permits status navigation, without another mutation.
+  updateMode='active';status={...beforeBusyStatus,busy:true,updater_busy:true};
+  const beforeActivePosts=updatePosts().length;
+  await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','active updater canonical boot');
+  await page.evaluate(()=>loadStatus());
+  assert.equal(await page.locator('#topFreenetUpdate').isEnabled(),true,'live updater keeps read-only version navigation available');
+  await page.locator('#topFreenetUpdate').click();
+  await until(()=>document.querySelector('#fnModalRoot')?.classList.contains('fn-version-picker-mode')&&document.querySelector('#fnModalStatus')?.textContent.includes('Fixture updater is active'),'live updater state remains visible in version manager');
+  assert.equal(updatePosts().length,beforeActivePosts,'viewing an active update does not restart apply or Recovery');
+  updateMode='idle';status=beforeBusyStatus;
+  await page.reload();await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','post-Recovery canonical boot');
+
   await page.locator(T).waitFor({state:'visible'});await until(()=>document.querySelector('#fnVpnPickerV2Country')?.textContent==='Бельгия','current country');
   assert.equal(await page.locator('#fnVpnPickerToggle').count(),0,'legacy picker owner retired');assert.equal(await page.locator(T).count(),1);assert.equal(await page.locator(P).isHidden(),true);
   assert.equal(countApply(),0,'no startup apply');assert.equal(calls.filter(c=>c.path.startsWith('/api/vpn/')&&!c.query.includes('job=cache')).length,0,'cache read does not start speed scan');assert.deepEqual(errors,[]);
