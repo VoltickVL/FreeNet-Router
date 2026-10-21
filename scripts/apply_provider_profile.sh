@@ -35,6 +35,7 @@ CORE_RESTART_EXIT="not-run"
 ROLLBACK_FILES_STATUS="UNKNOWN"
 ROLLBACK_CORE_STATUS="UNKNOWN"
 ROLLBACK_VPN_STATUS="UNKNOWN"
+PROVIDER_FINALIZATION_PHASE=""
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Provider] ERROR: %s\n' "$*" >&2; }
@@ -45,6 +46,47 @@ cleanup() {
         rm -rf "$LOCK_DIR" 2>/dev/null || true
         LOCK_HELD=0
     fi
+}
+
+# Only the Go-owned selection directory carries this per-invocation channel.
+# Profile/output text never grants more execution time. No apply or retry may
+# follow either phase: only archive/checks, journal, receipt and cleanup remain.
+provider_finalization_status() {
+    case "$MODE" in apply-core|recover-core) ;; *) return 0 ;; esac
+    [ -n "${FREENET_PROVIDER_FINALIZATION_STATUS:-}${FREENET_PROVIDER_FINALIZATION_NONCE:-}" ] || return 0
+    case "$1:$2" in
+        rollback-finalizing:pending|rollback-finalizing:rolled-back|accepted-finalizing:pending|accepted-finalizing:accepted) ;;
+        *) return 1 ;;
+    esac
+    [ "${#FREENET_PROVIDER_FINALIZATION_NONCE}" -eq 32 ] || return 1
+    case "$FREENET_PROVIDER_FINALIZATION_NONCE" in *[!0-9a-f]*) return 1 ;; esac
+    FINALIZATION_PARENT="$(dirname "$PROVIDER_CACHE")"
+    [ "$FREENET_PROVIDER_FINALIZATION_STATUS" = "$FINALIZATION_PARENT/finalization.status" ] || return 1
+    [ -d "$FINALIZATION_PARENT" ] && [ ! -L "$FINALIZATION_PARENT" ] || return 1
+    [ ! -L "$FREENET_PROVIDER_FINALIZATION_STATUS" ] || return 1
+    [ ! -e "$FREENET_PROVIDER_FINALIZATION_STATUS" ] || [ -f "$FREENET_PROVIDER_FINALIZATION_STATUS" ] || return 1
+    FINALIZATION_TEMP="$FREENET_PROVIDER_FINALIZATION_STATUS.tmp.$$"
+    [ ! -e "$FINALIZATION_TEMP" ] && [ ! -L "$FINALIZATION_TEMP" ] || return 1
+    (umask 077; set -C; printf 'FREENET_PROVIDER_FINALIZATION_V1\t%s\t%s\t%s\t%s\n' \
+        "$FREENET_PROVIDER_FINALIZATION_NONCE" "$$" "$1" "$2" > "$FINALIZATION_TEMP") || return 1
+    chmod 600 "$FINALIZATION_TEMP" || return 1
+    mv -f "$FINALIZATION_TEMP" "$FREENET_PROVIDER_FINALIZATION_STATUS" || return 1
+    PROVIDER_FINALIZATION_PHASE="$1"
+}
+
+# A zero/one exit alone does not prove cleanup: the historical EXIT trap
+# suppresses rm failures. Managed receipts require an explicit absence check.
+# The caller's writer/probe fences stay held until Go has also waited for exit.
+complete_provider_finalization() {
+    case "$MODE" in apply-core|recover-core) ;; *) return 0 ;; esac
+    [ -n "${FREENET_PROVIDER_FINALIZATION_STATUS:-}${FREENET_PROVIDER_FINALIZATION_NONCE:-}" ] || return 0
+    [ "$PROVIDER_FINALIZATION_PHASE" = "$1" ] && [ "$LOCK_HELD" -eq 1 ] || return 1
+    cleanup
+    [ "$LOCK_HELD" -eq 0 ] && [ ! -e "$LOCK_DIR" ] && [ ! -L "$LOCK_DIR" ] || return 1
+    if [ -n "$TMP_DIR" ]; then
+        [ ! -e "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] || return 1
+    fi
+    provider_finalization_status "$1" "$2"
 }
 
 transaction_pending() {
@@ -1183,8 +1225,16 @@ fail_apply() {
     append_provider_history 'failed' "VPN server apply failed: $MESSAGE"
     if [ "$APPLIED" -eq 1 ] && [ "$ROLLBACK_ACTIVE" -eq 0 ]; then
         if rollback_state; then
+            provider_finalization_status rollback-finalizing pending || {
+                err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN (finalization phase not confirmed)'
+                exit 2
+            }
             if [ "$MODE" = recover-core ]; then
                 if archive_recovery_attempt ROLLED_BACK; then
+                    complete_provider_finalization rollback-finalizing rolled-back || {
+                        err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN (finalization cleanup not confirmed)'
+                        exit 2
+                    }
                     err 'ROLLBACK ERROR/STATE: rollback success (original checkpoint retained; another explicit candidate is allowed)'
                     exit 1
                 fi
@@ -1192,10 +1242,18 @@ fail_apply() {
                 exit 2
             fi
             if [ "$ROLLBACK_VPN_STATUS" != REACHABLE ] || { [ "$ROLLBACK_CORE_STATUS" = PREVIOUSLY_STOPPED ] && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; }; then
+                complete_provider_finalization rollback-finalizing rolled-back || {
+                    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN (finalization cleanup not confirmed)'
+                    exit 2
+                }
                 err 'ROLLBACK ERROR/STATE: rollback success (files/core restored, old VPN unavailable; protected manual recovery is available)'
                 exit 1
             fi
             if clear_checkpoint; then
+                complete_provider_finalization rollback-finalizing rolled-back || {
+                    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN (finalization cleanup not confirmed)'
+                    exit 2
+                }
                 err 'ROLLBACK ERROR/STATE: rollback success'
                 exit 1
             fi
@@ -1346,6 +1404,11 @@ XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > 
     || fail_apply 'live Xray configuration validation failed after provider apply'
 provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
 
+provider_finalization_status accepted-finalizing pending || {
+    err 'PRIMARY ERROR: VPN accepted but finalization phase is UNKNOWN; STOP'
+    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
+    exit 2
+}
 if [ "$MODE" = recover-core ]; then
     archive_recovery_checkpoint || {
         err 'PRIMARY ERROR: manual VPN connected but original checkpoint archive is UNKNOWN; STOP'
@@ -1357,5 +1420,10 @@ else
     clear_checkpoint || { err 'PRIMARY ERROR: VPN applied but checkpoint cleanup is UNKNOWN; STOP'; exit 2; }
 fi
 append_provider_history 'success' "VPN server applied: $SELECTED_NAME · $SELECTED_ADDRESS:$SELECTED_PORT"
+complete_provider_finalization accepted-finalizing accepted || {
+    err 'PRIMARY ERROR: VPN accepted but finalization cleanup is UNKNOWN; STOP'
+    err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'
+    exit 2
+}
 say '[FreeNet Provider] RESULT=SUCCESS'
 say '[FreeNet Provider] ROLLBACK=NOT_NEEDED'
