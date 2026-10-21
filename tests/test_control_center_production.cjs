@@ -194,10 +194,9 @@ async function capture(label){
   await page.goto(base);await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','canonical boot');
   // Finish the initial cache read before fault injection reloads this document.
   // Aborting hydration can legitimately enter the missing-measurement seed path.
-  await until(()=>{
-    const candidate=window.__freenetCurrentQualityHydration?.candidate;
-    return candidate?.current===true&&candidate.endpoint===window.__freenetLastStatusEndpoint&&candidate.download_mbps===55&&/55\.0 Мбит\/с/.test(document.querySelector('#bestCurrentMetrics')?.textContent||'');
-  },'cold current cache hydration before fault reload');
+  await until(()=>/55\.0 Мбит\/с/.test(document.querySelector('#bestCurrentMetrics')?.textContent||'')&&
+    /Последняя проверка:[\s\S]*55\.0 Мбит\/с/.test(document.querySelector('#bestCurrentQuality')?.textContent||''),'cold current cache hydration before fault reload');
+  assert.equal((await page.locator('#bestCurrentEndpoint').textContent()).trim(),ep(current),'cold cache must belong to the current endpoint');
   console.log('CSS_DIAGNOSTIC_PRODUCTION',JSON.stringify(await page.evaluate(()=>{const s=document.querySelector('style#freenetUnifiedDesignStyles');const h=document.querySelector('.fn-version-copy strong');return{css:s?.textContent.length,rules:(()=>{try{return s?.sheet?.cssRules.length}catch(e){return e.message}})(),label:h?.textContent,styleCount:document.querySelectorAll('style').length}})));
   await verifyCanonicalSidebar('cold start');
 
