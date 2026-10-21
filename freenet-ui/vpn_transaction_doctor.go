@@ -22,7 +22,12 @@ type vpnTransactionDoctorResponse struct {
 	XrayCore        string `json:"xray_core"`
 	MutationBlocked bool   `json:"mutation_blocked"`
 	Decision        string `json:"decision"`
-	RecoveryAttempt string `json:"recovery_attempt,omitempty"`
+	RecoveryAttempt     string `json:"recovery_attempt,omitempty"`
+	LockState           string `json:"lock_state"`
+	RecoveryOutbound    string `json:"recovery_outbound,omitempty"`
+	RecoveryProfile     string `json:"recovery_profile,omitempty"`
+	RecoveryFilter      string `json:"recovery_filter,omitempty"`
+	RecoveryCoreBefore  string `json:"recovery_core_before,omitempty"`
 }
 
 // The path is private and is never part of any HTTP response or journal.
@@ -102,11 +107,15 @@ func vpnTransactionFileMatch(checkpoint, kind, live string) string {
 }
 
 func (a *app) vpnTransactionDoctor() vpnTransactionDoctorResponse {
+	lockState := "unknown"
+	if a != nil {
+		lockState = vpnMutationLockState(a.cfg.LockPath, selfUpdateProcRoot())
+	}
 	resp := vpnTransactionDoctorResponse{
 		Mode: "read-only", Mutation: "NONE", Checkpoint: "absent",
 		Outbound: "not-applicable", Profile: "not-applicable", Filter: "not-applicable",
 		MutationBlocked: automationMutationBlockedState(), Decision: "NO_CHECKPOINT",
-		XrayCore: a.manualRecoveryCoreState(),
+		XrayCore: a.manualRecoveryCoreState(), LockState: lockState,
 	}
 	checkpoint := vpnTransactionCheckpointPath()
 	info, err := os.Lstat(checkpoint)
@@ -128,19 +137,28 @@ func (a *app) vpnTransactionDoctor() vpnTransactionDoctorResponse {
 		return resp
 	}
 	resp.Checkpoint = "pending"
+	if a == nil {
+		resp.Decision = "STOP_RUNTIME_UNKNOWN"
+		return resp
+	}
 	// A previous manual recovery that died between snapshot and commit must
 	// never be overwritten. Both before generations are protected evidence.
-	if _, recoveryErr := os.Lstat(filepath.Join(checkpoint, "recovery.pending")); recoveryErr == nil || !os.IsNotExist(recoveryErr) {
+	attempt := filepath.Join(checkpoint, "recovery.pending")
+	if info, recoveryErr := os.Lstat(attempt); recoveryErr == nil || !os.IsNotExist(recoveryErr) {
 		resp.RecoveryAttempt = "unresolved"
+		if recoveryErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			resp.Decision = "STOP_RECOVERY_INTERRUPTED"
+			return resp
+		}
+		resp.RecoveryOutbound = vpnTransactionFileMatch(attempt, "out", a.cfg.OutPath)
+		resp.RecoveryProfile = vpnTransactionFileMatch(attempt, "profile", vpnTransactionProfilePath())
+		resp.RecoveryFilter = vpnTransactionFileMatch(attempt, "filter", a.cfg.FilterPath)
+		resp.RecoveryCoreBefore = vpnRecoveryCoreBefore(attempt)
 		if !a.manualRecoveryAttemptReadable(checkpoint) {
 			resp.Decision = "STOP_RECOVERY_INTERRUPTED"
 			return resp
 		}
 		resp.RecoveryAttempt = "complete-readable"
-	}
-	if a == nil {
-		resp.Decision = "STOP_RUNTIME_UNKNOWN"
-		return resp
 	}
 	resp.Outbound = vpnTransactionFileMatch(checkpoint, "out", a.cfg.OutPath)
 	resp.Profile = vpnTransactionFileMatch(checkpoint, "profile", vpnTransactionProfilePath())
