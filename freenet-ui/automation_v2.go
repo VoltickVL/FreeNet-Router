@@ -49,6 +49,14 @@ var automationBestCurrentRefresh = func(a *app, ctx context.Context) (int, bestS
 	return a.executeBestServerCurrentRefresh(ctx)
 }
 
+var automationBestCurrentQuality = func(a *app, ctx context.Context) (bestServerQualityResponse, error) {
+	return a.scanCurrentVPNQuality(ctx)
+}
+
+var automationBestForeignScan = func(a *app, ctx context.Context, settings automationSettings, currentCountry string) (bestServerQualityResponse, error) {
+	return a.scanBestServerForeignForAutomation(ctx, settings, currentCountry)
+}
+
 type automationBestCycleResult struct {
 	Result        string
 	Reason        string
@@ -910,7 +918,7 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 	ctx, cancel := context.WithTimeout(parent, automationBestQualityCycleTimeout(settings.Policy))
 	defer cancel()
 
-	currentResponse, err := a.scanCurrentVPNQuality(ctx)
+	currentResponse, err := automationBestCurrentQuality(a, ctx)
 	if err != nil {
 		reason := "Не удалось подтвердить качество текущего VPN; переключение не выполнялось."
 		writeAutomationStateV2("failed", reason, "no", false)
@@ -930,11 +938,20 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 		appendAutomationHistoryV2("same", reason)
 		return automationBestCycleResult{Result: "same", Reason: reason}, nil
 	}
+	// A fresh healthy result already proves that automatic optimization cannot
+	// apply during cooldown. Keep explicit/manual candidate scans available;
+	// degraded current VPNs and the separate emergency path still need recovery.
+	if !manual && settings.AutoApply && currentState == "healthy" && automationOptimizationCooldownActive(automationStatePath(), time.Now().UTC()) {
+		reason := "Текущий VPN подтверждён как рабочий; действует пауза после переключения. Автоматический поиск альтернатив отложен."
+		writeAutomationStateV2("cooldown", reason, "no", false)
+		appendAutomationHistoryV2("cooldown", reason)
+		return automationBestCycleResult{Result: "cooldown", Reason: reason}, nil
+	}
 	currentCountry := current.CountryCode
 	if currentCountry == "" {
 		currentCountry = a.status().CountryCode
 	}
-	candidates, err := a.scanBestServerForeignForAutomation(ctx, settings, currentCountry)
+	candidates, err := automationBestForeignScan(a, ctx, settings, currentCountry)
 	if err != nil {
 		reason := "Подбор разрешённых VPN-кандидатов не завершён; текущий VPN сохранён."
 		writeAutomationStateV2("failed", reason, "no", false)
