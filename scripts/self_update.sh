@@ -892,13 +892,67 @@ vpn_lock_recovery_writers_absent() {
     [ ! -e "$PROC_ROOT/$ORPHAN_PID" ] && [ ! -L "$PROC_ROOT/$ORPHAN_PID" ]
 }
 
+# Entware BusyBox may omit FEATURE_STAT_FORMAT (-c) while retaining -t.
+# Pin one format for the entire claim. Both yield the same dev/inode/mtime/
+# ctime identity; keep the hex device and decimal inode as strings (no 32-bit
+# shell arithmetic or floating-point awk conversion). Exit 2 means the stat
+# command failed; malformed successful output must not select another format.
+vpn_lock_stat_signature() (
+    LOCK_STAT_PATH="$1"
+    [ -d "$LOCK_STAT_PATH" ] && [ ! -L "$LOCK_STAT_PATH" ] || return 1
+    if printf '%s' "$LOCK_STAT_PATH" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+        return 1
+    fi
+    case "$ORPHAN_STAT_MODE" in
+        format)
+            LOCK_STAT_VALUE="$(LC_ALL=C stat -c '%D:%i:%Y:%Z' "$LOCK_STAT_PATH" 2>/dev/null)" || return 2
+            [ "${#LOCK_STAT_VALUE}" -le 256 ] || return 1
+            printf '%s\n' "$LOCK_STAT_VALUE" | LC_ALL=C awk -F: '
+                NR != 1 || NF != 4 { invalid=1; next }
+                {
+                    if ($1 !~ /^[0-9a-fA-F]+$/ || $2 !~ /^[0-9]+$/ ||
+                        $3 !~ /^-?[0-9]+$/ || $4 !~ /^-?[0-9]+$/) invalid=1
+                    signature=tolower($1) ":" $2 ":" $3 ":" $4
+                }
+                END { if (NR != 1 || invalid) exit 1; print signature }
+            '
+            ;;
+        terse)
+            LOCK_STAT_LINE="$(LC_ALL=C stat -t "$LOCK_STAT_PATH" 2>/dev/null)" || return 2
+            # BusyBox prints the literal filename, then exactly 14 fields.
+            # Remove that exact prefix before splitting, including spaces or
+            # glob characters in the path. GNU's extra birth-time field and
+            # any unexpected/multiline schema remain a safe STOP.
+            case "$LOCK_STAT_LINE" in
+                "$LOCK_STAT_PATH "*) LOCK_STAT_VALUE="${LOCK_STAT_LINE#"$LOCK_STAT_PATH "}" ;;
+                *) return 1 ;;
+            esac
+            [ "${#LOCK_STAT_VALUE}" -le 512 ] || return 1
+            printf '%s\n' "$LOCK_STAT_VALUE" | LC_ALL=C awk '
+                NR != 1 || NF != 14 { invalid=1; next }
+                {
+                    for (i=1; i<=14; i++) {
+                        if (i==3 || i==6 || i==9 || i==10) {
+                            if ($i !~ /^[0-9a-fA-F]+$/) invalid=1
+                        } else if ($i !~ /^[0-9]+$/) invalid=1
+                    }
+                    signature=tolower($6) ":" $7 ":" $12 ":" $13
+                }
+                END { if (NR != 1 || invalid) exit 1; print signature }
+            '
+            ;;
+        *) return 1 ;;
+    esac
+)
+
 vpn_lock_recovery_same_owner() {
     [ -d "$MUTATION_LOCK_DIR" ] && [ ! -L "$MUTATION_LOCK_DIR" ] || return 1
     [ ! -e "$MUTATION_LOCK_DIR/freenet-update-owner" ] &&
         [ ! -L "$MUTATION_LOCK_DIR/freenet-update-owner" ] || return 1
     [ -f "$MUTATION_LOCK_DIR/pid" ] && [ ! -L "$MUTATION_LOCK_DIR/pid" ] || return 1
     [ "$(cat "$MUTATION_LOCK_DIR/pid" 2>/dev/null)" = "$ORPHAN_PID" ] || return 1
-    [ "$(stat -c '%d:%i:%Y:%Z' "$MUTATION_LOCK_DIR" 2>/dev/null)" = "$ORPHAN_SIGNATURE" ] || return 1
+    SAME_OWNER_SIGNATURE="$(vpn_lock_stat_signature "$MUTATION_LOCK_DIR")" || return 1
+    [ "$SAME_OWNER_SIGNATURE" = "$ORPHAN_SIGNATURE" ] || return 1
     for LOCK_ENTRY in "$MUTATION_LOCK_DIR"/* "$MUTATION_LOCK_DIR"/.[!.]* "$MUTATION_LOCK_DIR"/..?*; do
         [ -e "$LOCK_ENTRY" ] || [ -L "$LOCK_ENTRY" ] || continue
         [ "$LOCK_ENTRY" = "$MUTATION_LOCK_DIR/pid" ] || return 1
@@ -917,9 +971,17 @@ claim_verified_orphan_vpn_lock() {
     [ "$(wc -c < "$MUTATION_LOCK_DIR/pid" 2>/dev/null)" -le 32 ] || return 1
     ORPHAN_PID="$(cat "$MUTATION_LOCK_DIR/pid" 2>/dev/null)" || return 1
     case "$ORPHAN_PID" in ''|0*|1|*[!0-9]*) return 1 ;; esac
-    ORPHAN_SIGNATURE="$(stat -c '%d:%i:%Y:%Z' "$MUTATION_LOCK_DIR" 2>/dev/null)" || return 1
-    ORPHAN_ID="$(stat -c '%d:%i' "$MUTATION_LOCK_DIR" 2>/dev/null)" || return 1
-    [ -n "$ORPHAN_SIGNATURE" ] || return 1
+    ORPHAN_STAT_MODE=format
+    ORPHAN_SIGNATURE="$(vpn_lock_stat_signature "$MUTATION_LOCK_DIR")"
+    case "$?" in
+        0) ;;
+        2)
+            ORPHAN_STAT_MODE=terse
+            ORPHAN_SIGNATURE="$(vpn_lock_stat_signature "$MUTATION_LOCK_DIR")" || return 1
+            ;;
+        *) return 1 ;;
+    esac
+    ORPHAN_ID="${ORPHAN_SIGNATURE%:*:*}"
     vpn_lock_recovery_evidence_safe || return 1
     vpn_lock_recovery_same_owner || return 1
     mkdir "$RECOVERY_GUARD_DIR" 2>/dev/null || return 1
@@ -944,8 +1006,8 @@ claim_verified_orphan_vpn_lock() {
     [ ! -e "$ORPHAN_LOCK_ARCHIVE" ] && [ ! -L "$ORPHAN_LOCK_ARCHIVE" ] || return 1
     vpn_lock_recovery_same_owner && vpn_lock_recovery_writers_absent || return 1
     mv "$MUTATION_LOCK_DIR" "$ORPHAN_LOCK_ARCHIVE" 2>/dev/null || return 1
-    [ -d "$ORPHAN_LOCK_ARCHIVE" ] && [ ! -L "$ORPHAN_LOCK_ARCHIVE" ] &&
-        [ "$(stat -c '%d:%i' "$ORPHAN_LOCK_ARCHIVE" 2>/dev/null)" = "$ORPHAN_ID" ] || return 1
+    ARCHIVE_SIGNATURE="$(vpn_lock_stat_signature "$ORPHAN_LOCK_ARCHIVE")" || return 1
+    [ "${ARCHIVE_SIGNATURE%:*:*}" = "$ORPHAN_ID" ] || return 1
     (umask 077; printf 'STATE=QUARANTINED\nOWNER_PID=%s\nTARGET=%s\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
 
     mkdir "$MUTATION_LOCK_DIR" 2>/dev/null || return 1

@@ -449,6 +449,127 @@ if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > 
 fi
 [ -d "$R/var/run/vpn-mutation.lock" ] || fail 'active writer lock archived'
 
+# Entware BusyBox can have stat -t while FEATURE_STAT_FORMAT is off:
+# stat -c exits 1 (invalid option), despite the lock and owner being readable.
+# Use host stat only to supply real metadata in that exact terse14 schema.
+STAT_BIN="$TMP/stat-bin"
+STAT_REAL="$(command -v stat)"
+STAT_TRACE="$TMP/stat-trace"
+mkdir "$STAT_BIN"
+cat > "$STAT_BIN/stat" <<'EOF'
+#!/bin/sh
+set -eu
+case "$1" in
+    -c)
+        printf 'format\n' >> "$FREENET_TEST_STAT_TRACE"
+        case "$FREENET_TEST_STAT_MODE" in
+            format_bad)
+                printf 'd:42:not-a-time:1700000000\n'
+                exit 0
+                ;;
+            format_read_fail)
+                [ "$(grep -c '^format$' "$FREENET_TEST_STAT_TRACE")" = 1 ] || exit 1
+                exec "$FREENET_TEST_REAL_STAT" "$@"
+                ;;
+        esac
+        printf "stat: invalid option -- 'c'\nBusyBox multi-call binary.\nUsage: stat [-lt] FILE...\n" >&2
+        exit 1
+        ;;
+    -t)
+        [ "$#" = 2 ] || exit 1
+        printf 'terse\n' >> "$FREENET_TEST_STAT_TRACE"
+        STAT_N="$(grep -c '^terse$' "$FREENET_TEST_STAT_TRACE")"
+        case "$FREENET_TEST_STAT_MODE" in
+            unsupported) exit 1 ;;
+            terse_read_fail) [ "$STAT_N" = 1 ] || exit 1 ;;
+            empty) exit 0 ;;
+        esac
+        STAT_META="$("$FREENET_TEST_REAL_STAT" -c '%s %b %f %u %g %D %i %h %t %T %X %Y %Z %o' "$2")" || exit 1
+        case "$FREENET_TEST_STAT_MODE" in
+            bad_hex) STAT_META="$(printf '%s\n' "$STAT_META" | awk '{$6="zz"; print}')" ;;
+            extra_field) STAT_META="$STAT_META 0" ;;
+            changed_inode)
+                STAT_META="$(printf '%s\n' "$STAT_META" | awk -v n="$STAT_N" '{$7=(n==1 ? "9007199254740993" : "9007199254740992"); print}')"
+                ;;
+            changed_device)
+                STAT_META="$(printf '%s\n' "$STAT_META" | awk -v n="$STAT_N" '{$6=(n==1 ? "fffffffffffffffe" : "ffffffffffffffff"); print}')"
+                ;;
+            changed_mtime|changed_ctime)
+                STAT_META="$(printf '%s\n' "$STAT_META" | awk -v n="$STAT_N" -v m="$FREENET_TEST_STAT_MODE" '{i=(m=="changed_mtime" ? 12 : 13); $i=(n==1 ? "1700000000" : "1700000001"); print}')"
+                ;;
+        esac
+        case "$FREENET_TEST_STAT_MODE" in
+            wrong_path) printf '/other-lock %s\n' "$STAT_META" ;;
+            multiline) printf '%s %s\n%s %s\n' "$2" "$STAT_META" "$2" "$STAT_META" ;;
+            *) printf '%s %s\n' "$2" "$STAT_META" ;;
+        esac
+        ;;
+    *) exit 1 ;;
+esac
+EOF
+chmod 755 "$STAT_BIN/stat"
+
+stat_apply() {
+    : > "$STAT_TRACE"
+    PATH="$STAT_BIN:$PATH" \
+    FREENET_TEST_REAL_STAT="$STAT_REAL" \
+    FREENET_TEST_STAT_MODE="$1" \
+    FREENET_TEST_STAT_TRACE="$STAT_TRACE" \
+        run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14
+}
+
+protected_stat_fixture_hash() {
+    find "$R/etc" "$R/sbin" "$R/bin" "$R/lib" "$P" -type f -exec sha256sum '{}' ';' | sort | sha256sum
+}
+
+make_orphan_fixture
+BASE_PENDING="$(find "$P" -type f -exec sha256sum '{}' ';' | sort | sha256sum)"
+BASE_LIVE="$(sha256sum "$R/etc/xray/configs/04_outbounds.json" "$R/etc/freenet/vpn_profile_name" "$R/etc/xray/blanc_profile_filter.regex")"
+# Literal-prefix parsing must preserve paths containing spaces and glob chars.
+STAT_SPACE_LOCK="$R/var/run/vpn mutation [metadata].lock"
+mv "$R/var/run/vpn-mutation.lock" "$STAT_SPACE_LOCK"
+if ! FREENET_UPDATE_MUTATION_LOCK="$STAT_SPACE_LOCK" stat_apply terse > "$TMP/stat-terse-ok.out" 2>&1; then
+    cat "$TMP/stat-terse-ok.out" >&2
+    fail 'BusyBox feature-off stat rejected a complete protected app update'
+fi
+grep -Fxq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'terse stat update did not complete'
+grep -Fq 'VPN_LOCK_RECOVERY=ORPHAN_QUARANTINED' "$TMP/stat-terse-ok.out" || fail 'terse stat lost protected claim receipt'
+[ "$(grep -c '^format$' "$STAT_TRACE")" = 1 ] || fail 'terse provider was not pinned after selection'
+QUARANTINE=""
+for STAT_ARCHIVE in "$STAT_SPACE_LOCK".orphaned.*; do
+    [ -d "$STAT_ARCHIVE" ] || continue
+    [ "$(cat "$STAT_ARCHIVE/pid")" = 9001 ] || fail 'terse stat lost original lock owner'
+    QUARANTINE="$STAT_ARCHIVE"
+done
+[ -n "$QUARANTINE" ] && [ ! -e "$STAT_SPACE_LOCK" ] || fail 'terse stat did not preserve archive/release its own lock'
+# Successful app update changes owned assets, but not live VPN or checkpoints.
+[ "$BASE_PENDING" = "$(find "$P" -type f -exec sha256sum '{}' ';' | sort | sha256sum)" ] || fail 'terse stat changed either protected checkpoint'
+[ "$BASE_LIVE" = "$(sha256sum "$R/etc/xray/configs/04_outbounds.json" "$R/etc/freenet/vpn_profile_name" "$R/etc/xray/blanc_profile_filter.regex")" ] || fail 'terse stat changed live VPN'
+[ "$(cat "$P/state")" = PENDING ] && [ "$(cat "$P/recovery.pending/state")" = PENDING ] || fail 'terse stat cleared pending recovery'
+
+for STAT_CASE in unsupported empty bad_hex extra_field wrong_path multiline format_bad \
+    format_read_fail terse_read_fail changed_inode changed_device changed_mtime changed_ctime; do
+    make_orphan_fixture
+    BASE_PROTECTED="$(protected_stat_fixture_hash)"
+    if stat_apply "$STAT_CASE" > "$TMP/stat-$STAT_CASE.out" 2>&1; then
+        fail "unsafe stat metadata accepted: $STAT_CASE"
+    fi
+    grep -Fq 'VPN/network lock ownership could not be proved safe; STOP' "$TMP/stat-$STAT_CASE.out" || fail "stat STOP missing: $STAT_CASE"
+    [ "$(cat "$R/var/run/vpn-mutation.lock/pid")" = 9001 ] || fail "stat failure lost original owner: $STAT_CASE"
+    [ "$BASE_PROTECTED" = "$(protected_stat_fixture_hash)" ] || fail "stat failure changed protected/app files: $STAT_CASE"
+    [ ! -e "$R/var/lib/freenet/vpn-lock-recovery-history" ] || fail "stat failure wrote claim history: $STAT_CASE"
+    [ ! -e "$R/var/run/vpn-mutation.lock.recovery-guard" ] || fail "stat failure retained its guard: $STAT_CASE"
+    [ ! -e "$R/var/run/update.lock" ] || fail "stat failure retained its updater lock: $STAT_CASE"
+    case "$STAT_CASE" in
+        format_bad|format_read_fail)
+            if grep -q '^terse$' "$STAT_TRACE"; then
+                fail "malformed/pinned formatted provider switched to terse: $STAT_CASE"
+            fi
+            ;;
+    esac
+done
+echo 'BusyBox stat feature-off: protected apply, exact path/schema, pinned provider and changed identity/time STOP gates PASS'
+
 make_orphan_fixture
 echo BAD_ASSET >> "$D/vpn"
 if run_apply "$R" "$D" "$P0_ENV" v0.8.0-beta.11 v0.8.0-beta.14 v0.8.0-beta.14 > "$TMP/orphan-bad-sha.out" 2>&1; then
