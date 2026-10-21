@@ -879,13 +879,13 @@ vpn_lock_recovery_writers_absent() {
     [ ! -e "$PROC_ROOT/$ORPHAN_PID" ] && [ ! -L "$PROC_ROOT/$ORPHAN_PID" ] || return 1
     for PROC_PATH in "$PROC_ROOT"/[0-9]*; do
         [ -d "$PROC_PATH" ] || continue
-        case "$PROC_PATH" in "$PROC_ROOT/$") continue ;; esac
+        case "$PROC_PATH" in "$PROC_ROOT/$$") continue ;; esac
         if [ ! -r "$PROC_PATH/cmdline" ]; then
             [ ! -e "$PROC_PATH" ] || return 1
             continue
         fi
-        if tr '\\000' ' ' < "$PROC_PATH/cmdline" 2>/dev/null |
-            grep -Eq '(^|/)(apply_provider_profile|apply_network_profile|blanc_xkeen_update_outbounds|self_update)\\.sh[[:space:]]+(apply|apply-core|recover-core|core-restart)([[:space:]]|$)'; then
+        if tr '\000' ' ' < "$PROC_PATH/cmdline" 2>/dev/null |
+            grep -Eq '(^|/)(apply_provider_profile|apply_network_profile|blanc_xkeen_update_outbounds|self_update)\.sh[[:space:]]+(apply|apply-core|recover-core|core-restart)([[:space:]]|$)'; then
             return 1
         fi
     done
@@ -918,6 +918,7 @@ claim_verified_orphan_vpn_lock() {
     ORPHAN_PID="$(cat "$MUTATION_LOCK_DIR/pid" 2>/dev/null)" || return 1
     case "$ORPHAN_PID" in ''|0*|1|*[!0-9]*) return 1 ;; esac
     ORPHAN_SIGNATURE="$(stat -c '%d:%i:%Y:%Z' "$MUTATION_LOCK_DIR" 2>/dev/null)" || return 1
+    ORPHAN_ID="$(stat -c '%d:%i' "$MUTATION_LOCK_DIR" 2>/dev/null)" || return 1
     [ -n "$ORPHAN_SIGNATURE" ] || return 1
     vpn_lock_recovery_evidence_safe || return 1
     vpn_lock_recovery_same_owner || return 1
@@ -935,23 +936,23 @@ claim_verified_orphan_vpn_lock() {
     [ ! -L "$EVIDENCE_ROOT" ] || return 1
     (umask 077; mkdir -p "$EVIDENCE_ROOT") || return 1
     [ -d "$EVIDENCE_ROOT" ] && [ ! -L "$EVIDENCE_ROOT" ] || return 1
-    EVIDENCE_FILE="$EVIDENCE_ROOT/$(date -u '+%Y%m%dT%H%M%SZ').$.state"
+    EVIDENCE_FILE="$EVIDENCE_ROOT/$(date -u '+%Y%m%dT%H%M%SZ').$$.state"
     [ ! -e "$EVIDENCE_FILE" ] && [ ! -L "$EVIDENCE_FILE" ] || return 1
-    (umask 077; printf 'STATE=OBSERVED\\nOWNER_PID=%s\\nTARGET=%s\\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
+    (umask 077; printf 'STATE=OBSERVED\nOWNER_PID=%s\nTARGET=%s\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
 
-    ORPHAN_LOCK_ARCHIVE="$MUTATION_LOCK_DIR.orphaned.$(date -u '+%Y%m%dT%H%M%SZ').$"
+    ORPHAN_LOCK_ARCHIVE="$MUTATION_LOCK_DIR.orphaned.$(date -u '+%Y%m%dT%H%M%SZ').$$"
     [ ! -e "$ORPHAN_LOCK_ARCHIVE" ] && [ ! -L "$ORPHAN_LOCK_ARCHIVE" ] || return 1
     vpn_lock_recovery_same_owner && vpn_lock_recovery_writers_absent || return 1
     mv "$MUTATION_LOCK_DIR" "$ORPHAN_LOCK_ARCHIVE" 2>/dev/null || return 1
     [ -d "$ORPHAN_LOCK_ARCHIVE" ] && [ ! -L "$ORPHAN_LOCK_ARCHIVE" ] &&
-        [ "$(stat -c '%d:%i:%Y:%Z' "$ORPHAN_LOCK_ARCHIVE" 2>/dev/null)" = "$ORPHAN_SIGNATURE" ] || return 1
-    (umask 077; printf 'STATE=QUARANTINED\\nOWNER_PID=%s\\nTARGET=%s\\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
+        [ "$(stat -c '%d:%i' "$ORPHAN_LOCK_ARCHIVE" 2>/dev/null)" = "$ORPHAN_ID" ] || return 1
+    (umask 077; printf 'STATE=QUARANTINED\nOWNER_PID=%s\nTARGET=%s\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
 
     mkdir "$MUTATION_LOCK_DIR" 2>/dev/null || return 1
     MUTATION_LOCK_HELD=1
-    printf '%s\\n' "$" > "$MUTATION_LOCK_DIR/pid" || return 1
-    printf '%s\\n' "$LOCK_DIR" > "$MUTATION_LOCK_DIR/freenet-update-owner" || return 1
-    (umask 077; printf 'STATE=CLAIMED\\nOWNER_PID=%s\\nTARGET=%s\\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
+    printf '%s\n' "$$" > "$MUTATION_LOCK_DIR/pid" || return 1
+    printf '%s\n' "$LOCK_DIR" > "$MUTATION_LOCK_DIR/freenet-update-owner" || return 1
+    (umask 077; printf 'STATE=CLAIMED\nOWNER_PID=%s\nTARGET=%s\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
     say 'VPN_LOCK_RECOVERY=ORPHAN_QUARANTINED; CHECKPOINT=PRESERVED; VPN_MUTATION=NONE'
     return 0
 }
@@ -982,7 +983,7 @@ run_apply() {
     printf '%s\n' "$TARGET_TAG" > "$LOCK_DIR/target" || fail_before_mutation 'cannot persist update target'
     if mkdir "$MUTATION_LOCK_DIR" 2>/dev/null; then
         MUTATION_LOCK_HELD=1
-        printf '%s\n' "$" > "$MUTATION_LOCK_DIR/pid" || fail_before_mutation 'cannot persist network fence owner'
+        printf '%s\n' "$$" > "$MUTATION_LOCK_DIR/pid" || fail_before_mutation 'cannot persist network fence owner'
         printf '%s\n' "$LOCK_DIR" > "$MUTATION_LOCK_DIR/freenet-update-owner" || fail_before_mutation 'cannot persist fence ownership'
     else
         # This is not an unlock: any recovery remains behind exact release
