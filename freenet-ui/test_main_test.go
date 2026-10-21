@@ -1,22 +1,36 @@
 package main
 
 import (
-    "os"
-    "path/filepath"
-    "testing"
+	"os"
+	"path/filepath"
+	"testing"
 )
 
 // The production UNKNOWN gate is global. Unrelated unit tests must not read
 // or inherit a persistent automation rollback marker from the host/test suite.
 // Tests explicitly exercising the marker override these locations with t.Setenv.
 func TestMain(m *testing.M) {
-    dir, err := os.MkdirTemp("", "freenet-unit-state-")
-    if err != nil { os.Exit(2) }
-    // Default writes must be impossible; tests which need writable state use
-    // their own fresh, test-scoped FREENET_AUTOMATION_STATE path.
-    if err := os.Setenv("FREENET_AUTOMATION_STATE", "/dev/null"); err != nil { os.Exit(2) }
-    if err := os.Setenv("FREENET_VPN_TRANSACTION_DIR", filepath.Join(dir, "transaction.pending")); err != nil { os.Exit(2) }
-    code := m.Run()
-    _ = os.RemoveAll(dir)
-    os.Exit(code)
+	os.Exit(runTestsWithIsolatedState(m))
+}
+
+func runTestsWithIsolatedState(m *testing.M) int {
+	dir, err := os.MkdirTemp("", "freenet-unit-state-")
+	if err != nil {
+		return 2
+	}
+	defer os.RemoveAll(dir)
+
+	// A regular-file parent rejects both mkdir and atomic state writes with
+	// ENOTDIR, including under root. Tests needing writable state use t.Setenv.
+	blocker := filepath.Join(dir, "automation-state-blocker")
+	if err := os.WriteFile(blocker, nil, 0600); err != nil {
+		return 2
+	}
+	if err := os.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(blocker, "automation.state")); err != nil {
+		return 2
+	}
+	if err := os.Setenv("FREENET_VPN_TRANSACTION_DIR", filepath.Join(dir, "transaction.pending")); err != nil {
+		return 2
+	}
+	return m.Run()
 }
