@@ -309,7 +309,15 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 	}
 	defer cleanup()
 
-	cmd := exec.CommandContext(ctx, providerHelperPath(), mode, candidate.Profile.ID)
+	managedFinalization := mode == "apply-core" || mode == "recover-core"
+	var cmd *exec.Cmd
+	if managedFinalization {
+		// The managed runner may reserve time only after the helper has
+		// finished every apply/rollback step and entered finalization.
+		cmd = exec.Command(providerHelperPath(), mode, candidate.Profile.ID)
+	} else {
+		cmd = exec.CommandContext(ctx, providerHelperPath(), mode, candidate.Profile.ID)
+	}
 	rttFlag := "0"
 	if manualRTT && (mode == "apply-core" || mode == "recover-core") {
 		rttFlag = "1"
@@ -327,6 +335,9 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 		"FREENET_PROVIDER_RECOVERY_MANUAL="+recoveryFlag,
 	)
 	cmd.WaitDelay = 2 * time.Second
+	if managedFinalization {
+		return runProviderCommandWithFinalization(ctx, cmd, filepath.Dir(cachePath))
+	}
 	output, err := cmd.CombinedOutput()
 	if errors.Is(err, exec.ErrWaitDelay) && ctx.Err() == nil {
 		err = nil
