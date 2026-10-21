@@ -192,6 +192,12 @@ async function capture(label){
     assert.equal(await page.locator('.sidebar .nav-btn[data-page="subscription"]').count(),0,context+': legacy Subscription must not reappear');
   };
   await page.goto(base);await until(()=>document.documentElement.dataset.freenetCanonicalReady==='1','canonical boot');
+  // Finish the initial cache read before fault injection reloads this document.
+  // Aborting hydration can legitimately enter the missing-measurement seed path.
+  await until(()=>{
+    const candidate=window.__freenetCurrentQualityHydration?.candidate;
+    return candidate?.current===true&&candidate.endpoint===window.__freenetLastStatusEndpoint&&candidate.download_mbps===55&&/55\.0 Мбит\/с/.test(document.querySelector('#bestCurrentMetrics')?.textContent||'');
+  },'cold current cache hydration before fault reload');
   console.log('CSS_DIAGNOSTIC_PRODUCTION',JSON.stringify(await page.evaluate(()=>{const s=document.querySelector('style#freenetUnifiedDesignStyles');const h=document.querySelector('.fn-version-copy strong');return{css:s?.textContent.length,rules:(()=>{try{return s?.sheet?.cssRules.length}catch(e){return e.message}})(),label:h?.textContent,styleCount:document.querySelectorAll('style').length}})));
   await verifyCanonicalSidebar('cold start');
 

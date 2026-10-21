@@ -150,7 +150,13 @@ const server = http.createServer((req,res)=>{
           status=expectedApply.id===second.id
             ? {...status,country:'',country_code:'',city:'',profile_label:expectedApply.name,endpoint:expectedApply.endpoint}
             : {...status,country:'Германия',country_code:'de',city:'Франкфурт',profile_label:expectedApply.name,endpoint:expectedApply.endpoint};
-          const operationTarget=payload.selection_token?expectedApply.id+'@'+payload.selection_token:expectedApply.id;
+          const token=typeof payload.selection_token==='string'?payload.selection_token.trim():'';
+          const profileID=payload.profile_id.trim();
+          let operationTarget=token?profileID+'@'+token:profileID;
+          if(payload.manual_override===true){
+            assert.equal(payload.expected_endpoint,expectedApply.endpoint,'manual receipt binds the selected endpoint');
+            operationTarget+='@manual:'+payload.expected_endpoint;
+          }
           operation={id:'fixture-op',kind:'provider',target:operationTarget,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
           if(applyMode==='failed')operation={...operation,state:'failed',result:'FAIL',error:'Проверка соединения не пройдена'};
           if(applyMode==='other')operation={...operation,target:'another-profile'};
