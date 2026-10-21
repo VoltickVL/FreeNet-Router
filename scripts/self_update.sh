@@ -41,6 +41,10 @@ TMP_DIR=""
 BACKUP_DIR=""
 LOCK_HELD=0
 MUTATION_LOCK_HELD=0
+RECOVERY_GUARD_HELD=0
+RECOVERY_GUARD_DIR="$MUTATION_LOCK_DIR.recovery-guard"
+ORPHAN_LOCK_ARCHIVE=""
+NETWORK_FENCE_DEFERRED=0
 KEEP_LOCK=0
 MUTATED=0
 LAST_DOWNLOAD_ERROR=""
@@ -51,6 +55,10 @@ say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Web Update] ERROR: %s\n' "$*" >&2; }
 
 cleanup() {
+    if [ "$RECOVERY_GUARD_HELD" = 1 ]; then
+        rmdir "$RECOVERY_GUARD_DIR" 2>/dev/null || true
+        RECOVERY_GUARD_HELD=0
+    fi
     [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] && rm -rf "$TMP_DIR" 2>/dev/null || true
     if [ "$MUTATION_LOCK_HELD" = 1 ] && [ "$KEEP_LOCK" = 0 ]; then
         rm -rf "$MUTATION_LOCK_DIR" 2>/dev/null || true
@@ -827,6 +835,127 @@ previous_update_receipt_safe() {
     case "$OLD_UPDATE_ROLLBACK" in ''|NOT_NEEDED|SUCCESS) return 0 ;; *) return 1 ;; esac
 }
 
+# This is an application-only recovery bridge, never a VPN rollback.
+# It runs ONLY from a staged, SHA-verified, exact Beta update with opt-in.
+# A missing PID alone never authorizes removing or overwriting a VPN lock.
+vpn_lock_recovery_evidence_safe() {
+    [ -d "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ] || return 1
+    [ -z "$(find "$CHECKPOINT_DIR" -type l -print 2>/dev/null)" ] || return 1
+    for RECOVERY_LAYER in "$CHECKPOINT_DIR" "$CHECKPOINT_DIR/recovery.pending"; do
+        [ -d "$RECOVERY_LAYER" ] && [ ! -L "$RECOVERY_LAYER" ] || return 1
+        [ -f "$RECOVERY_LAYER/state" ] && [ ! -L "$RECOVERY_LAYER/state" ] || return 1
+        [ "$(cat "$RECOVERY_LAYER/state" 2>/dev/null)" = PENDING ] || return 1
+        for RECOVERY_KIND in out profile filter; do
+            RECOVERY_SAVED="$RECOVERY_LAYER/$RECOVERY_KIND.before"
+            [ -f "$RECOVERY_SAVED" ] && [ ! -L "$RECOVERY_SAVED" ] && [ -r "$RECOVERY_SAVED" ] || return 1
+            [ "$(wc -c < "$RECOVERY_SAVED" 2>/dev/null)" -le 2097152 ] || return 1
+            [ ! -e "$RECOVERY_LAYER/$RECOVERY_KIND.absent" ] &&
+                [ ! -L "$RECOVERY_LAYER/$RECOVERY_KIND.absent" ] || return 1
+        done
+    done
+    [ -f "$CHECKPOINT_DIR/recovery.pending/core.before" ] &&
+        [ ! -L "$CHECKPOINT_DIR/recovery.pending/core.before" ] || return 1
+    case "$(cat "$CHECKPOINT_DIR/recovery.pending/core.before" 2>/dev/null)" in
+        running|stopped) ;;
+        *) return 1 ;;
+    esac
+    for LIVE in "$ROOT/etc/xray/configs/04_outbounds.json" \
+        "$ROOT/etc/freenet/vpn_profile_name" "$ROOT/etc/xray/blanc_profile_filter.regex"; do
+        [ -f "$LIVE" ] && [ ! -L "$LIVE" ] && [ -r "$LIVE" ] || return 1
+        [ "$(wc -c < "$LIVE" 2>/dev/null)" -le 2097152 ] || return 1
+    done
+    return 0
+}
+
+# Fail closed if another known FreeNet writer is running, even if the former
+# lock owner's PID has vanished. Never print process argv or credentials.
+vpn_lock_recovery_writers_absent() {
+    if [ "$TEST_MODE" = yes ]; then
+        PROC_ROOT="${FREENET_UPDATE_PROC_ROOT:-/proc}"
+    else
+        PROC_ROOT=/proc
+    fi
+    [ -d "$PROC_ROOT" ] && [ ! -L "$PROC_ROOT" ] && [ -r "$PROC_ROOT" ] || return 1
+    [ ! -e "$PROC_ROOT/$ORPHAN_PID" ] && [ ! -L "$PROC_ROOT/$ORPHAN_PID" ] || return 1
+    for PROC_PATH in "$PROC_ROOT"/[0-9]*; do
+        [ -d "$PROC_PATH" ] || continue
+        case "$PROC_PATH" in "$PROC_ROOT/$") continue ;; esac
+        if [ ! -r "$PROC_PATH/cmdline" ]; then
+            [ ! -e "$PROC_PATH" ] || return 1
+            continue
+        fi
+        if tr '\\000' ' ' < "$PROC_PATH/cmdline" 2>/dev/null |
+            grep -Eq '(^|/)(apply_provider_profile|apply_network_profile|blanc_xkeen_update_outbounds|self_update)\\.sh[[:space:]]+(apply|apply-core|recover-core|core-restart)([[:space:]]|$)'; then
+            return 1
+        fi
+    done
+    [ ! -e "$PROC_ROOT/$ORPHAN_PID" ] && [ ! -L "$PROC_ROOT/$ORPHAN_PID" ]
+}
+
+vpn_lock_recovery_same_owner() {
+    [ -d "$MUTATION_LOCK_DIR" ] && [ ! -L "$MUTATION_LOCK_DIR" ] || return 1
+    [ ! -e "$MUTATION_LOCK_DIR/freenet-update-owner" ] &&
+        [ ! -L "$MUTATION_LOCK_DIR/freenet-update-owner" ] || return 1
+    [ -f "$MUTATION_LOCK_DIR/pid" ] && [ ! -L "$MUTATION_LOCK_DIR/pid" ] || return 1
+    [ "$(cat "$MUTATION_LOCK_DIR/pid" 2>/dev/null)" = "$ORPHAN_PID" ] || return 1
+    [ "$(stat -c '%d:%i:%Y:%Z' "$MUTATION_LOCK_DIR" 2>/dev/null)" = "$ORPHAN_SIGNATURE" ] || return 1
+    for LOCK_ENTRY in "$MUTATION_LOCK_DIR"/* "$MUTATION_LOCK_DIR"/.[!.]* "$MUTATION_LOCK_DIR"/..?*; do
+        [ -e "$LOCK_ENTRY" ] || [ -L "$LOCK_ENTRY" ] || continue
+        [ "$LOCK_ENTRY" = "$MUTATION_LOCK_DIR/pid" ] || return 1
+    done
+}
+
+# Exclusive guard + bounded twice-verified orphan owner, followed by same-FS
+# directory rename to QUARANTINE. A concurrent writer must still win mkdir
+# of the fresh lock to proceed; we fail without touching its files.
+# No original checkpoint is ever erased, modified or considered recovered.
+claim_verified_orphan_vpn_lock() {
+    [ "$NETWORK_FENCE_DEFERRED" = 1 ] && [ "$LOCK_HELD" = 1 ] || return 1
+    [ "${FREENET_UPDATE_BETA_OPT_IN:-no}" = yes ] && beta_tag "$TARGET_TAG" || return 1
+    [ -d "$MUTATION_LOCK_DIR" ] && [ ! -L "$MUTATION_LOCK_DIR" ] || return 1
+    [ -f "$MUTATION_LOCK_DIR/pid" ] && [ ! -L "$MUTATION_LOCK_DIR/pid" ] || return 1
+    [ "$(wc -c < "$MUTATION_LOCK_DIR/pid" 2>/dev/null)" -le 32 ] || return 1
+    ORPHAN_PID="$(cat "$MUTATION_LOCK_DIR/pid" 2>/dev/null)" || return 1
+    case "$ORPHAN_PID" in ''|0*|1|*[!0-9]*) return 1 ;; esac
+    ORPHAN_SIGNATURE="$(stat -c '%d:%i:%Y:%Z' "$MUTATION_LOCK_DIR" 2>/dev/null)" || return 1
+    [ -n "$ORPHAN_SIGNATURE" ] || return 1
+    vpn_lock_recovery_evidence_safe || return 1
+    vpn_lock_recovery_same_owner || return 1
+    mkdir "$RECOVERY_GUARD_DIR" 2>/dev/null || return 1
+    RECOVERY_GUARD_HELD=1
+    vpn_lock_recovery_writers_absent || return 1
+    sleep 1
+    vpn_lock_recovery_evidence_safe || return 1
+    vpn_lock_recovery_same_owner || return 1
+    vpn_lock_recovery_writers_absent || return 1
+
+    # Persistent evidence is metadata only, not secret-bearing checkpoint
+    # material. Original before-files remain untouched in their own directory.
+    EVIDENCE_ROOT="$ROOT/var/lib/freenet/vpn-lock-recovery-history"
+    [ ! -L "$EVIDENCE_ROOT" ] || return 1
+    (umask 077; mkdir -p "$EVIDENCE_ROOT") || return 1
+    [ -d "$EVIDENCE_ROOT" ] && [ ! -L "$EVIDENCE_ROOT" ] || return 1
+    EVIDENCE_FILE="$EVIDENCE_ROOT/$(date -u '+%Y%m%dT%H%M%SZ').$.state"
+    [ ! -e "$EVIDENCE_FILE" ] && [ ! -L "$EVIDENCE_FILE" ] || return 1
+    (umask 077; printf 'STATE=OBSERVED\\nOWNER_PID=%s\\nTARGET=%s\\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
+
+    ORPHAN_LOCK_ARCHIVE="$MUTATION_LOCK_DIR.orphaned.$(date -u '+%Y%m%dT%H%M%SZ').$"
+    [ ! -e "$ORPHAN_LOCK_ARCHIVE" ] && [ ! -L "$ORPHAN_LOCK_ARCHIVE" ] || return 1
+    vpn_lock_recovery_same_owner && vpn_lock_recovery_writers_absent || return 1
+    mv "$MUTATION_LOCK_DIR" "$ORPHAN_LOCK_ARCHIVE" 2>/dev/null || return 1
+    [ -d "$ORPHAN_LOCK_ARCHIVE" ] && [ ! -L "$ORPHAN_LOCK_ARCHIVE" ] &&
+        [ "$(stat -c '%d:%i:%Y:%Z' "$ORPHAN_LOCK_ARCHIVE" 2>/dev/null)" = "$ORPHAN_SIGNATURE" ] || return 1
+    (umask 077; printf 'STATE=QUARANTINED\\nOWNER_PID=%s\\nTARGET=%s\\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
+
+    mkdir "$MUTATION_LOCK_DIR" 2>/dev/null || return 1
+    MUTATION_LOCK_HELD=1
+    printf '%s\\n' "$" > "$MUTATION_LOCK_DIR/pid" || return 1
+    printf '%s\\n' "$LOCK_DIR" > "$MUTATION_LOCK_DIR/freenet-update-owner" || return 1
+    (umask 077; printf 'STATE=CLAIMED\\nOWNER_PID=%s\\nTARGET=%s\\n' "$ORPHAN_PID" "$TARGET_TAG" > "$EVIDENCE_FILE") || return 1
+    say 'VPN_LOCK_RECOVERY=ORPHAN_QUARANTINED; CHECKPOINT=PRESERVED; VPN_MUTATION=NONE'
+    return 0
+}
+
 run_apply() {
     umask 077
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -851,12 +980,15 @@ run_apply() {
     fi
     printf '%s\n' "$$" > "$LOCK_DIR/owner.pid" || fail_before_mutation 'cannot persist update owner'
     printf '%s\n' "$TARGET_TAG" > "$LOCK_DIR/target" || fail_before_mutation 'cannot persist update target'
-    if ! mkdir "$MUTATION_LOCK_DIR" 2>/dev/null; then
-        fail_before_mutation 'another VPN/network operation is active; update not started'
+    if mkdir "$MUTATION_LOCK_DIR" 2>/dev/null; then
+        MUTATION_LOCK_HELD=1
+        printf '%s\n' "$" > "$MUTATION_LOCK_DIR/pid" || fail_before_mutation 'cannot persist network fence owner'
+        printf '%s\n' "$LOCK_DIR" > "$MUTATION_LOCK_DIR/freenet-update-owner" || fail_before_mutation 'cannot persist fence ownership'
+    else
+        # This is not an unlock: any recovery remains behind exact release
+        # staging + dual checkpoint verification and a protected claim.
+        NETWORK_FENCE_DEFERRED=1
     fi
-    MUTATION_LOCK_HELD=1
-    printf '%s\n' "$$" > "$MUTATION_LOCK_DIR/pid" || fail_before_mutation 'cannot persist network fence owner'
-    printf '%s\n' "$LOCK_DIR" > "$MUTATION_LOCK_DIR/freenet-update-owner" || fail_before_mutation 'cannot persist fence ownership'
     detect_current || fail_before_mutation 'current FreeNet version is invalid'
     valid_tag "$TARGET_TAG" || fail_before_mutation 'target release tag is invalid'
     beta_opted_in "$TARGET_TAG" || fail_before_mutation 'explicit Beta opt-in required'
@@ -873,6 +1005,15 @@ run_apply() {
     make_tmp || fail_before_mutation 'cannot create staging directory'
     download_assets "$TARGET_TAG" || fail_before_mutation "${LAST_DOWNLOAD_ERROR:-release asset download or SHA-256 verification failed}"
     validate_stage || fail_before_mutation 'staging validation failed'
+    if [ "$NETWORK_FENCE_DEFERRED" = 1 ]; then
+        snapshot_preserved_state "$TMP_DIR/fence-before" || fail_before_mutation 'cannot preserve original VPN evidence'
+        snapshot_xray "$TMP_DIR/xray-fence-before" || fail_before_mutation 'cannot verify Xray baseline'
+        claim_verified_orphan_vpn_lock || fail_before_mutation 'VPN/network lock ownership could not be proved safe; STOP'
+        snapshot_preserved_state "$TMP_DIR/fence-after" || fail_before_mutation 'VPN evidence changed during protected lock claim; STOP'
+        snapshot_xray "$TMP_DIR/xray-fence-after" || fail_before_mutation 'Xray changed during protected lock claim; STOP'
+        cmp -s "$TMP_DIR/fence-before" "$TMP_DIR/fence-after" || fail_before_mutation 'VPN evidence changed during protected lock claim; STOP'
+        cmp -s "$TMP_DIR/xray-fence-before" "$TMP_DIR/xray-fence-after" || fail_before_mutation 'Xray baseline changed during protected lock claim; STOP'
+    fi
     write_state SNAPSHOT "$TARGET_TAG" 'Создаём snapshot FreeNet-owned файлов' '' NOT_NEEDED '' || true
     prepare_backup || fail_before_mutation 'cannot create pre-update snapshot'
 
