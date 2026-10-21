@@ -287,11 +287,21 @@ func ownedFixtureBase(t *testing.T) (string, string, string) {
 
 func readOwnedRecord(t *testing.T, records, role string) ownedChildRecord {
 	t.Helper()
+	return readOwnedRecordUntil(t, records, role, nil)
+}
+
+func readOwnedRecordUntil(t *testing.T, records, role string, done <-chan error) ownedChildRecord {
+	t.Helper()
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		var record ownedChildRecord
 		data, err := os.ReadFile(filepath.Join(records, role+".json"))
 		if err == nil && json.Unmarshal(data, &record) == nil { return record }
+		select {
+		case err := <-done:
+			t.Fatalf("provider helper exited before the real %s stage: %v", role, err)
+		default:
+		}
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("real %s worker did not reach the expected stage", role)
@@ -413,7 +423,10 @@ func setupOwnedProviderFixture(t *testing.T, block string) ownedProviderFixture 
 	subPath := filepath.Join(dir, "subscription")
 	if err := os.WriteFile(subPath, []byte(source+"\n"), 0600); err != nil { t.Fatal(err) }
 	t.Setenv("FREENET_SUB_FILE", subPath)
-	raw := strings.Split(strings.TrimSpace(testSubscriptionPlain), "\n")[0]
+	// This contract needs a complete executable profile, not the catalog-only
+	// fixture that deliberately omits required SNI. Keep identity ASCII here;
+	// Unicode label decoding is independent of validator ownership.
+	const raw = "vless://TEST-ID-A@203.0.113.10:443?security=reality&type=tcp&sni=example.test&pbk=TEST-PBK-A&sid=TEST-SID-A#Frankfurt%2C%20Germany%2C%20Extra"
 	profile, ok := parseSafeVLESSProfile(raw)
 	if !ok { t.Fatal("invalid synthetic provider fixture") }
 	cache := filepath.Join(selection, "provider.lkg")
@@ -490,11 +503,12 @@ func TestOwnedProviderCancellationDrainsLiveValidatorBeforeReturning(t *testing.
 	completed := make(chan struct{})
 	go func() {
 		defer close(completed)
-		_, err := runProviderCommandWithFinalizationGrace(ctx, cmd, fixture.selection, 2*time.Second)
+		output, err := runProviderCommandWithFinalizationGrace(ctx, cmd, fixture.selection, 2*time.Second)
+		if err != nil { err = fmt.Errorf("%w\n%s", err, sanitizeOutput(string(output))) }
 		done <- err
 	}()
 	defer func() { cancel(); <-completed }()
-	live := readOwnedRecord(t, fixture.records, "live")
+	live := readOwnedRecordUntil(t, fixture.records, "live", done)
 	assertOwnedXrayRecord(t, live)
 	if _, err := os.Stat(filepath.Join(fixture.dir, "pending", "state")); err != nil { t.Fatal("fixture never committed its protected transaction") }
 	if _, err := os.Stat(filepath.Join(fixture.records, "route-run.json")); !os.IsNotExist(err) { t.Fatal("blocked live validator was bypassed") }
@@ -565,7 +579,9 @@ func TestOwnedProviderLeafPlanRetainsOneSlotThroughDrainAndCleanup(t *testing.T)
 	dir, records, executable := ownedFixtureBase(t)
 	helper := filepath.Join(dir, "provider-helper")
 	tmp := filepath.Join(dir, "tmp")
-	if err := os.Symlink(executable, helper); err != nil { t.Fatal(err) }
+	// The test binary's production init handles argv[1]==plan before fixture
+	// init. exec preserves the helper PID while selecting our fixture entry.
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexec "+v3ShellQuote(executable)+" owned-helper \"$@\"\n"), 0700); err != nil { t.Fatal(err) }
 	if err := os.Mkdir(tmp, 0700); err != nil { t.Fatal(err) }
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("FREENET_PROVIDER_HELPER", helper)
@@ -576,11 +592,12 @@ func TestOwnedProviderLeafPlanRetainsOneSlotThroughDrainAndCleanup(t *testing.T)
 	completed := make(chan struct{})
 	go func() {
 		defer close(completed)
-		_, err := runProviderHelperOwned(ctx, "plan", "0123456789abcdef")
+		output, err := runProviderHelperOwned(ctx, "plan", "0123456789abcdef")
+		if err != nil { err = fmt.Errorf("%w\n%s", err, sanitizeOutput(string(output))) }
 		done <- err
 	}()
 	defer func() { cancel(); <-completed }()
-	candidate := readOwnedRecord(t, records, "candidate")
+	candidate := readOwnedRecordUntil(t, records, "candidate", done)
 	assertOwnedXrayRecord(t, candidate)
 	if len(isolatedXrayProbeGate) != 1 { t.Fatal("one plan did not own exactly one shared slot") }
 	secondCtx, cancelSecond := context.WithTimeout(context.Background(), 100*time.Millisecond)

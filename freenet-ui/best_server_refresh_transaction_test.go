@@ -93,7 +93,9 @@ func newRefreshTransactionFixture(t *testing.T, mode string) *refreshTransaction
 		t.Skip("the live-core acceptance contract uses Linux procfs")
 	}
 	a, _, dir := providerFinalizationTestManualApp(t)
-	raw := strings.Split(strings.TrimSpace(testSubscriptionPlain), "\n")[0]
+	// The catalog-only fixture lacks the SNI required by the actual outbound builder.
+	subscription := strings.Replace(testSubscriptionPlain, "?security=reality&", "?security=reality&sni=example.test&", 1)
+	raw := strings.Split(strings.TrimSpace(subscription), "\n")[0]
 	profile, ok := parseSafeVLESSProfile(raw)
 	if !ok {
 		t.Fatal("invalid refresh profile fixture")
@@ -150,7 +152,7 @@ func newRefreshTransactionFixture(t *testing.T, mode string) *refreshTransaction
 		bestServerEndpointApplicationProbe, bestServerRefreshPostProbe = oldApp, oldPost
 	})
 	directSubscriptionBodyFetch = func(context.Context, *url.URL) ([]byte, error) {
-		return []byte(testSubscriptionPlain), nil
+		return []byte(subscription), nil
 	}
 	bestServerEndpointTCPProbe = func(context.Context, subscriptionProfile) bestServerProbeResult {
 		return bestServerProbeResult{OK: true, Samples: []int{10}, Median: 10}
