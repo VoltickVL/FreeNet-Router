@@ -1039,6 +1039,7 @@ func automationCLIConfig() config {
 		GeoDataDir: defaultGeoDataAssetDir, XKeenPath: defaultXKeenPath, LockPath: defaultLockPath,
 		ConfigPath: configPath, SubPath: defaultSubPath, SelfUpdatePath: defaultSelfUpdatePath,
 		UpdateState: defaultUpdateState, UpdateLock: defaultUpdateLock, Timeout: 95 * time.Second,
+		ProviderTimeout: defaultProviderTimeout,
 	}
 }
 

@@ -43,9 +43,12 @@ func finalizeHelperPath() string {
 func (a *app) runSetupFinalizePlan() (setupFinalizePlanResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
-	output, cmdErr := runCommand(ctx, finalizeHelperPath(), "plan")
+	output, cmdErr := runSetupFinalizeOwned(ctx, "plan")
 	if ctx.Err() == context.DeadlineExceeded {
 		return setupFinalizePlanResponse{}, errors.New("final setup plan timed out")
+	}
+	if errors.Is(cmdErr, errSetupFinalizeWorkerState) {
+		return setupFinalizePlanResponse{}, cmdErr
 	}
 	plan, parseErr := parseSetupFinalizePlan(string(output))
 	if parseErr != nil {
@@ -129,7 +132,7 @@ func (a *app) handleSetupFinalizeApply(w http.ResponseWriter, req networkApplyRe
 
 	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
 	defer cancel()
-	output, cmdErr := runCommand(ctx, finalizeHelperPath(), "apply")
+	output, cmdErr := runSetupFinalizeOwned(ctx, "apply")
 	safeOutput := sanitizeOutput(string(output))
 	if ctx.Err() == context.DeadlineExceeded {
 		cmdErr = errors.New("final setup apply timed out")

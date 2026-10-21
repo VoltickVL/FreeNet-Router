@@ -128,3 +128,20 @@ func TestScheduledSubscriptionRefreshDoesNotRaceHealthWatchdog(t *testing.T) {
 		t.Fatalf("scheduled endpoint reconcile must not race an active health-watch mutation path; calls=%d", *calls)
 	}
 }
+
+func TestScheduledSubscriptionRefreshUnknownReturnsFailure(t *testing.T) {
+	a, calls := prepareScheduledSubscriptionTest(t, true)
+	settingsV3ScheduledCurrentRefresh = func(_ *app, _ context.Context) (int, bestServerRefreshResponse) {
+		*calls = *calls + 1
+		return http.StatusBadGateway, bestServerRefreshResponse{
+			Success: false, Applied: false, Mutation: "UNKNOWN", RollbackState: "UNKNOWN",
+			Error: "provider terminal result is unconfirmed",
+		}
+	}
+	if err := a.runV3ScheduledSubscription(context.Background()); err == nil {
+		t.Fatal("scheduled CLI would report success after UNKNOWN refresh")
+	}
+	if *calls != 1 || !automationMutationBlockedState() {
+		t.Fatalf("UNKNOWN refresh calls=%d blocked=%v", *calls, automationMutationBlockedState())
+	}
+}

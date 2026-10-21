@@ -689,7 +689,7 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	}
 	defer releaseProbes()
 
-	ctx, cancel := context.WithTimeout(context.Background(), a.cfg.Timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), providerWorkTimeout(a.cfg))
 	defer cancel()
 	var output []byte
 	var cmdErr error
@@ -704,10 +704,10 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		output, cmdErr = a.runProviderSelectionCommandWithRTTMode(ctx, mode, selected, manualRTT)
 	} else {
 		// Unmeasured legacy/no-token setup retains its established apply path.
-		output, cmdErr = runCommand(ctx, providerHelperPath(), "apply", profileID)
+		output, cmdErr = runProviderHelperOwned(ctx, "apply", profileID)
 	}
 	safeOutput := sanitizeOutput(string(output))
-	if !useSnapshot && ctx.Err() == context.DeadlineExceeded {
+	if !useSnapshot && ctx.Err() == context.DeadlineExceeded && !providerFinalizationUnknown(cmdErr) {
 		cmdErr = errors.New("provider profile apply timed out")
 	}
 	if cmdErr == nil && req.ManualOverride &&
@@ -724,7 +724,7 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 	}
 	if cmdErr != nil {
 		primary, rollback := classifyApplyFailure(safeOutput)
-		if useSnapshot && providerFinalizationUnknown(cmdErr) {
+		if providerFinalizationUnknown(cmdErr) {
 			// A hard stop or missing owned terminal receipt remains UNKNOWN,
 			// even if an earlier stdout line claimed a successful rollback.
 			rollback = "UNKNOWN"
@@ -995,7 +995,7 @@ func (a *app) runProviderPlan(profileID string) (providerPlanResponse, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	output, err := runCommand(ctx, providerHelperPath(), "plan", profileID)
+	output, err := runProviderHelperOwned(ctx, "plan", profileID)
 	if ctx.Err() == context.DeadlineExceeded {
 		return providerPlanResponse{ProfileID: profileID}, errors.New("Проверка выбранного VPN-сервера не завершилась вовремя.")
 	}

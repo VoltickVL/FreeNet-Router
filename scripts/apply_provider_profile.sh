@@ -36,9 +36,71 @@ ROLLBACK_FILES_STATUS="UNKNOWN"
 ROLLBACK_CORE_STATUS="UNKNOWN"
 ROLLBACK_VPN_STATUS="UNKNOWN"
 PROVIDER_FINALIZATION_PHASE=""
+OWNED_XRAY_ENABLED=0
+OWNED_XRAY_SEQUENCE=0
+OWNED_XRAY_CHILD_PID=0
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Provider] ERROR: %s\n' "$*" >&2; }
+
+# A production core must inherit neither a probe marker nor this invocation's
+# private worker/finalization channel. Its lifecycle stays with XKeen.
+production_core_command() (
+    unset FREENET_XRAY_PROBE
+    unset FREENET_OWNED_XRAY_DIR FREENET_OWNED_XRAY_NONCE FREENET_OWNED_XRAY_WORK_DIR
+    unset FREENET_PROVIDER_FINALIZATION_STATUS FREENET_PROVIDER_FINALIZATION_NONCE
+    exec "$@"
+)
+
+# The Go parent owns this private channel and every requested Xray process.
+# An incomplete channel is an error, never a fallback to an unowned child.
+owned_xray_init() {
+    [ -n "${FREENET_OWNED_XRAY_DIR:-}${FREENET_OWNED_XRAY_NONCE:-}${FREENET_OWNED_XRAY_WORK_DIR:-}" ] || return 0
+    [ "${#FREENET_OWNED_XRAY_NONCE}" -eq 32 ] || return 1
+    case "$FREENET_OWNED_XRAY_NONCE" in *[!0-9a-f]*) return 1 ;; esac
+    [ "$FREENET_OWNED_XRAY_DIR" = "$1/owned-xray" ] &&
+        [ "$FREENET_OWNED_XRAY_WORK_DIR" = "$1/helper" ] || return 1
+    for OWNED_XRAY_DIRECTORY in "$1" "$FREENET_OWNED_XRAY_DIR" "$FREENET_OWNED_XRAY_WORK_DIR"; do
+        [ -d "$OWNED_XRAY_DIRECTORY" ] && [ ! -L "$OWNED_XRAY_DIRECTORY" ] || return 1
+    done
+    OWNED_XRAY_ENABLED=1
+}
+
+owned_xray_request() {
+    [ "$OWNED_XRAY_ENABLED" -eq 1 ] && [ "$OWNED_XRAY_SEQUENCE" -lt 16 ] || return 1
+    OWNED_XRAY_SEQUENCE=$((OWNED_XRAY_SEQUENCE + 1))
+    OWNED_XRAY_REQUEST="$FREENET_OWNED_XRAY_DIR/request.tmp.$$"
+    [ ! -e "$OWNED_XRAY_REQUEST" ] && [ ! -L "$OWNED_XRAY_REQUEST" ] || return 1
+    (umask 077; set -C; printf 'FREENET_OWNED_XRAY_V1\t%s\t%s\t%s\t%s\t%s\n' \
+        "$FREENET_OWNED_XRAY_NONCE" "$$" "$OWNED_XRAY_SEQUENCE" "$1" "$2" > "$OWNED_XRAY_REQUEST") || return 1
+    chmod 600 "$OWNED_XRAY_REQUEST" || return 1
+    mv -f "$OWNED_XRAY_REQUEST" "$FREENET_OWNED_XRAY_DIR/request" || return 1
+    OWNED_XRAY_RESPONSE="$FREENET_OWNED_XRAY_DIR/response"
+    OWNED_XRAY_POLL=0
+    while [ "$OWNED_XRAY_POLL" -lt 180 ]; do
+        if [ -e "$OWNED_XRAY_RESPONSE" ] || [ -L "$OWNED_XRAY_RESPONSE" ]; then
+            [ -f "$OWNED_XRAY_RESPONSE" ] && [ ! -L "$OWNED_XRAY_RESPONSE" ] || return 1
+            [ "$(wc -c < "$OWNED_XRAY_RESPONSE")" -le 512 ] || return 1
+            [ "$(wc -l < "$OWNED_XRAY_RESPONSE")" -eq 1 ] || return 1
+            OWNED_XRAY_REPLY="$(cat "$OWNED_XRAY_RESPONSE")" || return 1
+            IFS="$(printf '\t')" read -r OX_PROTOCOL OX_NONCE OX_PID OX_SEQ OX_STAGE OX_RESULT OX_CHILD OX_EXTRA <<EOF
+$OWNED_XRAY_REPLY
+EOF
+            [ "$OWNED_XRAY_REPLY" = "$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+                "$OX_PROTOCOL" "$OX_NONCE" "$OX_PID" "$OX_SEQ" "$OX_STAGE" "$OX_RESULT" "$OX_CHILD")" ] || return 1
+            [ "$OX_PROTOCOL" = FREENET_OWNED_XRAY_V1 ] && [ "$OX_NONCE" = "$FREENET_OWNED_XRAY_NONCE" ] && [ "$OX_PID" = "$$" ] || return 1
+            case "$OX_CHILD" in ''|*[!0-9]*) return 1 ;; esac
+            if [ "$OX_SEQ" = "$OWNED_XRAY_SEQUENCE" ]; then
+                [ "$OX_STAGE" = "$1" ] || return 1
+                case "$OX_RESULT" in OK) OWNED_XRAY_CHILD_PID="$OX_CHILD"; return 0 ;; FAIL) return 1 ;; *) return 1 ;; esac
+            fi
+            [ "$OX_SEQ" = "$((OWNED_XRAY_SEQUENCE - 1))" ] || return 1
+        fi
+        sleep 1
+        OWNED_XRAY_POLL=$((OWNED_XRAY_POLL + 1))
+    done
+    return 1
+}
 
 cleanup() {
     [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR" 2>/dev/null || true
@@ -654,7 +716,48 @@ validate_candidate() {
     done
     [ "$FOUND" -eq 1 ] || return 1
     cp "$CANDIDATE_OUT" "$TEST_CONF/04_outbounds.json" || return 1
-    XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$TEST_CONF" > "$XRAY_TEST_LOG" 2>&1
+    if [ "$OWNED_XRAY_ENABLED" -eq 1 ]; then
+        owned_xray_request candidate-test "$TEST_CONF"
+        return $?
+    fi
+    unmanaged_xray_test "$TEST_CONF"
+}
+
+# Direct CLI calls retain their synchronous lifecycle, but their read-only
+# validation is still visibly isolated from the production core inventory.
+unmanaged_xray_test() {
+    TEST_XRAY="$TMP_DIR/fn-xray-test"
+    TEST_XRAY_TARGET="$XRAY_BIN"
+    case "$TEST_XRAY_TARGET" in
+        /*) ;;
+        *)
+            TEST_XRAY_PARENT="$(CDPATH= cd "$(dirname "$XRAY_BIN")" && pwd)" || return 1
+            TEST_XRAY_TARGET="$TEST_XRAY_PARENT/$(basename "$XRAY_BIN")"
+            ;;
+    esac
+    if [ -e "$TEST_XRAY" ] || [ -L "$TEST_XRAY" ]; then
+        [ -L "$TEST_XRAY" ] && [ "$(readlink "$TEST_XRAY")" = "$TEST_XRAY_TARGET" ] || return 1
+    else
+        ln -s "$TEST_XRAY_TARGET" "$TEST_XRAY" || return 1
+    fi
+    FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$TEST_XRAY" run -test -confdir "$1" > "$XRAY_TEST_LOG" 2>&1
+}
+
+validate_live() {
+    if [ "$OWNED_XRAY_ENABLED" -eq 1 ]; then
+        owned_xray_request live-test "$CONFIG_DIR"
+        return $?
+    fi
+    unmanaged_xray_test "$CONFIG_DIR"
+}
+
+stop_provider_route_probe() {
+    if [ "$OWNED_XRAY_ENABLED" -eq 1 ]; then
+        owned_xray_request route-stop "$PROBE_DIR"
+        return $?
+    fi
+    kill "$PROBE_PID" 2>/dev/null || true
+    wait "$PROBE_PID" 2>/dev/null || true
 }
 
 provider_route_probe() {
@@ -699,12 +802,18 @@ provider_route_probe() {
     ' > "$PROBE_CFG" 2>/dev/null || return 1
     chmod 600 "$PROBE_CFG" 2>/dev/null || true
 
-    PROBE_XRAY="$PROBE_DIR/fn-xray-provider-probe"
-    ln -s "$XRAY_BIN" "$PROBE_XRAY" 2>/dev/null || return 1
-    FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$PROBE_XRAY" run -test -confdir "$PROBE_DIR" >/dev/null 2>&1 || return 1
-
-    FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$PROBE_XRAY" run -confdir "$PROBE_DIR" >/dev/null 2>&1 &
-    PROBE_PID=$!
+    if [ "$OWNED_XRAY_ENABLED" -eq 1 ]; then
+        owned_xray_request route-test "$PROBE_DIR" || return 1
+        owned_xray_request route-start "$PROBE_DIR" || return 1
+        PROBE_PID="$OWNED_XRAY_CHILD_PID"
+        [ "$PROBE_PID" -gt 0 ] || return 1
+    else
+        PROBE_XRAY="$PROBE_DIR/fn-xray-provider-probe"
+        ln -s "$XRAY_BIN" "$PROBE_XRAY" 2>/dev/null || return 1
+        FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$PROBE_XRAY" run -test -confdir "$PROBE_DIR" >/dev/null 2>&1 || return 1
+        FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$PROBE_XRAY" run -confdir "$PROBE_DIR" >/dev/null 2>&1 &
+        PROBE_PID=$!
+    fi
     PROBE_READY=0
     PROBE_TRY=0
     while [ "$PROBE_TRY" -lt 5 ]; do
@@ -717,8 +826,7 @@ provider_route_probe() {
         PROBE_TRY=$((PROBE_TRY + 1))
     done
     if [ "$PROBE_READY" -ne 1 ]; then
-        kill "$PROBE_PID" 2>/dev/null || true
-        wait "$PROBE_PID" 2>/dev/null || true
+        stop_provider_route_probe || return 1
         return 1
     fi
 
@@ -740,8 +848,7 @@ provider_route_probe() {
         PROBE_REMAIN=$((3 - PROBE_TOTAL))
         [ $((PROBE_OK + PROBE_REMAIN)) -ge 2 ] || break
     done
-    kill "$PROBE_PID" 2>/dev/null || true
-    wait "$PROBE_PID" 2>/dev/null || true
+    stop_provider_route_probe || return 1
     [ "$PROBE_OK" -ge 2 ]
 }
 
@@ -928,7 +1035,7 @@ restart_xray_core() {
     CORE_RESTART_EXIT="not-run"
     if [ -n "$CORE_RESTART_HELPER" ]; then
         CORE_RESTART_STAGE="restart-helper"
-        if "$CORE_RESTART_HELPER" "$ALLOW_STOPPED"; then
+        if production_core_command "$CORE_RESTART_HELPER" "$ALLOW_STOPPED"; then
             CORE_RESTART_STAGE="ready"
             CORE_RESTART_EXIT="0"
             return 0
@@ -1027,7 +1134,7 @@ restart_xray_core() {
 
     # Preserve XKeen/netfilter ownership, never call the full XKeen restart.
     CORE_RESTART_STAGE="xkeen-start"
-    if XKEEN_FOREGROUND=1 "$XKEEN_BIN" -start >/dev/null 2>&1; then
+    if XKEEN_FOREGROUND=1 production_core_command "$XKEEN_BIN" -start >/dev/null 2>&1; then
         :
     else
         CORE_RESTART_EXIT="$?"
@@ -1068,7 +1175,7 @@ restart_if_needed() {
     fi
     [ "$WAS_RUNNING" -eq 1 ] || return 0
     CORE_RESTART_STAGE="xkeen-full-restart"
-    if "$XKEEN_BIN" -restart >/dev/null 2>&1; then
+    if production_core_command "$XKEEN_BIN" -restart >/dev/null 2>&1; then
         sleep 4
     else
         CORE_RESTART_EXIT="$?"
@@ -1105,7 +1212,7 @@ verify_restored_provider_files() {
 
 restore_previously_stopped_core() {
     if [ -n "$CORE_RESTART_HELPER" ]; then
-        "$CORE_RESTART_HELPER" stop || return 1
+        production_core_command "$CORE_RESTART_HELPER" stop || return 1
         [ -z "$(pidof xray 2>/dev/null || true)" ]
         return $?
     fi
@@ -1171,7 +1278,7 @@ rollback_state() {
                 RB=1
             fi
         else
-            if "$XKEEN_BIN" -restart >/dev/null 2>&1 && pidof xray >/dev/null 2>&1; then
+            if production_core_command "$XKEEN_BIN" -restart >/dev/null 2>&1 && pidof xray >/dev/null 2>&1; then
                 ROLLBACK_CORE_STATUS="RESTORED"
             else
                 ROLLBACK_CORE_STATUS="FAILED"
@@ -1290,6 +1397,19 @@ case "$REQUESTED_ID" in
 esac
 [ "${#REQUESTED_ID}" -eq 16 ] || { err 'PROFILE_ID must be 16 lowercase hex characters'; exit 2; }
 
+if [ -n "${FREENET_OWNED_XRAY_DIR:-}${FREENET_OWNED_XRAY_NONCE:-}${FREENET_OWNED_XRAY_WORK_DIR:-}" ]; then
+    case "$MODE" in
+        apply-core|recover-core)
+            [ "${FREENET_PROVIDER_FINALIZATION_NONCE:-}" = "$FREENET_OWNED_XRAY_NONCE" ] &&
+                owned_xray_init "$(dirname "$PROVIDER_CACHE")" || { err 'owned Xray channel is invalid'; exit 2; }
+            ;;
+        plan|apply)
+            owned_xray_init "$(dirname "$FREENET_OWNED_XRAY_DIR")" || { err 'owned Xray channel is invalid'; exit 2; }
+            ;;
+        *) err 'owned Xray channel is not valid for this provider mode'; exit 2 ;;
+    esac
+fi
+
 for C in jq sed awk grep tr head base64 sha256sum mktemp cp mv mkdir dirname pidof date; do
     command -v "$C" >/dev/null 2>&1 || { err "required command missing: $C"; exit 1; }
 done
@@ -1323,7 +1443,11 @@ case "$SUB_AUTH" in *:*) SUB_HOST="${SUB_AUTH%%:*}"; SUB_PORT="${SUB_AUTH##*:}" 
 [ -n "$SUB_HOST" ] || { err 'subscription host is empty'; exit 1; }
 case "$SUB_PORT" in ''|*[!0-9]*) err 'subscription port is invalid'; exit 1 ;; esac
 
-TMP_DIR="$(mktemp -d /tmp/freenet-provider.XXXXXX 2>/dev/null)"
+if [ "$OWNED_XRAY_ENABLED" -eq 1 ]; then
+    TMP_DIR="$FREENET_OWNED_XRAY_WORK_DIR"
+else
+    TMP_DIR="$(mktemp -d /tmp/freenet-provider.XXXXXX 2>/dev/null)"
+fi
 [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] || { err 'cannot create temporary directory'; exit 1; }
 RAW_FILE="$TMP_DIR/sub.raw"
 DECODED_FILE="$TMP_DIR/sub.decoded"
@@ -1400,8 +1524,7 @@ chmod 644 "$FILTER_FILE.new.$$" 2>/dev/null || true
 mv -f "$FILTER_FILE.new.$$" "$FILTER_FILE" || fail_apply 'cannot commit exact active profile filter'
 
 restart_if_needed || fail_apply "Xray/XKeen runtime acceptance failed after provider apply; stage=$CORE_RESTART_STAGE; code=$CORE_RESTART_EXIT"
-XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$XRAY_TEST_LOG" 2>&1 \
-    || fail_apply 'live Xray configuration validation failed after provider apply'
+validate_live || fail_apply 'live Xray configuration validation failed after provider apply'
 provider_route_probe "$OUT_FILE" || fail_apply 'live VPN application route validation failed after provider apply'
 
 provider_finalization_status accepted-finalizing pending || {

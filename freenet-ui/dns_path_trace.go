@@ -320,10 +320,9 @@ func stopTraceProcess(cmd *exec.Cmd, processDone <-chan error) {
 	if cmd != nil && cmd.Process != nil {
 		_ = cmd.Process.Kill()
 	}
-	select {
-	case <-processDone:
-	case <-time.After(750 * time.Millisecond):
-	}
+	// The channel closes only after the owned child's actual Wait. A startup
+	// check may already have consumed its result, so closure also proves exit.
+	<-processDone
 }
 
 func sendTraceHTTPProxyRequest(port int, host string) {
@@ -358,6 +357,13 @@ func runReadOnlyXrayPathProbe(host string, currentDNS, routing map[string]any) (
 	if err != nil {
 		return "", errors.New("не удалось построить read-only trace config")
 	}
+	testCtx, testCancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer testCancel()
+	releaseProbe, ok := acquireIsolatedXrayProbe(testCtx)
+	if !ok {
+		return "", errors.New("read-only Xray trace could not acquire an isolated probe slot")
+	}
+	defer releaseProbe()
 	tmp, err := os.MkdirTemp("", "freenet-dns-trace-*")
 	if err != nil {
 		return "", errors.New("не удалось создать временный trace workspace")
@@ -366,10 +372,14 @@ func runReadOnlyXrayPathProbe(host string, currentDNS, routing map[string]any) (
 	if err := os.WriteFile(filepath.Join(tmp, "trace.json"), append(data, '\n'), 0o600); err != nil {
 		return "", errors.New("не удалось записать временный trace config")
 	}
+	probePath, err := resolvedIsolatedXrayProbePath(tmp, legacyNativeXrayBin())
+	if err != nil {
+		return "", errors.New("не удалось подготовить read-only Xray trace process")
+	}
 
-	testCtx, testCancel := context.WithTimeout(context.Background(), 8*time.Second)
-	testCmd := exec.CommandContext(testCtx, legacyNativeXrayBin(), "run", "-test", "-confdir", tmp)
-	testCmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+legacyNativeXrayAssetDir())
+	testCmd := exec.CommandContext(testCtx, probePath, "run", "-test", "-confdir", tmp)
+	testCmd.Env = isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+legacyNativeXrayAssetDir()))
+	testCmd.WaitDelay = 2 * time.Second
 	testOutput, testErr := testCmd.CombinedOutput()
 	testCancel()
 	if testErr != nil {
@@ -382,8 +392,9 @@ func runReadOnlyXrayPathProbe(host string, currentDNS, routing map[string]any) (
 
 	ctx, cancel := context.WithTimeout(context.Background(), dnsTraceProcessTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, legacyNativeXrayBin(), "run", "-confdir", tmp)
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+legacyNativeXrayAssetDir())
+	cmd := exec.CommandContext(ctx, probePath, "run", "-confdir", tmp)
+	cmd.Env = isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+legacyNativeXrayAssetDir()))
+	cmd.WaitDelay = 2 * time.Second
 	var logs bytes.Buffer
 	cmd.Stdout = &logs
 	cmd.Stderr = &logs
@@ -393,6 +404,7 @@ func runReadOnlyXrayPathProbe(host string, currentDNS, routing map[string]any) (
 	processDone := make(chan error, 1)
 	go func() {
 		processDone <- cmd.Wait()
+		close(processDone)
 	}()
 	startupDeadline := time.Now().Add(dnsTraceStartupTimeout)
 	if err := waitTraceTCPPort(payloadPort, startupDeadline, processDone); err != nil {

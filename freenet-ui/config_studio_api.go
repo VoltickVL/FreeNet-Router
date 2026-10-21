@@ -170,7 +170,31 @@ func (a *app) configStudioXrayStatus(parent context.Context) configStudioXraySta
 	status := configStudioXrayStatus{Online: a.liveXrayRunning()}
 	ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, a.routingXrayBin(), "version")
+	releaseProbe, ok := acquireIsolatedXrayProbe(ctx)
+	if !ok {
+		return status
+	}
+	defer releaseProbe()
+	xrayPath, err := exec.LookPath(a.routingXrayBin())
+	if err != nil {
+		return status
+	}
+	xrayPath, err = filepath.Abs(xrayPath)
+	if err != nil {
+		return status
+	}
+	tmpDir, err := os.MkdirTemp("", "freenet-xray-version-")
+	if err != nil {
+		return status
+	}
+	defer os.RemoveAll(tmpDir)
+	probeXrayPath, err := isolatedXrayProbePath(tmpDir, xrayPath)
+	if err != nil {
+		return status
+	}
+	cmd := exec.CommandContext(ctx, probeXrayPath, "version")
+	cmd.Env = isolatedXrayProbeEnv(os.Environ())
+	// Output waits for the owned child before cleanup and probe-slot release.
 	out, err := cmd.Output()
 	if err != nil || ctx.Err() != nil {
 		return status
@@ -287,11 +311,7 @@ func (a *app) validateConfigStudioCandidate(parent context.Context, name string,
 	}
 	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, a.routingXrayBin(), "run", "-test", "-confdir", tmpDir)
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+a.routingAssetDir())
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
+	if err := runReadOnlyXrayValidation(ctx, a.routingXrayBin(), a.routingAssetDir(), tmpDir); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return errRoutingXrayTimeout
 		}
@@ -365,11 +385,7 @@ func (a *app) validateConfigStudioLive(parent context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, a.routingXrayBin(), "run", "-test", "-confdir", tmpDir)
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+a.routingAssetDir())
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Run(); err != nil {
+	if err := runReadOnlyXrayValidation(ctx, a.routingXrayBin(), a.routingAssetDir(), tmpDir); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return errRoutingXrayTimeout
 		}

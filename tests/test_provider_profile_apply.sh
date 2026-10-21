@@ -523,7 +523,7 @@ unset CORE_HELPER
 grep -Fq '[ "$MODE" = apply-core ]' "$SCRIPT" || fail 'apply-core mode dispatch missing'
 grep -Fq 'restart_xray_core no' "$SCRIPT" || fail 'apply-core does not use core-only restart'
 grep -Fq 'restart_xray_core yes' "$SCRIPT" || fail 'apply-core rollback does not use core-only restart'
-grep -Fq 'XKEEN_FOREGROUND=1 "$XKEEN_BIN" -start' "$SCRIPT" || fail 'core-only restart must use canonical synchronous XKeen start'
+grep -Fq 'XKEEN_FOREGROUND=1 production_core_command "$XKEEN_BIN" -start' "$SCRIPT" || fail 'core-only restart must use canonical synchronous XKeen start'
 if sed -n '/restart_xray_core() {/,/^}/p' "$SCRIPT" | grep -Fq 'nohup "$XRAY_BIN" run'; then
     fail 'core-only restart bypasses canonical XKeen start with direct Xray launch'
 fi
@@ -887,7 +887,7 @@ fi
     # Run the production preflight and termination loop. Only the proc root
     # is injected into the real reader; no lifecycle result is stubbed.
     LOOP_FUNCTIONS="$TMP/core-race-loop-functions.sh"
-    sed -n '/^single_xray_pid() {/,/^}/p; /^core_restart_preflight() {/,/^}/p; /^restart_xray_core() {/,/^}/p' "$SCRIPT" > "$LOOP_FUNCTIONS"
+    sed -n '/^production_core_command() (/,/^)/p; /^single_xray_pid() {/,/^}/p; /^core_restart_preflight() {/,/^}/p; /^restart_xray_core() {/,/^}/p' "$SCRIPT" > "$LOOP_FUNCTIONS"
     . "$LOOP_FUNCTIONS"
     READER_FUNCTION="$TMP/core-race-reader-function.sh"
     sed -n '/^xray_pid_lifecycle() {/,/^}/p' "$SCRIPT" | sed '1s/xray_pid_lifecycle/xray_pid_lifecycle_fixture/' > "$READER_FUNCTION"

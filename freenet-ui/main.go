@@ -26,7 +26,8 @@ import (
 const version = "0.2.1"
 
 const (
-	controlCenterWriteTimeout = 220 * time.Second
+	controlCenterWriteTimeout = 360 * time.Second
+	defaultProviderTimeout = 180 * time.Second
 	defaultListen              = "192.168.50.1:1001"
 	defaultVPNPath        = "/opt/bin/vpn"
 	defaultFilterPath     = "/opt/etc/xray/blanc_profile_filter.regex"
@@ -57,6 +58,7 @@ type config struct {
 	UpdateState    string
 	UpdateLock     string
 	Timeout        time.Duration
+	ProviderTimeout time.Duration
 }
 
 type app struct {
@@ -213,7 +215,14 @@ func main() {
 	flag.StringVar(&cfg.UpdateState, "update-state", defaultUpdateState, "FreeNet self update state path")
 	flag.StringVar(&cfg.UpdateLock, "update-lock", defaultUpdateLock, "FreeNet self update lock path")
 	flag.DurationVar(&cfg.Timeout, "action-timeout", 95*time.Second, "action timeout")
+	flag.DurationVar(&cfg.ProviderTimeout, "provider-action-timeout", defaultProviderTimeout, "provider VPN apply work timeout (terminal finalization has a separate bounded reserve)")
 	flag.Parse()
+	explicitActionTimeout, explicitProviderTimeout := false, false
+	flag.Visit(func(f *flag.Flag) {
+		explicitActionTimeout = explicitActionTimeout || f.Name == "action-timeout"
+		explicitProviderTimeout = explicitProviderTimeout || f.Name == "provider-action-timeout"
+	})
+	cfg.ProviderTimeout = providerTimeoutOverride(cfg.Timeout, cfg.ProviderTimeout, explicitActionTimeout, explicitProviderTimeout)
 
 	a := &app{cfg: cfg, sem: make(chan struct{}, 1)}
 	startTechnicalJournalRecorder() // diagnostics only; capture early startup incidents

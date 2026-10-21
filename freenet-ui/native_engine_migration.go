@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -387,12 +386,7 @@ func validateRecoveredNativeDNSCandidate(dnsData []byte) error {
 func legacyNativeValidateConfdir(dir string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, legacyNativeXrayBin(), "run", "-test", "-confdir", dir)
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+legacyNativeXrayAssetDir())
-	if err := cmd.Run(); err != nil {
-		return err
-	}
-	return nil
+	return runReadOnlyXrayValidation(ctx, legacyNativeXrayBin(), legacyNativeXrayAssetDir(), dir)
 }
 
 func persistRecoveredNativeDNS(data []byte) error {

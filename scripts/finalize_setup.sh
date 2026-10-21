@@ -26,16 +26,76 @@ CRON_BEFORE=""
 AUTOSTART_BEFORE="unknown"
 APPLIED=0
 ROLLBACK_ACTIVE=0
+OWNED_XRAY_ENABLED=0
+OWNED_XRAY_SEQUENCE=0
+OWNED_XRAY_CHILD_PID=0
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Setup Finalize] ERROR: %s\n' "$*" >&2; }
 
+# The Go parent owns this private channel and every requested Xray process.
+# An incomplete channel is an error, never a fallback to an unowned child.
+owned_xray_init() {
+    [ -n "${FREENET_OWNED_XRAY_DIR:-}${FREENET_OWNED_XRAY_NONCE:-}${FREENET_OWNED_XRAY_WORK_DIR:-}" ] || return 0
+    [ "${#FREENET_OWNED_XRAY_NONCE}" -eq 32 ] || return 1
+    case "$FREENET_OWNED_XRAY_NONCE" in *[!0-9a-f]*) return 1 ;; esac
+    [ "$FREENET_OWNED_XRAY_DIR" = "$1/owned-xray" ] &&
+        [ "$FREENET_OWNED_XRAY_WORK_DIR" = "$1/helper" ] || return 1
+    for OWNED_XRAY_DIRECTORY in "$1" "$FREENET_OWNED_XRAY_DIR" "$FREENET_OWNED_XRAY_WORK_DIR"; do
+        [ -d "$OWNED_XRAY_DIRECTORY" ] && [ ! -L "$OWNED_XRAY_DIRECTORY" ] || return 1
+    done
+    OWNED_XRAY_ENABLED=1
+}
+
+owned_xray_request() {
+    [ "$OWNED_XRAY_ENABLED" -eq 1 ] && [ "$OWNED_XRAY_SEQUENCE" -lt 16 ] || return 1
+    OWNED_XRAY_SEQUENCE=$((OWNED_XRAY_SEQUENCE + 1))
+    OWNED_XRAY_REQUEST="$FREENET_OWNED_XRAY_DIR/request.tmp.$$"
+    [ ! -e "$OWNED_XRAY_REQUEST" ] && [ ! -L "$OWNED_XRAY_REQUEST" ] || return 1
+    (umask 077; set -C; printf 'FREENET_OWNED_XRAY_V1\t%s\t%s\t%s\t%s\t%s\n' \
+        "$FREENET_OWNED_XRAY_NONCE" "$$" "$OWNED_XRAY_SEQUENCE" "$1" "$2" > "$OWNED_XRAY_REQUEST") || return 1
+    chmod 600 "$OWNED_XRAY_REQUEST" || return 1
+    mv -f "$OWNED_XRAY_REQUEST" "$FREENET_OWNED_XRAY_DIR/request" || return 1
+    OWNED_XRAY_RESPONSE="$FREENET_OWNED_XRAY_DIR/response"
+    OWNED_XRAY_POLL=0
+    while [ "$OWNED_XRAY_POLL" -lt 180 ]; do
+        if [ -e "$OWNED_XRAY_RESPONSE" ] || [ -L "$OWNED_XRAY_RESPONSE" ]; then
+            [ -f "$OWNED_XRAY_RESPONSE" ] && [ ! -L "$OWNED_XRAY_RESPONSE" ] || return 1
+            [ "$(wc -c < "$OWNED_XRAY_RESPONSE")" -le 512 ] || return 1
+            [ "$(wc -l < "$OWNED_XRAY_RESPONSE")" -eq 1 ] || return 1
+            OWNED_XRAY_REPLY="$(cat "$OWNED_XRAY_RESPONSE")" || return 1
+            IFS="$(printf '\t')" read -r OX_PROTOCOL OX_NONCE OX_PID OX_SEQ OX_STAGE OX_RESULT OX_CHILD OX_EXTRA <<EOF
+$OWNED_XRAY_REPLY
+EOF
+            [ "$OWNED_XRAY_REPLY" = "$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+                "$OX_PROTOCOL" "$OX_NONCE" "$OX_PID" "$OX_SEQ" "$OX_STAGE" "$OX_RESULT" "$OX_CHILD")" ] || return 1
+            [ "$OX_PROTOCOL" = FREENET_OWNED_XRAY_V1 ] && [ "$OX_NONCE" = "$FREENET_OWNED_XRAY_NONCE" ] && [ "$OX_PID" = "$$" ] || return 1
+            case "$OX_CHILD" in ''|*[!0-9]*) return 1 ;; esac
+            if [ "$OX_SEQ" = "$OWNED_XRAY_SEQUENCE" ]; then
+                [ "$OX_STAGE" = "$1" ] || return 1
+                case "$OX_RESULT" in OK) OWNED_XRAY_CHILD_PID="$OX_CHILD"; return 0 ;; FAIL) return 1 ;; *) return 1 ;; esac
+            fi
+            [ "$OX_SEQ" = "$((OWNED_XRAY_SEQUENCE - 1))" ] || return 1
+        fi
+        sleep 1
+        OWNED_XRAY_POLL=$((OWNED_XRAY_POLL + 1))
+    done
+    return 1
+}
+
 cleanup() {
+    # The Go parent keeps its work directory until owned children are reaped.
+    [ "$OWNED_XRAY_ENABLED" -eq 0 ] || return 0
     [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR" 2>/dev/null || true
 }
 trap cleanup 0 1 2 15
 
 make_tmp() {
+    if [ "$OWNED_XRAY_ENABLED" -eq 1 ]; then
+        TMP_DIR="$FREENET_OWNED_XRAY_WORK_DIR"
+        [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ]
+        return
+    fi
     [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] && return 0
     TMP_DIR="$(mktemp -d /tmp/freenet-finalize.XXXXXX 2>/dev/null)"
     [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] || {
@@ -110,7 +170,14 @@ validate_xray() {
     [ -x "$XRAY_BIN" ] || return 1
     [ -d "$CONFIG_DIR" ] || return 1
     [ -d "$ASSET_DIR" ] || return 1
-    XRAY_LOCATION_ASSET="$ASSET_DIR" "$XRAY_BIN" run -test -confdir "$CONFIG_DIR" > "$TMP_DIR/xray-test.log" 2>&1
+    if [ "$OWNED_XRAY_ENABLED" -eq 1 ]; then
+        owned_xray_request setup-test "$CONFIG_DIR"
+        return
+    fi
+    # Standalone plan/apply also keeps diagnostics distinct from the core.
+    PROBE_XRAY="$TMP_DIR/fn-xray-probe"
+    [ -L "$PROBE_XRAY" ] || ln -s "$XRAY_BIN" "$PROBE_XRAY" || return 1
+    FREENET_XRAY_PROBE=1 XRAY_LOCATION_ASSET="$ASSET_DIR" "$PROBE_XRAY" run -test -confdir "$CONFIG_DIR" > "$TMP_DIR/xray-test.log" 2>&1
 }
 
 outbound_state() {
@@ -318,7 +385,12 @@ apply() {
     say '[FreeNet Setup Finalize] ROLLBACK=NOT_NEEDED'
 }
 
-for C in jq sed awk grep tr tail mktemp cp mv mkdir chmod; do
+if [ -n "${FREENET_OWNED_XRAY_DIR:-}${FREENET_OWNED_XRAY_NONCE:-}${FREENET_OWNED_XRAY_WORK_DIR:-}" ]; then
+    OWNED_XRAY_PARENT="${FREENET_OWNED_XRAY_WORK_DIR%/helper}"
+    owned_xray_init "$OWNED_XRAY_PARENT" || { err 'invalid owned Xray channel'; exit 1; }
+fi
+
+for C in jq sed awk grep tr tail mktemp cp mv mkdir chmod cat wc sleep ln; do
     command -v "$C" >/dev/null 2>&1 || { err "required command missing: $C"; exit 1; }
 done
 command -v "$CRONTAB_BIN" >/dev/null 2>&1 || { err 'crontab command is missing'; exit 1; }

@@ -1642,7 +1642,7 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 	}
 	writeAutomationStateV2(result, message, rollback, false)
 	appendAutomationHistoryV2(result, message+"; rollback="+rollback)
-	if rollback == "FAILED/UNKNOWN" {
+	if automationRollbackBlocksMutation(rollback) {
 		return errors.New("scheduled current endpoint reconcile rollback failed or is unknown")
 	}
 	return nil
