@@ -85,6 +85,7 @@ jobs:
           sh -n tests/test_provider_route_probe_builtin.sh
           sh -n tests/test_finalize_setup.sh
           sh -n tests/test_self_update.sh
+          sh -n tests/test_self_update_reconciliation.sh
           sh -n tests/test_legacy_update_bridge.sh
           sh -n deploy/S99freenet-ui
 
@@ -129,6 +130,9 @@ jobs:
 
       - name: Web self update transactional contract
         run: sh tests/test_self_update.sh
+
+      - name: Verified application rollback and HTTP daemon lifecycle
+        run: sh tests/test_self_update_reconciliation.sh
 
       - name: Legacy updater bridge contract
         run: sh tests/test_legacy_update_bridge.sh
