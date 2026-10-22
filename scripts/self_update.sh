@@ -32,7 +32,7 @@ case "$DOWNLOAD_RETRIES" in
 esac
 MODE="${1:-plan}"
 TARGET_TAG="${2:-}"
-if [ "$MODE" = plan ]; then
+if [ "$MODE" = plan ] || [ "$MODE" = reconcile-rollback-plan ] || [ "$MODE" = reconcile-rollback ]; then
     # Read-only planning must finish inside the Control Center request budget.
     # Apply keeps the longer retry policy for real asset downloads.
     DOWNLOAD_RETRIES=1
@@ -52,11 +52,32 @@ MUTATED=0
 LAST_DOWNLOAD_ERROR=""
 RELEASE_META_TAG=""
 RELEASE_META_FILE=""
+UPDATE_UID="$(id -u)"
+UPDATE_PROC_ROOT="${FREENET_PROC_ROOT:-/proc}"
+UI_SERVICE_READY=0
+UI_OLD_SHA=""
+UI_OLD_PIN=""
+UI_STARTED_PID=""
+UI_STARTED_ID=""
+UI_STARTED_SHA=""
+UI_STARTED_PIN=""
+LAST_UPDATE_STAGE=""
+RECONCILE_GUARD_HELD=0
+RECONCILE_GUARD_DIR="$LOCK_DIR.reconcile-guard"
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Web Update] ERROR: %s\n' "$*" >&2; }
 
 cleanup() {
+    if [ -n "${RQ_TERMINAL_TMP:-}" ] && [ -f "$RQ_TERMINAL_TMP" ] && [ ! -L "$RQ_TERMINAL_TMP" ]; then
+        rm -f "$RQ_TERMINAL_TMP" 2>/dev/null || true
+    fi
+    if [ "$RECONCILE_GUARD_HELD" = 1 ]; then
+        # This is this command's empty, temporary serialization directory,
+        # never either of the existing application/network fences.
+        rmdir "$RECONCILE_GUARD_DIR" 2>/dev/null || true
+        RECONCILE_GUARD_HELD=0
+    fi
     if [ "$RECOVERY_GUARD_HELD" = 1 ]; then
         rmdir "$RECOVERY_GUARD_DIR" 2>/dev/null || true
         RECOVERY_GUARD_HELD=0
@@ -130,11 +151,9 @@ version_gt() {
 
 make_tmp() {
     [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] && return 0
-    TMP_DIR="$(mktemp -d /tmp/freenet-self-update.XXXXXX 2>/dev/null)"
-    if [ -z "$TMP_DIR" ] || [ ! -d "$TMP_DIR" ]; then
-        TMP_DIR="/tmp/freenet-self-update.$$"
-        mkdir -p "$TMP_DIR" || return 1
-    fi
+    TMP_DIR="$(umask 077; mktemp -d /tmp/freenet-self-update.XXXXXX)" || return 1
+    [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ] && [ ! -L "$TMP_DIR" ] || return 1
+    chmod 700 "$TMP_DIR"
 }
 
 get_arch() {
@@ -271,7 +290,7 @@ download_url() {
 
         CONNECT_TIMEOUT=10
         MAX_TIME=60
-        if [ "$MODE" = plan ]; then
+        if [ "$MODE" = plan ] || [ "$MODE" = reconcile-rollback-plan ] || [ "$MODE" = reconcile-rollback ]; then
             CONNECT_TIMEOUT=5
             MAX_TIME=12
         fi
@@ -640,15 +659,334 @@ prepare_backup() {
     snapshot_xray "$BACKUP_DIR/xray-hashes.before" || return 1
 }
 
+# Numeric metadata without GNU-only stat assumptions. Device/inode/timestamps
+# remain strings; Entware's shell arithmetic can be only 32 bits wide.
+update_stat() (
+    us_path="$1"
+    if us_value="$(LC_ALL=C stat -L -c '%f %u %g %h %s %D %i %Y %Z' "$us_path" 2>/dev/null)"; then
+        us_fields="$us_value"
+    else
+        us_value="$(LC_ALL=C stat -L -t "$us_path" 2>/dev/null)" || return 1
+        case "$us_value" in "$us_path "*) us_value="${us_value#"$us_path "}" ;; *) return 1 ;; esac
+        us_fields="$(printf '%s\n' "$us_value" | LC_ALL=C awk '
+            NR == 1 && NF == 14 { print $3, $4, $5, $8, $1, $6, $7, $12, $13; ok=1 }
+            END { if (NR != 1 || !ok) exit 1 }
+        ')" || return 1
+    fi
+    printf '%s\n' "$us_fields" | LC_ALL=C awk '
+        function hex(s, n,i,c) {
+            n=0; s=tolower(s)
+            for (i=1; i<=length(s); i++) { c=index("0123456789abcdef",substr(s,i,1))-1; if(c<0)return -1; n=n*16+c }
+            return n
+        }
+        NR != 1 || NF != 9 { bad=1; next }
+        {
+            if ($1 !~ /^[0-9a-fA-F]+$/ || length($1)>8 || $6 !~ /^[0-9a-fA-F]+$/) bad=1
+            for(i=2;i<=9;i++) if(i!=6 && $i !~ /^[0-9]+$/) bad=1
+            mode=hex($1)
+            if(mode<0) bad=1
+            out=tolower($6) ":" $7 ":" $2 ":" $3 ":" sprintf("%o",mode%4096) ":" $4 ":" $5 ":" $8 ":" $9 ":" int(mode/4096)
+        }
+        END { if(NR!=1 || bad) exit 1; print out }
+    '
+)
+
+update_sha() (
+    uh_value="$(sha256sum < "$1")" || return 1
+    uh_value="${uh_value%% *}"
+    [ "${#uh_value}" -eq 64 ] || return 1
+    case "$uh_value" in *[!0-9a-f]*) return 1 ;; esac
+    printf '%s\n' "$uh_value"
+)
+
+update_file_proof() (
+    uf_path="$1"; uf_limit="$2"; uf_mode="${3:-}"
+    [ -f "$uf_path" ] && [ ! -L "$uf_path" ] && [ -r "$uf_path" ] || return 1
+    uf_before="$(update_stat "$uf_path")" || return 1
+    printf '%s\n' "$uf_before" | LC_ALL=C awk -F: -v uid="$UPDATE_UID" -v limit="$uf_limit" -v mode="$uf_mode" '
+        NF!=10 || $3!=uid || $6!="1" || $7>limit || $10!="8" { exit 1 }
+        $5 !~ /^[0-7][0-7][0-7]$/ { exit 1 }
+        substr($5,2,1) ~ /[2367]/ || substr($5,3,1) ~ /[2367]/ { exit 1 }
+        mode!="" && $5!=mode { exit 1 }
+    ' || return 1
+    uf_sha="$(update_sha "$uf_path")" || return 1
+    [ -f "$uf_path" ] && [ ! -L "$uf_path" ] || return 1
+    uf_after="$(update_stat "$uf_path")" || return 1
+    [ "$uf_before" = "$uf_after" ] || return 1
+    printf '%s:%s\n' "$uf_before" "$uf_sha"
+)
+
+update_directory_proof() (
+    ud_path="$1"; ud_mode="${2:-}"
+    [ -d "$ud_path" ] && [ ! -L "$ud_path" ] && [ -r "$ud_path" ] && [ -x "$ud_path" ] || return 1
+    ud_value="$(update_stat "$ud_path")" || return 1
+    printf '%s\n' "$ud_value" | LC_ALL=C awk -F: -v uid="$UPDATE_UID" -v mode="$ud_mode" '
+        NF!=10 || $3!=uid || $10!="4" { exit 1 }
+        $5 !~ /^[0-7][0-7][0-7]$/ { exit 1 }
+        substr($5,2,1) ~ /[2367]/ || substr($5,3,1) ~ /[2367]/ { exit 1 }
+        mode!="" && $5!=mode { exit 1 }
+    ' || return 1
+    printf '%s\n' "$ud_value"
+)
+
+update_stage_error() {
+    LAST_UPDATE_STAGE="$1"
+    err "stage=$1: $2"
+    case "$MODE" in
+        reconcile-rollback*) return 1 ;;
+    esac
+    if [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR" ] &&
+       [ ! -L "$BACKUP_DIR/service.log" ]; then
+        (umask 077; printf 'STAGE=%s ERROR=%s\n' "$1" "$2" >> "$BACKUP_DIR/service.log") || return 1
+    fi
+    return 1
+}
+
+ui_prepare_service() {
+    UI_BIN="$ROOT/sbin/freenet-ui"
+    UI_IMAGE_PATH="$(readlink -f "$UI_BIN")" || return 1
+    [ -n "$UI_IMAGE_PATH" ] && [ -f "$UI_BIN" ] && [ ! -L "$UI_BIN" ] || return 1
+    UI_INIT="$ROOT/etc/init.d/S99freenet-ui"
+    UI_INIT_PROOF="$(update_file_proof "$UI_INIT" 16384 755)" || return 1
+    # Parse the stock launch specification as data. Never source/eval init or
+    # inherit its process-name based service control; unknown custom init is STOP.
+    UI_LISTEN="$(LC_ALL=C awk '
+        /^[[:space:]]*$/ || /^#/ { next }
+        /^ENABLED=yes$/ { enabled++; next }
+        /^PROCS=freenet-ui$/ { procs++; next }
+        /^ARGS="-listen [0-9.]+:[0-9]+"$/ { args++; value=$0; sub(/^ARGS="-listen /,"",value); sub(/"$/,"",value); next }
+        /^PREARGS=""$/ { pre++; next }
+        /^DESC="\$PROCS"$/ { desc++; next }
+        /^PATH=\/opt\/sbin:\/opt\/bin:\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin$/ { path++; next }
+        /^\. \/opt\/etc\/init.d\/rc.func$/ { source++; next }
+        { bad=1 }
+        END { if(bad || enabled!=1 || procs!=1 || args!=1 || pre!=1 || desc!=1 || path!=1 || source!=1) exit 1; print value }
+    ' "$UI_INIT")" || return 1
+    UI_HOST="${UI_LISTEN%:*}"
+    UI_PORT="${UI_LISTEN##*:}"
+    printf '%s\n' "$UI_PORT" | LC_ALL=C awk 'NR!=1 || $0 !~ /^[0-9]+$/ || $0<1 || $0>65535 {exit 1}' || return 1
+    [ "$(ui_port)" = "$UI_PORT" ] || return 1
+    [ "$UI_HOST" != 0.0.0.0 ] || return 1
+    UI_HOST_HEX="$(ui_ipv4_hex "$UI_HOST")" || return 1
+    UI_LOOP_HEX="$(ui_ipv4_hex 127.0.0.1)" || return 1
+    UI_PORT_HEX="$(printf '%04X' "$UI_PORT")" || return 1
+    [ -d "$UPDATE_PROC_ROOT" ] && [ ! -L "$UPDATE_PROC_ROOT" ] && [ -r "$UPDATE_PROC_ROOT/net/tcp" ] || return 1
+    printf '%s\000-listen\000%s\000' "$UI_BIN" "$UI_LISTEN" > "$TMP_DIR/ui-argv.full" || return 1
+    printf 'freenet-ui\000-listen\000%s\000' "$UI_LISTEN" > "$TMP_DIR/ui-argv.short" || return 1
+    UI_SERVICE_READY=1
+}
+
+ui_ipv4_hex() (
+    printf '%s\n' "$1" | LC_ALL=C awk -F. -v arch="$ARCH" '
+        NR!=1 || NF!=4 { bad=1; next }
+        { for(i=1;i<=4;i++) if($i !~ /^[0-9]+$/ || $i<0 || $i>255) bad=1 }
+        END {
+            if(NR!=1 || bad) exit 1
+            if(arch=="mips32") printf "%02X%02X%02X%02X\n",$1,$2,$3,$4
+            else if(arch=="mips32le" || arch=="arm64-v8a") printf "%02X%02X%02X%02X\n",$4,$3,$2,$1
+            else exit 1
+        }
+    '
+)
+
+ui_proc_start() (
+    up_pid="$1"
+    case "$up_pid" in ''|*[!0-9]*) return 1 ;; esac
+    LC_ALL=C awk -v pid="$up_pid" '
+        NR!=1 || $1!=pid { bad=1; next }
+        { sub(/^[0-9]+ \(.*\) /,""); if(NF<20 || $1=="Z" || $20 !~ /^[0-9]+$/ || $20=="0") bad=1; birth=$20 }
+        END { if(NR!=1 || bad) exit 1; print birth }
+    ' "$UPDATE_PROC_ROOT/$up_pid/stat"
+)
+
+ui_process_fingerprint() (
+    up_pid="$1"; up_expected="$2"
+    up_birth="$(ui_proc_start "$up_pid")" || return 1
+    up_dir="$UPDATE_PROC_ROOT/$up_pid"
+    LC_ALL=C awk -v uid="$UPDATE_UID" '/^Uid:/ { if(NF!=5 || $2!=uid || $3!=uid || $4!=uid || $5!=uid) exit 1; found=1 } END { if(!found) exit 1 }' "$up_dir/status" || return 1
+    # Some cmp -s implementations trust proc's reported zero file size.
+    # Compare a checked regular snapshot and rehash live proc below.
+    up_cmdline="$TMP_DIR/ui-fingerprint-$up_pid.cmdline"
+    cat "$up_dir/cmdline" > "$up_cmdline" || return 1
+    if ! cmp -s "$up_cmdline" "$TMP_DIR/ui-argv.full" && ! cmp -s "$up_cmdline" "$TMP_DIR/ui-argv.short"; then return 1; fi
+    up_argv="$(update_sha "$up_cmdline")" || return 1
+    up_exe="$(readlink "$up_dir/exe")" || return 1
+    case "$up_exe" in "$UI_IMAGE_PATH"|"$UI_IMAGE_PATH (deleted)") ;; *) return 1 ;; esac
+    up_stat="$(update_stat "$up_dir/exe")" || return 1
+    up_sha="$(update_sha "$up_dir/exe")" || return 1
+    case " $up_expected " in *" $up_sha "*) ;; *) return 1 ;; esac
+    [ "$(ui_proc_start "$up_pid")" = "$up_birth" ] &&
+        [ "$(update_stat "$up_dir/exe")" = "$up_stat" ] &&
+        [ "$(update_sha "$up_dir/cmdline")" = "$up_argv" ] || return 1
+    printf '%s:%s:%s:%s:%s\n' "$up_pid" "$up_birth" "$up_stat" "$up_sha" "$up_argv"
+)
+
+ui_stable_pin() {
+    # Atomic rename legitimately changes the old executable's link count and
+    # ctime. Its PID lifetime, device/inode, bytes and argv must remain pinned.
+    printf '%s\n' "$1" | LC_ALL=C awk -F: 'NF!=14 {exit 1} {print $1 ":" $2 ":" $3 ":" $4 ":" $13 ":" $14}'
+}
+
+ui_find_daemon() (
+    uf_expected="$1"; uf_found=""
+    for uf_dir in "$UPDATE_PROC_ROOT"/[0-9]*; do
+        [ -d "$uf_dir" ] || continue
+        uf_exe="$(readlink "$uf_dir/exe" 2>/dev/null)" || continue
+        case "$uf_exe" in "$UI_IMAGE_PATH"|"$UI_IMAGE_PATH (deleted)") ;; *) continue ;; esac
+        uf_pid="${uf_dir##*/}"
+        uf_cmdline="$TMP_DIR/ui-find-$uf_pid.cmdline"
+        cat "$uf_dir/cmdline" > "$uf_cmdline" || { [ ! -e "$uf_dir" ] && continue; return 1; }
+        if ! cmp -s "$uf_cmdline" "$TMP_DIR/ui-argv.full" && ! cmp -s "$uf_cmdline" "$TMP_DIR/ui-argv.short"; then
+            # Same ELF is also the official cron/CLI worker. Its mode is not a
+            # daemon identity, and it must neither block start nor receive kill.
+            uf_mode="$(tr '\000' '\n' < "$uf_cmdline" | sed -n '2p')" || return 1
+            case "$uf_mode" in
+                automation-health-watch|automation-best-run|settings-v3-reconcile|settings-v3-endpoint-refresh|settings-v3-subscription|settings-v3-geodata|settings-v3-freenet-check|settings-v3-backup|plan|apply) continue ;;
+                *) [ ! -e "$uf_dir" ] && continue; return 1 ;;
+            esac
+        fi
+        uf_id="$(ui_process_fingerprint "$uf_pid" "$uf_expected")" || { [ ! -e "$uf_dir" ] && continue; return 1; }
+        [ -z "$uf_found" ] || return 1
+        uf_found="$uf_id"
+    done
+    printf '%s\n' "$uf_found"
+)
+
+ui_listener_table() (
+    [ -r "$UPDATE_PROC_ROOT/net/tcp" ] || return 1
+    ul_files="$UPDATE_PROC_ROOT/net/tcp"
+    if [ -e "$UPDATE_PROC_ROOT/net/tcp6" ]; then
+        [ -r "$UPDATE_PROC_ROOT/net/tcp6" ] || return 1
+        # Paths are supplied as separate, quoted arguments below.
+        LC_ALL=C awk -v port="$UI_PORT_HEX" '$4=="0A" && toupper(substr($2,length($2)-3))==port { if(NF<10 || $10 !~ /^[0-9]+$/) exit 1; print toupper($2),$10 }' "$UPDATE_PROC_ROOT/net/tcp" "$UPDATE_PROC_ROOT/net/tcp6"
+    else
+        LC_ALL=C awk -v port="$UI_PORT_HEX" '$4=="0A" && toupper(substr($2,length($2)-3))==port { if(NF<10 || $10 !~ /^[0-9]+$/) exit 1; print toupper($2),$10 }' "$UPDATE_PROC_ROOT/net/tcp"
+    fi
+)
+
+ui_owned_listeners() (
+    ul_pid="$1"
+    ul_table="$(ui_listener_table)" || return 1
+    printf '%s\n' "$ul_table" | LC_ALL=C awk -v lan="$UI_HOST_HEX:$UI_PORT_HEX" -v loop="$UI_LOOP_HEX:$UI_PORT_HEX" '
+        NF!=2 || $2 !~ /^[0-9]+$/ || $2=="0" { bad=1; next }
+        $1==lan { lanCount++; next }
+        $1==loop { loopCount++; next }
+        { bad=1 }
+        END { if(bad || lanCount!=1 || (lan!=loop && loopCount!=1) || (lan==loop && loopCount!=0)) exit 1 }
+    ' || return 1
+    [ -d "$UPDATE_PROC_ROOT/$ul_pid/fd" ] && [ -r "$UPDATE_PROC_ROOT/$ul_pid/fd" ] || return 1
+    for ul_inode in $(printf '%s\n' "$ul_table" | awk '{print $2}'); do
+        ul_owned=no
+        for ul_fd in "$UPDATE_PROC_ROOT/$ul_pid/fd"/*; do
+            ul_link="$(readlink "$ul_fd" 2>/dev/null)" || continue
+            [ "$ul_link" != "socket:[$ul_inode]" ] || ul_owned=yes
+        done
+        [ "$ul_owned" = yes ] || return 1
+    done
+    printf '%s\n' "$ul_table" | LC_ALL=C sort
+)
+
+ui_runtime_proof() (
+    ur_target="$1"; ur_sha="$2"
+    ur_id="$(ui_find_daemon "$ur_sha")" || return 1
+    [ -n "$ur_id" ] || return 1
+    ur_pid="${ur_id%%:*}"
+    ur_sockets="$(ui_owned_listeners "$ur_pid")" || return 1
+    curl -q -fsS --noproxy '*' --connect-timeout 1 --max-time 2 "http://127.0.0.1:$UI_PORT/healthz" > "$TMP_DIR/ui-health.body" 2> "$TMP_DIR/ui-health.err" || return 1
+    curl -q -fsS --noproxy '*' --connect-timeout 1 --max-time 2 "http://127.0.0.1:$UI_PORT/versionz" > "$TMP_DIR/ui-version.body" 2> "$TMP_DIR/ui-version.err" || return 1
+    [ "$(cat "$TMP_DIR/ui-health.body")" = ok ] && [ "$(cat "$TMP_DIR/ui-version.body")" = "$ur_target" ] || return 1
+    [ "$(ui_process_fingerprint "$ur_pid" "$ur_sha")" = "$ur_id" ] &&
+        [ "$(ui_owned_listeners "$ur_pid")" = "$ur_sockets" ] || return 1
+    printf 'DAEMON=%s\nLISTEN=%s\nSOCKETS=%s\nVERSION=%s\n' "$ur_id" "$UI_LISTEN" "$(printf '%s\n' "$ur_sockets" | sha256sum | awk '{print $1}')" "$ur_target"
+)
+
+ui_wait_ready() {
+    uw_target="$1"; uw_sha="$2"; uw_attempt=0
+    # Ten attempts have two finite 2-second HTTP budgets and nine 1-second
+    # pauses; proc identity checks do not create unbounded network waits.
+    while [ "$uw_attempt" -lt 10 ]; do
+        uw_attempt=$((uw_attempt + 1))
+        if ui_runtime_proof "$uw_target" "$uw_sha" > "$TMP_DIR/ui-runtime.proof"; then return 0; fi
+        [ "$uw_attempt" -ge 10 ] || sleep 1
+    done
+    if [ -n "$BACKUP_DIR" ] && [ ! -L "$BACKUP_DIR/service.log" ]; then
+        for uw_err in "$TMP_DIR/ui-health.err" "$TMP_DIR/ui-version.err"; do
+            [ ! -f "$uw_err" ] || cat "$uw_err" >> "$BACKUP_DIR/service.log"
+        done
+    fi
+    update_stage_error runtime-acceptance 'HTTP daemon identity, health or exact version was not confirmed'
+}
+
+ui_stop_daemon() {
+    us_expected="$1"
+    us_id="$(ui_find_daemon "$us_expected")" || { update_stage_error daemon-identity 'HTTP daemon is ambiguous'; return 1; }
+    if [ -z "$us_id" ]; then
+        us_table="$(ui_listener_table)" || return 1
+        [ -z "$us_table" ] || { update_stage_error daemon-listener 'port has an unowned listener'; return 1; }
+        return 0
+    fi
+    us_pid="${us_id%%:*}"
+    us_birth="${us_id#*:}"; us_birth="${us_birth%%:*}"
+    us_pin="$(ui_stable_pin "$us_id")" || return 1
+    [ "$us_pin" = "$UI_OLD_PIN" ] || [ "$us_pin" = "$UI_STARTED_PIN" ] ||
+        { update_stage_error daemon-identity 'HTTP daemon lifetime differs from the pre-mutation or owned-child pin'; return 1; }
+    if [ "$us_pid:$us_birth" != "$UI_STARTED_ID" ]; then
+        ui_owned_listeners "$us_pid" > "$TMP_DIR/ui-stop.sockets" || { update_stage_error daemon-listener 'HTTP sockets are not owned by the selected daemon'; return 1; }
+    fi
+    [ "$(ui_process_fingerprint "$us_pid" "$us_expected")" = "$us_id" ] || return 1
+    if ! kill -TERM "$us_pid" 2>> "$BACKUP_DIR/service.log"; then
+        [ ! -e "$UPDATE_PROC_ROOT/$us_pid" ] || { update_stage_error daemon-stop 'TERM failed for the identified HTTP daemon'; return 1; }
+    fi
+    us_wait=0
+    while [ -e "$UPDATE_PROC_ROOT/$us_pid" ] && [ "$us_wait" -lt 10 ]; do
+        # A reused PID is never signalled. Only the original lifetime is waited.
+        us_now="$(ui_proc_start "$us_pid" 2>/dev/null)" || break
+        us_birth="${us_id#*:}"; us_birth="${us_birth%%:*}"
+        [ "$us_now" = "$us_birth" ] || break
+        us_wait=$((us_wait + 1))
+        sleep 1
+    done
+    us_remaining="$(ui_find_daemon "$us_expected")" || return 1
+    us_table="$(ui_listener_table)" || return 1
+    [ -z "$us_remaining" ] && [ -z "$us_table" ] || { update_stage_error daemon-stop 'HTTP daemon or listener did not stop'; return 1; }
+}
+
 restore_one() {
     DEST="$1"
     KEY="$2"
-    if [ -f "$BACKUP_DIR/$KEY.exists" ] && [ "$(cat "$BACKUP_DIR/$KEY.exists")" = yes ]; then
-        mkdir -p "$(dirname "$DEST")" 2>/dev/null || return 1
-        cp -p "$BACKUP_DIR/$KEY.before" "$DEST" 2>/dev/null || return 1
-    else
-        rm -f "$DEST" 2>/dev/null || return 1
-    fi
+    [ -f "$BACKUP_DIR/$KEY.exists" ] && [ ! -L "$BACKUP_DIR/$KEY.exists" ] && [ ! -L "$DEST" ] || return 1
+    case "$(cat "$BACKUP_DIR/$KEY.exists")" in
+        yes)
+            RESTORE_PROOF="$(update_file_proof "$BACKUP_DIR/$KEY.before" 67108864)" || return 1
+            mkdir -p "$(dirname "$DEST")" 2>> "$BACKUP_DIR/service.log" || return 1
+            RESTORE_TMP="$(umask 077; mktemp "$DEST.rollback.XXXXXX")" || return 1
+            RESTORE_MODE="$(printf '%s\n' "$RESTORE_PROOF" | awk -F: '{print $5}')"
+            if ! cp -p "$BACKUP_DIR/$KEY.before" "$RESTORE_TMP" 2>> "$BACKUP_DIR/service.log" ||
+               ! cmp -s "$BACKUP_DIR/$KEY.before" "$RESTORE_TMP" ||
+               ! RESTORE_TMP_PROOF="$(update_file_proof "$RESTORE_TMP" 67108864 "$RESTORE_MODE")" ||
+               [ "${RESTORE_TMP_PROOF##*:}" != "${RESTORE_PROOF##*:}" ] ||
+               [ "$(update_file_proof "$BACKUP_DIR/$KEY.before" 67108864)" != "$RESTORE_PROOF" ]; then
+                rm -f "$RESTORE_TMP"
+                update_stage_error rollback-copy 'cannot stage the exact backup asset'
+                return 1
+            fi
+            # Rename a closed file on the destination filesystem. Never write
+            # into a possibly executing ELF inode (ETXTBSY / partial rollback).
+            if ! mv -f "$RESTORE_TMP" "$DEST" 2>> "$BACKUP_DIR/service.log"; then
+                rm -f "$RESTORE_TMP"
+                update_stage_error rollback-rename 'cannot atomically restore the backup asset'
+                return 1
+            fi
+            RESTORE_LIVE_PROOF="$(update_file_proof "$DEST" 67108864 "$RESTORE_MODE")" || return 1
+            [ "${RESTORE_LIVE_PROOF##*:}" = "${RESTORE_PROOF##*:}" ] || return 1
+            ;;
+        no)
+            [ ! -e "$BACKUP_DIR/$KEY.before" ] && [ ! -L "$BACKUP_DIR/$KEY.before" ] || return 1
+            rm -f "$DEST" 2>> "$BACKUP_DIR/service.log" || return 1
+            [ ! -e "$DEST" ] && [ ! -L "$DEST" ] || return 1
+            ;;
+        *) return 1 ;;
+    esac
 }
 
 install_assets() {
@@ -667,19 +1005,46 @@ install_assets() {
 }
 
 restart_ui() {
-    TARGET="$1"
+    UI_TARGET="$1"
     [ "$FAIL_STAGE" = restart ] && return 1
     if [ "$TEST_MODE" = yes ]; then
         mkdir -p "$ROOT/var/run" || return 1
-        printf '%s\n' "$TARGET" > "$ROOT/var/run/freenet-test-version" || return 1
+        printf '%s\n' "$UI_TARGET" > "$ROOT/var/run/freenet-test-version" || return 1
         return 0
     fi
-    INIT="$ROOT/etc/init.d/S99freenet-ui"
-    [ -x "$INIT" ] || return 1
-    "$INIT" stop >/dev/null 2>&1 || true
-    killall freenet-ui >/dev/null 2>&1 || true
-    "$INIT" start >/dev/null 2>&1 || return 1
-    return 0
+    [ "$UI_SERVICE_READY" = 1 ] && [ "$(update_file_proof "$UI_INIT" 16384 755)" = "$UI_INIT_PROOF" ] ||
+        { update_stage_error daemon-spec 'verified UI launch specification changed'; return 1; }
+    UI_CURRENT_SHA="$(update_sha "$UI_BIN")" || return 1
+    ui_stop_daemon "$UI_OLD_SHA $UI_CURRENT_SHA $UI_STARTED_SHA" || return 1
+    UI_START_LOG="$BACKUP_DIR/ui-$UI_TARGET.log"
+    [ ! -L "$UI_START_LOG" ] || return 1
+    (umask 077; : >> "$UI_START_LOG") || return 1
+    (
+        # Only this child ignores HUP. It owns no updater EXIT/signal cleanup,
+        # and its descriptors cannot keep the caller's HTTP/SSH pipe open.
+        trap - 0 1 2 15
+        trap '' 1
+        PATH=/opt/sbin:/opt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        FREENET_DISABLE_SCHEDULER_RECONCILE=yes
+        export PATH FREENET_DISABLE_SCHEDULER_RECONCILE
+        exec "$UI_BIN" -listen "$UI_LISTEN"
+    ) < /dev/null >> "$UI_START_LOG" 2>&1 &
+    UI_STARTED_PID=$!
+    UI_STARTED_ID=""
+    UI_STARTED_SHA="$UI_CURRENT_SHA"
+    UI_START_TRIES=0
+    while [ "$UI_START_TRIES" -lt 5 ]; do
+        UI_START_TRIES=$((UI_START_TRIES + 1))
+        if UI_START_FINGERPRINT="$(ui_process_fingerprint "$UI_STARTED_PID" "$UI_CURRENT_SHA")"; then
+            UI_START_BIRTH="${UI_START_FINGERPRINT#*:}"; UI_START_BIRTH="${UI_START_BIRTH%%:*}"
+            UI_STARTED_ID="$UI_STARTED_PID:$UI_START_BIRTH"
+            UI_STARTED_PIN="$(ui_stable_pin "$UI_START_FINGERPRINT")" || return 1
+            return 0
+        fi
+        [ -e "$UPDATE_PROC_ROOT/$UI_STARTED_PID" ] || break
+        [ "$UI_START_TRIES" -ge 5 ] || sleep 1
+    done
+    update_stage_error daemon-start 'new HTTP daemon identity was not established; private startup log retained'
 }
 
 accept_runtime() {
@@ -689,20 +1054,8 @@ accept_runtime() {
     if [ "$TEST_MODE" = yes ]; then
         [ "$(cat "$ROOT/var/run/freenet-test-version" 2>/dev/null)" = "$TARGET" ] || return 1
     else
-        PORT="$(ui_port)"
-        OK=no
-        I=0
-        while [ "$I" -lt 25 ]; do
-            I=$((I + 1))
-            HEALTH="$(curl -fsS --connect-timeout 2 "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)"
-            V="$(curl -fsS --connect-timeout 2 "http://127.0.0.1:$PORT/versionz" 2>/dev/null || true)"
-            if [ "$HEALTH" = ok ] && [ "$V" = "$TARGET" ]; then
-                OK=yes
-                break
-            fi
-            sleep 1
-        done
-        [ "$OK" = yes ] || return 1
+        UI_ACCEPT_SHA="$(update_sha "$UI_BIN")" || return 1
+        ui_wait_ready "$TARGET" "$UI_ACCEPT_SHA" || return 1
     fi
 
     snapshot_preserved_state "$TMP_DIR/preserved.after" || return 1
@@ -724,15 +1077,8 @@ rollback_assets() {
     restore_one "$VERSION_FILE" version-marker || return 1
     restart_ui "$CURRENT_VERSION" || return 1
     if [ "$TEST_MODE" = no ]; then
-        PORT="$(ui_port)"
-        I=0
-        while [ "$I" -lt 20 ]; do
-            I=$((I + 1))
-            V="$(curl -fsS --connect-timeout 2 "http://127.0.0.1:$PORT/versionz" 2>/dev/null || true)"
-            [ "$V" = "$CURRENT_VERSION" ] && break
-            sleep 1
-        done
-        [ "$V" = "$CURRENT_VERSION" ] || return 1
+        UI_ROLLBACK_SHA="$(update_sha "$UI_BIN")" || return 1
+        ui_wait_ready "$CURRENT_VERSION" "$UI_ROLLBACK_SHA" || return 1
     fi
     snapshot_preserved_state "$TMP_DIR/preserved.rollback" || return 1
     cmp -s "$BACKUP_DIR/preserved.before" "$TMP_DIR/preserved.rollback" || return 1
@@ -819,6 +1165,7 @@ fail_before_mutation() {
 
 fail_after_mutation() {
     MSG="$1"
+    [ -z "$LAST_UPDATE_STAGE" ] || MSG="$MSG (stage=$LAST_UPDATE_STAGE)"
     err "$MSG"
     if rollback_assets; then
         MUTATED=0
@@ -1207,6 +1554,452 @@ claim_verified_orphan_vpn_lock() {
     return 0
 }
 
+# Reconciliation confirms an application rollback that is already complete.
+# It never restores assets, restarts services, changes VPN evidence, or releases
+# either existing fence. Only the original UNKNOWN receipt can be terminalized.
+reconcile_root_path_safe() (
+    rp_path="$1"
+    case "$ROOT" in /*) ;; *) return 1 ;; esac
+    case "$rp_path" in "$ROOT"/*) ;; *) return 1 ;; esac
+    case "$rp_path" in *//*|*/../*|*/./*|*/..|*/.) return 1 ;; esac
+    printf '%s' "$rp_path" | LC_ALL=C grep -q '[[:cntrl:]]' && return 1
+    while [ "$rp_path" != "$ROOT" ]; do
+        [ ! -L "$rp_path" ] || return 1
+        if [ -d "$rp_path" ]; then
+            update_directory_proof "$rp_path" > /dev/null || return 1
+        fi
+        rp_path="$(dirname "$rp_path")" || return 1
+        case "$rp_path" in "$ROOT"|"$ROOT"/*) ;; *) return 1 ;; esac
+    done
+)
+
+reconcile_marker() (
+    rm_proof="$(update_file_proof "$1" 4096 600)" || return 1
+    rm_sha="$(printf '%s\n' "$2" | sha256sum)" || return 1
+    [ "${rm_proof##*:}" = "${rm_sha%% *}" ] || return 1
+    printf '%s\n' "$rm_proof"
+)
+
+reconcile_state_values() {
+    reconcile_root_path_safe "$STATE_FILE" || return 1
+    RQ_STATE_PROOF="$(update_file_proof "$STATE_FILE" 131072 600)" || return 1
+    RQ_SHA="${RQ_STATE_PROOF##*:}"
+    LC_ALL=C awk -F= '
+        $1 !~ /^(STATE|FROM_VERSION|TARGET_VERSION|MESSAGE|PRIMARY_ERROR|ROLLBACK_STATE|BACKUP_DIR|UPDATED_AT)$/ || seen[$1]++ { bad=1 }
+        END {
+            if(bad || !seen["STATE"] || !seen["FROM_VERSION"] || !seen["TARGET_VERSION"] ||
+               !seen["ROLLBACK_STATE"] || !seen["BACKUP_DIR"] || !seen["PRIMARY_ERROR"]) exit 1
+        }
+    ' "$STATE_FILE" || return 1
+    [ "$(sed -n 's/^STATE=//p' "$STATE_FILE")" = ROLLBACK_FAILED ] &&
+        [ "$(sed -n 's/^ROLLBACK_STATE=//p' "$STATE_FILE")" = FAILED_UNKNOWN ] || return 1
+    RQ_FROM="$(sed -n 's/^FROM_VERSION=//p' "$STATE_FILE")"
+    RQ_TARGET="$(sed -n 's/^TARGET_VERSION=//p' "$STATE_FILE")"
+    valid_tag "$RQ_FROM" && valid_tag "$RQ_TARGET" && [ "$RQ_FROM" != "$RQ_TARGET" ] || return 1
+    RQ_BACKUP="$(sed -n 's/^BACKUP_DIR=//p' "$STATE_FILE")"
+    reconcile_root_path_safe "$RQ_BACKUP" || return 1
+    [ "$(dirname "$RQ_BACKUP")" = "$ROOT/backups" ] || return 1
+    RQ_BACKUP_NAME="${RQ_BACKUP##*/}"
+    printf '%s\n' "$RQ_BACKUP_NAME" | LC_ALL=C grep -Eq '^freenet-web-update-[0-9]{8}-[0-9]{6}\.[1-9][0-9]*$' || return 1
+    RQ_OWNER="${RQ_BACKUP_NAME##*.}"
+    [ "$(update_file_proof "$STATE_FILE" 131072 600)" = "$RQ_STATE_PROOF" ] || return 1
+    CURRENT_VERSION="$RQ_FROM"
+    TARGET_TAG="$RQ_TARGET"
+    BACKUP_DIR="$RQ_BACKUP"
+    # The two-asset historical recovery bridge does not have this full-asset
+    # proof contract. It remains STOP, rather than inventing missing evidence.
+    recovery_bridge_target && return 1
+    return 0
+}
+
+reconcile_lock_proof() (
+    rl_app="$(update_directory_proof "$LOCK_DIR" 700)" || return 1
+    rl_net="$(update_directory_proof "$MUTATION_LOCK_DIR" 700)" || return 1
+    # Default /tmp fences are immediate children of the trusted sticky /tmp.
+    # Custom test/deployment paths must remain inside the selected ROOT.
+    for rl_dir in "$LOCK_DIR" "$MUTATION_LOCK_DIR"; do
+        case "$rl_dir" in
+            "$ROOT"/*) reconcile_root_path_safe "$rl_dir" || return 1 ;;
+            /tmp/*) [ "$(dirname "$rl_dir")" = /tmp ] || return 1 ;;
+            *) return 1 ;;
+        esac
+    done
+    rl_count=0
+    for rl_entry in "$LOCK_DIR"/* "$LOCK_DIR"/.[!.]* "$LOCK_DIR"/..?*; do
+        if [ ! -e "$rl_entry" ] && [ ! -L "$rl_entry" ]; then continue; fi
+        case "${rl_entry##*/}" in owner.pid|target) ;; *) return 1 ;; esac
+        rl_count=$((rl_count + 1))
+    done
+    [ "$rl_count" -eq 2 ] || return 1
+    rl_count=0
+    for rl_entry in "$MUTATION_LOCK_DIR"/* "$MUTATION_LOCK_DIR"/.[!.]* "$MUTATION_LOCK_DIR"/..?*; do
+        if [ ! -e "$rl_entry" ] && [ ! -L "$rl_entry" ]; then continue; fi
+        case "${rl_entry##*/}" in pid|freenet-update-owner) ;; *) return 1 ;; esac
+        rl_count=$((rl_count + 1))
+    done
+    [ "$rl_count" -eq 2 ] || return 1
+    rl_owner="$(reconcile_marker "$LOCK_DIR/owner.pid" "$RQ_OWNER")" || return 1
+    rl_target="$(reconcile_marker "$LOCK_DIR/target" "$RQ_TARGET")" || return 1
+    rl_pid="$(reconcile_marker "$MUTATION_LOCK_DIR/pid" "$RQ_OWNER")" || return 1
+    rl_link="$(reconcile_marker "$MUTATION_LOCK_DIR/freenet-update-owner" "$LOCK_DIR")" || return 1
+    [ "$(update_directory_proof "$LOCK_DIR" 700)" = "$rl_app" ] &&
+        [ "$(update_directory_proof "$MUTATION_LOCK_DIR" 700)" = "$rl_net" ] || return 1
+    printf 'APP_LOCK=%s\nNETWORK_LOCK=%s\nOWNER=%s\nTARGET=%s\nNETWORK_PID=%s\nNETWORK_OWNER=%s\n' "$rl_app" "$rl_net" "$rl_owner" "$rl_target" "$rl_pid" "$rl_link"
+)
+
+reconcile_own_descendant() (
+    rd_pid="$1"; rd_steps=0
+    while [ "$rd_steps" -lt 32 ]; do
+        [ "$rd_pid" != "$$" ] || return 0
+        case "$rd_pid" in ''|0|1|*[!0-9]*) return 1 ;; esac
+        rd_pid="$(LC_ALL=C awk '{sub(/^[0-9]+ \(.*\) /,""); if(NR!=1 || NF<2 || $2 !~ /^[0-9]+$/) exit 1; print $2}' "$UPDATE_PROC_ROOT/$rd_pid/stat")" || return 1
+        rd_steps=$((rd_steps + 1))
+    done
+    return 1
+)
+
+reconcile_writers_absent() (
+    [ -d "$UPDATE_PROC_ROOT" ] && [ ! -L "$UPDATE_PROC_ROOT" ] && [ -r "$UPDATE_PROC_ROOT" ] || return 1
+    [ ! -e "$UPDATE_PROC_ROOT/$RQ_OWNER" ] && [ ! -L "$UPDATE_PROC_ROOT/$RQ_OWNER" ] || return 1
+    for rw_dir in "$UPDATE_PROC_ROOT"/[0-9]*; do
+        [ -d "$rw_dir" ] || continue
+        rw_pid="${rw_dir##*/}"
+        [ "$rw_pid" != "$$" ] || continue
+        if [ ! -r "$rw_dir/cmdline" ]; then
+            [ ! -e "$rw_dir" ] && continue
+            return 1
+        fi
+        # NUL arguments are kept as separate records. No argv or environment
+        # is ever printed into the public receipt or diagnostic output.
+        # Check the proc read itself: without pipefail an unreadable live PID
+        # must not become awk's empty, apparently writer-free input.
+        if ! rw_args="$(tr '\000' '\n' < "$rw_dir/cmdline" 2>/dev/null)"; then
+            [ ! -e "$rw_dir" ] && continue
+            return 1
+        fi
+        if printf '%s\n' "$rw_args" | LC_ALL=C awk '
+            prev ~ /(^|\/)self_update\.sh$/ && $0 ~ /^(apply|reconcile-rollback)$/ {found=1}
+            prev ~ /(^|\/)(apply_provider_profile|apply_network_profile|blanc_xkeen_update_outbounds)\.sh$/ && $0 ~ /^(apply|apply-core|recover-core|core-restart)$/ {found=1}
+            prev ~ /(^|\/)freenet-ui$/ && $0=="apply" {found=1}
+            {prev=$0}
+            END {exit !found}
+        '; then
+            reconcile_own_descendant "$rw_pid" || return 1
+        fi
+    done
+    [ ! -e "$UPDATE_PROC_ROOT/$RQ_OWNER" ] && [ ! -L "$UPDATE_PROC_ROOT/$RQ_OWNER" ]
+)
+
+reconcile_checkpoint_absent() (
+    reconcile_root_path_safe "$CHECKPOINT_DIR" || return 1
+    [ ! -e "$CHECKPOINT_DIR" ] && [ ! -L "$CHECKPOINT_DIR" ]
+)
+
+reconcile_xray_role() (
+    rx_pid="$1"; rx_comm="$2"
+    # Read status is checked before parsing. Original newlines become CR so
+    # an unrelated environment value cannot create another key record.
+    rx_env="$(tr '\000\012' '\012\015' < "$UPDATE_PROC_ROOT/$rx_pid/environ" 2>/dev/null)" || return 1
+    printf '%s\n' "$rx_env" | LC_ALL=C awk -v comm="$rx_comm" -v config="XRAY_LOCATION_CONFDIR=$ROOT/etc/xray/configs" '
+        /^FREENET_XRAY_PROBE=/ { probes++; probe=$0 }
+        /^XRAY_LOCATION_CONFDIR=/ { configs++; if($0==config) configured=1 }
+        END {
+            if(probes>1 || configs>1) exit 1
+            if(comm=="fn-xray-probe" && probe=="FREENET_XRAY_PROBE=1") { print "PROBE"; exit }
+            if(comm=="xray" && (probes==0 || probe=="FREENET_XRAY_PROBE=") && configs==1 && configured) { print "CORE"; exit }
+            exit 1
+        }
+    '
+)
+
+reconcile_xray_runtime_proof() (
+    rx_bin="$ROOT/sbin/xray"
+    reconcile_root_path_safe "$rx_bin" || return 1
+    rx_image="$(update_file_proof "$rx_bin" 134217728 755)" || return 1
+    rx_path="$(readlink -f "$rx_bin")" || return 1
+    [ -n "$rx_path" ] || return 1
+    printf '%s\000run\000' "$rx_bin" > "$TMP_DIR/xray-argv.full" || return 1
+    printf 'xray\000run\000' > "$TMP_DIR/xray-argv.short" || return 1
+    rx_core=""
+    for rx_dir in "$UPDATE_PROC_ROOT"/[0-9]*; do
+        [ -d "$rx_dir" ] || continue
+        rx_pid="${rx_dir##*/}"
+        if ! rx_comm="$(cat "$rx_dir/comm" 2>/dev/null)"; then
+            [ ! -e "$rx_dir" ] && continue
+            return 1
+        fi
+        if ! rx_exe="$(readlink "$rx_dir/exe" 2>/dev/null)"; then
+            [ ! -e "$rx_dir" ] && continue
+            case "$rx_comm" in xray|fn-xray-probe) return 1 ;; esac
+            continue
+        fi
+        case "$rx_exe" in
+            "$rx_path"|"$rx_path (deleted)") ;;
+            *) case "$rx_comm" in xray|fn-xray-probe) return 1 ;; esac; continue ;;
+        esac
+        if ! rx_role="$(reconcile_xray_role "$rx_pid" "$rx_comm")"; then
+            [ ! -e "$rx_dir" ] && continue
+            return 1
+        fi
+        # Marked, aliased read-only probes are expected under retained update
+        # fences. They are not production cores and are never signalled here.
+        [ "$rx_role" != PROBE ] || continue
+        [ "$rx_role" = CORE ] && [ -z "$rx_core" ] || return 1
+        rx_birth="$(ui_proc_start "$rx_pid")" || return 1
+        LC_ALL=C awk -v uid="$UPDATE_UID" '/^Uid:/ { if(NF!=5 || $2!=uid || $3!=uid || $4!=uid || $5!=uid) exit 1; found=1 } END { if(!found) exit 1 }' "$rx_dir/status" || return 1
+        rx_cmdline="$TMP_DIR/xray-$rx_pid.cmdline"
+        cat "$rx_dir/cmdline" > "$rx_cmdline" || return 1
+        if ! cmp -s "$rx_cmdline" "$TMP_DIR/xray-argv.full" && ! cmp -s "$rx_cmdline" "$TMP_DIR/xray-argv.short"; then return 1; fi
+        rx_argv="$(update_sha "$rx_cmdline")" || return 1
+        rx_stat="$(update_stat "$rx_dir/exe")" || return 1
+        rx_sha="$(update_sha "$rx_dir/exe")" || return 1
+        [ "$rx_exe" = "$rx_path" ] && [ "$rx_stat" = "${rx_image%:*}" ] && [ "$rx_sha" = "${rx_image##*:}" ] || return 1
+        [ "$(ui_proc_start "$rx_pid")" = "$rx_birth" ] &&
+            [ "$(update_stat "$rx_dir/exe")" = "$rx_stat" ] &&
+            [ "$(readlink "$rx_dir/exe")" = "$rx_path" ] &&
+            [ "$(update_sha "$rx_dir/cmdline")" = "$rx_argv" ] &&
+            [ "$(cat "$rx_dir/comm")" = xray ] &&
+            [ "$(reconcile_xray_role "$rx_pid" xray)" = CORE ] || return 1
+        rx_core="$rx_pid:$rx_birth:$rx_stat:$rx_sha:$rx_argv"
+    done
+    [ -n "$rx_core" ] && [ "$(update_stat "$rx_bin")" = "${rx_image%:*}" ] || return 1
+    printf 'XRAY_IMAGE=%s\nXRAY_CORE=%s\n' "$rx_image" "$rx_core"
+)
+
+reconcile_manifest_sha() (
+    printf '%s\n' "$1" | LC_ALL=C grep -Eq '^[A-Za-z0-9_.-]+$' || return 1
+    LC_ALL=C awk -v name="$1" '
+        $2==name { if(NF!=2 || length($1)!=64 || $1 ~ /[^0-9a-f]/) bad=1; found++; sha=$1 }
+        END { if(bad || found!=1) exit 1; print sha }
+    ' "$TMP_DIR/SHA256SUMS"
+)
+
+reconcile_backup_inventory() (
+    for ri_entry in "$RQ_BACKUP"/* "$RQ_BACKUP"/.[!.]* "$RQ_BACKUP"/..?*; do
+        if [ ! -e "$ri_entry" ] && [ ! -L "$ri_entry" ]; then continue; fi
+        [ -f "$ri_entry" ] && [ ! -L "$ri_entry" ] || return 1
+        ri_name="${ri_entry##*/}"
+        case "$ri_name" in
+            version-marker.exists|version-marker.before|preserved.before|xray-hashes.before|service.log) ;;
+            asset-*.before|asset-*.exists)
+                printf '%s\n' "$ri_name" | LC_ALL=C grep -Eq '^asset-([1-9]|10|11)\.(before|exists)$' || return 1
+                ;;
+            ui-v*.log)
+                ri_tag="${ri_name#ui-}"; ri_tag="${ri_tag%.log}"
+                valid_tag "$ri_tag" || return 1
+                ;;
+            *) return 1 ;;
+        esac
+    done
+)
+
+reconcile_version_proof() (
+    rv_marker="$(update_file_proof "$RQ_BACKUP/version-marker.exists" 8 600)" || return 1
+    case "$(cat "$RQ_BACKUP/version-marker.exists")" in
+        yes)
+            reconcile_marker "$RQ_BACKUP/version-marker.exists" yes > /dev/null || return 1
+            rv_before="$(reconcile_marker "$RQ_BACKUP/version-marker.before" "$RQ_FROM")" || return 1
+            reconcile_root_path_safe "$VERSION_FILE" || return 1
+            rv_live="$(reconcile_marker "$VERSION_FILE" "$RQ_FROM")" || return 1
+            printf 'VERSION_EXISTS=%s\nVERSION_BACKUP=%s\nVERSION_LIVE=%s\n' "$rv_marker" "$rv_before" "$rv_live"
+            ;;
+        no)
+            reconcile_marker "$RQ_BACKUP/version-marker.exists" no > /dev/null || return 1
+            reconcile_root_path_safe "$VERSION_FILE" || return 1
+            [ ! -e "$RQ_BACKUP/version-marker.before" ] && [ ! -L "$RQ_BACKUP/version-marker.before" ] &&
+                [ ! -e "$VERSION_FILE" ] && [ ! -L "$VERSION_FILE" ] || return 1
+            printf 'VERSION_EXISTS=%s\nVERSION_LIVE=ABSENT\n' "$rv_marker"
+            ;;
+        *) return 1 ;;
+    esac
+)
+
+reconcile_build_proof() (
+    reconcile_checkpoint_absent || return 1
+    rb_xray_runtime="$(reconcile_xray_runtime_proof)" || return 1
+    [ "$(update_file_proof "$STATE_FILE" 131072 600)" = "$RQ_STATE_PROOF" ] || return 1
+    rb_backup="$(update_directory_proof "$RQ_BACKUP" 700)" || return 1
+    reconcile_backup_inventory || return 1
+    rb_manifest="$(update_file_proof "$TMP_DIR/SHA256SUMS" 2097152)" || return 1
+    [ "${rb_manifest##*:}" = "$RQ_MANIFEST_SHA" ] || return 1
+    printf 'PROTOCOL=1\nRECEIPT=%s\nFROM_VERSION=%s\nTARGET_VERSION=%s\nARCH=%s\nBACKUP=%s\nFROM_MANIFEST_SHA256=%s\n' "$RQ_STATE_PROOF" "$RQ_FROM" "$RQ_TARGET" "$ARCH" "$rb_backup" "$RQ_MANIFEST_SHA"
+    printf 'CHECKPOINT=ABSENT\n%s\n' "$rb_xray_runtime"
+    reconcile_lock_proof || return 1
+    reconcile_writers_absent || return 1
+    rb_i=0
+    for rb_name in $(asset_list); do
+        rb_i=$((rb_i + 1))
+        rb_dest="$(asset_dest "$rb_name")" || return 1
+        reconcile_root_path_safe "$rb_dest" || return 1
+        rb_mode="$(asset_mode "$rb_name")"
+        rb_exists="$(reconcile_marker "$RQ_BACKUP/asset-$rb_i.exists" yes)" || return 1
+        rb_saved="$(update_file_proof "$RQ_BACKUP/asset-$rb_i.before" 67108864 "$rb_mode")" || return 1
+        rb_live="$(update_file_proof "$rb_dest" 67108864 "$rb_mode")" || return 1
+        rb_expected="$(reconcile_manifest_sha "$rb_name")" || return 1
+        [ "${rb_saved##*:}" = "$rb_expected" ] && [ "${rb_live##*:}" = "$rb_expected" ] || return 1
+        printf 'ASSET_%s_EXISTS=%s\nASSET_%s_BACKUP=%s\nASSET_%s_LIVE=%s\n' "$rb_i" "$rb_exists" "$rb_i" "$rb_saved" "$rb_i" "$rb_live"
+    done
+    [ "$rb_i" -eq 11 ] || return 1
+    reconcile_version_proof || return 1
+    rb_preserved="$(update_file_proof "$RQ_BACKUP/preserved.before" 16777216 600)" || return 1
+    rb_xray="$(update_file_proof "$RQ_BACKUP/xray-hashes.before" 2097152 600)" || return 1
+    for rb_protected in "$ROOT/etc/freenet/freenet.conf" "$ROOT/etc/freenet/vpn_profile_name" \
+        "$ROOT/etc/xray/blanc_profile_filter.regex" "$ROOT/etc/xray/blanc_subscription.url"; do
+        reconcile_root_path_safe "$rb_protected" || return 1
+        if [ -e "$rb_protected" ] || [ -L "$rb_protected" ]; then
+            rb_protected_proof="$(update_file_proof "$rb_protected" 16777216)" || return 1
+            printf 'PROTECTED_FILE=%s:%s\n' "$rb_protected" "$rb_protected_proof"
+        fi
+    done
+    # Symlinked configs must not disappear from find -type f comparisons.
+    [ -d "$ROOT/etc/xray/configs" ] && [ ! -L "$ROOT/etc/xray/configs" ] || return 1
+    rb_links="$(find "$ROOT/etc/xray/configs" -maxdepth 1 -type l -print)" || return 1
+    [ -z "$rb_links" ] || return 1
+    for rb_config in "$ROOT/etc/xray/configs"/*.json; do
+        if [ ! -e "$rb_config" ] && [ ! -L "$rb_config" ]; then continue; fi
+        reconcile_root_path_safe "$rb_config" || return 1
+        rb_config_proof="$(update_file_proof "$rb_config" 16777216)" || return 1
+        printf 'XRAY_FILE=%s:%s\n' "$rb_config" "$rb_config_proof"
+    done
+    snapshot_preserved_state "$TMP_DIR/reconcile-preserved.current" || return 1
+    snapshot_xray "$TMP_DIR/reconcile-xray.current" || return 1
+    cmp -s "$RQ_BACKUP/preserved.before" "$TMP_DIR/reconcile-preserved.current" &&
+        cmp -s "$RQ_BACKUP/xray-hashes.before" "$TMP_DIR/reconcile-xray.current" || return 1
+    [ "$(update_file_proof "$RQ_BACKUP/preserved.before" 16777216 600)" = "$rb_preserved" ] &&
+        [ "$(update_file_proof "$RQ_BACKUP/xray-hashes.before" 2097152 600)" = "$rb_xray" ] || return 1
+    printf 'PRESERVED=%s\nXRAY_CONFIGS=%s\n' "$rb_preserved" "$rb_xray"
+    [ "$(update_file_proof "$UI_INIT" 16384 755)" = "$UI_INIT_PROOF" ] || return 1
+    printf 'INIT=%s\n' "$UI_INIT_PROOF"
+    rb_ui_sha="$(reconcile_manifest_sha "freenet-ui-$ARCH")" || return 1
+    ui_runtime_proof "$RQ_FROM" "$rb_ui_sha" || return 1
+    reconcile_writers_absent || return 1
+    reconcile_checkpoint_absent && [ "$(reconcile_xray_runtime_proof)" = "$rb_xray_runtime" ] || return 1
+    [ "$(update_directory_proof "$RQ_BACKUP" 700)" = "$rb_backup" ] &&
+        [ "$(update_file_proof "$STATE_FILE" 131072 600)" = "$RQ_STATE_PROOF" ] || return 1
+)
+
+reconcile_stop() {
+    err "reconciliation stopped: $1; original receipt and both fences preserved"
+    say 'SUCCESS=no'
+    say 'READY=no'
+    say "ERROR=$1"
+    say 'APPLICATION_RECEIPT=PRESERVED'
+    say 'FENCES=PRESERVED'
+    say 'VPN_MUTATION=NONE'
+    if [ "${RQ_ARCHIVE_CREATED:-0}" = 1 ]; then say 'MUTATION=APPLICATION_EVIDENCE_ONLY'; else say 'MUTATION=NONE'; fi
+    return 1
+}
+
+run_reconcile_rollback() {
+    RQ_REQUESTED_SHA="$1"
+    [ "$TEST_MODE" = no ] || { reconcile_stop 'runtime proof cannot use the test-mode acceptance bypass'; return 1; }
+    umask 077
+    for RQ_TOOL in curl sha256sum sed awk grep cmp mktemp jq stat readlink id sort tr sync; do
+        command -v "$RQ_TOOL" > /dev/null 2>&1 || { reconcile_stop 'required proof command is unavailable'; return 1; }
+    done
+    make_tmp || { reconcile_stop 'private proof staging is unavailable'; return 1; }
+    if [ "$MODE" = reconcile-rollback ]; then
+        [ "${#RQ_REQUESTED_SHA}" -eq 64 ] || { reconcile_stop 'exact planned receipt SHA-256 is required'; return 1; }
+        case "$RQ_REQUESTED_SHA" in *[!0-9a-f]*) reconcile_stop 'receipt SHA-256 is invalid'; return 1 ;; esac
+        # A separate empty guard serializes this narrowly scoped command. The
+        # existing update/network fences remain byte-for-byte untouched.
+        mkdir "$RECONCILE_GUARD_DIR" || { reconcile_stop 'another reconciliation is running or its temporary guard is unresolved'; return 1; }
+        RECONCILE_GUARD_HELD=1
+        chmod 700 "$RECONCILE_GUARD_DIR" || { reconcile_stop 'cannot protect reconciliation guard'; return 1; }
+        RQ_GUARD_PROOF="$(update_directory_proof "$RECONCILE_GUARD_DIR" 700)" || { reconcile_stop 'cannot pin reconciliation guard'; return 1; }
+    fi
+    reconcile_state_values || { reconcile_stop 'UNKNOWN receipt or backup identity is invalid'; return 1; }
+    if [ -n "$RQ_REQUESTED_SHA" ] && [ "$RQ_REQUESTED_SHA" != "$RQ_SHA" ]; then
+        reconcile_stop 'receipt changed after the read-only plan'; return 1
+    fi
+    RQ_LOCKS_PROOF="$(reconcile_lock_proof)" && reconcile_writers_absent ||
+        { reconcile_stop 'both owned fences and a stopped updater are required'; return 1; }
+    reconcile_checkpoint_absent || { reconcile_stop 'pending VPN checkpoint must be absent'; return 1; }
+    get_arch || { reconcile_stop 'Entware architecture is unknown'; return 1; }
+    fetch_release_metadata "$RQ_FROM" && fetch_manifest "$RQ_FROM" || { reconcile_stop 'exact FROM release metadata or SHA-256 manifest is unavailable'; return 1; }
+    RQ_MANIFEST_SHA="$(update_sha "$TMP_DIR/SHA256SUMS")" || { reconcile_stop 'FROM manifest cannot be pinned'; return 1; }
+    ui_prepare_service || { reconcile_stop 'stock HTTP daemon launch specification cannot be verified'; return 1; }
+    reconcile_build_proof > "$TMP_DIR/reconcile.proof" || { reconcile_stop 'restored application, protected state, runtime or owned fences are not proven'; return 1; }
+    if [ "$MODE" = reconcile-rollback-plan ]; then
+        say 'SUCCESS=yes'
+        say 'READY=yes'
+        say "RECEIPT_SHA256=$RQ_SHA"
+        say "FROM_VERSION=$RQ_FROM"
+        say "TARGET_VERSION=$RQ_TARGET"
+        say 'APPLICATION_ASSETS=VERIFIED'
+        say 'RUNTIME=VERIFIED_FROM_RELEASE'
+        say 'FENCES=PRESERVED'
+        say 'MUTATION=NONE'
+        return 0
+    fi
+
+    RQ_ARCHIVE_ROOT="$ROOT/var/lib/freenet/update-rollback-reconciliation"
+    reconcile_root_path_safe "$RQ_ARCHIVE_ROOT" || { reconcile_stop 'archive path is unsafe'; return 1; }
+    mkdir -p "$RQ_ARCHIVE_ROOT" || { reconcile_stop 'cannot create reconciliation archive root'; return 1; }
+    update_directory_proof "$RQ_ARCHIVE_ROOT" 700 > /dev/null || { reconcile_stop 'archive directory ownership or mode is unsafe'; return 1; }
+    RQ_ARCHIVE="$RQ_ARCHIVE_ROOT/$RQ_SHA.$$"
+    mkdir "$RQ_ARCHIVE" || { reconcile_stop 'cannot create unique reconciliation archive'; return 1; }
+    RQ_ARCHIVE_CREATED=1
+    RQ_STAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)" || { reconcile_stop 'cannot timestamp recovery evidence'; return 1; }
+    cp "$STATE_FILE" "$RQ_ARCHIVE/original.state" &&
+        cp "$TMP_DIR/reconcile.proof" "$RQ_ARCHIVE/proof" &&
+        cp "$TMP_DIR/SHA256SUMS" "$RQ_ARCHIVE/SHA256SUMS" || { reconcile_stop 'cannot archive original receipt and proof'; return 1; }
+    [ "$(update_sha "$RQ_ARCHIVE/original.state")" = "$RQ_SHA" ] || { reconcile_stop 'original receipt changed during archival'; return 1; }
+    LC_ALL=C awk -v stamp="$RQ_STAMP" -v receipt="$RQ_SHA" -v archive="$RQ_ARCHIVE" '
+        /^STATE=/ { print "STATE=FAILED"; next }
+        /^ROLLBACK_STATE=/ { print "ROLLBACK_STATE=SUCCESS"; next }
+        /^MESSAGE=/ { print "MESSAGE=Предыдущее состояние приложения восстановлено и независимо подтверждено; блокировки сохранены до штатного снятия"; next }
+        /^UPDATED_AT=/ { print "UPDATED_AT=" stamp; next }
+        { print }
+        END { print "RECONCILIATION_RECEIPT_SHA256=" receipt; print "RECONCILIATION_ARCHIVE=" archive }
+    ' "$RQ_ARCHIVE/original.state" > "$RQ_ARCHIVE/terminal.state" || { reconcile_stop 'cannot prepare terminal receipt'; return 1; }
+    chmod 600 "$RQ_ARCHIVE/original.state" "$RQ_ARCHIVE/proof" "$RQ_ARCHIVE/SHA256SUMS" "$RQ_ARCHIVE/terminal.state" || { reconcile_stop 'cannot protect durable evidence'; return 1; }
+    RQ_TERMINAL_SHA="$(update_sha "$RQ_ARCHIVE/terminal.state")" || { reconcile_stop 'cannot pin terminal receipt'; return 1; }
+    RQ_PROOF_SHA="$(update_sha "$RQ_ARCHIVE/proof")" || { reconcile_stop 'cannot pin archived proof'; return 1; }
+    RQ_ARCHIVE_PROOF="$(update_directory_proof "$RQ_ARCHIVE" 700)" || { reconcile_stop 'cannot pin private archive'; return 1; }
+    RQ_TERMINAL_TMP="$(mktemp "$STATE_FILE.reconcile.XXXXXX")" || { reconcile_stop 'cannot stage atomic terminal receipt'; return 1; }
+    cp "$RQ_ARCHIVE/terminal.state" "$RQ_TERMINAL_TMP" && chmod 600 "$RQ_TERMINAL_TMP" ||
+        { rm -f "$RQ_TERMINAL_TMP"; reconcile_stop 'cannot prepare exact terminal receipt bytes'; return 1; }
+    # Archive and prospective terminal bytes are durable before UNKNOWN can
+    # change. Old UI versions recognize only apply as an active updater.
+    sync || { rm -f "$RQ_TERMINAL_TMP"; reconcile_stop 'cannot make recovery evidence durable'; return 1; }
+    if ! reconcile_build_proof > "$TMP_DIR/reconcile.repeat" ||
+       ! cmp -s "$TMP_DIR/reconcile.proof" "$TMP_DIR/reconcile.repeat" ||
+       [ "$(update_directory_proof "$RQ_ARCHIVE" 700)" != "$RQ_ARCHIVE_PROOF" ] ||
+       ! RQ_ORIGINAL_FINAL="$(update_file_proof "$RQ_ARCHIVE/original.state" 131072 600)" || [ "${RQ_ORIGINAL_FINAL##*:}" != "$RQ_SHA" ] ||
+       ! RQ_PROOF_FINAL="$(update_file_proof "$RQ_ARCHIVE/proof" 16777216 600)" || [ "${RQ_PROOF_FINAL##*:}" != "$RQ_PROOF_SHA" ] ||
+       ! RQ_MANIFEST_FINAL="$(update_file_proof "$RQ_ARCHIVE/SHA256SUMS" 2097152 600)" || [ "${RQ_MANIFEST_FINAL##*:}" != "$RQ_MANIFEST_SHA" ] ||
+       ! RQ_TERMINAL_FINAL="$(update_file_proof "$RQ_ARCHIVE/terminal.state" 131072 600)" || [ "${RQ_TERMINAL_FINAL##*:}" != "$RQ_TERMINAL_SHA" ] ||
+       [ "$(update_sha "$RQ_TERMINAL_TMP")" != "$RQ_TERMINAL_SHA" ]; then
+        rm -f "$RQ_TERMINAL_TMP"
+        reconcile_stop 'evidence changed before terminal commit'
+        return 1
+    fi
+    # Final rechecks are adjacent to the only state mutation. No service,
+    # asset, receipt, archive or fence writes are allowed after this rename.
+    if [ "$(update_directory_proof "$RECONCILE_GUARD_DIR" 700)" != "$RQ_GUARD_PROOF" ] ||
+       [ "$(reconcile_lock_proof)" != "$RQ_LOCKS_PROOF" ] ||
+       [ "$(update_file_proof "$STATE_FILE" 131072 600)" != "$RQ_STATE_PROOF" ] ||
+       ! reconcile_checkpoint_absent || ! reconcile_writers_absent; then
+        rm -f "$RQ_TERMINAL_TMP"
+        reconcile_stop 'receipt or updater ownership changed before terminal commit'
+        return 1
+    fi
+    if ! mv -f "$RQ_TERMINAL_TMP" "$STATE_FILE"; then
+        rm -f "$RQ_TERMINAL_TMP"
+        reconcile_stop 'atomic terminal receipt commit failed'
+        return 1
+    fi
+    say 'SUCCESS=yes'
+    say 'RESULT=RECONCILED_ROLLBACK'
+    say 'ROLLBACK=SUCCESS'
+    say 'FENCES=PRESERVED'
+    say 'VPN_MUTATION=NONE'
+    say 'MUTATION=APPLICATION_RECEIPT_ONLY'
+    say "RECEIPT_SHA256=$RQ_SHA"
+    say "ARCHIVE=$RQ_ARCHIVE"
+}
+
 run_apply() {
     umask 077
     if ! mkdir "$LOCK_DIR" 2>/dev/null; then
@@ -1245,7 +2038,7 @@ run_apply() {
     beta_opted_in "$TARGET_TAG" || fail_before_mutation 'explicit Beta opt-in required'
     [ "$TARGET_TAG" != "$CURRENT_VERSION" ] || fail_before_mutation 'target FreeNet version is already installed'
     get_arch || fail_before_mutation 'unsupported Entware architecture'
-    for T in curl sha256sum sed awk grep cmp mktemp jq; do
+    for T in curl sha256sum sed awk grep cmp mktemp jq stat readlink id sort tr; do
         command -v "$T" >/dev/null 2>&1 || fail_before_mutation "required command missing: $T"
     done
     fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release metadata or Beta channel is not verified'
@@ -1264,6 +2057,20 @@ run_apply() {
         snapshot_xray "$TMP_DIR/xray-fence-after" || fail_before_mutation 'Xray changed during protected lock claim; STOP'
         cmp -s "$TMP_DIR/fence-before" "$TMP_DIR/fence-after" || fail_before_mutation 'VPN evidence changed during protected lock claim; STOP'
         cmp -s "$TMP_DIR/xray-fence-before" "$TMP_DIR/xray-fence-after" || fail_before_mutation 'Xray baseline changed during protected lock claim; STOP'
+    fi
+    if [ "$TEST_MODE" = no ]; then
+        ui_prepare_service || fail_before_mutation 'stock HTTP daemon launch specification cannot be verified'
+        UI_OLD_IMAGE_PROOF="$(update_file_proof "$UI_BIN" 67108864 755)" || fail_before_mutation 'current HTTP daemon image cannot be verified'
+        UI_OLD_SHA="${UI_OLD_IMAGE_PROOF##*:}"
+        UI_BEFORE="$(ui_find_daemon "$UI_OLD_SHA")" || fail_before_mutation 'current HTTP daemon identity is ambiguous'
+        if [ -n "$UI_BEFORE" ]; then
+            ui_runtime_proof "$CURRENT_VERSION" "$UI_OLD_SHA" > "$TMP_DIR/ui-before.proof" ||
+                fail_before_mutation 'current HTTP daemon ownership, health or version is unconfirmed'
+            UI_OLD_PIN="$(ui_stable_pin "$UI_BEFORE")" || fail_before_mutation 'cannot pin current HTTP daemon lifetime'
+        else
+            UI_BEFORE_SOCKETS="$(ui_listener_table)" || fail_before_mutation 'current HTTP listeners cannot be inspected'
+            [ -z "$UI_BEFORE_SOCKETS" ] || fail_before_mutation 'UI port is occupied by an unowned listener'
+        fi
     fi
     write_state SNAPSHOT "$TARGET_TAG" 'Создаём snapshot FreeNet-owned файлов' '' NOT_NEEDED '' || true
     prepare_backup || fail_before_mutation 'cannot create pre-update snapshot'
@@ -1288,9 +2095,16 @@ run_apply() {
 
 case "$MODE" in
     plan) run_plan ;;
+    reconcile-rollback-plan)
+        [ -z "$TARGET_TAG" ] || { err 'usage: self_update.sh reconcile-rollback-plan'; exit 2; }
+        run_reconcile_rollback ''
+        ;;
+    reconcile-rollback)
+        run_reconcile_rollback "$TARGET_TAG"
+        ;;
     apply)
         [ -n "$TARGET_TAG" ] || { err 'usage: self_update.sh apply <vX.Y.Z>'; exit 2; }
         run_apply
         ;;
-    *) err 'usage: self_update.sh [plan [vX.Y.Z]|apply <vX.Y.Z>]'; exit 2 ;;
+    *) err 'usage: self_update.sh [plan [vX.Y.Z]|apply <vX.Y.Z>|reconcile-rollback-plan|reconcile-rollback <receiptSHA256>]'; exit 2 ;;
 esac
