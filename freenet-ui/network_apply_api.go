@@ -585,7 +585,16 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 	return a.executeProviderProfileApplyWithStart(req, nil)
 }
 
+type providerApplyAdmission struct {
+	beforeQuiesce  func(bestServerInternalCandidate) error
+	beforeMutation func() error
+}
+
 func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onManualStart func(providerPlanResponse)) (int, networkApplyResponse) {
+	return a.executeProviderProfileApplyWithAdmission(req, onManualStart, nil)
+}
+
+func (a *app) executeProviderProfileApplyWithAdmission(req networkApplyRequest, onManualStart func(providerPlanResponse), admission *providerApplyAdmission) (int, networkApplyResponse) {
 	profileID := strings.TrimSpace(req.ProfileID)
 	selectionToken := strings.TrimSpace(req.SelectionToken)
 	select {
@@ -669,6 +678,14 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		}
 	}
 
+	if admission != nil && admission.beforeQuiesce != nil {
+		if err := admission.beforeQuiesce(selected); err != nil {
+			return http.StatusConflict, networkApplyResponse{
+				Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan,
+				RollbackState: "NOT_APPLIED", Error: err.Error(),
+			}
+		}
+	}
 	if onManualStart != nil {
 		onManualStart(providerPlan)
 	}
@@ -688,6 +705,14 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 		}
 	}
 	defer releaseProbes()
+	if admission != nil && admission.beforeMutation != nil {
+		if err := admission.beforeMutation(); err != nil {
+			return http.StatusConflict, networkApplyResponse{
+				Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan,
+				RollbackState: "NOT_APPLIED", Error: err.Error(),
+			}
+		}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), providerWorkTimeout(a.cfg))
 	defer cancel()

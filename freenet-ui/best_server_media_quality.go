@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"math"
+	"math/bits"
 	"os/exec"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -157,32 +160,93 @@ func runBestServerMediaStages(
 	}
 }
 
-func probeBestServerServiceReachability(ctx context.Context, curlPath, socks string) (int, int) {
+const bestServerServiceAllMask uint8 = 15
+
+// Masks describe only the four fixed public service checks above. A negative
+// HTTP response or a bounded target failure is QoE evidence, never evidence
+// that the VPN itself is down. An unfinished/local failure stays unknown.
+type bestServerServiceReachabilityResult struct {
+	OKMask   uint8
+	BadMask  uint8
+	Complete bool
+}
+
+func classifyBestServerServiceObservation(output []byte, err, probeErr, parentErr error, started bool) (bool, bool) {
+	if parentErr != nil || !started {
+		return false, false
+	}
+	if probeErr != nil {
+		return false, errors.Is(probeErr, context.DeadlineExceeded)
+	}
+	if err == nil {
+		if _, valid := parseAutomationVPNHTTPResponse(string(output)); !valid {
+			return false, false
+		}
+		fields := strings.Fields(string(output))
+		ok := bestServerHTTPStatusOK(fields[0])
+		return ok, !ok
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		switch exit.ExitCode() {
+		case 7, 28, 35, 52, 56:
+			return false, true
+		case 47:
+			// A completed response followed by the existing redirect cap is a
+			// service restriction. Missing/malformed output is still unknown.
+			_, valid := parseAutomationVPNHTTPResponse(string(output))
+			return false, valid
+		}
+	}
+	return false, false
+}
+
+func probeBestServerServiceReachabilityDetailed(ctx context.Context, curlPath, socks string) bestServerServiceReachabilityResult {
+	result := bestServerServiceReachabilityResult{}
+	if ctx == nil || ctx.Err() != nil || len(bestServerMediaServiceURLs) != 4 {
+		return result
+	}
 	serviceCtx, cancelServices := context.WithTimeout(ctx, bestServerServiceTimeout)
 	defer cancelServices()
-	serviceOK := 0
-	serviceResults := make(chan bool, len(bestServerMediaServiceURLs))
-	for _, serviceURL := range bestServerMediaServiceURLs {
-		serviceURL := serviceURL
+	type serviceObservation struct {
+		bit     uint8
+		ok, bad bool
+	}
+	serviceResults := make(chan serviceObservation, len(bestServerMediaServiceURLs))
+	for index, serviceURL := range bestServerMediaServiceURLs {
+		index, serviceURL := index, serviceURL
 		go func() {
 			probeCtx, cancelProbe := context.WithTimeout(serviceCtx, 3*time.Second)
-			out, _ := exec.CommandContext(probeCtx, curlPath,
+			cmd := exec.CommandContext(probeCtx, curlPath,
 				"--socks5-hostname", socks,
 				"-sS", "-I", "-L", "--max-redirs", "2",
 				"--connect-timeout", "2", "--max-time", "3",
 				"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", serviceURL,
-			).Output()
+			)
+			cmd.WaitDelay = 2 * time.Second
+			out, err := cmd.Output()
+			ok, bad := classifyBestServerServiceObservation(out, err, probeCtx.Err(), serviceCtx.Err(), cmd.ProcessState != nil)
 			cancelProbe()
-			_, ok := parseBestServerHTTPResponseMS(string(out))
-			serviceResults <- ok
+			serviceResults <- serviceObservation{bit: uint8(1 << index), ok: ok, bad: bad}
 		}()
 	}
 	for range bestServerMediaServiceURLs {
-		if <-serviceResults {
-			serviceOK++
+		observation := <-serviceResults
+		if observation.ok {
+			result.OKMask |= observation.bit
+		}
+		if observation.bad {
+			result.BadMask |= observation.bit
 		}
 	}
-	return serviceOK, len(bestServerMediaServiceURLs)
+	result.Complete = serviceCtx.Err() == nil && ctx.Err() == nil &&
+		result.OKMask&result.BadMask == 0 && result.OKMask|result.BadMask == bestServerServiceAllMask
+	return result
+}
+
+func probeBestServerServiceReachability(ctx context.Context, curlPath, socks string) (int, int) {
+	result := probeBestServerServiceReachabilityDetailed(ctx, curlPath, socks)
+	return bits.OnesCount8(result.OKMask), len(bestServerMediaServiceURLs)
 }
 
 func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) bestServerMediaQualityResult {

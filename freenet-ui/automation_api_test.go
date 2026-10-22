@@ -312,6 +312,16 @@ func TestAutomationCurrentQualityIncompleteIsUncertain(t *testing.T) {
 	}
 	candidate.Available = true
 	_, state = automationCurrentQualityState(bestServerQualityResponse{Candidates: []bestServerQualityCandidate{candidate}})
+	if state != "uncertain" {
+		t.Fatalf("reachable but unmeasured current quality state=%q want uncertain", state)
+	}
+	candidate.ApplicationMS = 350
+	candidate.HTTPSamples = bestServerQualityHTTPRequired
+	candidate.MediaSamples = bestServerMediaRequiredRuns
+	candidate.DownloadMbps = 60
+	candidate.MediaGrade = "excellent"
+	candidate.ServiceOK, candidate.ServiceTotal = 4, 4
+	_, state = automationCurrentQualityState(bestServerQualityResponse{Candidates: []bestServerQualityCandidate{candidate}})
 	if state != "degraded" {
 		t.Fatalf("fully measured rejected current quality state=%q want degraded", state)
 	}
