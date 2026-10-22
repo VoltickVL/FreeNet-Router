@@ -27,7 +27,7 @@ func resolvedIsolatedXrayProbePath(dir, executable string) (string, error) {
 func runReadOnlyXrayValidation(ctx context.Context, executable, assetDir, configDir string) error {
 	releaseProbe, ok := acquireIsolatedXrayProbe(ctx)
 	if !ok {
-		return ctx.Err()
+		return isolatedXrayProbeAdmissionError(ctx)
 	}
 	defer releaseProbe()
 	dir, err := os.MkdirTemp("", "freenet-xray-validation-")

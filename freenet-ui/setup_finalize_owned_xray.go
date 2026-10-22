@@ -24,7 +24,7 @@ func runSetupFinalizeOwned(ctx context.Context, mode string) ([]byte, error) {
 	}
 	releaseProbe, ok := acquireIsolatedXrayProbe(ctx)
 	if !ok {
-		return nil, ctx.Err()
+		return nil, isolatedXrayProbeAdmissionError(ctx)
 	}
 	defer releaseProbe()
 	dir, err := os.MkdirTemp("", "freenet-finalize-owned-")
