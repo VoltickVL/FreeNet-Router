@@ -804,8 +804,12 @@ ui_process_fingerprint() (
     up_birth="$(ui_proc_start "$up_pid")" || return 1
     up_dir="$UPDATE_PROC_ROOT/$up_pid"
     LC_ALL=C awk -v uid="$UPDATE_UID" '/^Uid:/ { if(NF!=5 || $2!=uid || $3!=uid || $4!=uid || $5!=uid) exit 1; found=1 } END { if(!found) exit 1 }' "$up_dir/status" || return 1
-    if ! cmp -s "$up_dir/cmdline" "$TMP_DIR/ui-argv.full" && ! cmp -s "$up_dir/cmdline" "$TMP_DIR/ui-argv.short"; then return 1; fi
-    up_argv="$(update_sha "$up_dir/cmdline")" || return 1
+    # Some cmp -s implementations trust proc's reported zero file size.
+    # Compare a checked regular snapshot and rehash live proc below.
+    up_cmdline="$TMP_DIR/ui-fingerprint-$up_pid.cmdline"
+    cat "$up_dir/cmdline" > "$up_cmdline" || return 1
+    if ! cmp -s "$up_cmdline" "$TMP_DIR/ui-argv.full" && ! cmp -s "$up_cmdline" "$TMP_DIR/ui-argv.short"; then return 1; fi
+    up_argv="$(update_sha "$up_cmdline")" || return 1
     up_exe="$(readlink "$up_dir/exe")" || return 1
     case "$up_exe" in "$UI_IMAGE_PATH"|"$UI_IMAGE_PATH (deleted)") ;; *) return 1 ;; esac
     up_stat="$(update_stat "$up_dir/exe")" || return 1
@@ -829,16 +833,18 @@ ui_find_daemon() (
         [ -d "$uf_dir" ] || continue
         uf_exe="$(readlink "$uf_dir/exe" 2>/dev/null)" || continue
         case "$uf_exe" in "$UI_IMAGE_PATH"|"$UI_IMAGE_PATH (deleted)") ;; *) continue ;; esac
-        if ! cmp -s "$uf_dir/cmdline" "$TMP_DIR/ui-argv.full" && ! cmp -s "$uf_dir/cmdline" "$TMP_DIR/ui-argv.short"; then
+        uf_pid="${uf_dir##*/}"
+        uf_cmdline="$TMP_DIR/ui-find-$uf_pid.cmdline"
+        cat "$uf_dir/cmdline" > "$uf_cmdline" || { [ ! -e "$uf_dir" ] && continue; return 1; }
+        if ! cmp -s "$uf_cmdline" "$TMP_DIR/ui-argv.full" && ! cmp -s "$uf_cmdline" "$TMP_DIR/ui-argv.short"; then
             # Same ELF is also the official cron/CLI worker. Its mode is not a
             # daemon identity, and it must neither block start nor receive kill.
-            uf_mode="$(tr '\000' '\n' < "$uf_dir/cmdline" | sed -n '2p')" || return 1
+            uf_mode="$(tr '\000' '\n' < "$uf_cmdline" | sed -n '2p')" || return 1
             case "$uf_mode" in
                 automation-health-watch|automation-best-run|settings-v3-reconcile|settings-v3-endpoint-refresh|settings-v3-subscription|settings-v3-geodata|settings-v3-freenet-check|settings-v3-backup|plan|apply) continue ;;
                 *) [ ! -e "$uf_dir" ] && continue; return 1 ;;
             esac
         fi
-        uf_pid="${uf_dir##*/}"
         uf_id="$(ui_process_fingerprint "$uf_pid" "$uf_expected")" || { [ ! -e "$uf_dir" ] && continue; return 1; }
         [ -z "$uf_found" ] || return 1
         uf_found="$uf_id"
@@ -1741,8 +1747,10 @@ reconcile_xray_runtime_proof() (
         [ "$rx_role" = CORE ] && [ -z "$rx_core" ] || return 1
         rx_birth="$(ui_proc_start "$rx_pid")" || return 1
         LC_ALL=C awk -v uid="$UPDATE_UID" '/^Uid:/ { if(NF!=5 || $2!=uid || $3!=uid || $4!=uid || $5!=uid) exit 1; found=1 } END { if(!found) exit 1 }' "$rx_dir/status" || return 1
-        if ! cmp -s "$rx_dir/cmdline" "$TMP_DIR/xray-argv.full" && ! cmp -s "$rx_dir/cmdline" "$TMP_DIR/xray-argv.short"; then return 1; fi
-        rx_argv="$(update_sha "$rx_dir/cmdline")" || return 1
+        rx_cmdline="$TMP_DIR/xray-$rx_pid.cmdline"
+        cat "$rx_dir/cmdline" > "$rx_cmdline" || return 1
+        if ! cmp -s "$rx_cmdline" "$TMP_DIR/xray-argv.full" && ! cmp -s "$rx_cmdline" "$TMP_DIR/xray-argv.short"; then return 1; fi
+        rx_argv="$(update_sha "$rx_cmdline")" || return 1
         rx_stat="$(update_stat "$rx_dir/exe")" || return 1
         rx_sha="$(update_sha "$rx_dir/exe")" || return 1
         [ "$rx_exe" = "$rx_path" ] && [ "$rx_stat" = "${rx_image%:*}" ] && [ "$rx_sha" = "${rx_image##*:}" ] || return 1
