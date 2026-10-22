@@ -32,5 +32,10 @@ func runTestsWithIsolatedState(m *testing.M) int {
 	if err := os.Setenv("FREENET_VPN_TRANSACTION_DIR", filepath.Join(dir, "transaction.pending")); err != nil {
 		return 2
 	}
+	// Tests and their explicit child processes must never join the host's
+	// production probe fence. Child fixtures inherit this isolated path.
+	if err := os.Setenv("FREENET_XRAY_PROBE_LOCK_FILE", filepath.Join(dir, "xray-probes.lock")); err != nil {
+		return 2
+	}
 	return m.Run()
 }

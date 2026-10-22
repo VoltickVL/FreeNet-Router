@@ -11,29 +11,45 @@ const isolatedXrayProbeLimit = 2
 
 var isolatedXrayProbeGate = make(chan struct{}, isolatedXrayProbeLimit)
 
+var errIsolatedXrayProbeAdmission = errors.New("isolated Xray probe admission is unavailable")
+
+func isolatedXrayProbeAdmissionError(ctx context.Context) error {
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	return errIsolatedXrayProbeAdmission
+}
+
 func acquireIsolatedXrayProbe(ctx context.Context) (func(), bool) {
-	if ctx == nil {
+	if ctx == nil || ctx.Err() != nil {
 		return nil, false
 	}
 	select {
 	case isolatedXrayProbeGate <- struct{}{}:
-		return func() {
-			select {
-			case <-isolatedXrayProbeGate:
-			default:
-			}
-		}, true
 	case <-ctx.Done():
 		return nil, false
 	}
+	releaseFileLock, err := acquireIsolatedXrayProbeFileLock(ctx, false)
+	if err != nil {
+		<-isolatedXrayProbeGate
+		return nil, false
+	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			releaseFileLock()
+			<-isolatedXrayProbeGate
+		})
+	}, true
 }
 
-
-// acquireExclusiveIsolatedXrayProbe drains both shared probe slots before a
-// production Xray cutover. The legacy XKeen init script checks "pidof xray"
-// without distinguishing the live core from a background RTT/health probe.
-// Holding every slot until the complete apply/rollback helper returns stops
-// FreeNet from presenting an isolated worker as XKeen's production process.
+// acquireExclusiveIsolatedXrayProbe first drains the local probe slots, then
+// waits for shared leases held by other FreeNet processes, including cron.
+// The legacy XKeen init script checks "pidof xray" without distinguishing the
+// live core from an isolated probe, even when the probe uses a different alias.
+// Both fences remain held until the complete apply/rollback helper returns.
 // This is deliberately a bounded wait, not a forced kill of any Xray process.
 // Unknown/external workers are independently rejected by the shell preflight.
 func acquireExclusiveIsolatedXrayProbe(ctx context.Context) (func(), bool) {
@@ -63,8 +79,18 @@ func acquireExclusiveIsolatedXrayProbe(ctx context.Context) (func(), bool) {
 		release()
 		return nil, false
 	}
+	releaseFileLock, err := acquireIsolatedXrayProbeFileLock(ctx, true)
+	if err != nil {
+		release()
+		return nil, false
+	}
 	var once sync.Once
-	return func() { once.Do(release) }, true
+	return func() {
+		once.Do(func() {
+			releaseFileLock()
+			release()
+		})
+	}, true
 }
 
 func prepareIsolatedProbeOutbound(outbound map[string]any) (map[string]any, error) {
