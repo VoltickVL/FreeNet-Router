@@ -61,6 +61,15 @@ UI_STARTED_PID=""
 UI_STARTED_ID=""
 UI_STARTED_SHA=""
 UI_STARTED_PIN=""
+UI_STOP_PENDING=0
+UI_STOP_PID=""
+UI_STOP_BIRTH=""
+UI_STOP_SOCKETS=""
+UI_STOP_STARTED=""
+UI_STOP_DEADLINE=""
+# Native multithreaded teardown can outlive the main thread. This is a fixed
+# monotonic drain budget, not permission to signal another process or listener.
+UI_STOP_BUDGET=90
 LAST_UPDATE_STAGE=""
 RECONCILE_GUARD_HELD=0
 RECONCILE_GUARD_DIR="$LOCK_DIR.reconcile-guard"
@@ -789,14 +798,22 @@ ui_ipv4_hex() (
     '
 )
 
-ui_proc_start() (
+ui_proc_lifetime() (
     up_pid="$1"
     case "$up_pid" in ''|*[!0-9]*) return 1 ;; esac
     LC_ALL=C awk -v pid="$up_pid" '
         NR!=1 || $1!=pid { bad=1; next }
-        { sub(/^[0-9]+ \(.*\) /,""); if(NF<20 || $1=="Z" || $20 !~ /^[0-9]+$/ || $20=="0") bad=1; birth=$20 }
-        END { if(NR!=1 || bad) exit 1; print birth }
+        { sub(/^[0-9]+ \(.*\) /,""); if(NF<20 || $1 !~ /^[A-Za-z]$/ || $20 !~ /^[0-9]+$/ || $20=="0") bad=1; state=$1; birth=$20 }
+        END { if(NR!=1 || bad) exit 1; print birth ":" state }
     ' "$UPDATE_PROC_ROOT/$up_pid/stat"
+)
+
+ui_proc_start() (
+    up_lifetime="$(ui_proc_lifetime "$1")" || return 1
+    # A zombie is never a live daemon identity. Stop waiting uses the lifetime
+    # reader separately: a zombie leader can still have live sibling threads.
+    case "$up_lifetime" in *:Z) return 1 ;; esac
+    printf '%s\n' "${up_lifetime%:*}"
 )
 
 ui_process_fingerprint() (
@@ -866,13 +883,19 @@ ui_listener_table() (
 
 ui_owned_listeners() (
     ul_pid="$1"
+    ul_mode="${2:-complete}"
+    case "$ul_mode" in complete|partial) ;; *) return 1 ;; esac
     ul_table="$(ui_listener_table)" || return 1
-    printf '%s\n' "$ul_table" | LC_ALL=C awk -v lan="$UI_HOST_HEX:$UI_PORT_HEX" -v loop="$UI_LOOP_HEX:$UI_PORT_HEX" '
+    printf '%s\n' "$ul_table" | LC_ALL=C awk -v lan="$UI_HOST_HEX:$UI_PORT_HEX" -v loop="$UI_LOOP_HEX:$UI_PORT_HEX" -v mode="$ul_mode" '
+        NF==0 && mode=="partial" { next }
         NF!=2 || $2 !~ /^[0-9]+$/ || $2=="0" { bad=1; next }
         $1==lan { lanCount++; next }
         $1==loop { loopCount++; next }
         { bad=1 }
-        END { if(bad || lanCount!=1 || (lan!=loop && loopCount!=1) || (lan==loop && loopCount!=0)) exit 1 }
+        END {
+            if(bad || lanCount>1 || loopCount>1 || (lan==loop && loopCount!=0)) exit 1
+            if(mode=="complete" && (lanCount!=1 || (lan!=loop && loopCount!=1))) exit 1
+        }
     ' || return 1
     [ -d "$UPDATE_PROC_ROOT/$ul_pid/fd" ] && [ -r "$UPDATE_PROC_ROOT/$ul_pid/fd" ] || return 1
     for ul_inode in $(printf '%s\n' "$ul_table" | awk '{print $2}'); do
@@ -917,8 +940,95 @@ ui_wait_ready() {
     update_stage_error runtime-acceptance 'HTTP daemon identity, health or exact version was not confirmed'
 }
 
+ui_stop_clock() (
+    # /proc uptime is monotonic; wall-clock adjustments must not renew a stop.
+    LC_ALL=C awk '
+        NR!=1 || NF!=2 || $1 !~ /^[0-9]+\.[0-9]+$/ { bad=1; next }
+        { seconds=int($1) }
+        END { if(NR!=1 || bad) exit 1; printf "%.0f\n",seconds }
+    ' "$UPDATE_PROC_ROOT/uptime"
+)
+
+ui_stop_listener_subset() (
+    [ -n "$1" ] || return 0
+    # Include the address and inode. An empty owned-child snapshot cannot
+    # admit a listener, and a new inode at the old address is still unowned.
+    printf '%s\n' "$1" | LC_ALL=C awk -v owned="$UI_STOP_SOCKETS" '
+        BEGIN { n=split(owned,rows,"\n"); for(i=1;i<=n;i++) if(rows[i]!="") known["x" rows[i]]=1 }
+        NF!=2 || !( ("x" $0) in known ) { exit 1 }
+    '
+)
+
+ui_stop_lifetime() (
+    if [ ! -e "$UPDATE_PROC_ROOT/$UI_STOP_PID" ]; then printf 'absent\n'; return 0; fi
+    ud_lifetime="$(ui_proc_lifetime "$UI_STOP_PID")" || {
+        [ ! -e "$UPDATE_PROC_ROOT/$UI_STOP_PID" ] || return 1
+        printf 'absent\n'; return 0
+    }
+    [ "${ud_lifetime%:*}" = "$UI_STOP_BIRTH" ] || return 1
+    printf '%s\n' "${ud_lifetime##*:}"
+)
+
+ui_wait_stopped() {
+    ud_expected="$1"
+    while :; do
+        ud_state="$(ui_stop_lifetime)" || {
+            update_stage_error daemon-identity 'stopping HTTP daemon lifetime changed or cannot be read'; return 1;
+        }
+        ud_table="$(ui_listener_table)" || {
+            update_stage_error daemon-listener 'HTTP listener drain cannot be inspected'; return 1;
+        }
+        ui_stop_listener_subset "$ud_table" || {
+            update_stage_error daemon-listener 'port acquired an unowned listener during HTTP stop'; return 1;
+        }
+        case "$ud_state" in
+            absent|Z)
+                if [ -z "$ud_table" ]; then
+                    # No new daemon may replace the pinned one during the
+                    # wait. Recheck its lifetime and the port after this scan.
+                    ud_remaining="$(ui_find_daemon "$ud_expected")" || {
+                        update_stage_error daemon-identity 'HTTP daemon is ambiguous after stop'; return 1;
+                    }
+                    [ -z "$ud_remaining" ] || {
+                        update_stage_error daemon-identity 'another HTTP daemon appeared during stop'; return 1;
+                    }
+                    ud_state="$(ui_stop_lifetime)" || {
+                        update_stage_error daemon-identity 'stopping HTTP daemon lifetime changed or cannot be read'; return 1;
+                    }
+                    case "$ud_state" in absent|Z) ;; *) update_stage_error daemon-identity 'stopping HTTP daemon state changed'; return 1 ;; esac
+                    ud_table="$(ui_listener_table)" || {
+                        update_stage_error daemon-listener 'HTTP listener drain cannot be inspected'; return 1;
+                    }
+                    ui_stop_listener_subset "$ud_table" || {
+                        update_stage_error daemon-listener 'port acquired an unowned listener during HTTP stop'; return 1;
+                    }
+                    if [ -z "$ud_table" ]; then UI_STOP_PENDING=0; return 0; fi
+                fi
+                ;;
+        esac
+        ud_now="$(ui_stop_clock)" || {
+            update_stage_error daemon-stop 'monotonic HTTP stop clock cannot be read'; return 1;
+        }
+        [ "$ud_now" -ge "$UI_STOP_STARTED" ] || {
+            update_stage_error daemon-stop 'monotonic HTTP stop clock moved backwards'; return 1;
+        }
+        if [ "$ud_now" -ge "$UI_STOP_DEADLINE" ]; then
+            if [ -n "$ud_table" ]; then
+                update_stage_error daemon-stop 'owned HTTP listeners did not close within 90 seconds'
+            else
+                update_stage_error daemon-stop 'HTTP daemon did not finish within 90 seconds'
+            fi
+            return 1
+        fi
+        sleep 1
+    done
+}
+
 ui_stop_daemon() {
     us_expected="$1"
+    # A failed stop retains its exact in-memory witness for rollback. Do not
+    # re-signal it, renew its deadline, or adopt a new listener as owned.
+    if [ "$UI_STOP_PENDING" = 1 ]; then ui_wait_stopped "$us_expected"; return $?; fi
     us_id="$(ui_find_daemon "$us_expected")" || { update_stage_error daemon-identity 'HTTP daemon is ambiguous'; return 1; }
     if [ -z "$us_id" ]; then
         us_table="$(ui_listener_table)" || return 1
@@ -931,24 +1041,23 @@ ui_stop_daemon() {
     [ "$us_pin" = "$UI_OLD_PIN" ] || [ "$us_pin" = "$UI_STARTED_PIN" ] ||
         { update_stage_error daemon-identity 'HTTP daemon lifetime differs from the pre-mutation or owned-child pin'; return 1; }
     if [ "$us_pid:$us_birth" != "$UI_STARTED_ID" ]; then
-        ui_owned_listeners "$us_pid" > "$TMP_DIR/ui-stop.sockets" || { update_stage_error daemon-listener 'HTTP sockets are not owned by the selected daemon'; return 1; }
+        us_sockets="$(ui_owned_listeners "$us_pid")" || { update_stage_error daemon-listener 'HTTP sockets are not owned by the selected daemon'; return 1; }
+    else
+        # Our pinned child can fail before binding either or both listeners.
+        us_sockets="$(ui_owned_listeners "$us_pid" partial)" || { update_stage_error daemon-listener 'HTTP sockets are not owned by the selected daemon'; return 1; }
     fi
     [ "$(ui_process_fingerprint "$us_pid" "$us_expected")" = "$us_id" ] || return 1
+    us_clock="$(ui_stop_clock)" || { update_stage_error daemon-stop 'monotonic HTTP stop clock cannot be read'; return 1; }
+    UI_STOP_PID="$us_pid"
+    UI_STOP_BIRTH="$us_birth"
+    UI_STOP_SOCKETS="$us_sockets"
+    UI_STOP_STARTED="$us_clock"
+    UI_STOP_DEADLINE=$((us_clock + UI_STOP_BUDGET))
+    UI_STOP_PENDING=1
     if ! kill -TERM "$us_pid" 2>> "$BACKUP_DIR/service.log"; then
         [ ! -e "$UPDATE_PROC_ROOT/$us_pid" ] || { update_stage_error daemon-stop 'TERM failed for the identified HTTP daemon'; return 1; }
     fi
-    us_wait=0
-    while [ -e "$UPDATE_PROC_ROOT/$us_pid" ] && [ "$us_wait" -lt 10 ]; do
-        # A reused PID is never signalled. Only the original lifetime is waited.
-        us_now="$(ui_proc_start "$us_pid" 2>/dev/null)" || break
-        us_birth="${us_id#*:}"; us_birth="${us_birth%%:*}"
-        [ "$us_now" = "$us_birth" ] || break
-        us_wait=$((us_wait + 1))
-        sleep 1
-    done
-    us_remaining="$(ui_find_daemon "$us_expected")" || return 1
-    us_table="$(ui_listener_table)" || return 1
-    [ -z "$us_remaining" ] && [ -z "$us_table" ] || { update_stage_error daemon-stop 'HTTP daemon or listener did not stop'; return 1; }
+    ui_wait_stopped "$us_expected"
 }
 
 restore_one() {
