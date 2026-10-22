@@ -357,11 +357,15 @@ func v3NormalizeInterval(value, key string) string {
 }
 
 func v3ParseState(path string) map[string]string {
-	out := map[string]string{}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return out
+		return map[string]string{}
 	}
+	return v3ParseStateBytes(data)
+}
+
+func v3ParseStateBytes(data []byte) map[string]string {
+	out := map[string]string{}
 	for _, raw := range strings.Split(strings.ReplaceAll(string(data), "\r", ""), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(raw), "=")
 		if ok && key != "" {
@@ -372,28 +376,7 @@ func v3ParseState(path string) map[string]string {
 }
 
 func v3WriteState(values map[string]string) error {
-	path := settingsV3StatePath()
-	current := v3ParseState(path)
-	for key, value := range values {
-		current[key] = sanitizeAutomationReason(value)
-	}
-	keys := make([]string, 0, len(current))
-	for key := range current {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for _, key := range keys {
-		fmt.Fprintf(&b, "%s=%s\n", key, strings.ReplaceAll(current[key], "\n", " "))
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return err
-	}
-	tmp := path + ".new"
-	if err := os.WriteFile(tmp, []byte(b.String()), 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return v3UpdateState(func(map[string]string) map[string]string { return values })
 }
 
 func appendBoundedJournalLine(path, line string) {

@@ -475,7 +475,9 @@ func automationCurrentQualityState(response bestServerQualityResponse) (bestServ
 		return bestServerQualityCandidate{}, "uncertain"
 	}
 	candidate := response.Candidates[0]
-	if !candidate.Tested || !candidate.Available {
+	if !candidate.Tested || !candidate.Available ||
+		!completeBestServerCurrentBaseline(candidate) ||
+		candidate.HTTPSamples < bestServerQualityHTTPRequired {
 		return candidate, "uncertain"
 	}
 	if candidate.Eligible {
@@ -859,6 +861,18 @@ func (a *app) runAutomationBestCycle(parent context.Context, manual bool) (autom
 }
 
 func (a *app) runAutomationBestCycleWithSettings(parent context.Context, settings automationSettings, manual bool) (automationBestCycleResult, error) {
+	return a.runAutomationBestCycleWithIntent(parent, settings, manual, false, automationQualityTrigger{})
+}
+
+// Reachable quality alarms authorize comparison only. They must not enter the
+// proactive endpoint-refresh mutation path or replace a recovered current VPN.
+func (a *app) runAutomationQualityCycle(parent context.Context, settings automationSettings, trigger automationQualityTrigger) (automationBestCycleResult, error) {
+	settings.Policy = automationPolicyBetter
+	settings.AutoEndpointUpdate = false
+	return a.runAutomationBestCycleWithIntent(parent, settings, false, true, trigger)
+}
+
+func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings automationSettings, manual, qualityIntent bool, trigger automationQualityTrigger) (automationBestCycleResult, error) {
 	settings.Mode = normalizeAutomationMode(settings.Mode)
 	settings.Policy = normalizeAutomationPolicy(settings.Policy)
 	settings.CountryScope = normalizeAutomationCountryScope(settings.CountryScope)
@@ -915,8 +929,19 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(parent, automationBestQualityCycleTimeout(settings.Policy))
+	cycleTimeout := automationBestQualityCycleTimeout(settings.Policy)
+	if qualityIntent {
+		cycleTimeout += automationQualityAdmissionReserve
+		if !validAutomationQualityTrigger(trigger) {
+			reason := "Исходная причина проверки качества не подтверждена; автоматическое переключение отменено."
+			writeAutomationStateV2("uncertain", reason, "no", false)
+			appendAutomationHistoryV2("uncertain", reason)
+			return automationBestCycleResult{Result: "uncertain", Reason: reason}, nil
+		}
+	}
+	ctx, cancel := context.WithTimeout(parent, cycleTimeout)
 	defer cancel()
+	switchBaseline := parseAutomationState(automationStatePath())
 
 	currentResponse, err := automationBestCurrentQuality(a, ctx)
 	if err != nil {
@@ -926,11 +951,20 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 		return automationBestCycleResult{Result: "failed", Reason: reason}, err
 	}
 	current, currentState := automationCurrentQualityState(currentResponse)
+	if qualityIntent && currentResponse.CurrentIdentity != trigger.CurrentIdentity {
+		currentState = "uncertain"
+	}
 	if currentState == "uncertain" {
 		reason := "Качество текущего VPN подтверждено не полностью; неоднозначность = без изменений."
 		writeAutomationStateV2("uncertain", reason, "no", false)
 		appendAutomationHistoryV2("uncertain", reason)
 		return automationBestCycleResult{Result: "uncertain", Reason: reason}, nil
+	}
+	if qualityIntent && currentState == "healthy" {
+		reason := "Текущий VPN восстановился на полной проверке; поиск замены и переключение не требуются."
+		writeAutomationStateV2("same", reason, "no", false)
+		appendAutomationHistoryV2("same", reason)
+		return automationBestCycleResult{Result: "same", Reason: reason}, nil
 	}
 	if !automationNeedsForeignScan(settings.Policy, currentState) {
 		reason := "Текущий VPN подтверждён как рабочий; policy «только при деградации» не требует поиска замены."
@@ -998,9 +1032,28 @@ func (a *app) runAutomationBestCycleWithSettings(parent context.Context, setting
 	}
 
 	appendAutomationHistoryV2("selection", automationBestSelectionSummary(candidates, candidate))
-	status, applied := a.executeProviderProfileApply(networkApplyRequest{
+	request := networkApplyRequest{
 		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
-	})
+	}
+	var status int
+	var applied networkApplyResponse
+	if qualityIntent {
+		guard := &automationQualityAdmission{
+			app: a, ctx: ctx, baseline: currentResponse, candidate: candidate,
+			token: candidates.SelectionToken, trigger: trigger,
+			lastSwitch: switchBaseline["LAST_SWITCH"], lastSwitchOrigin: switchBaseline["LAST_SWITCH_ORIGIN"],
+		}
+		status, applied = a.executeProviderProfileApplyWithAdmission(request, nil, &providerApplyAdmission{
+			beforeQuiesce: guard.confirm, beforeMutation: guard.final,
+		})
+		if guard.stopped != nil {
+			writeAutomationStateV2(guard.stopped.Result, guard.stopped.Reason, guard.stopped.RollbackState, false)
+			appendAutomationHistoryV2(guard.stopped.Result, guard.stopped.Reason)
+			return *guard.stopped, nil
+		}
+	} else {
+		status, applied = a.executeProviderProfileApply(request)
+	}
 	if status < 200 || status >= 300 || !applied.Success {
 		reason := "Подтверждённый VPN не применён: " + automationApplyFailureDetail(applied)
 		rollback := applied.RollbackState

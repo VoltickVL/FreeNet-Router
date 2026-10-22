@@ -75,7 +75,12 @@ func TestAutomationQoECooldownSkipsOnlyAutomaticHealthyOptimization(t *testing.T
 				if tc.health == "error" {
 					return bestServerQualityResponse{}, currentErr
 				}
-				candidate := bestServerQualityCandidate{Tested: true, Available: true, Eligible: true, CountryCode: "de"}
+				candidate := bestServerQualityCandidate{
+					Tested: true, Available: true, Eligible: true, CountryCode: "de",
+					ApplicationMS: 160, HTTPSamples: bestServerQualityHTTPRequired,
+					MediaSamples: bestServerMediaRequiredRuns, DownloadMbps: 60,
+					MediaGrade: "excellent", ServiceOK: 4, ServiceTotal: 4,
+				}
 				switch tc.health {
 				case "degraded":
 					candidate.Eligible = false
@@ -139,7 +144,12 @@ func TestAutomationQoECooldownKeepsEndpointRefreshFirst(t *testing.T) {
 			}
 			automationBestCurrentQuality = func(*app, context.Context) (bestServerQualityResponse, error) {
 				calls = append(calls, "current")
-				return bestServerQualityResponse{Candidates: []bestServerQualityCandidate{{Tested: true, Available: true, Eligible: true}}}, nil
+				return bestServerQualityResponse{Candidates: []bestServerQualityCandidate{{
+					Tested: true, Available: true, Eligible: true,
+					ApplicationMS: 160, HTTPSamples: bestServerQualityHTTPRequired,
+					MediaSamples: bestServerMediaRequiredRuns, DownloadMbps: 60,
+					MediaGrade: "excellent", ServiceOK: 4, ServiceTotal: 4,
+				}}}, nil
 			}
 			automationBestForeignScan = func(*app, context.Context, automationSettings, string) (bestServerQualityResponse, error) {
 				t.Fatal("endpoint/healthy cooldown path reached foreign scan")

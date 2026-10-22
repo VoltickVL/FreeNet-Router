@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"net"
 	"os"
 	"os/exec"
@@ -58,6 +59,10 @@ type automationHealthProbe struct {
 	Reason          string
 	QualityDegraded bool
 	QualityPoints   int
+	CurrentIdentity string
+	ServiceOKMask   uint8
+	ServiceBadMask  uint8
+	ServiceComplete bool
 }
 
 var automationEndpointCurrentRefresh = func(a *app, ctx context.Context) (int, bestServerRefreshResponse) {
@@ -214,7 +219,7 @@ func classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal i
 	if latencyPoints == 0 && mediaImpaired {
 		return automationHealthProbe{
 			State: automationHealthUncertain,
-			Reason: fmt.Sprintf("VPN отвечает, но качество соединения ухудшено: отдельные сервисы %d/%d. Это не отказ общего VPN; автоматическая смена сервера только по сервисам запрещена.", serviceOK, serviceTotal),
+			Reason: fmt.Sprintf("VPN отвечает, но качество соединения ухудшено: отдельные сервисы %d/%d. Это не отказ общего VPN; AUTO VPN проверяет, повторяется ли проблема перед сравнением серверов.", serviceOK, serviceTotal),
 			QualityDegraded: true,
 			QualityPoints: 0,
 		}
@@ -266,6 +271,15 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, p
 		return updates, false
 	}
 
+	// An unreadable cooldown cannot authorize another expensive comparison.
+	// Healthy observations above may still clear pending evidence, but must
+	// leave this unknown reservation untouched.
+	if raw := strings.TrimSpace(state["QUALITY_OPTIMIZATION_LAST"]); raw != "" {
+		if _, err := time.Parse(time.RFC3339, raw); err != nil {
+			return updates, false
+		}
+	}
+
 	if start.IsZero() || now.Before(start) || now.Sub(start) > automationQualityStrikeWindow {
 		start = now
 		count = 0
@@ -305,12 +319,13 @@ func automationQualityOptimizationPlan(state map[string]string, now time.Time, p
 }
 
 func automationQualityOptimizationDue(now time.Time, points int) bool {
-	state := v3ParseState(settingsV3StatePath())
-	updates, due := automationQualityOptimizationPlan(state, now, points)
-	if len(updates) > 0 {
-		_ = v3WriteState(updates)
-	}
-	return due
+	due := false
+	err := v3UpdateState(func(state map[string]string) map[string]string {
+		updates, plannedDue := automationQualityOptimizationPlan(state, now, points)
+		due = plannedDue
+		return updates
+	})
+	return err == nil && due
 }
 
 func automationQualityOptimizationStartReason(probe automationHealthProbe) string {
@@ -391,6 +406,11 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	if !ok || currentEndpoint == "" || !endpointsEqual(activeEndpoint, currentEndpoint) {
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Текущий VPN не удалось безопасно определить."}
+	}
+	currentFilter, filterErr := os.ReadFile(a.cfg.FilterPath)
+	currentIdentity := ""
+	if filterErr == nil && strings.TrimSpace(string(currentFilter)) != "" {
+		currentIdentity = bestServerCurrentQualityIdentityHash(currentEndpoint, string(currentFilter))
 	}
 	isolatedOutbound, err := prepareIsolatedProbeOutbound(outbound)
 	if err != nil {
@@ -501,8 +521,25 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 		}
 		return classifyAutomationApplicationFailure(transport.Reachable, namedFailureComplete)
 	}
-	serviceOK, serviceTotal := probeBestServerServiceReachability(ctx, curlPath, socks)
-	return classifyAutomationReachableQuality(applicationMS, serviceOK, serviceTotal)
+	if currentIdentity == "" {
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось подтвердить профиль текущего VPN для проверки качества."}
+	}
+	services := probeBestServerServiceReachabilityDetailed(ctx, curlPath, socks)
+	if ctx.Err() != nil || !services.Complete {
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Сервисная проверка VPN завершена не полностью; AUTO VPN сохраняет текущее подключение."}
+	}
+	finalEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+	finalFilter, filterErr := os.ReadFile(a.cfg.FilterPath)
+	if ctx.Err() != nil || filterErr != nil || finalEndpoint == "" ||
+		bestServerCurrentQualityIdentityHash(finalEndpoint, string(finalFilter)) != currentIdentity {
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Текущий VPN изменился во время проверки; AUTO VPN ожидает новое измерение."}
+	}
+	probe := classifyAutomationReachableQuality(applicationMS, bits.OnesCount8(services.OKMask), len(bestServerMediaServiceURLs))
+	probe.CurrentIdentity = currentIdentity
+	probe.ServiceOKMask = services.OKMask
+	probe.ServiceBadMask = services.BadMask
+	probe.ServiceComplete = services.Complete
+	return probe
 }
 
 func automationCurrentCountry(a *app) string {
@@ -787,8 +824,12 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
+	qualityProbe := first
+	if settings.Mode != automationModeBest && first.State != automationHealthHealthy {
+		qualityProbe = automationHealthProbe{}
+	}
+	qualityTrigger, qualityDue := automationReachableQualityOptimizationDue(time.Now().UTC(), qualityProbe)
 	if first.State == automationHealthHealthy {
-		_ = automationQualityOptimizationDue(time.Now().UTC(), 0)
 		if err := clearAutomationEmergencyCooldown(); err != nil {
 			appendAutomationRecoveryStage("retry_cooldown", "clear_failed", "Не удалось очистить паузу после восстановления VPN.")
 		}
@@ -796,19 +837,13 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		return recordAndReturnHealth(automationHealthResult{State: first.State, Reason: first.Reason}, nil)
 	}
 	if first.State == automationHealthUncertain {
-		qualityDue := false
-		if settings.Mode == automationModeBest && first.QualityDegraded {
-			qualityDue = automationQualityOptimizationDue(time.Now().UTC(), first.QualityPoints)
-		}
-		// A non-quality uncertain probe is not proof of recovery and must not
-		// clear pending quality evidence. Only a confirmed healthy probe resets
-		// the mild/strong strike sequence.
+		// Unknown observations do not become bad quality evidence. Latency
+		// strikes retain their existing policy; the consecutive service sequence
+		// is reset unless this whole identity-bound observation completed.
 		cancel()
 		if qualityDue {
-			qualitySettings := settings
-			qualitySettings.Policy = automationPolicyBetter
 			appendAutomationRecoveryStage("quality_optimization", "start", automationQualityOptimizationStartReason(first))
-			best, bestErr := a.runAutomationBestCycleWithSettings(parent, qualitySettings, false)
+			best, bestErr := a.runAutomationQualityCycle(parent, settings, qualityTrigger)
 			appendAutomationRecoveryStage("quality_optimization", best.Result, best.Reason)
 			return recordAndReturnHealth(automationHealthResult{State: best.Result, Reason: best.Reason, Mutated: best.Mutated}, bestErr)
 		}
