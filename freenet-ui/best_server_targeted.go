@@ -102,6 +102,10 @@ var bestServerRefreshPostProbe = func(a *app, ctx context.Context) automationHea
 	return a.probeAutomationCurrentVPN(ctx)
 }
 
+var bestServerTargetedQualityProbe = func(a *app, ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
+	return a.probeBestServerQualityApplication(ctx, candidate)
+}
+
 var bestServerEndpointTCPProbe = defaultBestServerTCPProbe
 var bestServerEndpointApplicationProbe = func(a *app, ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
 	return a.probeBestServerApplication(ctx, candidate)
@@ -194,7 +198,7 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), bestServerTargetedRetryTimeout)
 	defer cancel()
 
-	all, _, _, err := a.discoverBestServerCandidates(ctx)
+	catalogFingerprint, err := a.bestServerSelectionSourceFingerprint()
 	if err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, bestServerQualityResponse{
 			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
@@ -202,12 +206,36 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 		})
 		return
 	}
+	// The picker ID belongs to the protected local catalog. Refetching here can
+	// rotate SNI and replace that ID before we have measured the selected Raw.
+	all, catalogUpdatedAt, err := a.localManualProviderCatalog()
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, bestServerQualityResponse{
+			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
+			Error: safeBestServerError(err),
+		})
+		return
+	}
+	sourceUnchanged := func() bool {
+		current, err := a.bestServerSelectionSourceFingerprint()
+		return err == nil && current == catalogFingerprint
+	}
+	rejectSourceChange := func() {
+		writeJSON(w, http.StatusConflict, bestServerQualityResponse{
+			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
+			Error: "VPN subscription changed during targeted retry; result discarded",
+		})
+	}
+	if !sourceUnchanged() {
+		rejectSourceChange()
+		return
+	}
 	target, ok := bestServerCandidateByID(all, profileID)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, bestServerQualityResponse{
 			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
-			Message: "Этот endpoint больше не найден в свежей подписке. Текущий VPN не изменён.",
-			Error: "candidate is no longer present in the subscription",
+			Message: "Список серверов обновился. Выберите сервер ещё раз.",
+			Error: "candidate is not present in the protected subscription catalog",
 		})
 		return
 	}
@@ -226,7 +254,9 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 		false,
 		currentEndpoint,
 		currentFilter,
-		a.probeBestServerQualityApplication,
+		func(ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
+			return bestServerTargetedQualityProbe(a, ctx, candidate)
+		},
 	)
 	if ctx.Err() != nil {
 		status := http.StatusGatewayTimeout
@@ -248,6 +278,9 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 	response.CurrentEndpoint = currentEndpoint
 	response.ProfilesScanned = 1
 	response.ProfilesTotal = 1
+	response.CatalogFresh = false
+	response.CatalogSource = "protected_cache"
+	response.CatalogUpdatedAt = catalogUpdatedAt
 	response = applyBestServerRecommendationDeadband(response)
 	if candidate := qualityCandidateByID(response.Candidates, profileID); candidate != nil {
 		if candidate.Eligible {
@@ -271,11 +304,29 @@ func (a *app) handleBestServerCandidateRetry(w http.ResponseWriter, r *http.Requ
 		})
 		return
 	}
+	if !sourceUnchanged() {
+		rejectSourceChange()
+		return
+	}
 	if err := a.attachBestServerSelectionSnapshot(&response, []bestServerInternalCandidate{target}, currentEndpoint, currentFilter); err != nil {
 		writeJSON(w, http.StatusInternalServerError, bestServerQualityResponse{
 			Success: false, Available: false, Candidates: []bestServerQualityCandidate{}, Mutation: "NONE",
 			Error: "validated VPN selection snapshot could not be persisted",
 		})
+		return
+	}
+	// The snapshot writer reads the source independently. Verify the stored
+	// binding as well, so a concurrent URL change cannot rebind measured Raw.
+	snapshotSourceMatches := true
+	if response.SelectionToken != "" {
+		data, err := os.ReadFile(bestServerSelectionSnapshotPath(response.SelectionToken))
+		var saved bestServerSelectionSnapshot
+		snapshotSourceMatches = err == nil && json.Unmarshal(data, &saved) == nil &&
+			saved.SourceFingerprint == catalogFingerprint
+	}
+	if !sourceUnchanged() || !snapshotSourceMatches {
+		consumeBestServerSelectionSnapshot(response.SelectionToken)
+		rejectSourceChange()
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
