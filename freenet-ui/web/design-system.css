@@ -1345,3 +1345,11 @@ body #controlCenter .main>.topbar.overview-approved{padding-right:max(var(--fn-c
 
 /* Protected UI is hidden before any script can run. */
 #authSection[hidden],#controlCenter[hidden]{display:none!important}
+
+/* Read-only AUTO decision history: preserve readable labels on narrow screens. */
+.fn3-auto-decision{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+.fn3-auto-decision-row{min-width:0;padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(7,16,27,.46);display:flex;flex-direction:column;gap:5px}
+.fn3-auto-decision-row span{font-size:12px;font-weight:650;color:var(--muted)}
+.fn3-auto-decision-row strong{font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere}
+.fn3-auto-decision-note{grid-column:1/-1;margin:3px 0 6px;color:var(--muted);font-size:12px;line-height:1.6}
+@media(max-width:700px){.fn3-auto-decision{grid-template-columns:1fr}}
