@@ -825,6 +825,12 @@ func rotateBaselineValid(s statusResponse) error {
 	if s.CountryCode == "" {
 		return errors.New("current VPN profile group is unknown")
 	}
+	// This legacy action still supports only the four historical groups.
+	// Newly recognized exact Extra countries use the separate safe provider
+	// transaction and must not silently enable an unsupported legacy rotate.
+	if _, supported := profiles[s.CountryCode]; !supported {
+		return errors.New("current VPN group is unsupported by legacy rotation")
+	}
 	if s.Endpoint == "" || s.Endpoint == "—" {
 		return errors.New("current VPN endpoint is unavailable")
 	}
@@ -1072,6 +1078,12 @@ func (a *app) status() statusResponse {
 	p := profiles[code]
 	if label := currentExactProfileLabel(a.cfg.FilterPath); label != "" {
 		p.Label = label
+		if exactCode, country, city, ok := currentExactProfileLocation(label); ok {
+			// The installed literal wins over the four legacy country groups.
+			// Without a verified ISO marker, keep country_code unknown rather
+			// than guessing it from a shared endpoint or catalog.
+			code, p.Country, p.City = exactCode, country, city
+		}
 	}
 	endpoint, dnsOut := readOutbound(a.cfg.OutPath)
 	currentIdentity := a.currentVPNQualityStatusIdentity(endpoint)
