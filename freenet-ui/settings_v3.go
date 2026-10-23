@@ -99,6 +99,7 @@ type journalResponse struct {
 	RangeTo       string            `json:"range_to,omitempty"`
 	Stats         journalStats      `json:"stats"`
 	Health        journalHealthStatus `json:"health"`
+	AutoDecision  journalAutoDecisionStatus `json:"auto_decision"`
 }
 
 // Journal rows are intentionally compacted: keep live health freshness
@@ -108,6 +109,7 @@ type journalHealthStatus struct {
 	LastCompleted   string `json:"last_completed,omitempty"`
 	LastScheduled   string `json:"last_scheduled,omitempty"`
 	Result          string `json:"result,omitempty"`
+	LastMessage     string `json:"last_message,omitempty"`
 	IntervalSeconds int    `json:"interval_seconds"`
 	Freshness       string `json:"freshness"`
 }
@@ -1008,6 +1010,7 @@ func journalHealthFreshness(enabled bool, interval time.Duration, state map[stri
 		LastCompleted: strings.TrimSpace(state["HEALTH_LAST"]),
 		LastScheduled: strings.TrimSpace(state["HEALTH_SCHEDULE_LAST"]),
 		Result: strings.ToLower(strings.TrimSpace(state["HEALTH_RESULT"])),
+		LastMessage: journalDiagnosticRedact(state["HEALTH_MESSAGE"]),
 		Freshness: "unknown",
 	}
 	if interval > 0 {
@@ -1075,6 +1078,7 @@ func (a *app) journalQueryResponse(r *http.Request) (journalResponse, error) {
 		RangeTo: rangeTo,
 		Stats: journalStatsFor(filtered),
 		Health: a.journalWatchHealth(time.Now().UTC()),
+		AutoDecision: a.journalAutoDecision(),
 	}, nil
 }
 
