@@ -11,7 +11,7 @@
     journalFilter: 'all', journalResultFilter: 'all', journalQuery: '', journalEvents: [], journalLive: true, journalFiltersOpen: false,
     journalRefreshing: false, journalGeneratedAt: '', journalError: '', journalTimer: null,
     journalPage: 1, journalPages: 1, journalPageSize: 100, journalTotal: 0, journalFilteredTotal: 0,
-    journalStats: {total:0,success:0,neutral:0,errors:0}, journalRetainedFrom: '', journalRetainedTo: '', journalHealth: null,
+    journalStats: {total:0,success:0,neutral:0,errors:0}, journalRetainedFrom: '', journalRetainedTo: '', journalHealth: null, journalDecision: null,
     journalDatePreset: '24h', journalCustomFrom: '', journalCustomTo: '', journalSearchTimer: null
   };
 
@@ -812,6 +812,50 @@
       <div class="fn3-journal-stat bad"><span>Ошибки</span><strong>${Number(stats.errors || 0)}</strong></div>`;
   }
 
+
+  function renderJournalAutoDecision() {
+    const host = q('#fn3JournalAutoDecision'); if (!host) return;
+    const decision = state.journalDecision || {};
+    const health = state.journalHealth || {};
+    const names = {same:'оставлен без изменений',cooldown:'отложен',switched:'переключён',updated:'обновлён',
+      failed:'не выполнено',uncertain:'не подтверждено',candidate:'найден кандидат',blocked:'заблокировано'};
+    const lastCheck = health.last_completed
+      ? formatDate(health.last_completed) + (health.freshness === 'stale' ? ' · запись устарела' : '')
+      : 'нет завершённой проверки';
+    const decisionResult = String(decision.decision_result || '');
+    const lastDecision = decision.decision_at && decisionResult
+      ? formatDate(decision.decision_at) + ' · ' + (names[decisionResult] || decisionResult)
+      : 'нет записанного решения';
+    const origin = decision.last_switch_origin === 'manual' ? 'вручную' :
+      decision.last_switch_origin === 'auto' ? 'AUTO VPN' : 'источник не определён';
+    const lastSwitch = decision.last_switch_at
+      ? formatDate(decision.last_switch_at) + ' · ' + origin
+      : 'нет подтверждённой записи';
+    const rows = [
+      ['Активный профиль', decision.current_profile || 'Точное имя не определено'],
+      ['Последняя проверка', lastCheck],
+      ['Результат проверки', health.last_message || 'Причина не записана'],
+      ['Последнее решение AUTO', lastDecision],
+      ['Причина решения', decision.decision_reason || 'Нет записанного объяснения'],
+      ['Последнее переключение', lastSwitch]
+    ];
+    host.replaceChildren();
+    for (const [title, value] of rows) {
+      const line = document.createElement('div');
+      line.className = 'fn3-auto-decision-row';
+      const label = document.createElement('span');
+      label.textContent = title;
+      const text = document.createElement('strong');
+      text.textContent = value;
+      line.append(label, text);
+      host.append(line);
+    }
+    const note = document.createElement('p');
+    note.className = 'fn3-auto-decision-note';
+    note.textContent = 'Решение, проверка и смена — независимые события. Старая запись не доказывает, что AUTO выбрал активный профиль. История ниже содержит исходные причины и результаты.';
+    host.append(note);
+  }
+
   function journalRangeParams() {
     const now = new Date();
     let from = '', to = '';
@@ -928,6 +972,7 @@
     const next = q('#fn3JournalNext', page); if (next) next.disabled = state.journalPage >= state.journalPages;
     const size = q('#fn3JournalPageSize', page); if (size) size.value = String(state.journalPageSize);
     renderJournalSummary();
+    renderJournalAutoDecision();
     renderJournal(state.journalEvents, '#fn3JournalFull');
   }
 
@@ -953,6 +998,7 @@
       state.journalRetainedFrom = data.retained_from || '';
       state.journalRetainedTo = data.retained_to || '';
       state.journalHealth = data.health && typeof data.health === 'object' ? data.health : null;
+      state.journalDecision = data.auto_decision && typeof data.auto_decision === 'object' ? data.auto_decision : null;
     } catch (err) {
       state.journalError = err?.message || 'неизвестная ошибка чтения';
     } finally {
@@ -1036,6 +1082,11 @@
           <div class="fn3-journal-filter-row"><span class="fn3-journal-filter-title">Результат</span><div class="fn3-journal-filters">${results.map(([key,label]) => `<button class="fn3-journal-filter" type="button" data-journal-result="${key}">${label}</button>`).join('')}</div></div>
         </div>
       </section>
+      <section class="fn3-journal-control-card" aria-label="История решений AUTO VPN">
+        <div class="fn3-journal-stream-head"><h2>Почему сейчас этот VPN</h2><p>Последние зафиксированные проверки и решения AUTO · без запуска диагностики и переключений</p></div>
+        <div id="fn3JournalAutoDecision" class="fn3-auto-decision" role="status" aria-live="polite">Читаем состояние AUTO VPN…</div>
+        <button id="fn3JournalAutoHistory" class="fn3-journal-refresh" type="button">История решений AUTO VPN за 7 дней</button>
+      </section>
       <section class="fn3-journal-control-card" aria-label="Состояние восстановления VPN">
         <div class="fn3-journal-stream-head"><h2>Восстановление VPN · только диагностика</h2></div>
         <div id="fn3VPNTransactionDoctor" role="status" aria-live="polite">Проверяем защищённую VPN-транзакцию…</div>
@@ -1047,6 +1098,14 @@
         <div class="fn3-journal-pager"><span class="fn3-journal-retention">Обычный журнал ограничен по строкам; технические события сохраняются по UTC-дням до 30 дней. Если дневной лимит достигнут, архив помечает пропуск.</span><div class="fn3-journal-pager-controls"><label class="fn3-journal-page-label">На странице <select id="fn3JournalPageSize" class="fn3-journal-page-size"><option>50</option><option selected>100</option><option>200</option><option>500</option></select></label><button id="fn3JournalPrev" class="fn3-journal-page-btn" type="button">← Назад</button><span id="fn3JournalPageLabel" class="fn3-journal-page-label">Страница 1 из 1</span><button id="fn3JournalNext" class="fn3-journal-page-btn" type="button">Вперёд →</button></div></div>
       </section>`;
 
+      q('#fn3JournalAutoHistory', page).onclick = () => {
+        state.journalFilter = 'auto';
+        state.journalResultFilter = 'all';
+        state.journalQuery = '';
+        state.journalDatePreset = '7d';
+        state.journalPage = 1;
+        void loadJournal(true);
+      };
       qa('[data-journal-filter]', page).forEach(button => button.onclick = () => {
         state.journalFilter = button.dataset.journalFilter || 'all';
         resetJournalPageAndLoad();
