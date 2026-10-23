@@ -1,6 +1,14 @@
 #!/bin/sh
 set -eu
 
+# Keep frozen synthetic clocks from hanging CI if an assertion or injector
+# regresses. This wall-clock bound belongs only to the native test harness.
+if [ "${1:-}" != --bounded-worker ]; then
+    command -v timeout >/dev/null 2>&1 || { printf '%s\n' 'self update stop FAIL: timeout command missing' >&2; exit 1; }
+    exec timeout -k 5 90 sh "$0" --bounded-worker "$@"
+fi
+shift
+
 # Stop-only native regression. Never run this suite on a router. It compiles
 # its own ELF and uses private roots and loopback ports, without HTTP/downloads.
 ROOT_DIR="$(CDPATH= cd "$(dirname "$0")/.." && pwd)"
@@ -195,16 +203,36 @@ stop_refused 'an unowned pre-existing listener was adopted'
 private_proc() {
     PROC_VIEW="$CASE_DIR/proc"
     mkdir -p "$PROC_VIEW/$FIXTURE_PID/fd" "$PROC_VIEW/net"
-    for name in stat status cmdline; do cp "/proc/$FIXTURE_PID/$name" "$PROC_VIEW/$FIXTURE_PID/$name"; done
+    for name in stat status cmdline; do
+        cp "/proc/$FIXTURE_PID/$name" "$PROC_VIEW/$FIXTURE_PID/$name"
+        chmod 600 "$PROC_VIEW/$FIXTURE_PID/$name"
+    done
     ln -s "$UI_BIN" "$PROC_VIEW/$FIXTURE_PID/exe"
     for fd in /proc/"$FIXTURE_PID"/fd/*; do
         link="$(readlink "$fd" 2>/dev/null)" || continue
         case "$link" in 'socket:['*']') ln -s "$link" "$PROC_VIEW/$FIXTURE_PID/fd/${fd##*/}" ;; esac
     done
     cp /proc/net/tcp "$PROC_VIEW/net/tcp"
-    [ ! -r /proc/net/tcp6 ] || cp /proc/net/tcp6 "$PROC_VIEW/net/tcp6"
+    chmod 600 "$PROC_VIEW/net/tcp"
+    if [ -r /proc/net/tcp6 ]; then
+        cp /proc/net/tcp6 "$PROC_VIEW/net/tcp6"
+        chmod 600 "$PROC_VIEW/net/tcp6"
+    fi
     cp /proc/uptime "$PROC_VIEW/uptime"
+    chmod 600 "$PROC_VIEW/uptime"
     UPDATE_PROC_ROOT="$PROC_VIEW"
+}
+
+fault_injector_exit() {
+    injector_rc="$1"
+    trap - EXIT
+    if [ "$injector_rc" -ne 0 ]; then
+        # A failed writer must not leave the stop loop reading a frozen clock.
+        # Invalidate only our private proc view, then propagate its exit status.
+        printf '%s\n' "$injector_rc" > "$CONTROL/injector-failed" || true
+        rm -f "$PROC_VIEW/uptime" || true
+    fi
+    exit "$injector_rc"
 }
 
 for PROC_FAULT in reused-birth malformed-stat missing-table missing-clock backwards-clock; do
@@ -212,10 +240,11 @@ for PROC_FAULT in reused-birth malformed-stat missing-table missing-clock backwa
     start_fixture zombie 120
     private_proc
     (
+        trap 'fault_injector_exit "$?"' EXIT
         await_test_term
         case "$PROC_FAULT" in
             reused-birth) awk '{$22=$22+1; print}' "$PROC_VIEW/$FIXTURE_PID/stat" > "$PROC_VIEW/stat.next"; mv "$PROC_VIEW/stat.next" "$PROC_VIEW/$FIXTURE_PID/stat" ;;
-            malformed-stat) printf 'unknown\n' > "$PROC_VIEW/$FIXTURE_PID/stat" ;;
+            malformed-stat) printf 'unknown\n' > "$PROC_VIEW/stat.next"; mv "$PROC_VIEW/stat.next" "$PROC_VIEW/$FIXTURE_PID/stat" ;;
             missing-table) rm "$PROC_VIEW/net/tcp" ;;
             missing-clock) rm "$PROC_VIEW/uptime" ;;
             backwards-clock) awk '{printf "%.2f %s\n",$1-10,$2}' "$PROC_VIEW/uptime" > "$PROC_VIEW/uptime.next"; mv "$PROC_VIEW/uptime.next" "$PROC_VIEW/uptime" ;;
@@ -225,7 +254,7 @@ for PROC_FAULT in reused-birth malformed-stat missing-table missing-clock backwa
     FIXTURE_PIDS="$FIXTURE_PIDS $FAULT_PID"
     awk '{print $22}' "/proc/$FAULT_PID/stat" > "$SUITE/birth.$FAULT_PID"
     stop_refused "$PROC_FAULT was accepted"
-    wait "$FAULT_PID"
+    wait "$FAULT_PID" || fail "$PROC_FAULT injector failed"
     case "$PROC_FAULT" in
         missing-table) [ "$LAST_UPDATE_STAGE" = daemon-listener ] || fail 'missing table did not stop at inspection' ;;
         missing-clock|backwards-clock) [ "$LAST_UPDATE_STAGE" = daemon-stop ] || fail 'bad clock did not stop bounded wait' ;;
@@ -235,10 +264,32 @@ for PROC_FAULT in reused-birth malformed-stat missing-table missing-clock backwa
 done
 printf '%s\n' 'stop regression: PID reuse and unreadable evidence PASS'
 
+# An injector failure is a test failure, never permission to spin forever on
+# unchanged private evidence. Prove the error wakes the synchronous stop wait.
+new_case injector-failure
+start_fixture zombie 120
+private_proc
+(
+    trap 'fault_injector_exit "$?"' EXIT
+    await_test_term
+    exit 7
+) &
+FAULT_PID=$!
+FIXTURE_PIDS="$FIXTURE_PIDS $FAULT_PID"
+awk '{print $22}' "/proc/$FAULT_PID/stat" > "$SUITE/birth.$FAULT_PID"
+stop_refused 'failed injector left a frozen wait'
+FAULT_RC=0
+wait "$FAULT_PID" || FAULT_RC=$?
+[ "$FAULT_RC" = 7 ] && [ "$(cat "$CONTROL/injector-failed")" = 7 ] || fail 'injector failure status was lost'
+[ "$LAST_UPDATE_STAGE" = daemon-stop ] && [ ! -e "$PROC_VIEW/uptime" ] || fail 'injector failure did not invalidate the private clock'
+assert_one_term
+printf '%s\n' 'stop regression: failed injector exits boundedly PASS'
+
 new_case bad-clock-before-term
 start_fixture zombie 1
 private_proc
-printf 'unknown\n' > "$PROC_VIEW/uptime"
+printf 'unknown\n' > "$PROC_VIEW/uptime.next"
+mv "$PROC_VIEW/uptime.next" "$PROC_VIEW/uptime"
 stop_refused 'invalid monotonic clock allowed TERM'
 [ ! -s "$CONTROL/terms" ] || fail 'clock validation happened after TERM'
 [ "$UI_STOP_PENDING" = 0 ] || fail 'pre-TERM clock refusal retained a stop witness'
@@ -257,6 +308,7 @@ private_proc
 START="$(ui_stop_clock)"
 REAL_START="$(awk '{print int($1)}' /proc/uptime)"
 (
+    trap 'fault_injector_exit "$?"' EXIT
     await_test_term
     awk '{$3="Z"; print}' "$PROC_VIEW/$FIXTURE_PID/stat" > "$PROC_VIEW/stat.next"
     mv "$PROC_VIEW/stat.next" "$PROC_VIEW/$FIXTURE_PID/stat"
@@ -275,7 +327,7 @@ END="$(ui_stop_clock)"
 [ $((UI_STOP_DEADLINE - START)) -eq 90 ] || fail 'fixed stop budget is not 90 seconds'
 [ $((END - START)) -ge 90 ] && [ $((END - START)) -le 92 ] || fail 'stop did not obey the monotonic deadline'
 [ $(( $(awk '{print int($1)}' /proc/uptime) - REAL_START )) -le 6 ] || fail 'stop used sleep-count instead of monotonic time'
-wait "$FAULT_PID"
+wait "$FAULT_PID" || fail 'deadline injector failed'
 [ "$LAST_UPDATE_STAGE" = daemon-stop ] || fail 'persistent listeners lacked timeout classification'
 assert_one_term
 SAVED_DEADLINE="$UI_STOP_DEADLINE"
