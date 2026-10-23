@@ -73,6 +73,10 @@ func TestJournalAutoDecisionAndHealthReasonRedactSecrets(t *testing.T) {
 			t.Fatalf("health reason leaked %q: %+v", secret, health)
 		}
 	}
+	// Unknown origins must be omitted. A verified manual handoff should
+	// be serialized with its origin for the read-only decision summary.
+	state["LAST_SWITCH_ORIGIN"] = "manual"
+	got = journalAutoDecisionFromState("🇫🇷 Париж, Франция, Extra", state)
 	encoded, err := json.Marshal(journalResponse{Health:health, AutoDecision:got})
 	if err != nil { t.Fatal(err) }
 	for _, key := range []string{"auto_decision", "last_message", "decision_reason", "last_switch_origin"} {
