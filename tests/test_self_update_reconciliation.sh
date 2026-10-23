@@ -794,4 +794,5 @@ if run_apply; then fail 'reconciliation silently unlocked a new update'; fi
 cmp -s "$CASE_DIR/terminal.state" "$FREENET_UPDATE_STATE_FILE" || fail 'fenced apply changed terminal receipt'
 [ -d "$FREENET_UPDATE_LOCK_DIR" ] && [ -d "$FREENET_UPDATE_MUTATION_LOCK" ] || fail 'reconciliation released original fences'
 
+sh "$ROOT_DIR/tests/test_self_update_stop.sh"
 printf '%s\n' 'self update daemon and rollback reconciliation contract PASS'
