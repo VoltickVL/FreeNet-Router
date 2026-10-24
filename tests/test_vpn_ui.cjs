@@ -130,7 +130,8 @@ const server = http.createServer((req,res)=>{
         }
         if(mode==='rejected')return answer(route,{success:true,available:false,candidates:[current,
           {...winner,tested:true,eligible:false,download_mbps:4.2,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Скорость ниже 20 Мбит/с']},
-          {...third,tested:true,eligible:false,available:true,reachable:true,download_mbps:146,application_rtt_ms:226,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Отклик сайтов выше 220 мс']}],profiles_scanned:3});
+          {...third,tested:true,eligible:false,available:true,reachable:true,download_mbps:146,application_rtt_ms:226,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Отклик сайтов выше 220 мс']}],
+          profiles_scanned:3,deep_total:2,deep_checked:2,eligible_found:0,eligible_target:3});
         const best=url.pathname.endsWith('best-foreign');
         const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
         const bestCandidates = bestMode==='ru'
@@ -492,11 +493,15 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('#bestServerEmpty').textContent(),/Проверенных подходящих VPN сейчас нет/,'only a completed empty scan may report no eligible candidates');
     mode='rejected';await page.locator('#bestServerRefresh').click();
     await page.waitForFunction(()=>!document.querySelector('#bestServerRefresh').disabled);
-    assert.equal(await page.locator('.vpn-rejected').count(),0,'rejected diagnostics must not fill final Top-3 cards');
-    assert.equal(await page.locator('.vpn-warning').count(),0,'near-miss diagnostics must not fill final Top-3 cards');
+    assert.equal(await page.locator('#bestServerResult > .vpn-option').count(),0,'rejected diagnostics must never fill Top-3 recommendation slots');
+    assert.equal(await page.locator('#bestServerResult .vpn-rejected-diagnostics').count(),1,'measured rejected candidates must have a separate disclosure');
+    assert.equal(await page.locator('#bestServerResult .vpn-rejected-list .vpn-option').count(),2,'exact measured failures must stay visible as diagnostics');
+    assert.equal(await page.locator('#bestServerResult .vpn-rejected-diagnostics').evaluate(n=>n.open),true,'diagnostics must open automatically when no eligible alternatives exist');
     assert.equal(await page.locator('.vpn-option-apply').count(),0,'ineligible candidates must never become apply choices');
-    assert.match(await page.locator('#bestServerEmpty').textContent(),/Проверенных подходящих VPN сейчас нет/);
-    assert.doesNotMatch(await page.locator('#bestServerResult').textContent(),/Скорость ниже 20|Отклик сайтов выше 220 мс/,'rejected diagnostic reasons must not leak into final choice cards');
+    assert.equal(await page.locator('.vpn-option-retry').count(),2,'rejected candidates may only be checked again safely');
+    assert.match(await page.locator('#bestServerResult .vpn-rejected-diagnostics').textContent(),/Скорость ниже 20|Отклик сайтов выше 220 мс/,'safe reasons must explain why measured candidates were rejected');
+    assert.match(await page.locator('#bestServerStatus').textContent(),/Найдено 0 из 3 подходящих/,'rejected rows must never inflate a genuine zero Eligible result');
+    assert.equal(await page.locator('#bestServerEmpty').isHidden(),true,'diagnostics replace a misleading empty state without enabling a recommendation');
     await page.setViewportSize({width:1366,height:768});
     await page.screenshot({path:path.join(artifacts,'vpn-rejected-desktop.png'),fullPage:true});
     const desktopAccessibility=await page.evaluate(()=>{
