@@ -1639,11 +1639,7 @@ func (a *app) runV3ScheduledSubscription(ctx context.Context) error {
 // same atomic process lock used by provider apply; the Xray watchdog observes
 // this lock and must not perform a competing recovery during GeoData updates.
 // Tests inject only this subprocess call; production arguments remain fixed.
-var settingsV3RunGeoDataXKeen = func(ctx context.Context, path string) error {
-	cmd := exec.CommandContext(ctx, path, "-ug")
-	_, err := cmd.CombinedOutput()
-	return err
-}
+var settingsV3RunGeoDataXKeen = runVerifiedGeoDataXKeen
 
 func (a *app) runV3GeoData(ctx context.Context) (runErr error) {
 	if a == nil || strings.TrimSpace(a.cfg.LockPath) == "" {
@@ -1682,7 +1678,17 @@ func (a *app) runV3GeoData(ctx context.Context) (runErr error) {
 	}
 	wasRunning := xrayRuntimeProcessRunning(a)
 	if err := settingsV3RunGeoDataXKeen(ctx, a.cfg.XKeenPath); err != nil {
-		v3Mark("geodata", "failed", "GeoData / GeoIP не обновлены: native XKeen завершился с ошибкой.")
+		if wasRunning != xrayRuntimeProcessRunning(a) {
+			v3Mark("geodata", "failed", "GeoData / GeoIP: native update не подтверждён, состояние Xray изменилось. STOP; требуется диагностика.")
+			return errors.New("geodata native update failed; Xray runtime changed; STOP")
+		}
+		if safeReason, ok := safeGeoDataNativeFailure(err); ok {
+			v3Mark("geodata", "failed", safeReason)
+			return errors.New(safeReason)
+		}
+		// Never serialize an arbitrary subprocess/stub error: it could
+		// contain a subscription URL, config fragment or credential.
+		v3Mark("geodata", "failed", "GeoData / GeoIP: штатный XKeen завершился с ошибкой; Xray сохранён.")
 		return errors.New("native geodata update failed")
 	}
 	isRunning := xrayRuntimeProcessRunning(a)
