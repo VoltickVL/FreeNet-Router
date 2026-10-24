@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestFilterForeignBestServerCandidatesExcludesRussia(t *testing.T) {
 	input := []bestServerInternalCandidate{
@@ -19,13 +23,14 @@ func TestFilterMeasuredBestServerResultsKeepsRejectedDeepProbe(t *testing.T) {
 		{ID: "good", Tested: true, Available: true, Eligible: true, DownloadMbps: 120, MediaSamples: bestServerMediaRequiredRuns},
 		{ID: "near-miss", Tested: true, Available: true, Eligible: false, DownloadMbps: 0, MediaSamples: 2, Rejections: []string{"Скорость Speedtest не измерена"}},
 		{ID: "app-failed", Tested: true, Reachable: true, Available: false, Eligible: false, Rejections: []string{"Не подтверждён HTTP-отклик через VPN"}},
+		{ID: "startup-failed", Tested: true, Reachable: false, Available: false, Eligible: false},
 		{ID: "untested", Reachable: true, Tested: false},
 	}
 	got := filterMeasuredBestServerResults(input)
-	if len(got) != 3 {
-		t.Fatalf("visible deep-probe results = %#v, want good + two rejected diagnostics", got)
+	if len(got) != 4 {
+		t.Fatalf("visible deep-probe results = %#v, want good + three rejected diagnostics", got)
 	}
-	if got[0].ID != "good" || got[1].ID != "near-miss" || got[2].ID != "app-failed" {
+	if got[0].ID != "good" || got[1].ID != "near-miss" || got[2].ID != "app-failed" || got[3].ID != "startup-failed" {
 		t.Fatalf("unexpected visible result order: %#v", got)
 	}
 }
@@ -167,5 +172,40 @@ func TestCurrentBestServerCandidateFailsClosedOnAmbiguousIdentity(t *testing.T) 
 	}
 	if got, ok := currentBestServerCandidate(input, "10.0.0.1:443", "PL Warsaw"); ok || len(got) != 0 {
 		t.Fatalf("ambiguous current identity must fail closed, got %#v ok=%v", got, ok)
+	}
+}
+
+func TestBestServerRejectedDiagnosticsAreSeparateFromThreeEligibleCards(t *testing.T) {
+	data, err := os.ReadFile("web/operation-coordinator.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := string(data)
+	for _, required := range []string{
+		"return pool.filter(candidate => candidate.eligible === true).slice(0, 3)",
+		"function rejectedDiagnosticCandidates(data, approved)",
+		"candidate.tested",
+		"candidate.eligible === true",
+		"rejectedOptions = rejectedDiagnosticCandidates(data, eligibleOptions)",
+		"alternatives = eligibleOptions.concat(rejectedOptions)",
+		"diagnostics.className = 'vpn-rejected-diagnostics'",
+		"diagnostics.open = eligibleOptions.length === 0",
+		"Почему не подошли другие серверы",
+		"if (candidate.eligible) box.appendChild(row);",
+		"else diagnosticList.appendChild(row);",
+		"if (candidate.eligible) {",
+		"if (rejectedOptions.length) box.appendChild(diagnostics);",
+	} {
+		if !strings.Contains(js, required) {
+			t.Fatalf("Best Server rejected diagnostic disclosure lost safety contract %q", required)
+		}
+	}
+	style, err := os.ReadFile("web/design-system.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(style), "#bestServerResult .vpn-rejected-diagnostics") ||
+		!strings.Contains(string(style), ".vpn-rejected-list") {
+		t.Fatal("read-only rejected diagnostic disclosure must have a separate layout")
 	}
 }

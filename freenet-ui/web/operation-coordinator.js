@@ -630,6 +630,19 @@
     return pool.filter(candidate => candidate.eligible === true).slice(0, 3);
   }
 
+  // Diagnostics do not compete for any of the three recommendation slots.
+  // The backend has measured these profiles, but their failed gates must be
+  // visible rather than silently misreported as "nothing was checked".
+  function rejectedDiagnosticCandidates(data, approved) {
+    const seen = new Set(approved.map(candidate => candidate.id));
+    return (Array.isArray(data && data.candidates) ? data.candidates : []).filter(candidate => {
+      if (!candidate || !candidate.tested || candidate.current || candidate.eligible === true ||
+          isRussianProfile(candidate) || !candidate.id || !candidate.endpoint || seen.has(candidate.id)) return false;
+      seen.add(candidate.id);
+      return true;
+    }).slice(0, 3);
+  }
+
   function sameCandidate(a, b) {
     if (!a || !b) return false;
     if (a.id && b.id) return a.id === b.id;
@@ -664,7 +677,10 @@
     const deepTotal = Number(data.deep_total || 0);
     const deepChecked = Number(data.deep_checked || 0);
     const eligibleTarget = Number(data.eligible_target || 3);
-    const eligibleFound = Number(data.eligible_found || states.length);
+    // Zero Eligible is a real result, not a missing value: rejected
+    // diagnostic rows must never inflate the reported eligible count.
+    const measuredEligible = states.filter(state => state.kind === 'best' || state.kind === 'comparison').length;
+    const eligibleFound = Number.isFinite(Number(data && data.eligible_found)) ? Number(data.eligible_found) : measuredEligible;
     main.textContent = deepTotal > 0
       ? `Из ${data.profiles_scanned || 0} профилей в shortlist попало ${deepTotal}. Глубоко проверено ${deepChecked} из ${deepTotal}. Найдено ${eligibleFound} из ${eligibleTarget} подходящих альтернатив: ${pieces.join(', ') || 'нет подходящих'}.`
       : `Проверено профилей: ${data.profiles_scanned || 0}. Показано ${states.length} вариант${states.length === 1 ? '' : states.length < 5 ? 'а' : 'ов'}: ${pieces.join(', ') || 'нет подходящих'}.`;
@@ -681,15 +697,30 @@
     const current = currentCandidate(data);
     if (current) renderCurrentQuality({candidates:[current]}, 'comparison', currentContext);
     const baseline = current || currentQuality;
-    alternatives = comparisonCandidates(data, current);
+    const eligibleOptions = comparisonCandidates(data, current);
+    const rejectedOptions = rejectedDiagnosticCandidates(data, eligibleOptions);
+    alternatives = eligibleOptions.concat(rejectedOptions);
     const box = qs('#bestServerResult');
     if (!alternatives.length) {
-      clearAlternatives('Проверенных подходящих VPN сейчас нет. Текущий VPN сохранён.');
+      clearAlternatives(data && data.partial
+        ? 'Проверка завершилась по лимиту времени. Подтверждённых альтернатив пока нет; текущий VPN сохранён.'
+        : 'Проверенных подходящих VPN сейчас нет. Текущий VPN сохранён.');
       setText(qs('#bestServerStatus'), data && data.message || 'Сравнение сейчас недоступно.');
       return;
     }
     const empty = qs('#bestServerEmpty'); if (empty) empty.hidden = true;
     box.classList.add('show');
+    const diagnostics = document.createElement('details');
+    diagnostics.className = 'vpn-rejected-diagnostics';
+    diagnostics.open = eligibleOptions.length === 0;
+    const diagnosticTitle = document.createElement('summary');
+    diagnosticTitle.textContent = 'Почему не подошли другие серверы · ' + rejectedOptions.length;
+    const diagnosticIntro = document.createElement('p');
+    diagnosticIntro.className = 'vpn-rejected-intro';
+    diagnosticIntro.textContent = 'Это результаты реальных проверок, но не рекомендации. Переключение на эти серверы заблокировано. Непроверенные кандидаты сюда не включаются.';
+    const diagnosticList = document.createElement('div');
+    diagnosticList.className = 'vpn-rejected-list';
+    diagnostics.append(diagnosticTitle, diagnosticIntro, diagnosticList);
     const states = [];
     alternatives.forEach((candidate, index) => {
       const state = stateForCandidate(data, candidate); states.push(state);
@@ -741,8 +772,10 @@
           : 'Сервер не прошёл все проверки и не рекомендуется для переключения.';
         row.appendChild(note);
       }
-      box.appendChild(row);
+      if (candidate.eligible) box.appendChild(row);
+      else diagnosticList.appendChild(row);
     });
+    if (rejectedOptions.length) box.appendChild(diagnostics);
     renderSummaryStatus(data, states);
   }
 
@@ -880,7 +913,20 @@
         setText(qs('#bestServerStatus'),`Подбор не завершён (HTTP ${response.status}). ${detail}`);return;
       }
       syncOverviewTopbar();
-      renderBestResult(body, currentContext);if(body.partial)setText(qs('#bestServerStatus'),'Проверка завершена в пределах лимита времени. Показаны только измеренные варианты; часть кандидатов не проверена.');
+      renderBestResult(body, currentContext);
+      if (body.partial) {
+        // Do not replace the count/diagnostic summary with a generic warning:
+        // the most important fact in a failed scan is why the measured
+        // profiles were rejected. Partial only describes the remaining pool.
+        const summary = qs('#bestServerStatus .summary-copy');
+        if (summary) {
+          const note = document.createElement('div'); note.className = 'summary-sub';
+          note.textContent = 'Лимит времени исчерпан: часть кандидатов не проверена, текущий VPN сохранён.';
+          summary.appendChild(note);
+        } else {
+          setText(qs('#bestServerStatus'), body.message || 'Проверка частичная: не все кандидаты измерены.');
+        }
+      }
     } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено безопасное время ожидания ответа.':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
   }
 

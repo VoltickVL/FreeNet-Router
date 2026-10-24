@@ -81,6 +81,21 @@ func serviceCurlFixtureMain() int {
 		if index == 1 {
 			return 28
 		}
+	case "transient-once":
+		if index == 1 {
+			// Exactly one transport failure, then a successful HTTPS response.
+			// Create-exclusive metadata works across the two subprocesses
+			// without any real network access or shared in-memory state.
+			marker := filepath.Join(os.Getenv("FREENET_SERVICE_CURL_RECORDS"), "transient-1.flag")
+			file, err := os.OpenFile(marker, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+			if err == nil {
+				_ = file.Close()
+				return 28
+			}
+			if !os.IsExist(err) {
+				return 98
+			}
+		}
 	case "certificate":
 		if index == 0 || index == 4 {
 			return 60
@@ -248,6 +263,68 @@ func TestBestServerServiceOwnTargetDeadlineIsQoEOnlyAndWaits(t *testing.T) {
 	records := serviceCurlFixtureRecords(t, recordsDir)
 	if len(records) != 4 {
 		t.Fatalf("not all target timeouts were measured: %d", len(records))
+	}
+	assertServiceCurlChildrenReaped(t, records)
+}
+
+func TestBestServerManualMediaQualityRetriesOneTransientTransportFailure(t *testing.T) {
+	curl, recordsDir := newServiceCurlFixture(t, "transient-once")
+	ctx, cancel := context.WithTimeout(context.Background(), bestServerServiceTimeout)
+	defer cancel()
+	ok, total := probeBestServerServiceReachabilityForMedia(ctx, curl, "127.0.0.1:18181")
+	if ok != 4 || total != 4 {
+		t.Fatalf("one recovered TCP transport error should produce observed 4/4, got %d/%d", ok, total)
+	}
+	records := serviceCurlFixtureRecords(t, recordsDir)
+	attempts := map[int]int{}
+	for _, record := range records {
+		attempts[record.Service]++
+	}
+	if len(records) != 5 || attempts[0] != 1 || attempts[1] != 2 || attempts[2] != 1 || attempts[3] != 1 {
+		t.Fatalf("manual quality must retry only the failed service exactly once, got %+v", attempts)
+	}
+	assertServiceCurlChildrenReaped(t, records)
+}
+
+func TestBestServerManualMediaQualityNeverTurnsPermanentRestrictionIntoSuccess(t *testing.T) {
+	curl, recordsDir := newServiceCurlFixture(t, "mixed")
+	ok, total := probeBestServerServiceReachabilityForMedia(context.Background(), curl, "127.0.0.1:18181")
+	if ok != 2 || total != 4 {
+		t.Fatalf("HTTP 403 and repeated transport failure must remain unavailable, got %d/%d", ok, total)
+	}
+	records := serviceCurlFixtureRecords(t, recordsDir)
+	attempts := map[int]int{}
+	for _, record := range records {
+		attempts[record.Service]++
+	}
+	if len(records) != 5 || attempts[0] != 1 || attempts[1] != 2 || attempts[2] != 1 || attempts[3] != 1 {
+		t.Fatalf("HTTP 403 must not retry and transient failure must retry exactly once: %+v", attempts)
+	}
+	assertServiceCurlChildrenReaped(t, records)
+}
+
+func TestBestServerManualMediaQualityLocalFailureDoesNotBecomeBadService(t *testing.T) {
+	curl, recordsDir := newServiceCurlFixture(t, "certificate")
+	res := probeBestServerServiceReachabilityMode(context.Background(), curl, "127.0.0.1:18181", true)
+	if res.Complete || res.OKMask != 14 || res.BadMask != 0 {
+		t.Fatalf("unknown local/certificate failure must stay unknown: %+v", res)
+	}
+	records := serviceCurlFixtureRecords(t, recordsDir)
+	if len(records) != 4 {
+		t.Fatalf("unknown failures must not launch a retry: %+v", records)
+	}
+	assertServiceCurlChildrenReaped(t, records)
+}
+
+func TestBestServerAUTOServiceEvidenceDoesNotRetryTransientTransportFailure(t *testing.T) {
+	curl, recordsDir := newServiceCurlFixture(t, "transient-once")
+	result := probeBestServerServiceReachabilityDetailed(context.Background(), curl, "127.0.0.1:18181")
+	if !result.Complete || result.OKMask != 13 || result.BadMask != 2 {
+		t.Fatalf("AUTO must keep one-observation service mask and confirmation timing: %+v", result)
+	}
+	records := serviceCurlFixtureRecords(t, recordsDir)
+	if len(records) != 4 {
+		t.Fatalf("AUTO must still use exactly one target probe per service, got %d", len(records))
 	}
 	assertServiceCurlChildrenReaped(t, records)
 }
