@@ -270,6 +270,7 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 	candidate.MediaMbps = roundBestServerMediaMbps(probe.Media.MedianMbps)
 	candidate.ServiceOK = probe.Media.ServiceOK
 	candidate.ServiceTotal = probe.Media.ServiceTotal
+	candidate.ChatGPTHTTPSStatus = sanitizeBestServerChatGPTHTTPSStatus(probe.Media.ChatGPTHTTPSStatus)
 	candidate.DownloadIssue = probe.DownloadIssue
 	candidate.MediaIssue = probe.Media.Issue
 	candidate.ThroughputSource = probe.ThroughputSource
