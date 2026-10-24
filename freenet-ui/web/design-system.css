@@ -1354,3 +1354,11 @@ body #controlCenter .main>.topbar.overview-approved{padding-right:max(var(--fn-c
 .fn3-auto-decision-row strong{font-size:13px;font-weight:700;line-height:1.55;overflow-wrap:anywhere}
 .fn3-auto-decision-note{grid-column:1/-1;margin:3px 0 6px;color:var(--muted);font-size:12px;line-height:1.6}
 @media(max-width:700px){.fn3-auto-decision{grid-template-columns:1fr}}
+
+/* Best Server: rejected measured candidates are a separate read-only disclosure.
+   They never occupy recommendation slots or enable an apply action. */
+#bestServerResult .vpn-rejected-diagnostics{grid-column:1 / -1;width:100%;margin-top:10px;border:1px solid var(--line2);border-radius:12px;background:rgba(9,21,36,.8);padding:11px}
+#bestServerResult .vpn-rejected-diagnostics>summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:750;padding:5px 2px}
+#bestServerResult .vpn-rejected-intro{color:var(--muted);font-size:12px;line-height:1.5;margin:9px 2px}
+#bestServerResult .vpn-rejected-list{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr))}
+#bestServerResult .vpn-rejected-list .vpn-option{min-width:0;opacity:.95}
