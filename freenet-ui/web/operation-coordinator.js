@@ -677,7 +677,10 @@
     const deepTotal = Number(data.deep_total || 0);
     const deepChecked = Number(data.deep_checked || 0);
     const eligibleTarget = Number(data.eligible_target || 3);
-    const eligibleFound = Number(data.eligible_found || states.length);
+    // Zero Eligible is a real result, not a missing value: rejected
+    // diagnostic rows must never inflate the reported eligible count.
+    const measuredEligible = states.filter(state => state.kind === 'best' || state.kind === 'comparison').length;
+    const eligibleFound = Number.isFinite(Number(data && data.eligible_found)) ? Number(data.eligible_found) : measuredEligible;
     main.textContent = deepTotal > 0
       ? `Из ${data.profiles_scanned || 0} профилей в shortlist попало ${deepTotal}. Глубоко проверено ${deepChecked} из ${deepTotal}. Найдено ${eligibleFound} из ${eligibleTarget} подходящих альтернатив: ${pieces.join(', ') || 'нет подходящих'}.`
       : `Проверено профилей: ${data.profiles_scanned || 0}. Показано ${states.length} вариант${states.length === 1 ? '' : states.length < 5 ? 'а' : 'ов'}: ${pieces.join(', ') || 'нет подходящих'}.`;
