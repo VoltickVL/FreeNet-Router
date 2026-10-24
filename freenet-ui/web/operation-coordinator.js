@@ -913,7 +913,20 @@
         setText(qs('#bestServerStatus'),`Подбор не завершён (HTTP ${response.status}). ${detail}`);return;
       }
       syncOverviewTopbar();
-      renderBestResult(body, currentContext);if(body.partial)setText(qs('#bestServerStatus'),'Проверка завершена в пределах лимита времени. Показаны только измеренные варианты; часть кандидатов не проверена.');
+      renderBestResult(body, currentContext);
+      if (body.partial) {
+        // Do not replace the count/diagnostic summary with a generic warning:
+        // the most important fact in a failed scan is why the measured
+        // profiles were rejected. Partial only describes the remaining pool.
+        const summary = qs('#bestServerStatus .summary-copy');
+        if (summary) {
+          const note = document.createElement('div'); note.className = 'summary-sub';
+          note.textContent = 'Лимит времени исчерпан: часть кандидатов не проверена, текущий VPN сохранён.';
+          summary.appendChild(note);
+        } else {
+          setText(qs('#bestServerStatus'), body.message || 'Проверка частичная: не все кандидаты измерены.');
+        }
+      }
     } catch(error){clearAlternatives('Подбор не завершён. Наличие подходящих замен пока неизвестно.');setText(qs('#bestServerStatus'),error&&error.name==='TimeoutError'?'Подбор не завершён: превышено безопасное время ожидания ответа.':'Подбор не завершён: связь с FreeNet прервалась.');} finally {setBusy(false);}
   }
 
