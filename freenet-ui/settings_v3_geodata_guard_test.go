@@ -168,3 +168,21 @@ func TestGeoDataCannotRunDuringFreeNetUpdater(t *testing.T) {
 		t.Fatalf("GeoData created canonical lock during a blocked update: %v", err)
 	}
 }
+
+func TestGeoDataNativeFixedReasonReachesStateWithoutRawOutput(t *testing.T) {
+	a, _ := prepareGeoDataMutexTest(t)
+	stubGeoDataRunner(t, func(context.Context, string) error {
+		return &geoDataNativeFailure{kind: "html_stub"}
+	})
+	err := a.runV3GeoData(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "HTML вместо базы .dat") {
+		t.Fatalf("known native payload failure must be explained safely: %v", err)
+	}
+	state := v3ParseState(settingsV3StatePath())
+	if state["GEODATA_RESULT"] != "failed" {
+		t.Fatalf("failed native update produced false success: %+v", state)
+	}
+	if _, err := os.Stat(a.cfg.LockPath); !os.IsNotExist(err) {
+		t.Fatalf("failed native update left the canonical lock: %v", err)
+	}
+}
