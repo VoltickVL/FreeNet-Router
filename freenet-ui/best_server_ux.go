@@ -73,7 +73,10 @@ func filterForeignBestServerCandidates(candidates []bestServerInternalCandidate)
 func filterMeasuredBestServerResults(candidates []bestServerQualityCandidate) []bestServerQualityCandidate {
 	filtered := make([]bestServerQualityCandidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.Current || (candidate.Tested && (candidate.Available || candidate.Reachable)) {
+		// A completed deep attempt that failed before HTTP confirmation is
+		// still useful diagnostic evidence. Keep it as a rejected, non-applyable
+		// result, never an Eligible selection or AUTO trigger.
+		if candidate.Current || candidate.Tested {
 			filtered = append(filtered, candidate)
 		}
 	}
