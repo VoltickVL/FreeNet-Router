@@ -51,6 +51,9 @@ func serviceCurlFixtureMain() int {
 			index = candidate
 		}
 	}
+	if index < 0 && args[len(args)-1] == bestServerChatGPTHTTPSURL {
+		index = 4 // Optional diagnostic: not one of the four AUTO QoE service bits.
+	}
 	if index < 0 {
 		return 92
 	}
@@ -79,11 +82,11 @@ func serviceCurlFixtureMain() int {
 			return 28
 		}
 	case "certificate":
-		if index == 0 {
+		if index == 0 || index == 4 {
 			return 60
 		}
 	case "malformed":
-		if index == 0 {
+		if index == 0 || index == 4 {
 			fmt.Fprint(os.Stdout, "204\tNaN\tInf")
 			return 0
 		}
@@ -125,7 +128,7 @@ func serviceCurlFixtureRecords(t *testing.T, dir string) []serviceCurlFixtureRec
 			t.Fatal(err)
 		}
 		var record serviceCurlFixtureRecord
-		if err := json.Unmarshal(data, &record); err != nil || record.PID <= 0 || record.Service < 0 || record.Service > 3 {
+		if err := json.Unmarshal(data, &record); err != nil || record.PID <= 0 || record.Service < 0 || record.Service > 4 {
 			t.Fatalf("invalid service child record: %s", filepath.Base(path))
 		}
 		records = append(records, record)
