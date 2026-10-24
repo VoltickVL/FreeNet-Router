@@ -34,6 +34,7 @@ type bestServerMediaQualityResult struct {
 	Stalls       int
 	ServiceOK    int
 	ServiceTotal int
+	ChatGPTHTTPSStatus string
 	Grade        string
 	Penalty      int
 }
@@ -250,6 +251,10 @@ func probeBestServerServiceReachability(ctx context.Context, curlPath, socks str
 }
 
 func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) bestServerMediaQualityResult {
+	// ChatGPT is observational only; overlap its bounded HEAD with existing
+	// media work rather than adding a fifth QoE strike or extending the scan.
+	chatGPT := make(chan string, 1)
+	go func() { chatGPT <- probeBestServerChatGPTHTTPS(ctx, curlPath, socks) }()
 	stages := runBestServerMediaStages(
 		ctx,
 		func(parent context.Context) ([]float64, string) {
@@ -264,6 +269,7 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 
 	result := summarizeBestServerAggregateMediaQuality(stages.speeds, stages.serviceOK, stages.serviceTotal)
 	result.Issue = stages.issue
+	result.ChatGPTHTTPSStatus = <-chatGPT
 	// A single failed transfer is diagnostic noise, not an automatic stall.
 	// 3/4 completed streams are enough for bounded aggregate evidence.
 	if len(stages.speeds) < bestServerMediaRequiredRuns {

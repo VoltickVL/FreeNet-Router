@@ -100,6 +100,7 @@ func sanitizeBestServerCurrentQuality(candidate bestServerQualityCandidate) best
 	// speed. Keep only canonical strict throughput; partial RTT/service evidence
 	// may still be retained with speed unknown.
 	candidate.Rejections = append([]string(nil), candidate.Rejections...)
+	candidate.ChatGPTHTTPSStatus = sanitizeBestServerChatGPTHTTPSStatus(candidate.ChatGPTHTTPSStatus)
 	candidate.FallbackDownloadMbps = 0
 	if candidate.ThroughputSource == bestServerThroughputCurrentFallback {
 		candidate.ThroughputSource = ""
