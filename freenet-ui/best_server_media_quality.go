@@ -202,7 +202,38 @@ func classifyBestServerServiceObservation(output []byte, err, probeErr, parentEr
 	return false, false
 }
 
+// AUTO keeps the original one-observation-per-service contract. A repeated
+// signal must not silently change outage/recovery evidence or AUTO cadence.
 func probeBestServerServiceReachabilityDetailed(ctx context.Context, curlPath, socks string) bestServerServiceReachabilityResult {
+	return probeBestServerServiceReachabilityMode(ctx, curlPath, socks, false)
+}
+
+// Manual Best Server and explicit Current VPN quality recheck only confirmed
+// transport errors once, without relaxing the strict 4/4 admission criterion.
+func probeBestServerServiceReachabilityForMedia(ctx context.Context, curlPath, socks string) (int, int) {
+	result := probeBestServerServiceReachabilityMode(ctx, curlPath, socks, true)
+	return bits.OnesCount8(result.OKMask), len(bestServerMediaServiceURLs)
+}
+
+func bestServerServiceTransientRetryable(err, probeErr error) bool {
+	if errors.Is(probeErr, context.DeadlineExceeded) {
+		return true
+	}
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return false
+	}
+	switch exit.ExitCode() {
+	case 7, 28, 35, 52, 56:
+		return true
+	default:
+		// A completed HTTP restriction (including redirect limit 47) is not
+		// a transient transport failure and must never be retried here.
+		return false
+	}
+}
+
+func probeBestServerServiceReachabilityMode(ctx context.Context, curlPath, socks string, retryTransient bool) bestServerServiceReachabilityResult {
 	result := bestServerServiceReachabilityResult{}
 	if ctx == nil || ctx.Err() != nil || len(bestServerMediaServiceURLs) != 4 {
 		return result
@@ -217,17 +248,29 @@ func probeBestServerServiceReachabilityDetailed(ctx context.Context, curlPath, s
 	for index, serviceURL := range bestServerMediaServiceURLs {
 		index, serviceURL := index, serviceURL
 		go func() {
-			probeCtx, cancelProbe := context.WithTimeout(serviceCtx, 3*time.Second)
-			cmd := exec.CommandContext(probeCtx, curlPath,
-				"--socks5-hostname", socks,
-				"-sS", "-I", "-L", "--max-redirs", "2",
-				"--connect-timeout", "2", "--max-time", "3",
-				"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", serviceURL,
-			)
-			cmd.WaitDelay = 2 * time.Second
-			out, err := cmd.Output()
-			ok, bad := classifyBestServerServiceObservation(out, err, probeCtx.Err(), serviceCtx.Err(), cmd.ProcessState != nil)
-			cancelProbe()
+			// Per-target attempts remain bounded to 3 seconds each. Even the
+			// optional second attempt fits the original 8s service-stage cap.
+			// The second attempt is only for an observed transport failure;
+			// HTTP 4xx/5xx, unknown startup, parent cancellation never retry.
+			attempt := func() (bool, bool, bool) {
+				probeCtx, cancelProbe := context.WithTimeout(serviceCtx, 3*time.Second)
+				cmd := exec.CommandContext(probeCtx, curlPath,
+					"--socks5-hostname", socks,
+					"-sS", "-I", "-L", "--max-redirs", "2",
+					"--connect-timeout", "2", "--max-time", "3",
+					"-o", "/dev/null", "-w", "%{http_code}\t%{time_pretransfer}\t%{time_starttransfer}", serviceURL,
+				)
+				cmd.WaitDelay = 2 * time.Second
+				out, err := cmd.Output()
+				ok, bad := classifyBestServerServiceObservation(out, err, probeCtx.Err(), serviceCtx.Err(), cmd.ProcessState != nil)
+				canRetry := bad && bestServerServiceTransientRetryable(err, probeCtx.Err())
+				cancelProbe()
+				return ok, bad, canRetry
+			}
+			ok, bad, canRetry := attempt()
+			if retryTransient && canRetry && serviceCtx.Err() == nil && ctx.Err() == nil {
+				ok, bad, _ = attempt()
+			}
 			serviceResults <- serviceObservation{bit: uint8(1 << index), ok: ok, bad: bad}
 		}()
 	}
@@ -263,7 +306,7 @@ func probeBestServerMediaQuality(ctx context.Context, curlPath, socks string) be
 			return probeBestServerSpeedtestConcurrent(mediaCtx, curlPath, socks, bestServerMediaChunkRuns)
 		},
 		func(parent context.Context) (int, int) {
-			return probeBestServerServiceReachability(parent, curlPath, socks)
+			return probeBestServerServiceReachabilityForMedia(parent, curlPath, socks)
 		},
 	)
 
