@@ -353,7 +353,9 @@
     node.appendChild(makeIcon(key, 'metric-icon'));
     const copy = document.createElement('div'); copy.className = 'metric-copy';
     const name = document.createElement('span'); name.className = 'metric-label'; name.textContent = label;
-    if (hint) { node.title = hint; name.title = hint; }
+    // A native tooltip on the whole tile hides the neighboring RTT value.
+    // Keep the explanation on the small metric label, not over its value.
+    if (hint) name.title = hint;
     const valueLine = document.createElement('div'); valueLine.className = 'metric-value-line';
     const number = document.createElement('b'); number.textContent = value; valueLine.appendChild(number);
     if (delta && delta.text) {
@@ -372,6 +374,24 @@
     root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline), 'Медианный HTTPS-отклик реальных сайтов через VPN. Чем меньше, тем отзывчивее веб и приложения.'));
     root.appendChild(metricPill('VPN-пинг', metric(candidate, 'vpn'), 'tcp', false, null, 'Базовая задержка рабочего VPN-тракта: фиксированный HTTPS RTT через VPN без DNS. Это не ICMP-пинг непосредственно до VPN-сервера.'));
     root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter'), 'jitter', false, null, 'Разброс серии измерений отклика (джиттер/spread). Чем меньше, тем ровнее соединение.'));
+    // Optional ChatGPT public HTTPS edge signal is display-only. Browser/login
+    // usability cannot be inferred from a HEAD result and is not an AUTO gate.
+    if (candidate) {
+      const status = String(candidate.chatgpt_https_status || '');
+      const labels = {
+        https_response: ['HTTPS отвечает', 'ok'],
+        http_restricted: ['HTTP-ограничение · проверить в браузере', 'warn'],
+        http_error: ['HTTP-ошибка сервиса · не отказ VPN', 'warn'],
+        unknown: ['результат не подтверждён', 'warn']
+      };
+      const state = labels[status] || ['ещё не проверялся', ''];
+      const note = document.createElement('div');
+      note.className = 'best-v4-chatgpt' + (state[1] ? ' ' + state[1] : '');
+      const name = document.createElement('strong'); name.textContent = 'ChatGPT HTTPS · ';
+      const value = document.createElement('span'); value.textContent = state[0];
+      note.append(name, value);
+      root.appendChild(note);
+    }
   }
 
   function currentCandidate(data) {
