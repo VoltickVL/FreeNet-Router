@@ -75,6 +75,7 @@ type bestServerQualityCandidate struct {
 	MediaMbps     float64  `json:"media_mbps,omitempty"`
 	ServiceOK     int      `json:"service_ok,omitempty"`
 	ServiceTotal  int      `json:"service_total,omitempty"`
+	ChatGPTHTTPSStatus string `json:"chatgpt_https_status,omitempty"`
 	Score         int      `json:"score,omitempty"`
 	Confidence    string   `json:"confidence,omitempty"`
 	Reason        string   `json:"reason"`
@@ -220,6 +221,7 @@ func rankBestServerQualityCandidates(
 		results[index].MediaMbps = roundBestServerMediaMbps(probe.Media.MedianMbps)
 		results[index].ServiceOK = probe.Media.ServiceOK
 		results[index].ServiceTotal = probe.Media.ServiceTotal
+		results[index].ChatGPTHTTPSStatus = sanitizeBestServerChatGPTHTTPSStatus(probe.Media.ChatGPTHTTPSStatus)
 		if probe.DownloadOK {
 			results[index].DownloadMbps = roundBestServerMbps(probe.DownloadMbps)
 			results[index].ThroughputSource = bestServerThroughputStrictAggregate
