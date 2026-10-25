@@ -331,7 +331,7 @@
         return;
       }
       selection.className = 'xcm-selection ready';
-      selection.textContent = `Выбрана ${selected.version}. После установки FreeNet автоматически проверит Xray и при ошибке выполнит откат.`;
+      selection.textContent = `Выбрана ${selected.version}. FreeNet проверит новую версию и VPN. При отказе выполнит откат; если восстановление не подтверждено, операция перейдёт в STOP.`;
       addButton(footer, actionLabel(selected), 'primary', () => applyRelease(selected));
     };
 
@@ -622,6 +622,68 @@
     }
   }
 
+  // A disconnected HTTP client does not cancel the server-side core update.
+  // Reconcile its terminal receipt, not merely the service's current version.
+  async function readCoreUpdateReceipt() {
+    const response = await fetch('/api/xray/core/operation', {cache:'no-store'});
+    if (!response.ok) throw new Error('Квитанция обновления Xray недоступна');
+    return response.json();
+  }
+
+  async function renderCoreUpdateReceipt(expectedVersion) {
+    const receipt = await readCoreUpdateReceipt();
+    if (!receipt || !['RUNNING', 'SUCCESS', 'ROLLED_BACK', 'FAILED', 'STOP'].includes(receipt.state)) return false;
+    if (expectedVersion && receipt.target_version !== expectedVersion) return false;
+    const target = body(), footer = actions();
+    if (receipt.state === 'SUCCESS' && receipt.result?.success) {
+      const message = receipt.result.message || ('Xray ' + receipt.target_version + ' установлен и проверен.');
+      try {
+        const current = await fetchServiceSnapshot();
+        renderServiceHome(current, message);
+      } catch (_) {
+        // A valid update receipt does not establish that the browser can
+        // currently reach the service. Do not synthesize a green status.
+        clearNode(target); clearNode(footer);
+        const box = document.createElement('div');
+        box.className = 'xcm-result bad stop';
+        box.textContent = 'Xray обновлён, но текущее состояние Control Center недоступно. Перепроверьте соединение.';
+        target.appendChild(box);
+        addButton(footer, 'Проверить состояние', 'primary', () => openManager());
+        addButton(footer, 'Закрыть', '', closeManager);
+      }
+      return true;
+    }
+    clearNode(target); clearNode(footer);
+    const box = document.createElement('div');
+    box.className = receipt.state === 'RUNNING' ? 'xcm-progress' : 'xcm-result bad' + (receipt.state === 'STOP' ? ' stop' : '');
+    const detail = String(receipt.result?.error || '');
+    switch (receipt.state) {
+      case 'RUNNING':
+        box.textContent = 'Обновление Xray продолжается на роутере. Не запускайте повторную установку.';
+        break;
+      case 'ROLLED_BACK':
+        box.textContent = 'Новая версия не принята; прежняя версия Xray восстановлена и проверена. ' + detail;
+        break;
+      case 'STOP':
+        box.textContent = 'STOP: восстановление Xray не подтверждено. Следующие изменения запрещены до диагностики. ' + detail;
+        break;
+      default:
+        box.textContent = 'Xray не обновлён. ' + (detail || 'Результат изменения не подтверждён.');
+    }
+    target.appendChild(box);
+    if (receipt.state === 'RUNNING') {
+      addButton(footer, 'Проверить результат', 'primary', async () => {
+        try { await renderCoreUpdateReceipt(expectedVersion); }
+        catch (_) { box.textContent = 'Статус Xray недоступен. Повторную установку не запускайте.'; }
+      });
+    } else {
+      addButton(footer, 'Журнал', '', openJournal);
+    }
+    addButton(footer, 'Закрыть', '', closeManager);
+    requestAnimationFrame(positionManager);
+    return true;
+  }
+
   async function applyRelease(release) {
     if (applying) return;
     applying = true;
@@ -659,21 +721,22 @@
         });
       }
     } catch (_) {
-      clearNode(target);
-      clearNode(footer);
-      const box = document.createElement('div');
-      box.className = 'xcm-result bad stop';
-      box.textContent = 'Связь с FreeNet прервалась во время операции. Не повторяйте установку вслепую: сначала перечитайте фактическое состояние Xray.';
-      target.appendChild(box);
-      addButton(footer, 'Закрыть', '', closeManager);
-      addButton(footer, 'Проверить состояние', 'primary', async () => {
-        try {
-          const current = await fetchServiceSnapshot();
-          renderServiceHome(current);
-        } catch (_) {
-          box.textContent = 'Состояние Xray пока не подтверждено. Следующая mutation остаётся заблокированной.';
-        }
-      });
+      // A browser disconnect does not mean rollback or failure. Read the
+      // operation receipt owned by the detached FreeNet worker.
+      let reconciled = false;
+      try { reconciled = await renderCoreUpdateReceipt(release.version); } catch (_) {}
+      if (!reconciled) {
+        clearNode(target); clearNode(footer);
+        const box = document.createElement('div');
+        box.className = 'xcm-result bad stop';
+        box.textContent = 'Связь прервалась, статус обновления Xray пока неизвестен. Не запускайте установку повторно.';
+        target.appendChild(box);
+        addButton(footer, 'Проверить результат', 'primary', async () => {
+          try { if (!await renderCoreUpdateReceipt(release.version)) throw new Error('not available'); }
+          catch (_) { box.textContent = 'Квитанция Xray пока недоступна. Повторное изменение запрещено.'; }
+        });
+        addButton(footer, 'Закрыть', '', closeManager);
+      }
     } finally {
       applying = false;
     }
@@ -701,6 +764,11 @@
     target.appendChild(progress);
     try {
       const currentService = await fetchServiceSnapshot();
+      let receipt = null;
+      try { receipt = await readCoreUpdateReceipt(); } catch (_) {}
+      if (receipt && (receipt.state === 'RUNNING' || receipt.state === 'STOP')) {
+        if (await renderCoreUpdateReceipt(receipt.target_version)) return;
+      }
       renderServiceHome(currentService);
     } catch (error) {
       clearNode(target);
