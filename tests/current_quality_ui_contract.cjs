@@ -273,6 +273,7 @@ module.exports = async function runCurrentQualityUIContract({browser, base, root
     await view.status({xray_online:false});
     assert.equal(await view.page.locator('#bestCurrentHealth').evaluate(n => n.classList.contains('offline')), true,
       'when production Xray really stops, offline still overrides the diagnostic warning');
+    await view.page.waitForFunction(() => document.querySelector('#bestCurrentConnection')?.textContent === '● Xray остановлен');
     assert.equal(await view.page.locator('#bestCurrentConnection').textContent(), '● Xray остановлен');
     await view.status({xray_online:true});
     assert.equal(await view.page.locator('#bestCurrentHealth').evaluate(n => n.classList.contains('warning')), true,
