@@ -564,7 +564,25 @@ func xrayCoreAction(previous, target string) string {
 func (a *app) rollbackXrayCore(binary, backup, previous string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), xrayCoreRollbackTimeout)
 	defer cancel()
-	if err := os.Rename(backup, binary); err != nil {
+	// Preserve the original snapshot until rollback is confirmed. Renaming
+	// the backup over the live binary would consume the only recovery copy
+	// even when restart/post-check subsequently failed.
+	backupInfo, err := os.Stat(backup)
+	if err != nil || !backupInfo.Mode().IsRegular() {
+		return errors.New("previous Xray backup is unavailable")
+	}
+	restoreFile, err := os.CreateTemp(filepath.Dir(binary), ".freenet-xray-restore-*")
+	if err != nil {
+		return errors.New("cannot stage previous Xray binary")
+	}
+	restorePath := restoreFile.Name()
+	_ = restoreFile.Close()
+	_ = os.Remove(restorePath)
+	defer os.Remove(restorePath)
+	if err := copyXrayCoreBinary(backup, restorePath, backupInfo.Mode()); err != nil {
+		return errors.New("previous Xray binary could not be staged")
+	}
+	if err := os.Rename(restorePath, binary); err != nil {
 		return errors.New("previous Xray binary could not be restored")
 	}
 	if err := a.restartXrayControlled(ctx); err != nil {
@@ -721,7 +739,7 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 			result.Events = xrayServiceEvents(8)
 			return result
 		}
-		backupOwned = false
+		// A verified rollback no longer needs the retained copy: defer cleanup.
 		result.Rollback = "SUCCESS"
 		result.CurrentVersion = previous
 		result.Error = sanitizeAutomationReason(applyErr.Error() + "; предыдущая версия восстановлена")
