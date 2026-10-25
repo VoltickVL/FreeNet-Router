@@ -149,7 +149,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRollback:         "SUCCESS",
 			wantCurrent:          previous,
 			wantErrorContains:    "предыдущая версия восстановлена",
-			wantRestartCalls:     1,
+			wantRestartCalls:     2,
 		},
 		{
 			name:                 "canceled client during forward restart still rolls back",
@@ -169,7 +169,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRollback:         "FAILED",
 			wantCurrent:          previous,
 			wantErrorContains:    "rollback failed",
-			wantRestartCalls:     1,
+			wantRestartCalls:     2,
 			wantStopEvent:        true,
 		},
 	}
