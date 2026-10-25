@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -71,5 +74,37 @@ exit 27
 	}
 	if strings.Contains(err.Error(), "sensitive-token") || strings.Contains(err.Error(), configDir) {
 		t.Fatal("raw Xray validation stderr or private filesystem path was exposed")
+	}
+}
+
+func TestXrayCoreValidationGETIsReadOnlyAndDoesNotExposeSecretErrors(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "configs")
+	if err := os.MkdirAll(configDir, 0700); err != nil { t.Fatal(err) }
+	if err := os.WriteFile(filepath.Join(configDir, "04_outbounds.json"), []byte(`{"outbounds":[]}`), 0600); err != nil { t.Fatal(err) }
+	binary := filepath.Join(dir, "xray")
+	script := `#!/bin/sh
+if [ "$1" = "version" ]; then echo 'Xray 26.9.9'; exit 0; fi
+echo 'secret-subscription-credential' >&2
+exit 33
+`
+	if err := os.WriteFile(binary, []byte(script), 0700); err != nil { t.Fatal(err) }
+	t.Setenv("FREENET_XRAY_BIN", binary)
+	t.Setenv("FREENET_ROUTING_CONFIG_DIR", configDir)
+	t.Setenv("FREENET_XRAY_PROBE_LOCK_FILE", filepath.Join(dir, "probe.lock"))
+	a := &app{cfg: config{OutPath: filepath.Join(configDir, "04_outbounds.json")}}
+	rec := httptest.NewRecorder()
+	a.handleXrayCoreValidationGet(rec, httptest.NewRequest(http.MethodGet, "/api/xray/core/validation", nil))
+	var result xrayCoreValidationResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil { t.Fatal(err) }
+	if rec.Code != http.StatusOK || !result.Success || result.Valid || result.Mutation != "NONE" ||
+		!strings.Contains(result.Reason, "reason=xray-live-config-test-failed") {
+		t.Fatalf("invalid live validation must return read-only STOP reason: %+v, HTTP %d", result, rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "secret-subscription-credential") || strings.Contains(rec.Body.String(), configDir) {
+		t.Fatal("read-only Xray validation response leaked private runtime detail")
+	}
+	if _, err := os.Stat(filepath.Join(configDir, "04_outbounds.json")); err != nil {
+		t.Fatal("read-only Xray validation changed live config")
 	}
 }
