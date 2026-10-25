@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,10 +20,12 @@ const (
 	selfUpdateReleaseCacheTTL = 5 * time.Minute
 	selfUpdateReleaseFreshMinAge = 1 * time.Minute
 	selfUpdateReleaseNotesLimit = 4000
+	selfUpdateBetaAtomBodyLimit = 96 << 10
 )
 
 var (
 	selfUpdateReleasesAPI = "https://api.github.com/repos/VoltickVL/FreeNet-Router/releases"
+	selfUpdateBetaFeedURL = "https://github.com/VoltickVL/FreeNet-Router/releases.atom"
 	selfUpdateReleaseDownload = recoveryDownload
 	selfUpdateReleaseCache = struct {
 		sync.Mutex
@@ -58,6 +61,57 @@ type githubFreeNetRelease struct {
 	Draft       bool   `json:"draft"`
 	Prerelease  bool   `json:"prerelease"`
 	PublishedAt string `json:"published_at"`
+}
+
+type githubPublishedReleaseFeed struct {
+	Entries []struct {
+		ID      string `xml:"id"`
+		Updated string `xml:"updated"`
+		Links   []struct {
+			Href string `xml:"href,attr"`
+			Rel  string `xml:"rel,attr"`
+		} `xml:"link"`
+	} `xml:"entry"`
+}
+
+// GitHub's published-release Atom feed is small, bounded and public. Draft
+// releases never appear in this feed. A tag is still independently verified
+// (including Beta/prerelease and SHA256SUMS) by the exact plan before apply.
+func parsePublishedBetaReleaseFeed(data []byte, current string) ([]selfUpdateRelease, error) {
+	if len(data) == 0 || len(data) > selfUpdateBetaAtomBodyLimit {
+		return nil, errors.New("Beta feed is empty or exceeds byte limit")
+	}
+	var feed githubPublishedReleaseFeed
+	if err := xml.Unmarshal(data, &feed); err != nil {
+		return nil, errors.New("invalid Beta feed XML")
+	}
+	if len(feed.Entries) == 0 {
+		return nil, errors.New("published Beta feed has no entries")
+	}
+	const prefix = "https://github.com/VoltickVL/FreeNet-Router/releases/tag/"
+	published := make([]githubFreeNetRelease, 0, len(feed.Entries))
+	for _, entry := range feed.Entries {
+		for _, link := range entry.Links {
+			if link.Rel != "alternate" || !strings.HasPrefix(link.Href, prefix) {
+				continue
+			}
+			tag := strings.TrimPrefix(link.Href, prefix)
+			if !validBetaReleaseTag(tag) || !strings.HasSuffix(entry.ID, "/"+tag) {
+				continue
+			}
+			if _, err := time.Parse(time.RFC3339, entry.Updated); err != nil {
+				continue
+			}
+			published = append(published, githubFreeNetRelease{
+				TagName: tag, PublishedAt: entry.Updated, Prerelease: true,
+			})
+		}
+	}
+	items := normalizeSelfUpdateReleasesForChannel(published, current, "beta")
+	if len(items) == 0 {
+		return nil, errors.New("published Beta feed has no valid FreeNet release")
+	}
+	return items, nil
 }
 
 func releaseVersionParts(tag string) ([3]int, bool) {
@@ -194,6 +248,27 @@ func fetchSelfUpdateReleaseCatalogForChannel(ctx context.Context, current string
 		return cached, nil
 	}
 	selfUpdateReleaseCache.Unlock()
+
+	if channel == "beta" {
+		// The GitHub REST releases response includes every asset and full release
+		// body (hundreds of KiB even for five items). The official Atom feed
+		// carries ten published releases in a small bounded response. Older
+		// exact tags remain available via mandatory per-tag plan verification.
+		data, err := selfUpdateReleaseDownload(ctx, selfUpdateBetaFeedURL, selfUpdateBetaAtomBodyLimit)
+		if err != nil {
+			return nil, fmt.Errorf("published Beta feed transport: %w", err)
+		}
+		beta, err := parsePublishedBetaReleaseFeed(data, current)
+		if err != nil {
+			return nil, err
+		}
+		selfUpdateReleaseCache.Lock()
+		selfUpdateReleaseCache.at = time.Now()
+		selfUpdateReleaseCache.stable = nil // Atom has no Stable snapshot.
+		selfUpdateReleaseCache.beta = append([]selfUpdateRelease(nil), beta...)
+		selfUpdateReleaseCache.Unlock()
+		return beta, nil
+	}
 
 	all := make([]githubFreeNetRelease, 0, selfUpdateReleasePageSize)
 	for page := 1; page <= selfUpdateReleaseMaxPages; page++ {
