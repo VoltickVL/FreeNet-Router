@@ -1458,6 +1458,7 @@
   const DIAGNOSTIC_URL = 'https://speed.cloudflare.com/__down?bytes=1048576';
   let running = false;
   let cancelCurrent = null;
+  let stopRequested = false;
 
   async function sample() {
     const controller = new AbortController();
@@ -1496,10 +1497,12 @@
   function install() {
     const panel = document.querySelector('.vpn-current-panel');
     if (!panel || document.getElementById('freenetClientTransferDiagnostic')) return;
-    const root = document.createElement('section');
+    const root = document.createElement('details');
     root.id = 'freenetClientTransferDiagnostic';
     root.className = 'freenet-client-transfer';
     root.setAttribute('aria-label', 'Проверка HTTPS-загрузки на этом устройстве');
+    const summary = document.createElement('summary');
+    summary.textContent = 'Проверка передачи данных с этого устройства';
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'btn secondary';
@@ -1514,15 +1517,17 @@
     output.setAttribute('role', 'status');
     output.setAttribute('aria-live', 'polite');
     output.textContent = 'Не запускалась';
-    root.append(button, info, output);
+    root.append(summary, button, info, output);
     panel.appendChild(root);
 
     button.addEventListener('click', async () => {
       if (running) {
+        stopRequested = true;
         if (cancelCurrent) cancelCurrent();
         return;
       }
       running = true;
+      stopRequested = false;
       button.textContent = 'Прервать проверку';
       let completed = 0, partial = 0, unknown = 0, aborted = 0;
       const durations = [];
@@ -1537,13 +1542,14 @@
             // are incomplete and never counted as a successful transfer.
             aborted++;
           } else unknown++;
+          if (stopRequested) break;
         }
       } finally {
         running = false;
         button.textContent = 'Проверить передачу данных';
         const fastest = durations.length ? Math.min(...durations).toFixed(1) : '—';
         const slowest = durations.length ? Math.max(...durations).toFixed(1) : '—';
-        output.textContent = 'Полностью: ' + completed + '/' + SAMPLE_COUNT +
+        output.textContent = (stopRequested ? 'Остановлена пользователем. ' : '') + 'Полностью: ' + completed + '/' + SAMPLE_COUNT +
           ' · неполные: ' + partial + ' · timeout/прерывание: ' + aborted +
           ' · неизвестно: ' + unknown + ' · время полных: ' + fastest + '–' + slowest +
           ' с. Результат относится только к тестовой HTTPS-загрузке, не к работе приложений или видеопотока.';
