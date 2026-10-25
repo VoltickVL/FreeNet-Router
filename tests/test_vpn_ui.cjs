@@ -206,6 +206,39 @@ const server = http.createServer((req,res)=>{
     assert.equal(scans().length,0,'opening Overview must not scan');
     assert.equal(errors.length,0,errors.join('\n'));
     assert.equal(await page.locator('#bestServerShell').count(),1);
+    // Issue #1225: explicit client-only HTTPS body transfer diagnostic.
+    const diagnostic = page.locator('#freenetClientTransferDiagnostic');
+    assert.equal(await diagnostic.count(),1,'one collapsed diagnostic on current VPN');
+    assert.equal(await page.locator('#freenetClientTransferCheck').isVisible(),false,
+      'test must not run or consume client bandwidth on initial load');
+    let clientTransferProbeCalls=0;
+    let injectPartial=false;
+    const mutationCountBeforeTransfer=mutationPosts().length;
+    await page.route('https://speed.cloudflare.com/__down?bytes=1048576',route=>{
+      clientTransferProbeCalls++;
+      const partial=injectPartial && clientTransferProbeCalls===3;
+      return route.fulfill({status:200,contentType:'application/octet-stream',
+        headers:{'Access-Control-Allow-Origin':'*','Cache-Control':'no-store'},
+        body:Buffer.alloc(partial?524288:1048576,65)});
+    });
+    await page.locator('#freenetClientTransferDiagnostic summary').click();
+    const transferButton=page.locator('#freenetClientTransferCheck');
+    await transferButton.click();
+    await page.waitForFunction(()=>document.querySelector('#freenetClientTransferResult')?.textContent.includes('Полностью: 6/6'),
+      null,{timeout:12000});
+    assert.equal(clientTransferProbeCalls,6,'bounded six probes only on explicit click');
+    assert.match(await page.locator('#freenetClientTransferResult').textContent(),/неполные: 0 · timeout\/прерывание: 0/);
+    assert.doesNotMatch(await page.locator('#freenetClientTransferResult').textContent(),/Telegram работает|Instagram работает|видео работает/i);
+    clientTransferProbeCalls=0;
+    injectPartial=true;
+    await transferButton.click();
+    await page.waitForFunction(()=>document.querySelector('#freenetClientTransferResult')?.textContent.includes('Полностью: 5/6'),
+      null,{timeout:12000});
+    assert.equal(clientTransferProbeCalls,6,'partial response must not cause unbounded retry');
+    assert.match(await page.locator('#freenetClientTransferResult').textContent(),/неполные: 1/,
+      'HTTP 200 with half body must be reported as incomplete, not success');
+    assert.equal(mutationPosts().length,mutationCountBeforeTransfer,'client diagnostic must never call a router mutation');
+    await page.locator('#freenetClientTransferDiagnostic summary').click();
     assert.equal(await page.locator('#fnVpnPickerV2Toggle').isVisible(),true,'topbar must expose one stable VPN selector control');
     await page.waitForFunction(()=>document.querySelector('#overviewApprovedTop')?.dataset.vpnOrder==='xray-vpn-dns-freenet');
     const topbarOrder = await page.evaluate(() => {
