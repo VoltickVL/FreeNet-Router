@@ -113,6 +113,7 @@ type xrayCoreScenario struct {
 	invalidCurrent       bool
 	invalidCandidate     bool
 	holdReadOnlyProbes    bool
+	probeAdmissionTimeout bool
 	xkeenUnavailable     bool
 	targetFailsInstalled bool
 	xkeenExit            int
@@ -157,6 +158,15 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantCurrent:       previous,
 			wantErrorContains: "reason=xray-candidate-config-test-failed",
 			wantRestartCalls:  0,
+		},
+		{
+			name:                  "busy probe admission timeout leaves installed Xray unchanged",
+			probeAdmissionTimeout: true,
+			wantSuccess:           false,
+			wantRollback:          "NOT_NEEDED",
+			wantCurrent:           previous,
+			wantErrorContains:     "reason=xray-probe-admission-timeout",
+			wantRestartCalls:      0,
 		},
 		{
 			name:              "unavailable XKeen is no-mutation preflight",
@@ -342,6 +352,20 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 				if !started {
 					t.Fatal("fixture did not reach forward restart before cancellation")
 				}
+			} else if scenario.probeAdmissionTimeout {
+				// Every shared slot remains occupied beyond the deliberately short
+				// exclusive admission clock. No binary swap or XKeen restart is legal.
+				oldTimeout := xrayCoreAdmissionTimeout
+				xrayCoreAdmissionTimeout = 80 * time.Millisecond
+				t.Cleanup(func(){ xrayCoreAdmissionTimeout = oldTimeout })
+				var releases []func()
+				for i := 0; i < isolatedXrayProbeLimit; i++ {
+					release, ok := acquireIsolatedXrayProbe(context.Background())
+					if !ok { t.Fatal("cannot occupy shared probe gate") }
+					releases = append(releases, release)
+				}
+				result = a.applyXrayCore(context.Background(), target)
+				for _, release := range releases { release() }
 			} else if scenario.holdReadOnlyProbes {
 				// Real Portable beta33 had concurrent background fn-xray-probe
 				// workers. The core-upgrade worker must not fail or mutate while
