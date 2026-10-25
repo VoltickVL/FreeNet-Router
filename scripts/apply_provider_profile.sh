@@ -917,23 +917,42 @@ single_xray_pid() {
     printf '%s\n' "$1"
 }
 
+# Return a finite, secret-free preflight reason. Do not relax any admission
+# conditions: an unknown inventory still forbids mutation of the live core.
 core_restart_preflight() {
+    CORE_PREFLIGHT_REASON="inventory-unknown"
     PIDS="$(pidof xray 2>/dev/null || true)"
     set -- $PIDS
-    [ "$#" -le 1 ] || return 1
+    [ "$#" -le 1 ] || { CORE_PREFLIGHT_REASON="multiple-xray-processes"; return 1; }
     if [ "$#" -eq 0 ]; then
-        [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] || return 1
+        [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] ||
+            { CORE_PREFLIGHT_REASON="production-xray-not-found"; return 1; }
     else
-        case "$1" in ''|0|*[!0-9]*) return 1 ;; esac
+        case "$1" in
+            ''|0|*[!0-9]*) CORE_PREFLIGHT_REASON="invalid-xray-process-id"; return 1 ;;
+        esac
     fi
     if [ -n "$CORE_RESTART_HELPER" ]; then
-        [ -x "$CORE_RESTART_HELPER" ] || return 1
+        [ -x "$CORE_RESTART_HELPER" ] ||
+            { CORE_PREFLIGHT_REASON="core-restart-helper-unavailable"; return 1; }
+        CORE_PREFLIGHT_REASON="ready"
         return 0
     fi
-    command -v kill >/dev/null 2>&1 || return 1
-    [ -x "$XKEEN_BIN" ] || return 1
-    if single_xray_pid >/dev/null 2>&1; then return 0; fi
-    [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] && [ -z "$(pidof xray 2>/dev/null || true)" ]
+    command -v kill >/dev/null 2>&1 ||
+        { CORE_PREFLIGHT_REASON="core-signal-unavailable"; return 1; }
+    [ -x "$XKEEN_BIN" ] ||
+        { CORE_PREFLIGHT_REASON="xkeen-start-unavailable"; return 1; }
+    if single_xray_pid >/dev/null 2>&1; then
+        CORE_PREFLIGHT_REASON="ready"
+        return 0
+    fi
+    if [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] &&
+        [ -z "$(pidof xray 2>/dev/null || true)" ]; then
+        CORE_PREFLIGHT_REASON="ready"
+        return 0
+    fi
+    CORE_PREFLIGHT_REASON="xray-process-inventory-changed"
+    return 1
 }
 
 # Only stage names and numeric exit codes are reported; XKeen output may
@@ -1499,7 +1518,7 @@ say '========== END =========='
 snapshot_state || fail_apply 'cannot snapshot current provider state'
 if [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; then
     [ "$WAS_RUNNING" -eq 1 ] || [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ] || fail_apply 'safe core-only Xray restart requires exactly one running Xray process'
-    core_restart_preflight || fail_apply 'safe core-only Xray restart is unavailable or runtime state is ambiguous'
+    core_restart_preflight || fail_apply "safe core-only Xray restart preflight failed; reason=$CORE_PREFLIGHT_REASON"
 fi
 if [ "$MODE" = recover-core ]; then
     if [ -e "$CHECKPOINT_DIR/recovery.pending" ]; then
