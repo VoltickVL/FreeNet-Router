@@ -646,6 +646,12 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "current Xray configuration is invalid; version change cancelled"
 		return result
 	}
+	// Never replace a working core when its managed XKeen restart path is
+	// missing or not executable: neither acceptance nor rollback could start.
+	if _, err := exec.LookPath(a.cfg.XKeenPath); err != nil {
+		result.Error = "XKeen restart is unavailable; Xray update stopped before mutation"
+		return result
+	}
 	before := a.status()
 	catalog, err := a.fetchXrayCoreCatalog(ctx)
 	if err != nil {
