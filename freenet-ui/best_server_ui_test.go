@@ -207,9 +207,9 @@ func TestOverviewKeepsSystemSummaryAndSingleVPNCard(t *testing.T) {
 		"installOverviewStatusHook",
 		"queueMicrotask",
 		"typeof lastStatus !== 'undefined'",
-		"VPN + DNS OK",
-		"VPN OK · DNS: Прямой",
-		"VPN не работает",
+		"Xray запущен · DNS: Раздельный",
+		"Xray запущен · DNS: Прямой",
+		"Xray остановлен",
 		"DNS требует внимания",
 	} {
 		if !strings.Contains(js, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
