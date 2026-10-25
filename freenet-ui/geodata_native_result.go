@@ -63,6 +63,10 @@ func (e *geoDataNativeFailure) Error() string {
 		return "GeoData / GeoIP: вывод XKeen неполный, результат обновления неизвестен."
 	case "native_failed":
 		return "GeoData / GeoIP: штатный XKeen завершился с ошибкой."
+	case "timeout":
+		return "GeoData / GeoIP: время обновления XKeen истекло; успех не подтверждён."
+	case "canceled":
+		return "GeoData / GeoIP: операция XKeen прервана; успех не подтверждён."
 	default:
 		return "GeoData / GeoIP: результат обновления неизвестен."
 	}
@@ -111,6 +115,12 @@ func runVerifiedGeoDataXKeen(ctx context.Context, path string) error {
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return &geoDataNativeFailure{kind: "timeout"}
+	}
+	if ctx.Err() == context.Canceled {
+		return &geoDataNativeFailure{kind: "canceled"}
+	}
 	out, truncated := output.snapshot()
 	return classifyGeoDataNativeResult(out, truncated, err)
 }

@@ -51,7 +51,9 @@ func TestSettingsV3ActionSubscriptionBranchReturnsBeforeMutatingActions(t *testi
 	if start < 0 {
 		t.Fatal("subscription_check branch is missing")
 	}
-	end := strings.Index(text[start:], "\n\tcase \"geodata_update\":")
+	// Manual GeoData is now dispatched before this switch via an async
+	// handler; the next maintenance case is freenet_check.
+	end := strings.Index(text[start:], "\n\tcase \"freenet_check\":")
 	if end < 0 {
 		t.Fatal("cannot isolate subscription_check branch")
 	}

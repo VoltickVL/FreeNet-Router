@@ -162,6 +162,7 @@ type settingsV3ActionResponse struct {
 func registerSettingsV3API(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/settings-v3", a.requireAuth(a.handleSettingsV3Get))
 	mux.HandleFunc("GET /api/settings-v3/scheduler-doctor", a.requireAuth(a.handleGeoDataSchedulerDoctor))
+	mux.HandleFunc("GET /api/settings-v3/geodata-operation", a.requireAuth(a.handleGeoDataManualStatus))
 	mux.HandleFunc("GET /api/journal", a.requireAuth(a.handleJournalGet))
 	mux.HandleFunc("GET /api/journal/export", a.requireAuth(a.handleJournalExport))
 	mux.HandleFunc("GET /api/journal/diagnostics", a.requireAuth(a.handleJournalDiagnostics))
@@ -1801,6 +1802,10 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 	if a.mutationBlockedBySelfUpdate(w) && req.Action != "freenet_check" {
 		return
 	}
+	if strings.TrimSpace(req.Action) == "geodata_update" {
+		a.handleGeoDataManualStart(w, r)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Minute)
 	defer cancel()
 	var err error
@@ -1821,8 +1826,6 @@ func (a *app) handleSettingsV3Action(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, response)
 		return
-	case "geodata_update":
-		err = a.runV3GeoData(ctx); message = "GeoData / GeoIP обновлены."
 	case "freenet_check":
 		err = a.runV3FreeNetCheck(ctx); message = "Проверка версии FreeNet завершена."
 	case "backup_create":
