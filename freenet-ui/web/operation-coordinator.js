@@ -374,24 +374,9 @@
     root.appendChild(metricPill('Отклик сайтов', metric(candidate, 'http'), 'http', false, httpDelta(candidate, baseline), 'Медианный HTTPS-отклик реальных сайтов через VPN. Чем меньше, тем отзывчивее веб и приложения.'));
     root.appendChild(metricPill('VPN-пинг', metric(candidate, 'vpn'), 'tcp', false, null, 'Базовая задержка рабочего VPN-тракта: фиксированный HTTPS RTT через VPN без DNS. Это не ICMP-пинг непосредственно до VPN-сервера.'));
     root.appendChild(metricPill('Стабильность', metric(candidate, 'jitter'), 'jitter', false, null, 'Разброс серии измерений отклика (джиттер/spread). Чем меньше, тем ровнее соединение.'));
-    // Optional ChatGPT public HTTPS edge signal is display-only. Browser/login
-    // usability cannot be inferred from a HEAD result and is not an AUTO gate.
-    if (candidate) {
-      const status = String(candidate.chatgpt_https_status || '');
-      const labels = {
-        https_response: ['HTTPS отвечает', 'ok'],
-        http_restricted: ['HTTP-ограничение · проверить в браузере', 'warn'],
-        http_error: ['HTTP-ошибка сервиса · не отказ VPN', 'warn'],
-        unknown: ['результат не подтверждён', 'warn']
-      };
-      const state = labels[status] || ['ещё не проверялся', ''];
-      const note = document.createElement('div');
-      note.className = 'best-v4-chatgpt' + (state[1] ? ' ' + state[1] : '');
-      const name = document.createElement('strong'); name.textContent = 'ChatGPT HTTPS · ';
-      const value = document.createElement('span'); value.textContent = state[0];
-      note.append(name, value);
-      root.appendChild(note);
-    }
+    // ChatGPT, Instagram and Telegram have only HTTP-edge diagnostics, not
+    // verified application/playback results. Keep those signals internal; the
+    // user-facing comparison shows only actual throughput and RTT metrics.
   }
 
   function currentCandidate(data) {
@@ -606,6 +591,16 @@
     return value.length > 42 ? value.slice(0, 39) + '…' : value;
   }
 
+  function publicRejections(candidate, fallback) {
+    // The mandatory four-site HEAD gate remains part of QoE eligibility,
+    // but its aggregate count does not establish that any named app or
+    // streaming session actually works. Do not expose that count as proof.
+    const reasons = Array.isArray(candidate?.rejections)
+      ? candidate.rejections.filter(reason => !/^Проверки сайтов:\s*\d+\/\d+$/i.test(String(reason).trim()))
+      : [];
+    return reasons.length ? reasons.slice(0, 2) : [fallback];
+  }
+
   function clearAlternatives(message) {
     alternatives = [];
     recommendation = null;
@@ -726,6 +721,11 @@
       const state = stateForCandidate(data, candidate); states.push(state);
       const row = document.createElement('article');
       row.className = `vpn-option vpn-${state.kind}`;
+      // Preserve the private network-gate classification needed by the
+      // diagnostic polish, without inserting an app/service verdict in DOM text.
+      row.dataset.qoeReachabilityComplete = String(
+        Number(candidate.service_total) >= 3 && Number(candidate.service_ok) === Number(candidate.service_total)
+      );
       const head = document.createElement('div'); head.className = 'vpn-option-head';
       const title = document.createElement('div'); title.className = 'vpn-option-title';
       title.appendChild(makeRenderedFlag(profileCode(candidate)));
@@ -749,20 +749,17 @@
       const legacyDeltas = document.createElement('span'); legacyDeltas.className = 'fn-sr-only comparison-deltas'; legacyDeltas.textContent = recommendationReason(data, candidate).join(' · '); reason.appendChild(legacyDeltas);
       if (candidate.eligible) {
         appendDetailChip(reason, `Скорость ${candidate.media_samples || 0}/4`, 'ok');
-        appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, 'ok');
-        appendDetailChip(reason, 'Доступен', 'ok');
+        appendDetailChip(reason, 'VPN доступен', 'ok');
       } else if (state.kind === 'warning') {
         appendDetailChip(reason, `Скорость ${candidate.media_samples || 0}/4`, 'ok');
-        appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, candidate.service_ok === candidate.service_total && candidate.service_total > 0 ? 'ok' : 'bad');
-        const diagnostics = Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.slice(0, 2) : ['Отклик выше целевого порога AUTO VPN'];
+        const diagnostics = publicRejections(candidate, 'Отклик выше целевого порога AUTO VPN');
         diagnostics.forEach(text => appendDetailChip(reason, friendlyRejection(text), 'warn'));
-        const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = (candidate.rejections || []).join(' · '); reason.appendChild(originals);
+        const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = diagnostics.join(' · '); reason.appendChild(originals);
       } else {
         appendDetailChip(reason, `Скорость ${candidate.media_samples || 0}/4`, 'bad');
-        appendDetailChip(reason, `Сервисы ${candidate.service_ok || 0}/${candidate.service_total || 0}`, candidate.service_ok === candidate.service_total && candidate.service_total > 0 ? 'ok' : 'bad');
-        const diagnostics = Array.isArray(candidate.rejections) && candidate.rejections.length ? candidate.rejections.slice(0, 2) : ['Недостаточно подтверждённых данных'];
+        const diagnostics = publicRejections(candidate, 'Недостаточно подтверждённых данных');
         diagnostics.forEach(text => appendDetailChip(reason, friendlyRejection(text), 'bad'));
-        const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = (candidate.rejections || []).join(' · '); reason.appendChild(originals);
+        const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = diagnostics.join(' · '); reason.appendChild(originals);
       }
       row.append(head, metrics, reason);
       if (!candidate.eligible) {
@@ -1255,8 +1252,7 @@
   function incompleteCard(row) {
     if (!row?.classList.contains('vpn-rejected')) return false;
     const text = row.textContent || '';
-    const services = text.match(/Сервисы\s+(\d+)\/(\d+)/i);
-    const servicesOK = !!(services && Number(services[2]) > 0 && Number(services[1]) === Number(services[2]));
+    const servicesOK = row.dataset.qoeReachabilityComplete === 'true';
     const speedIncomplete = /Скорость не измерена|(?:Speedtest|Скорость) не заверш|(?:Speedtest|Скорость)\s+[0-2]\/4/i.test(text);
     return servicesOK && speedIncomplete;
   }

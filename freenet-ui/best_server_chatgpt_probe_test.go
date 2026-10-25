@@ -108,29 +108,43 @@ func TestChatGPTHTTPSDiagnosticCannotChangeQoEEligibilityOrServiceMask(t *testin
 	}
 }
 
-func TestChatGPTHTTPSUIAndMetricTooltipContract(t *testing.T) {
+func TestBestServerDoesNotShowUnverifiedServiceClaimsInOverview(t *testing.T) {
 	source, err := os.ReadFile("web/operation-coordinator.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(source)
+	// A ChatGPT HTTP HEAD, plus the four site HEADs (including Instagram
+	// and Telegram), does not prove browser login or video playback. Keep the
+	// diagnostics and QoE gates in Go but do not render service verdicts.
+	for _, forbidden := range []string{
+		"best-v4-chatgpt", "ChatGPT HTTPS", "chatgpt_https_status",
+		"Сервисы ${candidate", "Сервисы\\s+", "const services = text.match",
+	} {
+		if strings.Contains(js, forbidden) {
+			t.Fatalf("unverified named-service or aggregate claim leaked into Overview: %q", forbidden)
+		}
+	}
 	for _, required := range []string{
-		"chatgpt_https_status", "best-v4-chatgpt", "ChatGPT HTTPS",
-		"https_response:", "http_restricted:", "http_error:", "unknown:",
+		"metricPill('Скорость VPN'", "metricPill('Отклик сайтов'",
+		"metricPill('VPN-пинг'", "metricPill('Стабильность'",
+		"publicRejections(candidate,", "candidate.rejections.filter(reason => !/^Проверки сайтов:",
+		"row.dataset.qoeReachabilityComplete", "row.dataset.qoeReachabilityComplete === 'true'",
+		"originals.textContent = diagnostics.join(' · ');",
 		"if (hint) name.title = hint;",
 	} {
 		if !strings.Contains(js, required) {
-			t.Fatalf("ChatGPT UI or non-overlapping metric tooltip contract missing: %q", required)
+			t.Fatalf("four measured metrics or private service gate contract missing: %q", required)
 		}
 	}
 	if strings.Contains(js, "node.title = hint") {
-		t.Fatal("metric's entire tile again has a native tooltip which covers its neighbor")
+		t.Fatal("metric's entire tile must not obscure its neighbor with native tooltip")
 	}
 	style, err := os.ReadFile("web/design-system.css")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(style), ".best-v4-chatgpt{grid-column:1 / -1;") {
-		t.Fatal("informational ChatGPT line must span both metric columns")
+	if strings.Contains(string(style), ".best-v4-chatgpt") {
+		t.Fatal("retired public service status layout must not be delivered")
 	}
 }
