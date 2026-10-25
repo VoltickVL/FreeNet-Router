@@ -107,6 +107,7 @@ func startNamedXrayProcess(t *testing.T, root string) {
 type xrayCoreScenario struct {
 	name                 string
 	badDigest            bool
+	xkeenUnavailable     bool
 	targetFailsInstalled bool
 	xkeenExit            int
 	wantSuccess          bool
@@ -115,6 +116,7 @@ type xrayCoreScenario struct {
 	wantErrorContains    string
 	wantRestartCalls     int
 	wantStopEvent        bool
+	cancelDuringRestart  bool
 }
 
 func TestXrayCoreTransactionalApply(t *testing.T) {
@@ -133,6 +135,15 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRestartCalls:  0,
 		},
 		{
+			name:              "unavailable XKeen is no-mutation preflight",
+			xkeenUnavailable:  true,
+			wantSuccess:       false,
+			wantRollback:      "NOT_NEEDED",
+			wantCurrent:       previous,
+			wantErrorContains: "XKeen restart is unavailable",
+			wantRestartCalls:  0,
+		},
+		{
 			name:             "success installs target once",
 			xkeenExit:        0,
 			wantSuccess:      true,
@@ -148,7 +159,17 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRollback:         "SUCCESS",
 			wantCurrent:          previous,
 			wantErrorContains:    "предыдущая версия восстановлена",
-			wantRestartCalls:     1,
+			wantRestartCalls:     2,
+		},
+		{
+			name:                 "canceled client during forward restart still rolls back",
+			cancelDuringRestart:  true,
+			xkeenExit:            0,
+			wantSuccess:          false,
+			wantRollback:         "SUCCESS",
+			wantCurrent:          previous,
+			wantErrorContains:    "предыдущая версия восстановлена",
+			wantRestartCalls:     2,
 		},
 		{
 			name:                 "rollback failure enters STOP",
@@ -158,7 +179,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRollback:         "FAILED",
 			wantCurrent:          previous,
 			wantErrorContains:    "rollback failed",
-			wantRestartCalls:     1,
+			wantRestartCalls:     2,
 			wantStopEvent:        true,
 		},
 	}
@@ -193,8 +214,16 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			restartLog := filepath.Join(root, "xkeen-restarts.log")
 			xkeenPath := filepath.Join(root, "xkeen")
 			xkeen := fmt.Sprintf("#!/bin/sh\nprintf 'restart\\n' >> %q\nexit %d\n", restartLog, scenario.xkeenExit)
+			if scenario.cancelDuringRestart {
+				// Forward restart fails after the HTTP client disconnects;
+				// rollback must use its independent context and restart once more.
+				xkeen = fmt.Sprintf("#!/bin/sh\nprintf 'restart\\n' >> %q\nsleep 1\nif [ \"$(wc -l < %q)\" -eq 1 ]; then exit 19; fi\nexit 0\n", restartLog, restartLog)
+			}
 			if err := os.WriteFile(xkeenPath, []byte(xkeen), 0755); err != nil {
 				t.Fatal(err)
+			}
+			if scenario.xkeenUnavailable {
+				if err := os.Chmod(xkeenPath, 0644); err != nil { t.Fatal(err) }
 			}
 
 			configPath := filepath.Join(root, "freenet.conf")
@@ -253,7 +282,28 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 				UpdateLock: filepath.Join(root, "self-update.lock"),
 			}, sem: make(chan struct{}, 1)}
 
-			result := a.applyXrayCore(context.Background(), target)
+			var result xrayCoreApplyResponse
+			if scenario.cancelDuringRestart {
+				requestCtx, cancelRequest := context.WithCancel(context.Background())
+				resultCh := make(chan xrayCoreApplyResponse, 1)
+				go func() { resultCh <- a.applyXrayCore(requestCtx, target) }()
+				deadline := time.Now().Add(10 * time.Second)
+				started := false
+				for time.Now().Before(deadline) {
+					if logBytes, err := os.ReadFile(restartLog); err == nil && len(logBytes) > 0 {
+						started = true
+						break
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+				cancelRequest()
+				result = <-resultCh
+				if !started {
+					t.Fatal("fixture did not reach forward restart before cancellation")
+				}
+			} else {
+				result = a.applyXrayCore(context.Background(), target)
+			}
 			if result.Success != scenario.wantSuccess {
 				t.Fatalf("success: got %v want %v; result=%+v", result.Success, scenario.wantSuccess, result)
 			}
@@ -275,6 +325,22 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			}
 			if installed != scenario.wantCurrent {
 				t.Fatalf("binary version: got %q want %q", installed, scenario.wantCurrent)
+			}
+			// Failed rollback must retain the original snapshot for further
+			// controlled recovery. Confirmed rollback must clean it up.
+			entries, err := os.ReadDir(coreDir)
+			if err != nil { t.Fatal(err) }
+			backups := 0
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".freenet-xray-backup-") {
+					backups++
+				}
+			}
+			if scenario.wantRollback == "FAILED" && backups != 1 {
+				t.Fatalf("failed rollback must retain one old-core snapshot, got %d", backups)
+			}
+			if scenario.wantRollback != "FAILED" && backups != 0 {
+				t.Fatalf("terminal core operation left %d unneeded backups", backups)
 			}
 
 			restarts := 0

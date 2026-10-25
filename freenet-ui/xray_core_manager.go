@@ -24,7 +24,9 @@ const (
 	xrayCoreMaxCatalogBytes  = 8 << 20
 	xrayCoreMaxArchiveBytes  = 128 << 20
 	xrayCoreMaxBinaryBytes   = 160 << 20
-	xrayCoreOperationTimeout = 95 * time.Second
+	xrayCoreOperationTimeout = 95 * time.Second // read-only catalog, download and validation
+	xrayCoreApplyTimeout = 55 * time.Second // forward restart and post-check after swap
+	xrayCoreRollbackTimeout = 70 * time.Second // independent reserve after forward failure
 )
 
 var xrayCoreHTTPClient = &http.Client{Timeout: 55 * time.Second}
@@ -557,16 +559,61 @@ func xrayCoreAction(previous, target string) string {
 	return "change"
 }
 
-func (a *app) rollbackXrayCore(parent context.Context, binary, backup, previous string) error {
-	if err := os.Rename(backup, binary); err != nil {
+// Xray-core update already validated the currently installed configuration
+// before acquiring the exclusive probe fence, and validates the candidate
+// binary independently. Re-entering controlXrayService here would deadlock:
+// its duplicate config checks acquire the shared isolated-probe lease held
+// exclusively by this very transaction. Preserve the canonical XKeen restart,
+// then validate the selected binary and live configuration without a shared
+// gate. This method is callable only while the caller owns that fence.
+func (a *app) restartXrayCoreUpdateOwned(ctx context.Context, binary, version string) error {
+	if ctx.Err() != nil {
+		return errors.New("Xray core restart deadline expired")
+	}
+	if _, err := runCommand(ctx, a.cfg.XKeenPath, "-restart"); err != nil {
+		return errors.New("controlled XKeen restart failed")
+	}
+	if !waitForXrayOnline(ctx) {
+		return errors.New("Xray is not running after controlled restart")
+	}
+	if err := a.validateXrayCoreCandidate(ctx, binary, version); err != nil {
+		return errors.New("live Xray configuration validation failed after controlled restart")
+	}
+	return nil
+}
+
+// Rollback must never inherit a canceled request, exhausted download deadline
+// or forward-restart deadline. Always reserve its own bounded work window.
+func (a *app) rollbackXrayCore(binary, backup, previous string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), xrayCoreRollbackTimeout)
+	defer cancel()
+	// Preserve the original snapshot until rollback is confirmed. Renaming
+	// the backup over the live binary would consume the only recovery copy
+	// even when restart/post-check subsequently failed.
+	backupInfo, err := os.Stat(backup)
+	if err != nil || !backupInfo.Mode().IsRegular() {
+		return errors.New("previous Xray backup is unavailable")
+	}
+	restoreFile, err := os.CreateTemp(filepath.Dir(binary), ".freenet-xray-restore-*")
+	if err != nil {
+		return errors.New("cannot stage previous Xray binary")
+	}
+	restorePath := restoreFile.Name()
+	_ = restoreFile.Close()
+	_ = os.Remove(restorePath)
+	defer os.Remove(restorePath)
+	if err := copyXrayCoreBinary(backup, restorePath, backupInfo.Mode()); err != nil {
+		return errors.New("previous Xray binary could not be staged")
+	}
+	if err := os.Rename(restorePath, binary); err != nil {
 		return errors.New("previous Xray binary could not be restored")
 	}
-	if err := a.restartXrayControlled(parent); err != nil {
+	if err := a.restartXrayCoreUpdateOwned(ctx, binary, previous); err != nil {
 		return errors.New("previous Xray binary was restored, but restart/post-check failed")
 	}
-	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
-	defer cancel()
-	version, err := xrayCoreVersionAt(ctx, binary)
+	verifyCtx, verifyCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer verifyCancel()
+	version, err := xrayCoreVersionAt(verifyCtx, binary)
 	if err != nil || version != previous {
 		return errors.New("rollback Xray version could not be confirmed")
 	}
@@ -597,6 +644,12 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 	}
 	if err := a.validateConfigStudioLive(ctx); err != nil {
 		result.Error = "current Xray configuration is invalid; version change cancelled"
+		return result
+	}
+	// Never replace a working core when its managed XKeen restart path is
+	// missing or not executable: neither acceptance nor rollback could start.
+	if _, err := exec.LookPath(a.cfg.XKeenPath); err != nil {
+		result.Error = "XKeen restart is unavailable; Xray update stopped before mutation"
 		return result
 	}
 	before := a.status()
@@ -631,6 +684,28 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = err.Error()
 		return result
 	}
+	// XKeen's legacy restart checks pidof xray. Wait until FreeNet's own
+	// isolated workers have drained, then keep the fence through rollback.
+	quiesceCtx, cancelQuiesce := context.WithTimeout(ctx, 12*time.Second)
+	releaseProbes, quiesced := acquireExclusiveIsolatedXrayProbe(quiesceCtx)
+	cancelQuiesce()
+	if !quiesced {
+		result.Error = "isolated Xray diagnostics have not finished; no Xray version was changed"
+		return result
+	}
+	defer releaseProbes()
+	if automationMutationBlockedState() {
+		result.Error = "VPN recovery is pending or unknown; Xray update stopped before mutation"
+		return result
+	}
+	if a.manualRecoveryCoreState() != "running" {
+		result.Error = "production Xray process inventory is ambiguous; Xray update stopped before mutation"
+		return result
+	}
+	if ctx.Err() != nil {
+		result.Error = "Xray update preflight deadline expired before mutation"
+		return result
+	}
 	backupFile, err := os.CreateTemp(filepath.Dir(binary), ".freenet-xray-backup-*")
 	if err != nil {
 		result.Error = "cannot create Xray rollback snapshot"
@@ -653,16 +728,24 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "cannot prepare Xray candidate permissions"
 		return result
 	}
+	// A preflight timeout must not trigger an unbounded or partial swap.
+	if ctx.Err() != nil {
+		result.Error = "Xray update preflight deadline expired before mutation"
+		return result
+	}
 	if err := os.Rename(candidatePath, binary); err != nil {
 		result.Error = "atomic Xray binary replacement failed"
 		return result
 	}
 	candidateOwned = false
 
-	applyErr := a.restartXrayControlled(ctx)
+	// The controlled restart has a fresh bounded budget. The backup and
+	// exclusive probe fence stay owned until terminal acceptance or rollback.
+	applyCtx, cancelApply := context.WithTimeout(context.Background(), xrayCoreApplyTimeout)
+	applyErr := a.restartXrayCoreUpdateOwned(applyCtx, binary, target)
 	if applyErr == nil {
 		var confirmed string
-		confirmed, applyErr = xrayCoreVersionAt(ctx, binary)
+		confirmed, applyErr = xrayCoreVersionAt(applyCtx, binary)
 		if applyErr == nil && confirmed != target {
 			applyErr = errors.New("installed Xray version does not match selected target")
 		}
@@ -675,8 +758,9 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 			}
 		}
 	}
+	cancelApply()
 	if applyErr != nil {
-		if rbErr := a.rollbackXrayCore(ctx, binary, backupPath, previous); rbErr != nil {
+		if rbErr := a.rollbackXrayCore(binary, backupPath, previous); rbErr != nil {
 			backupOwned = false
 			result.Rollback = "FAILED"
 			result.Error = sanitizeAutomationReason(applyErr.Error() + "; rollback failed: " + rbErr.Error())
@@ -684,7 +768,7 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 			result.Events = xrayServiceEvents(8)
 			return result
 		}
-		backupOwned = false
+		// A verified rollback no longer needs the retained copy: defer cleanup.
 		result.Rollback = "SUCCESS"
 		result.CurrentVersion = previous
 		result.Error = sanitizeAutomationReason(applyErr.Error() + "; предыдущая версия восстановлена")
@@ -714,14 +798,27 @@ func (a *app) handleXrayCoreApply(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if xrayCoreOperationSnapshot().State == "STOP" {
+		writeJSON(w, http.StatusConflict, xrayCoreApplyResponse{Success: false, TargetVersion: target, Rollback: "FAILED", Error: "previous Xray rollback is unconfirmed; STOP before another version change"})
+		return
+	}
 	select {
 	case a.sem <- struct{}{}:
-		defer func() { <-a.sem }()
+		// The worker, not the HTTP handler, owns this semaphore until terminal
+		// apply/rollback. A browser disconnect must never start another writer.
 	default:
 		writeJSON(w, http.StatusConflict, xrayCoreApplyResponse{Success: false, TargetVersion: target, Rollback: "NOT_NEEDED", Events: xrayServiceEvents(8), Error: "другая операция FreeNet уже выполняется"})
 		return
 	}
-	result := a.applyXrayCore(r.Context(), target)
+	done := a.runXrayCoreUpdateDetached(target, func() { <-a.sem })
+	var result xrayCoreApplyResponse
+	select {
+	case result = <-done:
+	case <-r.Context().Done():
+		// The worker continues to a bounded terminal receipt, which can be
+		// read after reconnect from GET /api/xray/core/operation.
+		return
+	}
 	if result.Success {
 		writeJSON(w, http.StatusOK, result)
 		return
