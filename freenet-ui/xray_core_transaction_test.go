@@ -27,7 +27,10 @@ func (f xrayCoreRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error
 func xrayCoreFixtureScript(version string, failAfterInstall bool) []byte {
 	validation := ""
 	if failAfterInstall {
-		validation = `case "$0" in
+		// The runner now uses an isolated fn-xray-probe alias. Distinguish
+		// the pre-install staged binary from the installed binary through its
+		// symlink target rather than assuming the process is named xray.
+		validation = `case "$(readlink "$0" 2>/dev/null || printf '%s' "$0")" in
   *".freenet-xray-candidate-"*) ;;
   *) exit 23 ;;
 esac`
@@ -107,6 +110,7 @@ func startNamedXrayProcess(t *testing.T, root string) {
 type xrayCoreScenario struct {
 	name                 string
 	badDigest            bool
+	invalidCurrent       bool
 	xkeenUnavailable     bool
 	targetFailsInstalled bool
 	xkeenExit            int
@@ -132,6 +136,15 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRollback:      "NOT_NEEDED",
 			wantCurrent:       previous,
 			wantErrorContains: "SHA-256 verification failed",
+			wantRestartCalls:  0,
+		},
+		{
+			name:              "invalid live configuration blocks before binary mutation",
+			invalidCurrent:    true,
+			wantSuccess:       false,
+			wantRollback:      "NOT_NEEDED",
+			wantCurrent:       previous,
+			wantErrorContains: "reason=xray-live-config-test-failed",
 			wantRestartCalls:  0,
 		},
 		{
@@ -207,7 +220,11 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 				t.Fatal(err)
 			}
 			binary := filepath.Join(coreDir, "xray")
-			if err := os.WriteFile(binary, xrayCoreFixtureScript(previous, false), 0755); err != nil {
+			oldCore := xrayCoreFixtureScript(previous, false)
+			if scenario.invalidCurrent {
+				oldCore = []byte("#!/bin/sh\nif [ \"$1\" = \"version\" ]; then echo 'Xray 26.9.9'; exit 0; fi\nexit 27\n")
+			}
+			if err := os.WriteFile(binary, oldCore, 0755); err != nil {
 				t.Fatal(err)
 			}
 
@@ -233,6 +250,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			historyPath := filepath.Join(root, "history.log")
 			t.Setenv("FREENET_XRAY_BIN", binary)
 			t.Setenv("FREENET_ROUTING_CONFIG_DIR", configDir)
+			t.Setenv("FREENET_XRAY_PROBE_LOCK_FILE", filepath.Join(root, "probe.lock"))
 			t.Setenv("FREENET_SETTINGS_V3_HISTORY", historyPath)
 
 			assetName, ok := xrayCoreAssetName(runtime.GOARCH)

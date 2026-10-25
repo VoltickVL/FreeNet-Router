@@ -500,6 +500,47 @@ func extractXrayCoreCandidate(archivePath, dir string) (string, error) {
 	return path, nil
 }
 
+// The live directory is authoritative for an installed XKeen/Xray stack.
+// Copying only regular *.json files discards relative assets, subdirectories
+// and symlinked config fragments, making an otherwise running core appear
+// invalid. The version upgrade is read-only until its separate swap phase.
+func (a *app) xrayCoreLiveConfigDir() (string, error) {
+	dir := a.routingConfigDir()
+	if !filepath.IsAbs(dir) {
+		return "", errors.New("reason=xray-live-config-path-unavailable; Xray binary unchanged")
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return "", errors.New("reason=xray-live-config-unavailable; Xray binary unchanged")
+	}
+	return dir, nil
+}
+
+func (a *app) validateXrayCoreBaseline(parent context.Context, binary string) error {
+	configDir, err := a.xrayCoreLiveConfigDir()
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(parent, 22*time.Second)
+	defer cancel()
+	err = runReadOnlyXrayValidation(ctx, binary, a.routingAssetDir(), configDir)
+	if err == nil {
+		return nil
+	}
+	switch {
+	case ctx.Err() != nil:
+		return errors.New("reason=xray-live-test-timeout; Xray binary unchanged")
+	case errors.Is(err, errIsolatedXrayProbeAdmission):
+		return errors.New("reason=xray-readonly-probe-unavailable; Xray binary unchanged")
+	case errors.Is(err, exec.ErrNotFound), errors.Is(err, os.ErrNotExist):
+		return errors.New("reason=xray-test-executable-unavailable; Xray binary unchanged")
+	default:
+		// No raw stdout/stderr, filenames or potentially sensitive config
+		// fragments can leave this preflight.
+		return errors.New("reason=xray-live-config-test-failed; Xray binary unchanged")
+	}
+}
+
 func (a *app) validateXrayCoreCandidate(parent context.Context, candidate, target string) error {
 	ctx, cancel := context.WithTimeout(parent, 22*time.Second)
 	defer cancel()
@@ -507,20 +548,31 @@ func (a *app) validateXrayCoreCandidate(parent context.Context, candidate, targe
 	if err != nil || version != target {
 		return errors.New("downloaded Xray binary does not match selected version")
 	}
-	tmpDir, err := os.MkdirTemp("", "freenet-xray-core-candidate.*")
+	configDir, err := a.xrayCoreLiveConfigDir()
+	if err != nil {
+		return err
+	}
+	// Alias the test executable as a clearly isolated probe. After a binary
+	// swap this function also checks the live Xray path while the updater
+	// holds the exclusive probe fence; it must not appear as a second
+	// production 'xray' process to pidof/doctor/watchdog.
+	workDir, err := os.MkdirTemp("", "freenet-xray-core-candidate.*")
 	if err != nil {
 		return errors.New("cannot create Xray candidate workspace")
 	}
-	defer os.RemoveAll(tmpDir)
-	if err := copyRoutingCandidateBase(a.routingConfigDir(), tmpDir); err != nil {
-		return errors.New("cannot prepare current Xray configuration for validation")
+	defer os.RemoveAll(workDir)
+	probePath, err := isolatedXrayProbePath(workDir, candidate)
+	if err != nil {
+		return errors.New("cannot isolate Xray candidate validation")
 	}
-	cmd := exec.CommandContext(ctx, candidate, "run", "-test", "-confdir", tmpDir)
-	cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+a.routingAssetDir())
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	cmd := exec.CommandContext(ctx, probePath, "run", "-test", "-confdir", configDir)
+	cmd.Env = isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.routingAssetDir()))
+	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 	if err := cmd.Run(); err != nil || ctx.Err() != nil {
-		return errors.New("selected Xray version is not compatible with the current configuration")
+		if ctx.Err() != nil {
+			return errors.New("reason=xray-candidate-test-timeout; Xray binary unchanged or rollback required")
+		}
+		return errors.New("reason=xray-candidate-config-test-failed; selected Xray version is not compatible with the live configuration")
 	}
 	return nil
 }
@@ -642,8 +694,8 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "selected Xray version is already installed"
 		return result
 	}
-	if err := a.validateConfigStudioLive(ctx); err != nil {
-		result.Error = "current Xray configuration is invalid; version change cancelled"
+	if err := a.validateXrayCoreBaseline(ctx, binary); err != nil {
+		result.Error = err.Error()
 		return result
 	}
 	// Never replace a working core when its managed XKeen restart path is

@@ -5,6 +5,7 @@
   let catalog = null;
   let serviceState = null;
   let selectedVersion = '';
+  let coreValidation = null;
   let applying = false;
   let topbarVersionLoading = false;
   let topbarVersionAttempts = 0;
@@ -275,6 +276,21 @@
     return `Установить ${release.version}`;
   }
 
+  // Only finite server reason codes are translated. Raw validator output,
+  // paths or arbitrary diagnostics are never injected into the UI.
+  function coreValidationText(reason) {
+    const code = String(reason || '').match(/^reason=([a-z0-9-]+)/)?.[1] || '';
+    const labels = {
+      'xray-live-config-unavailable': 'Рабочий каталог Xray недоступен.',
+      'xray-live-config-path-unavailable': 'Не подтверждён путь к рабочей конфигурации Xray.',
+      'xray-live-test-timeout': 'Проверка текущего Xray завершилась по тайм-ауту.',
+      'xray-readonly-probe-unavailable': 'Безопасная проверка Xray сейчас недоступна.',
+      'xray-test-executable-unavailable': 'Исполняемый файл Xray недоступен для проверки.',
+      'xray-live-config-test-failed': 'Фактическая конфигурация не прошла проверку установленным Xray.'
+    };
+    return labels[code] || 'Проверка фактической конфигурации Xray не подтверждена.';
+  }
+
   function renderCatalog() {
     setManagerHeading('Версия Xray Core', 'Выбор версии, затем проверка и установка');
     const target = body();
@@ -291,6 +307,13 @@
     summaryValues[0].textContent = current;
     summaryValues[1].textContent = latest;
     target.appendChild(summary);
+
+    const preflight = document.createElement('div');
+    preflight.className = 'xcm-selection ' + (coreValidation?.valid ? 'ready' : 'bad');
+    preflight.textContent = coreValidation?.valid
+      ? 'Текущая конфигурация Xray проверена. Перед установкой FreeNet повторит контроль.'
+      : coreValidationText(coreValidation?.reason) + ' Обновление не запускается.';
+    target.appendChild(preflight);
 
     const search = document.createElement('input');
     search.type = 'search';
@@ -328,6 +351,11 @@
       if (!selected.asset?.available) {
         selection.className = 'xcm-selection bad';
         selection.textContent = 'Эта версия недоступна для архитектуры роутера.';
+        return;
+      }
+      if (!coreValidation?.valid) {
+        selection.className = 'xcm-selection bad';
+        selection.textContent = 'Выбор версии сохранён, установка заблокирована до успешной проверки Xray.';
         return;
       }
       selection.className = 'xcm-selection ready';
@@ -595,12 +623,23 @@
     setManagerHeading('Версия Xray Core', 'Выбор версии, затем проверка и установка');
     const progress = document.createElement('div');
     progress.className = 'xcm-progress';
-    progress.textContent = 'Получаю список официальных версий Xray…';
+    progress.textContent = 'Получаю официальные версии и проверяю рабочую конфигурацию Xray без изменений…';
     target.appendChild(progress);
+    // The two independent GETs run in parallel. A missing validation receipt
+    // must fail closed, not enable a core mutation from an unverified UI.
+    coreValidation = null;
+    const validationPromise = fetch('/api/xray/core/validation', {cache:'no-store'})
+      .then(async response => {
+        const result = await response.json();
+        return response.ok && result.success && result.mutation === 'NONE'
+          ? result : {success:false, valid:false, reason:'reason=xray-validation-unavailable'};
+      })
+      .catch(() => ({success:false, valid:false, reason:'reason=xray-validation-unavailable'}));
     try {
       const response = await fetch('/api/xray/core/catalog', {cache:'no-store'});
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error || 'Каталог Xray недоступен');
+      coreValidation = await validationPromise;
       catalog = result;
       selectedVersion = result.latest_version && result.latest_version !== result.current_version
         ? result.latest_version
