@@ -286,7 +286,10 @@
       'xray-live-test-timeout': 'Проверка текущего Xray завершилась по тайм-ауту.',
       'xray-readonly-probe-unavailable': 'Безопасная проверка Xray сейчас недоступна.',
       'xray-test-executable-unavailable': 'Исполняемый файл Xray недоступен для проверки.',
-      'xray-live-config-test-failed': 'Фактическая конфигурация не прошла проверку установленным Xray.'
+      'xray-live-config-test-failed': 'Фактическая конфигурация не прошла проверку установленным Xray.',
+      'xray-current-version-unavailable': 'Установленная версия Xray недоступна для проверки.',
+      'xray-core-update-running': 'Другая операция обновления Xray ещё выполняется.',
+      'xray-recovery-stop': 'Восстановление Xray не подтверждено: STOP.'
     };
     return labels[code] || 'Проверка фактической конфигурации Xray не подтверждена.';
   }
@@ -309,9 +312,9 @@
     target.appendChild(summary);
 
     const preflight = document.createElement('div');
-    preflight.className = 'xcm-selection ' + (coreValidation?.valid ? 'ready' : 'bad');
-    preflight.textContent = coreValidation?.valid
-      ? 'Текущая конфигурация Xray проверена. Перед установкой FreeNet повторит контроль.'
+    preflight.className = 'xcm-selection ' + (coreValidation?.ready ? 'ready' : 'bad');
+    preflight.textContent = coreValidation?.ready && coreValidation.validation === 'DEFERRED' && !coreValidation.valid
+      ? 'Xray доступен. После выбора версии FreeNet дождётся завершения фоновых проверок, затем проверит текущую и новую конфигурацию ДО замены ядра. Пока проверка не пройдена, VPN не меняется.'
       : coreValidationText(coreValidation?.reason) + ' Обновление не запускается.';
     target.appendChild(preflight);
 
@@ -353,9 +356,9 @@
         selection.textContent = 'Эта версия недоступна для архитектуры роутера.';
         return;
       }
-      if (!coreValidation?.valid) {
+      if (!coreValidation?.ready || coreValidation.validation !== 'DEFERRED') {
         selection.className = 'xcm-selection bad';
-        selection.textContent = 'Выбор версии сохранён, установка заблокирована до успешной проверки Xray.';
+        selection.textContent = 'Выбор версии сохранён. Безопасные условия обновления Xray не подтверждены.';
         return;
       }
       selection.className = 'xcm-selection ready';
@@ -623,10 +626,11 @@
     setManagerHeading('Версия Xray Core', 'Выбор версии, затем проверка и установка');
     const progress = document.createElement('div');
     progress.className = 'xcm-progress';
-    progress.textContent = 'Получаю официальные версии и проверяю рабочую конфигурацию Xray без изменений…';
+    progress.textContent = 'Получаю официальные версии и проверяю готовность Xray без изменений…';
     target.appendChild(progress);
-    // The two independent GETs run in parallel. A missing validation receipt
-    // must fail closed, not enable a core mutation from an unverified UI.
+    // Catalog and *readiness* GETs run in parallel. Semantic testing is
+    // mandatory only inside the detached guarded transaction, after the
+    // user selects a version. A missing readiness receipt fails closed.
     coreValidation = null;
     const validationPromise = fetch('/api/xray/core/validation', {cache:'no-store'})
       .then(async response => {
