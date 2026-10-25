@@ -754,12 +754,12 @@
         appendDetailChip(reason, `Скорость ${candidate.media_samples || 0}/4`, 'ok');
         const diagnostics = publicRejections(candidate, 'Отклик выше целевого порога AUTO VPN');
         diagnostics.forEach(text => appendDetailChip(reason, friendlyRejection(text), 'warn'));
-        const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = (candidate.rejections || []).join(' · '); reason.appendChild(originals);
+        const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = diagnostics.join(' · '); reason.appendChild(originals);
       } else {
         appendDetailChip(reason, `Скорость ${candidate.media_samples || 0}/4`, 'bad');
         const diagnostics = publicRejections(candidate, 'Недостаточно подтверждённых данных');
         diagnostics.forEach(text => appendDetailChip(reason, friendlyRejection(text), 'bad'));
-        const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = (candidate.rejections || []).join(' · '); reason.appendChild(originals);
+        const originals = document.createElement('span'); originals.className = 'fn-sr-only rejection-originals'; originals.textContent = diagnostics.join(' · '); reason.appendChild(originals);
       }
       row.append(head, metrics, reason);
       if (!candidate.eligible) {
