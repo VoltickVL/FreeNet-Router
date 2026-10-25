@@ -14,6 +14,8 @@ const renderAuth = canonicalHTML.match(/function renderAuth\(s\)\{[^\n]+/)[0];
 assert.ok(renderAuth.includes('freenet:auth-changed'), 'fixture must use the canonical authentication lifecycle');
 let serviceGets = 0;
 let catalogGets = 0;
+let coreValidationGets = 0;
+let coreValidationValid = true;
 let applyPosts = 0;
 let applyBody = null;
 let dropNextApplyResponse = false;
@@ -80,6 +82,13 @@ const server = http.createServer((req, res) => {
   }
   if (req.url === '/api/xray/core/catalog' && req.method === 'GET') {
     catalogGets += 1; res.writeHead(200, {'content-type':'application/json'}); res.end(JSON.stringify(catalog)); return;
+  }
+  if (req.url === '/api/xray/core/validation' && req.method === 'GET') {
+    coreValidationGets += 1;
+    res.writeHead(200, {'content-type':'application/json'});
+    res.end(JSON.stringify({success:true, valid:coreValidationValid, mutation:'NONE',
+      reason:coreValidationValid ? '' : 'reason=xray-live-config-test-failed'}));
+    return;
   }
   if (req.url === '/api/xray/core/operation' && req.method === 'GET') {
     res.writeHead(200, {'content-type':'application/json'});
@@ -244,7 +253,9 @@ const server = http.createServer((req, res) => {
     await manager.getByRole('button', {name:'Обновить'}).click();
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.10.1'));
     assert.equal(catalogGets, 1, 'explicit Versions action should load catalog once');
-    assert.equal(applyPosts, 0, 'catalog load must be read-only');
+    assert.equal(coreValidationGets, 1, 'versions dialog must automatically validate live Xray without mutation');
+    assert.equal(applyPosts, 0, 'catalog load and live validation must be read-only');
+    assert.match(await manager.innerText(), /Текущая конфигурация Xray проверена/);
     const modalText = await manager.innerText();
     assert(modalText.includes('Установлена v26.9.9'));
     assert(modalText.includes('Доступна v26.10.1'));
@@ -314,6 +325,17 @@ const server = http.createServer((req, res) => {
     assert.equal(mobileGeometry.overflow, false, 'mobile Xray panel must not create horizontal overflow');
     assert.ok(mobileGeometry.modal <= mobileGeometry.viewport - 20, 'mobile Xray panel must fit viewport');
     await page.keyboard.press('Escape');
+
+    // A genuinely invalid live configuration must be visible before POST
+    // and must not offer the install action, even when a release is available.
+    coreValidationValid = false;
+    await page.locator('#xrayTopbarChip').click();
+    await manager.getByRole('button', {name:'Обновить'}).click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Фактическая конфигурация не прошла проверку'));
+    assert.equal(await manager.getByRole('button', {name:'Обновить до v26.10.1'}).count(), 0, 'failed preflight must block install action');
+    assert.equal(applyPosts, 2, 'read-only failed preflight must not mutate Xray');
+    assert.equal(coreValidationGets, 3, 'every explicit version list visit must revalidate current live config');
+    await page.locator('#xcmClose').click();
 
     const responsive = await page.evaluate(() => new Promise(resolve => setTimeout(() => resolve('alive'), 20)));
     assert.equal(responsive, 'alive', 'Xray manager UI must not starve browser event loop');
