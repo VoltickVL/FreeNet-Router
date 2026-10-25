@@ -27,7 +27,10 @@ func (f xrayCoreRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error
 func xrayCoreFixtureScript(version string, failAfterInstall bool) []byte {
 	validation := ""
 	if failAfterInstall {
-		validation = `case "$0" in
+		// The runner now uses an isolated fn-xray-probe alias. Distinguish
+		// the pre-install staged binary from the installed binary through its
+		// symlink target rather than assuming the process is named xray.
+		validation = `case "$(readlink "$0" 2>/dev/null || printf '%s' "$0")" in
   *".freenet-xray-candidate-"*) ;;
   *) exit 23 ;;
 esac`
