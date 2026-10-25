@@ -331,7 +331,7 @@
         return;
       }
       selection.className = 'xcm-selection ready';
-      selection.textContent = `Выбрана ${selected.version}. FreeNet проверит новую версию и VPN. При отказе выполнит откат; если восстановление не подтверждено, операция перейдёт в STOP.`;
+      selection.textContent = `Выбрана ${selected.version}. FreeNet проверит версию, конфигурацию и запуск Xray. При ошибке выполнит откат; если восстановление не подтверждено, операция перейдёт в STOP. Доступность сайтов проверяется отдельно.`;
       addButton(footer, actionLabel(selected), 'primary', () => applyRelease(selected));
     };
 
