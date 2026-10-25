@@ -931,4 +931,14 @@ EOF
     [ ! -s "$TEST_UNEXPECTED" ] || fail 'negative cutover escaped the isolated fixture'
 )
 
+# The core-only preflight must expose finite, secret-free reasons for STOP.
+# Distinguish a missing production core, an ambiguous inventory, and an
+# unavailable XKeen start without weakening the existing fail-closed gate.
+grep -Fq 'CORE_PREFLIGHT_REASON="multiple-xray-processes"' "$SCRIPT" || fail 'multiple Xray processes have no diagnostic reason'
+grep -Fq 'CORE_PREFLIGHT_REASON="production-xray-not-found"' "$SCRIPT" || fail 'missing production Xray has no diagnostic reason'
+grep -Fq 'CORE_PREFLIGHT_REASON="xkeen-start-unavailable"' "$SCRIPT" || fail 'unavailable XKeen start has no diagnostic reason'
+grep -Fq 'CORE_PREFLIGHT_REASON="xray-process-inventory-changed"' "$SCRIPT" || fail 'changing Xray inventory has no diagnostic reason'
+grep -Fq 'reason=$CORE_PREFLIGHT_REASON' "$SCRIPT" || fail 'preflight reason is not surfaced by apply-core'
+grep -Fq 'core_restart_preflight || fail_apply' "$SCRIPT" || fail 'core preflight is no longer a fail-closed gate'
+
 echo 'provider profile apply test PASS'
