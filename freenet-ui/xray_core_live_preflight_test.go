@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestXrayCoreLivePreflightPreservesRelativeAndSymlinkedConfig(t *testing.T) {
@@ -40,6 +41,9 @@ exit 0
 	t.Setenv("FREENET_ROUTING_CONFIG_DIR", configDir)
 	t.Setenv("FREENET_XRAY_PROBE_LOCK_FILE", filepath.Join(dir, "xray-probe.lock"))
 	a := &app{cfg: config{OutPath: filepath.Join(configDir, "04_outbounds.json"), GeoDataDir: filepath.Join(dir, "dat")}}
+	release, ok := acquireExclusiveIsolatedXrayProbe(context.Background())
+	if !ok { t.Fatal("cannot own exclusive probe fence for semantic checks") }
+	defer release()
 	if err := a.validateXrayCoreBaseline(context.Background(), binary); err != nil {
 		t.Fatalf("existing live Xray config rejected due to incomplete copy: %v", err)
 	}
@@ -68,6 +72,9 @@ exit 27
 	t.Setenv("FREENET_ROUTING_CONFIG_DIR", configDir)
 	t.Setenv("FREENET_XRAY_PROBE_LOCK_FILE", filepath.Join(dir, "xray-probe.lock"))
 	a := &app{cfg: config{OutPath: filepath.Join(configDir, "04_outbounds.json")}}
+	release, ok := acquireExclusiveIsolatedXrayProbe(context.Background())
+	if !ok { t.Fatal("cannot own exclusive probe fence") }
+	defer release()
 	err := a.validateXrayCoreBaseline(context.Background(), binary)
 	if err == nil || !strings.Contains(err.Error(), "reason=xray-live-config-test-failed") {
 		t.Fatalf("invalid live config must be STOP with classified reason, got %v", err)
@@ -97,9 +104,9 @@ exit 33
 	a.handleXrayCoreValidationGet(rec, httptest.NewRequest(http.MethodGet, "/api/xray/core/validation", nil))
 	var result xrayCoreValidationResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil { t.Fatal(err) }
-	if rec.Code != http.StatusOK || !result.Success || result.Valid || result.Mutation != "NONE" ||
-		!strings.Contains(result.Reason, "reason=xray-live-config-test-failed") {
-		t.Fatalf("invalid live validation must return read-only STOP reason: %+v, HTTP %d", result, rec.Code)
+	if rec.Code != http.StatusOK || !result.Success || !result.Ready || result.Valid ||
+		result.Validation != "DEFERRED" || result.Mutation != "NONE" || result.Reason != "" {
+		t.Fatalf("chooser must report readiness without claiming semantic PASS: %+v, HTTP %d", result, rec.Code)
 	}
 	if strings.Contains(rec.Body.String(), "secret-subscription-credential") || strings.Contains(rec.Body.String(), configDir) {
 		t.Fatal("read-only Xray validation response leaked private runtime detail")
@@ -107,4 +114,37 @@ exit 33
 	if _, err := os.Stat(filepath.Join(configDir, "04_outbounds.json")); err != nil {
 		t.Fatal("read-only Xray validation changed live config")
 	}
+}
+
+func TestXrayCoreVersionChooserNeverWaitsForBusyProbeGate(t *testing.T) {
+    dir := t.TempDir()
+    configDir := filepath.Join(dir, "config")
+    if err := os.MkdirAll(configDir, 0700); err != nil { t.Fatal(err) }
+    if err := os.WriteFile(filepath.Join(configDir, "04_outbounds.json"), []byte(`{"outbounds":[]}`), 0600); err != nil { t.Fatal(err) }
+    binary := filepath.Join(dir, "xray")
+    script := "#!/bin/sh\nif [ \"$1\" = \"version\" ]; then echo 'Xray 26.9.9'; exit 0; fi\nexit 27\n"
+    if err := os.WriteFile(binary, []byte(script), 0700); err != nil { t.Fatal(err) }
+    t.Setenv("FREENET_XRAY_BIN", binary)
+    t.Setenv("FREENET_ROUTING_CONFIG_DIR", configDir)
+    t.Setenv("FREENET_XRAY_PROBE_LOCK_FILE", filepath.Join(dir, "probe.lock"))
+    releases := make([]func(), 0, isolatedXrayProbeLimit)
+    for i := 0; i < isolatedXrayProbeLimit; i++ {
+        release, ok := acquireIsolatedXrayProbe(context.Background())
+        if !ok { t.Fatal("fixture could not occupy read-only probe gate") }
+        releases = append(releases, release)
+    }
+    defer func(){ for _, release := range releases { release() } }()
+    a := &app{cfg: config{OutPath: filepath.Join(configDir, "04_outbounds.json")}}
+    reqCtx, cancel := context.WithTimeout(context.Background(), 650*time.Millisecond)
+    defer cancel()
+    rec := httptest.NewRecorder()
+    start := time.Now()
+    a.handleXrayCoreValidationGet(rec, httptest.NewRequest(http.MethodGet, "/api/xray/core/validation", nil).WithContext(reqCtx))
+    elapsed := time.Since(start)
+    var result xrayCoreValidationResponse
+    if err := json.Unmarshal(rec.Body.Bytes(), &result); err != nil { t.Fatal(err) }
+    if elapsed > 500*time.Millisecond || rec.Code != http.StatusOK ||
+        !result.Ready || result.Valid || result.Validation != "DEFERRED" || result.Mutation != "NONE" {
+        t.Fatalf("version chooser blocked behind background probes (duration %s): %+v, HTTP %d", elapsed, result, rec.Code)
+    }
 }
