@@ -32,6 +32,7 @@ func registerXrayServiceAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/xray/service", a.requireAuth(a.handleXrayServiceGet))
 	mux.HandleFunc("POST /api/xray/service", a.requireAuth(a.handleXrayServicePost))
 	mux.HandleFunc("GET /api/xray/core/catalog", a.requireAuth(a.handleXrayCoreCatalog))
+	mux.HandleFunc("GET /api/xray/core/validation", a.requireAuth(a.handleXrayCoreValidationGet))
 	mux.HandleFunc("POST /api/xray/core/apply", a.requireAuth(a.handleXrayCoreApply))
 	mux.HandleFunc("GET /api/xray/core/operation", a.requireAuth(a.handleXrayCoreOperationGet))
 }
