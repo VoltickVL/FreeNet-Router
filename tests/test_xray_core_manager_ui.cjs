@@ -94,7 +94,10 @@ const server = http.createServer((req, res) => {
       if (dropNextApplyResponse) {
         dropNextApplyResponse = false;
         coreOperationReceipt = {state:'RUNNING',target_version:applyBody.target_version};
-        req.socket.destroy(); // Browser connection lost, FreeNet worker continues.
+        // The test browser will deliberately discard this response after
+        // the mock backend has accepted the operation and recorded RUNNING.
+        res.writeHead(202, {'content-type':'application/json'});
+        res.end(JSON.stringify({accepted:true}));
         return;
       }
       const previous = serviceVersion;
@@ -264,6 +267,13 @@ const server = http.createServer((req, res) => {
 
     // Losing a POST response must not create a second mutation.
     dropNextApplyResponse = true;
+    // Forward exactly one real POST to the mock server, then drop only the
+    // browser-visible response. This deterministically simulates transport
+    // loss after the router has accepted the mutation.
+    await page.route('**/api/xray/core/apply', async route => {
+      await route.fetch();
+      await route.abort('failed');
+    }, {times:1});
     await manager.getByRole('button', {name:'Обновить'}).click();
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.10.1'));
     await manager.locator('.xcm-release[data-version="v26.10.1"]').click();
