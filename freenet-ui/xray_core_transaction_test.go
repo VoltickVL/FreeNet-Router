@@ -107,6 +107,7 @@ func startNamedXrayProcess(t *testing.T, root string) {
 type xrayCoreScenario struct {
 	name                 string
 	badDigest            bool
+	xkeenUnavailable     bool
 	targetFailsInstalled bool
 	xkeenExit            int
 	wantSuccess          bool
@@ -131,6 +132,15 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRollback:      "NOT_NEEDED",
 			wantCurrent:       previous,
 			wantErrorContains: "SHA-256 verification failed",
+			wantRestartCalls:  0,
+		},
+		{
+			name:              "unavailable XKeen is no-mutation preflight",
+			xkeenUnavailable:  true,
+			wantSuccess:       false,
+			wantRollback:      "NOT_NEEDED",
+			wantCurrent:       previous,
+			wantErrorContains: "XKeen restart is unavailable",
 			wantRestartCalls:  0,
 		},
 		{
@@ -211,6 +221,9 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			}
 			if err := os.WriteFile(xkeenPath, []byte(xkeen), 0755); err != nil {
 				t.Fatal(err)
+			}
+			if scenario.xkeenUnavailable {
+				if err := os.Chmod(xkeenPath, 0644); err != nil { t.Fatal(err) }
 			}
 
 			configPath := filepath.Join(root, "freenet.conf")
