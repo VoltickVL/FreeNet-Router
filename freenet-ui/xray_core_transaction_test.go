@@ -313,6 +313,22 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			if installed != scenario.wantCurrent {
 				t.Fatalf("binary version: got %q want %q", installed, scenario.wantCurrent)
 			}
+			// Failed rollback must retain the original snapshot for further
+			// controlled recovery. Confirmed rollback must clean it up.
+			entries, err := os.ReadDir(coreDir)
+			if err != nil { t.Fatal(err) }
+			backups := 0
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), ".freenet-xray-backup-") {
+					backups++
+				}
+			}
+			if scenario.wantRollback == "FAILED" && backups != 1 {
+				t.Fatalf("failed rollback must retain one old-core snapshot, got %d", backups)
+			}
+			if scenario.wantRollback != "FAILED" && backups != 0 {
+				t.Fatalf("terminal core operation left %d unneeded backups", backups)
+			}
 
 			restarts := 0
 			if data, err := os.ReadFile(restartLog); err == nil {
