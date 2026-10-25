@@ -559,6 +559,29 @@ func xrayCoreAction(previous, target string) string {
 	return "change"
 }
 
+// Xray-core update already validated the currently installed configuration
+// before acquiring the exclusive probe fence, and validates the candidate
+// binary independently. Re-entering controlXrayService here would deadlock:
+// its duplicate config checks acquire the shared isolated-probe lease held
+// exclusively by this very transaction. Preserve the canonical XKeen restart,
+// then validate the selected binary and live configuration without a shared
+// gate. This method is callable only while the caller owns that fence.
+func (a *app) restartXrayCoreUpdateOwned(ctx context.Context, binary, version string) error {
+	if ctx.Err() != nil {
+		return errors.New("Xray core restart deadline expired")
+	}
+	if _, err := runCommand(ctx, a.cfg.XKeenPath, "-restart"); err != nil {
+		return errors.New("controlled XKeen restart failed")
+	}
+	if !waitForXrayOnline(ctx) {
+		return errors.New("Xray is not running after controlled restart")
+	}
+	if err := a.validateXrayCoreCandidate(ctx, binary, version); err != nil {
+		return errors.New("live Xray configuration validation failed after controlled restart")
+	}
+	return nil
+}
+
 // Rollback must never inherit a canceled request, exhausted download deadline
 // or forward-restart deadline. Always reserve its own bounded work window.
 func (a *app) rollbackXrayCore(binary, backup, previous string) error {
@@ -585,7 +608,7 @@ func (a *app) rollbackXrayCore(binary, backup, previous string) error {
 	if err := os.Rename(restorePath, binary); err != nil {
 		return errors.New("previous Xray binary could not be restored")
 	}
-	if err := a.restartXrayControlled(ctx); err != nil {
+	if err := a.restartXrayCoreUpdateOwned(ctx, binary, previous); err != nil {
 		return errors.New("previous Xray binary was restored, but restart/post-check failed")
 	}
 	verifyCtx, verifyCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -713,7 +736,7 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 	// The controlled restart has a fresh bounded budget. The backup and
 	// exclusive probe fence stay owned until terminal acceptance or rollback.
 	applyCtx, cancelApply := context.WithTimeout(context.Background(), xrayCoreApplyTimeout)
-	applyErr := a.restartXrayControlled(applyCtx)
+	applyErr := a.restartXrayCoreUpdateOwned(applyCtx, binary, target)
 	if applyErr == nil {
 		var confirmed string
 		confirmed, applyErr = xrayCoreVersionAt(applyCtx, binary)
