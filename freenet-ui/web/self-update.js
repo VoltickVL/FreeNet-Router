@@ -1245,14 +1245,38 @@
       closable: true,
       anchored: true
     });
+    let runtimeVersion = '';
     try {
-      const r = await fetch('/api/system/update/releases?fresh=1', {cache:'no-store'});
+      const vr = await fetch('/versionz', {cache:'no-store', signal: AbortSignal.timeout(3000)});
+      if (vr.ok) runtimeVersion = (await vr.text()).trim();
+    } catch (_) {}
+    // On an installed Beta, do not download a large Stable catalog first.
+    // Users still have an explicit Stable tab for intentional downgrades.
+    const initialChannel = betaTag(runtimeVersion) ? 'beta' : 'stable';
+    try {
+      const url = initialChannel === 'beta'
+        ? '/api/system/update/releases?channel=beta&fresh=1'
+        : '/api/system/update/releases?fresh=1';
+      const r = await fetch(url, {cache:'no-store', signal: AbortSignal.timeout(12000)});
       const catalog = await r.json().catch(() => ({}));
       if (!r.ok || !catalog.success || !Array.isArray(catalog.releases)) throw new Error(catalog.error || 'Каталог релизов недоступен');
       versionCatalog = catalog;
-      versionChannel = 'stable';
+      versionChannel = initialChannel;
       renderVersionManager(catalog);
     } catch (e) {
+      if (initialChannel === 'beta') {
+        const fallback = {
+          channel: 'beta', current_version: runtimeVersion,
+          latest_version: '', releases: [], degraded: true,
+          warning: 'Список опубликованных Beta недоступен: ' + String(e.message || 'тайм-аут').slice(0, 140) +
+            '. Укажите точный Beta-тег; FreeNet проверит официальные metadata и SHA-256.'
+        };
+        versionChannel = 'beta';
+        versionCatalog = fallback;
+        ++versionSelectionToken;
+        renderVersionManager(fallback);
+        return;
+      }
       qs('#fnModalBody').className = 'fn-modal-body';
       qs('#fnModalBody').textContent = e.message || 'Не удалось загрузить каталог версий.';
       modalStatus('Никаких изменений не выполнено.', 'bad');
@@ -1260,10 +1284,17 @@
   }
 
   async function refreshTopbarUpdateState() {
+    let runtimeVersion = '';
     try {
       const vr = await fetch('/versionz', {cache: 'no-store'});
-      if (vr.ok) renderTopbarVersion((await vr.text()).trim());
+      if (vr.ok) {
+        runtimeVersion = (await vr.text()).trim();
+        renderTopbarVersion(runtimeVersion);
+      }
     } catch (_) {}
+    // Stable/latest is not an update notification for an installed Beta.
+    // Avoid downloading a huge Stable list on every page load / 10-min timer.
+    if (betaTag(runtimeVersion)) return;
     try {
       if (typeof authAuthenticated !== 'undefined' && !authAuthenticated) return;
       const r = await fetch('/api/system/update/releases', {cache: 'no-store', signal: AbortSignal.timeout(15000)});
