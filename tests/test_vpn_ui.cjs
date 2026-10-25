@@ -11,10 +11,10 @@ const runCurrentQualityUIContract = require('./current_quality_ui_contract.cjs')
 const root = path.resolve(__dirname, '..');
 const web = path.join(root, 'freenet-ui/web');
 const artifacts = process.env.FREENET_UI_ARTIFACTS || path.join(root, 'test-artifacts');
-const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, tested:true, eligible:true, available:true, reachable:true, download_mbps:42.5, throughput_source:'strict_aggregate', application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:4,media_stalls:0,service_ok:4,service_total:4};
-const winner = {...current,id:'fixture-de',name:'Германия · Франкфурт',country_code:'de',endpoint:'192.0.2.20:443',current:false,download_mbps:68.2,application_rtt_ms:110};
-const second = {...winner,id:'fixture-lt',name:'Литва · Вильнюс',country_code:'lt',endpoint:'192.0.2.40:443',download_mbps:59.1};
-const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:31.4,application_rtt_ms:180};
+const current = {id:'fixture-pl', name:'Польша · Варшава', country_code:'pl', endpoint:'192.0.2.10:443', current:true, tested:true, eligible:true, available:true, reachable:true, download_mbps:42.5, throughput_source:'strict_aggregate', application_rtt_ms:140, tcp_rtt_ms:95, jitter_ms:8,media_samples:4,media_stalls:0,service_ok:4,service_total:4,chatgpt_https_status:'https_response'};
+const winner = {...current,id:'fixture-de',name:'Германия · Франкфурт',country_code:'de',endpoint:'192.0.2.20:443',current:false,download_mbps:68.2,application_rtt_ms:110,chatgpt_https_status:'http_restricted'};
+const second = {...winner,id:'fixture-lt',name:'Литва · Вильнюс',country_code:'lt',endpoint:'192.0.2.40:443',download_mbps:59.1,chatgpt_https_status:'http_error'};
+const third = {...winner,id:'fixture-fi',name:'Финляндия · Хельсинки',country_code:'fi',endpoint:'192.0.2.50:443',download_mbps:31.4,application_rtt_ms:180,chatgpt_https_status:'unknown'};
 const bestSelectionToken = '0123456789abcdef0123456789abcdef';
 const manualRTTToken = 'abcdef0123456789abcdef0123456789';
 let expectedApply = winner;
@@ -129,8 +129,8 @@ const server = http.createServer((req,res)=>{
           return answer(route,{success:true,available:false,candidates:[deadCurrent],profiles_scanned:1,current_endpoint:current.endpoint,scanned_at:'2026-09-08T03:00:00Z'});
         }
         if(mode==='rejected')return answer(route,{success:true,available:false,candidates:[current,
-          {...winner,tested:true,eligible:false,download_mbps:4.2,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Скорость ниже 20 Мбит/с']},
-          {...third,tested:true,eligible:false,available:true,reachable:true,download_mbps:146,application_rtt_ms:226,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Отклик сайтов выше 220 мс']}],
+          {...winner,tested:true,eligible:false,download_mbps:4.2,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Проверки сайтов: 2/4','Скорость ниже 20 Мбит/с']},
+          {...third,tested:true,eligible:false,available:true,reachable:true,download_mbps:146,application_rtt_ms:226,media_samples:4,media_stalls:0,service_ok:4,service_total:4,rejections:['Отклик сайтов выше 220 мс','Проверки сайтов: 0/4']}],
           profiles_scanned:3,deep_total:2,deep_checked:2,eligible_found:0,eligible_target:3});
         const best=url.pathname.endsWith('best-foreign');
         const recommendation=bestMode==='current'?current:bestMode==='ru'?{...winner,country_code:'ru'}:winner;
@@ -500,6 +500,8 @@ const server = http.createServer((req,res)=>{
     assert.equal(await page.locator('.vpn-option-apply').count(),0,'ineligible candidates must never become apply choices');
     assert.equal(await page.locator('.vpn-option-retry').count(),2,'rejected candidates may only be checked again safely');
     assert.match(await page.locator('#bestServerResult .vpn-rejected-diagnostics').textContent(),/Скорость ниже 20|Отклик сайтов выше 220 мс/,'safe reasons must explain why measured candidates were rejected');
+    assert.doesNotMatch(await page.locator('#bestServerShell').innerText(), /ChatGPT HTTPS|Instagram|Telegram|Сервисы\\s+\\d+\\/\\d+|Проверки сайтов:\\s*\\d+\\/\\d+/i, 'rejected diagnostics must not expose unverified application or site HEAD verdicts');
+    assert.equal(await page.locator('.best-v4-chatgpt').count(), 0, 'retired ChatGPT diagnostic may not render in any candidate state');
     assert.match(await page.locator('#bestServerStatus').textContent(),/Найдено 0 из 3 подходящих/,'rejected rows must never inflate a genuine zero Eligible result');
     assert.equal(await page.locator('#bestServerEmpty').isHidden(),true,'diagnostics replace a misleading empty state without enabling a recommendation');
     await page.setViewportSize({width:1366,height:768});
@@ -535,6 +537,10 @@ const server = http.createServer((req,res)=>{
     assert.match(await page.locator('.vpn-option').nth(2).textContent(),/Скорость −11.1.*Отклик медленнее на 40 мс/,'slower alternatives must disclose both drawbacks');
     assert.equal(mutationPosts().length,0,'checks never mutate VPN');
     assert.equal(await page.locator('.vpn-option').count(),3,'show up to three distinct measured foreign comparisons');
+    assert.equal(await page.locator('#bestCurrentMetrics .best-v4-pill').count(),4,'current VPN retains four measured metrics');
+    assert.doesNotMatch(await page.locator('#bestServerShell').innerText(), /ChatGPT HTTPS|Instagram|Telegram|Сервисы\\s+\\d+\\/\\d+|Проверки сайтов:\\s*\\d+\\/\\d+/i, 'user sees actual VPN metrics, not named app claims or an aggregate HEAD verdict');
+    assert.equal(await page.locator('.best-v4-chatgpt').count(),0,'no ChatGPT status is shown even when HTTPS returned 200/403/503/unknown');
+    assert.match(await page.locator('#bestServerReason').textContent(),/VPN доступен/,'eligible VPN keeps an honest connectivity label');
     assert.equal(await page.locator('#fnVpnPickerV2Toggle').isVisible(),true,'manual choice is always available through the stable topbar selector');
     assert.equal(await page.locator('#bestCurrentMetrics').isVisible(),true);
     for(const row of await page.locator('.vpn-option').all()) {
