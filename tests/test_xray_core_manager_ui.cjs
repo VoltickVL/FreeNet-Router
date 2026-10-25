@@ -16,6 +16,8 @@ let serviceGets = 0;
 let catalogGets = 0;
 let applyPosts = 0;
 let applyBody = null;
+let dropNextApplyResponse = false;
+let coreOperationReceipt = {state:'IDLE'};
 let serviceOnline = true;
 let serviceVersion = 'v26.9.9';
 let serviceEvents = [
@@ -79,11 +81,22 @@ const server = http.createServer((req, res) => {
   if (req.url === '/api/xray/core/catalog' && req.method === 'GET') {
     catalogGets += 1; res.writeHead(200, {'content-type':'application/json'}); res.end(JSON.stringify(catalog)); return;
   }
+  if (req.url === '/api/xray/core/operation' && req.method === 'GET') {
+    res.writeHead(200, {'content-type':'application/json'});
+    res.end(JSON.stringify(coreOperationReceipt));
+    return;
+  }
   if (req.url === '/api/xray/core/apply' && req.method === 'POST') {
     applyPosts += 1; let raw = '';
     req.on('data', chunk => { raw += chunk; });
     req.on('end', () => {
       applyBody = JSON.parse(raw);
+      if (dropNextApplyResponse) {
+        dropNextApplyResponse = false;
+        coreOperationReceipt = {state:'RUNNING',target_version:applyBody.target_version};
+        req.socket.destroy(); // Browser connection lost, FreeNet worker continues.
+        return;
+      }
       const previous = serviceVersion;
       serviceVersion = applyBody.target_version;
       serviceEvents = [{at:'2026-10-04T00:04:00Z',kind:'xray',result:'success',message:`Xray переключён: ${previous} → ${serviceVersion}.`}, ...serviceEvents];
@@ -248,6 +261,20 @@ const server = http.createServer((req, res) => {
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'successful Xray apply must update topbar version immediately');
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.8.1') && (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Работает'));
     assert.match(await manager.innerText(),/Xray переключён: v26\.9\.9 → v26\.8\.1/);
+
+    // Losing a POST response must not create a second mutation.
+    dropNextApplyResponse = true;
+    await manager.getByRole('button', {name:'Обновить'}).click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.10.1'));
+    await manager.locator('.xcm-release[data-version="v26.10.1"]').click();
+    await manager.getByRole('button', {name:'Обновить до v26.10.1'}).click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Обновление Xray продолжается'));
+    assert.equal(applyPosts, 2, 'lost response must not retry Xray POST');
+    coreOperationReceipt = {state:'ROLLED_BACK',target_version:'v26.10.1',result:{success:false,rollback:'SUCCESS',error:'предыдущая версия восстановлена'}};
+    await manager.getByRole('button', {name:'Проверить результат'}).click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('прежняя версия Xray восстановлена'));
+    assert.equal(applyPosts, 2, 'receipt reconciliation must remain read-only');
+    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'failed target must not replace installed version');
 
     await page.locator('#xcmClose').click();
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.hidden === true);
