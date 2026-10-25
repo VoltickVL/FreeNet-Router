@@ -1362,3 +1362,11 @@ body #controlCenter .main>.topbar.overview-approved{padding-right:max(var(--fn-c
 #bestServerResult .vpn-rejected-intro{color:var(--muted);font-size:12px;line-height:1.5;margin:9px 2px}
 #bestServerResult .vpn-rejected-list{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(min(100%,290px),1fr))}
 #bestServerResult .vpn-rejected-list .vpn-option{min-width:0;opacity:.95}
+
+/* Client-side HTTPS body diagnostic: explicit consent, collapsed by default.
+   Not a verdict about ChatGPT, Telegram, Instagram or video playback. */
+.freenet-client-transfer{margin-top:12px;border-top:1px solid #30435d;padding-top:10px;color:#aabbd0;font-size:12px}
+.freenet-client-transfer>summary{cursor:pointer;font-size:12px;line-height:1.4;color:#a8c3e7}
+.freenet-client-transfer>button{display:block;margin-top:10px;width:100%;min-height:38px;justify-content:center}
+.freenet-client-transfer>.hint{margin:8px 0;line-height:1.45}
+.freenet-client-transfer-result{white-space:normal;overflow-wrap:anywhere;line-height:1.5;margin-top:5px}
