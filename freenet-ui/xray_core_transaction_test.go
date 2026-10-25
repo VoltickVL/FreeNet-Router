@@ -111,6 +111,8 @@ type xrayCoreScenario struct {
 	name                 string
 	badDigest            bool
 	invalidCurrent       bool
+	invalidCandidate     bool
+	holdReadOnlyProbes    bool
 	xkeenUnavailable     bool
 	targetFailsInstalled bool
 	xkeenExit            int
@@ -148,6 +150,15 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRestartCalls:  0,
 		},
 		{
+			name:              "invalid candidate config stops before Xray binary replacement",
+			invalidCandidate:  true,
+			wantSuccess:       false,
+			wantRollback:      "NOT_NEEDED",
+			wantCurrent:       previous,
+			wantErrorContains: "reason=xray-candidate-config-test-failed",
+			wantRestartCalls:  0,
+		},
+		{
 			name:              "unavailable XKeen is no-mutation preflight",
 			xkeenUnavailable:  true,
 			wantSuccess:       false,
@@ -155,6 +166,15 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantCurrent:       previous,
 			wantErrorContains: "XKeen restart is unavailable",
 			wantRestartCalls:  0,
+		},
+		{
+			name:               "busy diagnostic pool is drained before both live semantic tests and install",
+			holdReadOnlyProbes: true,
+			xkeenExit:          0,
+			wantSuccess:        true,
+			wantRollback:       "NOT_NEEDED",
+			wantCurrent:        target,
+			wantRestartCalls:   1,
 		},
 		{
 			name:             "success installs target once",
@@ -258,6 +278,9 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 				t.Skipf("fixture architecture %s is not supported", runtime.GOARCH)
 			}
 			targetScript := xrayCoreFixtureScript(target, scenario.targetFailsInstalled)
+			if scenario.invalidCandidate {
+				targetScript = []byte("#!/bin/sh\nif [ \"$1\" = \"version\" ]; then echo 'Xray 26.10.1'; exit 0; fi\nexit 27\n")
+			}
 			archive := xrayCoreZipFixture(t, targetScript)
 			sum := sha256.Sum256(archive)
 			digest := hex.EncodeToString(sum[:])
@@ -318,6 +341,36 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 				result = <-resultCh
 				if !started {
 					t.Fatal("fixture did not reach forward restart before cancellation")
+				}
+			} else if scenario.holdReadOnlyProbes {
+				// Real Portable beta33 had concurrent background fn-xray-probe
+				// workers. The core-upgrade worker must not fail or mutate while
+				// the entire shared probe pool is occupied.
+				var releases []func()
+				for i := 0; i < isolatedXrayProbeLimit; i++ {
+					release, ok := acquireIsolatedXrayProbe(context.Background())
+					if !ok { t.Fatal("could not occupy probe pool") }
+					releases = append(releases, release)
+				}
+				defer func() { for _, release := range releases { release() } }()
+				resultCh := make(chan xrayCoreApplyResponse, 1)
+				go func() { resultCh <- a.applyXrayCore(context.Background(), target) }()
+				select {
+				case premature := <-resultCh:
+					t.Fatalf("upgrade returned while background probes were active: %+v", premature)
+				case <-time.After(300 * time.Millisecond):
+				}
+				versionCtx, cancelVersion := context.WithTimeout(context.Background(), 2*time.Second)
+				stillInstalled, versionErr := xrayCoreVersionAt(versionCtx, binary)
+				cancelVersion()
+				if versionErr != nil || stillInstalled != previous {
+					t.Fatalf("Xray core changed before exclusive admission: version=%s err=%v", stillInstalled, versionErr)
+				}
+				for _, release := range releases { release() }
+				select {
+				case result = <-resultCh:
+				case <-time.After(15 * time.Second):
+					t.Fatal("guarded Xray core upgrade did not finish after read-only probes drained")
 				}
 			} else {
 				result = a.applyXrayCore(context.Background(), target)
