@@ -27,9 +27,15 @@ const (
 	xrayCoreOperationTimeout = 95 * time.Second // read-only catalog, download and validation
 	xrayCoreApplyTimeout = 55 * time.Second // forward restart and post-check after swap
 	xrayCoreRollbackTimeout = 70 * time.Second // independent reserve after forward failure
+    xrayCoreSemanticTimeout = 82 * time.Second // two semantic tests + staged copy under owned fence
+    xrayCoreSingleTestTimeout = 35 * time.Second // full time AFTER probe admission
 )
 
 var xrayCoreHTTPClient = &http.Client{Timeout: 55 * time.Second}
+
+// Only controlled Xray core upgrades use this longer bounded exclusive wait.
+// Best Server and other passive consumers keep their existing admission budgets.
+var xrayCoreAdmissionTimeout = 110 * time.Second
 
 type xrayCoreAsset struct {
 	Name      string `json:"name"`
@@ -516,65 +522,60 @@ func (a *app) xrayCoreLiveConfigDir() (string, error) {
 	return dir, nil
 }
 
+// runIsolatedXrayCoreTest must only be called by the version-changing worker
+// while it owns the *exclusive* isolated-probe fence. It must not reacquire a
+// shared lease, which would deadlock against its own exclusive ownership.
+// No production config or process is modified by the -test child.
+func (a *app) runIsolatedXrayCoreTest(ctx context.Context, binary, configDir string) error {
+    dir, err := os.MkdirTemp("", "freenet-xray-core-check-")
+    if err != nil { return errors.New("cannot stage isolated Xray validation") }
+    defer os.RemoveAll(dir)
+    probePath, err := resolvedIsolatedXrayProbePath(dir, binary)
+    if err != nil { return errors.New("Xray validation binary is unavailable") }
+    cmd := exec.CommandContext(ctx, probePath, "run", "-test", "-confdir", configDir)
+    cmd.Env = isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.routingAssetDir()))
+    cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+    cmd.WaitDelay = 2 * time.Second
+    return cmd.Run()
+}
+
+// The installed binary must pass the current on-disk live config BEFORE swap.
+// This check is now invoked only after the update worker drained and owns all
+// probe leases. Background quality scans cannot spend the test deadline.
 func (a *app) validateXrayCoreBaseline(parent context.Context, binary string) error {
-	configDir, err := a.xrayCoreLiveConfigDir()
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(parent, 22*time.Second)
-	defer cancel()
-	err = runReadOnlyXrayValidation(ctx, binary, a.routingAssetDir(), configDir)
-	if err == nil {
-		return nil
-	}
-	switch {
-	case ctx.Err() != nil:
-		return errors.New("reason=xray-live-test-timeout; Xray binary unchanged")
-	case errors.Is(err, errIsolatedXrayProbeAdmission):
-		return errors.New("reason=xray-readonly-probe-unavailable; Xray binary unchanged")
-	case errors.Is(err, exec.ErrNotFound), errors.Is(err, os.ErrNotExist):
-		return errors.New("reason=xray-test-executable-unavailable; Xray binary unchanged")
-	default:
-		// No raw stdout/stderr, filenames or potentially sensitive config
-		// fragments can leave this preflight.
-		return errors.New("reason=xray-live-config-test-failed; Xray binary unchanged")
-	}
+    configDir, err := a.xrayCoreLiveConfigDir()
+    if err != nil { return err }
+    ctx, cancel := context.WithTimeout(parent, xrayCoreSingleTestTimeout)
+    defer cancel()
+    err = a.runIsolatedXrayCoreTest(ctx, binary, configDir)
+    if err == nil { return nil }
+    switch {
+    case ctx.Err() != nil:
+        return errors.New("reason=xray-live-test-timeout; Xray binary unchanged")
+    case errors.Is(err, exec.ErrNotFound), errors.Is(err, os.ErrNotExist):
+        return errors.New("reason=xray-test-executable-unavailable; Xray binary unchanged")
+    default:
+        return errors.New("reason=xray-live-config-test-failed; Xray binary unchanged")
+    }
 }
 
 func (a *app) validateXrayCoreCandidate(parent context.Context, candidate, target string) error {
-	ctx, cancel := context.WithTimeout(parent, 22*time.Second)
-	defer cancel()
-	version, err := xrayCoreVersionAt(ctx, candidate)
-	if err != nil || version != target {
-		return errors.New("downloaded Xray binary does not match selected version")
-	}
-	configDir, err := a.xrayCoreLiveConfigDir()
-	if err != nil {
-		return err
-	}
-	// Alias the test executable as a clearly isolated probe. After a binary
-	// swap this function also checks the live Xray path while the updater
-	// holds the exclusive probe fence; it must not appear as a second
-	// production 'xray' process to pidof/doctor/watchdog.
-	workDir, err := os.MkdirTemp("", "freenet-xray-core-candidate.*")
-	if err != nil {
-		return errors.New("cannot create Xray candidate workspace")
-	}
-	defer os.RemoveAll(workDir)
-	probePath, err := isolatedXrayProbePath(workDir, candidate)
-	if err != nil {
-		return errors.New("cannot isolate Xray candidate validation")
-	}
-	cmd := exec.CommandContext(ctx, probePath, "run", "-test", "-confdir", configDir)
-	cmd.Env = isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.routingAssetDir()))
-	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-	if err := cmd.Run(); err != nil || ctx.Err() != nil {
-		if ctx.Err() != nil {
-			return errors.New("reason=xray-candidate-test-timeout; Xray binary unchanged or rollback required")
-		}
-		return errors.New("reason=xray-candidate-config-test-failed; selected Xray version is not compatible with the live configuration")
-	}
-	return nil
+    ctx, cancel := context.WithTimeout(parent, xrayCoreSingleTestTimeout)
+    defer cancel()
+    version, err := xrayCoreVersionAt(ctx, candidate)
+    if err != nil || version != target {
+        return errors.New("downloaded Xray binary does not match selected version")
+    }
+    configDir, err := a.xrayCoreLiveConfigDir()
+    if err != nil { return err }
+    err = a.runIsolatedXrayCoreTest(ctx, candidate, configDir)
+    if err != nil || ctx.Err() != nil {
+        if ctx.Err() != nil {
+            return errors.New("reason=xray-candidate-test-timeout; Xray binary unchanged or rollback required")
+        }
+        return errors.New("reason=xray-candidate-config-test-failed; selected Xray version is not compatible with the live configuration")
+    }
+    return nil
 }
 
 func copyXrayCoreBinary(src, dst string, mode os.FileMode) error {
@@ -694,10 +695,8 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "selected Xray version is already installed"
 		return result
 	}
-	if err := a.validateXrayCoreBaseline(ctx, binary); err != nil {
-		result.Error = err.Error()
-		return result
-	}
+	// Both the current and candidate binaries are semantically validated
+	// after exclusive probe admission, not during this download phase.
 	// Never replace a working core when its managed XKeen restart path is
 	// missing or not executable: neither acceptance nor rollback could start.
 	if _, err := exec.LookPath(a.cfg.XKeenPath); err != nil {
@@ -732,17 +731,26 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 			_ = os.Remove(candidatePath)
 		}
 	}()
-	if err := a.validateXrayCoreCandidate(ctx, candidatePath, target); err != nil {
-		result.Error = err.Error()
+	// Reject a wrong binary immediately, without holding the exclusive fence
+	// during catalog/download/ZIP work. Full semantic validation follows it.
+	candidateVersion, err := xrayCoreVersionAt(ctx, candidatePath)
+	if err != nil || candidateVersion != target {
+		result.Error = "downloaded Xray binary does not match selected version"
 		return result
 	}
-	// XKeen's legacy restart checks pidof xray. Wait until FreeNet's own
-	// isolated workers have drained, then keep the fence through rollback.
-	quiesceCtx, cancelQuiesce := context.WithTimeout(ctx, 12*time.Second)
+	if ctx.Err() != nil {
+		result.Error = "Xray update download/preflight deadline expired; no binary changed"
+		return result
+	}
+	// The real Portable timed out because short read-only core validation
+	// competed with long Best Server/quality probes for a 2-slot shared gate.
+	// Drain existing probes first and forbid new ones until apply or rollback
+	// is terminal. The admission clock is independent of download and tests.
+	quiesceCtx, cancelQuiesce := context.WithTimeout(context.Background(), xrayCoreAdmissionTimeout)
 	releaseProbes, quiesced := acquireExclusiveIsolatedXrayProbe(quiesceCtx)
 	cancelQuiesce()
 	if !quiesced {
-		result.Error = "isolated Xray diagnostics have not finished; no Xray version was changed"
+		result.Error = "reason=xray-probe-admission-timeout; background Xray diagnostics did not drain; no Xray binary changed"
 		return result
 	}
 	defer releaseProbes()
@@ -754,8 +762,21 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "production Xray process inventory is ambiguous; Xray update stopped before mutation"
 		return result
 	}
-	if ctx.Err() != nil {
-		result.Error = "Xray update preflight deadline expired before mutation"
+	// With the exclusive fence already owned, do not reacquire the shared
+	// gate. Reserve an independent window for BOTH installed and candidate
+	// live-config tests, then take the snapshot and swap atomically.
+	validateCtx, validateCancel := context.WithTimeout(context.Background(), xrayCoreSemanticTimeout)
+	defer validateCancel()
+	if err := a.validateXrayCoreBaseline(validateCtx, binary); err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	if err := a.validateXrayCoreCandidate(validateCtx, candidatePath, target); err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	if validateCtx.Err() != nil {
+		result.Error = "Xray semantic validation deadline expired before mutation"
 		return result
 	}
 	backupFile, err := os.CreateTemp(filepath.Dir(binary), ".freenet-xray-backup-*")
@@ -780,9 +801,10 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "cannot prepare Xray candidate permissions"
 		return result
 	}
-	// A preflight timeout must not trigger an unbounded or partial swap.
-	if ctx.Err() != nil {
-		result.Error = "Xray update preflight deadline expired before mutation"
+	// The independent post-admission semantic deadline, not the already
+	// consumed download deadline, guards the moment of binary replacement.
+	if validateCtx.Err() != nil {
+		result.Error = "Xray semantic validation deadline expired before mutation"
 		return result
 	}
 	if err := os.Rename(candidatePath, binary); err != nil {
