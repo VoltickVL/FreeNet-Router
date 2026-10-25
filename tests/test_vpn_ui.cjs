@@ -490,8 +490,9 @@ const server = http.createServer((req,res)=>{
     await page.evaluate(()=>loadStatus());
     await page.waitForFunction(()=>document.querySelector('#bestCurrentHealth')?.classList.contains('offline'));
     assert.match(await page.locator('#bestCurrentHealth').textContent(),/VPN сейчас не подключен/);
+    await page.waitForFunction(() => document.querySelector('#bestCurrentConnection')?.textContent === '● Xray остановлен');
     assert.equal(await page.locator('#bestCurrentConnection').textContent(),'● Xray остановлен',
-      'authoritative production Xray offline must remain a genuine offline status');
+      'authoritative production Xray offline must remain a genuine offline status after the browser render frame');
     assert.doesNotMatch(await page.locator('#bestCurrentHealth').textContent(),/работает стабильно/,'live offline state must override cached green quality');
     status={...status,xray_online:true};
     await page.evaluate(()=>loadStatus());
