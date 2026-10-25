@@ -102,6 +102,10 @@ const server = http.createServer((req, res) => {
       }
       const previous = serviceVersion;
       serviceVersion = applyBody.target_version;
+      // The real catalog derives current_version from the installed binary.
+      // Keep this mocked GET consistent with the successful mocked install.
+      catalog.current_version = serviceVersion;
+      for (const release of catalog.releases) release.current = release.version === serviceVersion;
       serviceEvents = [{at:'2026-10-04T00:04:00Z',kind:'xray',result:'success',message:`Xray переключён: ${previous} → ${serviceVersion}.`}, ...serviceEvents];
       res.writeHead(200, {'content-type':'application/json'});
       res.end(JSON.stringify({success:true, previous_version:previous, current_version:serviceVersion, target_version:serviceVersion, rollback:'NOT_NEEDED', message:`Xray переключён: ${previous} → ${serviceVersion}.`, events:serviceEvents}));
