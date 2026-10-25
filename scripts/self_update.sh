@@ -50,6 +50,7 @@ NETWORK_FENCE_DEFERRED=0
 KEEP_LOCK=0
 MUTATED=0
 LAST_DOWNLOAD_ERROR=""
+LAST_META_ERROR=""
 RELEASE_META_TAG=""
 RELEASE_META_FILE=""
 UPDATE_UID="$(id -u)"
@@ -312,7 +313,17 @@ download_url() {
             RC=$?
         fi
         if [ "$RC" -ne 0 ]; then
-            LAST_DOWNLOAD_ERROR="curl failed for $H"
+            # Never persist native curl stderr or URLs with credentials. Only a
+            # stage-specific, bounded transport category reaches the UI/log.
+            case "$RC" in
+                28) LAST_DOWNLOAD_ERROR="transport timeout ($H)" ;;
+                6)  LAST_DOWNLOAD_ERROR="DNS lookup failed ($H)" ;;
+                22)
+                    CODE="$(awk '/^HTTP\// {code=$2} END {print code}' "$HDR")"
+                    LAST_DOWNLOAD_ERROR="HTTP ${CODE:-UNKNOWN} ($H)"
+                    ;;
+                *)  LAST_DOWNLOAD_ERROR="transport error $RC ($H)" ;;
+            esac
             return 1
         fi
 
@@ -353,10 +364,11 @@ latest_tag() {
 
 fetch_release_metadata() {
     TAG="$1"
+    LAST_META_ERROR=""
     if [ "$RELEASE_META_TAG" = "$TAG" ] && [ -n "$RELEASE_META_FILE" ] && [ -s "$RELEASE_META_FILE" ]; then
         return 0
     fi
-    make_tmp || return 1
+    make_tmp || { LAST_META_ERROR="cannot prepare temporary metadata staging"; return 1; }
     META="$TMP_DIR/release-meta.json"
     if [ -n "$TEST_RELEASE_DIR" ]; then
         if [ -f "$TEST_RELEASE_DIR/release.json" ]; then
@@ -364,24 +376,52 @@ fetch_release_metadata() {
         elif [ "$TEST_MODE" = yes ]; then
             printf '{"tag_name":"%s","draft":false,"prerelease":false}\n' "$TAG" > "$META" || return 1
         else
+            LAST_META_ERROR="missing test release metadata"
             return 1
         fi
     else
-        if ! download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META"; then
-            fetch_manifest "$TAG" || return 1
-            download_verified_asset release-metadata.json "https://github.com/$REPO/releases/download/$TAG/release-metadata.json" "$META" || return 1
+        META_READY=no
+        if beta_tag "$TAG"; then
+            # On a slow WAN, the official API release object may exceed 50 KiB.
+            # First verify the small published metadata asset against the
+            # exact release's SHA256SUMS. Never trust a tag from /releases/latest.
+            if fetch_manifest "$TAG" &&
+               download_verified_asset release-metadata.json "https://github.com/$REPO/releases/download/$TAG/release-metadata.json" "$META"; then
+                META_READY=yes
+            fi
+        fi
+        if [ "$META_READY" != yes ]; then
+            if ! download_url "https://api.github.com/repos/$REPO/releases/tags/$TAG" "$META"; then
+                LAST_META_ERROR="release metadata transport: ${LAST_DOWNLOAD_ERROR:-unavailable}"
+                return 1
+            fi
         fi
     fi
-    META_TAG="$(jq -r '.tag_name // empty' "$META" 2>/dev/null)"
-    META_DRAFT="$(jq -r '.draft // false' "$META" 2>/dev/null)"
-    META_PRE="$(jq -r '.prerelease // false' "$META" 2>/dev/null)"
-    [ "$META_TAG" = "$TAG" ] || return 1
-    [ "$META_DRAFT" != true ] || return 1
+    # Both official sources must declare the exact tag and explicit channel.
+    # Malformed or partial JSON is a STOP, not an inferred prerelease flag.
+    if ! jq -e '(.tag_name | type) == "string" and (.draft | type) == "boolean" and (.prerelease | type) == "boolean"' "$META" >/dev/null 2>&1; then
+        LAST_META_ERROR="invalid or incomplete release metadata JSON"
+        return 1
+    fi
+    META_TAG="$(jq -r '.tag_name' "$META" 2>/dev/null)"
+    META_DRAFT="$(jq -r '.draft' "$META" 2>/dev/null)"
+    META_PRE="$(jq -r '.prerelease' "$META" 2>/dev/null)"
+    if [ "$META_TAG" != "$TAG" ]; then
+        LAST_META_ERROR="exact release tag mismatch"
+        return 1
+    fi
+    if [ "$META_DRAFT" = true ]; then
+        LAST_META_ERROR="release is draft"
+        return 1
+    fi
     if beta_tag "$TAG"; then
-        beta_opted_in "$TAG" || return 1
-        [ "$META_PRE" = true ] || return 1
-    else
-        [ "$META_PRE" != true ] || return 1
+        if ! beta_opted_in "$TAG" || [ "$META_PRE" != true ]; then
+            LAST_META_ERROR="Beta channel not verified"
+            return 1
+        fi
+    elif [ "$META_PRE" = true ]; then
+        LAST_META_ERROR="Stable channel not verified"
+        return 1
     fi
     RELEASE_META_TAG="$TAG"
     RELEASE_META_FILE="$META"
@@ -1227,9 +1267,9 @@ run_plan() {
     fi
     valid_tag "$PLAN_TARGET" || { plan_error 'target release tag is invalid'; return 1; }
     beta_opted_in "$PLAN_TARGET" || { plan_error 'explicit Beta opt-in required'; return 1; }
-    fetch_release_metadata "$PLAN_TARGET" || { plan_error 'target release metadata or Beta channel is not verified'; return 1; }
+    fetch_release_metadata "$PLAN_TARGET" || { plan_error "target release metadata or Beta channel is not verified: ${LAST_META_ERROR:-unknown}"; return 1; }
     TARGET_TAG="$PLAN_TARGET"
-    fetch_manifest "$PLAN_TARGET" || { plan_error 'release manifest is unavailable or incomplete'; return 1; }
+    fetch_manifest "$PLAN_TARGET" || { plan_error "release manifest is unavailable or incomplete: ${LAST_DOWNLOAD_ERROR:-unknown}"; return 1; }
     compatible_update_target "$PLAN_TARGET" || { plan_error 'target cannot preserve pending VPN recovery state; choose a recovery-protocol-2 release or the v0.7.18 recovery bridge'; return 1; }
     RELEASE_NOTES="$(release_notes "$PLAN_TARGET" 2>/dev/null || true)"
 
@@ -2150,7 +2190,7 @@ run_apply() {
     for T in curl sha256sum sed awk grep cmp mktemp jq stat readlink id sort tr; do
         command -v "$T" >/dev/null 2>&1 || fail_before_mutation "required command missing: $T"
     done
-    fetch_release_metadata "$TARGET_TAG" || fail_before_mutation 'target release metadata or Beta channel is not verified'
+    fetch_release_metadata "$TARGET_TAG" || fail_before_mutation "target release metadata or Beta channel is not verified: ${LAST_META_ERROR:-unknown}"
 
     compatible_update_target "$TARGET_TAG" || fail_before_mutation 'target cannot preserve pending VPN recovery state; choose a recovery-protocol-2 release or the v0.7.18 recovery bridge'
     write_state CHECKING "$TARGET_TAG" 'Проверяем выбранный exact release и SHA-256' '' NOT_NEEDED '' || fail_before_mutation 'cannot persist update state'

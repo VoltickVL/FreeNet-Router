@@ -21,6 +21,7 @@ let expectedApply = winner;
 let status = {version:'0.2.88',country:'Польша',city:'Варшава',country_code:'pl',endpoint:current.endpoint,xray_online:true,xkeen_ui_online:true,dns_out_present:true,dns_mode:'xkeen',setup_complete:true,install_scenario:'existing_stack',subscription_configured:true};
 const server = http.createServer((req,res)=>{
   const url = new URL(req.url,'http://localhost');
+  if(url.pathname==='/versionz') {res.setHeader('Content-Type','text/plain');res.end('v0.8.0-beta.29');return;}
   if(url.pathname==='/') {
     const html=fs.readFileSync(path.join(web,'index.html'),'utf8').replace('</head>', '<style id="freenetUnifiedDesignStyles">'+fs.readFileSync(path.join(web,'design-system.css'),'utf8')+'</style></head>').replace('</body>', ['self-update.js','vpn-ux-fix.js','topbar-settings-profile-cache.js','operation-coordinator.js','xray-core-manager.js','vpn-picker-v2.js'].map(f=>`<script src="/${f}"></script>`).join('')+'</body>');
     res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html);return;
@@ -51,7 +52,15 @@ const server = http.createServer((req,res)=>{
     await page.route('**/api/**',async route=>{
       const req=route.request(),url=new URL(req.url());
       calls.push({path:url.pathname,query:url.search,method:req.method(),body:req.postData()});
-      if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
+      if(url.pathname==='/api/system/update/releases'){
+         if(url.searchParams.get('channel')==='beta')return answer(route,{success:false,channel:'beta',error:'Каталог Beta временно недоступен'},502);
+         return answer(route,{success:true,channel:'stable',current_version:'v0.8.0-beta.29',latest_version:'v0.7.18',releases:[{version:'v0.7.18',latest:true,prerelease:false}]});
+       }
+       if(url.pathname==='/api/system/update/plan'){
+         const tag=url.searchParams.get('target')||'v0.7.18';
+         return answer(route,{success:true,ready:true,manifest_verified:true,compatibility_verified:true,target_tag:tag,current_version:'v0.8.0-beta.29',latest_version:tag,direction:'upgrade',update_available:tag!=='v0.8.0-beta.29',release_notes:'## Что изменилось\n- Проверено без применения'});
+       }
+       if(url.pathname==='/api/auth/status')return answer(route,{configured:true,authenticated:true});
       if(url.pathname==='/api/status')return answer(route,status);
       if(url.pathname==='/api/xray/service')return answer(route,{success:true,version:'v26.9.9',current_version:'v26.9.9'});
       if(url.pathname==='/api/operation/state'){
@@ -695,6 +704,32 @@ const server = http.createServer((req,res)=>{
       assert.equal(await page.locator('#exactConnectBtn').isDisabled(),true,'used manual plan cannot be re-enabled by polling');
       assert.equal(mutationPosts().length,postsBefore+1,'no blind manual repeat');
     }
+    // Installed Beta must not silently fetch heavy Stable releases in the
+    // background. Its picker starts in Beta and can verify an exact tag even
+    // when the published list is unavailable.
+    const stableCatalogBefore = calls.filter(c=>c.path==='/api/system/update/releases' && !c.query.includes('channel=beta')).length;
+    await page.goto(base);
+    await page.waitForFunction(() => document.querySelector('#topFreenetUpdate'));
+    await page.waitForTimeout(180);
+    assert.equal(calls.filter(c=>c.path==='/api/system/update/releases' && !c.query.includes('channel=beta')).length,stableCatalogBefore,
+      'installed Beta must not automatically download heavy Stable releases');
+    await page.locator('#topFreenetUpdate').click();
+    await page.locator('#fnVersionExactBeta').waitFor({state:'visible'});
+    assert.match(await page.locator('.fn-version-warning').textContent(), /Список опубликованных Beta недоступен/);
+    assert.equal(await page.locator('#fnVersionList .fn-version-release').count(),0,'failed Beta feed must not hallucinate releases');
+    const exactBefore = calls.filter(c=>c.path==='/api/system/update/plan' && c.query.includes('beta.30')).length;
+    const mutationsBefore = mutationPosts().length;
+    await page.locator('#fnVersionExactBeta').fill('v0.8.0-beta.00');
+    await page.getByRole('button',{name:'Проверить тег'}).click();
+    assert.match(await page.locator('#fnVersionDetail').textContent(),/Нужен точный тег/);
+    assert.equal(calls.filter(c=>c.path==='/api/system/update/plan' && c.query.includes('beta.30')).length,exactBefore);
+    await page.locator('#fnVersionExactBeta').fill('v0.8.0-beta.30');
+    await page.getByRole('button',{name:'Проверить тег'}).click();
+    await page.waitForFunction(() => document.querySelector('#fnVersionDetail')?.textContent.includes('Версия проверена'));
+    assert.equal(calls.filter(c=>c.path==='/api/system/update/plan' && c.query.includes('beta.30')).length,exactBefore+1,'exact Beta plan must be requested once');
+    assert.equal(mutationPosts().length,mutationsBefore,'exact Beta verification cannot mutate router');
+    assert.match(await page.locator('#fnVersionDetail').textContent(),/Проверено без применения/,'verified plan provides release notes');
+    assert.equal(await page.locator('.fn-version-channel.selected').textContent(),'Beta · тестовая','Beta failure may not switch to Stable');
     await runCurrentQualityUIContract({browser, base, root});
     assert.equal(errors.length,0,errors.join('\n'));
     console.log('PASS: shipped-page startup, explicit current/full scans, fresh-current retention, 3 comparison rows, CSS flags, RU exclusion, transactional apply reconciliation, exact-profile fallback and responsive layout.');

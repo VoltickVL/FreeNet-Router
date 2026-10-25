@@ -77,14 +77,17 @@ func TestTopbarUpdateAndSidebarContract(t *testing.T) {
 			t.Fatalf("topbar update must not own XKeen or restyle approved sidebar: %q", unwanted)
 		}
 	}
-	if strings.Count(s, "fetch('/api/system/update/releases?fresh=1'") != 1 {
-		t.Fatal("topbar version picker must issue one default Stable release-catalog request")
+	if !strings.Contains(s, "const initialChannel = betaTag(runtimeVersion) ? 'beta' : 'stable';") ||
+		!strings.Contains(s, "const url = initialChannel === 'beta'") ||
+		!strings.Contains(s, "'/api/system/update/releases?fresh=1'") {
+		t.Fatal("topbar picker must select Beta immediately on installed Beta and keep explicit Stable choice")
 	}
 	if (!strings.Contains(s, "option.id === 'beta'") && !strings.Contains(freenetUnifiedDesignCSS, "option.id === 'beta'")) || (!strings.Contains(s, "/api/system/update/releases?channel=beta&fresh=1") && !strings.Contains(freenetUnifiedDesignCSS, "/api/system/update/releases?channel=beta&fresh=1")) {
-		t.Fatal("Beta catalog must be fetched only when explicitly selected")
+		t.Fatal("Beta catalog must load only on installed Beta or explicit Beta selection")
 	}
-	if !strings.Contains(s, "fetch('/api/system/update/releases', {cache: 'no-store', signal: AbortSignal.timeout(15000)})") && !strings.Contains(freenetUnifiedDesignCSS, "fetch('/api/system/update/releases', {cache: 'no-store', signal: AbortSignal.timeout(15000)})") {
-		t.Fatal("background topbar polling must keep the cached release-catalog endpoint")
+	if !strings.Contains(s, "if (betaTag(runtimeVersion)) return;") ||
+		!strings.Contains(s, "fetch('/api/system/update/releases', {cache: 'no-store', signal: AbortSignal.timeout(15000)})") {
+		t.Fatal("Beta must skip the heavy background Stable catalog; Stable retains its normal polling")
 	}
 	if strings.Contains(s, "MutationObserver") {
 		t.Fatal("topbar/sidebar implementation must not introduce MutationObserver")

@@ -979,7 +979,9 @@
         ? 'Эта версия уже установлена.'
         : 'Версия проверена и готова к установке.';
       detail.append(title, text);
-      appendVersionReleaseNotes(detail, release);
+      // The compact official Atom feed deliberately omits heavy release
+      // bodies. The exact, SHA-verified plan supplies notes on selection.
+      appendVersionReleaseNotes(detail, {...release, release_notes: release.release_notes || p.release_notes || ''});
       if (p.update_available) {
         const action = document.createElement('button');
         action.type = 'button';
@@ -1095,10 +1097,25 @@
           ++versionSelectionToken;
           renderVersionManager(next);
         } catch (e) {
-          detail.className = 'fn-version-detail bad';
           const reason = e.name === 'TypeError'
-            ? 'нет связи с FreeNet — проверьте подключение и повторите открытие списка версий'
+            ? 'нет связи с FreeNet — проверьте подключение'
             : (e.name === 'TimeoutError' ? 'превышено время ожидания FreeNet' : (e.message || 'нет данных'));
+          if (option.id === 'beta') {
+            // A failed list must not silently become Stable or be presented as
+            // a verified release. Exact Beta tags are still SHA-checked by plan.
+            const fallback = {
+              channel: 'beta', current_version: catalog.current_version,
+              latest_version: '', releases: [], degraded: true,
+              warning: 'Список опубликованных Beta недоступен: ' + String(reason).slice(0, 140) +
+                '. Укажите точный Beta-тег ниже; FreeNet проверит release metadata и SHA-256 до разрешения установки.'
+            };
+            versionChannel = 'beta';
+            versionCatalog = fallback;
+            ++versionSelectionToken;
+            renderVersionManager(fallback);
+            return;
+          }
+          detail.className = 'fn-version-detail bad';
           detail.textContent = 'Канал не переключён: ' + reason + '. Текущая версия не меняется.';
         }
       });
@@ -1160,7 +1177,46 @@
       body.appendChild(warning);
     }
     if (degraded) body.append(degraded);
-    body.append(search, list, detail);
+    body.append(search, list);
+    if (channel === 'beta') {
+      // The Atom feed is intentionally limited to recent published releases.
+      // An older or missing entry may be selected only by an exact Beta tag
+      // and will remain disabled until official metadata/manifest validation.
+      const exact = document.createElement('div');
+      exact.className = 'fn-version-exact';
+      const label = document.createElement('label');
+      label.textContent = 'Точная Beta-версия вне списка';
+      label.setAttribute('for', 'fnVersionExactBeta');
+      const entry = document.createElement('input');
+      entry.id = 'fnVersionExactBeta';
+      entry.className = 'fn-version-search';
+      entry.type = 'text';
+      entry.autocomplete = 'off';
+      entry.spellcheck = false;
+      entry.placeholder = 'v0.8.0-beta.30';
+      entry.setAttribute('aria-label', 'Проверить точный Beta-тег');
+      const verify = document.createElement('button');
+      verify.type = 'button';
+      verify.className = 'btn secondary';
+      verify.textContent = 'Проверить тег';
+      const startExact = () => {
+        const tag = entry.value.trim();
+        if (!betaTag(tag)) {
+          ++versionSelectionToken;
+          detail.className = 'fn-version-detail bad';
+          detail.textContent = 'Нужен точный тег вида v0.8.0-beta.30. Никаких изменений не выполнено.';
+          return;
+        }
+        void selectVersionTarget({version: tag, prerelease: true}, detail);
+      };
+      verify.addEventListener('click', startExact);
+      entry.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); startExact(); }
+      });
+      exact.append(label, entry, verify);
+      body.append(exact);
+    }
+    body.append(detail);
     draw();
     if (latest) {
       const latestButton = list.querySelector(`.fn-version-release[data-version="${CSS.escape(latest.version || '')}"]`);
@@ -1170,7 +1226,9 @@
       detail.className = 'fn-version-detail ready';
       detail.textContent = channel === 'stable' && betaTag(catalog.current_version)
         ? 'Выберите Stable для добровольного возврата или перейдите на вкладку Beta.'
-        : 'Установлена актуальная версия FreeNet.';
+        : channel === 'beta' && !releases.length
+          ? 'Каталог недоступен. Введите точный Beta-тег и проверьте его без изменения устройства.'
+          : 'Установлена актуальная версия FreeNet.';
     }
   }
 
@@ -1187,14 +1245,38 @@
       closable: true,
       anchored: true
     });
+    let runtimeVersion = '';
     try {
-      const r = await fetch('/api/system/update/releases?fresh=1', {cache:'no-store'});
+      const vr = await fetch('/versionz', {cache:'no-store', signal: AbortSignal.timeout(3000)});
+      if (vr.ok) runtimeVersion = (await vr.text()).trim();
+    } catch (_) {}
+    // On an installed Beta, do not download a large Stable catalog first.
+    // Users still have an explicit Stable tab for intentional downgrades.
+    const initialChannel = betaTag(runtimeVersion) ? 'beta' : 'stable';
+    try {
+      const url = initialChannel === 'beta'
+        ? '/api/system/update/releases?channel=beta&fresh=1'
+        : '/api/system/update/releases?fresh=1';
+      const r = await fetch(url, {cache:'no-store', signal: AbortSignal.timeout(12000)});
       const catalog = await r.json().catch(() => ({}));
       if (!r.ok || !catalog.success || !Array.isArray(catalog.releases)) throw new Error(catalog.error || 'Каталог релизов недоступен');
       versionCatalog = catalog;
-      versionChannel = 'stable';
+      versionChannel = initialChannel;
       renderVersionManager(catalog);
     } catch (e) {
+      if (initialChannel === 'beta') {
+        const fallback = {
+          channel: 'beta', current_version: runtimeVersion,
+          latest_version: '', releases: [], degraded: true,
+          warning: 'Список опубликованных Beta недоступен: ' + String(e.message || 'тайм-аут').slice(0, 140) +
+            '. Укажите точный Beta-тег; FreeNet проверит официальные metadata и SHA-256.'
+        };
+        versionChannel = 'beta';
+        versionCatalog = fallback;
+        ++versionSelectionToken;
+        renderVersionManager(fallback);
+        return;
+      }
       qs('#fnModalBody').className = 'fn-modal-body';
       qs('#fnModalBody').textContent = e.message || 'Не удалось загрузить каталог версий.';
       modalStatus('Никаких изменений не выполнено.', 'bad');
@@ -1202,10 +1284,17 @@
   }
 
   async function refreshTopbarUpdateState() {
+    let runtimeVersion = '';
     try {
       const vr = await fetch('/versionz', {cache: 'no-store'});
-      if (vr.ok) renderTopbarVersion((await vr.text()).trim());
+      if (vr.ok) {
+        runtimeVersion = (await vr.text()).trim();
+        renderTopbarVersion(runtimeVersion);
+      }
     } catch (_) {}
+    // Stable/latest is not an update notification for an installed Beta.
+    // Avoid downloading a huge Stable list on every page load / 10-min timer.
+    if (betaTag(runtimeVersion)) return;
     try {
       if (typeof authAuthenticated !== 'undefined' && !authAuthenticated) return;
       const r = await fetch('/api/system/update/releases', {cache: 'no-store', signal: AbortSignal.timeout(15000)});

@@ -52,8 +52,12 @@ func TestReleaseCacheIsolatedByChannel(t *testing.T) {
  resetSelfUpdateReleaseCacheForTest()
  selfUpdateReleasesAPI="https://unit.test/releases"
  calls:=0
- selfUpdateReleaseDownload=func(context.Context,string,int64)([]byte,error) {
+ selfUpdateReleaseDownload=func(_ context.Context, rawURL string, limit int64)([]byte,error) {
   calls++
+  if strings.Contains(rawURL, "releases.atom") {
+   if limit!=selfUpdateBetaAtomBodyLimit {t.Fatalf("unbounded Beta feed: %d",limit)}
+   return []byte(betaAtomFixture),nil
+  }
   return []byte("[{\"tag_name\":\"v0.7.14\"},{\"tag_name\":\"v0.8.0-beta.1\",\"prerelease\":true}]"),nil
  }
  stable,err:=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.7.14",true,"stable")
@@ -67,8 +71,16 @@ func TestReleaseCacheIsolatedByChannel(t *testing.T) {
  selfUpdateReleaseCache.Lock()
  selfUpdateReleaseCache.at=selfUpdateReleaseCache.at.Add(-2*60*1000000000)
  selfUpdateReleaseCache.Unlock()
- _,err=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.7.14",true,"beta")
- if err!=nil || calls!=2 {t.Fatalf("expired fresh snapshot was not refreshed: requests=%d error=%v",calls,err)}
+ fresh,err:=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.7.14",true,"beta")
+ if err!=nil || calls!=2 || len(fresh)!=2 || fresh[0].Version!="v0.8.0-beta.29" {
+  t.Fatalf("expired Beta snapshot must refresh from compact published feed: %+v requests=%d error=%v",fresh,calls,err)
+ }
+ // Atom has no Stable snapshot. The next Stable request must use its own
+ // published REST/catalog path, not silently inherit the Beta release list.
+ stable,err=fetchSelfUpdateReleaseCatalogForChannel(context.Background(),"v0.7.14",true,"stable")
+ if err!=nil || calls!=3 || len(stable)!=1 || stable[0].Prerelease {
+  t.Fatalf("Beta feed leaked into Stable: %+v requests=%d error=%v",stable,calls,err)
+ }
 }
 
 func TestBetaUnavailableNeverFallsBackToStableLatest(t *testing.T) {
