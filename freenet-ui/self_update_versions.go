@@ -227,16 +227,16 @@ func fetchSelfUpdateReleaseCatalogForChannel(ctx context.Context, current string
 		return nil, errors.New("unknown FreeNet release channel")
 	}
 	selfUpdateReleaseCache.Lock()
-	// GitHub returns Stable and Beta in one response. Cache both filtered
-	// views from that snapshot, so channel switching does not repeat
-	// the remote download (important for unreliable router connections).
+	// Stable REST may cache both channels; a Beta Atom snapshot caches only
+	// Beta. Check the requested channel's cardinality, never the sum, or
+	// visiting Stable after Atom falsely appears cached but has no releases.
+	selected := selfUpdateReleaseCache.stable
+	if channel == "beta" {
+		selected = selfUpdateReleaseCache.beta
+	}
 	usable := selfUpdateReleaseCacheUsable(selfUpdateReleaseCache.at,
-		len(selfUpdateReleaseCache.stable)+len(selfUpdateReleaseCache.beta), forceFresh, time.Now())
+		len(selected), forceFresh, time.Now())
 	if usable {
-		selected := selfUpdateReleaseCache.stable
-		if channel == "beta" {
-			selected = selfUpdateReleaseCache.beta
-		}
 		cached := append([]selfUpdateRelease(nil), selected...)
 		selfUpdateReleaseCache.Unlock()
 		if len(cached) == 0 {
