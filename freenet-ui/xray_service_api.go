@@ -33,6 +33,7 @@ func registerXrayServiceAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("POST /api/xray/service", a.requireAuth(a.handleXrayServicePost))
 	mux.HandleFunc("GET /api/xray/core/catalog", a.requireAuth(a.handleXrayCoreCatalog))
 	mux.HandleFunc("POST /api/xray/core/apply", a.requireAuth(a.handleXrayCoreApply))
+	mux.HandleFunc("GET /api/xray/core/operation", a.requireAuth(a.handleXrayCoreOperationGet))
 }
 
 func xrayServiceEvents(limit int) []automationEvent {
