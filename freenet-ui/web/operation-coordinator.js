@@ -1446,3 +1446,110 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once:true});
   else install();
 })();
+
+
+// Issue #1225: explicit, browser-side read-only HTTPS body transfer diagnostics.
+// Deliberately no secret, endpoint, VPN config, telemetry upload or API mutation.
+// An HTTPS transfer is NOT evidence that Instagram/Telegram video plays.
+(() => {
+  const SAMPLE_BYTES = 1048576;
+  const SAMPLE_COUNT = 6;
+  const TIMEOUT_MS = 12000;
+  const DIAGNOSTIC_URL = 'https://speed.cloudflare.com/__down?bytes=1048576';
+  let running = false;
+  let cancelCurrent = null;
+
+  async function sample() {
+    const controller = new AbortController();
+    cancelCurrent = () => controller.abort();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const started = performance.now();
+    let received = 0;
+    try {
+      const response = await fetch(DIAGNOSTIC_URL, {
+        method: 'GET', mode: 'cors', credentials: 'omit', redirect: 'error',
+        cache: 'no-store', referrerPolicy: 'no-referrer', signal: controller.signal
+      });
+      if (!response.ok || !response.body) return {kind: 'unknown', bytes: 0};
+      const reader = response.body.getReader();
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        received += chunk.value?.byteLength || 0;
+        if (received > SAMPLE_BYTES) {
+          await reader.cancel();
+          return {kind: 'unknown', bytes: received};
+        }
+      }
+      if (received !== SAMPLE_BYTES) return {kind: 'partial', bytes: received};
+      return {kind: 'complete', bytes: received, seconds: (performance.now() - started) / 1000};
+    } catch (error) {
+      // Abort means timeout/cancel, other failures may be CORS, DNS or HTTPS;
+      // never claim that the VPN or app is down from an unclassified error.
+      return {kind: controller.signal.aborted ? 'abort' : 'unknown', bytes: received};
+    } finally {
+      clearTimeout(timeout);
+      cancelCurrent = null;
+    }
+  }
+
+  function install() {
+    const panel = document.querySelector('.vpn-current-panel');
+    if (!panel || document.getElementById('freenetClientTransferDiagnostic')) return;
+    const root = document.createElement('section');
+    root.id = 'freenetClientTransferDiagnostic';
+    root.className = 'freenet-client-transfer';
+    root.setAttribute('aria-label', 'Проверка HTTPS-загрузки на этом устройстве');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'btn secondary';
+    button.id = 'freenetClientTransferCheck';
+    button.textContent = 'Проверить передачу данных';
+    const info = document.createElement('p');
+    info.className = 'hint';
+    info.textContent = 'По нажатию: 6 HTTPS-загрузок по 1 МиБ с публичного тестового узла. Без переключения VPN. Это не проверка видео Instagram или Telegram.';
+    const output = document.createElement('div');
+    output.id = 'freenetClientTransferResult';
+    output.className = 'freenet-client-transfer-result';
+    output.setAttribute('role', 'status');
+    output.setAttribute('aria-live', 'polite');
+    output.textContent = 'Не запускалась';
+    root.append(button, info, output);
+    panel.appendChild(root);
+
+    button.addEventListener('click', async () => {
+      if (running) {
+        if (cancelCurrent) cancelCurrent();
+        return;
+      }
+      running = true;
+      button.textContent = 'Прервать проверку';
+      let completed = 0, partial = 0, unknown = 0, aborted = 0;
+      const durations = [];
+      try {
+        for (let i = 0; i < SAMPLE_COUNT; i++) {
+          output.textContent = 'HTTPS-загрузка: проба ' + (i + 1) + ' из ' + SAMPLE_COUNT + '…';
+          const result = await sample();
+          if (result.kind === 'complete') { completed++; durations.push(result.seconds); }
+          else if (result.kind === 'partial') partial++;
+          else if (result.kind === 'abort') {
+            // A click to stop sets the same abort signal as a timeout; both
+            // are incomplete and never counted as a successful transfer.
+            aborted++;
+          } else unknown++;
+        }
+      } finally {
+        running = false;
+        button.textContent = 'Проверить передачу данных';
+        const fastest = durations.length ? Math.min(...durations).toFixed(1) : '—';
+        const slowest = durations.length ? Math.max(...durations).toFixed(1) : '—';
+        output.textContent = 'Полностью: ' + completed + '/' + SAMPLE_COUNT +
+          ' · неполные: ' + partial + ' · timeout/прерывание: ' + aborted +
+          ' · неизвестно: ' + unknown + ' · время полных: ' + fastest + '–' + slowest +
+          ' с. Результат относится только к тестовой HTTPS-загрузке, не к работе приложений или видеопотока.';
+      }
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', install, {once: true});
+  else install();
+})();
