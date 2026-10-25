@@ -255,12 +255,28 @@ module.exports = async function runCurrentQualityUIContract({browser, base, root
     assert.doesNotMatch(unknown.caption, /0(?:\.0)? Мбит|ошиб|критери|из 4/i);
     const failed = result({identity:identities[2],address:nextEndpoint,time:times[6],speed:0,saved:display(31.4,times[4],true)});
     failed.available = false;
-    failed.candidates[0] = {...failed.candidates[0],available:false,reachable:false,application_rtt_ms:0,vpn_rtt_ms:0};
+    // Real Portable beta34: production Xray online; TCP endpoint replies,
+    // but the isolated HTTPS probe fails and retains only historical speed.
+    failed.candidates[0] = {...failed.candidates[0],available:false,reachable:true,tcp_rtt_ms:149,application_rtt_ms:0,vpn_rtt_ms:0};
     view.state.manualResult = failed;
     await view.manual();
     assert.equal((await view.snapshot()).speed, '31.4 Мбит/с', 'failed latest connectivity can retain only the separate historical measurement');
     assert.equal((await view.snapshot()).measuredAt, times[4]);
-    assert.equal(await view.page.locator('#bestCurrentHealth').textContent(), 'Интернет через VPN недоступен.', 'retained speed must not hide actual route failure');
+    assert.equal(await view.page.locator('#bestCurrentHealth').textContent(),
+      'HTTPS-проверка через VPN не прошла. Это не доказывает отключение VPN.',
+      'inconclusive current probe does not prove production VPN is disconnected');
+    assert.equal(await view.page.locator('#bestCurrentHealth').evaluate(n => n.classList.contains('warning')), true,
+      'unknown QoE is an amber diagnostic warning, not outage');
+    await view.page.waitForFunction(() => document.querySelector('#bestCurrentConnection')?.textContent === '● Проверка не прошла');
+    assert.match(await view.page.locator('#topStatus').textContent(), /Xray запущен/,
+      'topbar must distinguish process-health from unverified application route');
+    await view.status({xray_online:false});
+    assert.equal(await view.page.locator('#bestCurrentHealth').evaluate(n => n.classList.contains('offline')), true,
+      'when production Xray really stops, offline still overrides the diagnostic warning');
+    assert.equal(await view.page.locator('#bestCurrentConnection').textContent(), '● Xray остановлен');
+    await view.status({xray_online:true});
+    assert.equal(await view.page.locator('#bestCurrentHealth').evaluate(n => n.classList.contains('warning')), true,
+      'restoring production Xray does not silently convert a failed probe to PASS');
     await view.status({country:'',country_code:'',city:'',profile_label:'Профиль без кода страны'});
     assert.equal((await view.snapshot()).speed, '31.4 Мбит/с', 'status events without a flag do not change quality identity');
   } finally {
