@@ -56,6 +56,10 @@ func (a *app) runXrayCoreUpdateDetached(target string, release func()) <-chan xr
 			state = "ROLLED_BACK"
 		case result.Rollback == "FAILED":
 			state = "STOP"
+			// Persist the system-wide mutation latch as well: a failed Xray
+			// rollback must fence AUTO, Xray control and further VPN changes,
+			// including after a FreeNet daemon restart.
+			setAutomationMutationBlocked(true)
 		}
 		setXrayCoreOperationStatus(xrayCoreOperationStatus{
 			State: state, TargetVersion: target, Result: &result,
