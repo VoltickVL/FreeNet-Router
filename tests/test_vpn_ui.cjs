@@ -472,9 +472,16 @@ const server = http.createServer((req,res)=>{
     bestMode='winner';
     mode='dead';
     await currentCheck();
-    assert.match(await page.locator('#bestCurrentHealth').textContent(),/Интернет через VPN недоступен/);
-    await page.waitForFunction(()=>document.querySelector('#bestCurrentConnection')?.textContent.includes('VPN не работает'));
-    assert.equal(await page.locator('#bestCurrentConnection').textContent(),'● VPN не работает');
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentHealth')?.classList.contains('warning'));
+    assert.match(await page.locator('#bestCurrentHealth').textContent(),/HTTPS-проверка через VPN не прошла/);
+    assert.doesNotMatch(await page.locator('#bestCurrentHealth').textContent(),/Интернет через VPN недоступен|VPN не работает/,
+      'a failed diagnostic alone is not production VPN outage evidence');
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentConnection')?.textContent.includes('Проверка не прошла'));
+    assert.equal(await page.locator('#bestCurrentConnection').textContent(),'● Проверка не прошла');
+    assert.equal(await page.locator('#bestCurrentConnection').evaluate(node=>node.classList.contains('warning')),true,
+      'live Xray with failed HTTPS probe uses warning, not offline');
+    assert.match(await page.locator('#topStatus').textContent(),/Xray запущен/,
+      'process-only topbar must not claim successful end-to-end VPN connectivity');
     mode='ok';
     await currentCheck();
     assert.match(await page.locator('#bestCurrentMetrics').textContent(),/Скорость VPN/);
@@ -483,6 +490,9 @@ const server = http.createServer((req,res)=>{
     await page.evaluate(()=>loadStatus());
     await page.waitForFunction(()=>document.querySelector('#bestCurrentHealth')?.classList.contains('offline'));
     assert.match(await page.locator('#bestCurrentHealth').textContent(),/VPN сейчас не подключен/);
+    await page.waitForFunction(() => document.querySelector('#bestCurrentConnection')?.textContent === '● Xray остановлен');
+    assert.equal(await page.locator('#bestCurrentConnection').textContent(),'● Xray остановлен',
+      'authoritative production Xray offline must remain a genuine offline status after the browser render frame');
     assert.doesNotMatch(await page.locator('#bestCurrentHealth').textContent(),/работает стабильно/,'live offline state must override cached green quality');
     status={...status,xray_online:true};
     await page.evaluate(()=>loadStatus());

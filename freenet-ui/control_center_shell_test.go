@@ -138,7 +138,7 @@ func TestDashboardUsesUserFacingHealthLabels(t *testing.T) {
 		t.Fatal(err)
 	}
 	ui := string(data)
-	for _, want := range []string{"VPN работает", "DNS защищён", "XKeen работает", "FreeNet готов"} {
+	for _, want := range []string{"Xray запущен", "DNS защищён", "XKeen работает", "FreeNet готов"} {
 		if !strings.Contains(ui, want) && !strings.Contains(freenetUnifiedDesignCSS, want) {
 			t.Fatalf("dashboard health label missing %q", want)
 		}

@@ -12,7 +12,7 @@ func TestControlCenterRuntimeStateUXContract(t *testing.T) {
 	}
 	ui := string(data)
 	for _, required := range []string{
-		"VPN работает",
+		"Xray запущен",
 		"DNS защищён",
 		"XKeen работает",
 		"FreeNet готов",

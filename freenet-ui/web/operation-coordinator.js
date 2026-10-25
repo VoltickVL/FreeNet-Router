@@ -246,9 +246,11 @@
   function dnsLabel(status) { return status && status.dns_mode === 'xkeen' ? 'Раздельный' : 'Прямой'; }
   function healthState(status) {
     if (!status) return {healthy: false, label: 'Проверяем состояние'};
-    if (!status.xray_online) return {healthy: false, label: 'VPN не работает'};
+    // A running production Xray process is not evidence that websites or
+    // uploads work through its routing policy. Keep process and QoE distinct.
+    if (!status.xray_online) return {healthy: false, label: 'Xray остановлен'};
     if (status.dns_mode === 'xkeen' && !status.dns_out_present) return {healthy: false, label: 'DNS требует внимания'};
-    return {healthy: true, label: status.dns_mode === 'xkeen' ? 'VPN + DNS OK' : 'VPN OK · DNS: Прямой'};
+    return {healthy: true, label: status.dns_mode === 'xkeen' ? 'Xray запущен · DNS: Раздельный' : 'Xray запущен · DNS: Прямой'};
   }
 
   function flagClass(code) {
@@ -458,8 +460,11 @@
       return;
     }
     if (candidate.tested && candidate.available === false) {
-      box.className = 'current-health offline';
-      box.textContent = 'Интернет через VPN недоступен.';
+      // A failed isolated SOCKS/HTTPS diagnostic does not prove that the
+      // production VPN is disconnected: on Portable the current endpoint
+      // was reachable over TCP while that separate diagnostic timed out.
+      box.className = 'current-health warning';
+      box.textContent = 'HTTPS-проверка через VPN не прошла. Это не доказывает отключение VPN.';
     } else if (candidate.available === true) {
       box.className = 'current-health';
       box.textContent = 'VPN работает.';
@@ -1241,12 +1246,18 @@
       badge.className = 'fn-current-connected';
       current.appendChild(badge);
     }
-    let online = true;
-    try { if (typeof lastStatus !== 'undefined' && lastStatus) online = !!lastStatus.xray_online; } catch (_) {}
-    const applicationFailed = !!q('#bestCurrentHealth')?.classList.contains('offline');
-    online = online && !applicationFailed;
-    badge.classList.toggle('offline', !online);
-    badge.textContent = online ? '● Подключен' : applicationFailed ? '● VPN не работает' : '● Нет соединения';
+    let xrayOnline = null;
+    try { if (typeof lastStatus !== 'undefined' && lastStatus && typeof lastStatus.xray_online === 'boolean') xrayOnline = lastStatus.xray_online; } catch (_) {}
+    const checkWarning = !!q('#bestCurrentHealth')?.classList.contains('warning');
+    const confirmedByProbe = !!q('#bestCurrentHealth')?.classList.contains('current-health') &&
+      !checkWarning && !!q('#bestCurrentHealth')?.textContent?.includes('VPN работает.');
+    const offline = xrayOnline === false;
+    badge.classList.toggle('offline', offline);
+    badge.classList.toggle('warning', xrayOnline !== false && checkWarning);
+    badge.textContent = offline ? '● Xray остановлен' :
+      checkWarning ? '● Проверка не прошла' :
+      xrayOnline !== true ? '● Статус проверяется' :
+      confirmedByProbe ? '● VPN проверен' : '● Xray запущен';
   }
 
   function incompleteCard(row) {

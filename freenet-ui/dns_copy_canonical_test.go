@@ -40,7 +40,7 @@ func TestDNSUserFacingCopyIsCanonical(t *testing.T) {
 		},
 		"web/operation-coordinator.js": {
 			"? 'Раздельный' : 'Прямой'",
-			"VPN OK · DNS: Прямой",
+			"Xray запущен · DNS: Прямой",
 		},
 		"web/routing-v2.js": {
 			"DNS: Прямой",
