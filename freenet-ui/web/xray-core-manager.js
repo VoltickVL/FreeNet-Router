@@ -648,7 +648,10 @@
         box.className = 'xcm-result bad stop';
         box.textContent = 'Xray обновлён, но текущее состояние Control Center недоступно. Перепроверьте соединение.';
         target.appendChild(box);
-        addButton(footer, 'Проверить состояние', 'primary', () => openManager());
+        addButton(footer, 'Проверить состояние', 'primary', async () => {
+          try { await renderCoreUpdateReceipt(receipt.target_version); }
+          catch (_) { box.textContent = 'Квитанция и состояние Xray временно недоступны. Повторное изменение запрещено.'; }
+        });
         addButton(footer, 'Закрыть', '', closeManager);
       }
       return true;
