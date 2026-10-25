@@ -240,7 +240,7 @@
   }
 
   function extraCard(key, icon, title, description, verb, actionLabel) {
-    return `<article class="fn3-extra-card fn3-section-collapsed"><div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="false" aria-label="${title}: скрыть или раскрыть"><span class="fn3-extra-icon">${svg(icon)}</span><div><h3>${title}</h3><p>${description}</p></div><label class="fn3-switch"><input id="fn3_${key}_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_${key}_interval">${verb}</label><select id="fn3_${key}_interval"></select></div><div class="fn3-extra-meta"><span>Последняя проверка</span><b id="fn3_${key}_last">—</b><span>Следующая проверка</span><b id="fn3_${key}_next">—</b></div><button class="btn secondary fn3-extra-action" type="button" data-v3-action="${key}">${svg('refresh')}${actionLabel}</button></article>`;
+    return `<article class="fn3-extra-card fn3-section-collapsed"><div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="false" aria-label="${title}: скрыть или раскрыть"><span class="fn3-extra-icon">${svg(icon)}</span><div><h3>${title}</h3><p>${description}</p></div><label class="fn3-switch"><input id="fn3_${key}_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_${key}_interval">${verb}</label><select id="fn3_${key}_interval"></select></div><div class="fn3-extra-meta"><span>Последняя проверка</span><b id="fn3_${key}_last">—</b><span>Следующая проверка</span><b id="fn3_${key}_next">—</b></div><button class="btn secondary fn3-extra-action" type="button" data-v3-action="${key}">${svg('refresh')}<span>${actionLabel}</span></button>${key === 'geodata' ? '<div id="fn3_geodata_operation" class="fn3-sub" role="status" aria-live="polite" hidden></div>' : ''}</article>`;
   }
 
   function backupCard() {
@@ -573,9 +573,118 @@
     finally { state.saving = false; renderSave(); }
   }
 
+  // GeoData is a separate, bounded background operation on the router.
+  // Never await xkeen -ug on the HTTPS request used by the browser.
+  let geoDataStarting = false;
+  let geoDataPolling = false;
+  function displayGeoDataOperation(message, busy = false, failed = false) {
+    const note = q('#fn3_geodata_operation');
+    const button = q('[data-v3-action="geodata"]');
+    if (note) {
+      note.hidden = !message;
+      note.textContent = message || '';
+      note.style.color = failed ? 'var(--danger, #efaaaa)' : '';
+    }
+    if (button) {
+      button.disabled = busy || geoDataStarting;
+      const label = q('span', button);
+      if (label) label.textContent = busy ? 'Обновляется…' : 'Обновить сейчас';
+    }
+  }
+
+  async function pollGeoDataOperation(expectedId = '') {
+    if (geoDataPolling) return;
+    geoDataPolling = true;
+    try {
+      // One server-side run is capped at 12 minutes; polling adds a bounded
+      // allowance for slow browser/network responses without a second POST.
+      const deadline = Date.now() + 14 * 60 * 1000;
+      for (;;) {
+        const data = await fetchJSON('/api/settings-v3/geodata-operation', {cache:'no-store'});
+        const op = data.operation;
+        if (expectedId && op && op.id !== expectedId) {
+          displayGeoDataOperation('Состояние обновления изменилось. Не запускайте повторно до проверки журнала.', false, true);
+          break;
+        }
+        if (data.active) {
+          displayGeoDataOperation('XKeen обновляет GeoData на роутере. Текущий VPN не переключается; можно закрыть страницу.', true);
+        } else if (!op) {
+          // The daemon may have restarted. Never present a missing in-memory
+          // receipt as success and never re-POST an uncertain operation.
+          if (expectedId) displayGeoDataOperation('Результат обновления не подтверждён. Проверьте журнал и состояние Xray.', false, true);
+          break;
+        } else if (op.state === 'success') {
+          displayGeoDataOperation(op.message || 'GeoData обновлены и проверены.', false);
+          await load();
+          break;
+        } else if (op.state === 'failed') {
+          displayGeoDataOperation(op.error || 'Обновление GeoData не подтверждено. Проверьте журнал.', false, true);
+          await load();
+          break;
+        } else {
+          displayGeoDataOperation('GeoData: статус неизвестен; повторный запуск заблокирован до диагностики.', false, true);
+          break;
+        }
+        if (Date.now() > deadline) {
+          displayGeoDataOperation('Нет подтверждения завершения. Операция может продолжаться на роутере; не запускайте её повторно.', false, true);
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 1800));
+      }
+    } catch (_) {
+      displayGeoDataOperation('Связь со статусом GeoData прервана. Обновление может продолжаться на роутере; проверьте журнал перед повтором.', false, true);
+    } finally {
+      geoDataPolling = false;
+      const button = q('[data-v3-action="geodata"]');
+      if (button) button.disabled = geoDataStarting;
+    }
+  }
+
+  async function startGeoDataOperation() {
+    if (geoDataStarting || geoDataPolling) return;
+    geoDataStarting = true;
+    displayGeoDataOperation('Запускаем штатное обновление XKeen…', true);
+    try {
+      const data = await fetchJSON('/api/settings-v3/action', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'geodata_update'})
+      });
+      if (!data.operation || !data.operation.id) {
+        displayGeoDataOperation('FreeNet не подтвердил запуск GeoData. Не запускайте повторно до проверки журнала.', false, true);
+        return;
+      }
+      geoDataStarting = false;
+      await pollGeoDataOperation(data.operation.id);
+    } catch (err) {
+      displayGeoDataOperation('Запуск GeoData не подтверждён: ' + err.message + '. Проверьте журнал перед повтором.', false, true);
+    } finally {
+      geoDataStarting = false;
+      const button = q('[data-v3-action="geodata"]');
+      if (button && !geoDataPolling) button.disabled = false;
+    }
+  }
+
+  async function resumeGeoDataOperation() {
+    if (geoDataStarting || geoDataPolling) return;
+    try {
+      const status = await fetchJSON('/api/settings-v3/geodata-operation', {cache:'no-store'});
+      if (status.active) {
+        void pollGeoDataOperation(status.operation?.id || '');
+      } else if (status.operation?.state === 'failed') {
+        displayGeoDataOperation(status.operation.error || 'Обновление GeoData не подтверждено.', false, true);
+      } else if (status.operation?.state === 'success') {
+        displayGeoDataOperation(status.operation.message || 'GeoData обновлены.', false);
+      }
+    } catch (_) {
+      // The normal Settings snapshot and Journal remain available; never
+      // infer failure or initiate a new mutation because status is offline.
+    }
+  }
+
   async function action(name) {
     const actionMap = {subscription:'subscription_check',geodata:'geodata_update',freenet:'freenet_check'};
     const action = actionMap[name] || name;
+    if (action === 'geodata_update') { await startGeoDataOperation(); return; }
     try {
       if (action === 'backup_restore') {
         const latest = state.data?.backup_info?.latest || '';
@@ -780,7 +889,7 @@
       window.setPage = foldedSetPage;
     }
     document.dispatchEvent(new CustomEvent('freenet:settings-v3-mounted'));
-    bind(); load();
+    bind(); load(); void resumeGeoDataOperation();
     return true;
   }
 
