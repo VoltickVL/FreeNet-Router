@@ -128,7 +128,7 @@ func TestBestServerDoesNotShowUnverifiedServiceClaimsInOverview(t *testing.T) {
 	for _, required := range []string{
 		"metricPill('Скорость VPN'", "metricPill('Отклик сайтов'",
 		"metricPill('VPN-пинг'", "metricPill('Стабильность'",
-		"publicRejections(candidate,", "reasons.filter(reason => !/^Проверки сайтов:",
+		"publicRejections(candidate,", "candidate.rejections.filter(reason => !/^Проверки сайтов:",
 		"row.dataset.qoeReachabilityComplete", "row.dataset.qoeReachabilityComplete === 'true'",
 		"originals.textContent = diagnostics.join(' · ');",
 		"if (hint) name.title = hint;",
