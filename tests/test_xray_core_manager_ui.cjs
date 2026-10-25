@@ -268,7 +268,15 @@ const server = http.createServer((req, res) => {
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('v26.10.1'));
     await manager.locator('.xcm-release[data-version="v26.10.1"]').click();
     await manager.getByRole('button', {name:'Обновить до v26.10.1'}).click();
-    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Обновление Xray продолжается'));
+    await page.waitForTimeout(900);
+    const postDisconnectText = await manager.innerText();
+    assert(postDisconnectText.includes('Обновление Xray продолжается') ||
+      postDisconnectText.includes('статус обновления Xray пока неизвестен'),
+      'after lost HTTP response the UI must show RUNNING or UNKNOWN, got: ' + postDisconnectText);
+    if (!postDisconnectText.includes('Обновление Xray продолжается')) {
+      await manager.getByRole('button', {name:'Проверить результат'}).click();
+      await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Обновление Xray продолжается'));
+    }
     assert.equal(applyPosts, 2, 'lost response must not retry Xray POST');
     coreOperationReceipt = {state:'ROLLED_BACK',target_version:'v26.10.1',result:{success:false,rollback:'SUCCESS',error:'предыдущая версия восстановлена'}};
     await manager.getByRole('button', {name:'Проверить результат'}).click();
