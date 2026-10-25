@@ -500,7 +500,7 @@ const server = http.createServer((req,res)=>{
     assert.equal(await page.locator('.vpn-option-apply').count(),0,'ineligible candidates must never become apply choices');
     assert.equal(await page.locator('.vpn-option-retry').count(),2,'rejected candidates may only be checked again safely');
     assert.match(await page.locator('#bestServerResult .vpn-rejected-diagnostics').textContent(),/Скорость ниже 20|Отклик сайтов выше 220 мс/,'safe reasons must explain why measured candidates were rejected');
-    assert.doesNotMatch(await page.locator('#bestServerShell').innerText(), /ChatGPT HTTPS|Instagram|Telegram|Сервисы\\s+\\d+\\/\\d+|Проверки сайтов:\\s*\\d+\\/\\d+/i, 'rejected diagnostics must not expose unverified application or site HEAD verdicts');
+    assert.doesNotMatch(await page.locator('#bestServerShell').innerText(), /ChatGPT HTTPS|Instagram|Telegram|Сервисы\s+\d+\/\d+|Проверки сайтов:\s*\d+\/\d+/i, 'rejected diagnostics must not expose unverified application or site HEAD verdicts');
     assert.equal(await page.locator('.best-v4-chatgpt').count(), 0, 'retired ChatGPT diagnostic may not render in any candidate state');
     assert.match(await page.locator('#bestServerStatus').textContent(),/Найдено 0 из 3 подходящих/,'rejected rows must never inflate a genuine zero Eligible result');
     assert.equal(await page.locator('#bestServerEmpty').isHidden(),true,'diagnostics replace a misleading empty state without enabling a recommendation');
@@ -538,7 +538,7 @@ const server = http.createServer((req,res)=>{
     assert.equal(mutationPosts().length,0,'checks never mutate VPN');
     assert.equal(await page.locator('.vpn-option').count(),3,'show up to three distinct measured foreign comparisons');
     assert.equal(await page.locator('#bestCurrentMetrics .best-v4-pill').count(),4,'current VPN retains four measured metrics');
-    assert.doesNotMatch(await page.locator('#bestServerShell').innerText(), /ChatGPT HTTPS|Instagram|Telegram|Сервисы\\s+\\d+\\/\\d+|Проверки сайтов:\\s*\\d+\\/\\d+/i, 'user sees actual VPN metrics, not named app claims or an aggregate HEAD verdict');
+    assert.doesNotMatch(await page.locator('#bestServerShell').innerText(), /ChatGPT HTTPS|Instagram|Telegram|Сервисы\s+\d+\/\d+|Проверки сайтов:\s*\d+\/\d+/i, 'user sees actual VPN metrics, not named app claims or an aggregate HEAD verdict');
     assert.equal(await page.locator('.best-v4-chatgpt').count(),0,'no ChatGPT status is shown even when HTTPS returned 200/403/503/unknown');
     assert.match(await page.locator('#bestServerReason').textContent(),/VPN доступен/,'eligible VPN keeps an honest connectivity label');
     assert.equal(await page.locator('#fnVpnPickerV2Toggle').isVisible(),true,'manual choice is always available through the stable topbar selector');
