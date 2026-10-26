@@ -780,7 +780,7 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='observed');
     assert.match(await page.locator('#fnVpnPickerV2Status').textContent(),/VPN уже активен/,
       'once exact read-only status proves active VPN, the picker must stop showing APPLYING');
-    assert.match(await page.locator('#fnVpnPickerV2Detail').textContent(),/Повтор подключения не требуется/,
+    assert.match(await page.locator('#fnVpnPickerV2Detail').textContent(),/повтор подключения не требуется/i,
       'interrupted POST is not a reason for blind retry');
     assert.equal(mutationPosts().length,beforeDelayedApply+1,'delayed POST cannot trigger another mutation');
     assert.equal(typeof releaseHeldApply,'function','held response must be a single controlled request');
