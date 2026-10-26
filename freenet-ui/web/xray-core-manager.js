@@ -403,8 +403,14 @@
         diagnosticButton.disabled = false;
       }
     });
-    target.appendChild(diagnosticButton);
-    target.appendChild(diagnosticResult);
+    // Advanced diagnosis stays available without becoming a compulsory
+    // step or consuming the version selector's main screen space.
+    const advanced = document.createElement('details');
+    advanced.className = 'xcm-advanced-diagnostic';
+    const advancedSummary = document.createElement('summary');
+    advancedSummary.textContent = 'Дополнительно: диагностика Xray';
+    advanced.append(advancedSummary, diagnosticButton, diagnosticResult);
+    target.appendChild(advanced);
 
     const search = document.createElement('input');
     search.type = 'search';
