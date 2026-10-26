@@ -16,7 +16,10 @@
     noMatch:'Ничего не найдено. Измените запрос.', stale:'Показан последний успешный список.',
     busy:'Другая операция VPN ещё выполняется.', blocked:'Результат нужно подтвердить. Повтор заблокирован.',
     ping:'Измерить задержку через каждый VPN', pinging:'Проверяем задержку через каждый VPN…', pingFailed:'RTT серверов не получен. Соединение не менялось.', pingBusy:'AUTO VPN или другая проверка заняты. Повторите измерение через несколько минут.',
-    pingCatalogChanged:'Список VPN изменился во время проверки. Нажмите ↻ ещё раз.'
+    pingCatalogChanged:'Список VPN изменился во время проверки. Нажмите ↻ ещё раз.',
+    observed:'Выбранный VPN уже активен', observing:'Роутер переключился на этот профиль. Ожидаем окончательное подтверждение FreeNet; повтор подключения не требуется.',
+    verified:'Профиль активен на роутере. Работу приложений на клиентах нужно проверять отдельно.',
+    unverified:'Операция завершилась без подтверждения выбранного профиля. Повтор автоматически не запускается.'
   };
   const countries = (() => { try { return new Intl.DisplayNames(['ru'], {type:'region'}); } catch (_) { return null; } })();
   const english = (() => { try { return new Intl.DisplayNames(['en'], {type:'region'}); } catch (_) { return null; } })();
@@ -179,6 +182,17 @@
     summary.dataset.vpnOrder = 'xray-vpn-dns-freenet';
   }
   function busy() { const s=runtime(); return choosing || engine().applying || q('#bestServerShell')?.getAttribute('aria-busy') === 'true' || !!(s?.busy || s?.updater_busy); }
+  function selectedStatusEvidence(s, profile) {
+    if (!s || !profile || s.xray_online !== true || s.busy !== false || s.updater_busy !== false) return false;
+    if (!s.endpoint || s.endpoint !== profile.endpoint) return false;
+    // Shared IP:port is NOT a profile identity: Prague, Paris and other Extra
+    // locations may point to the same server. Require the exact current label.
+    const statusName = normalize(clean(s.profile_label));
+    const selectedName = normalize(clean(profile.name));
+    if (!statusName || !selectedName || statusName !== selectedName) return false;
+    const statusCode = codeOf({country_code:s.country_code,profile_label:s.profile_label});
+    return !profile.country_code || !statusCode || statusCode === profile.country_code;
+  }
   function uncertain(e) { return /ROLLBACK_FAILED|ROLLBACK_UNKNOWN|FAILED_UNKNOWN|\bUNKNOWN\b/.test(e.note + ' ' + e.title); }
   function canConnect(e=engine()) { return !!(selected && selected.id===e.id && e.ready && e.card?.classList.contains('is-ready') && e.button && !e.button.disabled && !sent && !busy() && !rttScanning && !uncertain(e)); }
   async function choose(profile) {
@@ -340,11 +354,20 @@
     text(currentName,id.country); text(currentCopy,id.label); text(badge,online?L.connected:s?.xray_online===false?L.offline:L.unknown); badge.dataset.online=String(online);
     let state='idle', title=L.idle, note=L.unchanged;
     if (selected) {
+      const observed = sent && selectedStatusEvidence(s, selected);
+      const engineError = !!(error || e.card?.classList.contains('is-error') || uncertain(e));
       if (choosing || e.card?.classList.contains('is-checking')) {state='checking';title=L.checking;note=clean(selected.name);}
+      else if (observed && (e.applying || engineError)) {
+        // An interrupted/hung POST may leave the old engine in APPLYING even
+        // though a fresh read-only /api/status already shows the exact target.
+        // Report the observed router state, not an invented terminal receipt.
+        state='observed';title=L.observed;note=engineError?(e.note || L.observing):L.observing;
+      }
+      else if (observed) {state='success';title=L.connected;note=L.verified;}
       else if (e.applying) {state='applying';title=L.applying;note=clean(selected.name);}
-      else if (sent && !e.id && online && s.endpoint===selected.endpoint) {state='success';title=L.connected;note=clean(selected.name);}
       else if (error || e.card?.classList.contains('is-error')) {state='error';title=uncertain(e)?L.blocked:L.failed;note=error || e.note || e.title;}
       else if (canConnect(e)) {state='ready';title=L.ready;note=clean(selected.name);}
+      else if (sent && s?.busy === false && s?.updater_busy === false) {state='error';title=L.blocked;note=e.note || L.unverified;}
       else if (sent) {state='applying';title=L.applying;note=e.note || L.blocked;}
     } else if (busy()) {title=L.busy;}
     footer.dataset.state=state; text(statusText,title); text(detail,note);
