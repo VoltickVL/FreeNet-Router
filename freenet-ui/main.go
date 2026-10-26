@@ -251,6 +251,7 @@ func main() {
 	mux.HandleFunc("POST /api/network-profile/apply", a.requireAuth(a.handleNetworkProfileApply))
 	registerVPNOutboundDoctor(mux, a)
 	registerVPNTransactionDoctor(mux, a)
+	registerXrayCoreReadOnlyDiagnostic(mux, a)
 	registerDNSPathTrace(mux, a)
 	registerGeoDataAPI(mux, a)
 	mux.HandleFunc("GET /api/subscription", a.requireAuth(a.handleSubscriptionGet))

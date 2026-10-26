@@ -284,12 +284,27 @@
       'xray-live-config-unavailable': 'Рабочий каталог Xray недоступен.',
       'xray-live-config-path-unavailable': 'Не подтверждён путь к рабочей конфигурации Xray.',
       'xray-live-test-timeout': 'Проверка текущего Xray завершилась по тайм-ауту.',
+      'xray-live-test-idle': 'Проверка Xray не продвигалась по CPU к исходному сроку: безопасный STOP.',
+      'xray-live-test-progress-timeout': 'Проверка Xray выполнялась, но не завершилась до предельного срока: STOP.',
+      'xray-candidate-test-idle': 'Проверка новой версии Xray не продвигалась по CPU: STOP без замены.',
+      'xray-candidate-test-progress-timeout': 'Проверка новой версии Xray превысила ограниченный срок: STOP без замены.',
       'xray-readonly-probe-unavailable': 'Безопасная проверка Xray сейчас недоступна.',
       'xray-test-executable-unavailable': 'Исполняемый файл Xray недоступен для проверки.',
       'xray-live-config-test-failed': 'Фактическая конфигурация не прошла проверку установленным Xray.',
       'xray-current-version-unavailable': 'Установленная версия Xray недоступна для проверки.',
       'xray-core-update-running': 'Другая операция обновления Xray ещё выполняется.',
-      'xray-recovery-stop': 'Восстановление Xray не подтверждено: STOP.'
+      'xray-recovery-stop': 'Восстановление Xray не подтверждено: STOP.',
+      'xray-diagnostic-mutation-fence': 'Обновление или аварийное восстановление Xray активно: диагностика остановлена.',
+      'xray-diagnostic-probes-busy': 'Фоновые диагностические процессы Xray не завершились вовремя.',
+      'xray-diagnostic-already-running': 'Диагностика Xray уже выполняется.',
+      'xray-diagnostic-operation-busy': 'Другая операция FreeNet выполняется.',
+      'xray-diagnostic-binary-unavailable': 'Установленный бинарник Xray недоступен.',
+      'xray-diagnostic-config-unavailable': 'Рабочая конфигурация Xray недоступна.',
+      'xray-diagnostic-workspace-unavailable': 'Не удалось подготовить временную область проверки.',
+      'xray-diagnostic-probe-unavailable': 'Безопасный диагностический процесс недоступен.',
+      'xray-diagnostic-child-start-failed': 'Диагностический процесс Xray не смог стартовать.',
+      'xray-diagnostic-output-unavailable': 'Не удалось безопасно подготовить вывод проверки Xray.',
+      'xray-diagnostic-canceled': 'Проверка прервана без изменения Xray.'
     };
     return labels[code] || 'Проверка фактической конфигурации Xray не подтверждена.';
   }
@@ -317,6 +332,62 @@
       ? 'Xray доступен. После выбора версии FreeNet дождётся завершения фоновых проверок, затем проверит текущую и новую конфигурацию ДО замены ядра. Пока проверка не пройдена, VPN не меняется.'
       : coreValidationText(coreValidation?.reason) + ' Обновление не запускается.';
     target.appendChild(preflight);
+
+    // Opt-in semantic test of the ALREADY installed Xray binary. No download,
+    // restart or config edit. The answer contains finite codes and timings only.
+    const diagnosticButton = document.createElement('button');
+    diagnosticButton.type = 'button';
+    diagnosticButton.className = 'btn secondary';
+    diagnosticButton.id = 'xcmReadOnlyLiveDiagnostic';
+    diagnosticButton.textContent = 'Диагностика Xray (без обновления)';
+    const diagnosticResult = document.createElement('div');
+    diagnosticResult.id = 'xcmReadOnlyLiveResult';
+    diagnosticResult.className = 'xcm-selection';
+    diagnosticResult.setAttribute('role', 'status');
+    diagnosticResult.setAttribute('aria-live', 'polite');
+    diagnosticResult.textContent = 'Проверка выполняется только по нажатию, без изменения VPN.';
+    diagnosticButton.addEventListener('click', async () => {
+      if (applying) return;
+      applying = true;
+      diagnosticButton.disabled = true;
+      diagnosticResult.textContent = 'Проверяю установленный Xray на фактической конфигурации без изменения бинарника…';
+      const controller = new AbortController();
+      const deadline = setTimeout(() => controller.abort(), 60000);
+      try {
+        const response = await fetch('/api/xray/core/read-only-test', {cache:'no-store', signal:controller.signal});
+        const result = await response.json();
+        const child = result.child_started === true ? 'да' : 'нет';
+        const elapsed = Math.max(0, Number(result.child_ms || 0));
+        const userCPU = Math.max(0, Number(result.user_cpu_ms || 0));
+        const systemCPU = Math.max(0, Number(result.system_cpu_ms || 0));
+        const phase = String(result.phase || 'unknown');
+        const admission = Math.max(0, Number(result.admission_ms || 0));
+        const prep = Math.max(0, Number(result.preparation_ms || 0));
+        const code = result.exit_code === undefined ? '—' : String(result.exit_code);
+        const evidence = 'Стадия: ' + phase + '; child запущен: ' + child +
+          '; admission: ' + admission + ' мс; подготовка: ' + prep +
+          ' мс; исполнение: ' + elapsed + ' мс; CPU user/system: ' +
+          userCPU + '/' + systemCPU + ' мс; exit: ' + code + '.';
+        if (response.ok && result.success === true && result.mutation === 'NONE' && result.valid === true) {
+          diagnosticResult.className = 'xcm-selection ready';
+          diagnosticResult.textContent = 'Проверка установленного Xray PASS. ' + evidence +
+            ' Перед заменой FreeNet всё равно обязан отдельно проверить и установленное, и новое ядро.';
+        } else {
+          diagnosticResult.className = 'xcm-selection bad';
+          diagnosticResult.textContent = coreValidationText(result.reason) + ' ' + evidence +
+            ' Xray не изменён. Повторная установка до выяснения причины запрещена.';
+        }
+      } catch (_) {
+        diagnosticResult.className = 'xcm-selection bad';
+        diagnosticResult.textContent = 'Квитанция read-only проверки недоступна. Xray не изменён; это не результат PASS.';
+      } finally {
+        clearTimeout(deadline);
+        applying = false;
+        diagnosticButton.disabled = false;
+      }
+    });
+    target.appendChild(diagnosticButton);
+    target.appendChild(diagnosticResult);
 
     const search = document.createElement('input');
     search.type = 'search';
@@ -751,6 +822,19 @@
           renderServiceHome(Object.assign({}, serviceState || {}, {success:true, online:true, version:result.current_version || release.version}), message);
         }
       } else {
+        // An HTTP response can be non-terminal while the detached router
+        // worker is still validating or restoring Xray. Never announce a
+        // terminal failure before reconciling the same operation's receipt.
+        try {
+          const receipt = await readCoreUpdateReceipt();
+          if (receipt?.target_version === release.version &&
+              ['RUNNING', 'SUCCESS', 'FAILED', 'ROLLED_BACK', 'STOP'].includes(receipt.state)) {
+            if (await renderCoreUpdateReceipt(release.version)) return;
+          }
+        } catch (_) {
+          // Receipt unavailable: the request outcome alone is not sufficient
+          // to prove a terminal worker result.
+        }
         const rollbackFailed = result.rollback === 'FAILED';
         box.className = `xcm-result bad${rollbackFailed ? ' stop' : ''}`;
         const prefix = rollbackFailed ? 'Операция остановлена. Автоматический откат не подтверждён. ' : result.rollback === 'SUCCESS' ? 'Изменение отменено, предыдущая версия восстановлена. ' : '';
