@@ -252,6 +252,7 @@ func main() {
 	registerVPNOutboundDoctor(mux, a)
 	registerVPNTransactionDoctor(mux, a)
 	registerXrayCoreReadOnlyDiagnostic(mux, a)
+	mux.HandleFunc("POST /api/xray/core/recover", a.requireAuth(a.handleXrayCoreRecovery))
 	registerDNSPathTrace(mux, a)
 	registerGeoDataAPI(mux, a)
 	mux.HandleFunc("GET /api/subscription", a.requireAuth(a.handleSubscriptionGet))
