@@ -259,9 +259,9 @@ func xrayCoreNativeEnvironment(configDir, assetDir string) []string {
 	return append(env, "XRAY_LOCATION_CONFDIR="+configDir, "XRAY_LOCATION_ASSET="+assetDir)
 }
 
-func xrayCoreNativeStart(binary, configDir, assetDir string) error {
+func xrayCoreNativeStart(binary, configDir, assetDir string) (<-chan error, error) {
 	if os.Geteuid() != 0 {
-		return errors.New("FreeNet needs router root privileges to preserve Xray routing GID")
+		return nil, errors.New("FreeNet needs router root privileges to preserve Xray routing GID")
 	}
 	// Same Xray run mode and configuration directory as the existing stack.
 	// This child outlives the HTTP request; a bounded health check follows.
@@ -273,16 +273,17 @@ func xrayCoreNativeStart(binary, configDir, assetDir string) error {
 	}
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
-		return errors.New("cannot open native Xray output sink")
+		return nil, errors.New("cannot open native Xray output sink")
 	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = null, null, null
 	err = cmd.Start()
 	_ = null.Close()
 	if err != nil {
-		return errors.New("FreeNet could not launch the native Xray process")
+		return nil, errors.New("FreeNet could not launch the native Xray process")
 	}
-	go func() { _ = cmd.Wait() }()
-	return nil
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	return exited, nil
 }
 
 // Called only by the core update worker while it owns the FreeNet mutation
@@ -298,7 +299,8 @@ func xrayCoreRestartDirect(ctx context.Context, binary, version, configDir, asse
 	if err := xrayCoreNativeStop(ctx, process); err != nil {
 		return err
 	}
-	if err := xrayCoreNativeStart(binary, configDir, assetDir); err != nil {
+	exited, err := xrayCoreNativeStart(binary, configDir, assetDir)
+	if err != nil {
 		return err
 	}
 	ticker := time.NewTicker(350 * time.Millisecond)
@@ -307,6 +309,11 @@ func xrayCoreRestartDirect(ctx context.Context, binary, version, configDir, asse
 	for {
 		if ctx.Err() != nil {
 			return errors.New("native FreeNet Xray restart readiness timeout")
+		}
+		select {
+		case <-exited:
+			return errors.New("new Xray process terminated during startup")
+		default:
 		}
 		if xrayCoreNativeRuntimeProof(binary) {
 			versionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -326,6 +333,8 @@ func xrayCoreRestartDirect(ctx context.Context, binary, version, configDir, asse
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("FreeNet native Xray startup not confirmed: %w", ctx.Err())
+		case <-exited:
+			return errors.New("new Xray process exited before readiness")
 		case <-ticker.C:
 		}
 	}
