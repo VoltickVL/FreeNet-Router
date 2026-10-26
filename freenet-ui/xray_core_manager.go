@@ -25,8 +25,6 @@ const (
 	xrayCoreMaxArchiveBytes  = 128 << 20
 	xrayCoreMaxBinaryBytes   = 160 << 20
 	xrayCoreOperationTimeout = 95 * time.Second // read-only catalog, download and validation
-	xrayCoreApplyTimeout = 35 * time.Second // native XKeen restart and bounded process proof
-	xrayCoreRollbackTimeout = 35 * time.Second // independent native rollback reserve
     xrayCoreSemanticTimeout = 205 * time.Second // two progress-bounded tests + snapshot under owned fence
     xrayCoreSingleTestTimeout = 35 * time.Second // unchanged initial budget AFTER admission
     xrayCoreSingleTestMaximumTimeout = 95 * time.Second // only if verified child CPU progress
@@ -35,9 +33,12 @@ const (
 
 var xrayCoreHTTPClient = newXrayCoreDirectHTTPClient()
 
-// Only controlled Xray core upgrades use this longer bounded exclusive wait.
-// Best Server and other passive consumers keep their existing admission budgets.
-var xrayCoreAdmissionTimeout = 110 * time.Second
+// Separate forward and rollback windows allow controlled recovery even if
+// the browser disconnects. Tests shorten them to exercise hard failures.
+var (
+    xrayCoreApplyTimeout = 30 * time.Second
+    xrayCoreRollbackTimeout = 30 * time.Second
+)
 
 type xrayCoreAsset struct {
 	Name      string `json:"name"`
