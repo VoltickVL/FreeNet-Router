@@ -132,3 +132,19 @@ func TestXrayCoreReadOnlyDiagnosticBrowserMustBeExplicit(t *testing.T) {
         if strings.Contains(snippet, forbidden) { t.Fatalf("read-only Xray diagnostic may not mutate: %q", forbidden) }
     }
 }
+
+func TestXrayCoreUpdateReconcilesDetachedReceiptBeforeFailure(t *testing.T) {
+    data, err := os.ReadFile("web/xray-core-manager.js")
+    if err != nil { t.Fatal(err) }
+    content := string(data)
+    begin := strings.Index(content, "async function applyRelease(release)")
+    if begin < 0 { t.Fatal("Xray apply UI missing") }
+    s := content[begin:]
+    if !strings.Contains(s, "const receipt = await readCoreUpdateReceipt();") ||
+        !strings.Contains(s, "await renderCoreUpdateReceipt(release.version)") {
+        t.Fatal("browser HTTP error cannot be classified before detached Xray operation receipt")
+    }
+    if strings.Index(s, "const receipt = await readCoreUpdateReceipt();") > strings.Index(s, "const rollbackFailed = result.rollback === 'FAILED';") {
+        t.Fatal("detached worker receipt must be reconciled before terminal error")
+    }
+}
