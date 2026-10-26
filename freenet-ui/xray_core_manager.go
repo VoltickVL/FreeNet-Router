@@ -25,8 +25,8 @@ const (
 	xrayCoreMaxArchiveBytes  = 128 << 20
 	xrayCoreMaxBinaryBytes   = 160 << 20
 	xrayCoreOperationTimeout = 95 * time.Second // read-only catalog, download and validation
-	xrayCoreApplyTimeout = 55 * time.Second // forward restart and post-check after swap
-	xrayCoreRollbackTimeout = 70 * time.Second // independent reserve after forward failure
+	xrayCoreApplyTimeout = 35 * time.Second // native XKeen restart and bounded process proof
+	xrayCoreRollbackTimeout = 35 * time.Second // independent native rollback reserve
     xrayCoreSemanticTimeout = 205 * time.Second // two progress-bounded tests + snapshot under owned fence
     xrayCoreSingleTestTimeout = 35 * time.Second // unchanged initial budget AFTER admission
     xrayCoreSingleTestMaximumTimeout = 95 * time.Second // only if verified child CPU progress
@@ -625,29 +625,8 @@ func xrayCoreAction(previous, target string) string {
 	return "change"
 }
 
-// Xray-core update already validated the currently installed configuration
-// before acquiring the exclusive probe fence, and validates the candidate
-// binary independently. Re-entering controlXrayService here would deadlock:
-// its duplicate config checks acquire the shared isolated-probe lease held
-// exclusively by this very transaction. Preserve the canonical XKeen restart,
-// then validate the selected binary and live configuration without a shared
-// gate. This method is callable only while the caller owns that fence.
-func (a *app) restartXrayCoreUpdateOwned(ctx context.Context, binary, version string) error {
-	if ctx.Err() != nil {
-		return errors.New("Xray core restart deadline expired")
-	}
-	if _, err := runCommand(ctx, a.cfg.XKeenPath, "-restart"); err != nil {
-		return errors.New("controlled XKeen restart failed")
-	}
-	if !waitForXrayOnline(ctx) {
-		return errors.New("Xray is not running after controlled restart")
-	}
-	if err := a.validateXrayCoreCandidate(ctx, binary, version); err != nil {
-		return errors.New("live Xray configuration validation failed after controlled restart")
-	}
-	return nil
-}
-
+// The native XKeen UI restart is implemented in xray_core_native.go.
+// Never repeat a long isolated config test AFTER a production restart.
 // Rollback must never inherit a canceled request, exhausted download deadline
 // or forward-restart deadline. Always reserve its own bounded work window.
 func (a *app) rollbackXrayCore(binary, backup, previous string) error {
@@ -708,12 +687,11 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "selected Xray version is already installed"
 		return result
 	}
-	// Both the current and candidate binaries are semantically validated
-	// after exclusive probe admission, not during this download phase.
-	// Never replace a working core when its managed XKeen restart path is
-	// missing or not executable: neither acceptance nor rollback could start.
-	if _, err := exec.LookPath(a.cfg.XKeenPath); err != nil {
-		result.Error = "XKeen restart is unavailable; Xray update stopped before mutation"
+	// XKeen UI is the authoritative process owner. Unlike the legacy
+	// xkeen -restart command, its softRestart preserves the required GID
+	// 11111. Check this BEFORE downloading or replacing anything.
+	if err := xrayCoreNativePreflight(ctx, binary); err != nil {
+		result.Error = err.Error()
 		return result
 	}
 	before := a.status()
@@ -755,41 +733,23 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "Xray update download/preflight deadline expired; no binary changed"
 		return result
 	}
-	// The real Portable timed out because short read-only core validation
-	// competed with long Best Server/quality probes for a 2-slot shared gate.
-	// Drain existing probes first and forbid new ones until apply or rollback
-	// is terminal. The admission clock is independent of download and tests.
-	quiesceCtx, cancelQuiesce := context.WithTimeout(context.Background(), xrayCoreAdmissionTimeout)
-	releaseProbes, quiesced := acquireExclusiveIsolatedXrayProbe(quiesceCtx)
-	cancelQuiesce()
-	if !quiesced {
-		result.Error = "reason=xray-probe-admission-timeout; background Xray diagnostics did not drain; no Xray binary changed"
-		return result
-	}
-	defer releaseProbes()
+	// No separate 35-95 second 'run -test' cycles. The selected official
+	// archive already passed SHA-256 and the extracted candidate reports the
+	// exact requested version. The running stack is checked against XKeen
+	// UI and its real process before the binary can be replaced.
 	if automationMutationBlockedState() {
-		result.Error = "VPN recovery is pending or unknown; Xray update stopped before mutation"
+		result.Error = "previous recovery is still blocked; reconcile the actual native runtime before update"
 		return result
 	}
 	if a.manualRecoveryCoreState() != "running" {
-		result.Error = "production Xray process inventory is ambiguous; Xray update stopped before mutation"
+		result.Error = "production Xray process inventory is ambiguous; no Xray binary changed"
 		return result
 	}
-	// With the exclusive fence already owned, do not reacquire the shared
-	// gate. Reserve an independent window for BOTH installed and candidate
-	// live-config tests, then take the snapshot and swap atomically.
-	validateCtx, validateCancel := context.WithTimeout(context.Background(), xrayCoreSemanticTimeout)
-	defer validateCancel()
-	if err := a.validateXrayCoreBaseline(validateCtx, binary); err != nil {
-		result.Error = err.Error()
-		return result
-	}
-	if err := a.validateXrayCoreCandidate(validateCtx, candidatePath, target); err != nil {
-		result.Error = err.Error()
-		return result
-	}
-	if validateCtx.Err() != nil {
-		result.Error = "Xray semantic validation deadline expired before mutation"
+	preflightCtx, cancelPreflight := context.WithTimeout(context.Background(), 8*time.Second)
+	preflightErr := xrayCoreNativePreflight(preflightCtx, binary)
+	cancelPreflight()
+	if preflightErr != nil {
+		result.Error = preflightErr.Error()
 		return result
 	}
 	backupFile, err := os.CreateTemp(filepath.Dir(binary), ".freenet-xray-backup-*")
@@ -814,10 +774,10 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "cannot prepare Xray candidate permissions"
 		return result
 	}
-	// The independent post-admission semantic deadline, not the already
-	// consumed download deadline, guards the moment of binary replacement.
-	if validateCtx.Err() != nil {
-		result.Error = "Xray semantic validation deadline expired before mutation"
+	// This last native read-only gate prevents replacing the binary if the
+	// production process stopped while the snapshot was being prepared.
+	if ctx.Err() != nil {
+		result.Error = "Xray update preparation expired; no binary changed"
 		return result
 	}
 	if err := os.Rename(candidatePath, binary); err != nil {
@@ -826,8 +786,8 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 	}
 	candidateOwned = false
 
-	// The controlled restart has a fresh bounded budget. The backup and
-	// exclusive probe fence stay owned until terminal acceptance or rollback.
+	// Native XKeen UI owns this restart. The backup is retained until the
+	// new running executable and GID=11111 are confirmed or rollback succeeds.
 	applyCtx, cancelApply := context.WithTimeout(context.Background(), xrayCoreApplyTimeout)
 	applyErr := a.restartXrayCoreUpdateOwned(applyCtx, binary, target)
 	if applyErr == nil {
