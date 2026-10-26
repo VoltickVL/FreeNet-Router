@@ -40,13 +40,16 @@ func installXrayRuntimeMocks(t *testing.T, online *bool, start func(*app, contex
 	t.Helper()
 	oldRunning := xrayRuntimeProcessRunning
 	oldStart := xrayRuntimeStartControlled
+	oldPreflight := xrayRuntimeStartPreflight
 	xrayRuntimeProcessRunning = func(*app) bool { return *online }
+	xrayRuntimeStartPreflight = func(*app) (string, bool) { return "production-xray-absent", true }
 	if start != nil {
 		xrayRuntimeStartControlled = start
 	}
 	t.Cleanup(func() {
 		xrayRuntimeProcessRunning = oldRunning
 		xrayRuntimeStartControlled = oldStart
+		xrayRuntimeStartPreflight = oldPreflight
 	})
 }
 
@@ -186,6 +189,39 @@ func TestXrayRuntimeFailedRecoveryRecordsPrimaryErrorAndBackoff(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("failed recovery journal missing %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestXrayRuntimeWatchdogRefusesToSpawnDuplicateOrUnknownXray(t *testing.T) {
+	for _, reason := range []string{"multiple-production-xray", "unknown-xray-process",
+		"isolated-probe-active", "unreaped-xray-process", "proc-unavailable"} {
+		t.Run(reason, func(t *testing.T) {
+			a, history, intent := prepareXrayRuntimeWatchTest(t)
+			if err := writeXrayRuntimeDesiredState(intent, xrayRuntimeDesiredRunning); err != nil {
+				t.Fatal(err)
+			}
+			online, starts := false, 0
+			installXrayRuntimeMocks(t, &online, func(*app, context.Context) error {
+				starts++
+				return nil
+			})
+			xrayRuntimeStartPreflight = func(*app) (string, bool) { return reason, false }
+			start := time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC)
+			state := &xrayRuntimeWatchState{}
+			a.runXrayRuntimeWatchStep(start, state)
+			a.runXrayRuntimeWatchStep(start.Add(11*time.Second), state)
+			if starts != 0 || state.NextRecovery.IsZero() {
+				t.Fatalf("blocked process inventory allowed watchdog Start, starts=%d recovery=%v", starts, state.NextRecovery)
+			}
+			if len(a.sem) != 0 {
+				t.Fatal("watchdog retained the exclusive mutation semaphore after safe STOP")
+			}
+			log, err := os.ReadFile(history)
+			if err != nil || !strings.Contains(string(log), "inventory="+reason) ||
+				!strings.Contains(string(log), "rollback=NOT_APPLIED") {
+				t.Fatalf("missing read-only inventory block reason, log=%q err=%v", log, err)
+			}
+		})
 	}
 }
 
