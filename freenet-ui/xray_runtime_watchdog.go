@@ -41,6 +41,27 @@ var xrayRuntimeStartControlled = func(a *app, ctx context.Context) error {
 	return a.startXrayControlled(ctx)
 }
 
+// Before ANY watchdog-initiated Start, inspect the process inventory that
+// FreeNet can actually prove. Two production cores, an unowned Xray,
+// an isolated diagnostic or a zombie are NOT evidence that production is
+// stopped. No secondary Start, kill or auto-repair is allowed in that case.
+// This reads /proc only and is rechecked under the mutation semaphore.
+var xrayRuntimeStartPreflight = func(a *app) (string, bool) {
+	if a == nil {
+		return "runtime-unavailable", false
+	}
+	binary, _, err := a.resolvedXrayCoreBinary()
+	if err != nil {
+		return "binary-unavailable", false
+	}
+	configDir, err := a.xrayCoreLiveConfigDir()
+	if err != nil {
+		return "config-unavailable", false
+	}
+	inventory := scanXrayProcessInventory("/proc", configDir, binary)
+	return inventory.State, inventory.Success && inventory.State == "production-xray-absent"
+}
+
 func xrayRuntimeIntentPath(configPath string) string {
 	if value := strings.TrimSpace(os.Getenv("FREENET_XRAY_RUNTIME_INTENT")); value != "" {
 		return value
@@ -263,6 +284,16 @@ func (a *app) runXrayRuntimeWatchStep(now time.Time, state *xrayRuntimeWatchStat
 		return
 	}
 
+	// The semaphore excludes concurrent FreeNet mutations, but cannot prove
+	// that a separate XKeen or previously orphaned process is absent. Scan
+	// immediately before Start and do not create another production process
+	// when any Xray identity remains alive, blocked or unknown.
+	if reason, safe := xrayRuntimeStartPreflight(a); !safe {
+		<-a.sem
+		state.NextRecovery = now.Add(xrayRuntimeRecoveryRetry)
+		v3AppendEvent("xray_runtime", "failed", "Controlled Start Xray отменён до mutation: inventory="+sanitizeAutomationReason(reason)+"; rollback=NOT_APPLIED; следующий read-only контроль через 60 с.")
+		return
+	}
 	v3AppendEvent("xray_runtime", "started", fmt.Sprintf(
 		"Запущен controlled Start Xray после неожиданной остановки; endpoint mutation=NONE; %s.",
 		a.xrayRuntimeSafeContext(),
