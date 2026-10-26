@@ -825,10 +825,7 @@ func (a *app) executeProviderProfileApplyWithAdmission(req networkApplyRequest, 
 		// check, so acknowledge that exact installed release. Otherwise a
 		// stale post-update UNKNOWN guard would block AUTO indefinitely even
 		// after a user restored working Internet with a different VPN.
-		if target := automationPendingPostUpdateTarget(a); target != "" {
-			setAutomationPostUpdateAck(target)
-			appendAutomationRecoveryStage("post_update_guard", "cleared", "Вручную выбранный VPN подтверждён post-apply HTTPS; AUTO восстановлен.")
-		}
+		acknowledgeAutomationPostUpdateFromVerifiedManual(a)
 		appendAutomationRecoveryStage("manual_handoff", "success", "AUTO VPN остаётся включённым и следит за вручную выбранным сервером.")
 	}
 	// A verified manual VPN cutover must never be delayed by an unrelated
