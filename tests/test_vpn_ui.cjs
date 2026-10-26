@@ -47,7 +47,7 @@ const server = http.createServer((req,res)=>{
     let rttJobId='',rttJobResult=null,rttJobSequence=0;
     const rttJobStarts=()=>calls.filter(c=>c.path==='/api/provider-profiles/rtt/jobs'&&c.method==='POST');
     const mutationPosts=()=>calls.filter(c=>c.method==='POST'&&c.path!=='/api/provider-profiles/rtt/jobs');
-    let applyMode='ok', operation=null, operationReads=0, providerPlanMode='ok';
+    let applyMode='ok', operation=null, operationReads=0, providerPlanMode='ok', releaseHeldApply=null;
     const answer = (route,body,code=200)=>route.fulfill({status:code,contentType:'application/json',body:JSON.stringify(body)});
     await page.route('**/api/**',async route=>{
       const req=route.request(),url=new URL(req.url());
@@ -157,6 +157,14 @@ const server = http.createServer((req,res)=>{
         assert.equal(payload.confirm,true);
         if(Object.prototype.hasOwnProperty.call(payload,'selection_token'))assert.ok([bestSelectionToken,manualRTTToken].includes(payload.selection_token));
         status={...status,country:'Германия',city:'Франкфурт',country_code:'de',endpoint:expectedApply.endpoint};
+        if(applyMode==='held'){
+          // Production regression: router has already changed its active
+          // endpoint but the original POST does not return a terminal receipt.
+          status={...status,profile_label:winner.name,busy:false,updater_busy:false,xray_online:true};
+          await new Promise(resolve=>{releaseHeldApply=resolve;});
+          status={...status,country:'Литва',city:'Вильнюс',country_code:'lt',profile_label:expectedApply.name};
+          return answer(route,{success:true,applied:true});
+        }
         if(applyMode!=='ok'){
           status=expectedApply.id===second.id
             ? {...status,country:'',country_code:'',city:'',profile_label:expectedApply.name,endpoint:expectedApply.endpoint}
@@ -747,6 +755,40 @@ const server = http.createServer((req,res)=>{
       assert.equal(await page.locator('#exactConnectBtn').isDisabled(),true,'used manual plan cannot be re-enabled by polling');
       assert.equal(mutationPosts().length,postsBefore+1,'no blind manual repeat');
     }
+    // The same endpoint may be reused by distinct Extra country profiles.
+    // While the browser's single POST is still pending, the presentation must
+    // never falsely accept an IP-only match or spin forever after exact live
+    // status proves the chosen profile is active. No second POST is permitted.
+    expectedApply=second;applyMode='held';operationReads=0;releaseHeldApply=null;
+    status={...status,country:'Польша',city:'Варшава',country_code:'pl',profile_label:current.name,
+      endpoint:current.endpoint,busy:false,updater_busy:false,xray_online:true};
+    await page.goto(base);
+    await page.waitForFunction(()=>document.querySelector('#bestCurrentName').textContent.includes('Польша'));
+    await openPicker();
+    await page.locator('#fnVpnPickerV2Results [data-profile-id="fixture-lt"]').click();
+    await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-ready'));
+    const beforeDelayedApply=mutationPosts().length;
+    await page.locator('#fnVpnPickerV2Connect').click();
+    await page.waitForFunction(()=>window.providerApplying===true);
+    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='applying');
+    await page.evaluate(()=>loadStatus());
+    assert.equal(await page.locator('#fnVpnPickerV2Footer').getAttribute('data-state'),'applying',
+      'a shared endpoint with a different profile identity is not confirmation');
+    status={...status,country:'Литва',city:'Вильнюс',country_code:'lt',profile_label:second.name,
+      endpoint:second.endpoint,busy:false,updater_busy:false,xray_online:true};
+    await page.evaluate(()=>loadStatus());
+    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='observed');
+    assert.match(await page.locator('#fnVpnPickerV2Status').textContent(),/VPN уже активен/,
+      'once exact read-only status proves active VPN, the picker must stop showing APPLYING');
+    assert.match(await page.locator('#fnVpnPickerV2Detail').textContent(),/Повтор подключения не требуется/,
+      'interrupted POST is not a reason for blind retry');
+    assert.equal(mutationPosts().length,beforeDelayedApply+1,'delayed POST cannot trigger another mutation');
+    assert.equal(typeof releaseHeldApply,'function','held response must be a single controlled request');
+    releaseHeldApply();
+    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='success');
+    assert.equal(mutationPosts().length,beforeDelayedApply+1,'terminal status does not repeat Apply');
+    applyMode='ok';
+
     // Installed Beta must not silently fetch heavy Stable releases in the
     // background. Its picker starts in Beta and can verify an exact tag even
     // when the published list is unavailable.
