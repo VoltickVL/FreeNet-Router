@@ -4,6 +4,7 @@ import (
     "context"
     "encoding/json"
     "net/http"
+    "strings"
     "time"
 )
 
@@ -26,8 +27,18 @@ func (a *app) handleXrayCoreRecovery(w http.ResponseWriter, r *http.Request) {
         writeJSON(w, status, xrayCoreRecoveryResponse{Success: false, Mutation:"NONE", Reason:reason})
     }
     if a.mutationBlockedBySelfUpdate(w) { return }
+    if !sameOrigin(r) {
+        blocked(http.StatusForbidden, "reason=xray-recovery-cross-origin")
+        return
+    }
+    if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))), "application/json") {
+        blocked(http.StatusUnsupportedMediaType, "reason=xray-recovery-json-required")
+        return
+    }
     var request xrayCoreRecoveryRequest
-    if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&request); err != nil ||
+    dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
+    dec.DisallowUnknownFields()
+    if err := dec.Decode(&request); err != nil ||
         !validXrayCoreTag(request.ExpectedVersion) || normalizeXrayCoreTag(request.ExpectedVersion) != request.ExpectedVersion {
         blocked(http.StatusBadRequest, "reason=xray-recovery-expected-version-invalid")
         return
