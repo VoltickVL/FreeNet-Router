@@ -267,7 +267,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 					if err := os.WriteFile(restartLog, bytes.Repeat([]byte("restart\n"), restartCount), 0600); err != nil {
 						t.Error(err)
 					}
-					if scenario.cancelDuringRestart && restartCount == 1 { time.Sleep(time.Second) }
+					if scenario.cancelDuringRestart && restartCount == 1 { time.Sleep(120 * time.Millisecond) }
 					if scenario.xkeenExit != 0 {
 						_, _ = io.WriteString(w, `{"success":false}`)
 					} else {
