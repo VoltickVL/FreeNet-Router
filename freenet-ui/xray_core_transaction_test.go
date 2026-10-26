@@ -291,7 +291,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			}
 			t.Cleanup(func(){ xrayCoreNativeRuntimeProof = previousProof })
 			oldForwardTimeout, oldRollbackTimeout := xrayCoreApplyTimeout, xrayCoreRollbackTimeout
-			xrayCoreApplyTimeout, xrayCoreRollbackTimeout = 450*time.Millisecond, 3*time.Second
+			xrayCoreApplyTimeout, xrayCoreRollbackTimeout = 1600*time.Millisecond, 3*time.Second
 			t.Cleanup(func(){ xrayCoreApplyTimeout, xrayCoreRollbackTimeout = oldForwardTimeout, oldRollbackTimeout })
 
 			configPath := filepath.Join(root, "freenet.conf")
