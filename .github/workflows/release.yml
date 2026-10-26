@@ -7,11 +7,6 @@ on:
       - beta/v0.8.0
     paths:
       - VERSION
-      # A failed release gate may require repairing the workflow itself
-      # without inventing a new product version. This route reuses the same
-      # exact VERSION and all release checks; existing tags still fail closed.
-      - .github/workflows/release.yml
-  workflow_dispatch:
 
 permissions:
   contents: write
