@@ -486,6 +486,24 @@ func automationCurrentQualityState(response bestServerQualityResponse) (bestServ
 	return candidate, "degraded"
 }
 
+// Persistent service-only degradation can coexist with incomplete media
+// throughput. An incomplete speedtest is NOT permission to switch by itself:
+// the watchdog must already hold a repeated, identity-bound service trigger;
+// the current scan must independently show the same class of service failure;
+// the existing writer admission will re-probe both VPNs before apply.
+func automationCurrentServiceFailureReadyForQualityComparison(response bestServerQualityResponse, trigger automationQualityTrigger) bool {
+	if !validAutomationQualityTrigger(trigger) || trigger.ServiceBadMask == 0 ||
+		response.CurrentIdentity != trigger.CurrentIdentity ||
+		len(response.Candidates) != 1 {
+		return false
+	}
+	c := response.Candidates[0]
+	return c.Current && c.Tested && c.Available &&
+		c.Endpoint != "" && endpointsEqual(c.Endpoint, response.CurrentEndpoint) &&
+		c.ApplicationMS > 0 && c.HTTPSamples >= bestServerQualityHTTPRequired &&
+		c.ServiceTotal >= 3 && c.ServiceOK >= 0 && c.ServiceOK < c.ServiceTotal
+}
+
 func parseAutomationLastSwitch(path string) time.Time {
 	state := parseAutomationState(path)
 	value := strings.TrimSpace(state["LAST_SWITCH"])
@@ -953,6 +971,13 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	current, currentState := automationCurrentQualityState(currentResponse)
 	if qualityIntent && currentResponse.CurrentIdentity != trigger.CurrentIdentity {
 		currentState = "uncertain"
+	}
+	if qualityIntent && currentState == "uncertain" &&
+		automationCurrentServiceFailureReadyForQualityComparison(currentResponse, trigger) {
+		// Never call this a healthy or fully measured current baseline.
+		// We only authorize a comparison. Candidate and current service paths
+		// must BOTH pass the existing paired writer admission before mutation.
+		currentState = "degraded"
 	}
 	if currentState == "uncertain" {
 		reason := "Качество текущего VPN подтверждено не полностью; неоднозначность = без изменений."
