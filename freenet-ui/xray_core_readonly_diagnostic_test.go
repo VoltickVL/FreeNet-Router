@@ -113,7 +113,7 @@ func TestXrayCoreReadOnlyDiagnosticBrowserMustBeExplicit(t *testing.T) {
     if err != nil { t.Fatal(err) }
     content := string(data)
     begin := strings.Index(content, "const diagnosticButton = document.createElement('button');")
-    end := strings.Index(content, "const search = document.createElement('input');", begin)
+    end := strings.Index(content, "const search = document.createElement('input');")
     if begin < 0 || end <= begin { t.Fatal("read-only diagnostic is not rendered separately in Xray picker") }
     snippet := content[begin:end]
     for _, want := range []string{
