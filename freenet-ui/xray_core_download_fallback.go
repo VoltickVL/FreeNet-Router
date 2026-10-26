@@ -111,43 +111,59 @@ func (a *app) downloadXrayCoreArchiveResilient(ctx context.Context, release xray
 // machinery. It does not alter the running Xray/XKeen instance or global VPN,
 // DNS, filter, routing or credentials, and cannot run for a mismatched endpoint.
 func (a *app) downloadXrayCoreArchiveViaActiveVPN(ctx context.Context, release xrayCoreRelease, dir string) (string, error) {
+	var path string
+	err := a.withXrayCoreActiveVPNClient(ctx, func(client *http.Client) error {
+		var downloadErr error
+		path, downloadErr = downloadXrayCoreArchiveWithClient(ctx, release, dir, client)
+		return downloadErr
+	})
+	if err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// The callback runs only while the private loopback SOCKS and its pinned
+// active-VPN Xray are running. The same guarded session supports catalog
+// fetches and verified binary downloads; no production configuration changes.
+func (a *app) withXrayCoreActiveVPNClient(ctx context.Context, use func(*http.Client) error) error {
 	if ctx.Err() != nil {
-		return "", xrayCoreDownloadError("vpn-cancelled", false)
+		return xrayCoreDownloadError("vpn-cancelled", false)
 	}
 	outbound, endpoint, ok := readBestServerActiveOutbound(a.cfg.OutPath)
 	status := a.status()
 	if !ok || !status.XrayOnline || !endpointsEqual(endpoint, status.Endpoint) {
-		return "", xrayCoreDownloadError("vpn-identity", false)
+		return xrayCoreDownloadError("vpn-identity", false)
 	}
 	safeOutbound, err := prepareIsolatedProbeOutbound(outbound)
 	if err != nil {
-		return "", xrayCoreDownloadError("vpn-config", false)
+		return xrayCoreDownloadError("vpn-config", false)
 	}
 	releaseProbe, acquired := acquireIsolatedXrayProbe(ctx)
 	if !acquired {
-		return "", xrayCoreDownloadError("vpn-probe-busy", false)
+		return xrayCoreDownloadError("vpn-probe-busy", false)
 	}
 	defer releaseProbe()
 
 	binary, _, err := a.resolvedXrayCoreBinary()
 	if err != nil {
-		return "", xrayCoreDownloadError("vpn-binary", false)
+		return xrayCoreDownloadError("vpn-binary", false)
 	}
 	tmpDir, err := os.MkdirTemp("", "freenet-core-download-")
 	if err != nil {
-		return "", xrayCoreDownloadError("vpn-stage", false)
+		return xrayCoreDownloadError("vpn-stage", false)
 	}
 	defer os.RemoveAll(tmpDir)
 	if err := os.Chmod(tmpDir, 0700); err != nil {
-		return "", xrayCoreDownloadError("vpn-stage", false)
+		return xrayCoreDownloadError("vpn-stage", false)
 	}
 	ownedBinary, err := isolatedXrayProbePath(tmpDir, binary)
 	if err != nil {
-		return "", xrayCoreDownloadError("vpn-binary", false)
+		return xrayCoreDownloadError("vpn-binary", false)
 	}
 	port, err := reserveBestServerPort()
 	if err != nil {
-		return "", xrayCoreDownloadError("vpn-port", false)
+		return xrayCoreDownloadError("vpn-port", false)
 	}
 	config := map[string]any{
 		"log": map[string]any{"loglevel": "warning"},
@@ -165,10 +181,10 @@ func (a *app) downloadXrayCoreArchiveViaActiveVPN(ctx context.Context, release x
 	}
 	data, err := json.Marshal(config)
 	if err != nil {
-		return "", xrayCoreDownloadError("vpn-config", false)
+		return xrayCoreDownloadError("vpn-config", false)
 	}
 	if err := os.WriteFile(filepath.Join(tmpDir, "00_download.json"), data, 0600); err != nil {
-		return "", xrayCoreDownloadError("vpn-stage", false)
+		return xrayCoreDownloadError("vpn-stage", false)
 	}
 
 	env := isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.geoDataAssetDir()))
@@ -181,7 +197,7 @@ func (a *app) downloadXrayCoreArchiveViaActiveVPN(ctx context.Context, release x
 	testErr := testCmd.Run()
 	stopTest()
 	if testErr != nil {
-		return "", xrayCoreDownloadError("vpn-validation", false)
+		return xrayCoreDownloadError("vpn-validation", false)
 	}
 
 	runCtx, stopRun := context.WithCancel(ctx)
@@ -192,7 +208,7 @@ func (a *app) downloadXrayCoreArchiveViaActiveVPN(ctx context.Context, release x
 	cmd.Stderr = io.Discard
 	cmd.WaitDelay = 2 * time.Second
 	if err := cmd.Start(); err != nil {
-		return "", xrayCoreDownloadError("vpn-start", false)
+		return xrayCoreDownloadError("vpn-start", false)
 	}
 	defer func() {
 		stopRun()
@@ -202,8 +218,8 @@ func (a *app) downloadXrayCoreArchiveViaActiveVPN(ctx context.Context, release x
 		_ = cmd.Wait()
 	}()
 	if !waitBestServerSOCKS(ctx, port) {
-		return "", xrayCoreDownloadError("vpn-startup-timeout", false)
+		return xrayCoreDownloadError("vpn-startup-timeout", false)
 	}
 	client := newXrayCoreVPNProxyClient(port)
-	return downloadXrayCoreArchiveWithClient(ctx, release, dir, client)
+	return use(client)
 }
