@@ -941,4 +941,36 @@ grep -Fq 'CORE_PREFLIGHT_REASON="xray-process-inventory-changed"' "$SCRIPT" || f
 grep -Fq 'reason=$CORE_PREFLIGHT_REASON' "$SCRIPT" || fail 'preflight reason is not surfaced by apply-core'
 grep -Fq 'core_restart_preflight || fail_apply' "$SCRIPT" || fail 'core preflight is no longer a fail-closed gate'
 
+# A mid-flight shell exit must reap only the alias process that this shell
+# actually launched, never an Xray process from pidof or a Go-owned worker.
+# Run the shipped cleanup functions under a fake non-signalling kill/wait.
+(
+    PROBE_SNIP="$TMP/provider-route-owned-cleanup.sh"
+    sed -n '/^stop_owned_route_probe_child() {/,/^}/p; /^cleanup() {/,/^}/p' "$SCRIPT" > "$PROBE_SNIP"
+    . "$PROBE_SNIP"
+    EVENTS="$TMP/provider-route-owned-events"
+    : > "$EVENTS"
+    kill() {
+        case "$1" in
+            -0) return 1 ;;
+            *) printf 'TERM %s\\n' "$1" >> "$EVENTS"; return 0 ;;
+        esac
+    }
+    wait() { printf 'WAIT %s\\n' "$1" >> "$EVENTS"; return 0; }
+    OWNED_XRAY_ENABLED=0
+    PROBE_PID=4321
+    TMP_DIR=""
+    LOCK_HELD=0
+    cleanup
+    [ "$PROBE_PID" -eq 0 ] || fail 'shell child PID not cleared after cleanup'
+    [ "$(cat "$EVENTS")" = "$(printf 'TERM 4321\\nWAIT 4321')" ] ||
+        fail 'shell cleanup did not reap exactly its own diagnostic child'
+    : > "$EVENTS"
+    OWNED_XRAY_ENABLED=1
+    PROBE_PID=5678
+    cleanup
+    [ ! -s "$EVENTS" ] && [ "$PROBE_PID" -eq 5678 ] ||
+        fail 'shell attempted to signal a Go-owned Xray process'
+)
+
 echo 'provider profile apply test PASS'
