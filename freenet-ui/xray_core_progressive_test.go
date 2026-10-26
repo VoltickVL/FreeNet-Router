@@ -3,7 +3,6 @@ package main
 import (
     "context"
     "errors"
-    "io"
     "os"
     "os/exec"
     "strconv"
@@ -50,9 +49,14 @@ func runXrayCoreProgressiveSemanticTest(
     }
     ctx, cancel := context.WithCancel(parent)
     defer cancel()
+    // A real /dev/null file avoids Go's io.Discard copy pipes. Child
+    // descendants inheriting a pipe must never extend cmd.Wait after STOP.
+    sink, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+    if err != nil { return errors.New("cannot prepare Xray semantic output sink") }
+    defer sink.Close()
     cmd := exec.CommandContext(ctx, binary, "run", "-test", "-confdir", configDir)
     cmd.Env = env
-    cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+    cmd.Stdout, cmd.Stderr = sink, sink
     cmd.WaitDelay = 2 * time.Second
     if err := cmd.Start(); err != nil { return err }
     childStart := time.Now()
