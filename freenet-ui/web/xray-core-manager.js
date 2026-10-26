@@ -284,6 +284,10 @@
       'xray-live-config-unavailable': 'Рабочий каталог Xray недоступен.',
       'xray-live-config-path-unavailable': 'Не подтверждён путь к рабочей конфигурации Xray.',
       'xray-live-test-timeout': 'Проверка текущего Xray завершилась по тайм-ауту.',
+      'xray-live-test-idle': 'Проверка Xray не продвигалась по CPU к исходному сроку: безопасный STOP.',
+      'xray-live-test-progress-timeout': 'Проверка Xray выполнялась, но не завершилась до предельного срока: STOP.',
+      'xray-candidate-test-idle': 'Проверка новой версии Xray не продвигалась по CPU: STOP без замены.',
+      'xray-candidate-test-progress-timeout': 'Проверка новой версии Xray превысила ограниченный срок: STOP без замены.',
       'xray-readonly-probe-unavailable': 'Безопасная проверка Xray сейчас недоступна.',
       'xray-test-executable-unavailable': 'Исполняемый файл Xray недоступен для проверки.',
       'xray-live-config-test-failed': 'Фактическая конфигурация не прошла проверку установленным Xray.',
@@ -817,6 +821,19 @@
           renderServiceHome(Object.assign({}, serviceState || {}, {success:true, online:true, version:result.current_version || release.version}), message);
         }
       } else {
+        // An HTTP response can be non-terminal while the detached router
+        // worker is still validating or restoring Xray. Never announce a
+        // terminal failure before reconciling the same operation's receipt.
+        try {
+          const receipt = await readCoreUpdateReceipt();
+          if (receipt?.target_version === release.version &&
+              ['RUNNING', 'SUCCESS', 'FAILED', 'ROLLED_BACK', 'STOP'].includes(receipt.state)) {
+            if (await renderCoreUpdateReceipt(release.version)) return;
+          }
+        } catch (_) {
+          // Receipt unavailable: the request outcome alone is not sufficient
+          // to prove a terminal worker result.
+        }
         const rollbackFailed = result.rollback === 'FAILED';
         box.className = `xcm-result bad${rollbackFailed ? ' stop' : ''}`;
         const prefix = rollbackFailed ? 'Операция остановлена. Автоматический откат не подтверждён. ' : result.rollback === 'SUCCESS' ? 'Изменение отменено, предыдущая версия восстановлена. ' : '';
