@@ -353,7 +353,7 @@ func (a *app) fetchXrayCoreCatalog(ctx context.Context) (xrayCoreCatalogResponse
 }
 
 func (a *app) handleXrayCoreCatalog(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), xrayCoreCatalogRequestTimeout)
 	defer cancel()
 	catalog, err := a.fetchXrayCoreCatalog(ctx)
 	if err != nil {
