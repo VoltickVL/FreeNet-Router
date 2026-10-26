@@ -354,7 +354,9 @@
     text(currentName,id.country); text(currentCopy,id.label); text(badge,online?L.connected:s?.xray_online===false?L.offline:L.unknown); badge.dataset.online=String(online);
     let state='idle', title=L.idle, note=L.unchanged;
     if (selected) {
-      const observed = sent && selectedStatusEvidence(s, selected);
+      // A failed/UNKNOWN rollback is authoritative even when the target endpoint
+      // appears active: never hide an indeterminate transaction.
+      const observed = sent && !uncertain(e) && selectedStatusEvidence(s, selected);
       const engineError = !!(error || e.card?.classList.contains('is-error') || uncertain(e));
       if (choosing || e.card?.classList.contains('is-checking')) {state='checking';title=L.checking;note=clean(selected.name);}
       else if (observed && (e.applying || engineError)) {
