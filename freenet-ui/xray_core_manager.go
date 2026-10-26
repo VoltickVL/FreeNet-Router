@@ -412,7 +412,7 @@ func findXrayCoreRelease(catalog xrayCoreCatalogResponse, target string) (xrayCo
 	return xrayCoreRelease{}, false
 }
 
-
+func downloadXrayCoreArchive(ctx context.Context, release xrayCoreRelease, dir string) (string, error) {
 	return downloadXrayCoreArchiveWithClient(ctx, release, dir, xrayCoreHTTPClient)
 }
 
