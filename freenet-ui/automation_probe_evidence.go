@@ -74,8 +74,16 @@ func runAutomationVPNHTTPProbe(ctx context.Context, curlPath, socks, target stri
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	output, err := exec.CommandContext(probeCtx, curlPath, args...).Output()
-	if probeCtx.Err() != nil || ctx.Err() != nil {
-		return automationVPNHTTPObservation{} // timeout and cancel = UNKNOWN
+	// Parent cancellation is UNKNOWN; a completed local per-origin deadline
+	// with the parent still alive is positive evidence of an unreachable
+	// application endpoint. No probe timeout alone may authorize mutation:
+	// AUTO still requires both origins, fixed-IP evidence, a second probe,
+	// healthy DIRECT WAN and verified rollback-ready replacement.
+	if ctx.Err() != nil {
+		return automationVPNHTTPObservation{}
+	}
+	if errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+		return automationVPNHTTPObservation{ConclusiveFailure: true}
 	}
 	if err == nil {
 		if ms, ok := parseAutomationVPNHTTPResponse(string(output)); ok {
@@ -84,7 +92,7 @@ func runAutomationVPNHTTPProbe(ctx context.Context, curlPath, socks, target stri
 		return automationVPNHTTPObservation{}
 	}
 	var exit *exec.ExitError
-	if errors.As(err, &exit) && automationHTTPConclusiveCurlExit(exit.ExitCode()) {
+	if errors.As(err, &exit) && (automationHTTPConclusiveCurlExit(exit.ExitCode()) || exit.ExitCode() == 28) {
 		return automationVPNHTTPObservation{ConclusiveFailure: true}
 	}
 	return automationVPNHTTPObservation{}

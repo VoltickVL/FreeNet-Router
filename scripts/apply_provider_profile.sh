@@ -39,6 +39,7 @@ PROVIDER_FINALIZATION_PHASE=""
 OWNED_XRAY_ENABLED=0
 OWNED_XRAY_SEQUENCE=0
 OWNED_XRAY_CHILD_PID=0
+PROBE_PID=0
 
 say() { printf '%s\n' "$*"; }
 err() { printf '[FreeNet Provider] ERROR: %s\n' "$*" >&2; }
@@ -102,7 +103,30 @@ EOF
     return 1
 }
 
+# The unowned route-test alias is the direct child of this shell ($!).
+# Its PID cannot be reused before wait(2) reaps it; stopping this *owned*
+# diagnostic on EVERY exit prevents a leaked second Xray from blocking a
+# later production core-only restart. Never signal a Go-owned child or an
+# arbitrary pidof xray result. Go retains ownership of its own worker.
+stop_owned_route_probe_child() {
+    [ "$OWNED_XRAY_ENABLED" -eq 0 ] || return 0
+    case "$PROBE_PID" in
+        ''|0|*[!0-9]*) return 0 ;;
+    esac
+    kill "$PROBE_PID" 2>/dev/null || true
+    PROBE_REAP_TRY=0
+    while kill -0 "$PROBE_PID" 2>/dev/null && [ "$PROBE_REAP_TRY" -lt 3 ]; do
+        sleep 1
+        PROBE_REAP_TRY=$((PROBE_REAP_TRY + 1))
+    done
+    if kill -0 "$PROBE_PID" 2>/dev/null; then
+        kill -9 "$PROBE_PID" 2>/dev/null || true
+    fi
+    wait "$PROBE_PID" 2>/dev/null || true
+    PROBE_PID=0
+}
 cleanup() {
+    stop_owned_route_probe_child
     [ -n "$TMP_DIR" ] && rm -rf "$TMP_DIR" 2>/dev/null || true
     if [ "$LOCK_HELD" -eq 1 ]; then
         rm -rf "$LOCK_DIR" 2>/dev/null || true
@@ -753,11 +777,11 @@ validate_live() {
 
 stop_provider_route_probe() {
     if [ "$OWNED_XRAY_ENABLED" -eq 1 ]; then
-        owned_xray_request route-stop "$PROBE_DIR"
-        return $?
+        owned_xray_request route-stop "$PROBE_DIR" || return 1
+        PROBE_PID=0
+        return 0
     fi
-    kill "$PROBE_PID" 2>/dev/null || true
-    wait "$PROBE_PID" 2>/dev/null || true
+    stop_owned_route_probe_child
 }
 
 provider_route_probe() {

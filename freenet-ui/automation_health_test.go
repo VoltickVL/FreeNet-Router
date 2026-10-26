@@ -70,6 +70,49 @@ func TestPostUpdateGuardAllowsConfirmedFailureRecoveryButKeepsUncertainFailClose
 	}
 }
 
+func TestVerifiedManualRecoveryReleasesPostUpdateHoldWithoutIgnoringRollback(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "automation.state")
+	update := filepath.Join(dir, "self-update.state")
+	checkpoint := filepath.Join(dir, "vpn-transaction.pending")
+	t.Setenv("FREENET_AUTOMATION_STATE", state)
+	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
+	t.Setenv("FREENET_VPN_TRANSACTION_DIR", checkpoint)
+	if err := os.WriteFile(update, []byte("STATE=SUCCESS\nTARGET_VERSION=v"+version+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{UpdateState: update}}
+	if got := automationPendingPostUpdateTarget(a); got != "v"+version {
+		t.Fatalf("missing pending post-update guard: %q", got)
+	}
+	setAutomationMutationBlocked(true)
+	if acknowledgeAutomationPostUpdateFromVerifiedManual(a) {
+		t.Fatal("unresolved rollback allowed post-update AUTO acknowledgement")
+	}
+	if got := parseAutomationState(state)["POST_UPDATE_ACK"]; got != "" {
+		t.Fatalf("blocked rollback acknowledged: %q", got)
+	}
+	setAutomationMutationBlocked(false)
+	if err := os.Mkdir(checkpoint, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if acknowledgeAutomationPostUpdateFromVerifiedManual(a) {
+		t.Fatal("pending transaction checkpoint allowed AUTO acknowledgement")
+	}
+	if err := os.Remove(checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if !acknowledgeAutomationPostUpdateFromVerifiedManual(a) {
+		t.Fatal("verified manual recovery did not clear the post-update latch")
+	}
+	if got := automationPendingPostUpdateTarget(a); got != "" {
+		t.Fatalf("manual recovery left AUTO permanently blocked: %q", got)
+	}
+	if acknowledgeAutomationPostUpdateFromVerifiedManual(a) {
+		t.Fatal("already acknowledged release must not generate a second handoff")
+	}
+}
+
 func TestRollbackGuardClearsOnlyAfterFactualStateIsEstablished(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))
@@ -390,9 +433,9 @@ func TestAutomationMediaOnlyDegradationNeverConfirmsGlobalVPNOutage(t *testing.T
 }
 
 func TestAutomationCompleteNamedHTTPSBlackholeTriggersOnlyConfirmedRecovery(t *testing.T) {
-	// Rejected named origins with fixed-IP VPN success are not a global VPN
-	// outage; the positive transport signal must not be disregarded.
-	if got := classifyAutomationApplicationFailure(true, true); got.State != automationHealthUncertain {
+	// Repeated complete rejection of independent named HTTPS origins is an
+	// application-path outage even if a fixed-IP response still succeeds.
+	if got := classifyAutomationApplicationFailure(true, true); got.State != automationHealthFailed {
 		t.Fatalf("named origins blocked, fixed-IP still works: %+v", got)
 	}
 	for _, transportOK := range []bool{true, false} {
@@ -400,8 +443,8 @@ func TestAutomationCompleteNamedHTTPSBlackholeTriggersOnlyConfirmedRecovery(t *t
 			t.Fatalf("partial/timeout evidence cannot authorize recovery: %+v", got)
 		}
 	}
-	// True VPN outage still requires both independent named origins and the
-	// fixed-IP transport conclusively failed in *both* observations, plus WAN.
+	// AUTO still requires both complete failed observations and healthy WAN
+	// before starting bounded replacement, regardless of fixed-IP transport.
 	failed := classifyAutomationApplicationFailure(false, true)
 	if failed.State != automationHealthFailed {
 		t.Fatalf("complete 2 named + IP failure must classify as DOWN: %+v", failed)

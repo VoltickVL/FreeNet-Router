@@ -339,11 +339,12 @@ func automationQualityOptimizationStartReason(probe automationHealthProbe) strin
 	return "Устойчивая деградация качества подтверждена несколькими наблюдениями. Триггер: " + trigger + " Сравниваем текущий VPN с fully measured Top-3."
 }
 
-// An IP-only success is not working Internet for a VPN-routed user. When BOTH
-// independent named-HTTPS origins were actually attempted and failed, treat
-// this as a read-only FAIL even if fixed-IP VPN transport is still reachable.
-// Recovery still requires a second failed probe, healthy DIRECT WAN, and a
-// separately verified application-ready replacement before any mutation.
+// A fixed-IP response is not evidence that VPN-routed applications work.
+// Failure of BOTH independent named HTTPS origins is application-path
+// failure even if fixed-IP transport still responds. A recovery is allowed
+// only after a second complete failed observation, verified DIRECT WAN,
+// transaction fences and a separately accepted replacement. Any incomplete
+// sample or cancelled parent remains UNKNOWN (no mutation).
 func classifyAutomationApplicationFailure(transportOK, namedFailureComplete bool) automationHealthProbe {
 	if !namedFailureComplete {
 		return automationHealthProbe{
@@ -353,8 +354,8 @@ func classifyAutomationApplicationFailure(transportOK, namedFailureComplete bool
 	}
 	if transportOK {
 		return automationHealthProbe{
-			State: automationHealthUncertain,
-			Reason: "VPN по IP подтверждён, но оба независимых HTTPS/DNS-адреса недоступны. Это частичная прикладная/DNS неисправность, а не доказанный глобальный отказ VPN.",
+			State: automationHealthFailed,
+			Reason: "VPN отвечает на IP-запрос, но оба независимых HTTPS-адреса через него недоступны. Это подтверждённая неисправность прикладного VPN-пути; AUTO требует второй независимый FAIL, рабочий DIRECT и проверенную замену.",
 		}
 	}
 	return automationHealthProbe{
