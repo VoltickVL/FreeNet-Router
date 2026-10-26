@@ -953,17 +953,17 @@ grep -Fq 'core_restart_preflight || fail_apply' "$SCRIPT" || fail 'core prefligh
     kill() {
         case "$1" in
             -0) return 1 ;;
-            *) printf 'TERM %s\\n' "$1" >> "$EVENTS"; return 0 ;;
+            *) printf 'TERM %s\n' "$1" >> "$EVENTS"; return 0 ;;
         esac
     }
-    wait() { printf 'WAIT %s\\n' "$1" >> "$EVENTS"; return 0; }
+    wait() { printf 'WAIT %s\n' "$1" >> "$EVENTS"; return 0; }
     OWNED_XRAY_ENABLED=0
     PROBE_PID=4321
     TMP_DIR=""
     LOCK_HELD=0
     cleanup
     [ "$PROBE_PID" -eq 0 ] || fail 'shell child PID not cleared after cleanup'
-    [ "$(cat "$EVENTS")" = "$(printf 'TERM 4321\\nWAIT 4321')" ] ||
+    [ "$(cat "$EVENTS")" = "$(printf 'TERM 4321\nWAIT 4321')" ] ||
         fail 'shell cleanup did not reap exactly its own diagnostic child'
     : > "$EVENTS"
     OWNED_XRAY_ENABLED=1
