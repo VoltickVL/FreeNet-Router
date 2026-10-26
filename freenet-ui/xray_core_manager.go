@@ -33,7 +33,7 @@ const (
     xrayCoreTestProgressWindow = 5 * time.Second // CPU must advance near soft deadline
 )
 
-var xrayCoreHTTPClient = &http.Client{Timeout: 55 * time.Second}
+var xrayCoreHTTPClient = newXrayCoreDirectHTTPClient()
 
 // Only controlled Xray core upgrades use this longer bounded exclusive wait.
 // Best Server and other passive consumers keep their existing admission budgets.
