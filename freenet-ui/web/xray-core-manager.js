@@ -355,8 +355,14 @@
         const elapsed = Math.max(0, Number(result.child_ms || 0));
         const userCPU = Math.max(0, Number(result.user_cpu_ms || 0));
         const systemCPU = Math.max(0, Number(result.system_cpu_ms || 0));
-        const evidence = 'Child запущен: ' + child + '; ожидание: ' + elapsed +
-          ' мс; CPU user/system: ' + userCPU + '/' + systemCPU + ' мс.';
+        const phase = String(result.phase || 'unknown');
+        const admission = Math.max(0, Number(result.admission_ms || 0));
+        const prep = Math.max(0, Number(result.preparation_ms || 0));
+        const code = result.exit_code === undefined ? '—' : String(result.exit_code);
+        const evidence = 'Стадия: ' + phase + '; child запущен: ' + child +
+          '; admission: ' + admission + ' мс; подготовка: ' + prep +
+          ' мс; исполнение: ' + elapsed + ' мс; CPU user/system: ' +
+          userCPU + '/' + systemCPU + ' мс; exit: ' + code + '.';
         if (response.ok && result.success === true && result.mutation === 'NONE' && result.valid === true) {
           diagnosticResult.className = 'xcm-selection ready';
           diagnosticResult.textContent = 'Проверка установленного Xray PASS. ' + evidence +
