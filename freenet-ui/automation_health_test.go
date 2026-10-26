@@ -70,6 +70,49 @@ func TestPostUpdateGuardAllowsConfirmedFailureRecoveryButKeepsUncertainFailClose
 	}
 }
 
+func TestVerifiedManualRecoveryReleasesPostUpdateHoldWithoutIgnoringRollback(t *testing.T) {
+	dir := t.TempDir()
+	state := filepath.Join(dir, "automation.state")
+	update := filepath.Join(dir, "self-update.state")
+	checkpoint := filepath.Join(dir, "vpn-transaction.pending")
+	t.Setenv("FREENET_AUTOMATION_STATE", state)
+	t.Setenv("FREENET_AUTOMATION_HISTORY", filepath.Join(dir, "automation.history"))
+	t.Setenv("FREENET_VPN_TRANSACTION_DIR", checkpoint)
+	if err := os.WriteFile(update, []byte("STATE=SUCCESS\nTARGET_VERSION=v"+version+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{UpdateState: update}}
+	if got := automationPendingPostUpdateTarget(a); got != "v"+version {
+		t.Fatalf("missing pending post-update guard: %q", got)
+	}
+	setAutomationMutationBlocked(true)
+	if acknowledgeAutomationPostUpdateFromVerifiedManual(a) {
+		t.Fatal("unresolved rollback allowed post-update AUTO acknowledgement")
+	}
+	if got := parseAutomationState(state)["POST_UPDATE_ACK"]; got != "" {
+		t.Fatalf("blocked rollback acknowledged: %q", got)
+	}
+	setAutomationMutationBlocked(false)
+	if err := os.Mkdir(checkpoint, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if acknowledgeAutomationPostUpdateFromVerifiedManual(a) {
+		t.Fatal("pending transaction checkpoint allowed AUTO acknowledgement")
+	}
+	if err := os.Remove(checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if !acknowledgeAutomationPostUpdateFromVerifiedManual(a) {
+		t.Fatal("verified manual recovery did not clear the post-update latch")
+	}
+	if got := automationPendingPostUpdateTarget(a); got != "" {
+		t.Fatalf("manual recovery left AUTO permanently blocked: %q", got)
+	}
+	if acknowledgeAutomationPostUpdateFromVerifiedManual(a) {
+		t.Fatal("already acknowledged release must not generate a second handoff")
+	}
+}
+
 func TestRollbackGuardClearsOnlyAfterFactualStateIsEstablished(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "automation.state"))
