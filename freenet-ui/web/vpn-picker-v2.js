@@ -354,10 +354,11 @@
     text(currentName,id.country); text(currentCopy,id.label); text(badge,online?L.connected:s?.xray_online===false?L.offline:L.unknown); badge.dataset.online=String(online);
     let state='idle', title=L.idle, note=L.unchanged;
     if (selected) {
-      // A failed/UNKNOWN rollback is authoritative even when the target endpoint
-      // appears active: never hide an indeterminate transaction.
-      const observed = sent && !uncertain(e) && selectedStatusEvidence(s, selected);
-      const engineError = !!(error || e.card?.classList.contains('is-error') || uncertain(e));
+      // UNKNOWN/FAILED rollback is never upgraded to success by a matching
+      // endpoint/label: an in-flight post-apply helper may still roll back.
+      const unknownReceipt = /(?:\\bUNKNOWN\\b|FAILED\\/UNKNOWN|результат не подтверждён|откат не подтверждён)/i.test([e.note,e.title,error].join(' '));
+      const observed = sent && !uncertain(e) && !unknownReceipt && selectedStatusEvidence(s, selected);
+      const engineError = !!(error || e.card?.classList.contains('is-error') || uncertain(e) || unknownReceipt);
       if (choosing || e.card?.classList.contains('is-checking')) {state='checking';title=L.checking;note=clean(selected.name);}
       else if (observed && (e.applying || engineError)) {
         // An interrupted/hung POST may leave the old engine in APPLYING even
@@ -367,7 +368,7 @@
       }
       else if (observed) {state='success';title=L.connected;note=L.verified;}
       else if (e.applying) {state='applying';title=L.applying;note=clean(selected.name);}
-      else if (error || e.card?.classList.contains('is-error')) {state='error';title=uncertain(e)?L.blocked:L.failed;note=error || e.note || e.title;}
+      else if (error || e.card?.classList.contains('is-error') || unknownReceipt) {state='error';title=(uncertain(e)||unknownReceipt)?L.blocked:L.failed;note=error || e.note || e.title;}
       else if (canConnect(e)) {state='ready';title=L.ready;note=clean(selected.name);}
       else if (sent && s?.busy === false && s?.updater_busy === false) {state='error';title=L.blocked;note=e.note || L.unverified;}
       else if (sent) {state='applying';title=L.applying;note=e.note || L.blocked;}
