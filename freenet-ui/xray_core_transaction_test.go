@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -142,43 +143,33 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRestartCalls:  0,
 		},
 		{
-			name:              "invalid live configuration blocks before binary mutation",
+			name:              "native update does not repeat expensive live config test",
 			invalidCurrent:    true,
-			wantSuccess:       false,
+			wantSuccess:       true,
 			wantRollback:      "NOT_NEEDED",
-			wantCurrent:       previous,
-			wantErrorContains: "reason=xray-live-config-test-failed",
-			wantRestartCalls:  0,
+			wantCurrent:       target,
+			wantRestartCalls:  1,
 		},
 		{
-			name:              "invalid candidate config stops before Xray binary replacement",
+			name:              "candidate reporting wrong version stops before replacement",
 			invalidCandidate:  true,
 			wantSuccess:       false,
 			wantRollback:      "NOT_NEEDED",
 			wantCurrent:       previous,
-			wantErrorContains: "reason=xray-candidate-config-test-failed",
+			wantErrorContains: "downloaded Xray binary does not match selected version",
 			wantRestartCalls:  0,
 		},
 		{
-			name:                  "busy probe admission timeout leaves installed Xray unchanged",
-			probeAdmissionTimeout: true,
-			wantSuccess:           false,
-			wantRollback:          "NOT_NEEDED",
-			wantCurrent:           previous,
-			wantErrorContains:     "reason=xray-probe-admission-timeout",
-			wantRestartCalls:      0,
-		},
-		{
-			name:              "unavailable XKeen is no-mutation preflight",
+			name:              "unavailable XKeen UI is no-mutation preflight",
 			xkeenUnavailable:  true,
 			wantSuccess:       false,
 			wantRollback:      "NOT_NEEDED",
 			wantCurrent:       previous,
-			wantErrorContains: "XKeen restart is unavailable",
+			wantErrorContains: "native XKeen UI",
 			wantRestartCalls:  0,
 		},
 		{
-			name:               "busy diagnostic pool is drained before both live semantic tests and install",
+			name:               "read-only probe pool cannot delay a native core update",
 			holdReadOnlyProbes: true,
 			xkeenExit:          0,
 			wantSuccess:        true,
@@ -260,18 +251,49 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 
 			restartLog := filepath.Join(root, "xkeen-restarts.log")
 			xkeenPath := filepath.Join(root, "xkeen")
-			xkeen := fmt.Sprintf("#!/bin/sh\nprintf 'restart\\n' >> %q\nexit %d\n", restartLog, scenario.xkeenExit)
-			if scenario.cancelDuringRestart {
-				// Forward restart fails after the HTTP client disconnects;
-				// rollback must use its independent context and restart once more.
-				xkeen = fmt.Sprintf("#!/bin/sh\nprintf 'restart\\n' >> %q\nsleep 1\nif [ \"$(wc -l < %q)\" -eq 1 ]; then exit 19; fi\nexit 0\n", restartLog, restartLog)
+			if err := os.WriteFile(xkeenPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil { t.Fatal(err) }
+			restartCount := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if scenario.xkeenUnavailable {
+					http.Error(w, "unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				switch {
+				case req.URL.Path != "/api/control":
+					http.NotFound(w, req)
+				case req.Method == http.MethodGet:
+					_, _ = io.WriteString(w, `{"success":true,"running":true,"currentCore":"xray"}`)
+				case req.Method == http.MethodPost:
+					restartCount++
+					if err := os.WriteFile(restartLog, bytes.Repeat([]byte("restart\n"), restartCount), 0600); err != nil {
+						t.Error(err)
+					}
+					if scenario.cancelDuringRestart && restartCount == 1 { time.Sleep(time.Second) }
+					if scenario.xkeenExit != 0 {
+						_, _ = io.WriteString(w, `{"success":false}`)
+					} else {
+						_, _ = io.WriteString(w, `{"success":true}`)
+					}
+				default:
+					http.Error(w, "unsupported", http.StatusMethodNotAllowed)
+				}
+			}))
+			t.Cleanup(server.Close)
+			previousEndpoint := xrayCoreNativeControlEndpoint
+			xrayCoreNativeControlEndpoint = server.URL + "/api/control"
+			t.Cleanup(func() { xrayCoreNativeControlEndpoint = previousEndpoint })
+			previousProof := xrayCoreNativeRuntimeProof
+			xrayCoreNativeRuntimeProof = func(binary string) bool {
+				testCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
+				current, err := xrayCoreVersionAt(testCtx, binary)
+				if err != nil { return false }
+				return !(scenario.targetFailsInstalled && current == target)
 			}
-			if err := os.WriteFile(xkeenPath, []byte(xkeen), 0755); err != nil {
-				t.Fatal(err)
-			}
-			if scenario.xkeenUnavailable {
-				if err := os.Chmod(xkeenPath, 0644); err != nil { t.Fatal(err) }
-			}
+			t.Cleanup(func(){ xrayCoreNativeRuntimeProof = previousProof })
+			oldForwardTimeout, oldRollbackTimeout := xrayCoreApplyTimeout, xrayCoreRollbackTimeout
+			xrayCoreApplyTimeout, xrayCoreRollbackTimeout = 450*time.Millisecond, 3*time.Second
+			t.Cleanup(func(){ xrayCoreApplyTimeout, xrayCoreRollbackTimeout = oldForwardTimeout, oldRollbackTimeout })
 
 			configPath := filepath.Join(root, "freenet.conf")
 			if err := os.WriteFile(configPath, []byte("DNS_MODE=auto\n"), 0600); err != nil {
@@ -289,7 +311,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			}
 			targetScript := xrayCoreFixtureScript(target, scenario.targetFailsInstalled)
 			if scenario.invalidCandidate {
-				targetScript = []byte("#!/bin/sh\nif [ \"$1\" = \"version\" ]; then echo 'Xray 26.10.1'; exit 0; fi\nexit 27\n")
+				targetScript = xrayCoreFixtureScript("v26.10.0", false)
 			}
 			archive := xrayCoreZipFixture(t, targetScript)
 			sum := sha256.Sum256(archive)
@@ -352,50 +374,17 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 				if !started {
 					t.Fatal("fixture did not reach forward restart before cancellation")
 				}
-			} else if scenario.probeAdmissionTimeout {
-				// Every shared slot remains occupied beyond the deliberately short
-				// exclusive admission clock. No binary swap or XKeen restart is legal.
-				oldTimeout := xrayCoreAdmissionTimeout
-				xrayCoreAdmissionTimeout = 80 * time.Millisecond
-				t.Cleanup(func(){ xrayCoreAdmissionTimeout = oldTimeout })
-				var releases []func()
-				for i := 0; i < isolatedXrayProbeLimit; i++ {
-					release, ok := acquireIsolatedXrayProbe(context.Background())
-					if !ok { t.Fatal("cannot occupy shared probe gate") }
-					releases = append(releases, release)
-				}
-				result = a.applyXrayCore(context.Background(), target)
-				for _, release := range releases { release() }
 			} else if scenario.holdReadOnlyProbes {
-				// Real Portable beta33 had concurrent background fn-xray-probe
-				// workers. The core-upgrade worker must not fail or mutate while
-				// the entire shared probe pool is occupied.
+				// Read-only quality probes do not own the core binary. Holding
+				// their admission slots cannot delay a native XKeen UI update.
 				var releases []func()
 				for i := 0; i < isolatedXrayProbeLimit; i++ {
 					release, ok := acquireIsolatedXrayProbe(context.Background())
 					if !ok { t.Fatal("could not occupy probe pool") }
 					releases = append(releases, release)
 				}
-				defer func() { for _, release := range releases { release() } }()
-				resultCh := make(chan xrayCoreApplyResponse, 1)
-				go func() { resultCh <- a.applyXrayCore(context.Background(), target) }()
-				select {
-				case premature := <-resultCh:
-					t.Fatalf("upgrade returned while background probes were active: %+v", premature)
-				case <-time.After(300 * time.Millisecond):
-				}
-				versionCtx, cancelVersion := context.WithTimeout(context.Background(), 2*time.Second)
-				stillInstalled, versionErr := xrayCoreVersionAt(versionCtx, binary)
-				cancelVersion()
-				if versionErr != nil || stillInstalled != previous {
-					t.Fatalf("Xray core changed before exclusive admission: version=%s err=%v", stillInstalled, versionErr)
-				}
+				result = a.applyXrayCore(context.Background(), target)
 				for _, release := range releases { release() }
-				select {
-				case result = <-resultCh:
-				case <-time.After(15 * time.Second):
-					t.Fatal("guarded Xray core upgrade did not finish after read-only probes drained")
-				}
 			} else {
 				result = a.applyXrayCore(context.Background(), target)
 			}
