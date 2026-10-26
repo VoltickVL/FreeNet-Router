@@ -107,3 +107,28 @@ func TestXrayCoreReadOnlyDiagnosticHTTPDoesNotChangeBinary(t *testing.T) {
         t.Fatal("read-only test changed Xray binary")
     }
 }
+
+func TestXrayCoreReadOnlyDiagnosticBrowserMustBeExplicit(t *testing.T) {
+    data, err := os.ReadFile("web/xray-core-manager.js")
+    if err != nil { t.Fatal(err) }
+    content := string(data)
+    begin := strings.Index(content, "const diagnosticButton = document.createElement('button');")
+    end := strings.Index(content, "const search = document.createElement('input');", begin)
+    if begin < 0 || end <= begin { t.Fatal("read-only diagnostic is not rendered separately in Xray picker") }
+    snippet := content[begin:end]
+    for _, want := range []string{
+        "Диагностика Xray (без обновления)",
+        "diagnosticButton.addEventListener('click'",
+        "fetch('/api/xray/core/read-only-test'",
+        "result.mutation === 'NONE'",
+        "result.child_ms",
+        "result.user_cpu_ms",
+        "result.system_cpu_ms",
+        "Xray не изменён",
+    } {
+        if !strings.Contains(snippet, want) { t.Fatalf("missing browser diagnostic contract %q", want) }
+    }
+    for _, forbidden := range []string{"method:'POST'", "/api/xray/core/apply", "location.reload()"} {
+        if strings.Contains(snippet, forbidden) { t.Fatalf("read-only Xray diagnostic may not mutate: %q", forbidden) }
+    }
+}
