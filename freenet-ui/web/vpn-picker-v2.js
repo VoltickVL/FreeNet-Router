@@ -356,7 +356,8 @@
     if (selected) {
       // UNKNOWN/FAILED rollback is never upgraded to success by a matching
       // endpoint/label: an in-flight post-apply helper may still roll back.
-      const unknownReceipt = /(?:\\bUNKNOWN\\b|FAILED\\/UNKNOWN|результат не подтверждён|откат не подтверждён)/i.test([e.note,e.title,error].join(' '));
+      const receipt = [e.note,e.title,error].join(' ').toUpperCase();
+      const unknownReceipt = receipt.includes('UNKNOWN') || receipt.includes('НЕ ПОДТВЕРЖДЁН') || receipt.includes('ОТКАТ НЕ ПОДТВЕРЖДЁН');
       const observed = sent && !uncertain(e) && !unknownReceipt && selectedStatusEvidence(s, selected);
       const engineError = !!(error || e.card?.classList.contains('is-error') || uncertain(e) || unknownReceipt);
       if (choosing || e.card?.classList.contains('is-checking')) {state='checking';title=L.checking;note=clean(selected.name);}
