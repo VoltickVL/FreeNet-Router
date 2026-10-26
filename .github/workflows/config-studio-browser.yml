@@ -24,7 +24,7 @@ jobs:
       - name: Install pinned browser test tools
         run: |
           npm install --prefix "$RUNNER_TEMP/freenet-config-studio-browser" --no-package-lock --ignore-scripts playwright@1.51.1
-          node "$RUNNER_TEMP/freenet-config-studio-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          node "$RUNNER_TEMP/freenet-config-studio-browser/node_modules/playwright/cli.js" install chromium
       - name: Config Studio highlighted editor and controlled apply
         env:
           NODE_PATH: ${{ runner.temp }}/freenet-config-studio-browser/node_modules
