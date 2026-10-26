@@ -27,8 +27,10 @@ const (
 	xrayCoreOperationTimeout = 95 * time.Second // read-only catalog, download and validation
 	xrayCoreApplyTimeout = 55 * time.Second // forward restart and post-check after swap
 	xrayCoreRollbackTimeout = 70 * time.Second // independent reserve after forward failure
-    xrayCoreSemanticTimeout = 82 * time.Second // two semantic tests + staged copy under owned fence
-    xrayCoreSingleTestTimeout = 35 * time.Second // full time AFTER probe admission
+    xrayCoreSemanticTimeout = 205 * time.Second // two progress-bounded tests + snapshot under owned fence
+    xrayCoreSingleTestTimeout = 35 * time.Second // unchanged initial budget AFTER admission
+    xrayCoreSingleTestMaximumTimeout = 95 * time.Second // only if verified child CPU progress
+    xrayCoreTestProgressWindow = 5 * time.Second // CPU must advance near soft deadline
 )
 
 var xrayCoreHTTPClient = &http.Client{Timeout: 55 * time.Second}
@@ -532,11 +534,12 @@ func (a *app) runIsolatedXrayCoreTest(ctx context.Context, binary, configDir str
     defer os.RemoveAll(dir)
     probePath, err := resolvedIsolatedXrayProbePath(dir, binary)
     if err != nil { return errors.New("Xray validation binary is unavailable") }
-    cmd := exec.CommandContext(ctx, probePath, "run", "-test", "-confdir", configDir)
-    cmd.Env = isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.routingAssetDir()))
-    cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
-    cmd.WaitDelay = 2 * time.Second
-    return cmd.Run()
+    env := isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+a.routingAssetDir()))
+    return runXrayCoreProgressiveSemanticTest(
+        ctx, probePath, configDir, env,
+        xrayCoreSingleTestTimeout, xrayCoreSingleTestMaximumTimeout,
+        xrayCoreTestProgressWindow, readXrayCoreCPUJiffies,
+    )
 }
 
 // The installed binary must pass the current on-disk live config BEFORE swap.
@@ -545,11 +548,15 @@ func (a *app) runIsolatedXrayCoreTest(ctx context.Context, binary, configDir str
 func (a *app) validateXrayCoreBaseline(parent context.Context, binary string) error {
     configDir, err := a.xrayCoreLiveConfigDir()
     if err != nil { return err }
-    ctx, cancel := context.WithTimeout(parent, xrayCoreSingleTestTimeout)
+    ctx, cancel := context.WithTimeout(parent, xrayCoreSingleTestMaximumTimeout)
     defer cancel()
     err = a.runIsolatedXrayCoreTest(ctx, binary, configDir)
     if err == nil { return nil }
     switch {
+    case errors.Is(err, errXrayCoreSemanticIdle):
+        return errors.New("reason=xray-live-test-idle; Xray binary unchanged")
+    case errors.Is(err, errXrayCoreSemanticProgressDeadline):
+        return errors.New("reason=xray-live-test-progress-timeout; Xray binary unchanged")
     case ctx.Err() != nil:
         return errors.New("reason=xray-live-test-timeout; Xray binary unchanged")
     case errors.Is(err, exec.ErrNotFound), errors.Is(err, os.ErrNotExist):
@@ -560,7 +567,7 @@ func (a *app) validateXrayCoreBaseline(parent context.Context, binary string) er
 }
 
 func (a *app) validateXrayCoreCandidate(parent context.Context, candidate, target string) error {
-    ctx, cancel := context.WithTimeout(parent, xrayCoreSingleTestTimeout)
+    ctx, cancel := context.WithTimeout(parent, xrayCoreSingleTestMaximumTimeout)
     defer cancel()
     version, err := xrayCoreVersionAt(ctx, candidate)
     if err != nil || version != target {
@@ -570,6 +577,12 @@ func (a *app) validateXrayCoreCandidate(parent context.Context, candidate, targe
     if err != nil { return err }
     err = a.runIsolatedXrayCoreTest(ctx, candidate, configDir)
     if err != nil || ctx.Err() != nil {
+        if errors.Is(err, errXrayCoreSemanticIdle) {
+            return errors.New("reason=xray-candidate-test-idle; Xray binary unchanged")
+        }
+        if errors.Is(err, errXrayCoreSemanticProgressDeadline) {
+            return errors.New("reason=xray-candidate-test-progress-timeout; Xray binary unchanged")
+        }
         if ctx.Err() != nil {
             return errors.New("reason=xray-candidate-test-timeout; Xray binary unchanged or rollback required")
         }
