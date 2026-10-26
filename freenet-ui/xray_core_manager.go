@@ -345,21 +345,7 @@ func (a *app) fetchXrayCoreCatalog(ctx context.Context) (xrayCoreCatalogResponse
 	if err != nil {
 		return xrayCoreCatalogResponse{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, xrayCoreReleasesURL, nil)
-	if err != nil {
-		return xrayCoreCatalogResponse{}, err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "FreeNet-Router")
-	response, err := xrayCoreHTTPClient.Do(req)
-	if err != nil {
-		return xrayCoreCatalogResponse{}, errors.New("Xray release catalog is unavailable")
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return xrayCoreCatalogResponse{}, errors.New("Xray release catalog is unavailable")
-	}
-	body, err := readXrayCoreCatalogBody(response.Body)
+	body, err := a.fetchXrayCoreCatalogResilient(ctx)
 	if err != nil {
 		return xrayCoreCatalogResponse{}, err
 	}
@@ -367,7 +353,7 @@ func (a *app) fetchXrayCoreCatalog(ctx context.Context) (xrayCoreCatalogResponse
 }
 
 func (a *app) handleXrayCoreCatalog(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), xrayCoreCatalogRequestTimeout)
 	defer cancel()
 	catalog, err := a.fetchXrayCoreCatalog(ctx)
 	if err != nil {
