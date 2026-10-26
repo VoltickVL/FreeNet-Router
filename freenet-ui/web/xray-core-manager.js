@@ -329,7 +329,7 @@
     const preflight = document.createElement('div');
     preflight.className = 'xcm-selection ' + (coreValidation?.ready ? 'ready' : 'bad');
     preflight.textContent = coreValidation?.ready && coreValidation.validation === 'DEFERRED' && !coreValidation.valid
-      ? 'Xray доступен. FreeNet проверит официальный архив и версию, сохранит прежнее ядро и выполнит штатный перезапуск через XKeen UI. При ошибке восстановит предыдущий бинарник.'
+      ? 'Xray доступен. FreeNet проверит официальный архив и версию, сохранит прежнее ядро и выполнит собственный перезапуск Xray через FreeNet. При ошибке восстановит предыдущий бинарник.'
       : coreValidationText(coreValidation?.reason) + ' Обновление не запускается.';
     target.appendChild(preflight);
     if (coreValidation?.reason === 'reason=xray-recovery-stop') {
@@ -456,7 +456,7 @@
         return;
       }
       selection.className = 'xcm-selection ready';
-      selection.textContent = `Выбрана ${selected.version}. FreeNet проверит SHA-256 и версию, сохранит прежнее ядро и применит обновление штатным XKeen UI. При сбое восстановит старый бинарник; неопределённое состояние остановит дальнейшие изменения.`;
+      selection.textContent = `Выбрана ${selected.version}. FreeNet проверит SHA-256 и версию, сохранит прежнее ядро и применит обновление собственным механизмом FreeNet. При сбое восстановит старый бинарник; неопределённое состояние остановит дальнейшие изменения.`;
       addButton(footer, actionLabel(selected), 'primary', () => applyRelease(selected));
     };
 
