@@ -626,7 +626,7 @@ func xrayCoreAction(previous, target string) string {
 	return "change"
 }
 
-// The native XKeen UI restart is implemented in xray_core_native.go.
+// The FreeNet-owned process lifecycle is implemented in xray_core_native.go.
 // Never repeat a long isolated config test AFTER a production restart.
 // Rollback must never inherit a canceled request, exhausted download deadline
 // or forward-restart deadline. Always reserve its own bounded work window.
@@ -688,9 +688,9 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "selected Xray version is already installed"
 		return result
 	}
-	// XKeen UI is the authoritative process owner. Unlike the legacy
-	// xkeen -restart command, its softRestart preserves the required GID
-	// 11111. Check this BEFORE downloading or replacing anything.
+	// FreeNet takes responsibility for this Xray version-change transaction.
+	// Before download, verify the existing production process and routing GID
+	// 11111 without requiring XKeen UI or its CLI.
 	if err := xrayCoreNativePreflight(ctx, binary); err != nil {
 		result.Error = err.Error()
 		return result
@@ -736,8 +736,8 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 	}
 	// No separate 35-95 second 'run -test' cycles. The selected official
 	// archive already passed SHA-256 and the extracted candidate reports the
-	// exact requested version. The running stack is checked against XKeen
-	// UI and its real process before the binary can be replaced.
+	// exact requested version. FreeNet checks the real running process and
+	// binary inode before replacing the installed core.
 	if automationMutationBlockedState() {
 		result.Error = "previous recovery is still blocked; reconcile the actual native runtime before update"
 		return result
@@ -775,8 +775,8 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "cannot prepare Xray candidate permissions"
 		return result
 	}
-	// This last native read-only gate prevents replacing the binary if the
-	// production process stopped while the snapshot was being prepared.
+	// This last bounded pre-swap guard prevents replacing the binary when
+	// the update preparation deadline has already expired.
 	if ctx.Err() != nil {
 		result.Error = "Xray update preparation expired; no binary changed"
 		return result
@@ -787,8 +787,8 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 	}
 	candidateOwned = false
 
-	// Native XKeen UI owns this restart. The backup is retained until the
-	// new running executable and GID=11111 are confirmed or rollback succeeds.
+	// FreeNet owns this restart. The backup is retained until the new running
+	// executable and GID=11111 are confirmed or rollback succeeds.
 	applyCtx, cancelApply := context.WithTimeout(context.Background(), xrayCoreApplyTimeout)
 	applyErr := a.restartXrayCoreUpdateOwned(applyCtx, binary, target)
 	if applyErr == nil {
