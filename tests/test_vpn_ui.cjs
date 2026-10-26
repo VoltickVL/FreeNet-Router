@@ -769,7 +769,7 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#selectedProfileCard')?.classList.contains('is-ready'));
     const beforeDelayedApply=mutationPosts().length;
     await page.locator('#fnVpnPickerV2Connect').click();
-    await page.waitForFunction(()=>window.providerApplying===true);
+    await page.waitForFunction(()=>typeof providerApplying !== 'undefined' && providerApplying === true);
     await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='applying');
     await page.evaluate(()=>loadStatus());
     assert.equal(await page.locator('#fnVpnPickerV2Footer').getAttribute('data-state'),'applying',
