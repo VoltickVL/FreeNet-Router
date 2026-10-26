@@ -13,7 +13,7 @@ permissions:
 jobs:
   production-browser:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -32,7 +32,7 @@ jobs:
       - name: Install pinned browser test tools
         run: |
           npm install --prefix "$RUNNER_TEMP/freenet-production-browser" --no-package-lock --ignore-scripts playwright@1.51.1
-          node "$RUNNER_TEMP/freenet-production-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          node "$RUNNER_TEMP/freenet-production-browser/node_modules/playwright/cli.js" install chromium
       - name: Record reproducible source snapshot
         run: |
           mkdir -p test-artifacts/control-center

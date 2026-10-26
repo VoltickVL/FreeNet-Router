@@ -22,7 +22,7 @@ jobs:
       - name: Install pinned browser test tools
         run: |
           npm install --prefix "$RUNNER_TEMP/freenet-routing-browser" --no-package-lock --ignore-scripts playwright@1.51.1
-          node "$RUNNER_TEMP/freenet-routing-browser/node_modules/playwright/cli.js" install --with-deps chromium
+          node "$RUNNER_TEMP/freenet-routing-browser/node_modules/playwright/cli.js" install chromium
       - name: Routing v2 canonical mount and controlled apply
         env:
           NODE_PATH: ${{ runner.temp }}/freenet-routing-browser/node_modules

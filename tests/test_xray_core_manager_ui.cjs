@@ -20,6 +20,7 @@ let applyPosts = 0;
 let applyBody = null;
 let dropNextApplyResponse = false;
 let coreOperationReceipt = {state:'IDLE'};
+let coreOperationGets = 0;
 let serviceOnline = true;
 let serviceVersion = 'v26.9.9';
 let serviceEvents = [
@@ -91,6 +92,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (req.url === '/api/xray/core/operation' && req.method === 'GET') {
+    coreOperationGets += 1;
     res.writeHead(200, {'content-type':'application/json'});
     res.end(JSON.stringify(coreOperationReceipt));
     return;
@@ -305,11 +307,42 @@ const server = http.createServer((req, res) => {
       await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Обновление Xray продолжается'));
     }
     assert.equal(applyPosts, 2, 'lost response must not retry Xray POST');
+    // The detached backend reaches ROLLED_BACK after the original HTTP
+    // response is lost. The UI must transition by reading the receipt
+    // automatically, not depend on a second user click.
+    const readsBeforeRollback = coreOperationGets;
     coreOperationReceipt = {state:'ROLLED_BACK',target_version:'v26.10.1',result:{success:false,rollback:'SUCCESS',error:'предыдущая версия восстановлена'}};
-    await manager.getByRole('button', {name:'Проверить результат'}).click();
     await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('прежняя версия Xray восстановлена'));
-    assert.equal(applyPosts, 2, 'receipt reconciliation must remain read-only');
+    assert.ok(coreOperationGets > readsBeforeRollback, 'rollback receipt must be reconciled by automatic read-only polling');
+    assert.equal(applyPosts, 2, 'receipt reconciliation must never retry Xray apply POST');
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.8.1', 'failed target must not replace installed version');
+
+    // Regression for beta.37 on Portable: the topbar already shows the new
+    // version while the open dialog remains stuck on stale RUNNING.
+    await page.locator('#xcmClose').click();
+    coreOperationReceipt = {state:'RUNNING',target_version:'v26.10.1'};
+    await page.locator('#xrayTopbarChip').click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Обновление Xray продолжается'));
+    const readsBeforeClose = coreOperationGets;
+    await page.locator('#xcmClose').click();
+    await page.waitForTimeout(1800);
+    assert.equal(coreOperationGets, readsBeforeClose, 'closing the Xray dialog must cancel the receipt polling timer');
+    await page.locator('#xrayTopbarChip').click();
+    await page.waitForFunction(() => (document.querySelector('#xrayCoreManager')?.innerText || '').includes('Обновление Xray продолжается'));
+
+    const readsBeforeSuccess = coreOperationGets;
+    serviceVersion = 'v26.10.1';
+    catalog.current_version = serviceVersion;
+    for (const release of catalog.releases) release.current = release.version === serviceVersion;
+    serviceEvents = [{at:'2026-10-26T09:15:55Z',kind:'xray',result:'success',message:'Xray обновлён до v26.10.1.'}, ...serviceEvents];
+    coreOperationReceipt = {state:'SUCCESS',target_version:'v26.10.1',result:{success:true,rollback:'NOT_NEEDED',current_version:serviceVersion,message:'Xray обновлён до v26.10.1.'}};
+    await page.waitForFunction(() => {
+      const text = document.querySelector('#xrayCoreManager')?.innerText || '';
+      return text.includes('Xray обновлён до v26.10.1.') && text.includes('Работает') && !text.includes('Обновление Xray продолжается');
+    });
+    assert.ok(coreOperationGets > readsBeforeSuccess, 'SUCCESS must be displayed automatically after the worker finishes');
+    assert.equal(applyPosts, 2, 'polling SUCCESS must not start another Xray installation');
+    assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.10.1', 'terminal SUCCESS must synchronize topbar and open modal');
 
     await page.locator('#xcmClose').click();
     await page.waitForFunction(() => document.querySelector('#xrayCoreManager')?.hidden === true);

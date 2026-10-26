@@ -14,6 +14,14 @@
   let topbarReadGeneration = 0;
   const topbarMaxAttempts = 4;
   let serviceMutationUnknown = false;
+  // Poll only the read-only receipt while a detached core operation runs.
+  // No timer can issue a second apply, and closing/changing views cancels it.
+  let coreReceiptPollTimer = null;
+  let coreReceiptPollTarget = '';
+  let coreReceiptPollStartedAt = 0;
+  let coreReceiptPollEpoch = 0;
+  const coreReceiptPollInterval = 1500;
+  const coreReceiptPollMaxWait = 5 * 60 * 1000;
 
   
 
@@ -255,6 +263,7 @@
 
   function closeManager() {
     if (applying) return;
+    stopCoreReceiptPolling();
     const root = qs('#xrayCoreManager');
     if (!root || root.hidden) return;
     root.hidden = true;
@@ -310,6 +319,7 @@
   }
 
   function renderCatalog() {
+    stopCoreReceiptPolling();
     setManagerHeading('Версия Xray Core', 'Выбор версии, затем проверка и установка');
     const target = body();
     const footer = actions();
@@ -571,6 +581,7 @@
   }
 
   function renderServiceHome(result, notice = '') {
+    stopCoreReceiptPolling();
     serviceState = result || serviceState || {success:true,online:false,events:[]};
     syncServiceSurfaces(serviceState);
     setManagerHeading('Xray', 'Сервис, версия и последние события');
@@ -788,16 +799,65 @@
     return response.json();
   }
 
-  async function renderCoreUpdateReceipt(expectedVersion) {
+  function stopCoreReceiptPolling() {
+    clearTimeout(coreReceiptPollTimer);
+    coreReceiptPollTimer = null;
+    coreReceiptPollTarget = '';
+    coreReceiptPollStartedAt = 0;
+    coreReceiptPollEpoch += 1;
+  }
+
+  function scheduleCoreReceiptPolling(version) {
+    if (!version || qs('#xrayCoreManager')?.hidden) return;
+    if (coreReceiptPollTarget !== version) {
+      stopCoreReceiptPolling();
+      coreReceiptPollTarget = version;
+      coreReceiptPollStartedAt = Date.now();
+    }
+    clearTimeout(coreReceiptPollTimer);
+    if (Date.now() - coreReceiptPollStartedAt >= coreReceiptPollMaxWait) {
+      // A polling deadline is NOT an Xray operation failure. Preserve the
+      // explicit read-only refresh button and stop automatic network calls.
+      const box = body().querySelector('.xcm-progress');
+      if (box) {
+        box.className = 'xcm-result';
+        box.textContent = 'Автоматическая проверка результата заняла слишком много времени. Это не означает ошибку обновления. Нажмите «Проверить результат»; повторную установку не запускайте.';
+      }
+      stopCoreReceiptPolling();
+      return;
+    }
+    const epoch = coreReceiptPollEpoch;
+    coreReceiptPollTimer = setTimeout(async () => {
+      coreReceiptPollTimer = null;
+      if (epoch !== coreReceiptPollEpoch || qs('#xrayCoreManager')?.hidden) return;
+      if (document.visibilityState === 'hidden') {
+        scheduleCoreReceiptPolling(version);
+        return;
+      }
+      try {
+        // Polling only reads /api/xray/core/operation. Never repeat /apply.
+        const reconciled = await renderCoreUpdateReceipt(version, epoch);
+        if (!reconciled && epoch === coreReceiptPollEpoch) scheduleCoreReceiptPolling(version);
+      } catch (_) {
+        // Temporary read error is not proof of failure or rollback.
+        if (epoch === coreReceiptPollEpoch) scheduleCoreReceiptPolling(version);
+      }
+    }, coreReceiptPollInterval);
+  }
+
+  async function renderCoreUpdateReceipt(expectedVersion, pollEpoch) {
     const receipt = await readCoreUpdateReceipt();
+    if (qs('#xrayCoreManager')?.hidden ||
+        (pollEpoch !== undefined && pollEpoch !== coreReceiptPollEpoch)) return false;
     if (!receipt || !['RUNNING', 'SUCCESS', 'ROLLED_BACK', 'FAILED', 'STOP'].includes(receipt.state)) return false;
     if (expectedVersion && receipt.target_version !== expectedVersion) return false;
+    if (receipt.state !== 'RUNNING') stopCoreReceiptPolling();
     const target = body(), footer = actions();
     if (receipt.state === 'SUCCESS' && receipt.result?.success) {
       const message = receipt.result.message || ('Xray ' + receipt.target_version + ' установлен и проверен.');
       try {
         const current = await fetchServiceSnapshot();
-        renderServiceHome(current, message);
+        if (!qs('#xrayCoreManager')?.hidden) renderServiceHome(current, message);
       } catch (_) {
         // A valid update receipt does not establish that the browser can
         // currently reach the service. Do not synthesize a green status.
@@ -820,7 +880,8 @@
     const detail = String(receipt.result?.error || '');
     switch (receipt.state) {
       case 'RUNNING':
-        box.textContent = 'Обновление Xray продолжается на роутере. Не запускайте повторную установку.';
+        box.textContent = 'Обновление Xray продолжается на роутере. Результат проверяется автоматически; повторную установку не запускайте.';
+        scheduleCoreReceiptPolling(receipt.target_version);
         break;
       case 'ROLLED_BACK':
         box.textContent = 'Новая версия не принята; прежняя версия Xray восстановлена и проверена. ' + detail;
@@ -858,6 +919,7 @@
 
   async function applyRelease(release) {
     if (applying) return;
+    stopCoreReceiptPolling();
     applying = true;
     const target = body(); const footer = actions(); clearNode(target); clearNode(footer);
     const progress = document.createElement('div'); progress.className = 'xcm-progress'; progress.textContent = `Устанавливаем Xray ${release.version}…`; target.appendChild(progress);
