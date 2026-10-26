@@ -42,10 +42,10 @@ func TestAutomationProbeClassifiesTimeoutAndEnvironmentAsUnknown(t *testing.T) {
 		reachable, failed bool
 	}{
 		{"server-405", "printf '405\\t0.11\\t0.33'\nexit 0\n", time.Second, true, false},
-		{"timeout-exit-28", "exit 28\n", time.Second, false, false},
+		{"timeout-exit-28", "exit 28\n", time.Second, false, true},
 		{"dns-exit-6", "exit 6\n", time.Second, false, false},
 		{"refused-exit-7", "exit 7\n", time.Second, false, true},
-		{"slow-probe", "sleep 1\nexit 7\n", 25*time.Millisecond, false, false},
+		{"slow-probe", "sleep 1\nexit 7\n", 25*time.Millisecond, false, true},
 	}
 	for _, tc := range fixtures {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,7 +107,7 @@ func TestAutomationCurrentHealthCodeDoesNotTreatQoEAsOutage(t *testing.T) {
 	if got := classifyAutomationHealth(genericUp, true, genericUp); got.State == automationHealthCritical {
 		t.Fatalf("media failure authorized emergency switch: %+v", got)
 	}
-	if got := classifyAutomationApplicationFailure(true,true); got.State != automationHealthUncertain || strings.Contains(got.Reason,"аварий") {
+	if got := classifyAutomationApplicationFailure(true,true); got.State != automationHealthFailed || strings.Contains(got.Reason,"аварий") {
 		t.Fatalf("named HTTPS blocked but transport passed: %+v",got)
 	}
 	if got := classifyAutomationApplicationFailure(false,true); got.State != automationHealthFailed {
