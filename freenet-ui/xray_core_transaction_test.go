@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -160,13 +159,12 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantRestartCalls:  0,
 		},
 		{
-			name:              "unavailable XKeen UI is no-mutation preflight",
+			name:              "XKeen UI absence does not block FreeNet-owned update",
 			xkeenUnavailable:  true,
-			wantSuccess:       false,
+			wantSuccess:       true,
 			wantRollback:      "NOT_NEEDED",
-			wantCurrent:       previous,
-			wantErrorContains: "native XKeen UI",
-			wantRestartCalls:  0,
+			wantCurrent:       target,
+			wantRestartCalls:  1,
 		},
 		{
 			name:               "read-only probe pool cannot delay a native core update",
@@ -248,51 +246,44 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			restartLog := filepath.Join(root, "xkeen-restarts.log")
-			xkeenPath := filepath.Join(root, "xkeen")
-			if err := os.WriteFile(xkeenPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil { t.Fatal(err) }
+			restartLog := filepath.Join(root, "freenet-native-restarts.log")
 			restartCount := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				if scenario.xkeenUnavailable {
-					http.Error(w, "unavailable", http.StatusServiceUnavailable)
-					return
-				}
-				switch {
-				case req.URL.Path != "/api/control":
-					http.NotFound(w, req)
-				case req.Method == http.MethodGet:
-					_, _ = io.WriteString(w, `{"success":true,"running":true,"currentCore":"xray"}`)
-				case req.Method == http.MethodPost:
-					restartCount++
-					if err := os.WriteFile(restartLog, bytes.Repeat([]byte("restart\n"), restartCount), 0600); err != nil {
-						t.Error(err)
-					}
-					if scenario.cancelDuringRestart && restartCount == 1 { time.Sleep(120 * time.Millisecond) }
-					if scenario.xkeenExit != 0 {
-						_, _ = io.WriteString(w, `{"success":false}`)
-					} else {
-						_, _ = io.WriteString(w, `{"success":true}`)
-					}
-				default:
-					http.Error(w, "unsupported", http.StatusMethodNotAllowed)
-				}
-			}))
-			t.Cleanup(server.Close)
-			previousEndpoint := xrayCoreNativeControlEndpoint
-			xrayCoreNativeControlEndpoint = server.URL + "/api/control"
-			t.Cleanup(func() { xrayCoreNativeControlEndpoint = previousEndpoint })
-			previousProof := xrayCoreNativeRuntimeProof
+			oldProof := xrayCoreNativeRuntimeProof
 			xrayCoreNativeRuntimeProof = func(binary string) bool {
 				testCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
-				current, err := xrayCoreVersionAt(testCtx, binary)
-				if err != nil { return false }
-				return !(scenario.targetFailsInstalled && current == target)
+				_, err := xrayCoreVersionAt(testCtx, binary)
+				return err == nil
 			}
-			t.Cleanup(func(){ xrayCoreNativeRuntimeProof = previousProof })
+			t.Cleanup(func() { xrayCoreNativeRuntimeProof = oldProof })
+
+			oldRestart := xrayCoreNativeManagedRestart
+			xrayCoreNativeManagedRestart = func(ctx context.Context, binary, version, configDir, assetDir string) error {
+				restartCount++
+				if err := os.WriteFile(restartLog, bytes.Repeat([]byte("restart\n"), restartCount), 0600); err != nil {
+					t.Error(err)
+				}
+				if scenario.cancelDuringRestart && restartCount == 1 {
+					time.Sleep(120 * time.Millisecond)
+				}
+				if scenario.xkeenExit != 0 {
+					return fmt.Errorf("native FreeNet restart fixture failed")
+				}
+				checkCtx, cancel := context.WithTimeout(ctx, time.Second)
+				defer cancel()
+				current, err := xrayCoreVersionAt(checkCtx, binary)
+				if err != nil || current != version {
+					return fmt.Errorf("native FreeNet version mismatch")
+				}
+				if scenario.targetFailsInstalled && current == target {
+					return fmt.Errorf("new production Xray failed readiness")
+				}
+				return nil
+			}
+			t.Cleanup(func() { xrayCoreNativeManagedRestart = oldRestart })
 			oldForwardTimeout, oldRollbackTimeout := xrayCoreApplyTimeout, xrayCoreRollbackTimeout
 			xrayCoreApplyTimeout, xrayCoreRollbackTimeout = 1600*time.Millisecond, 3*time.Second
-			t.Cleanup(func(){ xrayCoreApplyTimeout, xrayCoreRollbackTimeout = oldForwardTimeout, oldRollbackTimeout })
+			t.Cleanup(func() { xrayCoreApplyTimeout, xrayCoreRollbackTimeout = oldForwardTimeout, oldRollbackTimeout })
 
 			configPath := filepath.Join(root, "freenet.conf")
 			if err := os.WriteFile(configPath, []byte("DNS_MODE=auto\n"), 0600); err != nil {
@@ -347,7 +338,6 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 				FilterPath: filepath.Join(root, "profile.regex"),
 				OutPath:    outPath,
 				GeoDataDir: filepath.Join(root, "assets"),
-				XKeenPath:  xkeenPath,
 				LockPath:   filepath.Join(root, "updater.lock"),
 				ConfigPath: configPath,
 				SubPath:    filepath.Join(root, "subscription.url"),
@@ -375,7 +365,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 				}
 			} else if scenario.holdReadOnlyProbes {
 				// Read-only quality probes do not own the core binary. Holding
-				// their admission slots cannot delay a native XKeen UI update.
+				// their admission slots cannot delay a FreeNet native update.
 				var releases []func()
 				for i := 0; i < isolatedXrayProbeLimit; i++ {
 					release, ok := acquireIsolatedXrayProbe(context.Background())
