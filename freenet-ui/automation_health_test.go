@@ -390,9 +390,9 @@ func TestAutomationMediaOnlyDegradationNeverConfirmsGlobalVPNOutage(t *testing.T
 }
 
 func TestAutomationCompleteNamedHTTPSBlackholeTriggersOnlyConfirmedRecovery(t *testing.T) {
-	// Rejected named origins with fixed-IP VPN success are not a global VPN
-	// outage; the positive transport signal must not be disregarded.
-	if got := classifyAutomationApplicationFailure(true, true); got.State != automationHealthUncertain {
+	// Repeated complete rejection of independent named HTTPS origins is an
+	// application-path outage even if a fixed-IP response still succeeds.
+	if got := classifyAutomationApplicationFailure(true, true); got.State != automationHealthFailed {
 		t.Fatalf("named origins blocked, fixed-IP still works: %+v", got)
 	}
 	for _, transportOK := range []bool{true, false} {
@@ -400,8 +400,8 @@ func TestAutomationCompleteNamedHTTPSBlackholeTriggersOnlyConfirmedRecovery(t *t
 			t.Fatalf("partial/timeout evidence cannot authorize recovery: %+v", got)
 		}
 	}
-	// True VPN outage still requires both independent named origins and the
-	// fixed-IP transport conclusively failed in *both* observations, plus WAN.
+	// AUTO still requires both complete failed observations and healthy WAN
+	// before starting bounded replacement, regardless of fixed-IP transport.
 	failed := classifyAutomationApplicationFailure(false, true)
 	if failed.State != automationHealthFailed {
 		t.Fatalf("complete 2 named + IP failure must classify as DOWN: %+v", failed)
