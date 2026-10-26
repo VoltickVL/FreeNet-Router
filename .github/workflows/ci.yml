@@ -285,7 +285,7 @@ jobs:
 
   browser-ui:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -311,6 +311,10 @@ jobs:
         env:
           NODE_PATH: ${{ runner.temp }}/freenet-browser/node_modules
         run: node tests/test_settings_dns_repair_ui.cjs
+      - name: Xray core terminal receipt UI regression
+        env:
+          NODE_PATH: ${{ runner.temp }}/freenet-browser/node_modules
+        run: node tests/test_xray_core_manager_ui.cjs
       - name: Upload VPN UI screenshots on failure only
         if: failure()
         uses: actions/upload-artifact@v4
