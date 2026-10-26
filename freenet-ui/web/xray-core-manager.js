@@ -289,7 +289,17 @@
       'xray-live-config-test-failed': 'Фактическая конфигурация не прошла проверку установленным Xray.',
       'xray-current-version-unavailable': 'Установленная версия Xray недоступна для проверки.',
       'xray-core-update-running': 'Другая операция обновления Xray ещё выполняется.',
-      'xray-recovery-stop': 'Восстановление Xray не подтверждено: STOP.'
+      'xray-recovery-stop': 'Восстановление Xray не подтверждено: STOP.',
+      'xray-diagnostic-mutation-fence': 'Обновление или аварийное восстановление Xray активно: диагностика остановлена.',
+      'xray-diagnostic-probes-busy': 'Фоновые диагностические процессы Xray не завершились вовремя.',
+      'xray-diagnostic-already-running': 'Диагностика Xray уже выполняется.',
+      'xray-diagnostic-operation-busy': 'Другая операция FreeNet выполняется.',
+      'xray-diagnostic-binary-unavailable': 'Установленный бинарник Xray недоступен.',
+      'xray-diagnostic-config-unavailable': 'Рабочая конфигурация Xray недоступна.',
+      'xray-diagnostic-workspace-unavailable': 'Не удалось подготовить временную область проверки.',
+      'xray-diagnostic-probe-unavailable': 'Безопасный диагностический процесс недоступен.',
+      'xray-diagnostic-child-start-failed': 'Диагностический процесс Xray не смог стартовать.',
+      'xray-diagnostic-canceled': 'Проверка прервана без изменения Xray.'
     };
     return labels[code] || 'Проверка фактической конфигурации Xray не подтверждена.';
   }
@@ -317,6 +327,56 @@
       ? 'Xray доступен. После выбора версии FreeNet дождётся завершения фоновых проверок, затем проверит текущую и новую конфигурацию ДО замены ядра. Пока проверка не пройдена, VPN не меняется.'
       : coreValidationText(coreValidation?.reason) + ' Обновление не запускается.';
     target.appendChild(preflight);
+
+    // Opt-in semantic test of the ALREADY installed Xray binary. No download,
+    // restart or config edit. The answer contains finite codes and timings only.
+    const diagnosticButton = document.createElement('button');
+    diagnosticButton.type = 'button';
+    diagnosticButton.className = 'btn secondary';
+    diagnosticButton.id = 'xcmReadOnlyLiveDiagnostic';
+    diagnosticButton.textContent = 'Диагностика Xray (без обновления)';
+    const diagnosticResult = document.createElement('div');
+    diagnosticResult.id = 'xcmReadOnlyLiveResult';
+    diagnosticResult.className = 'xcm-selection';
+    diagnosticResult.setAttribute('role', 'status');
+    diagnosticResult.setAttribute('aria-live', 'polite');
+    diagnosticResult.textContent = 'Проверка выполняется только по нажатию, без изменения VPN.';
+    diagnosticButton.addEventListener('click', async () => {
+      if (applying) return;
+      applying = true;
+      diagnosticButton.disabled = true;
+      diagnosticResult.textContent = 'Проверяю установленный Xray на фактической конфигурации без изменения бинарника…';
+      const controller = new AbortController();
+      const deadline = setTimeout(() => controller.abort(), 60000);
+      try {
+        const response = await fetch('/api/xray/core/read-only-test', {cache:'no-store', signal:controller.signal});
+        const result = await response.json();
+        const child = result.child_started === true ? 'да' : 'нет';
+        const elapsed = Math.max(0, Number(result.child_ms || 0));
+        const userCPU = Math.max(0, Number(result.user_cpu_ms || 0));
+        const systemCPU = Math.max(0, Number(result.system_cpu_ms || 0));
+        const evidence = 'Child запущен: ' + child + '; ожидание: ' + elapsed +
+          ' мс; CPU user/system: ' + userCPU + '/' + systemCPU + ' мс.';
+        if (response.ok && result.success === true && result.mutation === 'NONE' && result.valid === true) {
+          diagnosticResult.className = 'xcm-selection ready';
+          diagnosticResult.textContent = 'Проверка установленного Xray PASS. ' + evidence +
+            ' Перед заменой FreeNet всё равно обязан отдельно проверить и установленное, и новое ядро.';
+        } else {
+          diagnosticResult.className = 'xcm-selection bad';
+          diagnosticResult.textContent = coreValidationText(result.reason) + ' ' + evidence +
+            ' Xray не изменён. Повторная установка до выяснения причины запрещена.';
+        }
+      } catch (_) {
+        diagnosticResult.className = 'xcm-selection bad';
+        diagnosticResult.textContent = 'Квитанция read-only проверки недоступна. Xray не изменён; это не результат PASS.';
+      } finally {
+        clearTimeout(deadline);
+        applying = false;
+        diagnosticButton.disabled = false;
+      }
+    });
+    target.appendChild(diagnosticButton);
+    target.appendChild(diagnosticResult);
 
     const search = document.createElement('input');
     search.type = 'search';
