@@ -73,15 +73,19 @@ func xrayCoreNativePreflight(ctx context.Context, binary string) error {
 // require exactly one production Xray, the target executable inode, and its
 // actual kernel GID. Ignore unrelated process names including fn-xray-probe.
 func xrayCoreNativeProcessMatches(binary string) bool {
+    return xrayCoreNativeProcessMatchesInProc("/proc", binary)
+}
+
+func xrayCoreNativeProcessMatchesInProc(procRoot, binary string) bool {
     live, err := os.Stat(binary)
     if err != nil || !live.Mode().IsRegular() { return false }
-    processes, err := os.ReadDir("/proc")
+    processes, err := os.ReadDir(procRoot)
     if err != nil { return false }
     matches := 0
     for _, process := range processes {
         if !process.IsDir() { continue }
         if _, err := strconv.Atoi(process.Name()); err != nil { continue }
-        dir := filepath.Join("/proc", process.Name())
+        dir := filepath.Join(procRoot, process.Name())
         comm, err := os.ReadFile(filepath.Join(dir, "comm"))
         if err != nil || strings.TrimSpace(string(comm)) != "xray" { continue }
         matches++
