@@ -269,7 +269,7 @@ func xrayCoreNativeStart(binary, configDir, assetDir string) error {
 	cmd.Env = xrayCoreNativeEnvironment(configDir, assetDir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setsid: true,
-		Credential: &syscall.Credential{Uid: 0, Gid: xrayCoreRoutingGID},
+		Credential: &syscall.Credential{Uid: 0, Gid: xrayCoreRoutingGID, NoSetGroups: true},
 	}
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
