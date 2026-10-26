@@ -7,13 +7,13 @@ import (
 )
 
 // This GET only checks whether a guarded transaction can be requested.
-// A full semantic Xray run -test cannot share a deadline with admission to
-// the busy Best Server/provider probe pool. Both installed and candidate
-// configs are tested *inside the exclusive fence* before binary mutation.
+// The chooser is read-only. The core update uses verified official SHA-256,
+// a matching binary version, a safe snapshot, then native XKeen UI softRestart.
+// No repeated 30-second "run -test" blocks UI or the native rollback.
 type xrayCoreValidationResponse struct {
     Success    bool   `json:"success"`
     Ready      bool   `json:"ready"`
-    Valid      bool   `json:"valid"` // false until mandatory guarded semantic tests
+    Valid      bool   `json:"valid"` // no claim about an unperformed live semantic test
     Validation string `json:"validation"`
     Mutation   string `json:"mutation"`
     Reason     string `json:"reason,omitempty"`
@@ -49,8 +49,8 @@ func (a *app) handleXrayCoreValidationGet(w http.ResponseWriter, r *http.Request
         writeJSON(w, http.StatusOK, result)
         return
     }
-    // No semantic PASS has been claimed. The detached apply worker must
-    // drain diagnostic probes and validate both binaries before any swap.
+    // No runtime PASS is claimed here; native transactional acceptance is
+    // verified after a controlled XKeen UI restart.
     result.Ready = true
     writeJSON(w, http.StatusOK, result)
 }
