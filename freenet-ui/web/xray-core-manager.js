@@ -329,9 +329,26 @@
     const preflight = document.createElement('div');
     preflight.className = 'xcm-selection ' + (coreValidation?.ready ? 'ready' : 'bad');
     preflight.textContent = coreValidation?.ready && coreValidation.validation === 'DEFERRED' && !coreValidation.valid
-      ? 'Xray доступен. После выбора версии FreeNet дождётся завершения фоновых проверок, затем проверит текущую и новую конфигурацию ДО замены ядра. Пока проверка не пройдена, VPN не меняется.'
+      ? 'Xray доступен. FreeNet проверит официальный архив и версию, сохранит прежнее ядро и выполнит собственный перезапуск Xray через FreeNet. При ошибке восстановит предыдущий бинарник.'
       : coreValidationText(coreValidation?.reason) + ' Обновление не запускается.';
     target.appendChild(preflight);
+    if (coreValidation?.reason === 'reason=xray-recovery-stop') {
+      const recoveryButton = document.createElement('button');
+      recoveryButton.type = 'button';
+      recoveryButton.className = 'btn secondary';
+      recoveryButton.textContent = 'Подтвердить восстановленный Xray';
+      recoveryButton.addEventListener('click', async () => {
+        recoveryButton.disabled = true;
+        try {
+          await acknowledgeCoreRecovery(current);
+          await loadCatalog();
+        } catch (error) {
+          preflight.textContent = error?.message || 'Рабочий Xray не подтверждён; операция не разрешена.';
+          recoveryButton.disabled = false;
+        }
+      });
+      target.appendChild(recoveryButton);
+    }
 
     // Opt-in semantic test of the ALREADY installed Xray binary. No download,
     // restart or config edit. The answer contains finite codes and timings only.
@@ -371,7 +388,7 @@
         if (response.ok && result.success === true && result.mutation === 'NONE' && result.valid === true) {
           diagnosticResult.className = 'xcm-selection ready';
           diagnosticResult.textContent = 'Проверка установленного Xray PASS. ' + evidence +
-            ' Перед заменой FreeNet всё равно обязан отдельно проверить и установленное, и новое ядро.';
+            ' Это дополнительная диагностика; при обычном обновлении тяжёлая проверка не выполняется.';
         } else {
           diagnosticResult.className = 'xcm-selection bad';
           diagnosticResult.textContent = coreValidationText(result.reason) + ' ' + evidence +
@@ -386,8 +403,14 @@
         diagnosticButton.disabled = false;
       }
     });
-    target.appendChild(diagnosticButton);
-    target.appendChild(diagnosticResult);
+    // Advanced diagnosis stays available without becoming a compulsory
+    // step or consuming the version selector's main screen space.
+    const advanced = document.createElement('details');
+    advanced.className = 'xcm-advanced-diagnostic';
+    const advancedSummary = document.createElement('summary');
+    advancedSummary.textContent = 'Дополнительно: диагностика Xray';
+    advanced.append(advancedSummary, diagnosticButton, diagnosticResult);
+    target.appendChild(advanced);
 
     const search = document.createElement('input');
     search.type = 'search';
@@ -433,7 +456,7 @@
         return;
       }
       selection.className = 'xcm-selection ready';
-      selection.textContent = `Выбрана ${selected.version}. FreeNet проверит версию, конфигурацию и запуск Xray. При ошибке выполнит откат; если восстановление не подтверждено, операция перейдёт в STOP. Доступность сайтов проверяется отдельно.`;
+      selection.textContent = `Выбрана ${selected.version}. FreeNet проверит SHA-256 и версию, сохранит прежнее ядро и применит обновление собственным механизмом FreeNet. При сбое восстановит старый бинарник; неопределённое состояние остановит дальнейшие изменения.`;
       addButton(footer, actionLabel(selected), 'primary', () => applyRelease(selected));
     };
 
@@ -687,6 +710,27 @@
     return controlService('start');
   }
 
+  async function acknowledgeCoreRecovery(expectedVersion) {
+    const current = String(expectedVersion || catalog?.current_version || serviceState?.version || '').trim();
+    if (!current || applying) throw new Error('Не удалось определить установленную версию Xray.');
+    applying = true;
+    try {
+      const response = await fetch('/api/xray/core/recover', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        cache: 'no-store',
+        body: JSON.stringify({expected_version:current})
+      });
+      const result = await response.json();
+      if (!response.ok || result.success !== true || result.mutation !== 'LATCH_ONLY' || result.version !== current) {
+        throw new Error(coreValidationText(result.reason));
+      }
+      coreValidation = null;
+    } finally {
+      applying = false;
+    }
+  }
+
   async function loadCatalog() {
     if (applying || !serviceState?.online) return;
     applying = true;
@@ -699,9 +743,9 @@
     progress.className = 'xcm-progress';
     progress.textContent = 'Получаю официальные версии и проверяю готовность Xray без изменений…';
     target.appendChild(progress);
-    // Catalog and *readiness* GETs run in parallel. Semantic testing is
-    // mandatory only inside the detached guarded transaction, after the
-    // user selects a version. A missing readiness receipt fails closed.
+    // Catalog and cheap native readiness GETs run in parallel. The
+    // version-changing worker performs hash/backup/native restart/rollback;
+    // expensive xray run -test is opt-in diagnostics only.
     coreValidation = null;
     const validationPromise = fetch('/api/xray/core/validation', {cache:'no-store'})
       .then(async response => {
@@ -794,6 +838,17 @@
         catch (_) { box.textContent = 'Статус Xray недоступен. Повторную установку не запускайте.'; }
       });
     } else {
+      if (receipt.state === 'STOP') {
+        addButton(footer, 'Проверить восстановленный Xray', 'primary', async () => {
+          try {
+            await acknowledgeCoreRecovery(receipt.result?.previous_version || serviceState?.version);
+            await loadCatalog();
+          } catch (error) {
+            box.textContent = (error?.message || 'Восстановление Xray не подтверждено.') +
+              ' Предыдущая квитанция STOP сохранена.';
+          }
+        });
+      }
       addButton(footer, 'Журнал', '', openJournal);
     }
     addButton(footer, 'Закрыть', '', closeManager);

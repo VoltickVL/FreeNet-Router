@@ -255,7 +255,8 @@ const server = http.createServer((req, res) => {
     assert.equal(catalogGets, 1, 'explicit Versions action should load catalog once');
     assert.equal(coreValidationGets, 1, 'versions dialog must check quick readiness without mutating Xray');
     assert.equal(applyPosts, 0, 'catalog load and live validation must be read-only');
-    assert.match(await manager.innerText(), /После выбора версии FreeNet дождётся завершения фоновых проверок/);
+    assert.match(await manager.innerText(), /FreeNet проверит официальный архив и версию/);
+    assert.match(await manager.innerText(), /собственный перезапуск Xray через FreeNet/);
     assert.doesNotMatch(await manager.innerText(), /Текущая конфигурация Xray проверена/, 'readiness must never claim semantic validation passed');
     const modalText = await manager.innerText();
     assert(modalText.includes('Установлена v26.9.9'));
