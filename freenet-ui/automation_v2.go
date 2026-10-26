@@ -695,6 +695,22 @@ func setAutomationPostUpdateAck(target string) {
 	writeAutomationStatePayload(path, values)
 }
 
+// Call only after provider helper SUCCESS, authoritative HTTPS acceptance,
+// archived checkpoint, restored desired Xray intent and AUTO handoff.
+// This cannot waive an unresolved rollback/mutation STOP.
+func acknowledgeAutomationPostUpdateFromVerifiedManual(a *app) bool {
+	if a == nil || automationMutationBlockedState() || vpnTransactionPending() {
+		return false
+	}
+	target := automationPendingPostUpdateTarget(a)
+	if target == "" {
+		return false
+	}
+	setAutomationPostUpdateAck(target)
+	appendAutomationRecoveryStage("post_update_guard", "cleared", "Вручную выбранный VPN подтверждён post-apply HTTPS; AUTO восстановлен.")
+	return automationPendingPostUpdateTarget(a) == ""
+}
+
 func writeAutomationStateV2(result, reason, rollback string, switched bool) {
 	path := automationStatePath()
 	previous := parseAutomationState(path)
