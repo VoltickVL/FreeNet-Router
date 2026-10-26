@@ -26,6 +26,7 @@ func TestXrayCoreRecoveryRejectsMissingOrInvalidExpectedVersion(t *testing.T) {
     for _,body:=range cases {
         rec:=httptest.NewRecorder()
         req:=httptest.NewRequest(http.MethodPost,"/api/xray/core/recover",bytes.NewBufferString(body))
+        req.Header.Set("Content-Type","application/json")
         a.handleXrayCoreRecovery(rec,req)
         if rec.Code != http.StatusBadRequest {
             t.Fatalf("invalid recovery version %q accepted with HTTP %d",body,rec.Code)
