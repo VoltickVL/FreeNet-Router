@@ -413,6 +413,10 @@ func findXrayCoreRelease(catalog xrayCoreCatalogResponse, target string) (xrayCo
 }
 
 func downloadXrayCoreArchive(ctx context.Context, release xrayCoreRelease, dir string) (string, error) {
+	return downloadXrayCoreArchiveWithClient(ctx, release, dir, xrayCoreHTTPClient)
+}
+
+func downloadXrayCoreArchiveWithClient(ctx context.Context, release xrayCoreRelease, dir string, client *http.Client) (string, error) {
 	if !release.Asset.Available {
 		return "", errors.New("selected Xray release has no verified asset for this router")
 	}
@@ -425,13 +429,13 @@ func downloadXrayCoreArchive(ctx context.Context, release xrayCoreRelease, dir s
 		return "", errors.New("cannot prepare Xray download")
 	}
 	req.Header.Set("User-Agent", "FreeNet-Router")
-	response, err := xrayCoreHTTPClient.Do(req)
+	response, err := client.Do(req)
 	if err != nil {
-		return "", errors.New("cannot download selected Xray release")
+		return "", xrayCoreDownloadNetworkError(ctx, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return "", errors.New("cannot download selected Xray release")
+		return "", xrayCoreDownloadHTTPError(response.StatusCode)
 	}
 	file, err := os.CreateTemp(dir, ".freenet-xray-*.zip")
 	if err != nil {
@@ -447,7 +451,10 @@ func downloadXrayCoreArchive(ctx context.Context, release xrayCoreRelease, dir s
 	}()
 	hash := sha256.New()
 	written, err := io.Copy(io.MultiWriter(file, hash), io.LimitReader(response.Body, xrayCoreMaxArchiveBytes+1))
-	if err != nil || written <= 0 || written > xrayCoreMaxArchiveBytes {
+	if err != nil {
+		return "", xrayCoreDownloadError("stream", true)
+	}
+	if written <= 0 || written > xrayCoreMaxArchiveBytes || (release.Asset.Size > 0 && written != release.Asset.Size) {
 		return "", errors.New("Xray archive download is invalid or too large")
 	}
 	if err := file.Sync(); err != nil {
@@ -706,7 +713,7 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "selected Xray version is not available for this router"
 		return result
 	}
-	archivePath, err := downloadXrayCoreArchive(ctx, release, filepath.Dir(binary))
+	archivePath, err := a.downloadXrayCoreArchiveResilient(ctx, release, filepath.Dir(binary))
 	if err != nil {
 		result.Error = err.Error()
 		return result
