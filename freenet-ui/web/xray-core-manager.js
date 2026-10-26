@@ -303,6 +303,7 @@
       'xray-diagnostic-workspace-unavailable': 'Не удалось подготовить временную область проверки.',
       'xray-diagnostic-probe-unavailable': 'Безопасный диагностический процесс недоступен.',
       'xray-diagnostic-child-start-failed': 'Диагностический процесс Xray не смог стартовать.',
+      'xray-diagnostic-output-unavailable': 'Не удалось безопасно подготовить вывод проверки Xray.',
       'xray-diagnostic-canceled': 'Проверка прервана без изменения Xray.'
     };
     return labels[code] || 'Проверка фактической конфигурации Xray не подтверждена.';
