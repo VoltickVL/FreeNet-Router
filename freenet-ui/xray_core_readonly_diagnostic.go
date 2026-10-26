@@ -2,7 +2,6 @@ package main
 
 import (
     "context"
-    "io"
     "net/http"
     "os"
     "os/exec"
@@ -57,9 +56,15 @@ func runXrayCoreReadOnlyDiagnostic(ctx context.Context, binary, configDir, asset
     }
     result.PreparationMS = time.Since(started).Milliseconds()
     result.Phase = "child-start"
+    sink, sinkErr := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+    if sinkErr != nil {
+        result.Reason = "reason=xray-diagnostic-output-unavailable"
+        return result
+    }
+    defer sink.Close()
     cmd := exec.CommandContext(ctx, probePath, "run", "-test", "-confdir", configDir)
     cmd.Env = isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+assetDir))
-    cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
+    cmd.Stdout, cmd.Stderr = sink, sink
     cmd.WaitDelay = 2 * time.Second
     startAt := time.Now()
     if err := cmd.Start(); err != nil {
