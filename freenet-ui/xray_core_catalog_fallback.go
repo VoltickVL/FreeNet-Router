@@ -7,7 +7,12 @@ import (
 	"time"
 )
 
-const xrayCoreCatalogDirectBudget = 6 * time.Second
+const (
+	xrayCoreCatalogDirectBudget = 6 * time.Second
+	// The isolated Xray may need several seconds for config validation and
+	// SOCKS admission. Preserve a bounded HTTPS budget after DIRECT expires.
+	xrayCoreCatalogRequestTimeout = 40 * time.Second
+)
 
 type xrayCoreCatalogRequest func(context.Context) ([]byte, error)
 
