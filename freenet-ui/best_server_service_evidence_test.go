@@ -165,8 +165,8 @@ func assertServiceCurlChildrenReaped(t *testing.T, records []serviceCurlFixtureR
 func TestBestServerServiceDetailedPreservesIDsAndCounts(t *testing.T) {
 	curl, recordsDir := newServiceCurlFixture(t, "mixed")
 	result := probeBestServerServiceReachabilityDetailed(context.Background(), curl, "127.0.0.1:18181")
-	if !result.Complete || result.OKMask != 12 || result.BadMask != 3 {
-		t.Fatalf("HTTP restriction/target timeout lost service identity: %+v", result)
+	if result.Complete || result.OKMask != 12 || result.BadMask != 2 {
+		t.Fatalf("403 must stay unverified while the separate timeout stays negative: %+v", result)
 	}
 	ok, total := probeBestServerServiceReachability(context.Background(), curl, "127.0.0.1:18181")
 	if ok != 2 || total != 4 {
@@ -179,23 +179,44 @@ func TestBestServerServiceDetailedPreservesIDsAndCounts(t *testing.T) {
 	assertServiceCurlChildrenReaped(t, records)
 }
 
-func TestBestServerServiceHTTPRestrictionsAreQoEOnly(t *testing.T) {
-	for _, status := range []string{"403", "405", "429", "503"} {
+func TestBestServerServiceHTTPRestrictionsAreNotServiceFailures(t *testing.T) {
+	for _, status := range []string{"401", "403", "405", "429"} {
 		t.Run(status, func(t *testing.T) {
 			curl, recordsDir := newServiceCurlFixture(t, "status")
 			t.Setenv("FREENET_SERVICE_CURL_STATUS", status)
 			result := probeBestServerServiceReachabilityDetailed(context.Background(), curl, "127.0.0.1:18181")
-			if !result.Complete || result.OKMask != 0 || result.BadMask != bestServerServiceAllMask {
-				t.Fatalf("completed HTTP response was not bounded service evidence: %+v", result)
+			if result.Complete || result.OKMask != 0 || result.BadMask != 0 {
+				t.Fatalf("an HTTP restriction cannot verify a service outage or a healthy browser session: %+v", result)
 			}
-			probe := classifyAutomationReachableQuality(180, 0, 4)
-			if probe.State != automationHealthUncertain || probe.QualityPoints != 0 ||
-				classifyAutomationHealth(probe, true, probe).State == automationHealthCritical {
-				t.Fatal("service response authorized a global VPN outage")
+			// No complete service mask means no service-degradation AUTO strike.
+			probe := automationHealthProbe{
+				State: automationHealthUncertain,
+				QualityDegraded: true,
+				ServiceComplete: result.Complete,
+				ServiceOKMask: result.OKMask,
+				ServiceBadMask: result.BadMask,
+			}
+			if automationServiceProbeComplete(probe) {
+				t.Fatal("HTTP restriction entered confirmed service-quality evidence")
 			}
 			assertServiceCurlChildrenReaped(t, serviceCurlFixtureRecords(t, recordsDir))
 		})
 	}
+}
+
+func TestBestServerServiceHTTP503RemainsQoEFailureNotVPNOutage(t *testing.T) {
+	curl, recordsDir := newServiceCurlFixture(t, "status")
+	t.Setenv("FREENET_SERVICE_CURL_STATUS", "503")
+	result := probeBestServerServiceReachabilityDetailed(context.Background(), curl, "127.0.0.1:18181")
+	if !result.Complete || result.OKMask != 0 || result.BadMask != bestServerServiceAllMask {
+		t.Fatalf("verified 503 endpoint response must retain the bounded QoE failure: %+v", result)
+	}
+	probe := classifyAutomationReachableQuality(180, 0, 4)
+	if probe.State != automationHealthUncertain || probe.QualityPoints != 0 ||
+		classifyAutomationHealth(probe, true, probe).State == automationHealthCritical {
+		t.Fatal("HTTP 503 authorized a global VPN outage")
+	}
+	assertServiceCurlChildrenReaped(t, serviceCurlFixtureRecords(t, recordsDir))
 }
 
 func TestBestServerServiceLocalAndIncompleteFailuresStayUnknown(t *testing.T) {
