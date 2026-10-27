@@ -13,6 +13,15 @@
   let topbarReadController = null;
   let topbarReadGeneration = 0;
   const topbarMaxAttempts = 4;
+  // XKeen is a separate, read-only installed-version owner. Keep authentication,
+  // timeout and retry state independent from Xray core/service operations.
+  let xkeenTopbarSnapshot = '';
+  let xkeenTopbarLoading = false;
+  let xkeenTopbarAttempts = 0;
+  let xkeenTopbarRetryTimer = null;
+  let xkeenTopbarReadController = null;
+  let xkeenTopbarGeneration = 0;
+  const xkeenTopbarMaxAttempts = 4;
   let serviceMutationUnknown = false;
   // Poll only the read-only receipt while a detached core operation runs.
   // No timer can issue a second apply, and closing/changing views cancels it.
@@ -46,6 +55,11 @@
 
   function topbarIcon() {
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 20 8v8l-8 5-8-5V8l8-5Z"/><path d="m8.5 9.5 7 5m0-5-7 5"/></svg>';
+  }
+
+  // Xray keeps its existing core hexagon. XKeen uses a separate tool gear.
+  function xkeenTopbarIcon() {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3h4l.4 2.2 2 1.1 2.2-1 2 3.5-1.8 1.5v2.4l1.8 1.5-2 3.5-2.2-1-2 1.1L14 21h-4l-.4-2.2-2-1.1-2.2 1-2-3.5 1.8-1.5v-2.4L3.4 9.8l2-3.5 2.2 1 2-1.1L10 3Z"/><circle cx="12" cy="12" r="3"/></svg>';
   }
 
   function syncTopbarVersion(value) {
@@ -163,24 +177,30 @@
   function hydrateTopbar() {
     mountTopbarChip();
     if (!serviceState) refreshTopbarVersion();
+    if (!xkeenTopbarSnapshot) void xkeenRefreshTopbar();
   }
 
   function topbarAuthenticationChanged() {
     resetTopbarRead();
+    resetXKeenTopbarRead();
     serviceState = null;
+    xkeenTopbarSnapshot = '';
     if (authenticatedTopbar()) {
       syncTopbarVersion('версия…');
+      syncXKeenTopbarVersion('версия…');
       hydrateTopbar();
     } else {
       syncTopbarVersion('вход требуется');
-      qs('#xkeenTopbarVersion') && (qs('#xkeenTopbarVersion').textContent='вход требуется');
+      syncXKeenTopbarVersion('вход требуется');
     }
   }
 
   function resumeTopbarRead() {
     if (!authenticatedTopbar() || document.visibilityState === 'hidden') return;
     resetTopbarRead();
+    resetXKeenTopbarRead();
     refreshTopbarVersion();
+    void xkeenRefreshTopbar();
   }
 
   function body() { return qs('#xcmBody', ensureRoot()); }
@@ -1132,16 +1152,67 @@
     } finally {clearTimeout(timer);}
   }
 
+  function syncXKeenTopbarVersion(value) {
+    const node = qs('#xkeenTopbarVersion');
+    if (node) node.textContent = value || 'версия…';
+  }
+
+  function resetXKeenTopbarRead() {
+    xkeenTopbarGeneration += 1;
+    clearTimeout(xkeenTopbarRetryTimer);
+    xkeenTopbarRetryTimer = null;
+    xkeenTopbarReadController?.abort();
+    xkeenTopbarReadController = null;
+    xkeenTopbarLoading = false;
+    xkeenTopbarAttempts = 0;
+  }
+
   async function xkeenRefreshTopbar() {
-    if (!authenticatedTopbar()) return;
+    if (!authenticatedTopbar() || xkeenTopbarLoading || xkeenTopbarRetryTimer !== null ||
+        xkeenTopbarAttempts >= xkeenTopbarMaxAttempts) return;
     const chip = qs('#xkeenTopbarChip');
-    if (!chip) return;
+    if (!chip) return; // Late canonical shell will rehydrate both chips.
+    const generation = xkeenTopbarGeneration;
+    const controller = new AbortController();
+    xkeenTopbarReadController = controller;
+    xkeenTopbarLoading = true;
+    xkeenTopbarAttempts += 1;
+    const timeout = setTimeout(() => controller.abort(), 5500);
     try {
-      const {response,body} = await xkeenReadJSON('/api/xkeen/installed',{timeout:5500});
-      if (!response.ok || !body.success || !/^\d+(?:\.\d+){1,3}$/.test(body.installed_version)) throw new Error('version');
-      qs('#xkeenTopbarVersion').textContent = 'v'+body.installed_version;
-    } catch(_) {
-      qs('#xkeenTopbarVersion').textContent = 'неизвестно';
+      const response = await fetch('/api/xkeen/installed', {
+        method:'GET', cache:'no-store', credentials:'same-origin', signal:controller.signal
+      });
+      if (generation !== xkeenTopbarGeneration || !authenticatedTopbar()) return;
+      if (response.status === 401) {
+        xkeenTopbarSnapshot = '';
+        syncXKeenTopbarVersion('вход требуется');
+        return; // Only a new authentication event can renew the budget.
+      }
+      const body = await response.json();
+      if (generation !== xkeenTopbarGeneration || !authenticatedTopbar()) return;
+      if (!response.ok || body?.success !== true || body.mutation !== 'NONE' ||
+          !/^\d+(?:\.\d+){1,3}$/.test(body.installed_version)) {
+        throw new Error('XKeen installed version is not confirmed');
+      }
+      xkeenTopbarSnapshot = 'v' + body.installed_version;
+      syncXKeenTopbarVersion(xkeenTopbarSnapshot);
+      chip.title = 'Проверка и обновление XKeen';
+    } catch (_) {
+      if (generation !== xkeenTopbarGeneration || !authenticatedTopbar()) return;
+      if (!xkeenTopbarSnapshot) syncXKeenTopbarVersion('недоступно');
+      chip.title = 'Не удалось прочитать установленную версию XKeen; работающий Xray не затронут';
+      if (xkeenTopbarAttempts < xkeenTopbarMaxAttempts) {
+        xkeenTopbarRetryTimer = setTimeout(() => {
+          xkeenTopbarRetryTimer = null;
+          void xkeenRefreshTopbar();
+        }, 700 * xkeenTopbarAttempts);
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (generation === xkeenTopbarGeneration && xkeenTopbarReadController === controller) {
+        xkeenTopbarReadController = null;
+        xkeenTopbarLoading = false;
+      }
     }
   }
 
@@ -1158,10 +1229,12 @@
       chip.setAttribute('aria-haspopup','dialog');
       chip.setAttribute('aria-controls','xkeenUpdateManager');
       chip.setAttribute('aria-expanded','false');
-      chip.innerHTML = `<span class="fn-xray-topbar-icon">${topbarIcon()}</span><span class="fn-xray-chip"><small>XKeen</small><strong id="xkeenTopbarVersion">версия…</strong></span>`;
+      chip.innerHTML = `<span class="fn-xray-topbar-icon">${xkeenTopbarIcon()}</span><span class="fn-xray-chip"><small>XKeen</small><strong id="xkeenTopbarVersion">версия…</strong></span>`;
       chip.addEventListener('click',event=>{event.preventDefault();void openXKeenManager();});
     }
     if (chip.previousElementSibling !== xray) xray.parentNode.insertBefore(chip,xray.nextSibling || null);
+    if (xkeenTopbarSnapshot) syncXKeenTopbarVersion(xkeenTopbarSnapshot);
+    else if (!authenticatedTopbar()) syncXKeenTopbarVersion('вход требуется');
   }
 
   function xkeenReceiptText(s) {
@@ -1196,6 +1269,7 @@
     try {
       const {body}=await xkeenReadJSON('/api/xkeen/update/recover',{method:'POST',body:{expected_version:expected},timeout:12000});
       xkeenShowReceipt(body);
+      resetXKeenTopbarRead();
       await xkeenRefreshTopbar();
     } catch(_) {xkeenButtons();xkeenSay('Восстановление не подтверждено. STOP. Повторное обновление запрещено.');}
     finally{xkeenPanelBusy=false;}
@@ -1213,7 +1287,10 @@
         xkeenPollTimer=setTimeout(()=>{void xkeenPollReceipt();},1600);
       } else {
         xkeenShowReceipt(body);
-        if(body.state === 'SUCCESS') await xkeenRefreshTopbar();
+        if(body.state === 'SUCCESS') {
+          resetXKeenTopbarRead();
+          await xkeenRefreshTopbar();
+        }
       }
     } catch(_) {
       xkeenButtons();xkeenSay('Квитанция XKeen недоступна. Не запускайте обновление повторно.');
@@ -1281,6 +1358,7 @@
     root.hidden=false;root.classList.add('xcm-open');
     xkeenPanelOpen=true;
     qs('#xkeenTopbarChip')?.setAttribute('aria-expanded','true');
+    resetXKeenTopbarRead();
     void xkeenRefreshTopbar();
     xkeenManagerPosition();
     const footer=xkeenButtons();

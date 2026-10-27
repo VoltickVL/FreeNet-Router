@@ -13,6 +13,7 @@ const canonicalHTML = fs.readFileSync(path.join(__dirname, '..', 'freenet-ui', '
 const renderAuth = canonicalHTML.match(/function renderAuth\(s\)\{[^\n]+/)[0];
 assert.ok(renderAuth.includes('freenet:auth-changed'), 'fixture must use the canonical authentication lifecycle');
 let serviceGets = 0;
+let xkeenInstalledGets = 0;
 let catalogGets = 0;
 let coreValidationGets = 0;
 let coreValidationReady = true;
@@ -75,6 +76,12 @@ const server = http.createServer((req, res) => {
   if (req.url === '/') { res.writeHead(200, {'content-type':'text/html; charset=utf-8'}); res.end(html); return; }
   if (req.url === '/config-studio-ux.js') { res.writeHead(200, {'content-type':'application/javascript'}); res.end(uxScript); return; }
   if (req.url === '/xray-core-manager.js') { res.writeHead(200, {'content-type':'application/javascript'}); res.end(managerScript); return; }
+  if (req.url === '/api/xkeen/installed' && req.method === 'GET') {
+    xkeenInstalledGets += 1;
+    res.writeHead(200, {'content-type':'application/json'});
+    res.end(JSON.stringify({success:true,mutation:'NONE',installed_version:'1.1.3.9',installed_channel:'stable'}));
+    return;
+  }
   if (req.url === '/api/xray/service' && req.method === 'GET') {
     serviceGets += 1;
     res.writeHead(200, {'content-type':'application/json'});
@@ -170,10 +177,21 @@ const server = http.createServer((req, res) => {
     assert.equal(serviceGets, 0, 'before canonical login no service request may consume the hydration budget');
     await page.evaluate(() => renderAuth({configured:true, authenticated:true}));
     await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent.includes('v26.9.9'));
+    await page.waitForFunction(() => document.querySelector('#xkeenTopbarVersion')?.textContent === 'v1.1.3.9');
     assert.equal(serviceGets, 1, 'canonical login must hydrate the installed Xray version without a click');
+    assert.equal(xkeenInstalledGets, 1, 'XKeen version must hydrate from installed-only GET without opening its manager');
+    const topbarSymbols = await page.evaluate(() => [
+      document.querySelector('#xrayTopbarChip .fn-xray-topbar-icon svg')?.outerHTML,
+      document.querySelector('#xkeenTopbarChip .fn-xray-topbar-icon svg')?.outerHTML
+    ]);
+    assert.ok(topbarSymbols[0] && topbarSymbols[1] && topbarSymbols[0] !== topbarSymbols[1],
+      'Xray and XKeen must display different icons');
     await page.locator('#xrayTopbarChip').evaluate(node => node.remove());
     await page.waitForFunction(() => document.querySelector('#xrayTopbarVersion')?.textContent === 'v26.9.9');
     assert.equal(serviceGets, 1, 'remounted chip must render cached status without another request');
+    assert.equal((await page.locator('#xkeenTopbarVersion').textContent()).trim(),'v1.1.3.9',
+      'XKeen version must survive topbar remount');
+    assert.equal(xkeenInstalledGets,1,'XKeen snapshot must be reused after harmless remount');
     assert.equal(await page.locator('#csServiceVersion').count(), 0, 'version has one canonical owner, not a Config Studio duplicate');
     assert.equal((await page.locator('#xrayTopbarVersion').textContent()).trim(), 'v26.9.9', 'topbar Xray version must be compact');
     assert.equal(await page.locator('#overviewApprovedTop > :first-child').getAttribute('id'), 'xrayTopbarChip', 'Xray must appear before DNS / FreeNet facts in the topbar');
