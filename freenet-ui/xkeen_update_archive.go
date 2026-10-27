@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -248,7 +247,7 @@ func extractVerifiedXKeenArchive(filename, root, version string) error {
 	}
 	got, channel, err := parseXKeenInstalledMetadata(meta)
 	if err != nil || got != version || channel != "stable" {
-		return fmt.Errorf("xkeen-candidate-version-mismatch")
+		return errors.New("xkeen-candidate-version-mismatch")
 	}
 	return nil
 }
