@@ -17,6 +17,17 @@ func TestAutoMediaPairedAdmissionBlocksBadCandidateAndRecoveredCurrent(t *testin
 		{"candidate and current paired", "",func()automationHealthProbe{
 			c:=automationQualityFreshCandidate();c.MediaComplete=true;return c
 		}(),autoMediaHealth("fixture",true,true)},
+		{"candidate restricted HEAD but verified fast stream","",func()automationHealthProbe{
+			c:=automationQualityFreshCandidate();c.MediaComplete=true
+			c.ServiceComplete=false;c.ServiceOKMask=0;c.ServiceBadMask=0
+			return c
+		}(),autoMediaHealth("fixture",true,true)},
+		{"candidate confirmed service failure","uncertain",func()automationHealthProbe{
+			c:=automationQualityFreshCandidate();c.MediaComplete=true
+			c.ServiceComplete=false;c.ServiceBadMask=1
+			c.State=automationHealthUncertain;c.QualityDegraded=true
+			return c
+		}(),autoMediaHealth("fixture",true,true)},
 		{"candidate same stalls","uncertain",func()automationHealthProbe{
 			c:=automationQualityFreshCandidate();c.MediaComplete,c.MediaDegraded=true,true;return c
 		}(),autoMediaHealth("fixture",true,true)},
