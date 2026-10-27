@@ -163,7 +163,6 @@
   function hydrateTopbar() {
     mountTopbarChip();
     if (!serviceState) refreshTopbarVersion();
-    if (qs('#xkeenTopbarVersion')?.textContent === 'версия…') void xkeenRefreshTopbar();
   }
 
   function topbarAuthenticationChanged() {
@@ -172,7 +171,6 @@
     if (authenticatedTopbar()) {
       syncTopbarVersion('версия…');
       hydrateTopbar();
-      void xkeenRefreshTopbar();
     } else {
       syncTopbarVersion('вход требуется');
       qs('#xkeenTopbarVersion') && (qs('#xkeenTopbarVersion').textContent='вход требуется');
@@ -1162,7 +1160,7 @@
       chip.innerHTML = `<span class="fn-xray-topbar-icon">${topbarIcon()}</span><span class="fn-xray-chip"><small>XKeen</small><strong id="xkeenTopbarVersion">версия…</strong></span>`;
       chip.addEventListener('click',event=>{event.preventDefault();void openXKeenManager();});
     }
-    if (chip.previousElementSibling !== xray) xray.insertAdjacentElement('afterend',chip);
+    if (chip.previousElementSibling !== xray) xray.parentNode.insertBefore(chip,xray.nextSibling || null);
   }
 
   function xkeenReceiptText(s) {
@@ -1282,6 +1280,7 @@
     root.hidden=false;root.classList.add('xcm-open');
     xkeenPanelOpen=true;
     qs('#xkeenTopbarChip')?.setAttribute('aria-expanded','true');
+    void xkeenRefreshTopbar();
     xkeenManagerPosition();
     const footer=xkeenButtons();
     xkeenSay('Читаем квитанцию предыдущей операции XKeen…');
