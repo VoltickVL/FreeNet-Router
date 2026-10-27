@@ -240,7 +240,18 @@
   }
 
   function extraCard(key, icon, title, description, verb, actionLabel) {
-    return `<article class="fn3-extra-card fn3-section-collapsed"><div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="false" aria-label="${title}: скрыть или раскрыть"><span class="fn3-extra-icon">${svg(icon)}</span><div><h3>${title}</h3><p>${description}</p></div><label class="fn3-switch"><input id="fn3_${key}_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_${key}_interval">${verb}</label><select id="fn3_${key}_interval"></select></div><div class="fn3-extra-meta"><span>Последняя проверка</span><b id="fn3_${key}_last">—</b><span>Следующая проверка</span><b id="fn3_${key}_next">—</b></div><button class="btn secondary fn3-extra-action" type="button" data-v3-action="${key}">${svg('refresh')}<span>${actionLabel}</span></button>${key === 'geodata' ? '<div id="fn3_geodata_operation" class="fn3-sub" role="status" aria-live="polite" hidden></div>' : ''}</article>`;
+    return `<article class="fn3-extra-card fn3-section-collapsed"><div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="false" aria-label="${title}: скрыть или раскрыть"><span class="fn3-extra-icon">${svg(icon)}</span><div><h3>${title}</h3><p>${description}</p></div><label class="fn3-switch"><input id="fn3_${key}_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_${key}_interval">${verb}</label><select id="fn3_${key}_interval"></select></div><div class="fn3-extra-meta"><span>Последняя проверка</span><b id="fn3_${key}_last">—</b><span>Следующая проверка</span><b id="fn3_${key}_next">—</b></div><button class="btn secondary fn3-extra-action" type="button" data-v3-action="${key}">${svg('refresh')}<span>${actionLabel}</span></button>${key === 'geodata' ? '<div id="fn3_geodata_operation" class="fn3-sub" role="status" aria-live="polite" hidden></div>' : ''}${key === 'freenet' ? xkeenUpdatePanel() : ''}</article>`;
+  }
+
+  function xkeenUpdatePanel() {
+    // Reuse the existing FreeNet maintenance card, retaining the four-card
+    // grid and all established folding/save geometry.
+    return `<div class="fn3-xkeen-update" role="group" aria-label="Проверка обновления XKeen">
+      <div class="fn3-sub"><strong>Версия XKeen</strong> · Проверка официального Stable без установки и перезапуска Xray</div>
+      <div class="fn3-extra-meta"><span>Установлена</span><b id="fn3_xkeen_installed">—</b><span>Последняя Stable</span><b id="fn3_xkeen_latest">—</b></div>
+      <button id="fn3_xkeen_check" class="btn secondary fn3-extra-action" type="button" data-v3-action="xkeen_check">${svg('refresh')}<span>Проверить обновление XKeen</span></button>
+      <div id="fn3_xkeen_status" class="fn3-sub" role="status" aria-live="polite">Не проверено. XKeen и Xray не изменяются.</div>
+    </div>`;
   }
 
   function backupCard() {
@@ -681,10 +692,45 @@
     }
   }
 
+  async function checkXKeenUpdate() {
+    const button = q('#fn3_xkeen_check');
+    const installed = q('#fn3_xkeen_installed');
+    const latest = q('#fn3_xkeen_latest');
+    const status = q('#fn3_xkeen_status');
+    if (!button || button.disabled || !status) return;
+    button.disabled = true;
+    // Never leave stale version values beside an unsuccessful fresh check.
+    if (installed) installed.textContent = '—';
+    if (latest) latest.textContent = '—';
+    status.textContent = 'Проверяем установленный XKeen и официальный Stable…';
+    try {
+      // This is an authenticated read-only GET. Never call xkeen -uk or an apply endpoint.
+      const data = await fetchJSON('/api/xkeen/update-check', {method:'GET', cache:'no-store', credentials:'include'});
+      const safeVersion = value => typeof value === 'string' && /^[0-9]+(?:\.[0-9]+){1,3}$/.test(value) ? value : '';
+      const have = safeVersion(data.installed_version), available = safeVersion(data.latest_stable_version);
+      if (data.mutation !== 'NONE' || !have || !available || !['update-available','up-to-date','newer-than-stable','same-version-build-unverified'].includes(data.state)) {
+        throw new Error('результат проверки XKeen не подтверждён');
+      }
+      if (installed) installed.textContent = have + (data.installed_channel === 'beta' ? ' · Beta' : data.installed_channel === 'stable' ? ' · Stable' : ' · канал неизвестен');
+      if (latest) latest.textContent = available;
+      status.textContent = data.state === 'update-available'
+        ? 'Доступна новая Stable ' + available + '. XKeen не обновлялся; рабочий VPN сохранён.'
+        : data.state === 'up-to-date' ? 'Установлена последняя Stable. Никаких изменений не требуется.'
+        : data.state === 'same-version-build-unverified'
+          ? 'Номер версии совпадает со Stable, но сборка Beta или её канал не подтверждён. XKeen не изменён.'
+          : 'Установленная версия новее текущей Stable. Смена канала и обновление не выполнялись.';
+    } catch (_) {
+      status.textContent = 'Не удалось достоверно проверить версию XKeen. Не считать обновление отсутствующим; ничего не изменено.';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function action(name) {
     const actionMap = {subscription:'subscription_check',geodata:'geodata_update',freenet:'freenet_check'};
     const action = actionMap[name] || name;
     if (action === 'geodata_update') { await startGeoDataOperation(); return; }
+    if (action === 'xkeen_check') { await checkXKeenUpdate(); return; }
     try {
       if (action === 'backup_restore') {
         const latest = state.data?.backup_info?.latest || '';
