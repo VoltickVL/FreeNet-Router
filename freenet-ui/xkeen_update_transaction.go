@@ -136,9 +136,12 @@ func publicXKeenUpdateState(binary string) xkeenUpdateStatus {
 	if state.State == "RUNNING" && !xkeenUpdateLocalActive() {
 		return xkeenUpdateStatus{State: "STOP", Rollback: "UNKNOWN", Reason: "interrupted-update", Mutation: "NONE"}
 	}
+	mutation := "NONE"
+	if state.State == "SUCCESS" { mutation = "XKEEN_SCRIPTS" }
+	if state.State == "ROLLED_BACK" { mutation = "RESTORED" }
 	return xkeenUpdateStatus{State: state.State, Previous: state.Previous,
 		Target: state.Target, Rollback: state.Rollback, Reason: state.Reason,
-		UpdatedAt: state.UpdatedAt, Mutation: "NONE"}
+		UpdatedAt: state.UpdatedAt, Mutation: mutation}
 }
 
 func reserveXKeenCrossProcessLock(binary string) (func(), error) {
