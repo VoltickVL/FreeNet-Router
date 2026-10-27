@@ -57,6 +57,12 @@ var automationBestForeignScan = func(a *app, ctx context.Context, settings autom
 	return a.scanBestServerForeignForAutomation(ctx, settings, currentCountry)
 }
 
+// A media-quality comparison may promote only candidates with independently
+// measured transfer performance. Other Best Server workflows stay unchanged.
+var automationMediaForeignScan = func(a *app, ctx context.Context, settings automationSettings, currentCountry string) (bestServerQualityResponse, error) {
+	return a.scanBestServerForeignForMedia(ctx, settings, currentCountry)
+}
+
 type automationBestCycleResult struct {
 	Result        string
 	Reason        string
@@ -774,6 +780,26 @@ func acquireAutomationBestLock() (func(), error) {
 }
 
 func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings automationSettings, currentCountry string) (bestServerQualityResponse, error) {
+	return a.scanBestServerForeignForMode(ctx, settings, currentCountry, false)
+}
+
+func (a *app) scanBestServerForeignForMedia(ctx context.Context, settings automationSettings, currentCountry string) (bestServerQualityResponse, error) {
+	return a.scanBestServerForeignForMode(ctx, settings, currentCountry, true)
+}
+
+// This media-only admission never changes manual/proactive Best Server
+// eligibility. It prevents a HEAD 403 from eliminating a candidate whose
+// independent HTTPS download has proved low jitter, sustained throughput and
+// no stalls. The final paired live check still gates the actual apply.
+func automationMediaMeasuredCandidateEligible(c bestServerQualityCandidate) bool {
+	return !c.Current && c.Tested && c.Available && validProfileID(c.ID) &&
+		c.ApplicationMS > 0 && c.ApplicationMS <= bestServerQualityMaxApplicationMS &&
+		c.HTTPSamples >= bestServerQualityHTTPRequired && c.JitterMS <= bestServerQualityHighJitterMS &&
+		c.DownloadMbps >= 20 && c.MediaMbps >= 20 &&
+		c.MediaSamples >= bestServerMediaRequiredRuns && c.MediaStalls == 0
+}
+
+func (a *app) scanBestServerForeignForMode(ctx context.Context, settings automationSettings, currentCountry string, mediaOnly bool) (bestServerQualityResponse, error) {
 	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
 	all, _, truncated, err := a.discoverBestServerCandidates(ctx)
@@ -812,6 +838,14 @@ func (a *app) scanBestServerForeignForAutomation(ctx context.Context, settings a
 	response := a.rankMeasuredBestServerBatches(ctx, filtered, profilesScanned, truncated, currentEndpoint, currentFilter, targetEligible)
 	if ctx.Err() != nil && len(response.Candidates) == 0 {
 		return bestServerQualityResponse{}, ctx.Err()
+	}
+	if mediaOnly {
+		for i := range response.Candidates {
+			c := &response.Candidates[i]
+			if !c.Eligible && automationMediaMeasuredCandidateEligible(*c) {
+				c.Eligible = true // media-only snapshot, never generic eligibility
+			}
+		}
 	}
 	if currentBaselineOK {
 		response.Candidates = append(response.Candidates, currentBaseline)
@@ -1034,7 +1068,11 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	if currentCountry == "" {
 		currentCountry = a.status().CountryCode
 	}
-	candidates, err := automationBestForeignScan(a, ctx, settings, currentCountry)
+	scan := automationBestForeignScan
+	if qualityIntent && trigger.MediaDegraded {
+		scan = automationMediaForeignScan
+	}
+	candidates, err := scan(a, ctx, settings, currentCountry)
 	if err != nil {
 		reason := "Подбор разрешённых VPN-кандидатов не завершён; текущий VPN сохранён."
 		writeAutomationStateV2("failed", reason, "no", false)
@@ -1043,10 +1081,17 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	}
 	candidate, ok := bestAutomationCandidate(candidates)
 	if !ok {
+		// A degraded current route without a good replacement is NOT a
+		// successful/stable VPN. Keep it running but report the unmet goal.
+		result := "same"
 		reason := "Подтверждённого Eligible-кандидата для автоматического переключения нет."
-		writeAutomationStateV2("same", reason, "no", false)
-		appendAutomationHistoryV2("same", reason)
-		return automationBestCycleResult{Result: "same", Reason: reason}, nil
+		if currentState == "degraded" {
+			result = "uncertain"
+			reason = "Ухудшение качества VPN подтверждено, но более стабильный проверенный сервер не найден. Текущий VPN сохранён; повторный поиск после паузы."
+		}
+		writeAutomationStateV2(result, reason, "no", false)
+		appendAutomationHistoryV2(result, reason)
+		return automationBestCycleResult{Result: result, Reason: reason}, nil
 	}
 
 	shouldSwitch := false
