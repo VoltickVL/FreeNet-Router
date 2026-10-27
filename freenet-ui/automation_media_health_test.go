@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"os"
 	"path/filepath"
 	"strings"
@@ -284,5 +285,37 @@ func TestAutoMediaManualHeavyScanDoesNotDisableWatchdog(t *testing.T) {
 	}
 	if automationMediaSegmentBytes*automationMediaSegmentCount>1<<20 || automationMediaSegmentTimeout>3*time.Second{
 		t.Fatal("media watchdog unbounded bandwidth or time")
+	}
+}
+
+func TestAutoMediaTimedOutPartialBodyCountsOnlyVerifiedStall(t *testing.T) {
+	// Build an actual curl-like process exit status 28 without contacting the network.
+	// The parser accepts only exit code 28, so all other errors remain UNKNOWN.
+	command := exec.Command("sh", "-c", "exit 28")
+	err := command.Run()
+	if err == nil { t.Fatal("expected exit 28") }
+	tests := []struct {
+		name string
+		output string
+		err error
+		valid bool
+	}{
+		{"verified stalled HTTP200", fmt.Sprintf("200 65536 0.100 0.200 3.000"), err, true},
+		{"HTTP403", "403 65536 0.100 0.200 3.000", err, false},
+		{"zero body", "200 0 0.100 0.200 3.000", err, false},
+		{"tiny partial", "200 1000 0.100 0.200 3.000", err, false},
+		{"unproven short transfer", "200 65536 0.100 0.200 0.300", err, false},
+		{"completed body timeout", fmt.Sprintf("200 %d 0.100 0.200 3.000", automationMediaSegmentBytes), err, false},
+		{"other error", "200 65536 0.100 0.200 3.000", errors.New("network unavailable"), false},
+		{"missing metrics", "200 65536", err, false},
+		{"NaN metrics", "200 65536 NaN 0.200 3.000", err, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseAutomationTimedOutMediaSegment(tc.output, tc.err, automationMediaSegmentBytes)
+			if got.Valid != tc.valid || (tc.valid && !got.Degraded) {
+				t.Fatalf("invalid timeout classification: %+v want valid=%v", got, tc.valid)
+			}
+		})
 	}
 }
