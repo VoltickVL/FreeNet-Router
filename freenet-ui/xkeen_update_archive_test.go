@@ -107,7 +107,7 @@ func (f xkeenFixtureTransport) RoundTrip(req *http.Request)(*http.Response,error
 }
 
 func TestXKeenArchiveDownloadMatchesOfficialLengthAndSHA(t *testing.T){
-	content:=[]byte("not a tar but the exact fixture digest matches")
+	content:=bytes.Repeat([]byte("official-release-fixture"),64) // size exceeds the minimum trusted asset size
 	hash:=sha256.Sum256(content)
 	asset:=xkeenUpdateAsset{Version:"2.1",URL:xkeenReleaseAssetURL("2.1"),Digest:hex.EncodeToString(hash[:]),Size:int64(len(content))}
 	client:=&http.Client{Transport:xkeenFixtureTransport{data:content,status:200}}
