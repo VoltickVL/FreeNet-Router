@@ -81,7 +81,7 @@ func TestXKeenScriptTransactionSuccessAndAutomaticRollback(t *testing.T) {
 			conf:=filepath.Join(dir,"private-xray-config.json")
 			if err:=os.WriteFile(conf,[]byte("private VPN config"),0600);err!=nil{t.Fatal(err)}
 			binary:=filepath.Join(dir,"xkeen")
-			app:=&app{cfg:config{XKeenPath:binary},sem:make(chan struct{},1)}
+			instance:=&app{cfg:config{XKeenPath:binary},sem:make(chan struct{},1)}
 			xkeenSwapTestHook=func(step string)error{
 				if step==tc.fail{return os.ErrPermission}
 				return nil
