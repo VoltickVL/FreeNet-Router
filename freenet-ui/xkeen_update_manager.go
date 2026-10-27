@@ -381,17 +381,36 @@ func (a *app) runXKeenGuardedUpdate(asset xkeenUpdateAsset, oldVersion string) x
 		record.SnapshotDir = ""
 		return finish("ROLLED_BACK","SUCCESS","candidate-not-applied")
 	}
-	// Only the two XKeen script paths changed; production Xray PID, binary,
-	// routing and configuration were not restarted or re-registered.
-	record.SnapshotDir = ""
+	// The release changes only the two XKeen script paths. Keep the
+	// restore snapshot referenced by the durable receipt until terminal
+	// SUCCESS is on disk; a crash must never orphan the only backup.
 	record.Phase = "POSTCHECK"
 	if writeXKeenUpdateDiskState(binary, record) != nil {
-		return finish("STOP","UNKNOWN","receipt-unavailable")
+		record.Phase="ROLLBACK"
+		if rollbackXKeenFiles(binary,snapshot,oldVersion)!=nil {
+			return finish("STOP","FAILED","receipt-rollback-unconfirmed")
+		}
+		_ = os.RemoveAll(snapshot)
+		record.SnapshotDir=""
+		return finish("ROLLED_BACK","SUCCESS","receipt-write-failed")
 	}
+	record.State,record.Rollback,record.Phase="SUCCESS","NOT_NEEDED","DONE"
+	if writeXKeenUpdateDiskState(binary, record) != nil {
+		record.State,record.Rollback,record.Phase="RUNNING","PENDING","ROLLBACK"
+		if rollbackXKeenFiles(binary,snapshot,oldVersion)!=nil {
+			return finish("STOP","FAILED","receipt-rollback-unconfirmed")
+		}
+		_ = os.RemoveAll(snapshot)
+		record.SnapshotDir=""
+		return finish("ROLLED_BACK","SUCCESS","terminal-receipt-unavailable")
+	}
+	// SUCCESS is durable and confirmed; cleanup is allowed afterwards.
 	if os.RemoveAll(snapshot) != nil {
 		return finish("STOP","UNKNOWN","snapshot-cleanup-unverified")
 	}
-	return finish("SUCCESS","NOT_NEEDED","")
+	record.SnapshotDir=""
+	_ = writeXKeenUpdateDiskState(binary, record) // prior SUCCESS remains authoritative
+	return publicXKeenUpdateState(binary)
 }
 
 // Recovery never invokes upstream -uk or restarts Xray. It restores a valid
