@@ -68,6 +68,26 @@ xkeen_build="Canary"
 	}
 }
 
+func TestXKeenUpdateClassificationRequiresStableBuildIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		installed, channel, latest, state string
+		update, valid bool
+	}{
+		{"2.0", "stable", "2.1", "update-available", true, true},
+		{"2.1", "stable", "2.1", "up-to-date", false, true},
+		{"2.1", "beta", "2.1", "same-version-build-unverified", false, true},
+		{"2.1", "unknown", "2.1", "same-version-build-unverified", false, true},
+		{"2.1.1", "beta", "2.1", "newer-than-stable", false, true},
+		{"script", "stable", "2.1", "", false, false},
+	} {
+		state, update, valid := classifyXKeenUpdate(tc.installed, tc.channel, tc.latest)
+		if state != tc.state || update != tc.update || valid != tc.valid {
+			t.Fatalf("classification installed=%q channel=%q latest=%q: got %q/%v/%v, want %q/%v/%v",
+				tc.installed, tc.channel, tc.latest, state, update, valid, tc.state, tc.update, tc.valid)
+		}
+	}
+}
+
 func TestXKeenInstalledVersionReadWithoutExecutingShell(t *testing.T) {
 	root := t.TempDir()
 	binary := filepath.Join(root, "xkeen")
