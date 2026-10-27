@@ -164,6 +164,12 @@ func downloadVerifiedXKeenArchive(ctx context.Context, client *http.Client, asse
 // Archive content is not executable during validation. Only the two known
 // upstream release roots are accepted; links, devices, traversal and extra
 // members are rejected even after the GitHub SHA-256 match.
+func xkeenArchiveSizeAllowed(size, expanded int64) bool {
+	// Subtraction avoids signed overflow from malicious tar header sizes.
+	return size >= 0 && expanded >= 0 && expanded <= xkeenUpdateMaxExpanded &&
+		size <= xkeenUpdateMaxExpanded-expanded
+}
+
 func extractVerifiedXKeenArchive(filename, root, version string) error {
 	f, err := os.Open(filename)
 	if err != nil {
@@ -188,8 +194,8 @@ func extractVerifiedXKeenArchive(filename, root, version string) error {
 			return errors.New("xkeen-archive-invalid")
 		}
 		members++
-		if members > xkeenUpdateMaxMembers || h.Size < 0 ||
-			expanded+h.Size > xkeenUpdateMaxExpanded {
+		if members > xkeenUpdateMaxMembers ||
+			!xkeenArchiveSizeAllowed(h.Size, expanded) {
 			return errors.New("xkeen-archive-unbounded")
 		}
 		name := strings.TrimSuffix(h.Name, "/")
