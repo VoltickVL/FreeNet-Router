@@ -699,13 +699,16 @@
     const status = q('#fn3_xkeen_status');
     if (!button || button.disabled || !status) return;
     button.disabled = true;
+    // Never leave stale version values beside an unsuccessful fresh check.
+    if (installed) installed.textContent = '—';
+    if (latest) latest.textContent = '—';
     status.textContent = 'Проверяем установленный XKeen и официальный Stable…';
     try {
       // This is an authenticated read-only GET. Never call xkeen -uk or an apply endpoint.
       const data = await fetchJSON('/api/xkeen/update-check', {method:'GET', cache:'no-store', credentials:'include'});
       const safeVersion = value => typeof value === 'string' && /^[0-9]+(?:\.[0-9]+){1,3}$/.test(value) ? value : '';
       const have = safeVersion(data.installed_version), available = safeVersion(data.latest_stable_version);
-      if (data.mutation !== 'NONE' || !have || !available || !['update-available','up-to-date','newer-than-stable'].includes(data.state)) {
+      if (data.mutation !== 'NONE' || !have || !available || !['update-available','up-to-date','newer-than-stable','same-version-build-unverified'].includes(data.state)) {
         throw new Error('результат проверки XKeen не подтверждён');
       }
       if (installed) installed.textContent = have + (data.installed_channel === 'beta' ? ' · Beta' : data.installed_channel === 'stable' ? ' · Stable' : ' · канал неизвестен');
@@ -713,7 +716,9 @@
       status.textContent = data.state === 'update-available'
         ? 'Доступна новая Stable ' + available + '. XKeen не обновлялся; рабочий VPN сохранён.'
         : data.state === 'up-to-date' ? 'Установлена последняя Stable. Никаких изменений не требуется.'
-        : 'Установленная версия новее текущей Stable. Смена канала и обновление не выполнялись.';
+        : data.state === 'same-version-build-unverified'
+          ? 'Номер версии совпадает со Stable, но сборка Beta или её канал не подтверждён. XKeen не изменён.'
+          : 'Установленная версия новее текущей Stable. Смена канала и обновление не выполнялись.';
     } catch (_) {
       status.textContent = 'Не удалось достоверно проверить версию XKeen. Не считать обновление отсутствующим; ничего не изменено.';
     } finally {
