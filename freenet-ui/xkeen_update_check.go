@@ -87,6 +87,25 @@ func compareXKeenVersion(installed, latest string) (int, bool) {
 	return 0, true
 }
 
+// Matching numeric versions are not proof of the installed Stable build:
+// Beta and unknown-channel installations must remain visibly unverified.
+func classifyXKeenUpdate(installed, channel, latest string) (string, bool, bool) {
+	comparison, valid := compareXKeenVersion(installed, latest)
+	if !valid {
+		return "", false, false
+	}
+	switch {
+	case comparison < 0:
+		return "update-available", true, true
+	case comparison > 0:
+		return "newer-than-stable", false, true
+	case channel == "stable":
+		return "up-to-date", false, true
+	default:
+		return "same-version-build-unverified", false, true
+	}
+}
+
 // Parse known assignments as *data*, not shell code. Duplicate or malformed
 // versions fail closed; no arbitrary contents of this file leave the router.
 func xkeenMetadataAssignment(raw, key string) (string, bool) {
@@ -230,22 +249,15 @@ func (a *app) handleXKeenUpdateCheck(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, result)
 		return
 	}
-	comp, ok := compareXKeenVersion(installed, latest)
-	if !ok {
+	state, update, valid := classifyXKeenUpdate(installed, channel, latest)
+	if !valid {
 		result.ErrorCode = "version-comparison-unavailable"
 		writeJSON(w, http.StatusServiceUnavailable, result)
 		return
 	}
 	result.LatestStableVersion = latest
 	result.Success = true
-	switch {
-	case comp < 0:
-		result.State = "update-available"
-		result.UpdateAvailable = true
-	case comp > 0:
-		result.State = "newer-than-stable"
-	default:
-		result.State = "up-to-date"
-	}
+	result.State = state
+	result.UpdateAvailable = update
 	writeJSON(w, http.StatusOK, result)
 }
