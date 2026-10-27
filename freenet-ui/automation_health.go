@@ -63,6 +63,8 @@ type automationHealthProbe struct {
 	ServiceOKMask   uint8
 	ServiceBadMask  uint8
 	ServiceComplete bool
+	MediaComplete   bool
+	MediaDegraded   bool
 }
 
 var automationEndpointCurrentRefresh = func(a *app, ctx context.Context) (int, bestServerRefreshResponse) {
@@ -540,7 +542,21 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	probe.ServiceOKMask = services.OKMask
 	probe.ServiceBadMask = services.BadMask
 	probe.ServiceComplete = services.Complete
-	return probe
+
+	// Only after a verified generic HTTPS path and complete service evidence:
+	// a bounded 1 MiB transfer over the *same isolated current VPN* detects
+	// streaming-like degradation that a fast HEAD/RTT cannot observe.
+	media := probeAutomationMediaSegments(ctx, curlPath, socks)
+	if ctx.Err() != nil {
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Проверка медиапотока не завершена; текущее соединение сохраняется."}
+	}
+	finalEndpoint = readBestServerCurrentEndpoint(a.cfg.OutPath)
+	finalFilter, filterErr = os.ReadFile(a.cfg.FilterPath)
+	if filterErr != nil || finalEndpoint == "" ||
+		bestServerCurrentQualityIdentityHash(finalEndpoint, string(finalFilter)) != currentIdentity {
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Профиль VPN изменился при проверке медиапотока; результат отброшен."}
+	}
+	return classifyAutomationMediaQuality(probe, media)
 }
 
 func automationCurrentCountry(a *app) string {
