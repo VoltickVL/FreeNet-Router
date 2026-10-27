@@ -1,0 +1,133 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const (
+	// A media-like body transfer is not a user Instagram session. Its two
+	// independent samples are a bounded throughput/TTFB *risk signal*, never
+	// proof that a Reel played or that the VPN is disconnected.
+	automationMediaSegmentBytes      int64 = 512 * 1024
+	automationMediaSegmentCount            = 2
+	automationMediaSegmentTimeout          = 3 * time.Second
+	automationMediaSlowMbps                = 8.0
+	automationMediaHighTTFB                = 900 * time.Millisecond
+	automationMediaMinSpan                 = 30 * time.Second
+	automationMediaRetryCooldown           = 10 * time.Minute
+)
+
+type automationMediaSegment struct {
+	Mbps      float64
+	TTFB      time.Duration
+	Valid     bool
+	Degraded  bool
+}
+
+type automationMediaEvidence struct {
+	Complete  bool
+	Degraded  bool
+	MinMbps   float64
+	Samples   int
+}
+
+// Only accept a fully received 512 KiB body from HTTP 200 with consistent
+// transfer timings. HTTP 4xx, redirects, partial bodies and a timed-out tool
+// are UNKNOWN, not confirmation of a bad route or an automatic-switch trigger.
+func parseAutomationMediaSegment(output string, expectedBytes int64) automationMediaSegment {
+	fields := strings.Fields(output)
+	if len(fields) != 5 || fields[0] != "200" || expectedBytes <= 0 {
+		return automationMediaSegment{}
+	}
+	bytes, err := strconv.ParseFloat(fields[1], 64)
+	if err != nil || bytes < float64(expectedBytes)*0.99 || bytes > float64(expectedBytes)*1.01 {
+		return automationMediaSegment{}
+	}
+	pre, errPre := strconv.ParseFloat(fields[2], 64)
+	start, errStart := strconv.ParseFloat(fields[3], 64)
+	total, errTotal := strconv.ParseFloat(fields[4], 64)
+	if errPre != nil || errStart != nil || errTotal != nil || pre < 0 || start < pre || total <= start ||
+		math.IsNaN(pre) || math.IsNaN(start) || math.IsNaN(total) ||
+		math.IsInf(pre, 0) || math.IsInf(start, 0) || math.IsInf(total, 0) {
+		return automationMediaSegment{}
+	}
+	mbps := bytes * 8 / (total-start) / 1_000_000
+	if mbps <= 0 || math.IsNaN(mbps) || math.IsInf(mbps, 0) {
+		return automationMediaSegment{}
+	}
+	ttfb := time.Duration(math.Round((start-pre)*float64(time.Second)))
+	if ttfb < 0 {
+		return automationMediaSegment{}
+	}
+	return automationMediaSegment{
+		Mbps: mbps,
+		TTFB: ttfb,
+		Valid: true,
+		Degraded: mbps < automationMediaSlowMbps || ttfb >= automationMediaHighTTFB,
+	}
+}
+
+type automationMediaSegmentRunner func(context.Context, string, string, int) automationMediaSegment
+
+// This GET is routed only through the isolated SOCKS outbound of the exact
+// currently measured VPN. It deliberately does NOT use a PC default route
+// or claim to sample Instagram's private per-session video CDN.
+func runAutomationMediaSegment(ctx context.Context, curlPath, socks string, index int) automationMediaSegment {
+	if ctx == nil || ctx.Err() != nil || index < 0 || index >= automationMediaSegmentCount {
+		return automationMediaSegment{}
+	}
+	target := fmt.Sprintf("%s?bytes=%d&nonce=%d",
+		bestServerFallbackSpeedURL, automationMediaSegmentBytes, time.Now().UTC().UnixNano()+int64(index))
+	out, err := runBestServerSpeedtestCurl(ctx, curlPath, automationMediaSegmentTimeout,
+		"--socks5-hostname", socks,
+		"-sS", "--connect-timeout", "2",
+		"-H", "Cache-Control: no-cache",
+		"-o", "/dev/null",
+		"-w", "%{http_code}\t%{size_download}\t%{time_pretransfer}\t%{time_starttransfer}\t%{time_total}",
+		target)
+	if err != nil || ctx.Err() != nil {
+		return automationMediaSegment{}
+	}
+	return parseAutomationMediaSegment(string(out), automationMediaSegmentBytes)
+}
+
+func probeAutomationMediaSegmentsWith(ctx context.Context, curlPath, socks string, runner automationMediaSegmentRunner) automationMediaEvidence {
+	if ctx == nil || ctx.Err() != nil || runner == nil || strings.TrimSpace(curlPath) == "" || strings.TrimSpace(socks) == "" {
+		return automationMediaEvidence{}
+	}
+	evidence := automationMediaEvidence{}
+	slow := 0
+	for i := 0; i < automationMediaSegmentCount; i++ {
+		if ctx.Err() != nil {
+			return automationMediaEvidence{}
+		}
+		sample := runner(ctx, curlPath, socks, i)
+		if !sample.Valid || sample.Mbps <= 0 || math.IsNaN(sample.Mbps) || math.IsInf(sample.Mbps, 0) || ctx.Err() != nil {
+			return automationMediaEvidence{}
+		}
+		if evidence.MinMbps == 0 || sample.Mbps < evidence.MinMbps {
+			evidence.MinMbps = sample.Mbps
+		}
+		if sample.Degraded {
+			slow++
+		}
+		evidence.Samples++
+	}
+	// A mixed sample is not a known-good or confirmed-degraded media path.
+	// Never transform a one-off dip into an automatic candidate scan.
+	if slow > 0 && slow < automationMediaSegmentCount {
+		return automationMediaEvidence{}
+	}
+	evidence.Complete = true
+	evidence.Degraded = slow == automationMediaSegmentCount
+	return evidence
+}
+
+func probeAutomationMediaSegments(ctx context.Context, curlPath, socks string) automationMediaEvidence {
+	return probeAutomationMediaSegmentsWith(ctx, curlPath, socks, runAutomationMediaSegment)
+}
