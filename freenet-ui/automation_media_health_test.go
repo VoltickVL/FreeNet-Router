@@ -126,10 +126,14 @@ func TestAutoMediaHysteresisAndIdentity(t *testing.T) {
 	}}
 	state=map[string]string{}
 	step(now,bad)
-	step(now.Add(30*time.Second),autoMediaHealth(identity,false,false))
+	step(now.Add(10*time.Second),autoMediaHealth(identity,false,false))
 	if state["QUALITY_MEDIA_COUNT"]!="1"{t.Fatal("unknown media erased or advanced a verified stall")}
-	step(now.Add(40*time.Second),bad)
-	if state["QUALITY_MEDIA_COUNT"]!="2"{t.Fatal("stalled evidence was not preserved across an unknown")}
+	// This second valid observation is still inside the 30s minimum span:
+	// it must be counted but must NOT start a comparison yet.
+	tr,due=step(now.Add(20*time.Second),bad)
+	if due || tr.MediaDegraded || state["QUALITY_MEDIA_COUNT"]!="2"{
+		t.Fatal("stalled evidence was not preserved without premature scan")
+	}
 	step(now.Add(50*time.Second),autoMediaHealth(identity,false,true))
 	if state["QUALITY_MEDIA_COUNT"]!="0"{t.Fatal("healthy media did not clear stale evidence")}
 	step(now.Add(60*time.Second),bad)
