@@ -229,7 +229,7 @@
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
         </div>
-        <section class="fn3-card fn3-extra fn3-section-collapsed"><div class="fn3-extra-title" role="button" tabindex="0" aria-expanded="false" aria-label="Системное обслуживание: скрыть или раскрыть"><span class="fn3-icon fn3-maintenance-icon">${svg('settings')}</span><div class="fn3-extra-summary"><h2>Системное обслуживание</h2><div class="fn3-sub">Обновления, служебные данные и резервные копии.</div></div><span class="fn3-section-chevron">${svg('chevron')}</span></div><div class="fn3-extra-grid">${extraCard('subscription','subscription','Обновление подписки','Автоматическое обновление данных подписки — списка доступных VPN.','Проверять','Проверить сейчас')}${extraCard('geodata','globe','GeoData / GeoIP','Данные геолокации, используемые для маршрутизации и фильтров.','Обновлять','Обновить сейчас')}${extraCard('freenet','box','Обновление FreeNet','Автоматическая проверка новых версий FreeNet. Установка — только после подтверждения.','Проверять','Проверить сейчас')}${backupCard()}</div><div class="fn3-extra-save-row"><button id="fn3MaintenanceSave" class="btn fn3-extra-save" type="button" disabled>${svg('save')}<span>Сохранено</span></button></div></section>
+        <section class="fn3-card fn3-extra fn3-section-collapsed"><div class="fn3-extra-title" role="button" tabindex="0" aria-expanded="false" aria-label="Системное обслуживание: скрыть или раскрыть"><span class="fn3-icon fn3-maintenance-icon">${svg('settings')}</span><div class="fn3-extra-summary"><h2>Системное обслуживание</h2><div class="fn3-sub">Обновления, служебные данные и резервные копии.</div></div><span class="fn3-section-chevron">${svg('chevron')}</span></div><div class="fn3-extra-grid">${extraCard('subscription','subscription','Обновление подписки','Автоматическое обновление данных подписки — списка доступных VPN.','Проверять','Проверить сейчас')}${extraCard('geodata','globe','GeoData / GeoIP','Данные геолокации, используемые для маршрутизации и фильтров.','Обновлять','Обновить сейчас')}${extraCard('freenet','box','Обновление FreeNet','Автоматическая проверка новых версий FreeNet. Установка — только после подтверждения.','Проверять','Проверить сейчас')}${xkeenUpdateCard()}${backupCard()}</div><div class="fn3-extra-save-row"><button id="fn3MaintenanceSave" class="btn fn3-extra-save" type="button" disabled>${svg('save')}<span>Сохранено</span></button></div></section>
       </div>
       <div class="fn3-compat"><select id="fnDNS"><option value="firmware">Прямой</option><option value="xkeen">Раздельный</option></select><input id="fnAutoEnabled" type="checkbox"><select id="fnAutoInterval"><option value="manual">Вручную</option></select><input id="fnAutoApply" type="checkbox"><input type="radio" name="fnAutoMode" value="best"><input type="radio" name="fnAutoPolicy" value="degraded"><input type="radio" name="fnCountryScope" value="region"><input id="fnGeoDataEnabled" type="checkbox"><span id="fnGeoDataSchedule"></span><span id="fnAutoEnabledLabel"></span><span id="fnCurrentProfile"></span><span id="fnCurrentProfileSmall"></span><span id="fnCurrentEndpoint"></span><span id="fnCurrentFlag"></span><span id="fnWatchState"></span><span id="fnLastRun"></span><span id="fnLatency"></span><span id="fnSpeed"></span><span id="fnJitter"></span><span id="fnHealthBanner"></span><tbody id="fnJournalBody"></tbody><button id="fnSaveSettings"></button><button id="fnCheckNow"></button></div>
       <div id="fn3CountryPop" class="fn3-country-pop" hidden></div>`;
@@ -241,6 +241,17 @@
 
   function extraCard(key, icon, title, description, verb, actionLabel) {
     return `<article class="fn3-extra-card fn3-section-collapsed"><div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="false" aria-label="${title}: скрыть или раскрыть"><span class="fn3-extra-icon">${svg(icon)}</span><div><h3>${title}</h3><p>${description}</p></div><label class="fn3-switch"><input id="fn3_${key}_enabled" type="checkbox"><span></span></label></div><div class="fn3-extra-row"><label for="fn3_${key}_interval">${verb}</label><select id="fn3_${key}_interval"></select></div><div class="fn3-extra-meta"><span>Последняя проверка</span><b id="fn3_${key}_last">—</b><span>Следующая проверка</span><b id="fn3_${key}_next">—</b></div><button class="btn secondary fn3-extra-action" type="button" data-v3-action="${key}">${svg('refresh')}<span>${actionLabel}</span></button>${key === 'geodata' ? '<div id="fn3_geodata_operation" class="fn3-sub" role="status" aria-live="polite" hidden></div>' : ''}</article>`;
+  }
+
+  function xkeenUpdateCard() {
+    return `<article class="fn3-extra-card fn3-section-collapsed">
+      <div class="fn3-extra-head" role="button" tabindex="0" aria-expanded="false" aria-label="Проверка версии XKeen: скрыть или раскрыть">
+        <span class="fn3-extra-icon">${svg('box')}</span><div><h3>Версия XKeen</h3><p>Сравнить установленную версию с официальным Stable без обновления и перезапуска Xray.</p></div>
+      </div>
+      <div class="fn3-extra-meta"><span>Установлена</span><b id="fn3_xkeen_installed">—</b><span>Последняя Stable</span><b id="fn3_xkeen_latest">—</b></div>
+      <button id="fn3_xkeen_check" class="btn secondary fn3-extra-action" type="button" data-v3-action="xkeen_check">${svg('refresh')}<span>Проверить обновление XKeen</span></button>
+      <div id="fn3_xkeen_status" class="fn3-sub" role="status" aria-live="polite">Не проверено. XKeen и Xray не изменяются.</div>
+    </article>`;
   }
 
   function backupCard() {
@@ -681,10 +692,40 @@
     }
   }
 
+  async function checkXKeenUpdate() {
+    const button = q('#fn3_xkeen_check');
+    const installed = q('#fn3_xkeen_installed');
+    const latest = q('#fn3_xkeen_latest');
+    const status = q('#fn3_xkeen_status');
+    if (!button || button.disabled || !status) return;
+    button.disabled = true;
+    status.textContent = 'Проверяем установленный XKeen и официальный Stable…';
+    try {
+      // This is an authenticated read-only GET. Never call xkeen -uk or an apply endpoint.
+      const data = await fetchJSON('/api/xkeen/update-check', {method:'GET', cache:'no-store', credentials:'include'});
+      const safeVersion = value => typeof value === 'string' && /^[0-9]+(?:\.[0-9]+){1,3}$/.test(value) ? value : '';
+      const have = safeVersion(data.installed_version), available = safeVersion(data.latest_stable_version);
+      if (data.mutation !== 'NONE' || !have || !available || !['update-available','up-to-date','newer-than-stable'].includes(data.state)) {
+        throw new Error('результат проверки XKeen не подтверждён');
+      }
+      if (installed) installed.textContent = have + (data.installed_channel === 'beta' ? ' · Beta' : data.installed_channel === 'stable' ? ' · Stable' : ' · канал неизвестен');
+      if (latest) latest.textContent = available;
+      status.textContent = data.state === 'update-available'
+        ? 'Доступна новая Stable ' + available + '. XKeen не обновлялся; рабочий VPN сохранён.'
+        : data.state === 'up-to-date' ? 'Установлена последняя Stable. Никаких изменений не требуется.'
+        : 'Установленная версия новее текущей Stable. Смена канала и обновление не выполнялись.';
+    } catch (_) {
+      status.textContent = 'Не удалось достоверно проверить версию XKeen. Не считать обновление отсутствующим; ничего не изменено.';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function action(name) {
     const actionMap = {subscription:'subscription_check',geodata:'geodata_update',freenet:'freenet_check'};
     const action = actionMap[name] || name;
     if (action === 'geodata_update') { await startGeoDataOperation(); return; }
+    if (action === 'xkeen_check') { await checkXKeenUpdate(); return; }
     try {
       if (action === 'backup_restore') {
         const latest = state.data?.backup_info?.latest || '';
