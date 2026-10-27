@@ -510,6 +510,22 @@ func automationCurrentServiceFailureReadyForQualityComparison(response bestServe
 		c.ServiceTotal >= 3 && c.ServiceOK >= 0 && c.ServiceOK < c.ServiceTotal
 }
 
+// A two-observation media stall can be trustworthy even when a long 40 MiB
+// speedtest or an unrelated service HEAD did not finish. An incomplete deep
+// scan may start a *comparison only* if its current VPN remains reachable,
+// application HTTPS was repeatedly successful, and exact identity matches.
+// The protected writer rechecks candidate and current transfer before apply.
+func automationCurrentMediaFailureReadyForQualityComparison(response bestServerQualityResponse, trigger automationQualityTrigger) bool {
+	if !trigger.MediaDegraded || !validAutomationQualityTrigger(trigger) ||
+		response.CurrentIdentity != trigger.CurrentIdentity || len(response.Candidates) != 1 {
+		return false
+	}
+	c := response.Candidates[0]
+	return c.Current && c.Tested && c.Available &&
+		c.Endpoint != "" && endpointsEqual(c.Endpoint, response.CurrentEndpoint) &&
+		c.ApplicationMS > 0 && c.HTTPSamples >= bestServerQualityHTTPRequired
+}
+
 func parseAutomationLastSwitch(path string) time.Time {
 	state := parseAutomationState(path)
 	value := strings.TrimSpace(state["LAST_SWITCH"])
@@ -1022,12 +1038,12 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	if qualityIntent && currentResponse.CurrentIdentity != trigger.CurrentIdentity {
 		currentState = "uncertain"
 	}
-	if qualityIntent && trigger.MediaDegraded && currentState == "healthy" &&
-		currentResponse.CurrentIdentity == trigger.CurrentIdentity {
-		// An old deep scan may still look healthy while several later media
-		// segment observations have stalled. Authorize comparison ONLY;
-		// the final paired candidate/current media probes must validate again
-		// before the existing protected writer can mutate the live VPN.
+	if qualityIntent && trigger.MediaDegraded &&
+		automationCurrentMediaFailureReadyForQualityComparison(currentResponse, trigger) {
+		// The watchdog already verified this exact VPN's media slowdown.
+		// Full speedtest/HEAD could be incomplete or briefly healthy; both
+		// outcomes permit only finding a better candidate. No mutation until
+		// final paired media confirmation under the provider transaction lock.
 		currentState = "degraded"
 	}
 	if qualityIntent && currentState == "uncertain" &&
