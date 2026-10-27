@@ -30,6 +30,7 @@ type xrayServiceResponse struct {
 
 func registerXrayServiceAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/xray/service", a.requireAuth(a.handleXrayServiceGet))
+	mux.HandleFunc("GET /api/xkeen/installed", a.requireAuth(a.handleXKeenInstalled))
 	mux.HandleFunc("GET /api/xkeen/update-check", a.requireAuth(a.handleXKeenUpdateCheck))
 	mux.HandleFunc("GET /api/xkeen/update/plan", a.requireAuth(a.handleXKeenUpdatePlan))
 	mux.HandleFunc("GET /api/xkeen/update/state", a.requireAuth(a.handleXKeenUpdateState))
