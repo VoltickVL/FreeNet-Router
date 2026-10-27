@@ -161,8 +161,11 @@ func classifyAutomationMediaQuality(base automationHealthProbe, media automation
 
 
 const (
-	automationMediaMinObservations = 4
-	automationMediaMinimumSpan = 2 * time.Minute
+	// Two independent watchdog observations, each with two full data segments.
+	// This reacts to continuous buffering without launching a heavy scan for
+	// one slow transfer. At a 30s-1m health cadence, decision is under 2m.
+	automationMediaMinObservations = 2
+	automationMediaMinimumSpan = 30 * time.Second
 )
 
 func clearAutomationMediaEvidence(updates map[string]string) {
@@ -172,7 +175,7 @@ func clearAutomationMediaEvidence(updates map[string]string) {
 	updates["QUALITY_MEDIA_LAST"] = ""
 }
 
-// The media trigger is a persisted, identity-bound, four-observation signal.
+// The media trigger is a persisted, identity-bound, two-observation signal.
 // One short transfer, a 403, a failed curl, or an unrelated service mismatch
 // must not select a new VPN. Unknown samples preserve evidence but cannot
 // contribute to its count. A verified good sample clears the old sequence.
@@ -184,7 +187,7 @@ func automationMediaQualityOptimizationPlan(state map[string]string, now time.Ti
 	}
 	if !probe.MediaComplete || !probe.MediaDegraded ||
 		probe.State != automationHealthUncertain || !probe.QualityDegraded ||
-		!automationServiceProbeComplete(probe) || now.IsZero() {
+		!validAutomationQualityIdentity(probe.CurrentIdentity) || now.IsZero() {
 		return updates, false
 	}
 	now = now.UTC()
@@ -213,7 +216,7 @@ func automationMediaQualityOptimizationPlan(state map[string]string, now time.Ti
 
 	if raw := strings.TrimSpace(state["QUALITY_OPTIMIZATION_LAST"]); raw != "" {
 		previous, err := time.Parse(time.RFC3339, raw)
-		if err != nil || now.Before(previous.Add(automationQualityOptimizationCooldown)) {
+		if err != nil || now.Before(previous.Add(automationMediaRetryCooldown)) {
 			return updates, false
 		}
 	}
