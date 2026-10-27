@@ -988,6 +988,14 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	if qualityIntent && currentResponse.CurrentIdentity != trigger.CurrentIdentity {
 		currentState = "uncertain"
 	}
+	if qualityIntent && trigger.MediaDegraded && currentState == "healthy" &&
+		currentResponse.CurrentIdentity == trigger.CurrentIdentity {
+		// An old deep scan may still look healthy while several later media
+		// segment observations have stalled. Authorize comparison ONLY;
+		// the final paired candidate/current media probes must validate again
+		// before the existing protected writer can mutate the live VPN.
+		currentState = "degraded"
+	}
 	if qualityIntent && currentState == "uncertain" &&
 		automationCurrentServiceFailureReadyForQualityComparison(currentResponse, trigger) {
 		// Never call this a healthy or fully measured current baseline.
