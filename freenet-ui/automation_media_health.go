@@ -16,6 +16,8 @@ const (
 	automationMediaSegmentBytes      int64 = 512 * 1024
 	automationMediaSegmentCount            = 2
 	automationMediaSegmentTimeout          = 3 * time.Second
+	// Never send more than 1 MiB per regular health observation. A pair of
+	// completed samples is required to suppress single-transfer fluctuations.
 	automationMediaSlowMbps                = 8.0
 	automationMediaHighTTFB                = 900 * time.Millisecond
 	automationMediaMinSpan                 = 30 * time.Second
@@ -130,4 +132,29 @@ func probeAutomationMediaSegmentsWith(ctx context.Context, curlPath, socks strin
 
 func probeAutomationMediaSegments(ctx context.Context, curlPath, socks string) automationMediaEvidence {
 	return probeAutomationMediaSegmentsWith(ctx, curlPath, socks, runAutomationMediaSegment)
+}
+
+ 
+// Current VPN "reachable" and video-like transfer quality are independent.
+// A media signal can start a measured comparison, never global outage recovery.
+func classifyAutomationMediaQuality(base automationHealthProbe, media automationMediaEvidence) automationHealthProbe {
+	base.MediaComplete = media.Complete && media.Samples == automationMediaSegmentCount
+	if !base.MediaComplete {
+		// Preserve a genuine named HTTPS/latency observation, but never turn
+		// the absence of a download sample into "video works" or "VPN dead".
+		if base.State == automationHealthHealthy {
+			base.Reason = "VPN HTTPS доступен; качество передачи видеосегментов пока не подтверждено. Это не доказательство отсутствия буферизации Instagram."
+		}
+		return base
+	}
+	base.MediaDegraded = media.Degraded
+	if !media.Degraded {
+		return base
+	}
+	// This is a surrogate media transfer over the exact VPN, not an
+	// authenticated Instagram playback test. It cannot label the app "down".
+	base.State = automationHealthUncertain
+	base.QualityDegraded = true
+	base.Reason = fmt.Sprintf("VPN отвечает, но два контрольных видеосегмента передаются медленно или с высоким TTFB (минимум %.1f Мбит/с). AUTO VPN требует повторных наблюдений и проверенной замены; воспроизведение Instagram напрямую не измерялось.", media.MinMbps)
+	return base
 }
