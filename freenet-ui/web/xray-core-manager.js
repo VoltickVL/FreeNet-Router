@@ -1057,9 +1057,10 @@
 
   function xkeenManagerPosition() {
     const root = qs('#xkeenUpdateManager');
+    if (!root || root.hidden) return;
     const dialog = qs('.xcm-modal',root);
     const chip = qs('#xkeenTopbarChip');
-    if (!root || root.hidden || !dialog || !chip) return;
+    if (!dialog || !chip) return;
     const vw = window.visualViewport?.width || window.innerWidth;
     const vh = window.visualViewport?.height || window.innerHeight;
     const width = Math.min(540, vw-24);
