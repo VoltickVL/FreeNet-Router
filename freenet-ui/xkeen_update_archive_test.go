@@ -47,6 +47,22 @@ func xkeenFixtureTree(t *testing.T, root, version string, candidate bool) {
 	if err:=os.WriteFile(filepath.Join(root,modules,"01_info","01_info_variable.sh"),[]byte(meta),0600);err!=nil{t.Fatal(err)}
 }
 
+func TestXKeenArchiveBoundRejectsOverflowingHeaderSizes(t *testing.T) {
+	for _, tc := range []struct{ size, expanded int64; allowed bool }{
+		{1024, 0, true},
+		{xkeenUpdateMaxExpanded, 0, true},
+		{1, xkeenUpdateMaxExpanded, false},
+		{9223372036854775807, 10, false},
+		{-1, 0, false},
+		{1, -1, false},
+		{1, xkeenUpdateMaxExpanded + 1, false},
+	} {
+		if got := xkeenArchiveSizeAllowed(tc.size, tc.expanded); got != tc.allowed {
+			t.Fatalf("size=%d already=%d allowed=%v want=%v",tc.size,tc.expanded,got,tc.allowed)
+		}
+	}
+}
+
 func TestXKeenArchiveValidatorRejectsUntrustedMemberPathsAndTypes(t *testing.T) {
 	good :=map[string]string{"xkeen":"#!/bin/sh\nexit 0\n","_xkeen/import.sh":"#!/bin/sh\n","_xkeen/01_info/01_info_variable.sh":"xkeen_current_version=\"2.1\"\nxkeen_build=\"Stable\"\n"}
 	for _, tc:=range []struct{name string;badPath string;link string;wrongVersion bool;ok bool}{
