@@ -163,13 +163,26 @@ func runBestServerMediaStages(
 
 const bestServerServiceAllMask uint8 = 15
 
-// Masks describe only the four fixed public service checks above. A negative
-// HTTP response or a bounded target failure is QoE evidence, never evidence
-// that the VPN itself is down. An unfinished/local failure stays unknown.
+// Masks describe only the four fixed public service checks above. A verified
+// failed request is QoE evidence, never evidence that the VPN itself is down.
+// HTTP authentication, anti-bot and rate-limit responses do not prove that
+// the browser-facing service failed. An unfinished/local failure stays unknown.
 type bestServerServiceReachabilityResult struct {
 	OKMask   uint8
 	BadMask  uint8
 	Complete bool
+}
+
+// A HEAD response can be rejected even while the same site works normally in
+// a browser using GET, cookies or a different request budget. Never convert
+// these restriction codes into a negative named-service verdict or AUTO strike.
+func bestServerServiceHTTPRestriction(status string) bool {
+	switch status {
+	case "401", "403", "405", "429":
+		return true
+	default:
+		return false
+	}
 }
 
 func classifyBestServerServiceObservation(output []byte, err, probeErr, parentErr error, started bool) (bool, bool) {
@@ -184,6 +197,9 @@ func classifyBestServerServiceObservation(output []byte, err, probeErr, parentEr
 			return false, false
 		}
 		fields := strings.Fields(string(output))
+		if bestServerServiceHTTPRestriction(fields[0]) {
+			return false, false // NOT a verified negative; do not infer "not working"
+		}
 		ok := bestServerHTTPStatusOK(fields[0])
 		return ok, !ok
 	}
@@ -193,10 +209,9 @@ func classifyBestServerServiceObservation(output []byte, err, probeErr, parentEr
 		case 7, 28, 35, 52, 56:
 			return false, true
 		case 47:
-			// A completed response followed by the existing redirect cap is a
-			// service restriction. Missing/malformed output is still unknown.
-			_, valid := parseAutomationVPNHTTPResponse(string(output))
-			return false, valid
+			// A redirect limit does not prove that a browser cannot complete
+			// the login/challenge redirect chain. It is not a failure strike.
+			return false, false
 		}
 	}
 	return false, false
