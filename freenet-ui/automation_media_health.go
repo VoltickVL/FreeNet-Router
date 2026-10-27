@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"os/exec"
 	"fmt"
 	"math"
 	"strconv"
@@ -74,6 +76,38 @@ func parseAutomationMediaSegment(output string, expectedBytes int64) automationM
 	}
 }
 
+// A curl exit 28 after HTTP 200 and a substantial partial body is direct
+// evidence of a stalled transfer, unlike a 403, DNS error or missing metrics.
+// Do not treat a supervisor cancellation or an unverified HTTP status as a stall.
+func parseAutomationTimedOutMediaSegment(output string, err error, expectedBytes int64) automationMediaSegment {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 28 || expectedBytes <= 0 {
+		return automationMediaSegment{}
+	}
+	fields := strings.Fields(output)
+	if len(fields) != 5 || fields[0] != "200" {
+		return automationMediaSegment{}
+	}
+	received, bytesErr := strconv.ParseFloat(fields[1], 64)
+	pre, preErr := strconv.ParseFloat(fields[2], 64)
+	start, startErr := strconv.ParseFloat(fields[3], 64)
+	total, totalErr := strconv.ParseFloat(fields[4], 64)
+	if bytesErr != nil || preErr != nil || startErr != nil || totalErr != nil ||
+		math.IsNaN(received) || math.IsInf(received, 0) ||
+		math.IsNaN(pre) || math.IsInf(pre, 0) ||
+		math.IsNaN(start) || math.IsInf(start, 0) ||
+		math.IsNaN(total) || math.IsInf(total, 0) ||
+		received < 16*1024 || received >= float64(expectedBytes)*0.99 ||
+		pre < 0 || start < pre || total <= start || total < 2.0 {
+		return automationMediaSegment{}
+	}
+	mbps := received * 8 / (total-start) / 1_000_000
+	if mbps <= 0 || math.IsNaN(mbps) || math.IsInf(mbps, 0) {
+		return automationMediaSegment{}
+	}
+	return automationMediaSegment{Mbps: mbps, TTFB: time.Duration(math.Round((start-pre)*float64(time.Second))), Valid: true, Degraded: true}
+}
+
 type automationMediaSegmentRunner func(context.Context, string, string, int) automationMediaSegment
 
 // This GET is routed only through the isolated SOCKS outbound of the exact
@@ -92,8 +126,11 @@ func runAutomationMediaSegment(ctx context.Context, curlPath, socks string, inde
 		"-o", "/dev/null",
 		"-w", "%{http_code}\t%{size_download}\t%{time_pretransfer}\t%{time_starttransfer}\t%{time_total}",
 		target)
-	if err != nil || ctx.Err() != nil {
+	if ctx.Err() != nil {
 		return automationMediaSegment{}
+	}
+	if err != nil {
+		return parseAutomationTimedOutMediaSegment(string(out), err, automationMediaSegmentBytes)
 	}
 	return parseAutomationMediaSegment(string(out), automationMediaSegmentBytes)
 }
