@@ -1322,7 +1322,14 @@
     hydrateTopbar();
     // A delayed shell or recreated topbar must hydrate independently of clicks.
     const observer = new MutationObserver(() => {
-      if ((!qs('#xrayTopbarChip') || !qs('#xkeenTopbarChip')) && qs('.topbar')) hydrateTopbar();
+      const xray = qs('#xrayTopbarChip');
+      const xkeen = qs('#xkeenTopbarChip');
+      if ((!xray || !xkeen) && qs('.topbar')) hydrateTopbar();
+      else if (xray && xkeen && xkeen.previousElementSibling !== xray) {
+        // Other canonical topbar owners may reorder VPN/DNS after our mount.
+        // Reconcile adjacency idempotently without re-fetching or changing state.
+        mountXKeenTopbarChip();
+      }
     });
     observer.observe(document.body, {childList:true, subtree:true});
   };
