@@ -26,7 +26,7 @@ var automationQualityCandidateProbe = func(a *app, ctx context.Context, candidat
 func validAutomationQualityTrigger(trigger automationQualityTrigger) bool {
 	return validAutomationQualityIdentity(trigger.CurrentIdentity) &&
 		trigger.ServiceBadMask&^bestServerServiceAllMask == 0 &&
-		(trigger.LatencyDegraded || trigger.ServiceBadMask != 0)
+		(trigger.LatencyDegraded || trigger.ServiceBadMask != 0 || trigger.MediaDegraded)
 }
 
 func (a *app) probeAutomationQualityCandidate(ctx context.Context, candidate bestServerInternalCandidate) automationHealthProbe {
@@ -44,6 +44,13 @@ func (a *app) probeAutomationQualityCandidate(ctx context.Context, candidate bes
 		result.ServiceComplete = services.Complete
 		result.ServiceOKMask = services.OKMask
 		result.ServiceBadMask = services.BadMask
+		// Admission verifies the same bounded transfer against the candidate,
+		// not just that Instagram's HEAD endpoint returned an HTTP response.
+		media := probeAutomationMediaSegments(probeCtx, curlPath, socks)
+		if probeCtx.Err() != nil {
+			return bestServerProbeResult{}
+		}
+		result = classifyAutomationMediaQuality(result, media)
 		return bestServerProbeResult{OK: true}
 	})
 	if !probe.OK || ctx.Err() != nil {
@@ -142,8 +149,9 @@ func (guard *automationQualityAdmission) confirm(selected bestServerInternalCand
 	cancelCandidate()
 	if candidateErr != nil || ctx.Err() != nil || candidate.State != automationHealthHealthy ||
 		candidate.QualityDegraded || !candidate.ServiceComplete ||
-		candidate.ServiceOKMask != bestServerServiceAllMask || candidate.ServiceBadMask != 0 {
-		return guard.stop("uncertain", "Выбранный VPN не подтвердил повторную проверку всех сервисов; переключение отменено.")
+		candidate.ServiceOKMask != bestServerServiceAllMask || candidate.ServiceBadMask != 0 ||
+		(guard.trigger.MediaDegraded && (!candidate.MediaComplete || candidate.MediaDegraded)) {
+		return guard.stop("uncertain", "Выбранный VPN не подтвердил сервисы и безопасную передачу видеосегментов; переключение отменено.")
 	}
 	if err := guard.facts(); err != nil {
 		return err
@@ -156,6 +164,9 @@ func (guard *automationQualityAdmission) confirm(selected bestServerInternalCand
 		!automationServiceProbeComplete(current) {
 		return guard.stop("uncertain", "Повторная проверка текущего VPN неоднозначна; переключение отменено.")
 	}
+	if guard.trigger.MediaDegraded && !current.MediaComplete {
+		return guard.stop("uncertain", "Повторная медиапроверка текущего VPN не завершилась; нельзя подтвердить исчезновение или сохранение лагов.")
+	}
 	if current.State == automationHealthHealthy {
 		return guard.stop("same", "Текущий VPN восстановился на повторной проверке; переключение не требуется.")
 	}
@@ -164,7 +175,8 @@ func (guard *automationQualityAdmission) confirm(selected bestServerInternalCand
 	}
 	sameLatency := guard.trigger.LatencyDegraded && current.QualityPoints > 0
 	sameService := guard.trigger.ServiceBadMask != 0 && current.ServiceBadMask&guard.trigger.ServiceBadMask != 0
-	if !sameLatency && !sameService {
+	sameMedia := guard.trigger.MediaDegraded && current.MediaComplete && current.MediaDegraded
+	if !sameLatency && !sameService && !sameMedia {
 		return guard.stop("same", "Исходное ухудшение качества текущего VPN больше не подтверждается; переключение не требуется.")
 	}
 	if err := guard.facts(); err != nil {
