@@ -38,7 +38,7 @@ func TestXKeenUpdaterPlanStopsOnAmbiguousXrayWithoutMutation(t *testing.T) {
 	dir:=t.TempDir()
 	xkeenFixtureTree(t,dir,"2.0",false)
 	binary:=filepath.Join(dir,"xkeen")
-	app:=&app{cfg:config{XKeenPath:binary},sem:make(chan struct{},1)}
+	instance:=&app{cfg:config{XKeenPath:binary},sem:make(chan struct{},1)}
 	oldAsset:=xkeenUpdateGetAsset
 	oldProof:=xkeenUpdateProductionReady
 	defer func(){xkeenUpdateGetAsset=oldAsset;xkeenUpdateProductionReady=oldProof}()
@@ -47,7 +47,7 @@ func TestXKeenUpdaterPlanStopsOnAmbiguousXrayWithoutMutation(t *testing.T) {
 			Digest:strings.Repeat("a",64),Size:129691},nil
 	}
 	xkeenUpdateProductionReady=func(*app)bool{return false}
-	plan,_:=app.xkeenUpdatePrepare(context.Background())
+	plan,_:=instance.xkeenUpdatePrepare(context.Background())
 	if plan.Ready || plan.State!="blocked" || plan.Reason!="xray-production-identity-unverified" ||
 		plan.Mutation!="NONE" || plan.RuntimeChange!="NONE" {
 		t.Fatalf("unknown Xray must block update even with valid release: %+v",plan)
@@ -89,7 +89,7 @@ func TestXKeenScriptTransactionSuccessAndAutomaticRollback(t *testing.T) {
 			before:=xkeenUpdateDiskState{State:"RUNNING",Previous:"2.0",Target:"2.1",Rollback:"PENDING"}
 			if err:=writeXKeenUpdateDiskState(binary,before);err!=nil{t.Fatal(err)}
 			setXKeenUpdateLocalActive(true)
-			result:=app.runXKeenGuardedUpdate(asset,"2.0")
+			result:=instance.runXKeenGuardedUpdate(asset,"2.0")
 			setXKeenUpdateLocalActive(false)
 			if result.State!=tc.wantState||result.Rollback!=tc.wantRollback {
 				t.Fatalf("update state mismatch %+v",result)
