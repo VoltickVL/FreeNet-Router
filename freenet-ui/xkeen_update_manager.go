@@ -143,6 +143,31 @@ func (a *app) xkeenUpdatePrepare(ctx context.Context) (xkeenUpdatePlan, xkeenUpd
 	return p, asset
 }
 
+type xkeenInstalledSnapshot struct {
+	Success bool   `json:"success"`
+	Version string `json:"installed_version,omitempty"`
+	Channel string `json:"installed_channel,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+	Mutation string `json:"mutation"`
+}
+
+func (a *app) handleXKeenInstalled(w http.ResponseWriter, _ *http.Request) {
+	result := xkeenInstalledSnapshot{Mutation:"NONE"}
+	if a == nil {
+		result.Reason = "runtime-unavailable"
+		writeJSON(w,http.StatusServiceUnavailable,result)
+		return
+	}
+	v,ch,err := readXKeenInstalledMetadata(a.cfg.XKeenPath)
+	if err != nil {
+		result.Reason = "installed-version-unverified"
+		writeJSON(w,http.StatusServiceUnavailable,result)
+		return
+	}
+	result.Success,result.Version,result.Channel = true,v,ch
+	writeJSON(w,http.StatusOK,result)
+}
+
 func (a *app) handleXKeenUpdatePlan(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 	defer cancel()
