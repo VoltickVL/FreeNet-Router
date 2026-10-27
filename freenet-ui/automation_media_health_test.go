@@ -225,6 +225,39 @@ func TestAutoMediaIntentBypassesOnlyStaleHealthyDeepScan(t *testing.T){
 	}
 }
 
+func TestAutoMediaCandidateCanBeVerifiedWithoutAllHEADResponses(t *testing.T){
+	raw:=strings.Split(strings.TrimSpace(testSubscriptionPlain),"\n")[0]
+	profile,ok:=parseSafeVLESSProfile(raw)
+	if !ok {t.Fatal("test profile invalid")}
+	c:=bestServerQualityCandidate{
+		ID:profile.ID, Tested:true, Available:true, Reachable:true, Current:false,
+		ApplicationMS:145, HTTPSamples:bestServerQualityHTTPRuns, JitterMS:15,
+		DownloadMbps:45, MediaMbps:38, MediaSamples:bestServerMediaRequiredRuns,
+		MediaStalls:0, MediaGrade:"poor", ServiceOK:1, ServiceTotal:4,
+	}
+	if c.Eligible || !automationMediaMeasuredCandidateEligible(c) {
+		t.Fatal("strict HEAD failed to admit an independently verified stream candidate")
+	}
+	for _,tc:=range []struct{name string;change func(*bestServerQualityCandidate)}{
+		{"not measured",func(x *bestServerQualityCandidate){x.Tested=false}},
+		{"no HTTPS",func(x *bestServerQualityCandidate){x.HTTPSamples=0}},
+		{"low transfer",func(x *bestServerQualityCandidate){x.MediaMbps=3}},
+		{"stalled",func(x *bestServerQualityCandidate){x.MediaStalls=1}},
+		{"high RTT",func(x *bestServerQualityCandidate){x.ApplicationMS=950}},
+		{"high jitter",func(x *bestServerQualityCandidate){x.JitterMS=105}},
+		{"not enough samples",func(x *bestServerQualityCandidate){x.MediaSamples=0}},
+		{"no download",func(x *bestServerQualityCandidate){x.DownloadMbps=0}},
+		{"not reachable",func(x *bestServerQualityCandidate){x.Available=false}},
+	}{
+		t.Run(tc.name,func(t *testing.T){
+			copy:=c;tc.change(&copy)
+			if automationMediaMeasuredCandidateEligible(copy) {
+				t.Fatalf("unverified media alternative became eligible: %+v",copy)
+			}
+		})
+	}
+}
+
 func TestAutoMediaManualHeavyScanDoesNotDisableWatchdog(t *testing.T) {
 	dir:=t.TempDir()
 	config:=filepath.Join(dir,"freenet.conf")
