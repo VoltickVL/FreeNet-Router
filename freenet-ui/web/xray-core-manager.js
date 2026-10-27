@@ -96,6 +96,7 @@
       topbar.insertBefore(chip, actions || null);
     }
     if (serviceState) syncTopbarService(serviceState);
+    mountXKeenTopbarChip();
     return chip;
   }
 
@@ -172,6 +173,7 @@
       hydrateTopbar();
     } else {
       syncTopbarVersion('вход требуется');
+      qs('#xkeenTopbarVersion') && (qs('#xkeenTopbarVersion').textContent='вход требуется');
     }
   }
 
@@ -1028,6 +1030,274 @@
     }
   }
 
+  // XKeen sits next to the Xray version chip, but has a separate
+  // transactional owner: no Xray action or command is reused as an updater.
+  let xkeenPanelOpen = false;
+  let xkeenPanelBusy = false;
+  let xkeenPollTimer = null;
+  let xkeenPlan = null;
+
+  function xkeenManagerRoot() {
+    let root = qs('#xkeenUpdateManager');
+    if (root) return root;
+    root = document.createElement('div');
+    root.id = 'xkeenUpdateManager';
+    root.className = 'xcm-root';
+    root.hidden = true;
+    root.innerHTML = `<div class="xcm-backdrop"></div><section class="xcm-modal" role="dialog" aria-modal="false" aria-labelledby="xkeenUpdateHeading" tabindex="-1">
+      <div class="xcm-head"><div><div class="xcm-kicker">XKeen</div><h3 id="xkeenUpdateHeading">Управление XKeen</h3>
+      <div class="xcm-subtitle">Проверка, резервная копия и безопасное обновление</div></div>
+      <button id="xkeenUpdateClose" class="xcm-close" type="button" aria-label="Закрыть">×</button></div>
+      <div id="xkeenUpdateBody"></div><div id="xkeenUpdateActions" class="xcm-actions"></div>
+    </section>`;
+    document.body.appendChild(root);
+    qs('#xkeenUpdateClose',root).addEventListener('click',closeXKeenManager);
+    return root;
+  }
+
+  function xkeenManagerPosition() {
+    const root = qs('#xkeenUpdateManager');
+    if (!root || root.hidden) return;
+    const dialog = qs('.xcm-modal',root);
+    const chip = qs('#xkeenTopbarChip');
+    if (!dialog || !chip) return;
+    const vw = window.visualViewport?.width || window.innerWidth;
+    const vh = window.visualViewport?.height || window.innerHeight;
+    const width = Math.min(540, vw-24);
+    const rect = chip.getBoundingClientRect();
+    dialog.style.width = width+'px';
+    dialog.style.left = Math.max(12,Math.min(vw-width-12,rect.right-width))+'px';
+    const height = Math.min(dialog.scrollHeight || 560,Math.max(220,vh-24));
+    dialog.style.top = Math.max(12,Math.min(vh-height-12,rect.bottom+8))+'px';
+  }
+
+  function xkeenStopPoll() {
+    if (xkeenPollTimer !== null) clearTimeout(xkeenPollTimer);
+    xkeenPollTimer = null;
+  }
+
+  function closeXKeenManager() {
+    if (xkeenPanelBusy) return;
+    xkeenStopPoll();
+    const root = qs('#xkeenUpdateManager');
+    if (root) {root.hidden = true;root.classList.remove('xcm-open');}
+    qs('#xkeenTopbarChip')?.setAttribute('aria-expanded','false');
+    xkeenPanelOpen = false;
+    xkeenPlan = null;
+  }
+
+  function xkeenSay(message, className) {
+    const target = qs('#xkeenUpdateBody');
+    if (!target) return;
+    const node = document.createElement('p');
+    node.className = className || 'xcm-subtitle';
+    node.textContent = message;
+    target.appendChild(node);
+  }
+
+  function xkeenButtons() {
+    const body = qs('#xkeenUpdateBody',xkeenManagerRoot());
+    const footer = qs('#xkeenUpdateActions',xkeenManagerRoot());
+    clearNode(body);clearNode(footer);
+    return footer;
+  }
+
+  function xkeenReason(code) {
+    const known = {
+      'xray-production-identity-unverified':'Роль работающего Xray не подтверждена. Установка запрещена без аппаратной диагностики.',
+      'freenet-operation-or-recovery-busy':'Другой процесс FreeNet или незавершённое восстановление блокирует установку.',
+      'xkeen-installed-channel-not-stable':'Установлен XKeen Beta или неизвестный канал. Автопереход на Stable запрещён.',
+      'xkeen-snapshot-space-unavailable':'Недостаточно подтверждённого места для резервной копии.',
+      'xkeen-upstream-unverified':'Не удалось проверить официальный релиз XKeen.',
+      'xkeen-no-upgrade-available':'Установленная версия не старее официальной Stable.',
+      'xkeen-installation-unverified':'Файлы существующего XKeen определены неоднозначно.',
+      'xkeen-current-version-unverified':'Версия установленного XKeen недоступна.',
+      'xkeen-prior-operation-not-terminal':'Предыдущее обновление не получило завершённой квитанции.',
+      'plan-expired-or-runtime-unverified':'План или состояние рабочего Xray изменились. Установка не начата.'
+    };
+    return known[code] || 'Проверка безопасности не завершена. Изменение XKeen не выполнено.';
+  }
+
+  async function xkeenReadJSON(path, options) {
+    const controller = new AbortController();
+    const timer = setTimeout(()=>controller.abort(),options?.timeout || 12000);
+    try {
+      const response = await fetch(path,{cache:'no-store',credentials:'same-origin',
+        ...(options?.method ? {method:options.method, headers:{'Content-Type':'application/json'},body:JSON.stringify(options.body)} : {}),
+        signal:controller.signal});
+      let body = null;
+      try {body=await response.json();}catch(_){}
+      if(!body || typeof body !== 'object') throw new Error('Ответ XKeen не подтверждён');
+      return {response,body};
+    } finally {clearTimeout(timer);}
+  }
+
+  async function xkeenRefreshTopbar() {
+    if (!authenticatedTopbar()) return;
+    const chip = qs('#xkeenTopbarChip');
+    if (!chip) return;
+    try {
+      const {response,body} = await xkeenReadJSON('/api/xkeen/installed',{timeout:5500});
+      if (!response.ok || !body.success || !/^\d+(?:\.\d+){1,3}$/.test(body.installed_version)) throw new Error('version');
+      qs('#xkeenTopbarVersion').textContent = 'v'+body.installed_version;
+    } catch(_) {
+      qs('#xkeenTopbarVersion').textContent = 'неизвестно';
+    }
+  }
+
+  function mountXKeenTopbarChip() {
+    const xray = qs('#xrayTopbarChip');
+    if (!xray || !xray.parentNode) return;
+    let chip = qs('#xkeenTopbarChip');
+    if (!chip) {
+      chip = document.createElement('button');
+      chip.id = 'xkeenTopbarChip';
+      chip.type = 'button';
+      chip.className = 'fn-xray-topbar fn-xkeen-topbar';
+      chip.title = 'Проверка и обновление XKeen';
+      chip.setAttribute('aria-haspopup','dialog');
+      chip.setAttribute('aria-controls','xkeenUpdateManager');
+      chip.setAttribute('aria-expanded','false');
+      chip.innerHTML = `<span class="fn-xray-topbar-icon">${topbarIcon()}</span><span class="fn-xray-chip"><small>XKeen</small><strong id="xkeenTopbarVersion">версия…</strong></span>`;
+      chip.addEventListener('click',event=>{event.preventDefault();void openXKeenManager();});
+    }
+    if (chip.previousElementSibling !== xray) xray.parentNode.insertBefore(chip,xray.nextSibling || null);
+  }
+
+  function xkeenReceiptText(s) {
+    if (s.state === 'SUCCESS') return 'Файлы XKeen установлены и проверены. Xray не перезапускался, существующие сетевые настройки сохранены.';
+    if (s.state === 'ROLLED_BACK') return 'Обновление не применено. Предыдущая версия XKeen восстановлена.';
+    if (s.state === 'STOP') return 'Состояние предыдущей операции неопределённо. Новое обновление запрещено.';
+    if (s.state === 'FAILED') return 'Установка не выполнена. Исходный XKeen сохранён.';
+    return 'Операция XKeen: '+String(s.state || 'неизвестно');
+  }
+
+  function xkeenShowReceipt(record) {
+    const footer = xkeenButtons();
+    xkeenSay(xkeenReceiptText(record),'xcm-subtitle');
+    if (record.previous) xkeenSay('Предыдущая версия: '+record.previous);
+    if (record.target) xkeenSay('Целевая версия: '+record.target);
+    xkeenSay('Откат: '+String(record.rollback || 'неизвестно'));
+    if (record.state === 'STOP' && /^\d+(?:\.\d+){1,3}$/.test(record.previous || '')) {
+      addButton(footer,'Восстановить предыдущий XKeen','',()=>{
+        void xkeenRecover(record.previous);
+      });
+    }
+    if (record.state !== 'STOP' && record.state !== 'RUNNING') {
+      addButton(footer,'Проверить снова','',()=>{void xkeenCheckPlan();});
+    }
+    addButton(footer,'Закрыть','',closeXKeenManager);
+    xkeenManagerPosition();
+  }
+
+  async function xkeenRecover(expected) {
+    if (xkeenPanelBusy || !window.confirm('Восстановить предыдущие файлы XKeen из проверенного локального снимка? Работающий Xray не будет перезапущен.')) return;
+    xkeenPanelBusy=true;
+    try {
+      const {body}=await xkeenReadJSON('/api/xkeen/update/recover',{method:'POST',body:{expected_version:expected},timeout:12000});
+      xkeenShowReceipt(body);
+      await xkeenRefreshTopbar();
+    } catch(_) {xkeenButtons();xkeenSay('Восстановление не подтверждено. STOP. Повторное обновление запрещено.');}
+    finally{xkeenPanelBusy=false;}
+  }
+
+  async function xkeenPollReceipt() {
+    xkeenStopPoll();
+    if (!xkeenPanelOpen) return;
+    try {
+      const {body}=await xkeenReadJSON('/api/xkeen/update/state',{timeout:9000});
+      if(body.state === 'RUNNING') {
+        const footer=xkeenButtons();
+        xkeenSay('Проверяем установку и резервную копию… Не закрывайте соединение до квитанции.');
+        addButton(footer,'Закрыть','',closeXKeenManager);
+        xkeenPollTimer=setTimeout(()=>{void xkeenPollReceipt();},1600);
+      } else {
+        xkeenShowReceipt(body);
+        if(body.state === 'SUCCESS') await xkeenRefreshTopbar();
+      }
+    } catch(_) {
+      xkeenButtons();xkeenSay('Квитанция XKeen недоступна. Не запускайте обновление повторно.');
+      const footer=qs('#xkeenUpdateActions');
+      addButton(footer,'Повторить чтение квитанции','',()=>void xkeenPollReceipt());
+      addButton(footer,'Закрыть','',closeXKeenManager);
+    }
+  }
+
+  async function xkeenApplyPlan() {
+    if (xkeenPanelBusy || !xkeenPlan?.ready) return;
+    if (!window.confirm('Обновить файлы XKeen до Stable '+xkeenPlan.target_version+'? FreeNet сохранит исходные файлы, проверит Xray и выполнит откат при ошибке. Xray не перезапускается.')) return;
+    const plan = xkeenPlan;
+    xkeenPanelBusy=true;
+    const footer=xkeenButtons();
+    xkeenSay('Запускаем контролируемое обновление XKeen. После отправки нельзя повторять Apply по тайм-ауту.');
+    addButton(footer,'Закрыть','',closeXKeenManager);
+    try {
+      await xkeenReadJSON('/api/xkeen/update/apply',{method:'POST',
+        body:{installed_version:plan.installed_version,target_version:plan.target_version,expected_sha256:plan.expected_sha256},
+        timeout:9000});
+    } catch(_) {
+      // A lost browser response is UNKNOWN, never an authorization to retry.
+    } finally {
+      xkeenPanelBusy=false;
+      void xkeenPollReceipt();
+    }
+  }
+
+  async function xkeenCheckPlan() {
+    if (!xkeenPanelOpen || xkeenPanelBusy) return;
+    xkeenPlan=null;
+    const footer=xkeenButtons();
+    xkeenSay('Читаем установленный XKeen и официальный Stable. Ничего не устанавливается.');
+    addButton(footer,'Закрыть','',closeXKeenManager);
+    try {
+      const {body}=await xkeenReadJSON('/api/xkeen/update/plan',{timeout:14000});
+      xkeenPlan=body;
+      const actions=xkeenButtons();
+      const safe = v => /^\d+(?:\.\d+){1,3}$/.test(v||'') ? v : 'не подтверждена';
+      xkeenSay('Установлено: '+safe(body.installed_version)+' · канал '+(body.installed_channel === 'stable'?'Stable':body.installed_channel === 'beta'?'Beta':'неизвестен'));
+      xkeenSay('Официальная Stable: '+safe(body.target_version));
+      if(body.ready && body.success && body.expected_sha256?.length === 64 &&
+        body.mutation === 'NONE' && body.runtime_change === 'NONE') {
+        xkeenSay('План подтверждён: предыдущие файлы будут сохранены, работающий Xray проверен.');
+        addButton(actions,'Обновить до '+body.target_version,'primary',()=>void xkeenApplyPlan());
+      } else {
+        xkeenSay(body.state === 'up-to-date' ? 'Последняя Stable уже установлена.' : xkeenReason(body.reason),'xcm-subtitle');
+      }
+      addButton(actions,'Обновить проверку','',()=>void xkeenCheckPlan());
+      addButton(actions,'Закрыть','',closeXKeenManager);
+      xkeenManagerPosition();
+    } catch(_) {
+      const actions=xkeenButtons();
+      xkeenSay('Невозможно достоверно проверить обновление XKeen. Изменений нет.');
+      addButton(actions,'Проверить снова','',()=>void xkeenCheckPlan());
+      addButton(actions,'Закрыть','',closeXKeenManager);
+    }
+  }
+
+  async function openXKeenManager() {
+    if (xkeenPanelOpen) return;
+    closeManager();
+    const root=xkeenManagerRoot();
+    root.hidden=false;root.classList.add('xcm-open');
+    xkeenPanelOpen=true;
+    qs('#xkeenTopbarChip')?.setAttribute('aria-expanded','true');
+    void xkeenRefreshTopbar();
+    xkeenManagerPosition();
+    const footer=xkeenButtons();
+    xkeenSay('Читаем квитанцию предыдущей операции XKeen…');
+    addButton(footer,'Закрыть','',closeXKeenManager);
+    try {
+      const {body}=await xkeenReadJSON('/api/xkeen/update/state',{timeout:9000});
+      if(body.state === 'RUNNING') {void xkeenPollReceipt();return;}
+      if(body.state === 'STOP') {xkeenShowReceipt(body);return;}
+      await xkeenCheckPlan();
+    } catch(_) {
+      const actions=xkeenButtons();
+      xkeenSay('Статус XKeen не подтверждён. Применение запрещено.');
+      addButton(actions,'Закрыть','',closeXKeenManager);
+    }
+  }
+
   window.FreeNetXrayControl = Object.assign(window.FreeNetXrayControl || {}, {
     refresh: fetchServiceSnapshot,
     action: mutateService,
@@ -1052,7 +1322,14 @@
     hydrateTopbar();
     // A delayed shell or recreated topbar must hydrate independently of clicks.
     const observer = new MutationObserver(() => {
-      if (!qs('#xrayTopbarChip') && qs('.topbar')) hydrateTopbar();
+      const xray = qs('#xrayTopbarChip');
+      const xkeen = qs('#xkeenTopbarChip');
+      if ((!xray || !xkeen) && qs('.topbar')) hydrateTopbar();
+      else if (xray && xkeen && xkeen.previousElementSibling !== xray) {
+        // Other canonical topbar owners may reorder VPN/DNS after our mount.
+        // Reconcile adjacency idempotently without re-fetching or changing state.
+        mountXKeenTopbarChip();
+      }
     });
     observer.observe(document.body, {childList:true, subtree:true});
   };
@@ -1062,14 +1339,22 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bootTopbar, {once:true});
   else bootTopbar();
   window.addEventListener('hashchange', hydrateTopbar);
-  window.addEventListener('resize', positionManager);
-  window.visualViewport?.addEventListener('resize', positionManager);
+  window.addEventListener('resize', () => {positionManager();xkeenManagerPosition();});
+  window.visualViewport?.addEventListener('resize', () => {positionManager();xkeenManagerPosition();});
   document.addEventListener('click', event => {
     const root = qs('#xrayCoreManager');
     if (!root || root.hidden || applying) return;
     if (event.target.closest?.('#xrayTopbarChip') || event.target.closest?.('#xrayCoreManager .xcm-modal')) return;
     closeManager();
   }, true);
+  document.addEventListener('click', event => {
+    if (!xkeenPanelOpen || xkeenPanelBusy) return;
+    if(event.target.closest?.('#xkeenTopbarChip') || event.target.closest?.('#xkeenUpdateManager .xcm-modal')) return;
+    closeXKeenManager();
+  },true);
+  document.addEventListener('keydown', event => {
+    if(event.key === 'Escape' && xkeenPanelOpen && !xkeenPanelBusy) {event.preventDefault();closeXKeenManager();}
+  });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || qs('#xrayCoreManager')?.hidden || applying) return;
     event.preventDefault();
