@@ -129,7 +129,7 @@ func TestXrayProcessInventoryReadOnlyReasonsStayFiniteAndDoNotWeakenAdmission(t 
 			}
 			public, err := json.Marshal(got)
 			if err != nil { t.Fatal(err) }
-			for _, forbidden := range []string{"101", conf, "XRAY_LOCATION_CONFDIR=", "expected-binary", "other-inode"} {
+			for _, forbidden := range []string{`"pid":`, conf, "XRAY_LOCATION_CONFDIR=", "/opt/wrong", "/opt/other", "other-inode"} {
 				if strings.Contains(string(public), forbidden) {
 					t.Fatalf("private process identity leaked into inventory response: %s", public)
 				}
