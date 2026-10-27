@@ -251,9 +251,9 @@ const server = http.createServer((req,res)=>{
     await page.waitForFunction(()=>document.querySelector('#overviewApprovedTop')?.dataset.vpnOrder==='xray-vpn-dns-freenet');
     const topbarOrder = await page.evaluate(() => {
       const summary=document.querySelector('#overviewApprovedTop');
-      return Array.from(summary.children).map(node => node.matches('.fn-xray-topbar')?'xray':node.id==='fnVpnPickerV2Host'?'vpn':node.id==='topFreenetUpdate'?'freenet':/DNS/i.test(node.textContent||'')?'dns':'other').filter(x=>x!=='other');
+      return Array.from(summary.children).map(node => node.id==='xkeenTopbarChip'?'xkeen':node.matches('.fn-xray-topbar')?'xray':node.id==='fnVpnPickerV2Host'?'vpn':node.id==='topFreenetUpdate'?'freenet':/DNS/i.test(node.textContent||'')?'dns':'other').filter(x=>x!=='other');
     });
-    assert.deepEqual(topbarOrder,['xray','vpn','dns','freenet'],'topbar order must be Xray -> VPN -> DNS -> FreeNet');
+    assert.deepEqual(topbarOrder,['xray','xkeen','vpn','dns','freenet'],'topbar order must be Xray -> XKeen -> VPN -> DNS -> FreeNet');
 
     // UI-only acceptance: measure computed chrome geometry, not media-query intent.
     await page.waitForFunction(() => !!document.querySelector('#topFreenetUpdate .fn-version-copy small'));
@@ -261,7 +261,7 @@ const server = http.createServer((req,res)=>{
       await page.setViewportSize({width,height:900});
       const chrome = await page.evaluate(() => {
         const summary = document.querySelector('#overviewApprovedTop');
-        const tiles = [...summary.children].slice(0,4).map(node => {
+        const tiles = [...summary.children].slice(0,5).map(node => {
           const r = node.getBoundingClientRect();
           return {x:Math.round(r.x),y:Math.round(r.y),width:Math.round(r.width),height:Math.round(r.height),visible:r.width>30&&r.height>30};
         });
@@ -278,7 +278,7 @@ const server = http.createServer((req,res)=>{
         };
       });
       console.log('CHROME_VISUAL',JSON.stringify({width,...chrome}));
-      assert.equal(chrome.tiles.length,4,'four canonical controls are required');
+      assert.equal(chrome.tiles.length,5,'XKeen must be a fifth canonical control adjacent to Xray');
       assert.equal(chrome.tiles.every(tile=>tile.visible),true,'missing chrome tile at '+width+': '+JSON.stringify(chrome));
       assert.equal(chrome.freenetLabel,'FreeNet','FreeNet label missing at '+width);
       assert.equal(chrome.freenetLabelVisible,true,'FreeNet label hidden at '+width);
@@ -286,9 +286,10 @@ const server = http.createServer((req,res)=>{
       assert.ok(chrome.xrayTextWidth>20,'Xray value collapsed at '+width);
       assert.ok(chrome.scroll<=chrome.viewport+1,'horizontal page overflow at '+width+': '+JSON.stringify(chrome));
       if(width<=980){
-        assert.ok(Math.abs(chrome.tiles[0].y-chrome.tiles[1].y)<=2,'first chrome row unaligned at '+width);
-        assert.ok(Math.abs(chrome.tiles[2].y-chrome.tiles[3].y)<=2,'second chrome row unaligned at '+width);
-        assert.ok(chrome.tiles[2].y>chrome.tiles[0].y,'mobile chrome is not 2x2 at '+width);
+        assert.ok(Math.abs(chrome.tiles[0].y-chrome.tiles[1].y)<=2,'Xray and XKeen must share first mobile row at '+width);
+        assert.ok(Math.abs(chrome.tiles[2].y-chrome.tiles[3].y)<=2,'VPN/DNS must share second mobile row at '+width);
+        assert.ok(chrome.tiles[2].y>chrome.tiles[0].y,'mobile chrome second row absent at '+width);
+        assert.ok(chrome.tiles[4].y>chrome.tiles[2].y,'FreeNet should fill third mobile row at '+width);
       }else{
         assert.ok(chrome.tiles.every(tile=>Math.abs(tile.y-chrome.tiles[0].y)<=2),'desktop chrome is not one row at '+width);
       }
