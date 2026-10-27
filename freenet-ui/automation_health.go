@@ -528,16 +528,21 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось подтвердить профиль текущего VPN для проверки качества."}
 	}
 	services := probeBestServerServiceReachabilityDetailed(ctx, curlPath, socks)
-	if ctx.Err() != nil || !services.Complete {
-		return automationHealthProbe{State: automationHealthUncertain, Reason: "Сервисная проверка VPN завершена не полностью; AUTO VPN сохраняет текущее подключение."}
+	if ctx.Err() != nil {
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Сервисная проверка VPN прервана; текущее подключение сохраняется."}
 	}
+	// HTTP authentication/anti-bot restrictions are not video failures and
+	// must not block an independent successful data transfer measurement.
 	finalEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	finalFilter, filterErr := os.ReadFile(a.cfg.FilterPath)
 	if ctx.Err() != nil || filterErr != nil || finalEndpoint == "" ||
 		bestServerCurrentQualityIdentityHash(finalEndpoint, string(finalFilter)) != currentIdentity {
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Текущий VPN изменился во время проверки; AUTO VPN ожидает новое измерение."}
 	}
-	probe := classifyAutomationReachableQuality(applicationMS, bits.OnesCount8(services.OKMask), len(bestServerMediaServiceURLs))
+	// Count only actually verified service responses. Unknown HTTP statuses
+	// are neither GOOD nor BAD; they cannot fabricate a false degradation.
+	knownServices := bits.OnesCount8(services.OKMask | services.BadMask)
+	probe := classifyAutomationReachableQuality(applicationMS, bits.OnesCount8(services.OKMask), knownServices)
 	probe.CurrentIdentity = currentIdentity
 	probe.ServiceOKMask = services.OKMask
 	probe.ServiceBadMask = services.BadMask
@@ -556,7 +561,11 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 		bestServerCurrentQualityIdentityHash(finalEndpoint, string(finalFilter)) != currentIdentity {
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Профиль VPN изменился при проверке медиапотока; результат отброшен."}
 	}
-	return classifyAutomationMediaQuality(probe, media)
+	probe = classifyAutomationMediaQuality(probe, media)
+	if !services.Complete && probe.State == automationHealthHealthy {
+		probe.Reason = "VPN отвечает; проверка передачи сегментов выполнена, но часть сервисных HTTP-проверок не даёт достоверного ответа. Автоматическая смена без подтверждённой деградации не требуется."
+	}
+	return probe
 }
 
 func automationCurrentCountry(a *app) string {
