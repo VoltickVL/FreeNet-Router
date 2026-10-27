@@ -340,7 +340,7 @@ body.fn-settings-accepted [data-page-view="settings"] .fn3-card{border-color:var
       }
       html body .topbar.overview-approved .top-left{flex:0 0 auto!important;min-width:0!important}
       html body .topbar.overview-approved #overviewApprovedTop{
-        display:grid!important;grid-template-columns:repeat(4,minmax(0,1fr))!important;
+        display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;
         align-items:stretch!important;gap:var(--fn-chrome-gap)!important;
         flex:1 1 748px!important;width:min(748px,100%)!important;max-width:748px!important;
         min-width:0!important;margin-left:auto!important;
