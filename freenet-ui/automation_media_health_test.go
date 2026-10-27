@@ -112,20 +112,17 @@ func TestAutoMediaHysteresisAndIdentity(t *testing.T) {
 		for k,v:=range updates{state[k]=v}
 		return trigger,due
 	}
-	for i:=0;i<4;i++ {
-		at:=now.Add(time.Duration(i)*30*time.Second)
-		tr,due:=step(at,bad)
-		if due || tr.MediaDegraded {t.Fatalf("early media optimization on sample %d",i)}
-	}
-	tr,due:=step(now.Add(2*time.Minute),bad)
+	tr,due:=step(now,bad)
+	if due || tr.MediaDegraded {t.Fatal("single media observation triggered expensive scan")}
+	tr,due=step(now.Add(30*time.Second),bad)
 	if !due || !tr.MediaDegraded || tr.LatencyDegraded || tr.ServiceBadMask!=0 || tr.CurrentIdentity!=identity{
 		t.Fatalf("persistent media trigger lost: %+v due=%v",tr,due)
 	}
-	if state["QUALITY_MEDIA_COUNT"]!="0" || state["QUALITY_OPTIMIZATION_LAST"]!=now.Add(2*time.Minute).Format(time.RFC3339){
+	if state["QUALITY_MEDIA_COUNT"]!="0" || state["QUALITY_OPTIMIZATION_LAST"]!=now.Add(30*time.Second).Format(time.RFC3339){
 		t.Fatalf("shared optimization reservation missing: %v",state)
 	}
-	for i:=1;i<9;i++{if _,due:=step(now.Add(2*time.Minute+time.Duration(i)*time.Minute),bad);due{
-		t.Fatal("media bypassed one-hour expensive-scan cooldown")
+	for i:=1;i<9;i++{if _,due:=step(now.Add(30*time.Second+time.Duration(i)*time.Minute),bad);due{
+		t.Fatal("media bypassed bounded retry cooldown")
 	}}
 	state=map[string]string{}
 	step(now,bad)
@@ -155,7 +152,7 @@ func TestAutoMediaRejectsReplayCorruptCooldownAndIncompleteServices(t *testing.T
 	}{
 		t.Run(tc.name,func(t *testing.T){
 			state:=map[string]string{
-				"QUALITY_MEDIA_IDENTITY":id,"QUALITY_MEDIA_COUNT":"3",
+				"QUALITY_MEDIA_IDENTITY":id,"QUALITY_MEDIA_COUNT":"1",
 				"QUALITY_MEDIA_SINCE":now.Add(-2*time.Minute).Format(time.RFC3339Nano),
 				"QUALITY_MEDIA_LAST":now.Add(-time.Minute).Format(time.RFC3339Nano),
 			}
@@ -174,17 +171,29 @@ func TestAutoMediaRejectsReplayCorruptCooldownAndIncompleteServices(t *testing.T
 			t.Fatal("duplicate probe timestamp authorized scan")
 		}
 	}
-	incomplete:=bad;incomplete.ServiceComplete=false
-	for i:=1;i<9;i++{
-		if _,_,due=automationReachableQualityOptimizationPlan(state,now.Add(time.Duration(i)*time.Minute),incomplete);due{
-			t.Fatal("incomplete service evidence authorized media quality scan")
+	// A restricted HEAD response is UNKNOWN, not a reason to ignore actual
+	// downloads. Confirmed media evidence must remain independent.
+	headRestricted:=bad
+	headRestricted.ServiceComplete=false
+	headRestricted.ServiceOKMask=0
+	headRestricted.ServiceBadMask=0
+	changes,tr,mediaDue:=automationReachableQualityOptimizationPlan(state,now.Add(time.Minute),headRestricted)
+	if !mediaDue || !tr.MediaDegraded || tr.ServiceBadMask!=0 {
+		t.Fatalf("false HEAD restriction blocked confirmed media damage: %+v %+v %t",changes,tr,mediaDue)
+	}
+	// Missing media evidence is different: no automatic candidate scan.
+	noMedia:=bad; noMedia.MediaComplete=false
+	state=map[string]string{}
+	for i:=0;i<5;i++{
+		if _,_,due=automationReachableQualityOptimizationPlan(state,now.Add(time.Duration(i)*time.Minute),noMedia);due{
+			t.Fatal("incomplete media observations authorized an automatic scan")
 		}
 	}
 }
 
 func TestAutoMediaIntentBypassesOnlyStaleHealthyDeepScan(t *testing.T){
-	oldRefresh,oldCurrent,oldForeign:=automationBestCurrentRefresh,automationBestCurrentQuality,automationBestForeignScan
-	t.Cleanup(func(){automationBestCurrentRefresh,automationBestCurrentQuality,automationBestForeignScan=oldRefresh,oldCurrent,oldForeign})
+	oldRefresh,oldCurrent,oldForeign:=automationBestCurrentRefresh,automationBestCurrentQuality,automationMediaForeignScan
+	t.Cleanup(func(){automationBestCurrentRefresh,automationBestCurrentQuality,automationMediaForeignScan=oldRefresh,oldCurrent,oldForeign})
 	a:=automationQoECooldownFixture(t,time.Hour,"auto")
 	sentinel:=errors.New("reached bounded comparison")
 	currentCalls,foreignCalls:=0,0
@@ -200,7 +209,7 @@ func TestAutoMediaIntentBypassesOnlyStaleHealthyDeepScan(t *testing.T){
 			CurrentIdentity:bestServerCurrentQualityIdentityHash(c.Endpoint,"de Fixture"),
 		},nil
 	}
-	automationBestForeignScan=func(_ *app,_ context.Context,settings automationSettings,_ string)(bestServerQualityResponse,error){
+	automationMediaForeignScan=func(_ *app,_ context.Context,settings automationSettings,_ string)(bestServerQualityResponse,error){
 		foreignCalls++
 		if settings.Policy!=automationPolicyBetter || settings.AutoEndpointUpdate{t.Fatal("media-only triggered endpoint refresh")}
 		return bestServerQualityResponse{},sentinel
