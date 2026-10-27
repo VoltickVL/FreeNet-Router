@@ -18,6 +18,7 @@ type automationQualityTrigger struct {
 	CurrentIdentity string
 	ServiceBadMask  uint8
 	LatencyDegraded bool
+	MediaDegraded   bool
 }
 
 func validAutomationQualityIdentity(identity string) bool {
@@ -124,13 +125,18 @@ func automationReachableQualityOptimizationPlan(state map[string]string, now tim
 	for key, value := range serviceUpdates {
 		updates[key] = value
 	}
-	if !latencyDue && serviceMask == 0 {
+	mediaUpdates, mediaDue := automationMediaQualityOptimizationPlan(state, now, probe)
+	for key, value := range mediaUpdates {
+		updates[key] = value
+	}
+	if !latencyDue && serviceMask == 0 && !mediaDue {
 		return updates, trigger, false
 	}
 	// Both signals share one persisted attempt and one cooldown reservation.
 	// Clear both pending sequences so a second signal cannot launch a second
 	// comparison immediately after the first one completes.
 	clearAutomationServiceEvidence(updates)
+	clearAutomationMediaEvidence(updates)
 	updates["QUALITY_DEGRADED_COUNT"] = "0"
 	updates["QUALITY_DEGRADED_SAMPLES"] = "0"
 	updates["QUALITY_DEGRADED_SINCE"] = ""
@@ -139,6 +145,7 @@ func automationReachableQualityOptimizationPlan(state map[string]string, now tim
 		CurrentIdentity: probe.CurrentIdentity,
 		ServiceBadMask:  serviceMask,
 		LatencyDegraded: latencyDue,
+		MediaDegraded: mediaDue,
 	}
 	return updates, trigger, true
 }
