@@ -208,6 +208,12 @@ func TestAutoMediaIntentBypassesOnlyStaleHealthyDeepScan(t *testing.T){
 	automationBestCurrentQuality=func(*app,context.Context)(bestServerQualityResponse,error){
 		currentCalls++
 		c:=automationMeasuredCurrentFixture()
+		// In real lag episodes a deep 40 MiB test or HEAD can be incomplete;
+		// a fully identified, HTTPS-reachable current route still needs a
+		// media-only comparison instead of a generic "uncertain" dead end.
+		c.Eligible=false
+		c.MediaSamples=0
+		c.ServiceTotal=0
 		return bestServerQualityResponse{
 			Candidates:[]bestServerQualityCandidate{c},
 			CurrentIdentity:bestServerCurrentQualityIdentityHash(c.Endpoint,"de Fixture"),
