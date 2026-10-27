@@ -158,3 +158,69 @@ func classifyAutomationMediaQuality(base automationHealthProbe, media automation
 	base.Reason = fmt.Sprintf("VPN отвечает, но два контрольных видеосегмента передаются медленно или с высоким TTFB (минимум %.1f Мбит/с). AUTO VPN требует повторных наблюдений и проверенной замены; воспроизведение Instagram напрямую не измерялось.", media.MinMbps)
 	return base
 }
+
+
+const (
+	automationMediaMinObservations = 4
+	automationMediaMinimumSpan = 2 * time.Minute
+)
+
+func clearAutomationMediaEvidence(updates map[string]string) {
+	updates["QUALITY_MEDIA_IDENTITY"] = ""
+	updates["QUALITY_MEDIA_COUNT"] = "0"
+	updates["QUALITY_MEDIA_SINCE"] = ""
+	updates["QUALITY_MEDIA_LAST"] = ""
+}
+
+// The media trigger is a persisted, identity-bound, four-observation signal.
+// One short transfer, a 403, a failed curl, or an unrelated service mismatch
+// must not select a new VPN. Unknown samples preserve evidence but cannot
+// contribute to its count. A verified good sample clears the old sequence.
+func automationMediaQualityOptimizationPlan(state map[string]string, now time.Time, probe automationHealthProbe) (map[string]string, bool) {
+	updates := map[string]string{}
+	if probe.MediaComplete && !probe.MediaDegraded {
+		clearAutomationMediaEvidence(updates)
+		return updates, false
+	}
+	if !probe.MediaComplete || !probe.MediaDegraded ||
+		probe.State != automationHealthUncertain || !probe.QualityDegraded ||
+		!automationServiceProbeComplete(probe) || now.IsZero() {
+		return updates, false
+	}
+	now = now.UTC()
+	count, countErr := strconv.Atoi(strings.TrimSpace(state["QUALITY_MEDIA_COUNT"]))
+	since, sinceErr := time.Parse(time.RFC3339Nano, state["QUALITY_MEDIA_SINCE"])
+	last, lastErr := time.Parse(time.RFC3339Nano, state["QUALITY_MEDIA_LAST"])
+	valid := state["QUALITY_MEDIA_IDENTITY"] == probe.CurrentIdentity &&
+		countErr == nil && count > 0 && count <= automationMediaMinObservations &&
+		sinceErr == nil && lastErr == nil && !last.Before(since) &&
+		!now.Before(since) && now.Sub(since) <= automationQualityStrikeWindow
+	if valid && !now.After(last) {
+		return updates, false // replay, stale probe, and future timestamps
+	}
+	if !valid {
+		count = 0
+		since = now
+	}
+	count++
+	if count > automationMediaMinObservations {
+		count = automationMediaMinObservations
+	}
+	updates["QUALITY_MEDIA_IDENTITY"] = probe.CurrentIdentity
+	updates["QUALITY_MEDIA_COUNT"] = strconv.Itoa(count)
+	updates["QUALITY_MEDIA_SINCE"] = since.Format(time.RFC3339Nano)
+	updates["QUALITY_MEDIA_LAST"] = now.Format(time.RFC3339Nano)
+
+	if raw := strings.TrimSpace(state["QUALITY_OPTIMIZATION_LAST"]); raw != "" {
+		previous, err := time.Parse(time.RFC3339, raw)
+		if err != nil || now.Before(previous.Add(automationQualityOptimizationCooldown)) {
+			return updates, false
+		}
+	}
+	if count < automationMediaMinObservations || now.Sub(since) < automationMediaMinimumSpan {
+		return updates, false
+	}
+	clearAutomationMediaEvidence(updates)
+	updates["QUALITY_OPTIMIZATION_LAST"] = now.Format(time.RFC3339)
+	return updates, true
+}
