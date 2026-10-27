@@ -215,6 +215,7 @@ func TestAutoMediaIntentBypassesOnlyStaleHealthyDeepScan(t *testing.T){
 		c.MediaSamples=0
 		c.ServiceTotal=0
 		return bestServerQualityResponse{
+			CurrentEndpoint:c.Endpoint,
 			Candidates:[]bestServerQualityCandidate{c},
 			CurrentIdentity:bestServerCurrentQualityIdentityHash(c.Endpoint,"de Fixture"),
 		},nil
