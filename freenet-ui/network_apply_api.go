@@ -601,7 +601,15 @@ func (a *app) executeProviderProfileApplyWithAdmission(req networkApplyRequest, 
 	case a.sem <- struct{}{}:
 		defer func() { <-a.sem }()
 	default:
-		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, Error: "another FreeNet operation is already running"}
+		// Writer admission failed before ANY plan, quiesce, config write or
+		// restart. In particular a concurrent FreeNet self-update is not a
+		// provider rollback failure. A missing RollbackState used to be mapped
+		// by AUTO to UNKNOWN and permanently latched MUTATION_BLOCKED=yes.
+		return http.StatusConflict, networkApplyResponse{
+			Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+			RollbackState: "NOT_APPLIED",
+			Error: "another FreeNet operation is already running",
+		}
 	}
 
 	// AUTO remains fenced after UNKNOWN. Explicit manual selection may start
