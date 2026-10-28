@@ -90,3 +90,23 @@ func TestAutoVPNDeadLockDoesNotRequireKillingCurrentXray(t *testing.T) {
 		t.Fatal("dead scan owner prevented a new quality comparison")
 	}
 }
+
+func TestAutoVPNServiceDiagnosticsRemainSoftNotFalseAntiBotFailures(t *testing.T) {
+	media := bestServerMediaQualityResult{OK: true, Grade: "good", Samples: automationMediaSegmentCount, MedianMbps: 18}
+	service := bestServerServiceReachabilityResult{OKMask: 0b0011, BadMask: 0b0100}
+	applyAutoMediaServiceDiagnostics(&media, service, bestServerChatGPTHTTPSRestricted)
+	if media.ServiceOK != 2 || media.ServiceTotal != 3 || media.Penalty != 250 ||
+		media.ChatGPTHTTPSStatus != bestServerChatGPTHTTPSRestricted {
+		t.Fatalf("soft service status incorrectly classified: %+v", media)
+	}
+	// Service diagnostics never invent a stalled video segment or turn
+	// a restricted ChatGPT HEAD response into a VPN outage.
+	if !media.OK || media.Grade != "good" || media.Stalls != 0 {
+		t.Fatalf("HTTP restrictions changed media acceptance: %+v", media)
+	}
+	unknown := bestServerMediaQualityResult{OK: true, Grade: "good"}
+	applyAutoMediaServiceDiagnostics(&unknown, bestServerServiceReachabilityResult{}, bestServerChatGPTHTTPSUnknown)
+	if unknown.Penalty != 0 || unknown.ServiceTotal != 0 || unknown.ChatGPTHTTPSStatus != bestServerChatGPTHTTPSUnknown {
+		t.Fatalf("unknown service was turned into a real error: %+v", unknown)
+	}
+}
