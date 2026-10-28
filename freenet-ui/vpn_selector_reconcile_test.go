@@ -32,6 +32,8 @@ func TestVPNSelectorReconcileContract(t *testing.T) {
 		"/api/network-profile/apply",
 		"method: 'POST'",
 		"setTimeout(",
+		"reconcilePendingManualSwitch",
+		"status.endpoint === expectedEndpoint",
 	} {
 		if strings.Contains(ux, forbidden) {
 			t.Fatalf("VPN selector reconcile must not retry or time-hide state: found %q", forbidden)
@@ -63,4 +65,16 @@ func TestCanonicalIndexEmbedsVPNSelectorReconcile(t *testing.T) {
 	if strings.Contains(body, `/vpn-selector-reconcile.js?v=`) {
 		t.Fatal("canonical reconcile layer must not depend on a separately cached asset request")
 	}
-}
+}	for _, required := []string{
+		"freenet:manual-vpn-verified",
+		"finishVerifiedManualSwitch",
+		"proof.profile_id",
+		"proof.endpoint",
+		"closeProfileMenu",
+		"previousUpdateStatusViews.apply",
+	} {
+		if !strings.Contains(ux, required) {
+			t.Fatalf("VPN selector reconcile contract missing %q", required)
+		}
+	}
+
