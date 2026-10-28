@@ -665,7 +665,7 @@ async function capture(label){
   try{
     await page.locator(C).click();
     await until(()=>['success','error'].includes(document.querySelector('#fnVpnPickerV2Footer').dataset.state),'manual reconciliation terminal');
-    assert.equal(await page.locator(F).getAttribute('data-state'),'success','exact manual target must reconcile after the 240s boundary');
+    assert.equal(await page.locator(F).getAttribute('data-state'),'error','an ambiguous POST without complete terminal apply receipt must not be promoted to success');
     assert.deepEqual(manualReconcile.states,['running','success'],'provider reconciliation must retain its 360s budget');
     assert.ok(manualReconcile.completedAfterMS>240000&&manualReconcile.completedAfterMS<360000,'fixture terminal receipt must arrive after 240s but before 360s');
     assert.equal(manualReconcile.polls,2);
