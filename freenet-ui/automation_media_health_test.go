@@ -61,39 +61,92 @@ func TestAutoMediaStrictHTTPAndCompletedTransfer(t *testing.T) {
 }
 
 func TestAutoMediaPairedSegmentsRequireTwoValidConsistentSamples(t *testing.T) {
-	good, bad:=autoMediaSample(30,100*time.Millisecond),autoMediaSample(2,time.Second)
-	for _,tc:=range []struct{
+	good, bad := autoMediaSample(30, 100*time.Millisecond), autoMediaSample(2, time.Second)
+	sustainedGood := autoMediaSample(18, 150*time.Millisecond)
+	sustainedBad := autoMediaSample(3, time.Second)
+	for _, tc := range []struct {
 		name string
 		samples []automationMediaSegment
-		complete,degraded bool
-		calls int
+		confirmation automationMediaSegment
+		complete, degraded bool
+		screenCalls, confirmationCalls int
+		expectedMbps float64
 	}{
-		{"two fast",[]automationMediaSegment{good,good},true,false,2},
-		{"two stalled",[]automationMediaSegment{bad,bad},true,true,2},
-		{"one dip",[]automationMediaSegment{bad,good},false,false,2},
-		{"second dip",[]automationMediaSegment{good,bad},false,false,2},
-		{"first unknown",[]automationMediaSegment{{},bad},false,false,1},
-		{"second unknown",[]automationMediaSegment{bad,{}},false,false,2},
-	}{
-		t.Run(tc.name,func(t *testing.T){
-			calls:=0
-			runner:=func(_ context.Context,curl,socks string,index int) automationMediaSegment {
-				if curl!="curl" || socks!="127.0.0.1:42391" || index!=calls {
-					t.Fatalf("media test lost exact isolated SOCKS source: %s %s %d",curl,socks,index)
+		{"two fast cost only 512 KiB", []automationMediaSegment{good, good}, sustainedGood, true, false, 2, 0, 30},
+		{"two slow with verified 1 MiB stall", []automationMediaSegment{bad, bad}, sustainedBad, true, true, 2, 1, 3},
+		{"two slow because of TCP warmup", []automationMediaSegment{bad, bad}, sustainedGood, true, false, 2, 1, 18},
+		{"mixed one dip followed by fast confirmation", []automationMediaSegment{bad, good}, sustainedGood, false, false, 2, 1, 0},
+		{"mixed second dip followed by fast confirmation", []automationMediaSegment{good, bad}, sustainedGood, false, false, 2, 1, 0},
+		{"one dip and sustained slow confirms degradation", []automationMediaSegment{bad, good}, sustainedBad, true, true, 2, 1, 3},
+		{"first unknown has no expensive confirmation", []automationMediaSegment{{}, bad}, sustainedBad, false, false, 1, 0, 0},
+		{"second unknown has no expensive confirmation", []automationMediaSegment{bad, {}}, sustainedBad, false, false, 2, 0, 0},
+		{"confirmation unknown stays UNKNOWN", []automationMediaSegment{bad, bad}, automationMediaSegment{}, false, false, 2, 1, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			screenCalls, confirmationCalls := 0, 0
+			screen := func(_ context.Context, curl, socks string, index int) automationMediaSegment {
+				if curl != "curl" || socks != "127.0.0.1:42391" || index != screenCalls {
+					t.Fatalf("screen source/index changed: %s %s %d", curl, socks, index)
 				}
-				calls++
+				screenCalls++
 				return tc.samples[index]
 			}
-			got:=probeAutomationMediaSegmentsWith(context.Background(),"curl","127.0.0.1:42391",runner)
-			if got.Complete!=tc.complete || got.Degraded!=tc.degraded || calls!=tc.calls {
-				t.Fatalf("got=%+v calls=%d expected complete=%v bad=%v calls=%d",got,calls,tc.complete,tc.degraded,tc.calls)
+			confirm := func(_ context.Context, curl, socks string, index int) automationMediaSegment {
+				if curl != "curl" || socks != "127.0.0.1:42391" || index != automationMediaSegmentCount {
+					t.Fatalf("confirmation did not use the same measured VPN: %s %s %d",curl,socks,index)
+				}
+				confirmationCalls++
+				return tc.confirmation
+			}
+			got := probeAutomationMediaSegmentsWith(context.Background(), "curl", "127.0.0.1:42391", screen, confirm)
+			if got.Complete != tc.complete || got.Degraded != tc.degraded ||
+				screenCalls != tc.screenCalls || confirmationCalls != tc.confirmationCalls {
+				t.Fatalf("got=%+v screen=%d confirm=%d; wanted complete=%v degraded=%v screen=%d confirm=%d",
+					got, screenCalls, confirmationCalls, tc.complete, tc.degraded, tc.screenCalls, tc.confirmationCalls)
+			}
+			if got.Complete && (got.Samples != automationMediaSegmentCount || got.MinMbps != tc.expectedMbps) {
+				t.Fatalf("confirmed QoE must use sustained throughput instead of 256 KiB cold start: %+v", got)
 			}
 		})
 	}
-	ctx,cancel:=context.WithCancel(context.Background());cancel()
-	calls:=0
-	got:=probeAutomationMediaSegmentsWith(ctx,"curl","127.0.0.1:42391",func(context.Context,string,string,int)automationMediaSegment{calls++;return good})
-	if got.Complete || calls!=0 {t.Fatalf("cancelled media runner gave evidence: %+v calls=%d",got,calls)}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	calls := 0
+	got := probeAutomationMediaSegmentsWith(ctx,"curl","127.0.0.1:42391",
+		func(context.Context,string,string,int)automationMediaSegment {calls++;return good},
+		func(context.Context,string,string,int)automationMediaSegment {calls++;return sustainedGood})
+	if got.Complete || calls != 0 {t.Fatalf("cancelled media runner gave evidence: %+v calls=%d",got,calls)}
+
+	t.Run("cancel during large transfer is UNKNOWN", func(t *testing.T){
+		ctx,cancel:=context.WithCancel(context.Background())
+		screen:=func(context.Context,string,string,int)automationMediaSegment {return bad}
+		confirm:=func(context.Context,string,string,int)automationMediaSegment {cancel();return sustainedGood}
+		got:=probeAutomationMediaSegmentsWith(ctx,"curl","127.0.0.1:42391",screen,confirm)
+		if got.Complete || got.Degraded {t.Fatalf("parent cancellation admitted candidate: %+v",got)}
+	})
+}
+
+func TestAutoMediaLargerBodyParseRetainsExactHTTP200AndByteRequirement(t *testing.T) {
+	const bytes = automationMediaConfirmationBytes
+	valid := fmt.Sprintf("200 %d 0.120 0.190 0.650", bytes)
+	candidate := parseAutomationMediaSegment(valid, bytes)
+	if !candidate.Valid || candidate.Degraded || candidate.Mbps < automationMediaSlowMbps {
+		t.Fatalf("a sustained 1 MiB transfer was rejected: %+v", candidate)
+	}
+	for _, output := range []string{
+		fmt.Sprintf("200 %d 0.120 0.190 0.650", automationMediaSegmentBytes),
+		fmt.Sprintf("206 %d 0.120 0.190 0.650", bytes),
+		fmt.Sprintf("200 %d 0.120 0.190 0.650", bytes/2),
+		"403 0 0.120 0.190 0.650",
+	} {
+		if got:=parseAutomationMediaSegment(output,bytes);got.Valid {
+			t.Fatalf("unsupported confirmation was admitted: %+v",got)
+		}
+	}
+	if automationMediaConfirmationTimeout >= automationHealthProbeTimeout ||
+		automationMediaSegmentCount*automationMediaSegmentBytes+automationMediaConfirmationBytes > 2*1024*1024 {
+		t.Fatal("watchdog large-transfer escalation exceeded the bounded budget")
+	}
 }
 
 func TestAutoMediaHysteresisAndIdentity(t *testing.T) {
