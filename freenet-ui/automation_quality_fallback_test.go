@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,15 @@ func automationQualityTwoCandidateFixture(t *testing.T) (*automationQualityAdmis
 	if !strings.Contains(first.Raw, "TEST-ID-A@203.0.113.10:443") {
 		t.Fatal("synthetic first profile changed")
 	}
-	secondRaw := strings.Replace(first.Raw, "TEST-ID-A@203.0.113.10:443", "TEST-ID-B@203.0.113.11:443", 1)
+	// The selectable ID intentionally describes the logical label/transport,
+	// NOT the endpoint/UUID. A second endpoint with the same label has the
+	// same ID and must never masquerade as a distinct fallback.
+	secondURL, err := url.Parse(first.Raw)
+	if err != nil { t.Fatal(err) }
+	secondURL.Host = "203.0.113.11:443"
+	secondURL.User = url.User("TEST-ID-B")
+	secondURL.Fragment = "DE Hamburg, Germany, Extra"
+	secondRaw := secondURL.String()
 	secondProfile, ok := parseSafeVLESSProfile(secondRaw)
 	if !ok || secondProfile.ID == first.Profile.ID || endpointsEqual(profileEndpoint(secondProfile), profileEndpoint(first.Profile)) {
 		t.Fatal("synthetic fallback must be an independently selectable endpoint")
