@@ -65,10 +65,10 @@ func TestAutomationQualityFallbackIsDistinctOneTimeMeasuredSnapshot(t *testing.T
 	if _, _, err := guard.app.loadBestServerSelectionCandidateWithPurpose(token, first.Profile.ID, scan.CurrentEndpoint, filter); err == nil {
 		t.Fatal("fallback token also authorized the previously rejected candidate")
 	}
-	scan.Candidates[1].Endpoint = scan.Candidates[0].Endpoint
+	scan.Candidates[1].Endpoint = "203.0.113.99:443" // forged measurement mismatches exact raw
 	if _, dupToken := guard.app.prepareAutomationQualityFallback(scan, scan.Candidates[0]); dupToken != "" {
 		consumeBestServerSelectionSnapshot(dupToken)
-		t.Fatal("same endpoint must not be attempted as an independent fallback")
+		t.Fatal("forged endpoint measurement passed exact raw-profile snapshot validation")
 	}
 	if err := os.WriteFile(guard.app.cfg.SubPath, []byte("https://provider.example.invalid/rotated\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -76,6 +76,50 @@ func TestAutomationQualityFallbackIsDistinctOneTimeMeasuredSnapshot(t *testing.T
 	if _, _, err := guard.app.loadBestServerSelectionCandidateWithPurpose(token, second.Profile.ID,
 		scan.CurrentEndpoint, filter); err == nil {
 		t.Fatal("fallback bypassed subscription fingerprint drift")
+	}
+}
+
+// Real Extra providers may give different selectable countries/credentials
+// the same public ingress. Distinct LOGICAL profiles remain valid measured
+// alternatives after the first candidate's serial media probe fails.
+func TestAutomationQualityFallbackSameIngressDifferentMeasuredProfile(t *testing.T) {
+	guard, scan, first, second := automationQualityTwoCandidateFixture(t)
+	sharedURL, err := url.Parse(second.Raw)
+	if err != nil { t.Fatal(err) }
+	sharedURL.Host = profileEndpoint(first.Profile)
+	sharedRaw := sharedURL.String()
+	sharedProfile, ok := parseSafeVLESSProfile(sharedRaw)
+	if !ok || sharedProfile.ID != second.Profile.ID ||
+		!endpointsEqual(profileEndpoint(sharedProfile), profileEndpoint(first.Profile)) ||
+		sharedRaw == first.Raw {
+		t.Fatal("fixture must be two credential-distinct selectable profiles behind one ingress")
+	}
+	shared := bestServerInternalCandidate{Profile: sharedProfile, Raw: sharedRaw}
+	measured := scan.Candidates[1]
+	measured.Endpoint = profileEndpoint(sharedProfile)
+	filter := readBestServerCurrentFilter(guard.app.cfg.FilterPath)
+	endpoint := readBestServerCurrentEndpoint(guard.app.cfg.OutPath)
+	newToken, err := guard.app.storeBestServerSelectionSnapshot(endpoint, filter,
+		[]bestServerInternalCandidate{first, shared},
+		[]bestServerQualityCandidate{scan.Candidates[0], measured})
+	if err != nil || newToken == "" { t.Fatalf("shared ingress snapshot failed: %v", err) }
+	defer consumeBestServerSelectionSnapshot(newToken)
+	scan.Candidates[1], scan.SelectionToken = measured, newToken
+	selected, fallbackToken := guard.app.prepareAutomationQualityFallback(scan, scan.Candidates[0])
+	if fallbackToken == "" || selected.ID != second.Profile.ID ||
+		!endpointsEqual(selected.Endpoint, first.Profile.Address+":443") {
+		t.Fatalf("distinct logical profile incorrectly rejected for shared ingress: %+v / %q", selected, fallbackToken)
+	}
+	defer consumeBestServerSelectionSnapshot(fallbackToken)
+	consumeBestServerSelectionSnapshot(newToken)
+	got, manual, err := guard.app.loadBestServerSelectionCandidateWithPurpose(
+		fallbackToken, sharedProfile.ID, endpoint, filter)
+	if err != nil || manual || got.Raw != sharedRaw {
+		t.Fatalf("independent one-time snapshot did not survive source token consumption: %v", err)
+	}
+	if _, _, err := guard.app.loadBestServerSelectionCandidateWithPurpose(
+		fallbackToken, first.Profile.ID, endpoint, filter); err == nil {
+		t.Fatal("shared ingress alternative token also authorized rejected first logical profile")
 	}
 }
 

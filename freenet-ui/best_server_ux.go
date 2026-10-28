@@ -176,6 +176,12 @@ func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
 	})
 }
 
+// Testable media probe seam: the production implementation uses an isolated
+// Xray and two actual sequential downloads over the candidate's own outbound.
+var bestServerAutoMediaAppProbe = func(a *app, ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
+	return a.probeBestServerQualityApplicationForMedia(ctx, candidate)
+}
+
 func (a *app) rankMeasuredBestServerBatches(
 	ctx context.Context,
 	candidates []bestServerInternalCandidate,
@@ -184,7 +190,17 @@ func (a *app) rankMeasuredBestServerBatches(
 	currentEndpoint string,
 	currentFilter string,
 	targetEligible int,
+	mediaOnly ...bool,
 ) bestServerQualityResponse {
+	// Existing manual/current scans keep aggregate Speedtest. Only media-triggered
+	// AUTO uses the same per-stream QoE evidence as its final admission.
+	useMedia := len(mediaOnly) > 0 && mediaOnly[0]
+	appProbe := a.probeBestServerQualityApplication
+	if useMedia {
+		appProbe = func(ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
+			return bestServerAutoMediaAppProbe(a, ctx, candidate)
+		}
+	}
 	if targetEligible < 1 || targetEligible > bestServerVisibleAlternatives {
 		targetEligible = bestServerVisibleAlternatives
 	}
@@ -209,8 +225,19 @@ func (a *app) rankMeasuredBestServerBatches(
 		attemptCtx := bestServerDeepProgressContext(ctx, start, len(candidates))
 		batch := rankBestServerQualityCandidates(
 			attemptCtx, candidates[start:end], profilesScanned, truncated, currentEndpoint, currentFilter,
-			a.probeBestServerQualityApplication,
+			appProbe,
 		)
+		// The eligible-target stop condition must count the same sequential
+		// media qualifications that AutoVPN will actually use for selection.
+		// Promoting only AFTER the loop misses viable measured alternatives.
+		if useMedia {
+			for i := range batch.Candidates {
+				if automationMediaMeasuredCandidateEligible(batch.Candidates[i]) {
+					batch.Candidates[i].Eligible = true
+					batch.Candidates[i].Rejections = nil // generic manual Speedtest rules do not apply
+				}
+			}
+		}
 		// If the parent job deadline fired during this deep attempt, its final
 		// classification is not trustworthy enough for a comparison card. Drop
 		// that batch fail-closed instead of presenting a deadline interruption as

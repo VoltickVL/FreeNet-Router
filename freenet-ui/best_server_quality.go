@@ -43,6 +43,7 @@ const (
 	bestServerQualityVPNRTTWeight         = 2
 	bestServerThroughputStrictAggregate   = "strict_aggregate"
 	bestServerThroughputCurrentFallback   = "current_fallback"
+	bestServerThroughputAutoMedia         = "auto_media_segments"
 )
 
 type bestServerQualityCandidate struct {
@@ -224,7 +225,13 @@ func rankBestServerQualityCandidates(
 		results[index].ChatGPTHTTPSStatus = sanitizeBestServerChatGPTHTTPSStatus(probe.Media.ChatGPTHTTPSStatus)
 		if probe.DownloadOK {
 			results[index].DownloadMbps = roundBestServerMbps(probe.DownloadMbps)
+			// The public Best Server contract still reports strict aggregate
+			// capacity, never a current-only fallback source. Only the distinct
+			// AUTO media scan may publish its sequential QoE metric.
 			results[index].ThroughputSource = bestServerThroughputStrictAggregate
+			if probe.ThroughputSource == bestServerThroughputAutoMedia {
+				results[index].ThroughputSource = bestServerThroughputAutoMedia
+			}
 		}
 		results[index].Eligible = eligibleBestServerQuality(results[index])
 
@@ -249,8 +256,12 @@ func rankBestServerQualityCandidates(
 			results[index].Confidence = "medium"
 		}
 		if probe.DownloadOK {
-			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms, Speedtest aggregate capacity %.1f Mbps; transfer %s, stalls %d/%d, services %d/%d",
-				probe.HTTP.Median, len(probe.HTTP.Samples), probe.HTTP.Jitter, roundBestServerMbps(probe.DownloadMbps),
+			throughputLabel := "Speedtest aggregate capacity"
+			if results[index].ThroughputSource == bestServerThroughputAutoMedia {
+				throughputLabel = "AUTO sequential media minimum"
+			}
+			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms, %s %.1f Mbps; transfer %s, stalls %d/%d, services %d/%d",
+				probe.HTTP.Median, len(probe.HTTP.Samples), probe.HTTP.Jitter, throughputLabel, roundBestServerMbps(probe.DownloadMbps),
 				probe.Media.Grade, probe.Media.Stalls, probe.Media.Samples, probe.Media.ServiceOK, probe.Media.ServiceTotal)
 		} else {
 			results[index].Reason = fmt.Sprintf("VPN HTTP response median %d ms (%d samples), jitter %d ms; Speedtest throughput unavailable; transfer %s, stalls %d/%d, services %d/%d",
@@ -391,6 +402,18 @@ func probeBestServerCanonicalApplicationRTT(ctx context.Context, curlPath, socks
 }
 
 func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
+	return a.probeBestServerQualityApplicationMode(ctx, candidate, false)
+}
+
+// AUTO video-quality comparison uses the SAME small sequential body transfers
+// as its live pre-apply guard. Parallel 40 MiB aggregate throughput can look
+// excellent even when a single video segment stalls. Manual speed tests keep
+// their original parallel high-capacity benchmark.
+func (a *app) probeBestServerQualityApplicationForMedia(ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
+	return a.probeBestServerQualityApplicationMode(ctx, candidate, true)
+}
+
+func (a *app) probeBestServerQualityApplicationMode(ctx context.Context, candidate bestServerInternalCandidate, mediaOnly bool) bestServerQualityApplicationResult {
 	outbound, err := buildBestServerProbeOutbound(candidate.Raw, candidate.Profile)
 	if err != nil {
 		return bestServerQualityApplicationResult{}
@@ -499,6 +522,32 @@ func (a *app) probeBestServerQualityApplication(ctx context.Context, candidate b
 	}
 
 	result := bestServerQualityApplicationResult{OK: true, VPN: vpnResult, HTTP: httpResult}
+	if mediaOnly {
+		media := probeAutomationMediaSegments(ctx, curlPath, socks)
+		// Two actual 512 KiB sequential samples, not an estimate from
+		// unrelated concurrent streams or HTTP HEAD responses. If either
+		// timed out/failed, it is not an accepted alternative.
+		result.Media = bestServerMediaQualityResult{
+			OK: media.Complete, Samples: media.Samples, MedianMbps: media.MinMbps,
+			MinMbps: media.MinMbps, Grade: "unknown",
+		}
+		if !media.Complete {
+			result.DownloadIssue = "AUTO sequential transfer incomplete"
+			result.Media.Issue = result.DownloadIssue
+			return result
+		}
+		if media.Degraded {
+			result.Media.Grade = "poor"
+			result.Media.Stalls = 1
+			result.Media.Penalty = 1800
+		} else {
+			result.Media.Grade = "good"
+		}
+		result.DownloadOK = true
+		result.DownloadMbps = media.MinMbps
+		result.ThroughputSource = bestServerThroughputAutoMedia
+		return result
+	}
 	result.Media = probeBestServerMediaQuality(ctx, curlPath, socks)
 	if result.Media.OK && result.Media.MedianMbps > 0 {
 		result.DownloadOK = true

@@ -808,11 +808,18 @@ func (a *app) scanBestServerForeignForMedia(ctx context.Context, settings automa
 // independent HTTPS download has proved low jitter, sustained throughput and
 // no stalls. The final paired live check still gates the actual apply.
 func automationMediaMeasuredCandidateEligible(c bestServerQualityCandidate) bool {
+	// This criterion is exclusive to the AUTO media-degradation path. Two
+	// completed single-stream transfers >=8 Mbps with acceptable TTFB match
+	// the live candidate admission. Aggregate multi-stream speed (even
+	// 100+ Mbps) is NOT proof that an individual video segment will play.
+	// Final writer admission independently verifies the same media sample,
+	// service errors and the still-degraded current VPN before any mutation.
 	return !c.Current && c.Tested && c.Available && validProfileID(c.ID) &&
-		c.ApplicationMS > 0 && c.ApplicationMS <= bestServerQualityMaxApplicationMS &&
+		c.ThroughputSource == bestServerThroughputAutoMedia &&
+		c.ApplicationMS > 0 && c.ApplicationMS < automationQualityLatencyMildMS &&
 		c.HTTPSamples >= bestServerQualityHTTPRequired && c.JitterMS <= bestServerQualityHighJitterMS &&
-		c.DownloadMbps >= 20 && c.MediaMbps >= 20 &&
-		c.MediaSamples >= bestServerMediaRequiredRuns && c.MediaStalls == 0
+		c.DownloadMbps >= automationMediaSlowMbps && c.MediaMbps >= automationMediaSlowMbps &&
+		c.MediaSamples == automationMediaSegmentCount && c.MediaStalls == 0 && c.MediaGrade == "good"
 }
 
 func (a *app) scanBestServerForeignForMode(ctx context.Context, settings automationSettings, currentCountry string, mediaOnly bool) (bestServerQualityResponse, error) {
@@ -851,17 +858,9 @@ func (a *app) scanBestServerForeignForMode(ctx context.Context, settings automat
 		// presenting an incomplete Top-3.
 		targetEligible = bestServerVisibleAlternatives
 	}
-	response := a.rankMeasuredBestServerBatches(ctx, filtered, profilesScanned, truncated, currentEndpoint, currentFilter, targetEligible)
+	response := a.rankMeasuredBestServerBatches(ctx, filtered, profilesScanned, truncated, currentEndpoint, currentFilter, targetEligible, mediaOnly)
 	if ctx.Err() != nil && len(response.Candidates) == 0 {
 		return bestServerQualityResponse{}, ctx.Err()
-	}
-	if mediaOnly {
-		for i := range response.Candidates {
-			c := &response.Candidates[i]
-			if !c.Eligible && automationMediaMeasuredCandidateEligible(*c) {
-				c.Eligible = true // media-only snapshot, never generic eligibility
-			}
-		}
 	}
 	if currentBaselineOK {
 		response.Candidates = append(response.Candidates, currentBaseline)
@@ -915,9 +914,10 @@ func automationBestEmergencySelectionSummary(selected bestServerQualityCandidate
 }
 
 // After the best measured alternative fails its live pre-mutation admission,
-// a second DIFFERENT, already-measured and Eligible endpoint may be tried.
-// Each attempt must have its own one-time selection snapshot; the provider
-// consumes the first token even when beforeQuiesce refuses to proceed.
+// try one distinct already-measured Eligible LOGICAL profile. A provider can
+// carry different VLESS/Reality identities and exit paths behind one ingress
+// IP:port. Rejecting all shared-ingress alternatives falsely exhausts the pool.
+// Each attempt has its own one-time snapshot bound to the precise raw profile.
 // Never reconstruct an unchecked candidate from the subscription.
 func (a *app) prepareAutomationQualityFallback(response bestServerQualityResponse, first bestServerQualityCandidate) (bestServerQualityCandidate, string) {
 	if !validBestServerSelectionToken(response.SelectionToken) {
@@ -928,14 +928,21 @@ func (a *app) prepareAutomationQualityFallback(response bestServerQualityRespons
 	if !endpointsEqual(currentEndpoint, response.CurrentEndpoint) {
 		return bestServerQualityCandidate{}, ""
 	}
+	firstSelected, firstManual, err := a.loadBestServerSelectionCandidateWithPurpose(
+		response.SelectionToken, first.ID, currentEndpoint, currentFilter)
+	if err != nil || firstManual || strings.TrimSpace(firstSelected.Raw) == "" ||
+		firstSelected.Profile.ID != first.ID || !endpointsEqual(profileEndpoint(firstSelected.Profile), first.Endpoint) {
+		return bestServerQualityCandidate{}, ""
+	}
 	for _, next := range response.Candidates {
 		if next.Current || !next.Tested || !next.Eligible || !next.Available || !validProfileID(next.ID) ||
-			next.ID == first.ID || next.Endpoint == "" || endpointsEqual(next.Endpoint, first.Endpoint) {
-			continue // not a distinct measured alternative
+			next.ID == first.ID || next.Endpoint == "" {
+			continue // not a distinct measured logical profile
 		}
 		selected, manual, err := a.loadBestServerSelectionCandidateWithPurpose(
 			response.SelectionToken, next.ID, currentEndpoint, currentFilter)
 		if err != nil || manual || selected.Profile.ID != next.ID ||
+			strings.TrimSpace(selected.Raw) == "" || selected.Raw == firstSelected.Raw ||
 			!endpointsEqual(profileEndpoint(selected.Profile), next.Endpoint) ||
 			selected.Profile.CountryCode != next.CountryCode {
 			continue
