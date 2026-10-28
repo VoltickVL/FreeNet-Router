@@ -84,33 +84,20 @@ const expected = '192.0.2.40:443';
     }
 
     await setPending('Требуется проверка состояния');
-    await page.evaluate(() => updateStatusViews({endpoint:'192.0.2.99:443',xray_online:true,busy:false,updater_busy:false}));
-    assert.equal(await page.locator('#selectedProfileCard').isVisible(), true, 'other endpoint must keep warning');
-    assert.equal(await page.locator('#exactConnectRow').isVisible(), true, 'other endpoint must keep exact controls');
+    // Two logical Extra profiles can share an IP:port. Read-only status
+    // must NEVER resolve a pending manual result without a terminal receipt.
+    await page.evaluate(({expected}) => updateStatusViews({endpoint:expected,profile_label:'Бельгия · Брюссель',xray_online:true,busy:false,updater_busy:false}), {expected});
+    assert.equal(await page.locator('#selectedProfileCard').isVisible(), true, 'shared endpoint alone must not dismiss unknown state');
+    assert.equal(await page.evaluate(() => providerApplied), false, 'status cannot invent a verified manual receipt');
+    await page.evaluate(() => document.dispatchEvent(new CustomEvent('freenet:manual-vpn-verified', {detail:{profile_id:'fixture-lt',endpoint:'192.0.2.40:443'}})));
+    assert.equal(await page.locator('#profileSearch').inputValue(), '', 'explicit verified receipt resets stale search');
+    assert.equal(await page.evaluate(() => window.__pickerClosed), 1, 'verified receipt closes picker');
+    assert.equal(await page.locator('#selectedProfileCard').isVisible(), true, 'presentation event does not invent transaction success');
+    assert.equal(await page.evaluate(() => providerApplied), false, 'only apply engine commits accepted state');
 
-    await page.evaluate(({expected}) => updateStatusViews({endpoint:expected,xray_online:false,busy:false,updater_busy:false}), {expected});
-    assert.equal(await page.locator('#selectedProfileCard').isVisible(), true, 'offline exact endpoint must keep warning');
-
-    await page.evaluate(({expected}) => updateStatusViews({endpoint:expected,xray_online:true,busy:true,updater_busy:false}), {expected});
-    assert.equal(await page.locator('#selectedProfileCard').isVisible(), true, 'busy exact endpoint must keep warning');
-
-    await page.evaluate(({expected}) => updateStatusViews({endpoint:expected,xray_online:true,busy:false,updater_busy:false}), {expected});
-    assert.equal(await page.locator('#selectedProfileCard').isVisible(), false, 'healthy exact endpoint must dismiss stale warning');
-    assert.equal(await page.locator('#exactConnectRow').isVisible(), false, 'healthy exact endpoint must leave exact mode');
-    assert.equal(await page.locator('#routineRow').isVisible(), true, 'routine actions must be restored');
-    assert.equal(await page.evaluate(() => selectedProviderID), '', 'stale selected profile id must be cleared');
-    assert.equal(await page.evaluate(() => providerApplied), true, 'confirmed status marks manual switch accepted');
-    assert.equal(await page.evaluate(() => window.__closeMenu), 1, 'selector menu must close');
-    assert.equal(await page.evaluate(() => window.__pickerClosed), 1, 'confirmed exact switch must close the stable selector popover');
-    assert.equal(await page.locator('#notice').isVisible(), false, 'stale warning notice must close');
-
-    await setPending('Связь прервалась');
-    await page.evaluate(({expected}) => updateStatusViews({endpoint:expected,xray_online:true,busy:false,updater_busy:false}), {expected});
-    assert.equal(await page.locator('#selectedProfileCard').isVisible(), false, 'late status after interrupted HTTP response must reconcile');
-
-    assert.ok(await page.evaluate(() => window.__baseUpdates >= 5), 'original status renderer must still run');
+    assert.ok(await page.evaluate(() => window.__baseUpdates >= 2), 'original status renderer must still run');
     assert.equal(errors.length, 0, errors.join('\n'));
-    console.log('PASS: delayed manual VPN status reconciles only on the exact healthy endpoint and never masks unknown state.');
+    console.log('PASS: shared endpoint never reconciles unknown manual result; only terminal receipt closes picker.');
   } finally {
     await browser.close();
   }
