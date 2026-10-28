@@ -417,6 +417,13 @@
   function boot() {
     q('#bestServerAdvanced')?.classList.remove('fn-topbar-vpn-picker');
     paint(); timer=setInterval(schedulePaint,1000); // Reads shared state only; no extra requests.
+    // A complete manual apply receipt closes and clears the selection.
+    // Status endpoint alone never authorizes this transition.
+    document.addEventListener('freenet:manual-vpn-verified', event => {
+      if (!event.detail?.profile_id || !event.detail?.endpoint) return;
+      selected=null; sent=false; error=''; listKey='';
+      close(); schedulePaint();
+    });
     document.addEventListener('visibilitychange',schedulePaint);
     document.addEventListener('freenet:controls-busy',schedulePaint);
     document.addEventListener('freenet:status-updated',schedulePaint);

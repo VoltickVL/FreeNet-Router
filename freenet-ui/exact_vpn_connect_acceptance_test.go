@@ -22,7 +22,8 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 		"DNS при этом не изменяется",
 		"VPN-действия не меняют DNS",
 		"operation: 'provider'",
-		"waitExactState",
+		"verifiedManualReceipt",
+		"freenet:manual-vpn-verified",
 		"showExactMode(true)",
 		"controls.routine.hidden = enabled",
 		"manual_override: true",
@@ -47,6 +48,9 @@ func TestExactVPNConnectUXIsSingleExplicitAction(t *testing.T) {
 		t.Fatal("cannot isolate exact VPN connect flow")
 	}
 	exactConnect := ux[start:end]
+	if strings.Contains(exactConnect, "await loadNetworkPlan(") || strings.Contains(exactConnect, "await waitExactState(") {
+		t.Fatal("verified manual VPN must not wait for a second network plan or status loop")
+	}
 	if strings.Contains(exactConnect, "confirm(") || strings.Contains(exactConnect, "openModal(") {
 		t.Fatal("routine exact VPN connect must not require an extra confirmation dialog")
 	}

@@ -136,21 +136,16 @@
     }
   }
 
-  async function waitExactState(expectedEndpoint) {
-    let s = null;
-    for (let i = 0; i < 30; i++) {
-      try {
-        s = await loadStatus();
-      } catch (_) {
-        s = null;
-      }
-      if (s) {
-        const endpointOK = expectedEndpoint && s.endpoint === expectedEndpoint;
-        if (endpointOK && !s.busy && !s.updater_busy && s.xray_online) return s;
-      }
-      await new Promise(resolve => setTimeout(resolve, 850));
-    }
-    return null;
+  // A successful provider apply response is issued only after the router-side
+  // helper has verified HTTPS, committed the exact profile and archived its
+  // transaction checkpoint. Never add a new round of slow catalog/DNS probes
+  // or infer the logical profile from a shared IP:port.
+  function verifiedManualReceipt(result, profileID, expectedEndpoint) {
+    const plan = result && result.provider_plan;
+    return !!(result && result.success === true && result.applied === true &&
+      result.operation === 'provider' && result.profile_id === profileID &&
+      result.rollback_state === 'NOT_NEEDED' && plan && plan.success === true &&
+      plan.profile_id === profileID && plan.endpoint === expectedEndpoint);
   }
 
   async function connectExactProfile() {
@@ -200,12 +195,10 @@
         return;
       }
 
-      const s = await waitExactState(expectedEndpoint);
-      const accepted = !!(s && s.endpoint === expectedEndpoint && !s.busy && !s.updater_busy && s.xray_online);
-      if (!accepted) {
-        const actual = s ? `${s.country || 'страна не определена'} · ${s.endpoint || 'endpoint неизвестен'}` : 'фактический статус недоступен';
-        selectedCardText('Требуется проверка состояния', expectedEndpoint, `Фактическое соединение пока не подтверждено: ${actual}. Повтор автоматически не запускается.`, 'error');
-        if (typeof showBox === 'function') showBox('notice', 'Фактическое состояние VPN после подключения не подтверждено. Не повторяйте операцию вслепую.', 'bad');
+      if (!verifiedManualReceipt(j, profileID, expectedEndpoint)) {
+        selectedCardText('Требуется подтверждение результата', expectedEndpoint,
+          'Ответ FreeNet не содержит полной терминальной квитанции выбранного профиля. Не повторяйте подключение до проверки состояния.', 'error');
+        if (typeof showBox === 'function') showBox('notice', 'Результат VPN-транзакции не подтверждён. Повторное подключение автоматически не запускается.', 'bad');
         return;
       }
 
@@ -218,8 +211,14 @@
       if (typeof renderProfileOptions === 'function') renderProfileOptions();
       if (typeof renderSelectedProfile === 'function') renderSelectedProfile(null);
       showExactMode(false);
-      if (typeof loadNetworkPlan === 'function') await loadNetworkPlan('');
-      if (typeof showBox === 'function') showBox('notice', `Конфигурация применена: ${s.profile_label || p.name || 'VPN'}\n${s.endpoint}\nHTTPS через VPN проверен на роутере; доступность LAN-клиентов отдельно не проверялась.`, 'ok');
+      if (typeof showBox === 'function') showBox('notice', `Конфигурация применена: ${j.provider_plan.profile_name || p.name || 'VPN'}\n${j.provider_plan.endpoint}\nHTTPS через VPN проверен на роутере; доступность LAN-клиентов отдельно не проверялась.`, 'ok');
+      // Dismiss the picker on the exact terminal receipt, not on a matching
+      // address in /api/status. Different Extra profiles share IP:port.
+      document.dispatchEvent(new CustomEvent('freenet:manual-vpn-verified', {
+        detail: {profile_id: profileID, endpoint: expectedEndpoint}
+      }));
+      // Background status refresh updates the header without delaying success.
+      if (typeof loadStatus === 'function') void loadStatus();
     } catch (_) {
       selectedCardText('Связь прервалась', expectedEndpoint, 'Ждём фактический статус VPN. Повторное подключение автоматически не запускается.', 'error');
       if (typeof showBox === 'function') showBox('notice', 'Связь прервалась во время переключения. Проверяем фактическое состояние перед любым повтором.', 'bad');
