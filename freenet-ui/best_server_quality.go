@@ -225,9 +225,12 @@ func rankBestServerQualityCandidates(
 		results[index].ChatGPTHTTPSStatus = sanitizeBestServerChatGPTHTTPSStatus(probe.Media.ChatGPTHTTPSStatus)
 		if probe.DownloadOK {
 			results[index].DownloadMbps = roundBestServerMbps(probe.DownloadMbps)
-			results[index].ThroughputSource = probe.ThroughputSource
-			if results[index].ThroughputSource == "" {
-				results[index].ThroughputSource = bestServerThroughputStrictAggregate
+			// The public Best Server contract still reports strict aggregate
+			// capacity, never a current-only fallback source. Only the distinct
+			// AUTO media scan may publish its sequential QoE metric.
+			results[index].ThroughputSource = bestServerThroughputStrictAggregate
+			if probe.ThroughputSource == bestServerThroughputAutoMedia {
+				results[index].ThroughputSource = bestServerThroughputAutoMedia
 			}
 		}
 		results[index].Eligible = eligibleBestServerQuality(results[index])
