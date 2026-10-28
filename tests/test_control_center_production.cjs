@@ -178,7 +178,7 @@ async function capture(label){
         return route.fulfill({status:502,contentType:'text/plain',body:'Fixture gateway response unavailable'});
       }
       await delay(250);status={...status,country:'',city:'',country_code:'',profile_label:selected.name,endpoint:ep(selected)};
-      return answer(route,{success:true,applied:true,rollback_state:'NOT_NEEDED'});
+      return answer(route,{success:true,applied:true,operation:'provider',profile_id:selected.id,rollback_state:'NOT_NEEDED',provider_plan:{success:true,profile_id:selected.id,profile_name:selected.name,endpoint:ep(selected)}});
     }
     if(url.pathname==='/api/vpn/current-refresh'){
       assert.equal(req.method(),'POST');
@@ -526,7 +526,7 @@ async function capture(label){
   assert.equal(await page.locator('#fnVpnPickerV2Country').textContent(),'Бельгия');
   await geometry('ready');await capture('desktop-ready');assert.equal(countApply(),0);
   await page.locator(C).click();await page.locator(C).dispatchEvent('click');
-  await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','connected country');await until(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='success','verified apply');
+  await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','connected country');await until(()=>document.querySelector('#fnVpnPickerV2Panel').hidden && !document.querySelector('#notice').hidden && document.querySelector('#notice').textContent.includes('Конфигурация применена:'),'verified apply');
   assert.equal(countApply(),1,'double click cannot apply twice');assert.equal(await page.locator(C).isDisabled(),true);
   await page.locator('#fnVpnPickerV2Reset').click();planDelay=0;planMode='error';
   // Preflight failure must not disable an explicit manual choice. Only a
