@@ -908,6 +908,35 @@ func (a *app) scanBestServerForeignForMode(ctx context.Context, settings automat
 	return response, nil
 }
 
+// A failed scan must explain whether the router lacked tested alternatives or
+// measured them and found slow media. Aggregate counts only: never print
+// subscription URLs, VLESS identifiers, endpoints, tokens or raw configs.
+func automationQualityScanSummary(response bestServerQualityResponse) string {
+	tested, completeMedia, slowMedia, missingMedia := 0, 0, 0, 0
+	for _, candidate := range response.Candidates {
+		if !candidate.Tested {
+			continue
+		}
+		tested++
+		if candidate.ThroughputSource != bestServerThroughputAutoMedia ||
+			candidate.MediaSamples != automationMediaSegmentCount {
+			missingMedia++
+			continue
+		}
+		completeMedia++
+		if candidate.MediaGrade != "good" || candidate.MediaStalls > 0 ||
+			candidate.MediaMbps < automationMediaSlowMbps {
+			slowMedia++
+		}
+	}
+	message := fmt.Sprintf("Из %d разрешённых профилей выполнено %d глубоких проверок; последовательное видео: %d полных, %d медленных, %d незавершённых; Eligible: %d.",
+		response.ProfilesScanned, tested, completeMedia, slowMedia, missingMedia, response.EligibleFound)
+	if response.Partial {
+		message += " Бюджет времени ограничил проверку."
+	}
+	return message
+}
+
 func bestAutomationCandidate(response bestServerQualityResponse) (bestServerQualityCandidate, bool) {
 	for _, candidate := range response.Candidates {
 		if candidate.Current || !candidate.Eligible || !candidate.Available || !validProfileID(candidate.ID) {
@@ -1175,6 +1204,9 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 		if currentState == "degraded" {
 			result = "uncertain"
 			reason = "Ухудшение качества VPN подтверждено, но более стабильный проверенный сервер не найден. Текущий VPN сохранён; повторный поиск после паузы."
+			if qualityIntent {
+				reason += " " + automationQualityScanSummary(candidates)
+			}
 		}
 		writeAutomationStateV2(result, reason, "no", false)
 		appendAutomationHistoryV2(result, reason)
