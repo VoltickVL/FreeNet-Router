@@ -176,6 +176,12 @@ func sortMeasuredBestServerResults(candidates []bestServerQualityCandidate) {
 	})
 }
 
+// Testable media probe seam: the production implementation uses an isolated
+// Xray and two actual sequential downloads over the candidate's own outbound.
+var bestServerAutoMediaAppProbe = func(a *app, ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
+	return a.probeBestServerQualityApplicationForMedia(ctx, candidate)
+}
+
 func (a *app) rankMeasuredBestServerBatches(
 	ctx context.Context,
 	candidates []bestServerInternalCandidate,
@@ -191,7 +197,9 @@ func (a *app) rankMeasuredBestServerBatches(
 	useMedia := len(mediaOnly) > 0 && mediaOnly[0]
 	appProbe := a.probeBestServerQualityApplication
 	if useMedia {
-		appProbe = a.probeBestServerQualityApplicationForMedia
+		appProbe = func(ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
+			return bestServerAutoMediaAppProbe(a, ctx, candidate)
+		}
 	}
 	if targetEligible < 1 || targetEligible > bestServerVisibleAlternatives {
 		targetEligible = bestServerVisibleAlternatives
