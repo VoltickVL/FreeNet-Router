@@ -914,6 +914,42 @@ func automationBestEmergencySelectionSummary(selected bestServerQualityCandidate
 		name, selected.VPNRTTMS, selected.ApplicationMS, selected.DownloadMbps, selected.JitterMS)
 }
 
+// After the best measured alternative fails its live pre-mutation admission,
+// a second DIFFERENT, already-measured and Eligible endpoint may be tried.
+// Each attempt must have its own one-time selection snapshot; the provider
+// consumes the first token even when beforeQuiesce refuses to proceed.
+// Never reconstruct an unchecked candidate from the subscription.
+func (a *app) prepareAutomationQualityFallback(response bestServerQualityResponse, first bestServerQualityCandidate) (bestServerQualityCandidate, string) {
+	if !validBestServerSelectionToken(response.SelectionToken) {
+		return bestServerQualityCandidate{}, ""
+	}
+	currentEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+	currentFilter := readBestServerCurrentFilter(a.cfg.FilterPath)
+	if !endpointsEqual(currentEndpoint, response.CurrentEndpoint) {
+		return bestServerQualityCandidate{}, ""
+	}
+	for _, next := range response.Candidates {
+		if next.Current || !next.Tested || !next.Eligible || !next.Available || !validProfileID(next.ID) ||
+			next.ID == first.ID || next.Endpoint == "" || endpointsEqual(next.Endpoint, first.Endpoint) {
+			continue // not a distinct measured alternative
+		}
+		selected, manual, err := a.loadBestServerSelectionCandidateWithPurpose(
+			response.SelectionToken, next.ID, currentEndpoint, currentFilter)
+		if err != nil || manual || selected.Profile.ID != next.ID ||
+			!endpointsEqual(profileEndpoint(selected.Profile), next.Endpoint) ||
+			selected.Profile.CountryCode != next.CountryCode {
+			continue
+		}
+		fallbackToken, err := a.storeBestServerSelectionSnapshot(
+			currentEndpoint, currentFilter,
+			[]bestServerInternalCandidate{selected}, []bestServerQualityCandidate{next})
+		if err == nil && validBestServerSelectionToken(fallbackToken) {
+			return next, fallbackToken
+		}
+	}
+	return bestServerQualityCandidate{}, ""
+}
+
 func automationBestSelectionSummary(response bestServerQualityResponse, selected bestServerQualityCandidate) string {
 	parts := make([]string, 0, bestServerVisibleAlternatives)
 	for _, candidate := range response.Candidates {
@@ -1015,7 +1051,9 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 
 	cycleTimeout := automationBestQualityCycleTimeout(settings.Policy)
 	if qualityIntent {
-		cycleTimeout += automationQualityAdmissionReserve
+		// Reserve one additional bounded candidate probe. This never permits
+		// another mutation after an unknown apply or rollback.
+		cycleTimeout += automationQualityAdmissionReserve + automationHealthProbeTimeout + 15*time.Second
 		if !validAutomationQualityTrigger(trigger) {
 			reason := "Исходная причина проверки качества не подтверждена; автоматическое переключение отменено."
 			writeAutomationStateV2("uncertain", reason, "no", false)
@@ -1142,27 +1180,55 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	}
 
 	appendAutomationHistoryV2("selection", automationBestSelectionSummary(candidates, candidate))
-	request := networkApplyRequest{
-		Operation: "provider", ProfileID: candidate.ID, SelectionToken: candidates.SelectionToken, Confirm: true,
+	// The first token is consumed by the provider even on a beforeQuiesce
+	// rejection. Prepare ONE fresh one-time fallback snapshot BEFORE using it.
+	// Both snapshots remain bound to the same measured subscription/source and
+	// current VPN; a changed fingerprint or endpoint will fail closed.
+	type qualityAttempt struct {
+		candidate bestServerQualityCandidate
+		token string
+	}
+	attempts := []qualityAttempt{{candidate: candidate, token: candidates.SelectionToken}}
+	if qualityIntent {
+		if alternate, token := a.prepareAutomationQualityFallback(candidates, candidate); token != "" {
+			defer consumeBestServerSelectionSnapshot(token)
+			attempts = append(attempts, qualityAttempt{candidate: alternate, token: token})
+		}
 	}
 	var status int
 	var applied networkApplyResponse
-	if qualityIntent {
-		guard := &automationQualityAdmission{
-			app: a, ctx: ctx, baseline: currentResponse, candidate: candidate,
-			token: candidates.SelectionToken, trigger: trigger,
-			lastSwitch: switchBaseline["LAST_SWITCH"], lastSwitchOrigin: switchBaseline["LAST_SWITCH_ORIGIN"],
+	for index, attempt := range attempts {
+		candidate = attempt.candidate
+		request := networkApplyRequest{
+			Operation: "provider", ProfileID: candidate.ID, SelectionToken: attempt.token, Confirm: true,
 		}
-		status, applied = a.executeProviderProfileApplyWithAdmission(request, nil, &providerApplyAdmission{
-			beforeQuiesce: guard.confirm, beforeMutation: guard.final,
-		})
-		if guard.stopped != nil {
-			writeAutomationStateV2(guard.stopped.Result, guard.stopped.Reason, guard.stopped.RollbackState, false)
-			appendAutomationHistoryV2(guard.stopped.Result, guard.stopped.Reason)
-			return *guard.stopped, nil
+		if qualityIntent {
+			guard := &automationQualityAdmission{
+				app: a, ctx: ctx, baseline: currentResponse, candidate: candidate,
+				token: attempt.token, trigger: trigger,
+				lastSwitch: switchBaseline["LAST_SWITCH"], lastSwitchOrigin: switchBaseline["LAST_SWITCH_ORIGIN"],
+			}
+			status, applied = a.executeProviderProfileApplyWithAdmission(request, nil, &providerApplyAdmission{
+				beforeQuiesce: guard.confirm, beforeMutation: guard.final,
+			})
+			if guard.stopped != nil {
+				// Only an EXACT pre-mutation candidate quality rejection permits the
+				// next candidate. Current recovery, identity drift, timeout of the
+				// parent, quiesce failure or unknown rollback ends this cycle.
+				if guard.candidateRejected && index+1 < len(attempts) &&
+					status == 409 && !applied.Applied && applied.RollbackState == "NOT_APPLIED" && ctx.Err() == nil {
+					appendAutomationRecoveryStage("quality_optimization", "candidate_rejected", guard.stopped.Reason)
+					appendAutomationHistoryV2("selection", "Первый измеренный VPN не прошёл окончательную проверку; проверяем отдельного заранее измеренного резервного кандидата.")
+					continue
+				}
+				writeAutomationStateV2(guard.stopped.Result, guard.stopped.Reason, guard.stopped.RollbackState, false)
+				appendAutomationHistoryV2(guard.stopped.Result, guard.stopped.Reason)
+				return *guard.stopped, nil
+			}
+		} else {
+			status, applied = a.executeProviderProfileApply(request)
 		}
-	} else {
-		status, applied = a.executeProviderProfileApply(request)
+		break // after successful admission, the provider owns apply/rollback
 	}
 	if status < 200 || status >= 300 || !applied.Success {
 		reason := "Подтверждённый VPN не применён: " + automationApplyFailureDetail(applied)

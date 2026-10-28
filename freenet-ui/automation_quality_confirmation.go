@@ -75,6 +75,10 @@ type automationQualityAdmission struct {
 	selectedRaw      string
 	confirmedAt      time.Time
 	stopped          *automationBestCycleResult
+	// Only a beforeQuiesce candidate-only rejection may try a separately
+	// measured fallback. An unknown apply, current drift or failed rollback
+	// must never be retried.
+	candidateRejected bool
 }
 
 func (guard *automationQualityAdmission) stop(result, reason string) error {
@@ -157,7 +161,24 @@ func (guard *automationQualityAdmission) confirm(selected bestServerInternalCand
 	}
 	if candidateErr != nil || ctx.Err() != nil || candidate.State != automationHealthHealthy ||
 		candidate.QualityDegraded || !namedServicesOK {
-		return guard.stop("uncertain", "Выбранный VPN не подтвердил сервисы и безопасную передачу видеосегментов; переключение отменено.")
+		// This check occurs before quiescing the production Xray and before
+		// any helper apply. Only this failure can permit one fallback attempt,
+		// and only if the parent comparison budget remains alive.
+		guard.candidateRejected = ctx.Err() == nil
+		reason := "Кандидат не подтвердил качество; переключение не выполнялось."
+		switch {
+		case candidateErr != nil:
+			reason = "Проверка качества кандидата не завершилась в отведённое время; переключение не выполнялось."
+		case candidate.ServiceBadMask != 0:
+			reason = "У кандидата обнаружены подтверждённые сбои сервисного HTTPS; переключение не выполнялось."
+		case guard.trigger.MediaDegraded && !candidate.MediaComplete:
+			reason = "Медиапроверка кандидата не дала двух достоверных сегментов; переключение не выполнялось."
+		case guard.trigger.MediaDegraded && candidate.MediaDegraded:
+			reason = "Медиапередача кандидата также замедлена; переключение не выполнялось."
+		case candidate.QualityDegraded || candidate.State != automationHealthHealthy:
+			reason = "Кандидат не подтвердил стабильную задержку и сервисы; переключение не выполнялось."
+		}
+		return guard.stop("uncertain", reason)
 	}
 	if err := guard.facts(); err != nil {
 		return err
