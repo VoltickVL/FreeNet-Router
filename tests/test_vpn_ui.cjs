@@ -179,7 +179,7 @@ const server = http.createServer((req,res)=>{
           operation={id:'fixture-op',kind:'provider',target:operationTarget,started_at:new Date().toISOString(),state:'success',result:'SUCCESS'};
           if(applyMode==='failed')operation={...operation,state:'failed',result:'FAIL',error:'Проверка соединения не пройдена'};
           if(applyMode==='other')operation={...operation,target:'another-profile'};
-          if(applyMode==='manual-ok')return answer(route,{success:true,applied:true});
+          if(applyMode==='manual-ok')return answer(route,{success:true,applied:true,operation:'provider',profile_id:payload.profile_id,rollback_state:'NOT_NEEDED',provider_plan:{success:true,profile_id:payload.profile_id,profile_name:expectedApply.name,endpoint:expectedApply.endpoint}});
           if(applyMode==='aborted')return route.abort();
           return route.fulfill({status:applyMode==='empty'?200:504,contentType:'text/html',body:applyMode==='empty'?'':'<h1>Gateway Timeout</h1>'});
         }
