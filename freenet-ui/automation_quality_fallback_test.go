@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // The fixture uses only synthetic TEST-ID-A/B profiles. No subscription or
@@ -99,7 +97,7 @@ func TestAutomationQualityFallbackOnlyAfterPreMutationCandidateFailure(t *testin
 			t.Setenv("FREENET_TEST_QUALITY_CALLS", callsPath)
 			t.Setenv("FREENET_TEST_QUALITY_OUT", guard.app.cfg.OutPath)
 			provider := writeFakeNetworkHelper(t, `
-printf '%s\\n' "$1" >> "$FREENET_TEST_QUALITY_CALLS"
+printf '%s\n' "$1" >> "$FREENET_TEST_QUALITY_CALLS"
 if grep -F 'TEST-ID-B@203.0.113.11:443' "$FREENET_PROVIDER_SUBSCRIPTION_CACHE" >/dev/null; then
   endpoint=203.0.113.11:443
   address=203.0.113.11
@@ -122,7 +120,9 @@ MUTATION=NONE
 ========== END ==========
 EOF
 if [ "$1" = apply-core ]; then
-  printf '%s\\n' "{\\\"outbounds\\\":[{\\\"tag\\\":\\\"vless-reality\\\",\\\"settings\\\":{\\\"vnext\\\":[{\\\"address\\\":\\\"$address\\\",\\\"port\\\":443}]}}]}" > "$FREENET_TEST_QUALITY_OUT"
+  cat > "$FREENET_TEST_QUALITY_OUT" <<EOF
+{"outbounds":[{"tag":"vless-reality","settings":{"vnext":[{"address":"$address","port":443}]}}]}
+EOF
   echo '[FreeNet Provider] RESULT=SUCCESS'
 fi
 exit 0`)
@@ -184,9 +184,6 @@ exit 0`)
 				first.Profile.ID,scan.CurrentEndpoint,readBestServerCurrentFilter(guard.app.cfg.FilterPath));err==nil{
 				t.Fatal("first selection token remained replayable after apply admission")
 			}
-			// Bounded selection took place under the same scan evidence.
-			_ = http.StatusConflict
-			_ = time.Second
 		})
 	}
 }
