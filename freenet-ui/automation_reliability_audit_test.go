@@ -110,3 +110,19 @@ func TestAutoVPNServiceDiagnosticsRemainSoftNotFalseAntiBotFailures(t *testing.T
 		t.Fatalf("unknown service was turned into a real error: %+v", unknown)
 	}
 }
+
+func TestAutoVPNOptionalChatGPTAndServiceHintsCannotExhaustCandidateBudget(t *testing.T) {
+	nearDeadline, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if automationOptionalServiceBudget(nearDeadline) {
+		t.Fatal("optional service hints must not run when a measured candidate is near timeout")
+	}
+	ampleBudget, cancelAmple := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelAmple()
+	if !automationOptionalServiceBudget(ampleBudget) {
+		t.Fatal("read-only service hints should run when they fit the deadline")
+	}
+	if automationOptionalServiceBudget(nil) {
+		t.Fatal("nil context cannot authorize network probes")
+	}
+}
