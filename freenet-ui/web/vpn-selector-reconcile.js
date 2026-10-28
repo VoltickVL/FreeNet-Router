@@ -1,5 +1,5 @@
 (() => {
-  const flagPrefix = /^[\\u{1F1E6}-\\u{1F1FF}]{2}\\s+/u;
+  const flagPrefix = /^[\u{1F1E6}-\u{1F1FF}]{2}\s+/u;
 
   function qs(selector, root = document) {
     return root.querySelector(selector);
