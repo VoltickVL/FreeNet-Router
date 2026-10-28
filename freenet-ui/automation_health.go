@@ -907,12 +907,13 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		return recordAndReturnHealth(automationHealthResult{State: "disabled", Reason: "AUTO VPN выключен."}, nil)
 	}
 	_ = v3WriteState(map[string]string{"HEALTH_SCHEDULE_LAST": time.Now().UTC().Format(time.RFC3339)})
-	// A complete candidate scan already consumes the isolated-Xray and network
-	// budget. Do not launch competing health downloads while that comparison is
-	// running. Dead-owner locks are reclaimed by the next Best scan.
+	// Keep lightweight health observations even during a long Best scan:
+	// loss of basic VPN connectivity must not be hidden for minutes. But never
+	// compete with candidate throughput tests by downloading media concurrently.
 	bestLockPath := automationBestLockPath()
+	bestScanActive := false
 	if info, err := os.Stat(bestLockPath); err == nil && !automationBestLockReclaimable(bestLockPath, info) {
-		return recordAndReturnHealth(automationHealthResult{State: "busy", Reason: "AUTO VPN уже сравнивает серверы; новая нагрузочная проверка пропущена."}, nil)
+		bestScanActive = true
 	}
 
 	// Read-only observation must never monopolize the AUTO health fence. Manual
@@ -921,6 +922,9 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	// exclusive fence when AUTO is actually about to enter recovery/mutation.
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
 	probeCtx = automationScheduledWatchdogMediaContext(probeCtx, time.Now().UTC())
+	if bestScanActive {
+		probeCtx = context.WithValue(probeCtx, automationWatchdogMediaBudgetKey{}, false)
+	}
 	first := a.probeAutomationCurrentVPN(probeCtx)
 	if guarded, blocked := automationRollbackGuardResult(a, first); blocked {
 		cancel()
