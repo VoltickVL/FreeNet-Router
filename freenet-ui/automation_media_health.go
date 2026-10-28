@@ -18,15 +18,20 @@ const (
 	automationMediaSegmentBytes      int64 = 256 * 1024
 	automationMediaSegmentCount            = 2
 	automationMediaSegmentTimeout          = 3 * time.Second
-	// Never send more than 512 KiB per regular media observation. A pair of
-	// completed samples is required to suppress single-transfer fluctuations.
+	// Small transfers may spend most of their time in TCP slow start. Only
+	// suspected slow paths receive one larger, still bounded confirmation.
+	// Healthy watchdog cycles retain their original 2 x 256 KiB budget.
+	automationMediaConfirmationBytes int64 = 1024 * 1024
+	automationMediaConfirmationTimeout = 7 * time.Second
+	// Healthy cycles transfer 512 KiB; a suspect path may transfer 1 MiB more.
+	// A bounded confirmation separates TCP slow start from sustained stalls.
 	automationMediaSlowMbps                = 8.0
 	automationMediaHighTTFB                = 900 * time.Millisecond
 	automationMediaMinSpan                 = 30 * time.Second
 	automationMediaRetryCooldown           = 10 * time.Minute
 	// Bulk media probes should not saturate the router every 30 seconds.
 	// Health availability and service checks retain their configured cadence;
-	// only the two body downloads are limited to one batch per 90 seconds.
+	// only the media batch (and optional 1 MiB confirmation) runs once per 90 seconds.
 	automationWatchdogMediaInterval         = 90 * time.Second
 )
 
@@ -151,13 +156,14 @@ type automationMediaSegmentRunner func(context.Context, string, string, int) aut
 // This bounded GET is routed only through the isolated SOCKS outbound of the exact
 // currently measured VPN. It deliberately does NOT use a PC default route
 // or claim to sample Instagram's private per-session video CDN.
-func runAutomationMediaSegment(ctx context.Context, curlPath, socks string, index int) automationMediaSegment {
-	if ctx == nil || ctx.Err() != nil || index < 0 || index >= automationMediaSegmentCount {
+func runAutomationMediaSegmentSized(ctx context.Context, curlPath, socks string, index int, transferBytes int64, timeout time.Duration) automationMediaSegment {
+	if ctx == nil || ctx.Err() != nil || index < 0 || index > automationMediaSegmentCount ||
+		transferBytes <= 0 || timeout <= 0 {
 		return automationMediaSegment{}
 	}
 	target := fmt.Sprintf("%s?bytes=%d&nonce=%d",
-		bestServerFallbackSpeedURL, automationMediaSegmentBytes, time.Now().UTC().UnixNano()+int64(index))
-	out, err := runBestServerSpeedtestCurl(ctx, curlPath, automationMediaSegmentTimeout,
+		bestServerFallbackSpeedURL, transferBytes, time.Now().UTC().UnixNano()+int64(index))
+	out, err := runBestServerSpeedtestCurl(ctx, curlPath, timeout,
 		"--socks5-hostname", socks,
 		"-sS", "--connect-timeout", "2",
 		"-H", "Cache-Control: no-cache",
@@ -168,13 +174,31 @@ func runAutomationMediaSegment(ctx context.Context, curlPath, socks string, inde
 		return automationMediaSegment{}
 	}
 	if err != nil {
-		return parseAutomationTimedOutMediaSegment(string(out), err, automationMediaSegmentBytes)
+		return parseAutomationTimedOutMediaSegment(string(out), err, transferBytes)
 	}
-	return parseAutomationMediaSegment(string(out), automationMediaSegmentBytes)
+	return parseAutomationMediaSegment(string(out), transferBytes)
 }
 
-func probeAutomationMediaSegmentsWith(ctx context.Context, curlPath, socks string, runner automationMediaSegmentRunner) automationMediaEvidence {
-	if ctx == nil || ctx.Err() != nil || runner == nil || strings.TrimSpace(curlPath) == "" || strings.TrimSpace(socks) == "" {
+func runAutomationMediaSegment(ctx context.Context, curlPath, socks string, index int) automationMediaSegment {
+	return runAutomationMediaSegmentSized(ctx, curlPath, socks, index, automationMediaSegmentBytes, automationMediaSegmentTimeout)
+}
+
+func runAutomationMediaConfirmationSegment(ctx context.Context, curlPath, socks string, index int) automationMediaSegment {
+	return runAutomationMediaSegmentSized(ctx, curlPath, socks, index, automationMediaConfirmationBytes, automationMediaConfirmationTimeout)
+}
+
+// Two short GETs are a low-cost screening signal, not bandwidth proof.
+// TCP slow start makes 256 KiB samples on higher-latency VPN paths appear slow
+// even when the same route transfers sustained bodies quickly. Only suspected
+// slow paths receive a single 1 MiB confirmation, on the SAME source, SOCKS
+// and logical profile. Unknown/partial/cancelled confirmation is never success.
+// The contract's Samples=2 counts the screening pair; confirmation is extra.
+// A single short dip plus a slow 1 MiB confirmation is two independent poor
+// observations, while a mixed short pair plus fast confirmation stays UNKNOWN.
+func probeAutomationMediaSegmentsWith(ctx context.Context, curlPath, socks string,
+	screen, confirm automationMediaSegmentRunner) automationMediaEvidence {
+	if ctx == nil || ctx.Err() != nil || screen == nil || confirm == nil ||
+		strings.TrimSpace(curlPath) == "" || strings.TrimSpace(socks) == "" {
 		return automationMediaEvidence{}
 	}
 	evidence := automationMediaEvidence{}
@@ -183,8 +207,9 @@ func probeAutomationMediaSegmentsWith(ctx context.Context, curlPath, socks strin
 		if ctx.Err() != nil {
 			return automationMediaEvidence{}
 		}
-		sample := runner(ctx, curlPath, socks, i)
-		if !sample.Valid || sample.Mbps <= 0 || math.IsNaN(sample.Mbps) || math.IsInf(sample.Mbps, 0) || ctx.Err() != nil {
+		sample := screen(ctx, curlPath, socks, i)
+		if !sample.Valid || sample.Mbps <= 0 || math.IsNaN(sample.Mbps) ||
+			math.IsInf(sample.Mbps, 0) || ctx.Err() != nil {
 			return automationMediaEvidence{}
 		}
 		if evidence.MinMbps == 0 || sample.Mbps < evidence.MinMbps {
@@ -195,21 +220,38 @@ func probeAutomationMediaSegmentsWith(ctx context.Context, curlPath, socks strin
 		}
 		evidence.Samples++
 	}
-	// A mixed sample is not a known-good or confirmed-degraded media path.
-	// Never transform a one-off dip into an automatic candidate scan.
-	if slow > 0 && slow < automationMediaSegmentCount {
+	if slow == 0 {
+		evidence.Complete = true
+		return evidence
+	}
+	if ctx.Err() != nil {
 		return automationMediaEvidence{}
 	}
+	sustained := confirm(ctx, curlPath, socks, automationMediaSegmentCount)
+	if !sustained.Valid || sustained.Mbps <= 0 || math.IsNaN(sustained.Mbps) ||
+		math.IsInf(sustained.Mbps, 0) || ctx.Err() != nil {
+		return automationMediaEvidence{}
+	}
+	// The larger transfer is authoritative for body throughput; the short
+	// cold-start value must not be propagated into candidate eligibility.
+	evidence.MinMbps = sustained.Mbps
+	if !sustained.Degraded {
+		if slow == automationMediaSegmentCount {
+			evidence.Complete = true // consistent cold-start penalty, not a stall
+			return evidence
+		}
+		return automationMediaEvidence{} // mixed signals, no automatic decision
+	}
 	evidence.Complete = true
-	evidence.Degraded = slow == automationMediaSegmentCount
+	evidence.Degraded = true
 	return evidence
 }
 
 func probeAutomationMediaSegments(ctx context.Context, curlPath, socks string) automationMediaEvidence {
-	return probeAutomationMediaSegmentsWith(ctx, curlPath, socks, runAutomationMediaSegment)
+	return probeAutomationMediaSegmentsWith(ctx, curlPath, socks,
+		runAutomationMediaSegment, runAutomationMediaConfirmationSegment)
 }
 
- 
 // Current VPN "reachable" and video-like transfer quality are independent.
 // A media signal can start a measured comparison, never global outage recovery.
 func classifyAutomationMediaQuality(base automationHealthProbe, media automationMediaEvidence) automationHealthProbe {
