@@ -774,6 +774,28 @@ func automationBestLockPath() string {
 	return "/tmp/freenet-auto-best.lock"
 }
 
+// Self-update can terminate an active Best scan without running its defer.
+// Reclaim an abandoned lock as soon as the owning process disappears rather
+// than waiting 15 minutes while media QoE is already degraded. Never steal a
+// lock whose recorded process is still alive, even if its scan is slow.
+func automationBestLockReclaimable(path string, info os.FileInfo) bool {
+	if info == nil || !info.IsDir() {
+		return false
+	}
+	if data, err := os.ReadFile(filepath.Join(path, "pid")); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil && pid > 0 {
+			if pid == os.Getpid() {
+				return false
+			}
+			_, err = os.Stat(filepath.Join("/proc", strconv.Itoa(pid)))
+			return os.IsNotExist(err) // Unknown proc state means keep the lock.
+		}
+	}
+	// Preserve the old bounded recovery for a crash between mkdir and PID
+	// publication; never infer a dead owner solely from a fresh missing file.
+	return time.Since(info.ModTime()) > 15*time.Minute
+}
+
 func acquireAutomationBestLock() (func(), error) {
 	path := automationBestLockPath()
 	try := func() error {
@@ -786,10 +808,14 @@ func acquireAutomationBestLock() (func(), error) {
 	if err := try(); err == nil {
 		return func() { _ = os.RemoveAll(path) }, nil
 	}
-	if info, err := os.Stat(path); err == nil && time.Since(info.ModTime()) > 15*time.Minute {
-		_ = os.RemoveAll(path)
-		if err := try(); err == nil {
-			return func() { _ = os.RemoveAll(path) }, nil
+	if info, err := os.Stat(path); err == nil && automationBestLockReclaimable(path, info) {
+		// Another process may have released and re-acquired the path since the
+		// first inspection. Never remove a replacement owner's lock.
+		if latest, err := os.Stat(path); err == nil && os.SameFile(info, latest) {
+			_ = os.RemoveAll(path)
+			if err := try(); err == nil {
+				return func() { _ = os.RemoveAll(path) }, nil
+			}
 		}
 	}
 	return nil, errAutomationBusy
@@ -880,6 +906,35 @@ func (a *app) scanBestServerForeignForMode(ctx context.Context, settings automat
 		return bestServerQualityResponse{}, err
 	}
 	return response, nil
+}
+
+// A failed scan must explain whether the router lacked tested alternatives or
+// measured them and found slow media. Aggregate counts only: never print
+// subscription URLs, VLESS identifiers, endpoints, tokens or raw configs.
+func automationQualityScanSummary(response bestServerQualityResponse) string {
+	tested, completeMedia, slowMedia, missingMedia := 0, 0, 0, 0
+	for _, candidate := range response.Candidates {
+		if !candidate.Tested {
+			continue
+		}
+		tested++
+		if candidate.ThroughputSource != bestServerThroughputAutoMedia ||
+			candidate.MediaSamples != automationMediaSegmentCount {
+			missingMedia++
+			continue
+		}
+		completeMedia++
+		if candidate.MediaGrade != "good" || candidate.MediaStalls > 0 ||
+			candidate.MediaMbps < automationMediaSlowMbps {
+			slowMedia++
+		}
+	}
+	message := fmt.Sprintf("Из %d разрешённых профилей выполнено %d глубоких проверок; последовательное видео: %d полных, %d медленных, %d незавершённых; Eligible: %d.",
+		response.ProfilesScanned, tested, completeMedia, slowMedia, missingMedia, response.EligibleFound)
+	if response.Partial {
+		message += " Бюджет времени ограничил проверку."
+	}
+	return message
 }
 
 func bestAutomationCandidate(response bestServerQualityResponse) (bestServerQualityCandidate, bool) {
@@ -1149,6 +1204,9 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 		if currentState == "degraded" {
 			result = "uncertain"
 			reason = "Ухудшение качества VPN подтверждено, но более стабильный проверенный сервер не найден. Текущий VPN сохранён; повторный поиск после паузы."
+			if qualityIntent {
+				reason += " " + automationQualityScanSummary(candidates)
+			}
 		}
 		writeAutomationStateV2(result, reason, "no", false)
 		appendAutomationHistoryV2(result, reason)

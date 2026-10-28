@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/bits"
 	"net"
 	"net/http"
 	"os"
@@ -546,6 +547,17 @@ func (a *app) probeBestServerQualityApplicationMode(ctx context.Context, candida
 		result.DownloadOK = true
 		result.DownloadMbps = media.MinMbps
 		result.ThroughputSource = bestServerThroughputAutoMedia
+		// Only candidates that can actually transfer sequential media get
+		// the additional lightweight HTTPS service/ChatGPT diagnostics.
+		// HTTP restrictions are not VPN failures or hard rejection gates.
+		// Optional hints may not consume the last seconds of the 50s
+		// deep-candidate budget: a fully completed video test is stronger
+		// than missing soft HTTP metadata.
+		if automationOptionalServiceBudget(ctx) {
+			services := probeBestServerServiceReachabilityDetailed(ctx, curlPath, socks)
+			chatGPTStatus := probeBestServerChatGPTHTTPS(ctx, curlPath, socks)
+			applyAutoMediaServiceDiagnostics(&result.Media, services, chatGPTStatus)
+		}
 		return result
 	}
 	result.Media = probeBestServerMediaQuality(ctx, curlPath, socks)
@@ -560,6 +572,30 @@ func (a *app) probeBestServerQualityApplicationMode(ctx context.Context, candida
 		}
 	}
 	return result
+}
+
+// Allow optional lightweight origin hints only if they cannot run into the
+// candidate scan deadline. A missing hint is not a reason to discard a
+// successful sequential media transfer.
+func automationOptionalServiceBudget(ctx context.Context) bool {
+	if ctx == nil || ctx.Err() != nil {
+		return false
+	}
+	deadline, ok := ctx.Deadline()
+	return !ok || time.Until(deadline) > bestServerServiceTimeout+bestServerChatGPTHTTPSDeadline+2*time.Second
+}
+
+// Application availability is a soft ranking signal, not a fake playback
+// guarantee. Count only verified service responses; unknown/403 statuses
+// cannot declare every working VPN unavailable. Credentials are not logged.
+func applyAutoMediaServiceDiagnostics(media *bestServerMediaQualityResult, services bestServerServiceReachabilityResult, chatGPTStatus string) {
+	if media == nil {
+		return
+	}
+	media.ServiceOK = bits.OnesCount8(services.OKMask)
+	media.ServiceTotal = bits.OnesCount8(services.OKMask | services.BadMask)
+	media.ChatGPTHTTPSStatus = sanitizeBestServerChatGPTHTTPSStatus(chatGPTStatus)
+	media.Penalty += bits.OnesCount8(services.BadMask) * 250
 }
 
 func eligibleBestServerQuality(c bestServerQualityCandidate) bool {

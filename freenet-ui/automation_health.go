@@ -548,9 +548,15 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	probe.ServiceBadMask = services.BadMask
 	probe.ServiceComplete = services.Complete
 
-	// Only after a verified generic HTTPS path and complete service evidence:
-	// a bounded 1 MiB transfer over the *same isolated current VPN* detects
-	// streaming-like degradation that a fast HEAD/RTT cannot observe.
+	// At the regular health cadence, prefer lightweight availability checks.
+	// Complete sequential transfers run at most once per media-budget interval.
+	// Final provider admission and explicit diagnostics never carry this limit.
+	if !automationMediaProbeAllowed(ctx) {
+		if !services.Complete && probe.State == automationHealthHealthy {
+			probe.Reason = "VPN отвечает; не все сервисные HTTP-ответы однозначны. Фоновый тест медиапередачи выполняется по отдельному расписанию."
+		}
+		return probe
+	}
 	media := probeAutomationMediaSegments(ctx, curlPath, socks)
 	if ctx.Err() != nil {
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Проверка медиапотока не завершена; текущее соединение сохраняется."}
@@ -901,12 +907,24 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		return recordAndReturnHealth(automationHealthResult{State: "disabled", Reason: "AUTO VPN выключен."}, nil)
 	}
 	_ = v3WriteState(map[string]string{"HEALTH_SCHEDULE_LAST": time.Now().UTC().Format(time.RFC3339)})
+	// Keep lightweight health observations even during a long Best scan:
+	// loss of basic VPN connectivity must not be hidden for minutes. But never
+	// compete with candidate throughput tests by downloading media concurrently.
+	bestLockPath := automationBestLockPath()
+	bestScanActive := false
+	if info, err := os.Stat(bestLockPath); err == nil && !automationBestLockReclaimable(bestLockPath, info) {
+		bestScanActive = true
+	}
 
 	// Read-only observation must never monopolize the AUTO health fence. Manual
 	// Current VPN / Best Server diagnostics are the recovery path when a router
 	// is already degraded, especially immediately after an update. Only take the
 	// exclusive fence when AUTO is actually about to enter recovery/mutation.
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
+	probeCtx = automationScheduledWatchdogMediaContext(probeCtx, time.Now().UTC())
+	if bestScanActive {
+		probeCtx = context.WithValue(probeCtx, automationWatchdogMediaBudgetKey{}, false)
+	}
 	first := a.probeAutomationCurrentVPN(probeCtx)
 	if guarded, blocked := automationRollbackGuardResult(a, first); blocked {
 		cancel()
@@ -936,6 +954,11 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 		if qualityDue {
 			appendAutomationRecoveryStage("quality_optimization", "start", automationQualityOptimizationStartReason(first))
 			best, bestErr := a.runAutomationQualityCycle(parent, settings, qualityTrigger)
+			if best.Result == "busy" {
+				// Busy is not a completed scan. Preserve the next opportunity
+				// instead of consuming 10 minutes of video QoE retry cooldown.
+				automationReleaseQualityOptimizationReservation(qualityTrigger)
+			}
 			appendAutomationRecoveryStage("quality_optimization", best.Result, best.Reason)
 			return recordAndReturnHealth(automationHealthResult{State: best.Result, Reason: best.Reason, Mutated: best.Mutated}, bestErr)
 		}
