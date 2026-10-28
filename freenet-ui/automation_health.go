@@ -715,6 +715,53 @@ func (a *app) startAutomationHealthScheduler() {
 	}()
 }
 
+// Complete bounded media over the exact configured VPN is evidence of a
+// reachable but degraded connection. It must not be confused with an unknown
+// Xray/rollback state or require a healthy video stream before AutoVPN can
+// select a replacement.
+func automationExactDegradedMedia(a *app, probe automationHealthProbe) bool {
+	if a == nil || probe.State != automationHealthUncertain ||
+		!probe.QualityDegraded || !probe.MediaComplete || !probe.MediaDegraded ||
+		probe.ServiceOKMask == 0 || !validAutomationQualityIdentity(probe.CurrentIdentity) {
+		return false
+	}
+	endpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+	filter := readBestServerCurrentFilter(a.cfg.FilterPath)
+	return endpoint != "" && strings.TrimSpace(filter) != "" &&
+		bestServerCurrentQualityIdentityHash(endpoint, filter) == probe.CurrentIdentity
+}
+
+// beta.47 could record UNKNOWN for a writer semaphore conflict that happened
+// BEFORE provider admission, while self-update owned the writer. Reconcile
+// only that exact old incident, only after completed read-only media evidence
+// for the same live VPN and with no pending checkpoint or writer/update lock.
+// A genuine UNKNOWN/FAILED rollback, missing evidence or new operation is STOP.
+func (a *app) reconcileLegacyBusyBeforeMutation(probe automationHealthProbe) bool {
+	if !automationExactDegradedMedia(a, probe) || vpnTransactionPending() ||
+		vpnMutationLockState(a.cfg.LockPath, selfUpdateProcRoot()) != "absent" ||
+		a.updateLockHeld() {
+		return false
+	}
+	updating, _, _ := a.currentUpdateActivity()
+	if updating || automationPendingPostUpdateTarget(a) == "" {
+		return false
+	}
+	state := parseAutomationState(automationStatePath())
+	if state["LAST_RESULT"] != "failed" ||
+		state["LAST_REASON"] != "Подтверждённый VPN не применён: another FreeNet operation is already running" ||
+		!strings.EqualFold(state["ROLLBACK_READY"], "unknown") ||
+		!strings.EqualFold(state["MUTATION_BLOCKED"], "yes") {
+		return false
+	}
+	setAutomationMutationBlocked(false)
+	if automationMutationBlockedState() {
+		return false // persistence failed or checkpoint appeared
+	}
+	appendAutomationRecoveryStage("rollback_guard", "reconciled_pre_mutation_busy",
+		"Конфликт с обновлением произошёл до изменения VPN; текущий профиль подтвердил HTTPS и медиапередачу. Ложная блокировка снята.")
+	return true
+}
+
 func automationPostUpdateGuardResult(a *app, first automationHealthProbe) (automationHealthResult, bool) {
 	target := automationPendingPostUpdateTarget(a)
 	if target == "" {
@@ -726,6 +773,22 @@ func automationPostUpdateGuardResult(a *app, first automationHealthProbe) (autom
 		appendAutomationRecoveryStage("post_update_guard", "cleared", reason)
 		appendAutomationHistoryV2("post_update_guard_cleared", reason)
 		return automationHealthResult{State: automationHealthHealthy, Reason: reason}, true
+	}
+	// Quality regression is precisely why AUTO exists. Once the current VPN
+	// has provided two complete slow media segments over its unchanged
+	// identity, acknowledge a successful FreeNet update and CONTINUE into
+	// the normal repeated-quality comparison; do not label the VPN healthy.
+	if automationExactDegradedMedia(a, first) && !automationMutationBlockedState() &&
+		!a.updateLockHeld() {
+		updating, _, _ := a.currentUpdateActivity()
+		if !updating {
+			setAutomationPostUpdateAck(target)
+			if automationPendingPostUpdateTarget(a) == "" {
+				appendAutomationRecoveryStage("post_update_guard", "degraded_allowed",
+					"FreeNet обновлён; VPN доступен, но медиапередача медленная. AUTO продолжает сравнение серверов.")
+				return automationHealthResult{}, false
+			}
+		}
 	}
 	if first.State == automationHealthFailed {
 		// A confirmed failed VPN must not create an impossible post-update
@@ -800,6 +863,9 @@ func automationRollbackGuardResult(a *app, first automationHealthProbe) (automat
 		}
 		return automationHealthResult{State: automationHealthUncertain, Reason: reason}, true
 	}
+	if a.reconcileLegacyBusyBeforeMutation(first) {
+		return automationHealthResult{}, false
+	}
 	if first.State == automationHealthHealthy {
 		setAutomationMutationBlocked(false)
 		reason := "Фактическое состояние текущего VPN подтверждено read-only проверкой; аварийный запрет AUTO mutation снят."
@@ -842,11 +908,11 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	// exclusive fence when AUTO is actually about to enter recovery/mutation.
 	probeCtx, cancel := context.WithTimeout(parent, automationHealthRunTimeout)
 	first := a.probeAutomationCurrentVPN(probeCtx)
-	if guarded, blocked := automationPostUpdateGuardResult(a, first); blocked {
+	if guarded, blocked := automationRollbackGuardResult(a, first); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
-	if guarded, blocked := automationRollbackGuardResult(a, first); blocked {
+	if guarded, blocked := automationPostUpdateGuardResult(a, first); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
@@ -890,11 +956,11 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	initialFailure := first
 	probeCtx, cancel = context.WithTimeout(parent, automationHealthRunTimeout)
 	confirm := a.probeAutomationCurrentVPN(probeCtx)
-	if guarded, blocked := automationPostUpdateGuardResult(a, confirm); blocked {
+	if guarded, blocked := automationRollbackGuardResult(a, confirm); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
-	if guarded, blocked := automationRollbackGuardResult(a, confirm); blocked {
+	if guarded, blocked := automationPostUpdateGuardResult(a, confirm); blocked {
 		cancel()
 		return recordAndReturnHealth(guarded, nil)
 	}
