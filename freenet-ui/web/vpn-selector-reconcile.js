@@ -1,6 +1,5 @@
 (() => {
-  const pendingTitles = new Set(['Требуется проверка состояния', 'Связь прервалась']);
-  const flagPrefix = /^[\u{1F1E6}-\u{1F1FF}]{2}\s+/u;
+  const flagPrefix = /^[\\u{1F1E6}-\\u{1F1FF}]{2}\\s+/u;
 
   function qs(selector, root = document) {
     return root.querySelector(selector);
@@ -13,15 +12,6 @@
   function deferMountGuards() {
     if (typeof queueMicrotask === 'function') queueMicrotask(mountGuards);
     else Promise.resolve().then(mountGuards).catch(() => {});
-  }
-
-  function pendingEndpoint() {
-    const card = qs('#selectedProfileCard');
-    if (!card) return '';
-    const title = String(card.querySelector('strong')?.textContent || '').trim();
-    if (!pendingTitles.has(title)) return '';
-    const endpoint = String(card.querySelector('.selected-endpoint')?.textContent || '').trim();
-    return endpoint && endpoint !== '—' ? endpoint : '';
   }
 
   function hideStaleNotice(id) {
@@ -62,48 +52,16 @@
     if (text && !String(text.textContent || '').trim()) text.textContent = 'Выбрать VPN-сервер';
   }
 
-  function finishPendingManualSwitch() {
-    if (typeof selectedProviderID !== 'undefined') selectedProviderID = '';
-    if (typeof selectedProviderName !== 'undefined') selectedProviderName = '';
-    if (typeof providerPlanReady !== 'undefined') providerPlanReady = false;
-    if (typeof providerApplied !== 'undefined') providerApplied = true;
-
-    if (typeof renderProfileOptions === 'function') renderProfileOptions();
-    if (typeof renderSelectedProfile === 'function') renderSelectedProfile(null);
-    else {
-      const card = qs('#selectedProfileCard');
-      if (card) {
-        card.textContent = '';
-        card.hidden = true;
-      }
-    }
-
-    const quick = qs('#quickActionsSection');
-    const exactRow = qs('#exactConnectRow');
-    const routine = quick && quick.querySelector('.action-row:not(#exactConnectRow)');
-    if (exactRow) exactRow.hidden = true;
-    if (routine) routine.hidden = false;
-
-    const connect = qs('#exactConnectBtn');
-    if (connect) {
-      connect.disabled = true;
-      connect.textContent = 'Выберите сервер заново';
-    }
-
+  // Only the exact backend transaction receipt may close a manual switch.
+  // /api/status endpoint matching is insufficient: many Extra profiles share
+  // an IP:port, and a live helper may still roll back after a partial cutover.
+  function finishVerifiedManualSwitch(event) {
+    const proof = event && event.detail;
+    if (!proof || !proof.profile_id || !proof.endpoint) return;
     closeTopbarSelector();
     if (typeof closeProfileMenu === 'function') closeProfileMenu();
     if (window.FreeNetVPNPicker && typeof window.FreeNetVPNPicker.close === 'function') window.FreeNetVPNPicker.close();
     hideStaleNotice('providerNotice');
-    hideStaleNotice('notice');
-  }
-
-  function reconcilePendingManualSwitch(status) {
-    const expectedEndpoint = pendingEndpoint();
-    if (!expectedEndpoint || !status) return false;
-    const accepted = status.endpoint === expectedEndpoint && !status.busy && !status.updater_busy && status.xray_online === true;
-    if (!accepted) return false;
-    finishPendingManualSwitch();
-    return true;
   }
 
   function clearSelectorAfterSuccessfulStatus(status) {
@@ -179,12 +137,13 @@
     const previousUpdateStatusViews = updateStatusViews;
     updateStatusViews = function(status) {
       const result = previousUpdateStatusViews.apply(this, arguments);
-      reconcilePendingManualSwitch(status);
       clearSelectorAfterSuccessfulStatus(status);
       mountGuards();
       return result;
     };
   }
+
+  document.addEventListener('freenet:manual-vpn-verified', finishVerifiedManualSwitch);
 
   document.addEventListener('click', event => {
     if (!event.target?.closest?.('#profilesTrigger, #profilesMenu')) return;
