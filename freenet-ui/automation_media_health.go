@@ -15,16 +15,54 @@ const (
 	// A media-like body transfer is not a user Instagram session. Its two
 	// independent samples are a bounded throughput/TTFB *risk signal*, never
 	// proof that a Reel played or that the VPN is disconnected.
-	automationMediaSegmentBytes      int64 = 512 * 1024
+	automationMediaSegmentBytes      int64 = 256 * 1024
 	automationMediaSegmentCount            = 2
 	automationMediaSegmentTimeout          = 3 * time.Second
-	// Never send more than 1 MiB per regular health observation. A pair of
+	// Never send more than 512 KiB per regular media observation. A pair of
 	// completed samples is required to suppress single-transfer fluctuations.
 	automationMediaSlowMbps                = 8.0
 	automationMediaHighTTFB                = 900 * time.Millisecond
 	automationMediaMinSpan                 = 30 * time.Second
 	automationMediaRetryCooldown           = 10 * time.Minute
+	// Bulk media probes should not saturate the router every 30 seconds.
+	// Health availability and service checks retain their configured cadence;
+	// only the two body downloads are limited to one batch per 90 seconds.
+	automationWatchdogMediaInterval         = 90 * time.Second
 )
+
+type automationWatchdogMediaBudgetKey struct{}
+
+// The ordinary 30-second health watcher performs lightweight HTTPS checks.
+// Reserve a separate bounded media batch at most once per 90 seconds, across
+// service restarts. Explicit admission and manual diagnostics remain complete.
+// A failed state write never authorizes an unbudgeted bulk transfer.
+func automationScheduledWatchdogMediaContext(ctx context.Context, now time.Time) context.Context {
+	if ctx == nil {
+		return ctx
+	}
+	due := false
+	err := v3UpdateState(func(state map[string]string) map[string]string {
+		last, parseErr := time.Parse(time.RFC3339Nano, strings.TrimSpace(state["HEALTH_MEDIA_LAST"]))
+		if parseErr == nil && !now.Before(last) && now.Sub(last) < automationWatchdogMediaInterval {
+			return nil
+		}
+		// Do not override unknown future state: its author may still be active.
+		if parseErr == nil && now.Before(last) {
+			return nil
+		}
+		due = true
+		return map[string]string{"HEALTH_MEDIA_LAST": now.UTC().Format(time.RFC3339Nano)}
+	})
+	return context.WithValue(ctx, automationWatchdogMediaBudgetKey{}, err == nil && due)
+}
+
+func automationMediaProbeAllowed(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	allowed, watchdog := ctx.Value(automationWatchdogMediaBudgetKey{}).(bool)
+	return !watchdog || allowed
+}
 
 type automationMediaSegment struct {
 	Mbps      float64
@@ -40,7 +78,7 @@ type automationMediaEvidence struct {
 	Samples   int
 }
 
-// Only accept a fully received 512 KiB body from HTTP 200 with consistent
+// Only accept a fully received 256 KiB body from HTTP 200 with consistent
 // transfer timings. HTTP 4xx, redirects, partial bodies and a timed-out tool
 // are UNKNOWN, not confirmation of a bad route or an automatic-switch trigger.
 func parseAutomationMediaSegment(output string, expectedBytes int64) automationMediaSegment {
@@ -110,7 +148,7 @@ func parseAutomationTimedOutMediaSegment(output string, err error, expectedBytes
 
 type automationMediaSegmentRunner func(context.Context, string, string, int) automationMediaSegment
 
-// This GET is routed only through the isolated SOCKS outbound of the exact
+// This bounded GET is routed only through the isolated SOCKS outbound of the exact
 // currently measured VPN. It deliberately does NOT use a PC default route
 // or claim to sample Instagram's private per-session video CDN.
 func runAutomationMediaSegment(ctx context.Context, curlPath, socks string, index int) automationMediaSegment {
