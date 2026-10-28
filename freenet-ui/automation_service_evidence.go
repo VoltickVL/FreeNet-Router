@@ -19,6 +19,8 @@ type automationQualityTrigger struct {
 	ServiceBadMask  uint8
 	LatencyDegraded bool
 	MediaDegraded   bool
+	// BUSY before a scan may refund only its own exact cooldown slot.
+	ReservedAt      string
 }
 
 func validAutomationQualityIdentity(identity string) bool {
@@ -146,6 +148,7 @@ func automationReachableQualityOptimizationPlan(state map[string]string, now tim
 		ServiceBadMask:  serviceMask,
 		LatencyDegraded: latencyDue,
 		MediaDegraded: mediaDue,
+		ReservedAt:    now.UTC().Format(time.RFC3339),
 	}
 	return updates, trigger, true
 }
@@ -162,4 +165,18 @@ func automationReachableQualityOptimizationDue(now time.Time, probe automationHe
 		return automationQualityTrigger{}, false
 	}
 	return trigger, due
+}
+
+// A BUSY lock acquisition is not a measured comparison. Refund only our
+// exact reservation; do not clear a newer or completed scan's cooldown.
+func automationReleaseQualityOptimizationReservation(trigger automationQualityTrigger) {
+	if !validAutomationQualityTrigger(trigger) || strings.TrimSpace(trigger.ReservedAt) == "" {
+		return
+	}
+	_ = v3UpdateState(func(state map[string]string) map[string]string {
+		if strings.TrimSpace(state["QUALITY_OPTIMIZATION_LAST"]) != trigger.ReservedAt {
+			return nil
+		}
+		return map[string]string{"QUALITY_OPTIMIZATION_LAST": ""}
+	})
 }
