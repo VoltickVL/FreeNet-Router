@@ -226,6 +226,7 @@ func (a *app) rankMeasuredBestServerBatches(
 			for i := range batch.Candidates {
 				if automationMediaMeasuredCandidateEligible(batch.Candidates[i]) {
 					batch.Candidates[i].Eligible = true
+					batch.Candidates[i].Rejections = nil // generic manual Speedtest rules do not apply
 				}
 			}
 		}
