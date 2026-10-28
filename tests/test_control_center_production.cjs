@@ -528,7 +528,8 @@ async function capture(label){
   await page.locator(C).click();await page.locator(C).dispatchEvent('click');
   await until(()=>document.querySelector('#fnVpnPickerV2Country').textContent==='Германия','connected country');await until(()=>document.querySelector('#fnVpnPickerV2Panel').hidden && !document.querySelector('#notice').hidden && document.querySelector('#notice').textContent.includes('Конфигурация применена:'),'verified apply');
   assert.equal(countApply(),1,'double click cannot apply twice');assert.equal(await page.locator(C).isDisabled(),true);
-  await page.locator('#fnVpnPickerV2Reset').click();planDelay=0;planMode='error';
+  // Verified apply closes and clears the picker; reopen for the next choice.
+  await page.locator('#fnVpnPickerV2Toggle').click();planDelay=0;planMode='error';
   // Preflight failure must not disable an explicit manual choice. Only a
   // guarded apply may validate Xray+HTTPS or perform rollback.
   await page.evaluate(()=>{window.freenetManualRTTSelection=null;});
