@@ -244,8 +244,9 @@ func TestAutoMediaCandidateCanBeVerifiedWithoutAllHEADResponses(t *testing.T){
 	c:=bestServerQualityCandidate{
 		ID:profile.ID, Tested:true, Available:true, Reachable:true, Current:false,
 		ApplicationMS:145, HTTPSamples:bestServerQualityHTTPRuns, JitterMS:15,
-		DownloadMbps:45, MediaMbps:38, MediaSamples:bestServerMediaRequiredRuns,
-		MediaStalls:0, MediaGrade:"poor", ServiceOK:1, ServiceTotal:4,
+		ThroughputSource:bestServerThroughputAutoMedia,
+		DownloadMbps:14, MediaMbps:14, MediaSamples:automationMediaSegmentCount,
+		MediaStalls:0, MediaGrade:"good", ServiceOK:1, ServiceTotal:4,
 	}
 	if c.Eligible || !automationMediaMeasuredCandidateEligible(c) {
 		t.Fatal("strict HEAD failed to admit an independently verified stream candidate")
