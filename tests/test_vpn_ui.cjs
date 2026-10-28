@@ -163,7 +163,7 @@ const server = http.createServer((req,res)=>{
           status={...status,profile_label:winner.name,busy:false,updater_busy:false,xray_online:true};
           await new Promise(resolve=>{releaseHeldApply=resolve;});
           status={...status,country:'Литва',city:'Вильнюс',country_code:'lt',profile_label:expectedApply.name};
-          return answer(route,{success:true,applied:true});
+          return answer(route,{success:true,applied:true,operation:'provider',profile_id:payload.profile_id,rollback_state:'NOT_NEEDED',provider_plan:{success:true,profile_id:payload.profile_id,profile_name:expectedApply.name,endpoint:expectedApply.endpoint}});
         }
         if(applyMode!=='ok'){
           status=expectedApply.id===second.id
@@ -749,6 +749,7 @@ const server = http.createServer((req,res)=>{
       assert.equal(mutationPosts().length,postsBefore,'manual selection only validates');
       await page.locator('#fnVpnPickerV2Connect').click();
       if(scenario==='other')await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('пока не подтверждён'));
+      else if(scenario==='gateway')await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Связь прервалась') || document.querySelector('#notice').textContent.includes('Результат VPN-транзакции не подтверждён'));
       else await page.waitForFunction(()=>document.querySelector('#notice').textContent.includes('Конфигурация применена:'));
       assert.equal(status.country_code,'','exact Extra acceptance must not depend on legacy country mapping');
       assert.equal(mutationPosts().length,postsBefore+1);
@@ -786,8 +787,8 @@ const server = http.createServer((req,res)=>{
     assert.equal(mutationPosts().length,beforeDelayedApply+1,'delayed POST cannot trigger another mutation');
     assert.equal(typeof releaseHeldApply,'function','held response must be a single controlled request');
     releaseHeldApply();
-    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Footer').dataset.state==='success');
-    assert.equal(mutationPosts().length,beforeDelayedApply+1,'terminal status does not repeat Apply');
+    await page.waitForFunction(()=>document.querySelector('#fnVpnPickerV2Panel').hidden && document.querySelector('#notice')?.textContent.includes('Конфигурация применена:'));
+    assert.equal(mutationPosts().length,beforeDelayedApply+1,'terminal receipt does not repeat Apply');
     applyMode='ok';
 
     // Installed Beta must not silently fetch heavy Stable releases in the
