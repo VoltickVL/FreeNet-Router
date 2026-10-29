@@ -25,6 +25,9 @@ type providerPlanResponse struct {
 	XrayRunning     bool   `json:"xray_running"`
 	CandidateValid  bool   `json:"candidate_xray_valid"`
 	CandidateRouteOK bool  `json:"candidate_route_ok"`
+	// Distinct from a fresh route test: exact AUTO snapshot measurement
+	// may support a fast read-only plan, but not authorization to mutate.
+	CandidateRouteMeasured bool `json:"candidate_route_measured,omitempty"`
 	ExpectedDelta   string `json:"expected_delta,omitempty"`
 	ExpectedNoDelta string `json:"expected_no_delta,omitempty"`
 	Mutation        string `json:"mutation,omitempty"`
@@ -588,6 +591,9 @@ func (a *app) executeProviderProfileApply(req networkApplyRequest) (int, network
 type providerApplyAdmission struct {
 	beforeQuiesce  func(bestServerInternalCandidate) error
 	beforeMutation func() error
+	// Only the internal fully-measured AUTO media path may defer a duplicate
+	// isolated route test from plan into the still mandatory apply-core stage.
+	measuredRoutePlan bool
 }
 
 func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onManualStart func(providerPlanResponse)) (int, networkApplyResponse) {
@@ -668,7 +674,12 @@ func (a *app) executeProviderProfileApplyWithAdmission(req networkApplyRequest, 
 				Mutation: "NONE",
 			}
 		} else {
-			providerPlan, err = a.runProviderSelectionPlan(selected)
+			// No separate route probe is necessary in the preview when the
+			// same signed selection was measured by AUTO and will be checked
+			// again by admission and apply-core BEFORE ANY mutation.
+			measuredPlan := admission != nil && admission.measuredRoutePlan &&
+				admission.beforeQuiesce != nil && admission.beforeMutation != nil
+			providerPlan, err = a.runProviderSelectionPlanWithMeasuredRoute(selected, measuredPlan)
 		}
 	} else {
 		providerPlan, err = a.runProviderPlan(profileID)
@@ -676,7 +687,18 @@ func (a *app) executeProviderProfileApplyWithAdmission(req networkApplyRequest, 
 	if err != nil {
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED", Error: err.Error()}
 	}
-	if !manualRTT && (!providerPlan.CandidateValid || !providerPlan.CandidateRouteOK || providerPlan.Mutation != "NONE") {
+	// A measured-route plan is permitted ONLY for the internally admitted
+	// AUTO case. The shell must explicitly report MEASURED, never YES,
+	// because the fresh route test is deferred to apply-core before snapshot.
+	measuredPlanAllowed := admission != nil && admission.measuredRoutePlan &&
+		admission.beforeQuiesce != nil && admission.beforeMutation != nil &&
+		useSnapshot && selectionToken != "" && !manualRTT
+	routeProofOK := providerPlan.CandidateRouteOK && !providerPlan.CandidateRouteMeasured
+	if measuredPlanAllowed && providerPlan.CandidateRouteMeasured && !providerPlan.CandidateRouteOK {
+		routeProofOK = true
+	}
+	if !manualRTT && (!providerPlan.CandidateValid || !routeProofOK || providerPlan.Mutation != "NONE" ||
+		!endpointsEqual(providerPlan.Endpoint, profileEndpoint(selected.Profile)) && useSnapshot) {
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED", Error: "provider plan is not a validated application-ready candidate"}
 	}
 	if useSnapshot && (readBestServerCurrentEndpoint(a.cfg.OutPath) != currentEndpoint || readBestServerCurrentFilter(a.cfg.FilterPath) != currentFilter) {
@@ -1178,8 +1200,11 @@ func parseProviderPlan(output string) (providerPlanResponse, error) {
 	return providerPlanResponse{
 		Success: true, ProfileID: values["PROFILE_ID"], ProfileName: values["PROFILE_NAME"], Endpoint: values["ENDPOINT"],
 		CurrentOutbound: values["CURRENT_OUTBOUND"], XrayRunning: values["XRAY_RUNNING"] == "yes",
-		CandidateValid: values["CANDIDATE_XRAY_VALID"] == "yes" && values["CANDIDATE_ROUTE_OK"] == "yes",
-		CandidateRouteOK: values["CANDIDATE_ROUTE_OK"] == "yes", ExpectedDelta: values["EXPECTED_DELTA"],
+		CandidateValid: values["CANDIDATE_XRAY_VALID"] == "yes" &&
+			(values["CANDIDATE_ROUTE_OK"] == "yes" || values["CANDIDATE_ROUTE_OK"] == "measured"),
+		CandidateRouteOK: values["CANDIDATE_ROUTE_OK"] == "yes",
+		CandidateRouteMeasured: values["CANDIDATE_ROUTE_OK"] == "measured",
+		ExpectedDelta: values["EXPECTED_DELTA"],
 		ExpectedNoDelta: values["EXPECTED_NO_DELTA"], Mutation: values["MUTATION"],
 	}, nil
 }
