@@ -180,3 +180,23 @@ func automationReleaseQualityOptimizationReservation(trigger automationQualityTr
 		return map[string]string{"QUALITY_OPTIMIZATION_LAST": ""}
 	})
 }
+
+
+// Complete a real quality comparison at its terminal time. Only the original
+// reservation may be replaced; a newer observation/attempt is never overwritten.
+// The emergency loss-of-connectivity path has independent retry rules.
+func automationCompleteQualityOptimizationReservation(trigger automationQualityTrigger, finishedAt time.Time) {
+	if !validAutomationQualityTrigger(trigger) || strings.TrimSpace(trigger.ReservedAt) == "" || finishedAt.IsZero() {
+		return
+	}
+	reserved, err := time.Parse(time.RFC3339, trigger.ReservedAt)
+	if err != nil || finishedAt.Before(reserved) {
+		return
+	}
+	_ = v3UpdateState(func(state map[string]string) map[string]string {
+		if strings.TrimSpace(state["QUALITY_OPTIMIZATION_LAST"]) != trigger.ReservedAt {
+			return nil
+		}
+		return map[string]string{"QUALITY_OPTIMIZATION_LAST": finishedAt.UTC().Format(time.RFC3339)}
+	})
+}
