@@ -2,6 +2,7 @@ package main
 
 import (
     "context"
+    "os"
     "strings"
     "testing"
     "time"
@@ -31,7 +32,7 @@ func TestAutoVPNComparisonCooldownUsesCompletionAndExactReservation(t *testing.T
     }
     end := start.Add(4*time.Minute)
     automationCompleteQualityOptimizationReservation(trigger, end)
-    if got := v3ParseState(v3StatePath())["QUALITY_OPTIMIZATION_LAST"]; got != end.Format(time.RFC3339) {
+    if got := v3ParseState(os.Getenv("FREENET_SETTINGS_V3_STATE"))["QUALITY_OPTIMIZATION_LAST"]; got != end.Format(time.RFC3339) {
         t.Fatalf("cooldown must start after completed deep scan, got %q", got)
     }
     // A slow scan followed by a new reservation must never erase the newer writer.
@@ -39,7 +40,7 @@ func TestAutoVPNComparisonCooldownUsesCompletionAndExactReservation(t *testing.T
     if err := v3WriteState(map[string]string{"QUALITY_OPTIMIZATION_LAST": newer}); err != nil { t.Fatal(err) }
     automationCompleteQualityOptimizationReservation(trigger, end.Add(time.Minute))
     automationReleaseQualityOptimizationReservation(trigger)
-    if got := v3ParseState(v3StatePath())["QUALITY_OPTIMIZATION_LAST"]; got != newer {
+    if got := v3ParseState(os.Getenv("FREENET_SETTINGS_V3_STATE"))["QUALITY_OPTIMIZATION_LAST"]; got != newer {
         t.Fatalf("stale completion/refund overwrote new reservation: %q", got)
     }
 }
