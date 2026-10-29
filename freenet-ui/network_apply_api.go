@@ -713,6 +713,23 @@ func (a *app) executeProviderProfileApplyWithAdmission(req networkApplyRequest, 
 		}
 	}
 	defer releaseProbes()
+	// The exclusive fence drains live FreeNet workers. A worker left behind by
+	// a crashed previous FreeNet process can no longer own its flock, but
+	// legacy XKeen pidof still counts it and refuses a harmless profile apply.
+	// Retire ONLY root-owned FreeNet probe children proven orphaned by PID 1,
+	// exact executable, environment, private config and pinned starttime.
+	// No ambiguous/production process is signalled; the shell's strict
+	// one-core preflight and rollback remain mandatory after this stage.
+	orphanCtx, cancelOrphan := context.WithTimeout(context.Background(), 5*time.Second)
+	orphanErr := reapVerifiedOrphanedXrayProbes(orphanCtx)
+	cancelOrphan()
+	if orphanErr != nil {
+		return http.StatusConflict, networkApplyResponse{
+			Success: false, Applied: false, Operation: "provider", ProfileID: profileID,
+			ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED",
+			Error: "an abandoned diagnostic Xray could not be safely confirmed or retired; production VPN was not changed",
+		}
+	}
 	if admission != nil && admission.beforeMutation != nil {
 		if err := admission.beforeMutation(); err != nil {
 			return http.StatusConflict, networkApplyResponse{
