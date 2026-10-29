@@ -1275,6 +1275,15 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 			}
 			status, applied = a.executeProviderProfileApplyWithAdmission(request, nil, &providerApplyAdmission{
 				beforeQuiesce: guard.confirm, beforeMutation: guard.final,
+				// This measured media route is already bound to the one-use
+				// selection snapshot. Only the read-only preview skips its
+				// duplicate route probe. apply-core still validates Xray
+				// and freshly probes the selected route BEFORE mutation.
+				measuredRoutePlan: trigger.MediaDegraded && !trigger.LatencyDegraded &&
+					trigger.ServiceBadMask == 0 && candidate.Tested && candidate.Available &&
+					candidate.Eligible && candidate.ThroughputSource == bestServerThroughputAutoMedia &&
+					candidate.MediaGrade == "good" && candidate.MediaSamples == automationMediaSegmentCount &&
+					candidate.MediaStalls == 0 && candidate.MediaMbps >= automationMediaSlowMbps,
 			})
 			if guard.stopped != nil {
 				// Only an EXACT pre-mutation candidate quality rejection permits the
