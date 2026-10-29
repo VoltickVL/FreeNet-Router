@@ -698,7 +698,7 @@ func (a *app) executeProviderProfileApplyWithAdmission(req networkApplyRequest, 
 		routeProofOK = true
 	}
 	if !manualRTT && (!providerPlan.CandidateValid || !routeProofOK || providerPlan.Mutation != "NONE" ||
-		!endpointsEqual(providerPlan.Endpoint, profileEndpoint(selected.Profile)) && useSnapshot) {
+		(useSnapshot && !endpointsEqual(providerPlan.Endpoint, profileEndpoint(selected.Profile)))) {
 		return http.StatusConflict, networkApplyResponse{Success: false, Operation: "provider", ProfileID: profileID, ProviderPlan: &providerPlan, RollbackState: "NOT_APPLIED", Error: "provider plan is not a validated application-ready candidate"}
 	}
 	if useSnapshot && (readBestServerCurrentEndpoint(a.cfg.OutPath) != currentEndpoint || readBestServerCurrentFilter(a.cfg.FilterPath) != currentFilter) {
