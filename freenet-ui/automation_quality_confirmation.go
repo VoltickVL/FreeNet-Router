@@ -130,6 +130,62 @@ func (guard *automationQualityAdmission) facts() error {
 	return nil
 }
 
+// A media-quality alarm already requires two distinct, identity-bound slow
+// observations. A several-minute Best Server comparison may briefly relieve
+// congestion or encounter a fast CDN sample at its end. One healthy sample is
+// therefore not proof that a recurrent video stall has been resolved.
+//
+// This exception is deliberately narrow: only the original MEDIA-ONLY alarm,
+// a fully measured AUTO-media candidate, an intact current baseline, a fresh
+// healthy final probe, and a cooldown-free exact profile can use it. Latency
+// and named-service incidents retain the normal current-recovered STOP. No
+// new probe, Xray restart or weakened provider/rollback admission is added.
+func (guard *automationQualityAdmission) mediaEpisodeAllowsTransientCurrentRecovery(current automationHealthProbe, now time.Time) bool {
+	if !guard.trigger.MediaDegraded || guard.trigger.LatencyDegraded ||
+		guard.trigger.ServiceBadMask != 0 || !current.MediaComplete ||
+		current.MediaDegraded || current.State != automationHealthHealthy ||
+		current.QualityDegraded || current.ServiceBadMask != 0 ||
+		current.CurrentIdentity != guard.trigger.CurrentIdentity ||
+		guard.baseline.CurrentIdentity != guard.trigger.CurrentIdentity ||
+		len(guard.baseline.Candidates) != 1 {
+		return false
+	}
+	baseline := guard.baseline.Candidates[0]
+	if !baseline.Current || !baseline.Tested || !baseline.Available ||
+		baseline.HTTPSamples < bestServerQualityHTTPRequired ||
+		baseline.Endpoint == "" ||
+		!endpointsEqual(baseline.Endpoint, guard.baseline.CurrentEndpoint) {
+		return false
+	}
+	c := guard.candidate
+	if !c.Tested || !c.Available || !c.Eligible || c.Current ||
+		c.ThroughputSource != bestServerThroughputAutoMedia ||
+		c.HTTPSamples < bestServerQualityHTTPRequired ||
+		c.MediaSamples != automationMediaSegmentCount ||
+		c.MediaGrade != "good" || c.MediaStalls != 0 ||
+		c.MediaMbps < automationMediaSlowMbps ||
+		c.DownloadMbps < automationMediaSlowMbps {
+		return false
+	}
+	// Even a persistent media episode cannot override recent manual intent or
+	// immediately flip back after an automatic switch. Original GID/identity,
+	// transaction and rollback gates still apply independently in the writer.
+	if raw := strings.TrimSpace(guard.lastSwitch); raw != "" {
+		last, err := time.Parse(time.RFC3339, raw)
+		if err != nil || now.Before(last) {
+			return false
+		}
+		cooldown := automationQualitySevereCooldown
+		if guard.lastSwitchOrigin == "manual" {
+			cooldown = automationManualSettlingWindow
+		}
+		if now.Before(last.Add(cooldown)) {
+			return false
+		}
+	}
+	return true
+}
+
 func (guard *automationQualityAdmission) confirm(selected bestServerInternalCandidate) error {
 	if len(guard.baseline.Candidates) != 1 {
 		return guard.stop("uncertain", "Полный замер текущего VPN отсутствует; автоматическое переключение отменено.")
@@ -202,6 +258,17 @@ func (guard *automationQualityAdmission) confirm(selected bestServerInternalCand
 		return guard.stop("uncertain", "Повторная медиапроверка текущего VPN не завершилась; нельзя подтвердить исчезновение или сохранение лагов.")
 	}
 	if current.State == automationHealthHealthy {
+		if guard.mediaEpisodeAllowsTransientCurrentRecovery(current, time.Now().UTC()) {
+			// A complete current sample is required above. It is not enough
+			// to erase the persisted two-observation media episode when the
+			// measured replacement is independently confirmed as healthy.
+			// Existing exact-profile, writer, post-check and rollback guards
+			// remain in charge of the actual cutover.
+			appendAutomationRecoveryStage("quality_optimization", "transient_healthy",
+				"Текущий VPN ответил на одной проверке, но повторная подтверждённая медиадеградация ещё актуальна; продолжаем безопасное применение измеренного кандидата.")
+			guard.confirmedAt = time.Now()
+			return nil
+		}
 		return guard.stop("same", "Текущий VPN восстановился на повторной проверке; переключение не требуется.")
 	}
 	if current.State != automationHealthUncertain || !current.QualityDegraded {
