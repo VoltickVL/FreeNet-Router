@@ -1515,7 +1515,14 @@ validate_candidate || { err 'candidate Xray configuration validation failed'; ex
 # The Xray config test above, state snapshot, live post-check and rollback
 # below remain mandatory and are never bypassed.
 CANDIDATE_ROUTE_STATUS=yes
-if { [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; } && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
+if [ "$MODE" = plan ] && [ "${FREENET_PROVIDER_PLAN_MEASURED:-0}" = 1 ]; then
+    # AUTO already tested this exact immutable selection over independent
+    # HTTPS and media transfers. The read-only plan still validates Xray
+    # config, but must not perform a second isolated route probe. Crucially
+    # apply-core (not plan) ALWAYS performs its own fresh route probe BEFORE
+    # snapshot, checkpoint, Xray stop or any VPN config mutation.
+    CANDIDATE_ROUTE_STATUS=measured
+elif { [ "$MODE" = apply-core ] || [ "$MODE" = recover-core ]; } && [ "${FREENET_PROVIDER_RTT_MANUAL:-0}" = 1 ]; then
     CANDIDATE_ROUTE_STATUS=skipped
 else
     provider_route_probe "$CANDIDATE_OUT" || { err 'candidate VPN application route validation failed'; exit 1; }
