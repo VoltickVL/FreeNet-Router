@@ -303,6 +303,16 @@ func (a *app) runProviderSelectionCommand(ctx context.Context, mode string, cand
 // isolated preflight. Candidate Xray validation, backup, live acceptance and
 // rollback remain mandatory in the provider helper.
 func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode string, candidate bestServerInternalCandidate, manualRTT bool) ([]byte, error) {
+	return a.runProviderSelectionCommandWithPlanEvidence(ctx, mode, candidate, manualRTT, false)
+}
+
+// The measured AUTO route is evidence for this read-only plan only. The
+// apply-core helper STILL performs its fresh route preflight, Xray validation,
+// transaction snapshot and rollback. Ordinary/manual plans remain unchanged.
+func (a *app) runProviderSelectionCommandWithPlanEvidence(ctx context.Context, mode string, candidate bestServerInternalCandidate, manualRTT, measuredPlan bool) ([]byte, error) {
+	if measuredPlan && mode != "plan" {
+		return nil, errors.New("measured route evidence is only valid for read-only provider plan")
+	}
 	if mode == "plan" {
 		release, ok := acquireIsolatedXrayProbe(ctx)
 		if !ok {
@@ -339,6 +349,10 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 		"FREENET_PROVIDER_SUBSCRIPTION_CACHE="+cachePath,
 		"FREENET_PROVIDER_SUBSCRIPTION_SOURCE="+sourcePath,
 		"FREENET_PROVIDER_RTT_MANUAL="+rttFlag,
+		"FREENET_PROVIDER_PLAN_MEASURED="+func() string {
+			if measuredPlan { return "1" }
+			return "0"
+		}(),
 		"FREENET_PROVIDER_RECOVERY_MANUAL="+recoveryFlag,
 	)
 	cmd.WaitDelay = 2 * time.Second
@@ -356,9 +370,13 @@ func (a *app) runProviderSelectionCommandWithRTTMode(ctx context.Context, mode s
 }
 
 func (a *app) runProviderSelectionPlan(candidate bestServerInternalCandidate) (providerPlanResponse, error) {
+	return a.runProviderSelectionPlanWithMeasuredRoute(candidate, false)
+}
+
+func (a *app) runProviderSelectionPlanWithMeasuredRoute(candidate bestServerInternalCandidate, measuredRoute bool) (providerPlanResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
-	output, err := a.runProviderSelectionCommand(ctx, "plan", candidate)
+	output, err := a.runProviderSelectionCommandWithPlanEvidence(ctx, "plan", candidate, false, measuredRoute)
 	if ctx.Err() == context.DeadlineExceeded {
 		return providerPlanResponse{ProfileID: candidate.Profile.ID}, errors.New("Проверка выбранного VPN-сервера не завершилась вовремя.")
 	}
