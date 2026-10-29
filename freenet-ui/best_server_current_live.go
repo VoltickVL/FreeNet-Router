@@ -66,6 +66,17 @@ func bestServerCountryCodeFromLabel(label string) string {
 	return code
 }
 
+type autoVPNMediaCurrentProbeKey struct{}
+
+// A confirmed media-only incident needs comparable serial QoE, not a costly
+// aggregate capacity benchmark. The default/manual current-quality path keeps
+// the original full Speedtest, including its fast-link extension.
+func autoVPNCurrentMediaProbe(ctx context.Context) bool {
+	if ctx == nil { return false }
+	enabled, _ := ctx.Value(autoVPNMediaCurrentProbeKey{}).(bool)
+	return enabled
+}
+
 func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[string]any) bestServerQualityApplicationResult {
 	if len(outbound) == 0 {
 		return bestServerQualityApplicationResult{}
@@ -174,6 +185,27 @@ func (a *app) probeBestServerActiveOutbound(ctx context.Context, outbound map[st
 	// Current VPN speed uses the exact same canonical media/Speedtest aggregate
 	// as Best Server candidates. There is no display-only throughput fallback:
 	// if the strict comparable measurement is unavailable, speed stays unknown.
+	if autoVPNCurrentMediaProbe(ctx) {
+		media := probeAutomationMediaSegments(ctx, curlPath, socks)
+		result.Media = bestServerMediaQualityResult{
+			OK: media.Complete, Samples: media.Samples,
+			MedianMbps: media.MinMbps, MinMbps: media.MinMbps, Grade: "unknown",
+		}
+		if media.Complete {
+			result.DownloadOK = true
+			result.DownloadMbps = media.MinMbps
+			result.ThroughputSource = bestServerThroughputAutoMedia
+			if media.Degraded {
+				result.Media.Grade = "poor"
+				result.Media.Stalls = 1
+			} else {
+				result.Media.Grade = "good"
+			}
+		} else {
+			result.DownloadIssue = "AUTO current sequential transfer incomplete"
+		}
+		return result
+	}
 	result.Media = probeBestServerMediaQuality(ctx, curlPath, socks)
 	if result.Media.OK && result.Media.MedianMbps > 0 {
 		result.DownloadOK = true
@@ -281,6 +313,14 @@ func (a *app) scanActiveCurrentVPNQuality(ctx context.Context, currentEndpoint, 
 		candidate.FallbackDownloadMbps = roundBestServerMbps(probe.FallbackDownloadMbps)
 	}
 	candidate.Eligible = eligibleBestServerQuality(candidate)
+	if autoVPNCurrentMediaProbe(ctx) {
+		candidate.Eligible = candidate.Available && probe.DownloadOK &&
+			probe.Media.OK && probe.Media.Stalls == 0 &&
+			probe.Media.Grade == "good" &&
+			candidate.DownloadMbps >= automationMediaSlowMbps &&
+			candidate.ApplicationMS > 0 && candidate.HTTPSamples >= bestServerQualityHTTPRequired &&
+			candidate.JitterMS <= bestServerQualityHighJitterMS
+	}
 	candidate.Reason = "Проверен фактический активный VPN-путь"
 	response := bestServerQualityResponse{
 		Success: true, Available: candidate.Eligible, Candidates: []bestServerQualityCandidate{candidate}, ProfilesScanned: 1, ProfilesTotal: 1,

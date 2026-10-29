@@ -1055,6 +1055,18 @@ func (a *app) runAutomationQualityCycle(parent context.Context, settings automat
 }
 
 func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings automationSettings, manual, qualityIntent bool, trigger automationQualityTrigger) (automationBestCycleResult, error) {
+	// A comparison starts its cooldown when it FINISHES, not when the
+	// watchdog reserved it. A rejected pre-scan attempt must not consume time.
+	foreignScanStarted := false
+	if qualityIntent {
+		defer func() {
+			if foreignScanStarted {
+				automationCompleteQualityOptimizationReservation(trigger, time.Now().UTC())
+			} else {
+				automationReleaseQualityOptimizationReservation(trigger)
+			}
+		}()
+	}
 	settings.Mode = normalizeAutomationMode(settings.Mode)
 	settings.Policy = normalizeAutomationPolicy(settings.Policy)
 	settings.CountryScope = normalizeAutomationCountryScope(settings.CountryScope)
@@ -1127,7 +1139,14 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	defer cancel()
 	switchBaseline := parseAutomationState(automationStatePath())
 
-	currentResponse, err := automationBestCurrentQuality(a, ctx)
+	currentScanCtx := ctx
+	if qualityIntent && trigger.MediaDegraded && !trigger.LatencyDegraded && trigger.ServiceBadMask == 0 {
+		// The watchdog already confirmed a persistent media incident.
+		// Recheck this exact current path with small sequential transfers
+		// instead of launching another 4-stream capacity Speedtest.
+		currentScanCtx = context.WithValue(ctx, autoVPNMediaCurrentProbeKey{}, true)
+	}
+	currentResponse, err := automationBestCurrentQuality(a, currentScanCtx)
 	if err != nil {
 		reason := "Не удалось подтвердить качество текущего VPN; переключение не выполнялось."
 		writeAutomationStateV2("failed", reason, "no", false)
@@ -1188,6 +1207,7 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	if qualityIntent && trigger.MediaDegraded {
 		scan = automationMediaForeignScan
 	}
+	foreignScanStarted = true
 	candidates, err := scan(a, ctx, settings, currentCountry)
 	if err != nil {
 		reason := "Подбор разрешённых VPN-кандидатов не завершён; текущий VPN сохранён."
