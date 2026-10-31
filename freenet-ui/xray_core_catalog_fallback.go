@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -15,6 +16,23 @@ const (
 )
 
 type xrayCoreCatalogRequest func(context.Context) ([]byte, error)
+
+type xrayCoreCatalogDualFailure struct {
+	directCode string
+	vpnCode    string
+}
+
+func (e *xrayCoreCatalogDualFailure) Error() string {
+	return fmt.Sprintf("reason=xray-catalog-direct-%s; vpn-%s", e.directCode, e.vpnCode)
+}
+
+// A trusted GitHub API 403/429 on the active VPN route can be rate limiting
+// of a shared exit. Only then offer a second official source. All other
+// failures (including invalid catalog JSON, missing identity, and 404) STOP.
+func xrayCoreCatalogAtomFallbackEligible(err error) bool {
+	var dual *xrayCoreCatalogDualFailure
+	return errors.As(err, &dual) && (dual.vpnCode == "http-403" || dual.vpnCode == "http-429")
+}
 
 // Fetch only the pinned official GitHub API endpoint. A response body that
 // fails size/JSON/asset validation must not trigger an alternative network
@@ -52,8 +70,10 @@ func fetchXrayCoreCatalogResilient(ctx context.Context, direct, viaVPN xrayCoreC
 	}
 	body, vpnErr := viaVPN(ctx)
 	if vpnErr != nil {
-		return nil, fmt.Errorf("reason=xray-catalog-direct-%s; vpn-%s",
-			xrayCoreDownloadSafeCode(directErr), xrayCoreDownloadSafeCode(vpnErr))
+		return nil, &xrayCoreCatalogDualFailure{
+			directCode: xrayCoreDownloadSafeCode(directErr),
+			vpnCode: xrayCoreDownloadSafeCode(vpnErr),
+		}
 	}
 	return body, nil
 }
