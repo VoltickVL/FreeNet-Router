@@ -112,6 +112,8 @@ func TestAutoVPNLatencyOnlyRecoveredBeforeComparisonStaysPut(t *testing.T) {
 	c.Eligible = false
 	c.DownloadMbps = 0
 	c.ThroughputSource = bestServerThroughputAutoMedia
+	c.MediaSamples = automationMediaSegmentCount
+	c.MediaGrade = "good"
 	c.ApplicationMS = automationQualityLatencyMildMS - 1
 	identity := bestServerCurrentQualityIdentityHash(c.Endpoint, "de Fixture")
 	automationBestCurrentQuality = func(_ *app, ctx context.Context) (bestServerQualityResponse, error) {
