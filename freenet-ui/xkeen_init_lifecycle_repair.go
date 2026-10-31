@@ -90,6 +90,12 @@ func xkeenInitRepairReceipt(root string) (xkeenInitRepairDisk, error) {
  return state,nil
 }
 
+func xkeenInitRepairMutationBlocked() bool {
+ state,err:=xkeenInitRepairReceipt(xkeenInitDir())
+ return err!=nil || state.State=="RUNNING" ||
+  (state.State=="STOP" && (state.Rollback=="UNKNOWN" || state.Rollback=="FAILED"))
+}
+
 func xkeenInitRepairWrite(root string, state xkeenInitRepairDisk) error {
  data, err := json.Marshal(state)
  if err != nil || len(data)>2048 { return errors.New("repair-state-invalid") }
@@ -152,6 +158,7 @@ func xkeenInitRepairInventoryScoped(a *app, root string, slotReserved bool) xkee
  if !inv.Success || inv.State!="production-xray-absent" {
   result.Reason="xray-process-inventory-unverified";return result
  }
+ if !xkeenUpdateEnoughSpace(root) {result.Reason="snapshot-space-unavailable";return result}
  if a.xrayRuntimeDesiredState()!=xrayRuntimeDesiredRunning {
   result.Reason="xray-intentionally-stopped";return result
  }
@@ -252,7 +259,8 @@ func xkeenInitRepairApply(ctx context.Context, a *app, root string) xkeenInitRep
   if xkeenInitRepairWrite(root,disk)!=nil {disk.Rollback="UNKNOWN";disk.Reason="repair-receipt-not-durable"}
   return xkeenInitRepairResponse{State:"STOP",Reason:disk.Reason,Rollback:disk.Rollback,Mutation:"INIT_ATTEMPTED",XrayOnline:xrayServiceProcessRunning("xray")}
  }
- ctx,cancel:=context.WithTimeout(ctx,100*time.Second)
+ // After a durable RUNNING receipt the worker must finish even if the browser disconnects.
+ ctx,cancel:=context.WithTimeout(context.Background(),100*time.Second)
  defer cancel()
  if xkeenInitRepairRun(ctx,a.cfg.XKeenPath)!=nil {return fail("native-init-rebuild-failed")}
  if reason,need:=xkeenInitRepairNeed(root);need||reason!="compatible" {return fail("init-migration-postcheck-failed")}
