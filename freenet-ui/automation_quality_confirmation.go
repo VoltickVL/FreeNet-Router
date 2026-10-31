@@ -205,6 +205,13 @@ func (guard *automationQualityAdmission) confirm(selected bestServerInternalCand
 	// Check the candidate first and the current route last. A current route that
 	// recovered while the alternatives were scanned must keep its connection.
 	candidateCtx, cancelCandidate := context.WithTimeout(ctx, automationHealthProbeTimeout)
+	if guard.trigger.MediaDegraded && guard.candidate.ThroughputSource == bestServerThroughputAutoMedia {
+		// This exact selection was already admitted after BOTH media origins
+		// succeeded during candidate ranking. Re-probe the selected profile's
+		// HTTPS/Cloudflare path here; do not repeat the extra independent 1 MiB
+		// body inside the fixed 20-second pre-quiesce transaction budget.
+		candidateCtx = context.WithValue(candidateCtx, automationMediaAlreadyCorroboratedKey{}, true)
+	}
 	candidate := automationQualityCandidateProbe(guard.app, candidateCtx, selected)
 	candidateErr := candidateCtx.Err()
 	cancelCandidate()
@@ -240,6 +247,12 @@ func (guard *automationQualityAdmission) confirm(selected bestServerInternalCand
 		return err
 	}
 	currentCtx, cancelCurrent := context.WithTimeout(ctx, automationHealthProbeTimeout)
+	if guard.trigger.MediaDegraded && guard.candidate.ThroughputSource == bestServerThroughputAutoMedia {
+		// The identity-bound watchdog incident has already required two
+		// independent origins. Final current recheck still requires a fresh,
+		// complete media transfer, but does not duplicate the second origin.
+		currentCtx = context.WithValue(currentCtx, automationMediaAlreadyCorroboratedKey{}, true)
+	}
 	current := automationQualityCurrentProbe(guard.app, currentCtx)
 	currentErr := currentCtx.Err()
 	cancelCurrent()
