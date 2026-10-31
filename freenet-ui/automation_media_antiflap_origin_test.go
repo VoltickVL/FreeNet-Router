@@ -136,3 +136,32 @@ func TestAutoMediaAfterSwitchQuietExpiresAndEmergencyStillWorks(t *testing.T) {
 		t.Fatalf("media-only settling interfered with WAN-confirmed VPN outage recovery: %+v",got)
 	}
 }
+
+
+func TestAutoMediaProtectedFinalRecheckReusesOriginalTwoSourceEvidence(t *testing.T) {
+	guard, selected := persistentMediaGuardFixture(t)
+	oldCandidate, oldCurrent := automationQualityCandidateProbe, automationQualityCurrentProbe
+	t.Cleanup(func() {
+		automationQualityCandidateProbe, automationQualityCurrentProbe = oldCandidate, oldCurrent
+	})
+	candidateCalled, currentCalled := false, false
+	automationQualityCandidateProbe = func(_ *app, ctx context.Context, got bestServerInternalCandidate) automationHealthProbe {
+		candidateCalled = true
+		if got.Profile.ID != selected.Profile.ID || ctx.Value(automationMediaAlreadyCorroboratedKey{}) != true {
+			t.Fatal("a non-correlated candidate or unmarked final verification bypassed the two-origin scan")
+		}
+		p := automationQualityFreshCandidate()
+		p.MediaComplete = true
+		return p
+	}
+	automationQualityCurrentProbe = func(_ *app, ctx context.Context) automationHealthProbe {
+		currentCalled = true
+		if ctx.Value(automationMediaAlreadyCorroboratedKey{}) != true {
+			t.Fatal("corroborated watchdog current recheck re-downloaded independent media")
+		}
+		return healthyMediaCurrentAfterTransientRecovery(guard.trigger.CurrentIdentity)
+	}
+	if err := guard.confirm(selected); err != nil || guard.stopped != nil || !candidateCalled || !currentCalled {
+		t.Fatalf("corroborated current/candidate still failed protected admission: err=%v stopped=%+v", err, guard.stopped)
+	}
+}
