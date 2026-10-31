@@ -347,6 +347,20 @@ func (a *app) fetchXrayCoreCatalog(ctx context.Context) (xrayCoreCatalogResponse
 	}
 	body, err := a.fetchXrayCoreCatalogResilient(ctx)
 	if err != nil {
+		// An unauthenticated GitHub API request may be 403 on a shared
+		// VPN exit, even when official github.com Releases is reachable.
+		// The fallback reads the upstream Atom feed and its exact matching
+		// .zip.dgst. An absent digest or blocked official host fails closed.
+		if ctx.Err() == nil && xrayCoreCatalogAtomFallbackEligible(err) {
+			official, fallbackErr := a.fetchXrayCoreOfficialAtomFallback(ctx, current, assetName)
+			if fallbackErr == nil {
+				official.Architecture = runtime.GOARCH
+				return official, nil
+			}
+			return xrayCoreCatalogResponse{}, fmt.Errorf(
+				"reason=xray-catalog-official-atom-%s; %w",
+				xrayCoreDownloadSafeCode(fallbackErr), err)
+		}
 		return xrayCoreCatalogResponse{}, err
 	}
 	return parseXrayCoreCatalog(body, current, assetName)
