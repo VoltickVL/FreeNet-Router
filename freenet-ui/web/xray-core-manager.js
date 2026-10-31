@@ -651,6 +651,7 @@
       addButton(controls, 'Обновить', '', loadCatalog);
     } else {
       addButton(controls, 'Запустить Xray', 'primary', () => controlService('start'));
+      addButton(controls, 'Восстановить автозапуск XKeen', '', () => void repairLegacyXKeenInit());
     }
     addButton(controls, 'Журнал', '', openJournal);
     target.appendChild(controls);
@@ -658,6 +659,74 @@
     renderServiceEvents(target, serviceState.events);
     addButton(footer, 'Закрыть', '', closeManager);
     requestAnimationFrame(positionManager);
+  }
+
+  let xkeenInitRepairBusy = false;
+  function xkeenInitRepairMessage(reason) {
+    const reasons = {
+      'legacy-init-references-removed-module': 'Обнаружен устаревший S99xkeen, который обращается к удалённому модулю XKeen.',
+      'xkeen-version-not-supported-for-init-repair': 'Эта операция доступна только для подтверждённого XKeen 2.1 Stable.',
+      'current-init-template-unverified': 'Шаблон нового XKeen не подтверждён. STOP без изменений.',
+      'xkeen-module-generation-mismatch': 'Версия модулей XKeen противоречива. STOP без изменений.',
+      'xray-process-inventory-unverified': 'Есть неизвестный или неоднозначный процесс Xray. STOP без изменений.',
+      'another-operation-or-recovery-busy': 'Есть другая операция или незавершённое восстановление. STOP.',
+      'xray-intentionally-stopped': 'Xray остановлен вручную; автоматический запуск запрещён.',
+      'legacy-init-unverified': 'Не удалось подтвердить конкретную версию старого init. STOP.',
+      'init-generation-unverified': 'Не удалось достоверно определить действующий init XKeen.',
+      'previous-repair-incomplete': 'Предыдущее восстановление не завершено. Повторное применение запрещено.',
+      'native-init-rebuild-failed': 'Штатное восстановление init не завершилось; откат указан отдельно.',
+      'init-migration-postcheck-failed': 'Новый init не прошёл проверку совместимости.',
+      'xray-start-postcheck-failed': 'После восстановления init Xray не прошёл контроль запуска.',
+    };
+    return reasons[reason] || ('Восстановление заблокировано. Код причины: ' + String(reason || 'unknown'));
+  }
+  function xkeenInitRepairNotice(message, bad = false) {
+    const panel = qs('#xrayCoreManager .xcm-service-card')?.parentElement || body();
+    const box = document.createElement('div');
+    box.className = 'xcm-result ' + (bad ? 'bad' : 'ok');
+    box.textContent = message;
+    panel.appendChild(box);
+    positionManager();
+  }
+  async function repairLegacyXKeenInit() {
+    if (applying || xkeenInitRepairBusy || serviceMutationUnknown) return;
+    xkeenInitRepairBusy = true;
+    try {
+      const response = await fetch('/api/xkeen/init/plan', {cache:'no-store'});
+      const plan = await response.json();
+      if (!response.ok || !plan?.ready || plan.state !== 'repairable') {
+        xkeenInitRepairNotice(xkeenInitRepairMessage(plan?.reason), true);
+        return;
+      }
+      if (!window.confirm('Восстановить совместимый init XKeen 2.1? FreeNet сохранит старые init-файлы, пересоздаст S05xkeen штатным XKeen, проверит Xray и выполнит откат при неуспехе. VPN-профиль, Xray binary, DNS и маршруты не заменяются.')) return;
+      applying = true;
+      xkeenInitRepairNotice('Создаём снимок init и выполняем штатное восстановление. Повторно запускать операцию нельзя.');
+      const applied = await fetch('/api/xkeen/init/repair', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({confirm:'repair-legacy-xkeen-init'}),
+        cache:'no-store'
+      });
+      const receipt = await applied.json();
+      if (!applied.ok || receipt.state !== 'SUCCESS' || !receipt.xray_online) {
+        serviceMutationUnknown = true;
+        xkeenInitRepairNotice(xkeenInitRepairMessage(receipt.reason) +
+          ' ROLLBACK: ' + (receipt.rollback || 'UNKNOWN') + '. Другие изменения запрещены.', true);
+        return;
+      }
+      const fresh = await fetchServiceSnapshot();
+      if (!fresh.online) {
+        serviceMutationUnknown = true;
+        xkeenInitRepairNotice('XKeen init восстановлен, но Xray не подтвердил работу после операции. STOP.', true);
+        return;
+      }
+      renderServiceHome(fresh, 'XKeen init восстановлен и Xray запущен. Изменений VPN/DNS/routing нет.');
+    } catch (_) {
+      serviceMutationUnknown = true;
+      xkeenInitRepairNotice('Статус восстановления не подтверждён. STOP: не повторяйте операцию.', true);
+    } finally {
+      applying = false;
+      xkeenInitRepairBusy = false;
+    }
   }
 
   function renderOfflineRecovery(result) {

@@ -31,6 +31,8 @@ type xrayServiceResponse struct {
 func registerXrayServiceAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/xray/service", a.requireAuth(a.handleXrayServiceGet))
 	mux.HandleFunc("GET /api/xkeen/installed", a.requireAuth(a.handleXKeenInstalled))
+	mux.HandleFunc("GET /api/xkeen/init/plan", a.requireAuth(a.handleXKeenInitPlan))
+	mux.HandleFunc("POST /api/xkeen/init/repair", a.requireAuth(a.handleXKeenInitRepair))
 	mux.HandleFunc("GET /api/xkeen/update-check", a.requireAuth(a.handleXKeenUpdateCheck))
 	mux.HandleFunc("GET /api/xkeen/update/plan", a.requireAuth(a.handleXKeenUpdatePlan))
 	mux.HandleFunc("GET /api/xkeen/update/state", a.requireAuth(a.handleXKeenUpdateState))
@@ -212,7 +214,7 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 	if a.mutationBlockedBySelfUpdate(w) { return }
 	action, ok := decodeXrayServiceAction(w, r)
 	if !ok { return }
-	if xrayCoreOperationSnapshot().State == "STOP" || automationMutationBlockedState() {
+	if xrayCoreOperationSnapshot().State == "STOP" || automationMutationBlockedState() || xkeenInitRepairMutationBlocked() {
 		writeJSON(w, http.StatusConflict, xrayServiceResponse{
 			Success: false, Events: xrayServiceEvents(8),
 			Error: "Xray recovery is pending or unconfirmed; STOP before another service mutation",
