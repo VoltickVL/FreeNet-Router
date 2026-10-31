@@ -30,7 +30,39 @@ type xrayCoreOfficialAtomFeed struct {
 	} `xml:"entry"`
 }
 
-var xrayCoreOfficialSHA256Line = regexp.MustCompile(`(?i)^\\s*(?:SHA2-256|SHA256)\\s*(?:=|:)\\s*([0-9a-f]{64})\\s*$`)
+var xrayCoreOfficialSHA256Line = regexp.MustCompile(`(?i)^\s*(?:SHA2-256|SHA256)\s*(?:=|:)\s*([0-9a-f]{64})\s*package main
+
+import (
+	"context"
+	"encoding/xml"
+	"errors"
+	"io"
+	"net/http"
+	"net/url"
+	"regexp"
+	"strings"
+)
+
+const (
+	xrayCoreOfficialAtomURL = "https://github.com/XTLS/Xray-core/releases.atom"
+	xrayCoreOfficialReleaseTagPrefix = "https://github.com/XTLS/Xray-core/releases/tag/"
+	xrayCoreOfficialReleaseDownloadPrefix = "https://github.com/XTLS/Xray-core/releases/download/"
+	xrayCoreAtomMaxBytes int64 = 4 << 20
+	xrayCoreDGSTMaxBytes int64 = 4096
+)
+
+type xrayCoreOfficialAtomFeed struct {
+	XMLName xml.Name `xml:"feed"`
+	Entries []struct {
+		Updated string `xml:"updated"`
+		Links []struct {
+			Rel string `xml:"rel,attr"`
+			Href string `xml:"href,attr"`
+		} `xml:"link"`
+	} `xml:"entry"`
+}
+
+var xrayCoreOfficialSHA256Line = regexp.MustCompile()
 
 // Do not trust a release title or a link supplied by another server. Only
 // GitHub's official XTLS tag path can select the ZIP and its .dgst sidecar.
