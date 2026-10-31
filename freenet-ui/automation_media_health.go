@@ -29,6 +29,15 @@ const (
 	automationMediaHighTTFB                = 900 * time.Millisecond
 	automationMediaMinSpan                 = 30 * time.Second
 	automationMediaRetryCooldown           = 10 * time.Minute
+	// Media-only AUTO optimization is not permission to chase the next 256 KiB
+	// dip immediately after a successful switch. True WAN/VPN outage recovery
+	// and named-service/latency incidents retain their independent paths.
+	automationMediaSwitchQuietWindow       = time.Hour
+	// The single Cloudflare body origin produced correlated stalls across all
+	// four routers. Require an independent completed 1 MiB body before a
+	// media-only alarm or AUTO media candidate may authorize a new VPN.
+	automationIndependentMediaURL          = "https://proof.ovh.net/files/1Mb.dat"
+	automationIndependentMediaTimeout      = 7 * time.Second
 	// Bulk media probes should not saturate the router every 30 seconds.
 	// Health availability and service checks retain their configured cadence;
 	// only the media batch (and optional 1 MiB confirmation) runs once per 90 seconds.
@@ -179,6 +188,37 @@ func runAutomationMediaSegmentSized(ctx context.Context, curlPath, socks string,
 	return parseAutomationMediaSegment(string(out), transferBytes)
 }
 
+// Range requests are constrained to one exact 1 MiB object. HTTP 206 is
+// valid ONLY here; the Cloudflare test still insists on HTTP 200 + full bytes.
+// Redirects, 403, unknown length, timeouts and partial content all fail closed.
+func parseAutomationIndependentMediaSegment(output string) automationMediaSegment {
+	fields := strings.Fields(output)
+	if len(fields) != 5 || (fields[0] != "206" && fields[0] != "200") {
+		return automationMediaSegment{}
+	}
+	fields[0] = "200"
+	return parseAutomationMediaSegment(strings.Join(fields, " "), automationMediaConfirmationBytes)
+}
+
+func runAutomationIndependentMediaSegment(ctx context.Context, curlPath, socks string, index int) automationMediaSegment {
+	if ctx == nil || ctx.Err() != nil || strings.TrimSpace(curlPath) == "" ||
+		strings.TrimSpace(socks) == "" || index != automationMediaSegmentCount {
+		return automationMediaSegment{}
+	}
+	out, err := runBestServerSpeedtestCurl(ctx, curlPath, automationIndependentMediaTimeout,
+		"--socks5-hostname", socks,
+		"-sS", "--connect-timeout", "2",
+		"-H", "Cache-Control: no-cache",
+		"-r", "0-1048575",
+		"-o", "/dev/null",
+		"-w", "%{http_code}\t%{size_download}\t%{time_pretransfer}\t%{time_starttransfer}\t%{time_total}",
+		automationIndependentMediaURL)
+	if ctx.Err() != nil || err != nil {
+		return automationMediaSegment{}
+	}
+	return parseAutomationIndependentMediaSegment(string(out))
+}
+
 func runAutomationMediaSegment(ctx context.Context, curlPath, socks string, index int) automationMediaSegment {
 	return runAutomationMediaSegmentSized(ctx, curlPath, socks, index, automationMediaSegmentBytes, automationMediaSegmentTimeout)
 }
@@ -247,9 +287,54 @@ func probeAutomationMediaSegmentsWith(ctx context.Context, curlPath, socks strin
 	return evidence
 }
 
+// One source can be throttled or briefly congested even when the VPN is fine.
+// Unknown or contradictory evidence is NEVER a reason to switch. The healthy
+// watchdog spends no extra bytes; the independent 1 MiB GET runs only after
+// confirmed Cloudflare slowdown. AUTO candidate ranking requires both sources
+// to be good, so a false positive cannot pass the same-origin comparison.
+func corroborateAutomationMediaSources(ctx context.Context, curlPath, socks string,
+	primary automationMediaEvidence, requireBoth bool, secondary automationMediaSegmentRunner) automationMediaEvidence {
+	if !primary.Complete || (!primary.Degraded && !requireBoth) {
+		return primary
+	}
+	if ctx == nil || ctx.Err() != nil || secondary == nil {
+		return automationMediaEvidence{}
+	}
+	extra := secondary(ctx, curlPath, socks, automationMediaSegmentCount)
+	if ctx.Err() != nil || !extra.Valid || extra.Degraded != primary.Degraded {
+		return automationMediaEvidence{}
+	}
+	if extra.Mbps < primary.MinMbps {
+		primary.MinMbps = extra.Mbps
+	}
+	return primary
+}
+
 func probeAutomationMediaSegments(ctx context.Context, curlPath, socks string) automationMediaEvidence {
-	return probeAutomationMediaSegmentsWith(ctx, curlPath, socks,
+	primary := probeAutomationMediaSegmentsWith(ctx, curlPath, socks,
 		runAutomationMediaSegment, runAutomationMediaConfirmationSegment)
+	return corroborateAutomationMediaSources(ctx, curlPath, socks, primary,
+		false, runAutomationIndependentMediaSegment)
+}
+
+func probeAutomationMediaCandidateSegments(ctx context.Context, curlPath, socks string) automationMediaEvidence {
+	primary := probeAutomationMediaSegmentsWith(ctx, curlPath, socks,
+		runAutomationMediaSegment, runAutomationMediaConfirmationSegment)
+	return corroborateAutomationMediaSources(ctx, curlPath, socks, primary,
+		true, runAutomationIndependentMediaSegment)
+}
+
+// A recent real profile switch suppresses only media-only optimization. It
+// must not hide outage recovery or trusted named-service/latency evidence.
+func automationMediaSwitchSettling(now time.Time, raw string) bool {
+	if strings.TrimSpace(raw) == "" || now.IsZero() {
+		return false
+	}
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
+	if err != nil || now.Before(at) {
+		return true // unknown/future switch must not authorize an extra mutation
+	}
+	return now.Before(at.Add(automationMediaSwitchQuietWindow))
 }
 
 // Current VPN "reachable" and video-like transfer quality are independent.
