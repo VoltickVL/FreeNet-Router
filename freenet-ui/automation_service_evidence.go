@@ -154,6 +154,15 @@ func automationReachableQualityOptimizationPlan(state map[string]string, now tim
 }
 
 func automationReachableQualityOptimizationDue(now time.Time, probe automationHealthProbe) (automationQualityTrigger, bool) {
+	// The current media sample remains visible in the health journal, but a
+	// recently successful profile switch cannot launch ANOTHER media-only
+	// Top-3 scan. Corroborated service/latency evidence and emergency
+	// connectivity failure are handled by their separate existing paths.
+	if probe.MediaDegraded && probe.QualityPoints == 0 && probe.ServiceBadMask == 0 &&
+		automationMediaSwitchSettling(now, parseAutomationState(automationStatePath())["LAST_SWITCH"]) {
+		probe.MediaComplete = false
+		probe.MediaDegraded = false
+	}
 	trigger := automationQualityTrigger{}
 	due := false
 	err := v3UpdateState(func(state map[string]string) map[string]string {
