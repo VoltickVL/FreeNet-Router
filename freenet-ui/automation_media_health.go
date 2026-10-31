@@ -46,6 +46,11 @@ const (
 
 type automationWatchdogMediaBudgetKey struct{}
 
+// Only the protected final admission may reuse a recent, identity-bound
+// two-source watchdog/selection result. It still re-probes the fresh HTTPS
+// route and Cloudflare media before mutation, without a duplicate 1 MiB GET.
+type automationMediaAlreadyCorroboratedKey struct{}
+
 // The ordinary 30-second health watcher performs lightweight HTTPS checks.
 // Reserve a separate bounded media batch at most once per 90 seconds, across
 // service restarts. Explicit admission and manual diagnostics remain complete.
@@ -313,6 +318,11 @@ func corroborateAutomationMediaSources(ctx context.Context, curlPath, socks stri
 func probeAutomationMediaSegments(ctx context.Context, curlPath, socks string) automationMediaEvidence {
 	primary := probeAutomationMediaSegmentsWith(ctx, curlPath, socks,
 		runAutomationMediaSegment, runAutomationMediaConfirmationSegment)
+	if ctx != nil {
+		if measured, ok := ctx.Value(automationMediaAlreadyCorroboratedKey{}).(bool); ok && measured {
+			return primary
+		}
+	}
 	return corroborateAutomationMediaSources(ctx, curlPath, socks, primary,
 		false, runAutomationIndependentMediaSegment)
 }
