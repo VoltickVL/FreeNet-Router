@@ -101,6 +101,13 @@ func (a *app) xkeenUpdatePrepare(ctx context.Context) (xkeenUpdatePlan, xkeenUpd
 		return p, xkeenUpdateAsset{}
 	}
 	p.Installed, p.Channel = current, channel
+	// Never swap 1.x and 2.x script trees around a stale init.d generation.
+	// Existing active Xray must be preserved; repair is a separate, explicit API.
+	if reason, needs := xkeenInitRepairNeed(xkeenInitDir()); needs || reason != "compatible" {
+		p.State = "blocked"
+		p.Reason = "xkeen-init-lifecycle-unverified"
+		return p, xkeenUpdateAsset{}
+	}
 	if state := publicXKeenUpdateState(a.cfg.XKeenPath); state.State == "RUNNING" || state.State == "STOP" {
 		p.Reason = "xkeen-prior-operation-not-terminal"
 		return p, xkeenUpdateAsset{}
@@ -335,6 +342,10 @@ func (a *app) runXKeenGuardedUpdate(asset xkeenUpdateAsset, oldVersion string) x
 	defer os.RemoveAll(stage)
 	if extractVerifiedXKeenArchive(archive, stage, asset.Version) != nil {
 		return finish("FAILED","NOT_NEEDED","candidate-invalid")
+	}
+	// A second init.d check closes the plan/apply race.
+	if reason, needs := xkeenInitRepairNeed(xkeenInitDir()); needs || reason != "compatible" {
+		return finish("FAILED", "NOT_NEEDED", "xkeen-init-lifecycle-drift")
 	}
 	// Recheck production before the first filesystem mutation. An unknown
 	// process, active VPN transaction or self-update means STOP without apply.
