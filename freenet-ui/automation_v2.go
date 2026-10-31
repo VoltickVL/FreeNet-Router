@@ -510,6 +510,26 @@ func automationCurrentServiceFailureReadyForQualityComparison(response bestServe
 		c.ServiceTotal >= 3 && c.ServiceOK >= 0 && c.ServiceOK < c.ServiceTotal
 }
 
+// A sustained latency-only incident can be compared even when a strict
+// 4-stream capacity Speedtest is incomplete. Do not infer latency degradation
+// from a missing download: the current isolated route must independently
+// reproduce high application RTT over enough HTTPS samples and match the
+// watchdog's exact current identity. The protected writer still checks both
+// VPN routes and the original latency incident before any mutation.
+func automationCurrentLatencyFailureReadyForQualityComparison(response bestServerQualityResponse, trigger automationQualityTrigger) bool {
+	if !validAutomationQualityTrigger(trigger) || !trigger.LatencyDegraded ||
+		trigger.MediaDegraded || trigger.ServiceBadMask != 0 ||
+		response.CurrentIdentity != trigger.CurrentIdentity ||
+		len(response.Candidates) != 1 {
+		return false
+	}
+	c := response.Candidates[0]
+	return c.Current && c.Tested && c.Available &&
+		c.Endpoint != "" && endpointsEqual(c.Endpoint, response.CurrentEndpoint) &&
+		c.ApplicationMS >= automationQualityLatencyMildMS &&
+		c.HTTPSamples >= bestServerQualityHTTPRequired
+}
+
 // A two-observation media stall can be trustworthy even when a long 40 MiB
 // speedtest or an unrelated service HEAD did not finish. An incomplete deep
 // scan may start a *comparison only* if its current VPN remains reachable,
@@ -1140,10 +1160,12 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	switchBaseline := parseAutomationState(automationStatePath())
 
 	currentScanCtx := ctx
-	if qualityIntent && trigger.MediaDegraded && !trigger.LatencyDegraded && trigger.ServiceBadMask == 0 {
-		// The watchdog already confirmed a persistent media incident.
-		// Recheck this exact current path with small sequential transfers
-		// instead of launching another 4-stream capacity Speedtest.
+	if qualityIntent && trigger.ServiceBadMask == 0 &&
+		(trigger.MediaDegraded || trigger.LatencyDegraded) {
+		// A confirmed media or application-latency incident needs a bounded
+		// comparable QoE observation, not another 4-stream capacity benchmark.
+		// Independent named-service incidents retain the full service baseline.
+		// Manual/ordinary Speedtest still uses its unchanged adaptive benchmark.
 		currentScanCtx = context.WithValue(ctx, autoVPNMediaCurrentProbeKey{}, true)
 	}
 	currentResponse, err := automationBestCurrentQuality(a, currentScanCtx)
@@ -1170,6 +1192,14 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 		// Never call this a healthy or fully measured current baseline.
 		// We only authorize a comparison. Candidate and current service paths
 		// must BOTH pass the existing paired writer admission before mutation.
+		currentState = "degraded"
+	}
+	if qualityIntent && currentState == "uncertain" &&
+		automationCurrentLatencyFailureReadyForQualityComparison(currentResponse, trigger) {
+		// The repeated latency incident was reproduced by isolated HTTPS.
+		// An unavailable bulk Mbps sample must not veto a read-only comparison.
+		// Candidate admission, fresh current confirmation and rollback remain
+		// mandatory before any provider switch.
 		currentState = "degraded"
 	}
 	if currentState == "uncertain" {
