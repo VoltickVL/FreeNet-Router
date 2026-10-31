@@ -524,7 +524,10 @@ func (a *app) probeBestServerQualityApplicationMode(ctx context.Context, candida
 
 	result := bestServerQualityApplicationResult{OK: true, VPN: vpnResult, HTTP: httpResult}
 	if mediaOnly {
-		media := probeAutomationMediaSegments(ctx, curlPath, socks)
+		// Ranking needs two independently hosted, completed body transfers.
+		// A healthy watchdog does not pay this extra cost, and ordinary Best
+		// Server/manual aggregate Speedtest stays exactly as it was.
+		media := probeAutomationMediaCandidateSegments(ctx, curlPath, socks)
 		// Two actual 512 KiB sequential samples, not an estimate from
 		// unrelated concurrent streams or HTTP HEAD responses. If either
 		// timed out/failed, it is not an accepted alternative.
