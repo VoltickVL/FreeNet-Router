@@ -6,7 +6,6 @@ import (
  "context"
  "encoding/json"
  "errors"
- "io"
  "net/http"
  "os"
  "path/filepath"
@@ -107,6 +106,10 @@ func xkeenInitRepairWrite(root string, state xkeenInitRepairDisk) error {
 }
 
 func xkeenInitRepairInventory(a *app, root string) xkeenInitRepairResponse {
+ return xkeenInitRepairInventoryScoped(a,root,false)
+}
+
+func xkeenInitRepairInventoryScoped(a *app, root string, slotReserved bool) xkeenInitRepairResponse {
  result:=xkeenInitRepairResponse{State:"STOP",Reason:"runtime-unverified",Rollback:"NOT_NEEDED",Mutation:"NONE"}
  if a==nil || !xkeenLiveTreeReady(a.cfg.XKeenPath) {result.Reason="xkeen-installation-unverified";return result}
  v,ch,err:=readXKeenInstalledMetadata(a.cfg.XKeenPath)
@@ -152,7 +155,14 @@ func xkeenInitRepairInventory(a *app, root string) xkeenInitRepairResponse {
  if a.xrayRuntimeDesiredState()!=xrayRuntimeDesiredRunning {
   result.Reason="xray-intentionally-stopped";return result
  }
- if xkeenUpdateBusy(a) {result.Reason="another-operation-or-recovery-busy";return result}
+ if !slotReserved {
+  if xkeenUpdateBusy(a) {result.Reason="another-operation-or-recovery-busy";return result}
+ } else {
+  held,_:=a.updateLockStatus()
+  if held || a.selfUpdateStateAdmission()!=nil || vpnTransactionPending() || automationMutationBlockedState() || xrayCoreOperationSnapshot().State=="RUNNING" || xrayCoreOperationSnapshot().State=="STOP" {
+   result.Reason="another-operation-or-recovery-busy";return result
+  }
+ }
  result.State="repairable"
  result.Reason=reason
  result.Ready=true
@@ -219,7 +229,7 @@ func xkeenInitRepairApply(ctx context.Context, a *app, root string) xkeenInitRep
  unlock,err:=reserveXKeenCrossProcessLock(a.cfg.XKeenPath)
  if err!=nil {failed.Reason="xkeen-lock-unavailable";return failed}
  defer unlock()
- plan:=xkeenInitRepairInventory(a,root)
+ plan:=xkeenInitRepairInventoryScoped(a,root,true)
  if !plan.Ready {return plan}
  snapshot,err:=os.MkdirTemp(root,".freenet-xkeen-init-snapshot-*")
  if err!=nil {failed.Reason="snapshot-unavailable";return failed}
