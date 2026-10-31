@@ -214,7 +214,7 @@ func (a *app) handleXrayServicePost(w http.ResponseWriter, r *http.Request) {
 	if a.mutationBlockedBySelfUpdate(w) { return }
 	action, ok := decodeXrayServiceAction(w, r)
 	if !ok { return }
-	if xrayCoreOperationSnapshot().State == "STOP" || automationMutationBlockedState() {
+	if xrayCoreOperationSnapshot().State == "STOP" || automationMutationBlockedState() || xkeenInitRepairMutationBlocked() {
 		writeJSON(w, http.StatusConflict, xrayServiceResponse{
 			Success: false, Events: xrayServiceEvents(8),
 			Error: "Xray recovery is pending or unconfirmed; STOP before another service mutation",
