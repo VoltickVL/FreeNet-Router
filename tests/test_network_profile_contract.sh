@@ -114,6 +114,23 @@ grep -q '^XRAY_RUNNING=yes$' "$STATE" || fail 'native normalization changed Xray
 # XKEEN_ACTION_RESULT=fail proves the successful native normalization did not invoke restart/start/stop.
 state_set XKEEN_ACTION_RESULT success
 
+# A known XKeen 2.1 root launch must not be rejected by GID alone.
+# TEST_MODE simulates exact env/config/binary proof; unknown ownership STOPs.
+state_set XRAY_GID 0
+state_set XRAY_ROOT_IDENTITY verified
+run_network apply > "$TMP/native-root-owned.apply" 2>&1 ||
+    { cat "$TMP/native-root-owned.apply" >&2; fail 'owned XKeen GID0 runtime rejected'; }
+grep -Fq 'RESULT=SUCCESS' "$TMP/native-root-owned.apply" || fail 'GID0 native acceptance missing'
+state_set XRAY_ROOT_IDENTITY unknown
+if run_network apply > "$TMP/native-root-unknown.apply" 2>&1; then
+    fail 'unproven GID0 native runtime was trusted'
+fi
+grep -Fq 'native launch identity/GID не подтверждены' "$TMP/native-root-unknown.apply" ||
+    fail 'root identity STOP reason missing'
+grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/native-root-unknown.apply" ||
+    fail 'unknown root launch must not mutate DNS'
+state_set XRAY_GID 11111
+
 # A read-only native acceptance failure must be classified as NOT_APPLIED, not UNKNOWN.
 state_set DNS_QUERY_OK no
 if run_network apply > "$TMP/native-query-fail.apply" 2>&1; then fail 'native DNS query failure unexpectedly succeeded'; fi

@@ -696,9 +696,9 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		return result
 	}
 	// FreeNet takes responsibility for this Xray version-change transaction.
-	// Before download, verify the existing production process and routing GID
-	// 11111 without requiring XKeen UI or its CLI.
-	if err := xrayCoreNativePreflight(ctx, binary); err != nil {
+	// Before download, prove a single owned production Xray with the official
+	// XKeen root or FreeNet group launch, exact inode and config. No XKeen UI.
+	if err := xrayCoreNativePreflight(ctx, binary, a.routingConfigDir()); err != nil {
 		result.Error = err.Error()
 		return result
 	}
@@ -754,7 +754,7 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		return result
 	}
 	preflightCtx, cancelPreflight := context.WithTimeout(context.Background(), 8*time.Second)
-	preflightErr := xrayCoreNativePreflight(preflightCtx, binary)
+	preflightErr := xrayCoreNativePreflight(preflightCtx, binary, a.routingConfigDir())
 	cancelPreflight()
 	if preflightErr != nil {
 		result.Error = preflightErr.Error()
@@ -795,7 +795,7 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 	candidateOwned = false
 
 	// FreeNet owns this restart. The backup is retained until the new running
-	// executable and GID=11111 are confirmed or rollback succeeds.
+	// executable, live config and known launch mode are confirmed or rollback succeeds.
 	applyCtx, cancelApply := context.WithTimeout(context.Background(), xrayCoreApplyTimeout)
 	applyErr := a.restartXrayCoreUpdateOwned(applyCtx, binary, target)
 	if applyErr == nil {
