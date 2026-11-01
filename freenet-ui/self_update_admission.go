@@ -43,8 +43,15 @@ func (a *app) selfUpdateStateAdmission() error {
 	default:
 		return errors.New("Неизвестный результат отката приложения; состояние сохранено для Recovery.")
 	}
-	if (rollback == "PENDING" || state == "UPDATING" || state == "RECONNECTING") && !a.updateLockHeld() {
-		return errors.New("Предыдущее обновление прервано без подтверждённого отката; состояние сохранено для Recovery.")
+	// Durable UNKNOWN also counts as busy for mutation endpoints, but only
+	// a real updater fence is proof of an in-flight application update.
+	// After reboot the /tmp fence can vanish while UPDATING/RECONNECTING
+	// remains in the receipt: this is a hard STOP, not an active operation.
+	if rollback == "PENDING" || state == "UPDATING" || state == "RECONNECTING" {
+		held, _ := a.updateLockStatus()
+		if !held {
+			return errors.New("Предыдущее обновление прервано без подтверждённого отката; состояние сохранено для Recovery.")
+		}
 	}
 	return nil
 }

@@ -384,6 +384,15 @@ run_reconcile() {
     timeout 40 sh -c 'exec sh "$FREENET_FIXTURE_SCRIPT" reconcile-rollback "$FREENET_FIXTURE_RECEIPT"' > "$CASE_DIR/command.out" 2>&1
 }
 
+run_reconcile_reboot_plan() {
+    timeout 40 sh -c 'exec sh "$FREENET_FIXTURE_SCRIPT" reconcile-reboot-plan' > "$CASE_DIR/command.out" 2>&1
+}
+
+run_reconcile_reboot() {
+    FREENET_FIXTURE_RECEIPT="$1"; export FREENET_FIXTURE_RECEIPT
+    timeout 40 sh -c 'exec sh "$FREENET_FIXTURE_SCRIPT" reconcile-reboot "$FREENET_FIXTURE_RECEIPT"' > "$CASE_DIR/command.out" 2>&1
+}
+
 assert_unknown_unchanged() {
     cmp -s "$CASE_DIR/original.state" "$FREENET_UPDATE_STATE_FILE" || fail 'unconfirmed reconciliation changed the UNKNOWN receipt'
     [ "$(state_value STATE)" = ROLLBACK_FAILED ] && [ "$(state_value ROLLBACK_STATE)" = FAILED_UNKNOWN ] || fail 'unconfirmed reconciliation normalized UNKNOWN'
@@ -743,6 +752,75 @@ assert_refused 'production Xray lifetime differs between complete proofs'
 cp "$CASE_DIR/original-xray-stat" "$PROC_FIXTURE/$RESTORED_XRAY_PID/stat"
 FREENET_PROC_ROOT=/proc; FREENET_FIXTURE_FAULT=''
 export FREENET_PROC_ROOT FREENET_FIXTURE_FAULT
+
+# A power cycle erases both ephemeral /tmp fences but does not erase an
+# UNKNOWN receipt or the exact restored application and VPN snapshots. Never
+# recreate or forge owner markers; only a real kernel boot epoch newer than
+# the unchanged receipt allows a separate, explicitly chosen protocol.
+BOOT_EPOCH="$(LC_ALL=C awk '$1=="btime" {print $2; exit}' /proc/stat)"
+case "$BOOT_EPOCH" in ''|*[!0-9]*) fail 'kernel boot epoch unavailable' ;; esac
+[ "$BOOT_EPOCH" -gt 120 ] || fail 'kernel boot epoch invalid'
+cp -p "$FREENET_UPDATE_STATE_FILE" "$CASE_DIR/pre-reboot-receipt"
+mv "$FREENET_UPDATE_LOCK_DIR" "$CASE_DIR/reboot-saved-app-lock"
+mv "$FREENET_UPDATE_MUTATION_LOCK" "$CASE_DIR/reboot-saved-network-lock"
+
+# Receipt was created during this test, so an absent fence alone is NOT
+# evidence of reboot. Preserve the original UNKNOWN and all live assets.
+if run_reconcile_reboot_plan; then fail 'missing fences on same boot passed reboot plan'; fi
+cmp -s "$CASE_DIR/original.state" "$FREENET_UPDATE_STATE_FILE" || fail 'reboot refusal changed receipt'
+
+# The CI fixture simulates the persisted pre-boot receipt timestamp. This
+# changes only the private test fixture's mtime, never its content or SHA-256.
+touch -d "@$((BOOT_EPOCH - 90))" "$FREENET_UPDATE_STATE_FILE"
+if run_reconcile_plan; then fail 'legacy owner-preserving plan accepted absent fences'; fi
+snapshot_guarded "$CASE_DIR/reboot-plan.before"
+run_reconcile_reboot_plan || fail 'exact restored FROM state was not reboot-plan ready'
+grep -qx 'READY=yes' "$CASE_DIR/command.out" || fail 'reboot plan lacked readiness'
+grep -qx 'FENCES=REBOOT_ABSENT' "$CASE_DIR/command.out" || fail 'reboot plan invented ownership'
+grep -qx 'MUTATION=NONE' "$CASE_DIR/command.out" || fail 'reboot plan mutated protected data'
+snapshot_guarded "$CASE_DIR/reboot-plan.after"
+cmp -s "$CASE_DIR/reboot-plan.before" "$CASE_DIR/reboot-plan.after" || fail 'reboot plan wrote protected data'
+
+# A single reappearing lock, a changed receipt, and an incorrect exact receipt
+# acknowledgment all remain hard STOP without service interruption.
+mv "$CASE_DIR/reboot-saved-app-lock" "$FREENET_UPDATE_LOCK_DIR"
+if run_reconcile_reboot_plan; then fail 'reboot plan accepted reappearing application lock'; fi
+mv "$FREENET_UPDATE_LOCK_DIR" "$CASE_DIR/reboot-saved-app-lock"
+mv "$CASE_DIR/reboot-saved-network-lock" "$FREENET_UPDATE_MUTATION_LOCK"
+if run_reconcile_reboot_plan; then fail 'reboot plan accepted reappearing network lock'; fi
+mv "$FREENET_UPDATE_MUTATION_LOCK" "$CASE_DIR/reboot-saved-network-lock"
+if run_reconcile_reboot 0000000000000000000000000000000000000000000000000000000000000000; then
+    fail 'reboot reconciliation accepted wrong receipt SHA'
+fi
+cmp -s "$CASE_DIR/original.state" "$FREENET_UPDATE_STATE_FILE" || fail 'wrong SHA changed UNKNOWN'
+
+snapshot_paths "$CASE_DIR/reboot-commit.before" "$R/sbin" "$R/bin" "$R/lib" "$R/etc" "$R/backups" \
+    "$FREENET_UPDATE_LOCK_DIR" "$FREENET_UPDATE_MUTATION_LOCK" "$FREENET_VPN_TRANSACTION_DIR"
+run_reconcile_reboot "$UNKNOWN_SHA" || fail 'fully proven preboot UNKNOWN was not reconciled'
+grep -qx 'RESULT=RECONCILED_ROLLBACK' "$CASE_DIR/command.out" || fail 'reboot terminal marker missing'
+grep -qx 'FENCES=REBOOT_ABSENT' "$CASE_DIR/command.out" || fail 'reboot commit invented ownership'
+[ "$(state_value STATE)" = FAILED ] && [ "$(state_value ROLLBACK_STATE)" = SUCCESS ] ||
+    fail 'reboot terminal receipt was not FAILED/SUCCESS'
+snapshot_paths "$CASE_DIR/reboot-commit.after" "$R/sbin" "$R/bin" "$R/lib" "$R/etc" "$R/backups" \
+    "$FREENET_UPDATE_LOCK_DIR" "$FREENET_UPDATE_MUTATION_LOCK" "$FREENET_VPN_TRANSACTION_DIR"
+cmp -s "$CASE_DIR/reboot-commit.before" "$CASE_DIR/reboot-commit.after" ||
+    fail 'reboot reconciliation changed application, VPN or original backup'
+fixture_alive "$RESTORED_PID" && fixture_alive "$RESTORED_XRAY_PID" ||
+    fail 'reboot reconciliation disrupted the actual daemon or Xray'
+[ ! -e "$FREENET_UPDATE_LOCK_DIR" ] && [ ! -e "$FREENET_UPDATE_MUTATION_LOCK" ] ||
+    fail 'reboot reconciliation recreated ephemeral locks'
+REBOOT_ARCHIVE="$(state_value RECONCILIATION_ARCHIVE)"
+cmp -s "$CASE_DIR/original.state" "$REBOOT_ARCHIVE/original.state" ||
+    fail 'postreboot archive lost original receipt'
+cmp -s "$FREENET_UPDATE_STATE_FILE" "$REBOOT_ARCHIVE/terminal.state" ||
+    fail 'postreboot archive differs from terminal receipt'
+
+# Restore ONLY the synthetic test fixture to run the original owner-preserving
+# reconciliation suite below, without weakening either production protocol.
+cp -p "$CASE_DIR/pre-reboot-receipt" "$FREENET_UPDATE_STATE_FILE"
+mv "$CASE_DIR/reboot-saved-app-lock" "$FREENET_UPDATE_LOCK_DIR"
+mv "$CASE_DIR/reboot-saved-network-lock" "$FREENET_UPDATE_MUTATION_LOCK"
+assert_unknown_unchanged
 
 # Successful confirmation is the only receipt mutation. It preserves live
 # process lifetime, all application/VPN files, original backup and both fences.
