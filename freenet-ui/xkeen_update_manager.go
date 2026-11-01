@@ -433,7 +433,7 @@ func (a *app) runXKeenGuardedUpdate(asset xkeenUpdateAsset, oldVersion string) x
 	}
 	applyErr := swapXKeenVersionedFiles(binary, stage, snapshot)
 	if applyErr == nil && legacyInit {
-		applyErr = xkeenLegacyApplyInit(xkeenInitDir(), stagedInit)
+		applyErr = xkeenLegacyApplyInit(xkeenInitDir(), stagedInit, snapshot)
 	}
 	if applyErr == nil && legacyInit {
 		if reason, needs := xkeenInitRepairNeed(xkeenInitDir()); needs || reason != "compatible" {
