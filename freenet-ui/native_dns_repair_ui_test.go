@@ -51,7 +51,7 @@ func TestNativeDNSRepairUIUsesOnlyGuardedProductAPI(t *testing.T) {
 		"fresh.expected_delta !== state.nativePlan.expected_delta",
 		"window.confirm(confirmation)",
 		"fetchJSON('/api/network-profile/apply'",
-		"body:JSON.stringify({operation:'network',dns_mode:'firmware',confirm:true})",
+		"body:JSON.stringify({operation:'network',dns_mode:'firmware',native_dns_provider:fresh.native_dns_provider,confirm:true})",
 		"const after = await fetchJSON('/api/network-profile/plan'",
 		"after.active !== true",
 		"after.dns_routing_mode !== 'native'",
