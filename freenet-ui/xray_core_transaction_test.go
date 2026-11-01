@@ -249,7 +249,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			restartLog := filepath.Join(root, "freenet-native-restarts.log")
 			restartCount := 0
 			oldProof := xrayCoreNativeRuntimeProof
-			xrayCoreNativeRuntimeProof = func(binary string) bool {
+			xrayCoreNativeRuntimeProof = func(binary, configDir string) bool {
 				testCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 				defer cancel()
 				_, err := xrayCoreVersionAt(testCtx, binary)
