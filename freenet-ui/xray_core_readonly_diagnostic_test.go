@@ -148,3 +148,108 @@ func TestXrayCoreUpdateReconcilesDetachedReceiptBeforeFailure(t *testing.T) {
         t.Fatal("detached worker receipt must be reconciled before terminal error")
     }
 }
+
+
+func TestXrayPendingReadOnlyDiagnosticGateFailClosed(t *testing.T) {
+    d := vpnTransactionDoctorResponse{
+        Mode: "read-only", Mutation: "NONE", Checkpoint: "pending",
+        Outbound: "matched", Profile: "matched", Filter: "matched",
+        FilesRestored: true, XrayCore: "stopped", MutationBlocked: true,
+        LockState: "absent", Decision: "STOP_XRAY_NOT_CONFIRMED",
+    }
+    inv := xrayProcessInventoryResponse{
+        Success: true, Mutation: "NONE", State: "production-xray-absent",
+    }
+    if !xrayPendingReadOnlyEligible(d, inv) {
+        t.Fatal("verified stopped/matched checkpoint should permit only read-only diagnosis")
+    }
+    cases := []struct {
+        name string
+        breakProof func(*vpnTransactionDoctorResponse, *xrayProcessInventoryResponse)
+    }{
+        {"no-checkpoint", func(d *vpnTransactionDoctorResponse, _ *xrayProcessInventoryResponse) { d.Checkpoint = "absent" }},
+        {"live-files-changed", func(d *vpnTransactionDoctorResponse, _ *xrayProcessInventoryResponse) { d.Outbound = "different" }},
+        {"files-unrestored", func(d *vpnTransactionDoctorResponse, _ *xrayProcessInventoryResponse) { d.FilesRestored = false }},
+        {"core-running", func(d *vpnTransactionDoctorResponse, _ *xrayProcessInventoryResponse) { d.XrayCore = "running" }},
+        {"core-unknown", func(d *vpnTransactionDoctorResponse, _ *xrayProcessInventoryResponse) { d.XrayCore = "unknown" }},
+        {"unknown-rollback", func(d *vpnTransactionDoctorResponse, _ *xrayProcessInventoryResponse) { d.Decision = "STOP_FILES_UNRESOLVED" }},
+        {"recovery-interrupted", func(d *vpnTransactionDoctorResponse, _ *xrayProcessInventoryResponse) { d.RecoveryAttempt = "unresolved" }},
+        {"orphan-writer", func(d *vpnTransactionDoctorResponse, _ *xrayProcessInventoryResponse) { d.LockState = "owner_pid_absent" }},
+        {"active-writer", func(d *vpnTransactionDoctorResponse, _ *xrayProcessInventoryResponse) { d.LockState = "pid_present_unverified" }},
+        {"untrusted-binary", func(_ *vpnTransactionDoctorResponse, inv *xrayProcessInventoryResponse) { inv.Success = false }},
+        {"production-present", func(_ *vpnTransactionDoctorResponse, inv *xrayProcessInventoryResponse) { inv.ProductionCount = 1 }},
+        {"probe-active", func(_ *vpnTransactionDoctorResponse, inv *xrayProcessInventoryResponse) { inv.ProbeCount = 1 }},
+        {"unknown-process", func(_ *vpnTransactionDoctorResponse, inv *xrayProcessInventoryResponse) { inv.UnknownCount = 1 }},
+        {"zombie-process", func(_ *vpnTransactionDoctorResponse, inv *xrayProcessInventoryResponse) { inv.ZombieCount = 1 }},
+        {"inventory-unknown", func(_ *vpnTransactionDoctorResponse, inv *xrayProcessInventoryResponse) { inv.State = "inventory-unknown" }},
+    }
+    for _, tc := range cases {
+        t.Run(tc.name, func(t *testing.T) {
+            dd, ii := d, inv
+            tc.breakProof(&dd, &ii)
+            if xrayPendingReadOnlyEligible(dd, ii) {
+                t.Fatal("missing checkpoint/process proof bypassed fail-closed gate")
+            }
+        })
+    }
+}
+
+func TestXrayDiagnosticHookStateClassifiesRemovedModuleWithoutExecuting(t *testing.T) {
+    dir := t.TempDir()
+    path := filepath.Join(dir, "proxy.sh")
+    if xrayDiagnosticHookState(path) != "absent" {
+        t.Fatal("absent hook must remain distinct")
+    }
+    secret := "SENSITIVE-SECRET-SHOULD-NEVER-APPEAR"
+    legacy := "#!/bin/sh\n. '/opt/sbin/.xkeen/01_info/03_info_cpu.sh'\n# " + secret
+    if err := os.WriteFile(path, []byte(legacy), 0700); err != nil { t.Fatal(err) }
+    if got := xrayDiagnosticHookState(path); got != "legacy-removed-module-reference" || strings.Contains(got, secret) {
+        t.Fatalf("legacy hook classified unsafely: %q", got)
+    }
+    if err := os.WriteFile(path, []byte("#!/bin/sh\n# XKeen: Auto-generated file. DO NOT EDIT!\n"), 0700); err != nil { t.Fatal(err) }
+    if xrayDiagnosticHookState(path) != "modern-generated-hook" {
+        t.Fatal("verified modern hook header not recognized")
+    }
+    if err := os.Remove(path); err != nil { t.Fatal(err) }
+    if err := os.Symlink(filepath.Join(dir, "missing"), path); err == nil {
+        if xrayDiagnosticHookState(path) != "untrusted" {
+            t.Fatal("symlinked hook must never be trusted")
+        }
+    }
+}
+
+func TestXrayReadOnlyDiagnosticDuringPendingPreservesCheckpoint(t *testing.T) {
+    a, checkpoint, live := newVPNTransactionDoctorFixture(t)
+    dir := t.TempDir()
+    proc := filepath.Join(dir, "proc")
+    if err := os.Mkdir(proc, 0700); err != nil { t.Fatal(err) }
+    t.Setenv("FREENET_XRAY_PROC_ROOT", proc)
+    t.Setenv("FREENET_XRAY_PROBE_LOCK_FILE", filepath.Join(dir, "probe.lock"))
+    t.Setenv("FREENET_ROUTING_CONFIG_DIR", filepath.Dir(live["out"]))
+    bin := writeXrayReadOnlyTestFixture(t, dir, "#!/bin/sh\necho 'SENSITIVE-VLESS-SECRET' >&2\nexit 23\n")
+    t.Setenv("FREENET_XRAY_BIN", bin)
+    a.cfg.LockPath = filepath.Join(dir, "unheld-writer-lock")
+    before, err := os.ReadFile(live["out"])
+    if err != nil { t.Fatal(err) }
+    response := httptest.NewRecorder()
+    a.handleXrayCoreReadOnlyDiagnostic(response,
+        httptest.NewRequest(http.MethodGet, "/api/xray/core/read-only-test", nil))
+    var result xrayCoreReadOnlyDiagnosticResponse
+    if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil { t.Fatal(err) }
+    if response.Code != http.StatusOK || result.Mutation != "NONE" ||
+        !result.ChildStarted || result.Valid || result.Reason != "reason=xray-live-config-test-failed" {
+        t.Fatalf("pending read-only semantic FAIL was not safely classified: HTTP %d %+v", response.Code, result)
+    }
+    if !vpnTransactionPending() { t.Fatal("read-only diagnostic removed original checkpoint") }
+    after, err := os.ReadFile(live["out"])
+    if err != nil || string(before) != string(after) {
+        t.Fatal("read-only diagnostic changed live VPN outbound")
+    }
+    if _, err := os.Stat(filepath.Join(checkpoint, "state")); err != nil {
+        t.Fatal("read-only diagnostic altered durable checkpoint marker")
+    }
+    if strings.Contains(response.Body.String(), "SENSITIVE-VLESS-SECRET") ||
+        strings.Contains(response.Body.String(), checkpoint) {
+        t.Fatal("private data leaked from semantic diagnostic")
+    }
+}
