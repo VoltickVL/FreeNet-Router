@@ -371,6 +371,10 @@ func (a *app) handleNetworkProfileGet(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (a *app) updateLockHeld() bool {
+	// Persisted UNKNOWN is a hard-stop even when reboot erased /tmp locks.
+	if selfUpdateReceiptUnresolved(readStateFile(a.cfg.UpdateState)) {
+		return true
+	}
 	held, _ := a.updateLockStatus()
 	return held
 }
@@ -391,6 +395,10 @@ func (a *app) currentUpdateActivity() (bool, string, string) {
 }
 
 func (a *app) mutationBlockedBySelfUpdate(w http.ResponseWriter) bool {
+	if selfUpdateReceiptUnresolved(readStateFile(a.cfg.UpdateState)) {
+		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "FreeNet rollback receipt unresolved: read-only reconciliation required"})
+		return true
+	}
 	if automationMutationBlockedState() {
 		writeJSON(w, http.StatusConflict, actionResult{Success: false, Error: "VPN transaction pending/unknown: read-only reconciliation required"})
 		return true
@@ -1116,7 +1124,7 @@ func (a *app) status() statusResponse {
 		SubscriptionConfigured: subscriptionConfigured(a.cfg.SubPath),
 		Busy:                   busy || a.updateLockHeld(),
 		UpdaterBusy:            lockErr == nil,
-		MutationBlocked:        automationMutationBlockedState(),
+		MutationBlocked:        automationMutationBlockedState() || selfUpdateReceiptUnresolved(readStateFile(a.cfg.UpdateState)),
 		Last:                   last,
 	}
 }
