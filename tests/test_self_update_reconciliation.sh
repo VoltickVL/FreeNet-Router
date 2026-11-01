@@ -774,7 +774,27 @@ cmp -s "$CASE_DIR/original.state" "$FREENET_UPDATE_STATE_FILE" || fail 'reboot r
 touch -d "@$((BOOT_EPOCH - 90))" "$FREENET_UPDATE_STATE_FILE"
 if run_reconcile_plan; then fail 'legacy owner-preserving plan accepted absent fences'; fi
 snapshot_guarded "$CASE_DIR/reboot-plan.before"
-run_reconcile_reboot_plan || fail 'exact restored FROM state was not reboot-plan ready'
+
+# On production Keenetic the BusyBox 1.37 stat supports -L -t but not
+# GNU 'stat -c %Y'. Earlier reboot-reconcile mistakenly used GNU-only -c
+# for mtime, refusing safe rollback despite a perfectly valid older receipt.
+# Reject precisely that command while letting the existing portable
+# update_file_proof metadata witness behave normally.
+FREENET_FIXTURE_REAL_STAT="$(command -v stat)"; export FREENET_FIXTURE_REAL_STAT
+cat > "$CASE_DIR/bin/stat" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = -c ] && [ "${2:-}" = %Y ]; then
+    printf '%s\n' 'BusyBox: stat -c unsupported' >&2
+    exit 2
+fi
+exec "$FREENET_FIXTURE_REAL_STAT" "$@"
+EOF
+chmod 755 "$CASE_DIR/bin/stat"
+if stat -c '%Y' "$FREENET_UPDATE_STATE_FILE" > "$CASE_DIR/stat-c-rejection" 2>&1; then
+    fail 'BusyBox stat -c regression fixture did not reject GNU-only form'
+fi
+
+run_reconcile_reboot_plan || fail 'BusyBox-compatible FROM state was not reboot-plan ready'
 grep -qx 'READY=yes' "$CASE_DIR/command.out" || fail 'reboot plan lacked readiness'
 grep -qx 'FENCES=REBOOT_ABSENT' "$CASE_DIR/command.out" || fail 'reboot plan invented ownership'
 grep -qx 'MUTATION=NONE' "$CASE_DIR/command.out" || fail 'reboot plan mutated protected data'
