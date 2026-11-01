@@ -259,7 +259,10 @@ func xrayCoreReleaseSummary(body string) string {
 func readXrayCoreCatalogBody(reader io.Reader) ([]byte, error) {
 	body, err := io.ReadAll(io.LimitReader(reader, xrayCoreMaxCatalogBytes+1))
 	if err != nil {
-		return nil, errors.New("cannot read Xray release catalog")
+		// A truncated official response is a transport failure, not a parsed
+		// catalog. Allow one bounded active-VPN read of the SAME pinned URL.
+		// Invalid JSON and oversize bodies still stop without fallback.
+		return nil, xrayCoreDownloadError("catalog-stream", true)
 	}
 	if len(body) > xrayCoreMaxCatalogBytes {
 		return nil, errors.New("Xray release catalog is too large")

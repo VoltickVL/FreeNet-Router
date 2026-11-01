@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 )
 
@@ -128,5 +129,56 @@ func TestXrayCoreCatalogDualFailureDoesNotLeakSecrets(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "reason=xray-catalog-direct-transport; vpn-vpn-identity") ||
 		strings.Contains(err.Error(), "secret") || strings.Contains(err.Error(), "github.invalid") {
 		t.Fatalf("dual failure must be finite, secret-free and reasoned: %v", err)
+	}
+}
+
+
+func TestXrayCoreCatalogTruncatedDirectStreamRetriesOneVerifiedVPNRead(t *testing.T) {
+	direct, vpn := 0, 0
+	client := &http.Client{Transport: xrayCoreRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		direct++
+		if req.URL.String() != xrayCoreReleasesURL {
+			t.Fatalf("unexpected catalog source: %s", req.URL.Host)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body: io.NopCloser(io.MultiReader(
+				strings.NewReader("[{"),
+				iotest.ErrReader(io.ErrUnexpectedEOF),
+			)),
+			Request: req,
+		}, nil
+	})}
+
+	body, err := fetchXrayCoreCatalogResilient(context.Background(),
+		func(ctx context.Context) ([]byte, error) {
+			return fetchXrayCoreCatalogBodyWithClient(ctx, client)
+		},
+		func(context.Context) ([]byte, error) {
+			vpn++
+			return []byte("[]"), nil
+		},
+	)
+	if err != nil || string(body) != "[]" || direct != 1 || vpn != 1 {
+		t.Fatalf("truncated HTTPS catalog must use one VPN fallback; body=%q err=%v direct=%d vpn=%d", body, err, direct, vpn)
+	}
+}
+
+func TestXrayCoreCatalogTruncatedBothPathsFailClosed(t *testing.T) {
+	calls := 0
+	_, err := fetchXrayCoreCatalogResilient(context.Background(),
+		func(context.Context) ([]byte, error) {
+			calls++
+			return nil, xrayCoreDownloadError("catalog-stream", true)
+		},
+		func(context.Context) ([]byte, error) {
+			calls++
+			return nil, xrayCoreDownloadError("catalog-stream", true)
+		},
+	)
+	if calls != 2 || err == nil ||
+		err.Error() != "reason=xray-catalog-direct-catalog-stream; vpn-catalog-stream" {
+		t.Fatalf("both interrupted paths must STOP with bounded secret-free reason: calls=%d err=%v", calls, err)
 	}
 }
