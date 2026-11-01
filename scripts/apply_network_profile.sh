@@ -191,6 +191,41 @@ xray_gid() {
     [ -n "$VALUE" ] && printf '%s\n' "$VALUE" || printf '%s\n' unknown
 }
 
+# Official XKeen 2.1 init inherits GID 0; FreeNet's own Xray runner uses
+# GID 11111. A root process is admitted ONLY with exact config environment,
+# the installed binary inode and no second Xray/probe process. Unknown or
+# mixed GIDs always STOP before any DNS/runtime mutation.
+xray_known_owned_launch() {
+    PID="$1"
+    [ -n "$PID" ] || return 1
+    GID_VALUE="$(xray_gid "$PID")"
+    case "$GID_VALUE" in 0|11111) : ;; *) return 1 ;; esac
+    if [ "$TEST_MODE" = yes ]; then
+        [ "$GID_VALUE" = 11111 ] && return 0
+        [ "$(test_state_value XRAY_ROOT_IDENTITY unknown)" = verified ]
+        return
+    fi
+    STATUS="/proc/$PID/status"
+    [ -r "$STATUS" ] || return 1
+    awk -v want="$GID_VALUE" '
+        $1=="Gid:" {
+            n++
+            if (NF!=5 || $2!=want || $3!=want || $4!=want || $5!=want) exit 1
+        }
+        END { if (n!=1) exit 1 }
+    ' "$STATUS" || return 1
+    [ -r "/proc/$PID/environ" ] || return 1
+    [ -f "$XRAY_BIN" ] || return 1
+    # test -ef compares the actual file inode rather than pathname strings.
+    [ "/proc/$PID/exe" -ef "$XRAY_BIN" ] || return 1
+    tr '\000' '\n' < "/proc/$PID/environ" 2>/dev/null |
+        grep -Fxq "XRAY_LOCATION_CONFDIR=$CONFIG_DIR" || return 1
+    tr '\000' '\n' < "/proc/$PID/environ" 2>/dev/null |
+        grep -Fxq 'FREENET_XRAY_PROBE=1' && return 1
+    COUNT="$(pidof xray 2>/dev/null | awk '{n+=NF} END{print n+0}')"
+    [ "$COUNT" = 1 ] || return 1
+}
+
 xray_dns_inbound_count() {
     jq -r '[.inbounds[]? | select((((.port // "") | tostring) == "53") and .protocol == "dokodemo-door")] | length' "$INBOUND_FILE" 2>/dev/null || printf '%s\n' unknown
 }
@@ -703,7 +738,7 @@ preflight_common() {
     NDM_ASSIGNMENTS_INITIAL="$(ndm_filter_assignments)"
     NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)"; [ -n "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'не удалось снять protected NDM hash'; return 1; }
     XPID="$(xray_pid)"; XRAY_WAS_RUNNING=no
-    if [ -n "$XPID" ]; then XRAY_WAS_RUNNING=yes; [ "$(xray_gid "$XPID")" = 11111 ] || { err 'Xray GID не равен 11111'; return 1; }; fi
+    if [ -n "$XPID" ]; then XRAY_WAS_RUNNING=yes; xray_known_owned_launch "$XPID" || { err 'Xray native launch identity/GID не подтверждены (0/11111); STOP'; return 1; }; fi
 }
 
 snapshot_configs() {
@@ -1187,7 +1222,7 @@ preflight_common() {
     NDM_ASSIGNMENTS_INITIAL="$(ndm_filter_assignments)"
     NDM_PROTECTED_HASH_INITIAL="$(ndm_protected_hash)"; [ -n "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'не удалось снять protected NDM hash'; return 1; }
     XPID="$(xray_pid)"; XRAY_WAS_RUNNING=no
-    if [ -n "$XPID" ]; then XRAY_WAS_RUNNING=yes; [ "$(xray_gid "$XPID")" = 11111 ] || { err 'Xray GID не равен 11111'; return 1; }; fi
+    if [ -n "$XPID" ]; then XRAY_WAS_RUNNING=yes; xray_known_owned_launch "$XPID" || { err 'Xray native launch identity/GID не подтверждены (0/11111); STOP'; return 1; }; fi
 }
 
 build_split_candidate() {
