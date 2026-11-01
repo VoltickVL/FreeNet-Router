@@ -91,7 +91,7 @@ var (
 		}
 		inventory := scanXrayProcessInventory("/proc", configDir, binary)
 		return inventory.Success && inventory.RestartReady &&
-			xrayCoreNativeRuntimeProof(binary)
+			xrayCoreNativeRuntimeProof(binary, configDir)
 	}
 )
 
