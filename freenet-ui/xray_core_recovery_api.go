@@ -66,11 +66,11 @@ func (a *app) handleXrayCoreRecovery(w http.ResponseWriter, r *http.Request) {
         blocked(http.StatusConflict, "reason=xray-recovery-runtime-unconfirmed")
         return
     }
-    if err:=xrayCoreNativePreflight(ctx,binary);err!=nil {
+    if err:=xrayCoreNativePreflight(ctx,binary,a.routingConfigDir());err!=nil {
         blocked(http.StatusConflict, "reason=xray-recovery-native-process-unconfirmed")
         return
     }
-    // Explicit user request plus live GID11111/executable-inode proof is
+    // Explicit user request plus exact live config, known launch GID and inode is
     // sufficient to adopt THIS running version as the new safe baseline.
     // This is not a claim that the previous rollback originally succeeded.
     if automationMutationBlockedState() {
@@ -86,6 +86,6 @@ func (a *app) handleXrayCoreRecovery(w http.ResponseWriter, r *http.Request) {
             State:"RECOVERED",TargetVersion:old.TargetVersion,Result:old.Result,
         })
     }
-    v3AppendEvent("xray","success","Фактический Xray подтверждён: нативный запуск и GID11111. Разблокирована новая операция; прежний rollback FAILED сохранён в журнале.")
+    v3AppendEvent("xray","success","Фактический Xray подтверждён: доверенный запуск XKeen/FreeNet, config и inode. Разблокирована новая операция; прежний rollback FAILED сохранён в журнале.")
     writeJSON(w,http.StatusOK,xrayCoreRecoveryResponse{Success:true,Mutation:"LATCH_ONLY",Version:liveVersion})
 }
