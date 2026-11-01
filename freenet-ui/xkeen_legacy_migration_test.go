@@ -177,11 +177,19 @@ func TestXKeenLegacyApplyRefusesModifiedInitAfterSnapshot(t *testing.T) {
 
 func TestXKeenLegacyRestoreFailsClosedWithoutBackup(t *testing.T) {
 	dir, stage, snapshot, _ := xkeenLegacyFixture(t)
+	// Normal apply requires the durable snapshot; simulate its loss
+	// only afterwards, before the explicit rollback attempt.
+	if err := xkeenLegacyBackupInit(dir, snapshot); err != nil {
+		t.Fatal(err)
+	}
 	staged, err := xkeenLegacyPrepareInit(context.Background(), stage, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := xkeenLegacyApplyInit(dir, staged, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(snapshot, "legacy-S99xkeen")); err != nil {
 		t.Fatal(err)
 	}
 	if err := xkeenLegacyRestoreInit(dir, snapshot); err == nil ||
