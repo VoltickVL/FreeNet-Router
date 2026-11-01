@@ -173,9 +173,17 @@ func xkeenLegacyBackupInit(initDir, snapshot string) error {
 	return nil
 }
 
-func xkeenLegacyApplyInit(initDir, staged string) error {
+func xkeenLegacyApplyInit(initDir, staged, snapshot string) error {
 	if !xkeenLegacyMigrationReadyAt(initDir, xkeenLegacyPrevious, xkeenLegacyTarget) {
 		return errors.New("legacy-init-changed-before-apply")
+	}
+	// The native XKeen UI could have changed the old init after the
+	// snapshot was taken. A same-generation file is not enough proof:
+	// compare exact bytes before retiring it.
+	live, liveErr := xkeenLegacyReadRegular(filepath.Join(initDir, "S99xkeen"))
+	before, backupErr := xkeenLegacyReadRegular(filepath.Join(snapshot, "legacy-S99xkeen"))
+	if liveErr != nil || backupErr != nil || !bytes.Equal(live, before) {
+		return errors.New("legacy-init-drift-after-snapshot")
 	}
 	path := filepath.Join(initDir, "S05xkeen")
 	if err := os.Rename(staged, path); err != nil {
