@@ -67,6 +67,12 @@ func xkeenLegacyBuildInit(old, template []byte) ([]byte, error) {
 	}
 	original := make(map[string]string)
 	for _, line := range strings.Split(string(old), "\n") {
+		// Runtime assignments inside functions are not persistent settings.
+		// Official 1.x init defines all configurable defaults before its
+		// first function; ignore subsequent dynamic reassignment.
+		if strings.Contains(line, "() {") {
+			break
+		}
 		i := strings.IndexByte(line, '=')
 		if i <= 0 || !allowed[line[:i]] {
 			continue
@@ -83,6 +89,9 @@ func xkeenLegacyBuildInit(old, template []byte) ([]byte, error) {
 	seen := make(map[string]bool)
 	lines := strings.Split(string(template), "\n")
 	for i, line := range lines {
+		if strings.Contains(line, "() {") {
+			break
+		}
 		index := strings.IndexByte(line, '=')
 		if index <= 0 || !allowed[line[:index]] {
 			continue
