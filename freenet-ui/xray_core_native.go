@@ -15,8 +15,10 @@ import (
 
 // FreeNet owns Xray core updates and the restart/rollback of the existing
 // production process. No XKeen UI, XKeen CLI, HTTP control service or external
-// updater is needed. GID 11111 is the expected routing group on Keenetic.
+// updater is needed. FreeNet-started Xray uses GID 11111; official XKeen 2.1
+// init inherits root GID 0. Neither group alone proves process ownership.
 const xrayCoreRoutingGID = 11111
+const xrayCoreXKeenInitGID = 0
 
 // Test seams only; the actual implementation below uses /proc and exec.
 var xrayCoreNativeRuntimeProof = xrayCoreNativeProcessMatches
@@ -29,72 +31,57 @@ type xrayCoreNativeProcess struct {
 
 // The core update never replaces an unknown runtime. This read-only check is
 // deliberately cheap: no second xray run -test/config rebuild.
-func xrayCoreNativePreflight(ctx context.Context, binary string) error {
+func xrayCoreNativePreflight(ctx context.Context, binary, configDir string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if !xrayCoreNativeRuntimeProof(binary) {
-		return errors.New("FreeNet cannot identify the running Xray binary and routing group; no binary changed")
+	if !xrayCoreNativeRuntimeProof(binary, configDir) {
+		return errors.New("FreeNet cannot prove a single owned Xray (binary inode, config, launch group); no binary changed")
 	}
 	return nil
 }
 
-func xrayCoreNativeProcessMatches(binary string) bool {
-	return xrayCoreNativeProcessMatchesInProc("/proc", binary)
+func xrayCoreNativeProcessMatches(binary, configDir string) bool {
+	return xrayCoreNativeProcessMatchesInProc("/proc", binary, configDir)
 }
 
-func xrayCoreNativeProcessMatchesInProc(procRoot, binary string) bool {
-	live, err := os.Stat(binary)
-	if err != nil || !live.Mode().IsRegular() {
-		return false
-	}
-	processes, err := os.ReadDir(procRoot)
-	if err != nil {
-		return false
-	}
-	matches := 0
-	for _, process := range processes {
-		if !process.IsDir() {
-			continue
-		}
-		if _, err := strconv.Atoi(process.Name()); err != nil {
-			continue
-		}
-		dir := filepath.Join(procRoot, process.Name())
-		comm, err := os.ReadFile(filepath.Join(dir, "comm"))
-		if err != nil || strings.TrimSpace(string(comm)) != "xray" {
-			continue
-		}
-		matches++
-		if matches > 1 || !xrayCoreNativeCorrectGID(dir) {
-			return false
-		}
-		executable, err := os.Stat(filepath.Join(dir, "exe"))
-		if err != nil || !os.SameFile(live, executable) {
-			return false
-		}
-	}
-	return matches == 1
+// Preflight and the browser inventory MUST use the same process admission.
+// An arbitrary root process with the right binary but another configuration
+// is not ours, and a probe/duplicate/unknown worker blocks all restarts.
+func xrayCoreNativeProcessMatchesInProc(procRoot, binary, configDir string) bool {
+	inventory := scanXrayProcessInventory(procRoot, configDir, binary)
+	return inventory.Success && inventory.RestartReady &&
+		inventory.ProductionCount == 1 && inventory.UnknownCount == 0 &&
+		inventory.ProbeCount == 0 && inventory.ZombieCount == 0
 }
 
+// Both official XKeen init (0) and the FreeNet native runner (11111) are
+// known launch groups. All four Linux GID fields must match exactly. This
+// is only a launch-mode check; executable inode + exact live config and
+// single-process ownership are independently mandatory.
 func xrayCoreNativeCorrectGID(procDir string) bool {
 	status, err := os.ReadFile(filepath.Join(procDir, "status"))
 	if err != nil {
 		return false
 	}
+	groups := 0
 	for _, row := range strings.Split(string(status), "\n") {
 		fields := strings.Fields(row)
 		if len(fields) != 5 || fields[0] != "Gid:" {
 			continue
 		}
-		for _, field := range fields[1:] {
-			if field != strconv.Itoa(xrayCoreRoutingGID) {
+		groups++
+		if groups != 1 || (fields[1] != strconv.Itoa(xrayCoreRoutingGID) &&
+			fields[1] != strconv.Itoa(xrayCoreXKeenInitGID)) {
+			return false
+		}
+		for _, field := range fields[2:] {
+			if field != fields[1] {
 				return false
 			}
 		}
-		return true
 	}
-	return false
+	return groups == 1
 }
 
 // Linux /proc/PID/stat's field 22 is the process start time. Pin it before
@@ -118,7 +105,7 @@ func xrayCoreNativeProcessStat(procDir string) (string, string, error) {
 // 0 production processes is allowed during rollback if the new Xray exited.
 // Any ambiguous or non-FreeNet-compatible process fails closed; it is never
 // killed, replaced or claimed as a successful restart.
-func xrayCoreNativeInventory(procRoot, configDir string) (xrayCoreNativeProcess, error) {
+func xrayCoreNativeInventory(procRoot, configDir, binary string) (xrayCoreNativeProcess, error) {
 	var found xrayCoreNativeProcess
 	configDir = filepath.Clean(configDir)
 	entries, err := os.ReadDir(procRoot)
@@ -126,6 +113,14 @@ func xrayCoreNativeInventory(procRoot, configDir string) (xrayCoreNativeProcess,
 		return found, errors.New("cannot read production Xray process inventory")
 	}
 	count := 0
+	// Once an atomic binary replacement has happened, the still-running old
+	// executable is reported by /proc as "<binary> (deleted)". Check that
+	// exact path before signalling; inode equality is verified *before* swap
+	// and again on the newly launched process, not against the new inode here.
+	expectedBinary, err := filepath.EvalSymlinks(binary)
+	if err != nil {
+		return found, errors.New("expected production Xray path unavailable")
+	}
 	for _, item := range entries {
 		if !item.IsDir() {
 			continue
@@ -150,7 +145,11 @@ func xrayCoreNativeInventory(procRoot, configDir string) (xrayCoreNativeProcess,
 			return xrayCoreNativeProcess{}, errors.New("multiple production Xray processes; no restart")
 		}
 		if !xrayCoreNativeCorrectGID(dir) {
-			return xrayCoreNativeProcess{}, errors.New("production Xray uses unexpected routing GID; no restart")
+			return xrayCoreNativeProcess{}, errors.New("production Xray uses unknown or mixed launch GID; no restart")
+		}
+		exePath, err := os.Readlink(filepath.Join(dir, "exe"))
+		if err != nil || filepath.Clean(strings.TrimSuffix(exePath, " (deleted)")) != expectedBinary {
+			return xrayCoreNativeProcess{}, errors.New("production Xray executable origin unconfirmed; no restart")
 		}
 		env, err := os.ReadFile(filepath.Join(dir, "environ"))
 		if err != nil || !envContains(env, "XRAY_LOCATION_CONFDIR="+configDir) {
@@ -292,7 +291,7 @@ func xrayCoreRestartDirect(ctx context.Context, binary, version, configDir, asse
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
-	process, err := xrayCoreNativeInventory("/proc", configDir)
+	process, err := xrayCoreNativeInventory("/proc", configDir, binary)
 	if err != nil {
 		return err
 	}
