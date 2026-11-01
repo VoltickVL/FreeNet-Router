@@ -159,8 +159,19 @@ for F in "$DNS_FILE" "$INBOUND_FILE" "$OUTBOUND_FILE" "$ROUTING_FILE"; do [ -f "
 grep -Eq '^[[:space:]]*proxy_dns="?off"?[[:space:]]*$' "$XKEEN_INIT" || { err 'XKeen proxy_dns должен оставаться off; migration остановлена до безопасного preflight'; exit 1; }
 XPID="$(pidof xray 2>/dev/null | awk '{print $1}')"
 [ -n "$XPID" ] || { err 'Xray process не запущен'; exit 1; }
+# Both official XKeen (GID0) and FreeNet (GID11111) are supported.
+# This legacy migration must not take ownership by GID alone.
 XGID="$(awk '/^Gid:/ {print $2; exit}' "/proc/$XPID/status" 2>/dev/null)"
-[ "$XGID" = 11111 ] || { err 'Xray GID не равен XKeen exclusion GID 11111; migration остановлена'; exit 1; }
+case "$XGID" in 0|11111) : ;; *) err 'Неизвестный Xray launch GID; migration остановлена'; exit 1 ;; esac
+awk -v want="$XGID" '$1=="Gid:" {n++; if(NF!=5||$2!=want||$3!=want||$4!=want||$5!=want) exit 1} END{if(n!=1) exit 1}' "/proc/$XPID/status" ||
+    { err 'Неоднозначные Xray launch GIDs; migration остановлена'; exit 1; }
+[ "$(pidof xray 2>/dev/null | awk '{n+=NF} END{print n+0}')" = 1 ] ||
+    { err 'Не единственный Xray процесс; migration остановлена'; exit 1; }
+[ -r "/proc/$XPID/environ" ] &&
+    tr '\000' '\n' < "/proc/$XPID/environ" | grep -Fxq "XRAY_LOCATION_CONFDIR=$CONFIG_DIR" &&
+    ! tr '\000' '\n' < "/proc/$XPID/environ" | grep -Fxq 'FREENET_XRAY_PROBE=1' &&
+    [ "/proc/$XPID/exe" -ef "$XRAY_BIN" ] ||
+    { err 'Xray identity/executable/config не подтверждены; migration остановлена'; exit 1; }
 
 PORT53="$(netstat -lnp 2>/dev/null | grep ':53[[:space:]]' || true)"
 if printf '%s\n' "$PORT53" | grep -q '/xray'; then
