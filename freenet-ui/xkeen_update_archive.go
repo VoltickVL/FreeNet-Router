@@ -81,8 +81,12 @@ func parseXKeenUpdateAsset(data []byte) (xkeenUpdateAsset, error) {
 	return xkeenUpdateAsset{}, errors.New("xkeen-asset-unavailable")
 }
 
-func newXKeenUpdateHTTPClient() *http.Client {
-	return &http.Client{
+// Resolver fallback applies only to official XKeen GitHub metadata/assets.
+// It never changes router DNS or weakens TLS/redirect validation.
+var xkeenUpdateDNSFallbacks = []string{"", "77.88.8.8:53", "8.8.8.8:53"}
+
+func newXKeenUpdateHTTPClient(dnsServer ...string) *http.Client {
+	client := &http.Client{
 		Timeout: 35 * time.Second,
 		CheckRedirect: func(r *http.Request, via []*http.Request) error {
 			if len(via) >= 5 || r.URL.Scheme != "https" ||
@@ -92,6 +96,10 @@ func newXKeenUpdateHTTPClient() *http.Client {
 			return nil
 		},
 	}
+	if len(dnsServer) != 0 && dnsServer[0] != "" {
+		client.Transport = recoveryHTTPClient(dnsServer[0]).Transport
+	}
+	return client
 }
 
 func fetchOfficialXKeenUpdateAsset(ctx context.Context, client *http.Client) (xkeenUpdateAsset, error) {
