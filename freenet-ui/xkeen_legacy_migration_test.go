@@ -75,7 +75,7 @@ func TestXKeenLegacyInitMigrationPreservesSettingsAndRestoresOnRollback(t *testi
 	if bytes.Contains(data, []byte("03_info_cpu.sh")) {
 		t.Fatal("new init still references deleted 1.x module")
 	}
-	if err := xkeenLegacyApplyInit(dir, staged); err != nil {
+	if err := xkeenLegacyApplyInit(dir, staged, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if reason, needs := xkeenInitRepairNeed(dir); needs || reason != "compatible" {
@@ -153,13 +153,35 @@ func TestXKeenLegacyRuntimeAssignmentsNotTreatedAsHeaderDuplicates(t *testing.T)
 	}
 }
 
+func TestXKeenLegacyApplyRefusesModifiedInitAfterSnapshot(t *testing.T) {
+	root, stage, snapshot, _ := xkeenLegacyFixture(t)
+	if err := xkeenLegacyBackupInit(root, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := xkeenLegacyPrepareInit(context.Background(), stage, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPath := filepath.Join(root, "S99xkeen")
+	if err := os.WriteFile(oldPath, []byte("#!/bin/sh\\nname_client=xray\\nstart_auto=off\\n# 03_info_cpu.sh\\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := xkeenLegacyApplyInit(root, staged, snapshot); err == nil ||
+		!strings.Contains(err.Error(), "drift") {
+		t.Fatalf("TOCTOU init change was not rejected: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "S05xkeen")); !os.IsNotExist(err) {
+		t.Fatal("migration changed live init despite drift")
+	}
+}
+
 func TestXKeenLegacyRestoreFailsClosedWithoutBackup(t *testing.T) {
 	dir, stage, snapshot, _ := xkeenLegacyFixture(t)
 	staged, err := xkeenLegacyPrepareInit(context.Background(), stage, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := xkeenLegacyApplyInit(dir, staged); err != nil {
+	if err := xkeenLegacyApplyInit(dir, staged, snapshot); err != nil {
 		t.Fatal(err)
 	}
 	if err := xkeenLegacyRestoreInit(dir, snapshot); err == nil ||
