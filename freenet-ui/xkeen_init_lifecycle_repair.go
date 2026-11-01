@@ -28,6 +28,7 @@ type xkeenInitRepairDisk struct {
  Reason string `json:"reason,omitempty"`
  Rollback string `json:"rollback"`
  Snapshot string `json:"snapshot,omitempty"`
+ Phase string `json:"phase,omitempty"`
 }
 
 var (
@@ -36,11 +37,125 @@ var (
   return err
  }
  xkeenInitRepairStart = func(ctx context.Context, a *app) error {
+  if vpnTransactionPending() { return a.startXrayAfterInitRecovery(ctx) }
   return a.startXrayControlled(ctx)
  }
 )
 
 func xkeenInitDir() string { return "/opt/etc/init.d" }
+
+const xkeenLegacyNetfilterHook = "/opt/etc/ndm/netfilter.d/proxy.sh"
+const xkeenRepairHookSnapshotName = "netfilter-proxy.before"
+
+// The existing VPN writer is UNKNOWN, but the runtime can be established
+// without mutation: all three files match the durable snapshot, no live
+// Xray, probe, zombie or unknown process exists, and no owner lock remains.
+// Only this exact recovery shape may cross the general pending fence.
+func xkeenInitPendingRepairProof(d vpnTransactionDoctorResponse, inv xrayProcessInventoryResponse, hook string) bool {
+ return xrayPendingReadOnlyEligible(d, inv) &&
+  hook == "legacy-removed-module-reference"
+}
+
+func (a *app) xkeenInitPendingRepairAdmission() bool {
+ if a == nil || !vpnTransactionPending() || !automationMutationBlockedState() {
+  return false
+ }
+ binary, _, err := a.resolvedXrayCoreBinary()
+ if err != nil { return false }
+ configDir, err := a.xrayCoreLiveConfigDir()
+ if err != nil { return false }
+ inv := scanXrayProcessInventory("/proc", configDir, binary)
+ return xkeenInitPendingRepairProof(a.vpnTransactionDoctor(), inv,
+  xrayDiagnosticHookState(xkeenLegacyNetfilterHook))
+}
+
+// A dedicated start path, available only inside an already durably journaled
+// init repair. Generic /api/xray/service and every other mutation continue
+// to refuse PENDING/UNKNOWN. This never clears the VPN checkpoint.
+func (a *app) startXrayAfterInitRecovery(ctx context.Context) error {
+ receipt, err := xkeenInitRepairReceipt(xkeenInitDir())
+ if err != nil || receipt.State != "RUNNING" || receipt.Phase != "START" ||
+  a == nil || a.sem == nil || len(a.sem) == 0 ||
+  !a.xkeenInitPendingRepairAdmission() {
+  return errors.New("pending-init-repair-admission-unverified")
+ }
+ if reason, needs := xkeenInitRepairNeed(xkeenInitDir()); needs || reason != "compatible" {
+  return errors.New("repaired-init-not-compatible")
+ }
+ if a.xrayRuntimeDesiredState() != xrayRuntimeDesiredRunning {
+  return errors.New("xray-intentionally-stopped")
+ }
+ if err := a.validateConfigStudioLive(ctx); err != nil {
+  return errors.New("xray-live-config-precheck-failed")
+ }
+ if _, err := runCommand(ctx, a.cfg.XKeenPath, "-start"); err != nil {
+  return errors.New("native-xkeen-start-failed")
+ }
+ if !waitForXrayOnline(ctx) {
+  return errors.New("xray-start-not-confirmed")
+ }
+ if err := a.validateConfigStudioLive(ctx); err != nil {
+  return errors.New("xray-post-start-config-not-confirmed")
+ }
+ if xrayDiagnosticHookState(xkeenLegacyNetfilterHook) != "modern-generated-hook" {
+  return errors.New("netfilter-hook-not-migrated")
+ }
+ binary, _, err := a.resolvedXrayCoreBinary()
+ if err != nil { return errors.New("xray-post-start-identity-unverified") }
+ dir, err := a.xrayCoreLiveConfigDir()
+ if err != nil { return errors.New("xray-post-start-config-identity-unverified") }
+ inventory := scanXrayProcessInventory("/proc", dir, binary)
+ if !inventory.Success || inventory.ProductionCount != 1 ||
+  inventory.UnknownCount != 0 || inventory.ProbeCount != 0 || inventory.ZombieCount != 0 {
+  return errors.New("xray-post-start-process-unverified")
+ }
+ return nil
+}
+
+// The native XKeen start rewrites the netfilter hook. A verified, private
+// backup of its exact old bytes is mandatory before any init regeneration.
+func xkeenInitRepairHookBackup(path, snapshot string) error {
+ if xrayDiagnosticHookState(path) != "legacy-removed-module-reference" {
+  return errors.New("netfilter-hook-not-legacy")
+ }
+ data, ok := xkeenInitReadBounded(path)
+ if !ok { return errors.New("netfilter-hook-unreadable") }
+ file, err := os.OpenFile(filepath.Join(snapshot,xkeenRepairHookSnapshotName),os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
+ if err != nil { return errors.New("netfilter-snapshot-unavailable") }
+ _, writeErr := file.Write([]byte(data))
+ syncErr := file.Sync()
+ closeErr := file.Close()
+ if writeErr != nil || syncErr != nil || closeErr != nil {
+  return errors.New("netfilter-snapshot-unconfirmed")
+ }
+ return nil
+}
+
+func xkeenInitRepairHookRollback(path, snapshot string) error {
+ saved, ok := xkeenInitReadBounded(filepath.Join(snapshot,xkeenRepairHookSnapshotName))
+ if !ok || !strings.Contains(saved,"03_info_cpu.sh") {
+  return errors.New("netfilter-snapshot-unverified")
+ }
+ if !xkeenInitSafeFile(path,true) {
+  return errors.New("netfilter-live-file-untrusted")
+ }
+ file, err := os.CreateTemp(filepath.Dir(path),".freenet-netfilter-rollback-*")
+ if err != nil { return errors.New("netfilter-restore-workspace-unavailable") }
+ tmp := file.Name()
+ defer os.Remove(tmp)
+ _, writeErr := file.Write([]byte(saved))
+ modeErr := file.Chmod(0755)
+ syncErr := file.Sync()
+ closeErr := file.Close()
+ if writeErr != nil || modeErr != nil || syncErr != nil || closeErr != nil {
+  return errors.New("netfilter-restore-write-unconfirmed")
+ }
+ if err := os.Rename(tmp,path); err != nil { return errors.New("netfilter-restore-rename-failed") }
+ restored, ok := xkeenInitReadBounded(path)
+ if !ok || restored != saved { return errors.New("netfilter-restore-postcheck-failed") }
+ return nil
+}
+
 func xkeenInitRepairStateFile(root string) string {
  return filepath.Join(root, ".freenet-xkeen-init-repair-state.json")
 }
@@ -162,13 +277,19 @@ func xkeenInitRepairInventoryScoped(a *app, root string, slotReserved bool) xkee
  if a.xrayRuntimeDesiredState()!=xrayRuntimeDesiredRunning {
   result.Reason="xray-intentionally-stopped";return result
  }
- if !slotReserved {
-  if xkeenUpdateBusy(a) {result.Reason="another-operation-or-recovery-busy";return result}
- } else {
-  held,_:=a.updateLockStatus()
-  if held || a.selfUpdateStateAdmission()!=nil || vpnTransactionPending() || automationMutationBlockedState() || xrayCoreOperationSnapshot().State=="RUNNING" || xrayCoreOperationSnapshot().State=="STOP" {
-   result.Reason="another-operation-or-recovery-busy";return result
+ // Do not bypass the original transaction fence generically. Only the
+ // exact, read-only established STOPPED+MATCHED+legacy-hook condition can
+ // make this one targeted native-init repair eligible.
+ if vpnTransactionPending() || automationMutationBlockedState() {
+  if !a.xkeenInitPendingRepairAdmission() {
+   result.Reason="pending-vpn-recovery-unverified";return result
   }
+ }
+ held,_:=a.updateLockStatus()
+ operation := xrayCoreOperationSnapshot().State
+ if held || a.selfUpdateStateAdmission()!=nil || operation=="RUNNING" || operation=="STOP" ||
+  (!slotReserved && a.sem != nil && len(a.sem)>0) {
+  result.Reason="another-operation-or-recovery-busy";return result
  }
  result.State="repairable"
  result.Reason=reason
@@ -245,16 +366,34 @@ func xkeenInitRepairApply(ctx context.Context, a *app, root string) xkeenInitRep
   failed.Reason="snapshot-unverified"
   return failed
  }
- disk:=xkeenInitRepairDisk{State:"RUNNING",Reason:"repair-in-progress",Rollback:"PENDING",Snapshot:snapshot}
+ // This repair is intentionally restricted to observed legacy netfilter.
+ // Back up the hook before the native XKeen action can regenerate it.
+ if err=xkeenInitRepairHookBackup(xkeenLegacyNetfilterHook,snapshot);err!=nil {
+  failed.Reason="netfilter-snapshot-unverified"
+  return failed
+ }
+ if vpnTransactionPending() && !a.xkeenInitPendingRepairAdmission() {
+  failed.Reason="pending-vpn-recovery-drift"
+  return failed
+ }
+ disk:=xkeenInitRepairDisk{State:"RUNNING",Reason:"repair-in-progress",Rollback:"PENDING",Snapshot:snapshot,Phase:"INIT_REBUILD"}
  if xkeenInitRepairWrite(root,disk)!=nil {
   failed.Reason="repair-receipt-not-durable";return failed
  }
+ startAttempted:=false
  fail:=func(reason string) xkeenInitRepairResponse {
   disk.State="STOP"
   disk.Reason=reason
   disk.Rollback="UNKNOWN"
   if !xrayServiceProcessRunning("xray") {
-   if xkeenInitRepairRollback(root,snapshot)==nil {disk.Rollback="SUCCESS"} else {disk.Rollback="FAILED"}
+   initErr:=xkeenInitRepairRollback(root,snapshot)
+   hookErr:=xkeenInitRepairHookRollback(xkeenLegacyNetfilterHook,snapshot)
+   if initErr!=nil || hookErr!=nil {disk.Rollback="FAILED"} else if !startAttempted {
+    // Before any native start the init/hook bytes are the only changed state.
+    disk.Rollback="SUCCESS"
+   }
+   // Once native start ran, router rules may have changed. A byte-for-byte
+   // restoration is NOT proof of complete network rollback: UNKNOWN = STOP.
   }
   if xkeenInitRepairWrite(root,disk)!=nil {disk.Rollback="UNKNOWN";disk.Reason="repair-receipt-not-durable"}
   return xkeenInitRepairResponse{State:"STOP",Reason:disk.Reason,Rollback:disk.Rollback,Mutation:"INIT_ATTEMPTED",XrayOnline:xrayServiceProcessRunning("xray")}
@@ -264,11 +403,18 @@ func xkeenInitRepairApply(ctx context.Context, a *app, root string) xkeenInitRep
  defer cancel()
  if xkeenInitRepairRun(ctx,a.cfg.XKeenPath)!=nil {return fail("native-init-rebuild-failed")}
  if reason,need:=xkeenInitRepairNeed(root);need||reason!="compatible" {return fail("init-migration-postcheck-failed")}
+ if vpnTransactionPending() && !a.xkeenInitPendingRepairAdmission() {
+  return fail("pending-vpn-recovery-drift")
+ }
+ disk.Phase="START"
+ if xkeenInitRepairWrite(root,disk)!=nil {return fail("start-receipt-not-durable")}
+ startAttempted=true
  if err:=xkeenInitRepairStart(ctx,a);err!=nil {return fail("xray-start-postcheck-failed")}
  if !xrayServiceProcessRunning("xray") {return fail("xray-not-running-after-repair")}
  disk.State="SUCCESS"
  disk.Reason="xkeen-init-compatible-xray-running"
  disk.Rollback="NOT_NEEDED"
+ disk.Phase="DONE"
  if xkeenInitRepairWrite(root,disk)!=nil {
   return xkeenInitRepairResponse{State:"STOP",Reason:"repair-result-not-durable",Rollback:"UNKNOWN",Mutation:"INIT_ATTEMPTED",XrayOnline:true}
  }
