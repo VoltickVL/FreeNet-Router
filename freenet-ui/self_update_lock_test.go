@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -134,5 +136,41 @@ func TestUnlockStaleUpdateLockClearsOnlySafeDeadLockAndNormalizesState(t *testin
 		if !strings.Contains(text, want) {
 			t.Fatalf("normalized state missing %q:\n%s", want, text)
 		}
+	}
+}
+
+func TestUnknownUpdaterReceiptBlocksVPNWithoutTmpFenceAfterReboot(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state string
+	}{
+		{"rollback-failed", "STATE=ROLLBACK_FAILED\nROLLBACK_STATE=FAILED_UNKNOWN\n"},
+		{"reconnecting", "STATE=RECONNECTING\nROLLBACK_STATE=PENDING\n"},
+		{"updating", "STATE=UPDATING\nROLLBACK_STATE=PENDING\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			t.Setenv("FREENET_VPN_TRANSACTION_DIR", filepath.Join(root, "no-checkpoint"))
+			state := filepath.Join(root, "self-update.state")
+			if err := os.WriteFile(state, []byte(tc.state), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			lock := filepath.Join(root, "erased-by-reboot.lock")
+			a := &app{cfg: config{UpdateState: state, UpdateLock: lock}}
+			if !a.updateLockHeld() {
+				t.Fatal("durable UNKNOWN receipt must hard-stop after /tmp lock vanished")
+			}
+			response := httptest.NewRecorder()
+			if !a.mutationBlockedBySelfUpdate(response) || response.Code != http.StatusConflict {
+				t.Fatalf("unsafe mutation allowed without owner lock: %d %s", response.Code, response.Body.String())
+			}
+			if _, err := os.Stat(lock); !os.IsNotExist(err) {
+				t.Fatalf("hard-stop fabricated a new lock: %v", err)
+			}
+			receipt, err := os.ReadFile(state)
+			if err != nil || string(receipt) != tc.state {
+				t.Fatal("read-only hard stop must preserve the original receipt")
+			}
+		})
 	}
 }
