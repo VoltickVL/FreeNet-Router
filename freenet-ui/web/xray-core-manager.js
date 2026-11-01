@@ -1371,7 +1371,11 @@
 
   async function xkeenApplyPlan() {
     if (xkeenPanelBusy || !xkeenPlan?.ready) return;
-    if (!window.confirm('Обновить файлы XKeen до Stable '+xkeenPlan.target_version+'? FreeNet сохранит исходные файлы, проверит Xray и выполнит откат при ошибке. Xray не перезапускается.')) return;
+    const migration = xkeenPlan.init_migration === true;
+    const confirmation = migration
+      ? 'Проверенный переход XKeen 1.1.3.9 → 2.1 изменит скрипты XKeen и автозапуск S99xkeen → S05xkeen. FreeNet сохранит старые файлы и init, проверит Xray и восстановит их при отказе. Продолжить?'
+      : 'Обновить файлы XKeen до Stable '+xkeenPlan.target_version+'? FreeNet сохранит исходные файлы, проверит Xray и выполнит откат при ошибке. Xray не перезапускается.';
+    if (!window.confirm(confirmation)) return;
     const plan = xkeenPlan;
     xkeenPanelBusy=true;
     const footer=xkeenButtons();
@@ -1404,7 +1408,11 @@
       xkeenSay('Официальная Stable: '+safe(body.target_version));
       if(body.ready && body.success && body.expected_sha256?.length === 64 &&
         body.mutation === 'NONE' && body.runtime_change === 'NONE') {
-        xkeenSay('План подтверждён: предыдущие файлы будут сохранены, работающий Xray проверен.');
+        if (body.init_migration === true) {
+          xkeenSay('Защищённая миграция 1.x → 2.x: будет сохранён старый S99xkeen, проверен новый S05xkeen и выполнен откат обоих поколений при отказе.');
+        } else {
+          xkeenSay('План подтверждён: предыдущие файлы будут сохранены, работающий Xray проверен.');
+        }
         addButton(actions,'Обновить до '+body.target_version,'primary',()=>void xkeenApplyPlan());
       } else {
         xkeenSay(body.state === 'up-to-date' ? 'Последняя Stable уже установлена.' : xkeenReason(body.reason),'xcm-subtitle');
