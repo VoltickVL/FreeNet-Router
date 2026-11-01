@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -8,7 +9,7 @@ import (
 
 func nativeDNSRepairUISource(t *testing.T) string {
 	t.Helper()
-	data, err := webFS.ReadFile("web/settings-dns-ui.js")
+	data, err := os.ReadFile("web/settings-dns-ui.js")
 	if err != nil {
 		t.Fatal(err)
 	}
