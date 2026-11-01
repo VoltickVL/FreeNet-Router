@@ -314,7 +314,7 @@ func xrayCoreRestartDirect(ctx context.Context, binary, version, configDir, asse
 			return errors.New("new Xray process terminated during startup")
 		default:
 		}
-		if xrayCoreNativeRuntimeProof(binary) {
+		if xrayCoreNativeRuntimeProof(binary, configDir) {
 			versionCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			runningVersion, versionErr := xrayCoreVersionAt(versionCtx, binary)
 			cancel()
