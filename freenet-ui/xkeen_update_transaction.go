@@ -19,6 +19,7 @@ type xkeenUpdateDiskState struct {
 	Phase       string `json:"phase,omitempty"`
 	Reason      string `json:"reason,omitempty"`
 	SnapshotDir string `json:"snapshot_dir,omitempty"`
+	LegacyInit  bool   `json:"legacy_init,omitempty"`
 	UpdatedAt   string `json:"updated_at,omitempty"`
 }
 

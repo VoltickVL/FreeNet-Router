@@ -27,6 +27,7 @@ type xkeenUpdatePlan struct {
 	Reason        string `json:"reason,omitempty"`
 	Mutation      string `json:"mutation"`
 	RuntimeChange string `json:"runtime_change"`
+	InitMigration bool   `json:"init_migration,omitempty"`
 }
 
 type xkeenUpdateApplyRequest struct {
@@ -37,10 +38,42 @@ type xkeenUpdateApplyRequest struct {
 
 var (
 	xkeenUpdateGetAsset = func(ctx context.Context) (xkeenUpdateAsset, error) {
-		return fetchOfficialXKeenUpdateAsset(ctx, newXKeenUpdateHTTPClient())
+		var lastErr error
+		for _, resolver := range xkeenUpdateDNSFallbacks {
+			if ctx.Err() != nil {
+				break
+			}
+			attempt, cancel := context.WithTimeout(ctx, 3*time.Second)
+			asset, err := fetchOfficialXKeenUpdateAsset(attempt, newXKeenUpdateHTTPClient(resolver))
+			cancel()
+			if err == nil {
+				return asset, nil
+			}
+			lastErr = err
+		}
+		if lastErr == nil {
+			lastErr = errors.New("xkeen-catalog-unavailable")
+		}
+		return xkeenUpdateAsset{}, lastErr
 	}
 	xkeenUpdateGetArchive = func(ctx context.Context, asset xkeenUpdateAsset, parent string) (string, error) {
-		return downloadVerifiedXKeenArchive(ctx, newXKeenUpdateHTTPClient(), asset, parent)
+		var lastErr error
+		for _, resolver := range xkeenUpdateDNSFallbacks {
+			if ctx.Err() != nil {
+				break
+			}
+			attempt, cancel := context.WithTimeout(ctx, 20*time.Second)
+			filename, err := downloadVerifiedXKeenArchive(attempt, newXKeenUpdateHTTPClient(resolver), asset, parent)
+			cancel()
+			if err == nil {
+				return filename, nil
+			}
+			lastErr = err
+		}
+		if lastErr == nil {
+			lastErr = errors.New("xkeen-download-unavailable")
+		}
+		return "", lastErr
 	}
 	// Tests can replace this witness. Production requires both strict process
 	// inventory and an inode/GID-based native proof; a working UI is not enough.
@@ -101,15 +134,18 @@ func (a *app) xkeenUpdatePrepare(ctx context.Context) (xkeenUpdatePlan, xkeenUpd
 		return p, xkeenUpdateAsset{}
 	}
 	p.Installed, p.Channel = current, channel
-	// Never swap 1.x and 2.x script trees around a stale init.d generation.
-	// Existing active Xray must be preserved; repair is a separate, explicit API.
+	// Only a recognized 1.1.3.9 init can enter the separately snapshotted
+	// 2.1 migration. A broken mixed 2.x layout remains hard STOP.
+	legacyInit := xkeenLegacyMigrationReady(a.cfg.XKeenPath, current, xkeenLegacyTarget)
 	if filepath.Clean(a.cfg.XKeenPath) == defaultXKeenPath {
 		if reason, needs := xkeenInitRepairNeed(xkeenInitDir()); needs || reason != "compatible" {
-		p.State = "blocked"
-		p.Reason = "xkeen-init-lifecycle-unverified"
-		return p, xkeenUpdateAsset{}
+			if !legacyInit {
+				p.State, p.Reason = "blocked", "xkeen-init-lifecycle-unverified"
+				return p, xkeenUpdateAsset{}
+			}
 		}
 	}
+	p.InitMigration = legacyInit
 	if state := publicXKeenUpdateState(a.cfg.XKeenPath); state.State == "RUNNING" || state.State == "STOP" {
 		p.Reason = "xkeen-prior-operation-not-terminal"
 		return p, xkeenUpdateAsset{}
@@ -129,6 +165,10 @@ func (a *app) xkeenUpdatePrepare(ctx context.Context) (xkeenUpdatePlan, xkeenUpd
 	asset, err := xkeenUpdateGetAsset(ctx)
 	if err != nil {
 		p.Reason = "xkeen-upstream-unverified"
+		return p, xkeenUpdateAsset{}
+	}
+	if legacyInit && asset.Version != xkeenLegacyTarget {
+		p.State, p.Reason = "blocked", "xkeen-legacy-target-unverified"
 		return p, xkeenUpdateAsset{}
 	}
 	p.Target, p.ExpectedSHA = asset.Version, asset.Digest
@@ -266,7 +306,10 @@ func (a *app) handleXKeenUpdateApply(w http.ResponseWriter, r *http.Request) {
 		request.Installed != current || request.Target != asset.Version ||
 		!strings.EqualFold(request.SHA, asset.Digest) ||
 		!xkeenUpdateProductionReady(a) || automationMutationBlockedState() ||
-		vpnTransactionPending() {
+		vpnTransactionPending() ||
+		(filepath.Clean(a.cfg.XKeenPath) == defaultXKeenPath &&
+			!xkeenLegacyMigrationReady(a.cfg.XKeenPath, current, asset.Version) &&
+			func() bool { reason, needs := xkeenInitRepairNeed(xkeenInitDir()); return needs || reason != "compatible" }()) {
 		lockRelease()
 		releaseSem()
 		writeJSON(w, http.StatusConflict, xkeenUpdateStatus{State:"FAILED",Rollback:"NOT_NEEDED",Reason:"plan-expired-or-runtime-unverified",Mutation:"NONE"})
@@ -345,10 +388,22 @@ func (a *app) runXKeenGuardedUpdate(asset xkeenUpdateAsset, oldVersion string) x
 	if extractVerifiedXKeenArchive(archive, stage, asset.Version) != nil {
 		return finish("FAILED","NOT_NEEDED","candidate-invalid")
 	}
-	// A second init.d check closes the plan/apply race.
+	legacyInit := xkeenLegacyMigrationReady(binary, oldVersion, asset.Version)
+	stagedInit := ""
+	if legacyInit {
+		var prepErr error
+		stagedInit, prepErr = xkeenLegacyPrepareInit(ctx, stage, xkeenInitDir())
+		if prepErr != nil {
+			return finish("FAILED", "NOT_NEEDED", "legacy-init-candidate-invalid")
+		}
+	}
+	// A second init.d check closes the plan/apply race. A broken 2.x
+	// generation can never enter the recognized 1.x migration path.
 	if filepath.Clean(a.cfg.XKeenPath) == defaultXKeenPath {
 		if reason, needs := xkeenInitRepairNeed(xkeenInitDir()); needs || reason != "compatible" {
-		return finish("FAILED", "NOT_NEEDED", "xkeen-init-lifecycle-drift")
+			if !legacyInit || !xkeenLegacyMigrationReady(binary, oldVersion, asset.Version) {
+				return finish("FAILED", "NOT_NEEDED", "xkeen-init-lifecycle-drift")
+			}
 		}
 	}
 	// Recheck production before the first filesystem mutation. An unknown
@@ -366,6 +421,11 @@ func (a *app) runXKeenGuardedUpdate(asset xkeenUpdateAsset, oldVersion string) x
 	if err != nil {
 		return finish("FAILED","NOT_NEEDED","snapshot-unavailable")
 	}
+	if legacyInit && xkeenLegacyBackupInit(xkeenInitDir(), snapshot) != nil {
+		_ = os.RemoveAll(snapshot)
+		return finish("FAILED", "NOT_NEEDED", "legacy-init-snapshot-unavailable")
+	}
+	record.LegacyInit = legacyInit
 	record.SnapshotDir, record.Phase = snapshot, "SNAPSHOT"
 	if writeXKeenUpdateDiskState(binary, record) != nil {
 		_ = os.RemoveAll(snapshot)
@@ -376,6 +436,14 @@ func (a *app) runXKeenGuardedUpdate(asset xkeenUpdateAsset, oldVersion string) x
 		return finish("STOP","UNKNOWN","update-journal-unverified")
 	}
 	applyErr := swapXKeenVersionedFiles(binary, stage, snapshot)
+	if applyErr == nil && legacyInit {
+		applyErr = xkeenLegacyApplyInit(xkeenInitDir(), stagedInit, snapshot)
+	}
+	if applyErr == nil && legacyInit {
+		if reason, needs := xkeenInitRepairNeed(xkeenInitDir()); needs || reason != "compatible" {
+			applyErr = errors.New("legacy-init-postcheck-failed")
+		}
+	}
 	if applyErr == nil {
 		got, channel, err := readXKeenInstalledMetadata(binary)
 		if err != nil || got != asset.Version || channel != "stable" ||
@@ -386,6 +454,9 @@ func (a *app) runXKeenGuardedUpdate(asset xkeenUpdateAsset, oldVersion string) x
 	if applyErr != nil {
 		record.Phase = "ROLLBACK"
 		_ = writeXKeenUpdateDiskState(binary, record)
+		if legacyInit && xkeenLegacyRestoreInit(xkeenInitDir(), snapshot) != nil {
+			return finish("STOP", "FAILED", "legacy-init-rollback-unconfirmed")
+		}
 		if rollbackXKeenFiles(binary, snapshot, oldVersion) != nil ||
 			!xkeenUpdateProductionReady(a) {
 			return finish("STOP","FAILED","rollback-not-confirmed")
@@ -402,6 +473,9 @@ func (a *app) runXKeenGuardedUpdate(asset xkeenUpdateAsset, oldVersion string) x
 	record.Phase = "POSTCHECK"
 	if writeXKeenUpdateDiskState(binary, record) != nil {
 		record.Phase="ROLLBACK"
+		if legacyInit && xkeenLegacyRestoreInit(xkeenInitDir(), snapshot) != nil {
+			return finish("STOP", "FAILED", "legacy-init-rollback-unconfirmed")
+		}
 		if rollbackXKeenFiles(binary,snapshot,oldVersion)!=nil {
 			return finish("STOP","FAILED","receipt-rollback-unconfirmed")
 		}
@@ -412,6 +486,9 @@ func (a *app) runXKeenGuardedUpdate(asset xkeenUpdateAsset, oldVersion string) x
 	record.State,record.Rollback,record.Phase="SUCCESS","NOT_NEEDED","DONE"
 	if writeXKeenUpdateDiskState(binary, record) != nil {
 		record.State,record.Rollback,record.Phase="RUNNING","PENDING","ROLLBACK"
+		if legacyInit && xkeenLegacyRestoreInit(xkeenInitDir(), snapshot) != nil {
+			return finish("STOP", "FAILED", "legacy-init-rollback-unconfirmed")
+		}
 		if rollbackXKeenFiles(binary,snapshot,oldVersion)!=nil {
 			return finish("STOP","FAILED","receipt-rollback-unconfirmed")
 		}
@@ -461,6 +538,13 @@ func (a *app) handleXKeenUpdateRecover(w http.ResponseWriter, r *http.Request) {
 		(record.State!="STOP" && record.State!="RUNNING") ||
 		!xkeenSnapshotDirValid(a.cfg.XKeenPath,record.SnapshotDir) {
 		writeJSON(w,http.StatusConflict,xkeenUpdateStatus{State:"STOP",Rollback:"UNKNOWN",Reason:"recovery-snapshot-unverified",Mutation:"NONE"})
+		return
+	}
+	if record.LegacyInit && xkeenLegacyRestoreInit(xkeenInitDir(), record.SnapshotDir) != nil {
+		record.State, record.Rollback, record.Reason = "STOP", "FAILED", "legacy-init-recovery-unconfirmed"
+		_ = writeXKeenUpdateDiskState(a.cfg.XKeenPath, record)
+		setAutomationMutationBlocked(true)
+		writeJSON(w, http.StatusConflict, publicXKeenUpdateState(a.cfg.XKeenPath))
 		return
 	}
 	if err:=rollbackXKeenFiles(a.cfg.XKeenPath,record.SnapshotDir,record.Previous);err!=nil ||

@@ -242,8 +242,20 @@ func (a *app) handleXKeenUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	result.InstalledChannel = channel
 	ctx, cancel := context.WithTimeout(r.Context(), xkeenCheckTimeout)
 	defer cancel()
-	client := &http.Client{Timeout: xkeenCheckTimeout}
-	latest, err := fetchXKeenStableRelease(ctx, client, xkeenStableReleaseURL)
+	// Give each read-only resolver a bounded window. One broken native
+	// DNS service cannot consume the entire 9-second catalog check.
+	var latest string
+	for _, resolver := range xkeenUpdateDNSFallbacks {
+		if ctx.Err() != nil {
+			break
+		}
+		attempt, cancelAttempt := context.WithTimeout(ctx, 2600*time.Millisecond)
+		latest, err = fetchXKeenStableRelease(attempt, newXKeenUpdateHTTPClient(resolver), xkeenStableReleaseURL)
+		cancelAttempt()
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		result.ErrorCode = "upstream-check-unavailable"
 		writeJSON(w, http.StatusBadGateway, result)
