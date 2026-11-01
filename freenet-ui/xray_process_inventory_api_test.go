@@ -64,7 +64,8 @@ func TestXrayProcessInventoryRejectsDifferentOwnerAndUntrustedBinary(t *testing.
 	if err := os.RemoveAll(filepath.Join(root,"121")); err != nil { t.Fatal(err) }
 	xrayInventoryFixture(t, root, binary, "122", "xray", "S", "XRAY_LOCATION_CONFDIR=/opt/etc/xray/configs|", "0\t0\t0\t0")
 	got = scanXrayProcessInventory(root,"/opt/etc/xray/configs",binary)
-	if got.State != "unknown-xray-process" || got.RestartReady { t.Fatalf("wrong routing group trusted: %+v",got) }
+	if got.State != "ready" || !got.RestartReady || got.ProductionCount != 1 ||
+		got.UnknownCount != 0 { t.Fatalf("official XKeen root launch with matching config/inode was rejected: %+v",got) }
 	if result := scanXrayProcessInventory(filepath.Join(root,"missing"),"/opt/etc/xray/configs",binary); result.Success || result.State != "proc-unavailable" { t.Fatalf("unreadable proc was trusted: %+v",result) }
 }
 
@@ -81,7 +82,7 @@ func TestXrayProcessInventoryReadOnlyReasonsStayFiniteAndDoNotWeakenAdmission(t 
 		wantCode  string
 	}{
 		{"config-mismatch", "xray", "XRAY_LOCATION_CONFDIR=/opt/other|", correctGID, "", "live-config-environment-mismatch"},
-		{"gid-mismatch", "xray", "XRAY_LOCATION_CONFDIR=" + conf + "|", "0\t0\t0\t0", "", "routing-gid-mismatch"},
+		{"gid-mismatch", "xray", "XRAY_LOCATION_CONFDIR=" + conf + "|", "0\t11111\t0\t0", "", "routing-gid-mismatch"},
 		{"alias-untrusted", "fn-xray-probe", "OTHER=1|", correctGID, "", "untrusted-xray-alias"},
 		{"process-environment-unreadable", "xray", "XRAY_LOCATION_CONFDIR=" + conf + "|", correctGID, "remove-environ", "process-environment-unavailable"},
 		{"process-state-unreadable", "xray", "XRAY_LOCATION_CONFDIR=" + conf + "|", correctGID, "remove-status", "process-state-unavailable"},
@@ -145,7 +146,7 @@ func TestXrayProcessInventoryAggregatesReasonsInStableOrder(t *testing.T) {
 	const conf = "/opt/etc/xray/configs"
 	group := "11111\t11111\t11111\t11111"
 	xrayInventoryFixture(t, root, binary, "201", "xray", "S", "XRAY_LOCATION_CONFDIR=/opt/wrong|", group)
-	xrayInventoryFixture(t, root, binary, "202", "xray", "S", "XRAY_LOCATION_CONFDIR="+conf+"|", "0\t0\t0\t0")
+	xrayInventoryFixture(t, root, binary, "202", "xray", "S", "XRAY_LOCATION_CONFDIR="+conf+"|", "0\t11111\t0\t0")
 	got := scanXrayProcessInventory(root, conf, binary)
 	if got.Mutation != "NONE" || !got.Success || got.RestartReady || got.UnknownCount != 2 ||
 		got.State != "unknown-xray-process" || len(got.Reasons) != 2 ||
