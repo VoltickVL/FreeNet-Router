@@ -121,7 +121,7 @@
     try {
       await fetchJSON('/api/network-profile/apply', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({operation:'network',dns_mode:'firmware',confirm:true})
+        body:JSON.stringify({operation:'network',dns_mode:'firmware',native_dns_provider:fresh.native_dns_provider,confirm:true})
       });
       const after = await fetchJSON('/api/network-profile/plan', {cache:'no-store'});
       if (after.active !== true || after.dns_routing_mode !== 'native' ||
