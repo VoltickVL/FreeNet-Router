@@ -43,7 +43,9 @@ var (
 			if ctx.Err() != nil {
 				break
 			}
-			asset, err := fetchOfficialXKeenUpdateAsset(ctx, newXKeenUpdateHTTPClient(resolver))
+			attempt, cancel := context.WithTimeout(ctx, 3*time.Second)
+			asset, err := fetchOfficialXKeenUpdateAsset(attempt, newXKeenUpdateHTTPClient(resolver))
+			cancel()
 			if err == nil {
 				return asset, nil
 			}
@@ -60,7 +62,9 @@ var (
 			if ctx.Err() != nil {
 				break
 			}
-			filename, err := downloadVerifiedXKeenArchive(ctx, newXKeenUpdateHTTPClient(resolver), asset, parent)
+			attempt, cancel := context.WithTimeout(ctx, 20*time.Second)
+			filename, err := downloadVerifiedXKeenArchive(attempt, newXKeenUpdateHTTPClient(resolver), asset, parent)
+			cancel()
 			if err == nil {
 				return filename, nil
 			}
