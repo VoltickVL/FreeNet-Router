@@ -245,7 +245,6 @@ func (a *app) handleXKeenUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	// Give each read-only resolver a bounded window. One broken native
 	// DNS service cannot consume the entire 9-second catalog check.
 	var latest string
-	var err error
 	for _, resolver := range xkeenUpdateDNSFallbacks {
 		if ctx.Err() != nil {
 			break
