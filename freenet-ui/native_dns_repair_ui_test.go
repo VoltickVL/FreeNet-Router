@@ -20,7 +20,7 @@ func TestNativeDNSRepairUIUsesOnlyGuardedProductAPI(t *testing.T) {
 	src := nativeDNSRepairUISource(t)
 	for _, required := range []string{
 		"function nativeDNSPlanReady(plan)",
-		"plan.success === true",
+		"plan?.success === true",
 		"plan.supported === true",
 		"plan.active === false",
 		"plan.dns_mode === 'firmware'",
