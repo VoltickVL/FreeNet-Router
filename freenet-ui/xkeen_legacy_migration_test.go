@@ -139,6 +139,20 @@ func TestXKeenLegacyMigrationRejectsInvalidCandidatesBeforeMutation(t *testing.T
 	})
 }
 
+func TestXKeenLegacyRuntimeAssignmentsNotTreatedAsHeaderDuplicates(t *testing.T) {
+	_, _, _, header := xkeenLegacyFixture(t)
+	old := append(append([]byte{}, header...), []byte("do_work() {\n    name_client=\"transient\"\n    table_id=\"temporary\"\n}\n")...)
+	template := []byte("#!/bin/sh\nname_client=\"xray\"\nstart_auto=\"off\"\nstart_delay=0\n# 03_info_xkeen.sh\nservice() {\n    name_client=\"other\"\n}\n")
+	data, err := xkeenLegacyBuildInit(old, template)
+	if err != nil {
+		t.Fatalf("runtime-only assignments must not be considered persistent settings: %v", err)
+	}
+	if !bytes.Contains(data, []byte("name_client=\"xray\"")) ||
+		!bytes.Contains(data, []byte("start_auto=\"on\"")) {
+		t.Fatal("persistent header values not retained")
+	}
+}
+
 func TestXKeenLegacyRestoreFailsClosedWithoutBackup(t *testing.T) {
 	dir, stage, snapshot, _ := xkeenLegacyFixture(t)
 	staged, err := xkeenLegacyPrepareInit(context.Background(), stage, dir)
