@@ -244,6 +244,20 @@ func (a *app) handleXKeenUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	client := &http.Client{Timeout: xkeenCheckTimeout}
 	latest, err := fetchXKeenStableRelease(ctx, client, xkeenStableReleaseURL)
+	// The router's native resolver may reject GitHub even while VPN is
+	// healthy. Only this official read-only catalog lookup tries known public
+	// DNS resolvers; Go still verifies the GitHub HTTPS certificate.
+	if err != nil {
+		for _, resolver := range xkeenUpdateDNSFallbacks[1:] {
+			if ctx.Err() != nil {
+				break
+			}
+			latest, err = fetchXKeenStableRelease(ctx, newXKeenUpdateHTTPClient(resolver), xkeenStableReleaseURL)
+			if err == nil {
+				break
+			}
+		}
+	}
 	if err != nil {
 		result.ErrorCode = "upstream-check-unavailable"
 		writeJSON(w, http.StatusBadGateway, result)
