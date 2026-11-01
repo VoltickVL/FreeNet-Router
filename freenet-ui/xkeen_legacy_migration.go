@@ -65,6 +65,13 @@ func xkeenLegacyBuildInit(old, template []byte) ([]byte, error) {
 	for _, name := range xkeenLegacyCopiedSettings {
 		allowed[name] = true
 	}
+	// Upstream 1.x stores legacy port controls in the init header. These
+	// have no equivalent assignment in the 2.1 template: non-default values
+	// require a separate native migration, never silent replacement.
+	legacyPortDefaults := map[string]string{
+		"port_dns": "53", "port_donor": "", "port_exclude": "",
+	}
+	seenLegacyPorts := make(map[string]bool)
 	original := make(map[string]string)
 	for _, line := range strings.Split(string(old), "\n") {
 		// Runtime assignments inside functions are not persistent settings.
@@ -74,14 +81,36 @@ func xkeenLegacyBuildInit(old, template []byte) ([]byte, error) {
 			break
 		}
 		i := strings.IndexByte(line, '=')
-		if i <= 0 || !allowed[line[:i]] {
+		if i <= 0 {
 			continue
 		}
 		name := line[:i]
+		if expected, relevant := legacyPortDefaults[name]; relevant {
+			if seenLegacyPorts[name] {
+				return nil, errors.New("legacy-port-assignment-ambiguous")
+			}
+			seenLegacyPorts[name] = true
+			value := strings.TrimSpace(line[i+1:])
+			if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') ||
+				(value[0] == '\'' && value[len(value)-1] == '\'')) {
+				value = value[1 : len(value)-1]
+			}
+			if value != expected {
+				return nil, errors.New("legacy-port-migration-required")
+			}
+		}
+		if !allowed[name] {
+			continue
+		}
 		if _, duplicate := original[name]; duplicate {
 			return nil, errors.New("legacy-init-duplicate-assignment")
 		}
 		original[name] = line
+	}
+	for name := range legacyPortDefaults {
+		if !seenLegacyPorts[name] {
+			return nil, errors.New("legacy-port-settings-unverified")
+		}
 	}
 	if !strings.Contains(string(old), "03_info_cpu.sh") || len(original) == 0 {
 		return nil, errors.New("legacy-init-unrecognized")
