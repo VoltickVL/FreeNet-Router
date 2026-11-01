@@ -155,7 +155,7 @@ func TestXrayCoreTransactionalApply(t *testing.T) {
 			wantSuccess:       false,
 			wantRollback:      "NOT_NEEDED",
 			wantCurrent:       previous,
-			wantErrorContains: "downloaded Xray binary does not match selected version",
+			wantErrorContains: "reason=xray-candidate-version-mismatch",
 			wantRestartCalls:  0,
 		},
 		{
