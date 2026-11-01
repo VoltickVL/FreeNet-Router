@@ -7,6 +7,8 @@ on:
       - beta/v0.8.0
     paths:
       - VERSION
+      - 'docs/releases/**'
+      - '.github/workflows/release.yml'
 
 permissions:
   contents: write
