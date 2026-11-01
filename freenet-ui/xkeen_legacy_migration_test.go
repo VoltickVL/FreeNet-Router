@@ -21,7 +21,7 @@ func xkeenLegacyFixture(t *testing.T) (string, string, string, []byte) {
 	if err := os.MkdirAll(templateDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	old := []byte("#!/bin/sh\nname_client=\"xray\"\nstart_auto=\"on\"\nstart_delay=\"3\"\n# old module: 03_info_cpu.sh\n")
+	old := []byte("#!/bin/sh\nname_client=\"xray\"\nstart_auto=\"on\"\nstart_delay=\"3\"\nport_dns=\"53\"\nport_donor=\"\"\nport_exclude=\"\"\n# old module: 03_info_cpu.sh\n")
 	tpl := []byte("#!/bin/sh\nname_client=\"mihomo\"\nstart_auto=\"off\"\nstart_delay=\"0\"\n# current module: 03_info_xkeen.sh\n")
 	if err := os.WriteFile(filepath.Join(initDir, "S99xkeen"), old, 0755); err != nil {
 		t.Fatal(err)
@@ -172,6 +172,25 @@ func TestXKeenLegacyApplyRefusesModifiedInitAfterSnapshot(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "S05xkeen")); !os.IsNotExist(err) {
 		t.Fatal("migration changed live init despite drift")
+	}
+}
+
+func TestXKeenLegacyCustomPortsFailClosed(t *testing.T) {
+	_, stage, _, old := xkeenLegacyFixture(t)
+	tpl, err := os.ReadFile(filepath.Join(stage, "_xkeen", "02_install", "07_install_register", "04_register_init.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range [][]byte{
+		bytes.Replace(old, []byte("port_dns=\"53\""), []byte("port_dns=\"5353\""), 1),
+		bytes.Replace(old, []byte("port_donor=\"\""), []byte("port_donor=\"1234\""), 1),
+		bytes.Replace(old, []byte("port_exclude=\"\""), []byte("port_exclude=\"8443\""), 1),
+		bytes.Replace(old, []byte("port_dns=\"53\"\n"), nil, 1),
+	} {
+		if _, err := xkeenLegacyBuildInit(bad, tpl); err == nil ||
+			!strings.Contains(err.Error(), "port") {
+			t.Fatalf("unsupported custom/missing legacy port must STOP: %v", err)
+		}
 	}
 }
 
