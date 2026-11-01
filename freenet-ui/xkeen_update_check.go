@@ -242,20 +242,19 @@ func (a *app) handleXKeenUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	result.InstalledChannel = channel
 	ctx, cancel := context.WithTimeout(r.Context(), xkeenCheckTimeout)
 	defer cancel()
-	client := &http.Client{Timeout: xkeenCheckTimeout}
-	latest, err := fetchXKeenStableRelease(ctx, client, xkeenStableReleaseURL)
-	// The router's native resolver may reject GitHub even while VPN is
-	// healthy. Only this official read-only catalog lookup tries known public
-	// DNS resolvers; Go still verifies the GitHub HTTPS certificate.
-	if err != nil {
-		for _, resolver := range xkeenUpdateDNSFallbacks[1:] {
-			if ctx.Err() != nil {
-				break
-			}
-			latest, err = fetchXKeenStableRelease(ctx, newXKeenUpdateHTTPClient(resolver), xkeenStableReleaseURL)
-			if err == nil {
-				break
-			}
+	// Give each read-only resolver a bounded window. One broken native
+	// DNS service cannot consume the entire 9-second catalog check.
+	var latest string
+	var err error
+	for _, resolver := range xkeenUpdateDNSFallbacks {
+		if ctx.Err() != nil {
+			break
+		}
+		attempt, cancelAttempt := context.WithTimeout(ctx, 2600*time.Millisecond)
+		latest, err = fetchXKeenStableRelease(attempt, newXKeenUpdateHTTPClient(resolver), xkeenStableReleaseURL)
+		cancelAttempt()
+		if err == nil {
+			break
 		}
 	}
 	if err != nil {
