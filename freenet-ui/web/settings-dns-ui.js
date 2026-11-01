@@ -93,6 +93,8 @@
 
   async function applyNativeDNSRepair() {
     if (state.applying || state.dirty || !state.nativePlan) return false;
+    state.applying = true;
+    renderRepairAction();
     let fresh;
     try {
       fresh = await fetchJSON('/api/network-profile/plan', {cache:'no-store'});
@@ -102,6 +104,7 @@
         throw new Error('DNS topology changed since read-only plan; no changes applied');
       }
     } catch (err) {
+      state.applying = false;
       state.nativePlan = null;
       renderRepairAction();
       alert('Native DNS STOP до изменения: ' + err.message);
@@ -110,9 +113,11 @@
     const confirmation = 'Согласовать выбранный Native DNS роутера?\n\n' +
       fresh.expected_delta + '\n\nБез изменений: ' + fresh.expected_no_delta +
       '\n\nFreeNet выполнит защищённое применение и откат при отказе.';
-    if (!window.confirm(confirmation)) return false;
-    state.applying = true;
-    renderRepairAction();
+    if (!window.confirm(confirmation)) {
+      state.applying = false;
+      renderRepairAction();
+      return false;
+    }
     try {
       await fetchJSON('/api/network-profile/apply', {
         method:'POST', headers:{'Content-Type':'application/json'},
