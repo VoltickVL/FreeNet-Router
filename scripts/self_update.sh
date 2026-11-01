@@ -32,7 +32,8 @@ case "$DOWNLOAD_RETRIES" in
 esac
 MODE="${1:-plan}"
 TARGET_TAG="${2:-}"
-if [ "$MODE" = plan ] || [ "$MODE" = reconcile-rollback-plan ] || [ "$MODE" = reconcile-rollback ]; then
+if [ "$MODE" = plan ] || [ "$MODE" = reconcile-rollback-plan ] || [ "$MODE" = reconcile-rollback ] ||
+   [ "$MODE" = reconcile-reboot-plan ] || [ "$MODE" = reconcile-reboot ]; then
     # Read-only planning must finish inside the Control Center request budget.
     # Apply keeps the longer retry policy for real asset downloads.
     DOWNLOAD_RETRIES=1
@@ -300,7 +301,8 @@ download_url() {
 
         CONNECT_TIMEOUT=10
         MAX_TIME=60
-        if [ "$MODE" = plan ] || [ "$MODE" = reconcile-rollback-plan ] || [ "$MODE" = reconcile-rollback ]; then
+        if [ "$MODE" = plan ] || [ "$MODE" = reconcile-rollback-plan ] || [ "$MODE" = reconcile-rollback ] ||
+   [ "$MODE" = reconcile-reboot-plan ] || [ "$MODE" = reconcile-reboot ]; then
             CONNECT_TIMEOUT=5
             MAX_TIME=12
         fi
@@ -1761,7 +1763,30 @@ reconcile_state_values() {
     return 0
 }
 
+# After a real reboot, never fabricate old /tmp owner markers. A durable
+# UNKNOWN receipt must predate this kernel boot; all two missing fences remain
+# absent throughout the exact FROM-release and live-runtime double proof.
 reconcile_lock_proof() (
+    case "$MODE" in
+        reconcile-reboot-plan|reconcile-reboot)
+            [ -f "$UPDATE_PROC_ROOT/stat" ] && [ ! -L "$UPDATE_PROC_ROOT/stat" ] || return 1
+            rl_boot="$(LC_ALL=C awk '$1=="btime" {if(NF!=2 || $2 !~ /^[0-9]+$/) exit 1; n++; print $2} END {if(n!=1) exit 1}' "$UPDATE_PROC_ROOT/stat")" || return 1
+            rl_written="$(LC_ALL=C stat -c '%Y' "$STATE_FILE" 2>/dev/null)" || return 1
+            case "$rl_boot:$rl_written" in *[!0-9:]*|:*|*:) return 1 ;; esac
+            [ "$rl_boot" -gt 0 ] && [ "$rl_written" -gt 0 ] &&
+                [ "$rl_boot" -gt "$rl_written" ] || return 1
+            for rl_dir in "$LOCK_DIR" "$MUTATION_LOCK_DIR"; do
+                case "$rl_dir" in
+                    "$ROOT"/*) reconcile_root_path_safe "$(dirname "$rl_dir")" || return 1 ;;
+                    /tmp/*) [ "$(dirname "$rl_dir")" = /tmp ] || return 1 ;;
+                    *) return 1 ;;
+                esac
+                [ ! -e "$rl_dir" ] && [ ! -L "$rl_dir" ] || return 1
+            done
+            printf 'FENCES=REBOOT_ABSENT\nBOOT_EPOCH=%s\nRECEIPT_MTIME=%s\n' "$rl_boot" "$rl_written"
+            return 0
+            ;;
+    esac
     rl_app="$(update_directory_proof "$LOCK_DIR" 700)" || return 1
     rl_net="$(update_directory_proof "$MUTATION_LOCK_DIR" 700)" || return 1
     # Default /tmp fences are immediate children of the trusted sticky /tmp.
@@ -1827,7 +1852,7 @@ reconcile_writers_absent() (
             return 1
         fi
         if printf '%s\n' "$rw_args" | LC_ALL=C awk '
-            prev ~ /(^|\/)self_update\.sh$/ && $0 ~ /^(apply|reconcile-rollback)$/ {found=1}
+            prev ~ /(^|\/)self_update\.sh$/ && $0 ~ /^(apply|reconcile-rollback|reconcile-reboot)$/ {found=1}
             prev ~ /(^|\/)(apply_provider_profile|apply_network_profile|blanc_xkeen_update_outbounds)\.sh$/ && $0 ~ /^(apply|apply-core|recover-core|core-restart)$/ {found=1}
             prev ~ /(^|\/)freenet-ui$/ && $0=="apply" {found=1}
             {prev=$0}
@@ -2028,12 +2053,12 @@ reconcile_build_proof() (
 )
 
 reconcile_stop() {
-    err "reconciliation stopped: $1; original receipt and both fences preserved"
+    err "reconciliation stopped: $1; original receipt and pre-existing fence state preserved"
     say 'SUCCESS=no'
     say 'READY=no'
     say "ERROR=$1"
     say 'APPLICATION_RECEIPT=PRESERVED'
-    say 'FENCES=PRESERVED'
+    if [ "${RQ_REBOOT_MODE:-no}" = yes ]; then say 'FENCES=REBOOT_ABSENT'; else say 'FENCES=PRESERVED'; fi
     say 'VPN_MUTATION=NONE'
     if [ "${RQ_ARCHIVE_CREATED:-0}" = 1 ]; then say 'MUTATION=APPLICATION_EVIDENCE_ONLY'; else say 'MUTATION=NONE'; fi
     return 1
@@ -2041,13 +2066,15 @@ reconcile_stop() {
 
 run_reconcile_rollback() {
     RQ_REQUESTED_SHA="$1"
+    RQ_REBOOT_MODE=no
+    case "$MODE" in reconcile-reboot-plan|reconcile-reboot) RQ_REBOOT_MODE=yes ;; esac
     [ "$TEST_MODE" = no ] || { reconcile_stop 'runtime proof cannot use the test-mode acceptance bypass'; return 1; }
     umask 077
     for RQ_TOOL in curl sha256sum sed awk grep cmp mktemp jq stat readlink id sort tr sync; do
         command -v "$RQ_TOOL" > /dev/null 2>&1 || { reconcile_stop 'required proof command is unavailable'; return 1; }
     done
     make_tmp || { reconcile_stop 'private proof staging is unavailable'; return 1; }
-    if [ "$MODE" = reconcile-rollback ]; then
+    if [ "$MODE" = reconcile-rollback ] || [ "$MODE" = reconcile-reboot ]; then
         [ "${#RQ_REQUESTED_SHA}" -eq 64 ] || { reconcile_stop 'exact planned receipt SHA-256 is required'; return 1; }
         case "$RQ_REQUESTED_SHA" in *[!0-9a-f]*) reconcile_stop 'receipt SHA-256 is invalid'; return 1 ;; esac
         # A separate empty guard serializes this narrowly scoped command. The
@@ -2062,14 +2089,14 @@ run_reconcile_rollback() {
         reconcile_stop 'receipt changed after the read-only plan'; return 1
     fi
     RQ_LOCKS_PROOF="$(reconcile_lock_proof)" && reconcile_writers_absent ||
-        { reconcile_stop 'both owned fences and a stopped updater are required'; return 1; }
+        { reconcile_stop 'fence/boot evidence or stopped updater is not proven'; return 1; }
     reconcile_checkpoint_absent || { reconcile_stop 'pending VPN checkpoint must be absent'; return 1; }
     get_arch || { reconcile_stop 'Entware architecture is unknown'; return 1; }
     fetch_release_metadata "$RQ_FROM" && fetch_manifest "$RQ_FROM" || { reconcile_stop 'exact FROM release metadata or SHA-256 manifest is unavailable'; return 1; }
     RQ_MANIFEST_SHA="$(update_sha "$TMP_DIR/SHA256SUMS")" || { reconcile_stop 'FROM manifest cannot be pinned'; return 1; }
     ui_prepare_service || { reconcile_stop 'stock HTTP daemon launch specification cannot be verified'; return 1; }
     reconcile_build_proof > "$TMP_DIR/reconcile.proof" || { reconcile_stop 'restored application, protected state, runtime or owned fences are not proven'; return 1; }
-    if [ "$MODE" = reconcile-rollback-plan ]; then
+    if [ "$MODE" = reconcile-rollback-plan ] || [ "$MODE" = reconcile-reboot-plan ]; then
         say 'SUCCESS=yes'
         say 'READY=yes'
         say "RECEIPT_SHA256=$RQ_SHA"
@@ -2077,7 +2104,7 @@ run_reconcile_rollback() {
         say "TARGET_VERSION=$RQ_TARGET"
         say 'APPLICATION_ASSETS=VERIFIED'
         say 'RUNTIME=VERIFIED_FROM_RELEASE'
-        say 'FENCES=PRESERVED'
+        if [ "$RQ_REBOOT_MODE" = yes ]; then say 'FENCES=REBOOT_ABSENT'; else say 'FENCES=PRESERVED'; fi
         say 'MUTATION=NONE'
         return 0
     fi
@@ -2094,10 +2121,10 @@ run_reconcile_rollback() {
         cp "$TMP_DIR/reconcile.proof" "$RQ_ARCHIVE/proof" &&
         cp "$TMP_DIR/SHA256SUMS" "$RQ_ARCHIVE/SHA256SUMS" || { reconcile_stop 'cannot archive original receipt and proof'; return 1; }
     [ "$(update_sha "$RQ_ARCHIVE/original.state")" = "$RQ_SHA" ] || { reconcile_stop 'original receipt changed during archival'; return 1; }
-    LC_ALL=C awk -v stamp="$RQ_STAMP" -v receipt="$RQ_SHA" -v archive="$RQ_ARCHIVE" '
+    LC_ALL=C awk -v stamp="$RQ_STAMP" -v receipt="$RQ_SHA" -v archive="$RQ_ARCHIVE" -v reboot="$RQ_REBOOT_MODE" '
         /^STATE=/ { print "STATE=FAILED"; next }
         /^ROLLBACK_STATE=/ { print "ROLLBACK_STATE=SUCCESS"; next }
-        /^MESSAGE=/ { print "MESSAGE=Предыдущее состояние приложения восстановлено и независимо подтверждено; блокировки сохранены до штатного снятия"; next }
+        /^MESSAGE=/ { if(reboot=="yes") print "MESSAGE=Приложение восстановлено и подтверждено после перезагрузки; прежние временные блокировки отсутствуют"; else print "MESSAGE=Предыдущее состояние приложения восстановлено и независимо подтверждено; блокировки сохранены до штатного снятия"; next }
         /^UPDATED_AT=/ { print "UPDATED_AT=" stamp; next }
         { print }
         END { print "RECONCILIATION_RECEIPT_SHA256=" receipt; print "RECONCILIATION_ARCHIVE=" archive }
@@ -2142,7 +2169,7 @@ run_reconcile_rollback() {
     say 'SUCCESS=yes'
     say 'RESULT=RECONCILED_ROLLBACK'
     say 'ROLLBACK=SUCCESS'
-    say 'FENCES=PRESERVED'
+    if [ "$RQ_REBOOT_MODE" = yes ]; then say 'FENCES=REBOOT_ABSENT'; else say 'FENCES=PRESERVED'; fi
     say 'VPN_MUTATION=NONE'
     say 'MUTATION=APPLICATION_RECEIPT_ONLY'
     say "RECEIPT_SHA256=$RQ_SHA"
@@ -2251,9 +2278,16 @@ case "$MODE" in
     reconcile-rollback)
         run_reconcile_rollback "$TARGET_TAG"
         ;;
+    reconcile-reboot-plan)
+        [ -z "$TARGET_TAG" ] || { err 'usage: self_update.sh reconcile-reboot-plan'; exit 2; }
+        run_reconcile_rollback ''
+        ;;
+    reconcile-reboot)
+        run_reconcile_rollback "$TARGET_TAG"
+        ;;
     apply)
         [ -n "$TARGET_TAG" ] || { err 'usage: self_update.sh apply <vX.Y.Z>'; exit 2; }
         run_apply
         ;;
-    *) err 'usage: self_update.sh [plan [vX.Y.Z]|apply <vX.Y.Z>|reconcile-rollback-plan|reconcile-rollback <receiptSHA256>]'; exit 2 ;;
+    *) err 'usage: self_update.sh [plan [vX.Y.Z]|apply <vX.Y.Z>|reconcile-rollback-plan|reconcile-rollback <receiptSHA256>|reconcile-reboot-plan|reconcile-reboot <receiptSHA256>]'; exit 2 ;;
 esac
