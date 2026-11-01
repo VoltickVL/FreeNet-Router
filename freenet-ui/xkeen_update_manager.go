@@ -38,10 +38,38 @@ type xkeenUpdateApplyRequest struct {
 
 var (
 	xkeenUpdateGetAsset = func(ctx context.Context) (xkeenUpdateAsset, error) {
-		return fetchOfficialXKeenUpdateAsset(ctx, newXKeenUpdateHTTPClient())
+		var lastErr error
+		for _, resolver := range xkeenUpdateDNSFallbacks {
+			if ctx.Err() != nil {
+				break
+			}
+			asset, err := fetchOfficialXKeenUpdateAsset(ctx, newXKeenUpdateHTTPClient(resolver))
+			if err == nil {
+				return asset, nil
+			}
+			lastErr = err
+		}
+		if lastErr == nil {
+			lastErr = errors.New("xkeen-catalog-unavailable")
+		}
+		return xkeenUpdateAsset{}, lastErr
 	}
 	xkeenUpdateGetArchive = func(ctx context.Context, asset xkeenUpdateAsset, parent string) (string, error) {
-		return downloadVerifiedXKeenArchive(ctx, newXKeenUpdateHTTPClient(), asset, parent)
+		var lastErr error
+		for _, resolver := range xkeenUpdateDNSFallbacks {
+			if ctx.Err() != nil {
+				break
+			}
+			filename, err := downloadVerifiedXKeenArchive(ctx, newXKeenUpdateHTTPClient(resolver), asset, parent)
+			if err == nil {
+				return filename, nil
+			}
+			lastErr = err
+		}
+		if lastErr == nil {
+			lastErr = errors.New("xkeen-download-unavailable")
+		}
+		return "", lastErr
 	}
 	// Tests can replace this witness. Production requires both strict process
 	// inventory and an inode/GID-based native proof; a working UI is not enough.
