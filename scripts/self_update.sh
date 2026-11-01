@@ -1771,7 +1771,14 @@ reconcile_lock_proof() (
         reconcile-reboot-plan|reconcile-reboot)
             [ -f "$UPDATE_PROC_ROOT/stat" ] && [ ! -L "$UPDATE_PROC_ROOT/stat" ] || return 1
             rl_boot="$(LC_ALL=C awk '$1=="btime" {if(NF!=2 || $2 !~ /^[0-9]+$/) exit 1; n++; print $2} END {if(n!=1) exit 1}' "$UPDATE_PROC_ROOT/stat")" || return 1
-            rl_written="$(LC_ALL=C stat -c '%Y' "$STATE_FILE" 2>/dev/null)" || return 1
+            # BusyBox stat on Keenetic/Entware does not support GNU -c.
+            # The state was already checked and pinned by update_file_proof
+            # (GNU stat or validated BusyBox -t): field 8 is its mtime.
+            # Re-use that exact witness, not a second, nonportable stat call.
+            rl_written="$(printf '%s\n' "$RQ_STATE_PROOF" | LC_ALL=C awk -F: '
+                NR==1 && NF==11 && $8 ~ /^[0-9]+$/ { print $8; found=1 }
+                END { if(NR!=1 || !found) exit 1 }
+            ')" || return 1
             case "$rl_boot:$rl_written" in *[!0-9:]*|:*|*:) return 1 ;; esac
             [ "$rl_boot" -gt 0 ] && [ "$rl_written" -gt 0 ] &&
                 [ "$rl_boot" -gt "$rl_written" ] || return 1
