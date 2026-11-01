@@ -69,6 +69,21 @@ func (a *app) selfUpdateProcessActivity() (active bool, observable bool) {
 	return false, true
 }
 
+// The receipt is durable, while /tmp updater fences disappear after a reboot.
+// Never translate an unresolved rollback into an idle/mutable system merely
+// because the old lock directory is absent.
+func selfUpdateReceiptUnresolved(kv map[string]string) bool {
+	switch strings.TrimSpace(kv["STATE"]) {
+	case "ROLLBACK_FAILED", "UPDATING", "RECONNECTING":
+		return true
+	}
+	switch strings.TrimSpace(kv["ROLLBACK_STATE"]) {
+	case "FAILED_UNKNOWN", "UNKNOWN", "PENDING":
+		return true
+	}
+	return false
+}
+
 func staleUpdateUnlockSafe(kv map[string]string) bool {
 	state := strings.TrimSpace(kv["STATE"])
 	rollback := strings.TrimSpace(kv["ROLLBACK_STATE"])
