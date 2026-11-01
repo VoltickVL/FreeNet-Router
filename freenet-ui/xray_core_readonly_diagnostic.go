@@ -5,6 +5,7 @@ import (
     "net/http"
     "os"
     "os/exec"
+    "strings"
     "sync"
     "time"
 )
@@ -30,6 +31,53 @@ type xrayCoreReadOnlyDiagnosticResponse struct {
     UserCPUMS int64 `json:"user_cpu_ms,omitempty"`
     SystemCPUMS int64 `json:"system_cpu_ms,omitempty"`
     ExitCode int `json:"exit_code,omitempty"`
+    NetfilterHook string `json:"netfilter_hook,omitempty"`
+    XKeenInit string `json:"xkeen_init,omitempty"`
+}
+
+
+const xrayDiagnosticHookMaxBytes = 512 << 10
+
+// Return only finite, secret-free states. This is a passive file inspection:
+// never source, execute, rewrite or delete the native netfilter hook.
+func xrayDiagnosticHookState(path string) string {
+    info, err := os.Lstat(path)
+    if os.IsNotExist(err) {
+        return "absent"
+    }
+    if err != nil {
+        return "unknown"
+    }
+    if !info.Mode().IsRegular() || info.Size() < 0 || info.Size() > xrayDiagnosticHookMaxBytes {
+        return "untrusted"
+    }
+    data, err := os.ReadFile(path)
+    if err != nil || len(data) > xrayDiagnosticHookMaxBytes {
+        return "unknown"
+    }
+    if strings.Contains(string(data), "03_info_cpu.sh") {
+        return "legacy-removed-module-reference"
+    }
+    if strings.Contains(string(data), "# XKeen: Auto-generated file") {
+        return "modern-generated-hook"
+    }
+    return "unverified"
+}
+
+// An existing FAILED/UNKNOWN VPN checkpoint must never be cleared for a
+// diagnostic. The one exception to the general mutation fence is a finite,
+// isolated `xray run -test` of an already installed binary with a fully
+// restored checkpoint, no live Xray, no unknown processes and no writer lock.
+// It provides information only; it does not grant start, apply or recovery.
+func xrayPendingReadOnlyEligible(d vpnTransactionDoctorResponse, inv xrayProcessInventoryResponse) bool {
+    return d.Mode == "read-only" && d.Mutation == "NONE" &&
+        d.Checkpoint == "pending" && d.Decision == "STOP_XRAY_NOT_CONFIRMED" &&
+        d.FilesRestored && d.XrayCore == "stopped" && d.MutationBlocked &&
+        d.LockState == "absent" && d.RecoveryAttempt == "" &&
+        d.Outbound == "matched" && d.Profile == "matched" && d.Filter == "matched" &&
+        inv.Success && inv.Mutation == "NONE" && inv.State == "production-xray-absent" &&
+        inv.ProductionCount == 0 && inv.ProbeCount == 0 &&
+        inv.UnknownCount == 0 && inv.ZombieCount == 0
 }
 
 func registerXrayCoreReadOnlyDiagnostic(mux *http.ServeMux, a *app) {
@@ -106,7 +154,7 @@ func (a *app) handleXrayCoreReadOnlyDiagnostic(w http.ResponseWriter, r *http.Re
         })
     }
     state := xrayCoreOperationSnapshot().State
-    if state == "RUNNING" || state == "STOP" || automationMutationBlockedState() {
+    if state == "RUNNING" || state == "STOP" {
         blocked(http.StatusConflict, "reason=xray-diagnostic-mutation-fence")
         return
     }
@@ -131,6 +179,14 @@ func (a *app) handleXrayCoreReadOnlyDiagnostic(w http.ResponseWriter, r *http.Re
         blocked(http.StatusServiceUnavailable, "reason=xray-diagnostic-config-unavailable")
         return
     }
+    // A pending transaction normally blocks writers. A known stopped, matched
+    // checkpoint permits only this isolated read-only child, never a restart.
+    pending := automationMutationBlockedState()
+    if pending && !xrayPendingReadOnlyEligible(a.vpnTransactionDoctor(),
+        scanXrayProcessInventory("/proc", configDir, binary)) {
+        blocked(http.StatusConflict, "reason=xray-diagnostic-mutation-fence")
+        return
+    }
     started := time.Now()
     admissionCtx, cancelAdmission := context.WithTimeout(r.Context(), xrayCoreReadOnlyAdmissionTimeout)
     releaseProbe, ok := acquireExclusiveIsolatedXrayProbe(admissionCtx)
@@ -141,11 +197,23 @@ func (a *app) handleXrayCoreReadOnlyDiagnostic(w http.ResponseWriter, r *http.Re
     }
     defer releaseProbe()
     admissionMS := time.Since(started).Milliseconds()
+    // Recheck after acquiring both the writer semaphore and exclusive probe
+    // gate. A new STOP or an ambiguous process is not safe even for diagnosis.
+    state = xrayCoreOperationSnapshot().State
+    if state == "RUNNING" || state == "STOP" ||
+        (automationMutationBlockedState() &&
+            !xrayPendingReadOnlyEligible(a.vpnTransactionDoctor(),
+                scanXrayProcessInventory("/proc", configDir, binary))) {
+        blocked(http.StatusConflict, "reason=xray-diagnostic-mutation-fence")
+        return
+    }
     // Test only the already-installed core, and use the same exact semantic
     // deadline as the guarded updater. No backup, swap or restart occurs.
     testCtx, cancelTest := context.WithTimeout(r.Context(), xrayCoreSingleTestTimeout)
     defer cancelTest()
     result := runXrayCoreReadOnlyDiagnostic(testCtx, binary, configDir, a.routingAssetDir())
     result.AdmissionMS = admissionMS
+    result.NetfilterHook = xrayDiagnosticHookState("/opt/etc/ndm/netfilter.d/proxy.sh")
+    result.XKeenInit, _ = xkeenInitRepairNeed(xkeenInitDir())
     writeJSON(w, http.StatusOK, result)
 }
