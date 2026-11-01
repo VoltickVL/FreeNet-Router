@@ -163,7 +163,7 @@ func TestXKeenLegacyApplyRefusesModifiedInitAfterSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	oldPath := filepath.Join(root, "S99xkeen")
-	if err := os.WriteFile(oldPath, []byte("#!/bin/sh\\nname_client=xray\\nstart_auto=off\\n# 03_info_cpu.sh\\n"), 0755); err != nil {
+	if err := os.WriteFile(oldPath, []byte("#!/bin/sh\nname_client=xray\nstart_auto=off\n# 03_info_cpu.sh\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := xkeenLegacyApplyInit(root, staged, snapshot); err == nil ||
