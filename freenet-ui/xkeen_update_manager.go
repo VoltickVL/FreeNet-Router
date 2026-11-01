@@ -27,6 +27,7 @@ type xkeenUpdatePlan struct {
 	Reason        string `json:"reason,omitempty"`
 	Mutation      string `json:"mutation"`
 	RuntimeChange string `json:"runtime_change"`
+	InitMigration bool   `json:"init_migration,omitempty"`
 }
 
 type xkeenUpdateApplyRequest struct {
@@ -101,15 +102,18 @@ func (a *app) xkeenUpdatePrepare(ctx context.Context) (xkeenUpdatePlan, xkeenUpd
 		return p, xkeenUpdateAsset{}
 	}
 	p.Installed, p.Channel = current, channel
-	// Never swap 1.x and 2.x script trees around a stale init.d generation.
-	// Existing active Xray must be preserved; repair is a separate, explicit API.
+	// Only a recognized 1.1.3.9 init can enter the separately snapshotted
+	// 2.1 migration. A broken mixed 2.x layout remains hard STOP.
+	legacyInit := xkeenLegacyMigrationReady(a.cfg.XKeenPath, current, xkeenLegacyTarget)
 	if filepath.Clean(a.cfg.XKeenPath) == defaultXKeenPath {
 		if reason, needs := xkeenInitRepairNeed(xkeenInitDir()); needs || reason != "compatible" {
-		p.State = "blocked"
-		p.Reason = "xkeen-init-lifecycle-unverified"
-		return p, xkeenUpdateAsset{}
+			if !legacyInit {
+				p.State, p.Reason = "blocked", "xkeen-init-lifecycle-unverified"
+				return p, xkeenUpdateAsset{}
+			}
 		}
 	}
+	p.InitMigration = legacyInit
 	if state := publicXKeenUpdateState(a.cfg.XKeenPath); state.State == "RUNNING" || state.State == "STOP" {
 		p.Reason = "xkeen-prior-operation-not-terminal"
 		return p, xkeenUpdateAsset{}
@@ -129,6 +133,10 @@ func (a *app) xkeenUpdatePrepare(ctx context.Context) (xkeenUpdatePlan, xkeenUpd
 	asset, err := xkeenUpdateGetAsset(ctx)
 	if err != nil {
 		p.Reason = "xkeen-upstream-unverified"
+		return p, xkeenUpdateAsset{}
+	}
+	if legacyInit && asset.Version != xkeenLegacyTarget {
+		p.State, p.Reason = "blocked", "xkeen-legacy-target-unverified"
 		return p, xkeenUpdateAsset{}
 	}
 	p.Target, p.ExpectedSHA = asset.Version, asset.Digest
@@ -266,7 +274,10 @@ func (a *app) handleXKeenUpdateApply(w http.ResponseWriter, r *http.Request) {
 		request.Installed != current || request.Target != asset.Version ||
 		!strings.EqualFold(request.SHA, asset.Digest) ||
 		!xkeenUpdateProductionReady(a) || automationMutationBlockedState() ||
-		vpnTransactionPending() {
+		vpnTransactionPending() ||
+		(filepath.Clean(a.cfg.XKeenPath) == defaultXKeenPath &&
+			!xkeenLegacyMigrationReady(a.cfg.XKeenPath, current, asset.Version) &&
+			func() bool { reason, needs := xkeenInitRepairNeed(xkeenInitDir()); return needs || reason != "compatible" }()) {
 		lockRelease()
 		releaseSem()
 		writeJSON(w, http.StatusConflict, xkeenUpdateStatus{State:"FAILED",Rollback:"NOT_NEEDED",Reason:"plan-expired-or-runtime-unverified",Mutation:"NONE"})
