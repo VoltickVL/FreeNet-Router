@@ -380,6 +380,7 @@ func xkeenInitRepairApply(ctx context.Context, a *app, root string) xkeenInitRep
  if xkeenInitRepairWrite(root,disk)!=nil {
   failed.Reason="repair-receipt-not-durable";return failed
  }
+ nativeAttempted:=false
  startAttempted:=false
  fail:=func(reason string) xkeenInitRepairResponse {
   disk.State="STOP"
@@ -388,12 +389,12 @@ func xkeenInitRepairApply(ctx context.Context, a *app, root string) xkeenInitRep
   if !xrayServiceProcessRunning("xray") {
    initErr:=xkeenInitRepairRollback(root,snapshot)
    hookErr:=xkeenInitRepairHookRollback(xkeenLegacyNetfilterHook,snapshot)
-   if initErr!=nil || hookErr!=nil {disk.Rollback="FAILED"} else if !startAttempted {
-    // Before any native start the init/hook bytes are the only changed state.
+   if initErr!=nil || hookErr!=nil {disk.Rollback="FAILED"} else if !nativeAttempted && !startAttempted {
     disk.Rollback="SUCCESS"
    }
-   // Once native start ran, router rules may have changed. A byte-for-byte
-   // restoration is NOT proof of complete network rollback: UNKNOWN = STOP.
+   // A native -ri can migrate port preferences; -start can change firewall
+   // rules. Restored init/hook files do NOT prove full network rollback.
+   // If either native action was attempted, UNKNOWN = STOP.
   }
   if xkeenInitRepairWrite(root,disk)!=nil {disk.Rollback="UNKNOWN";disk.Reason="repair-receipt-not-durable"}
   return xkeenInitRepairResponse{State:"STOP",Reason:disk.Reason,Rollback:disk.Rollback,Mutation:"INIT_ATTEMPTED",XrayOnline:xrayServiceProcessRunning("xray")}
@@ -401,6 +402,7 @@ func xkeenInitRepairApply(ctx context.Context, a *app, root string) xkeenInitRep
  // After a durable RUNNING receipt the worker must finish even if the browser disconnects.
  ctx,cancel:=context.WithTimeout(context.Background(),100*time.Second)
  defer cancel()
+ nativeAttempted=true
  if xkeenInitRepairRun(ctx,a.cfg.XKeenPath)!=nil {return fail("native-init-rebuild-failed")}
  if reason,need:=xkeenInitRepairNeed(root);need||reason!="compatible" {return fail("init-migration-postcheck-failed")}
  if vpnTransactionPending() && !a.xkeenInitPendingRepairAdmission() {
@@ -411,6 +413,16 @@ func xkeenInitRepairApply(ctx context.Context, a *app, root string) xkeenInitRep
  startAttempted=true
  if err:=xkeenInitRepairStart(ctx,a);err!=nil {return fail("xray-start-postcheck-failed")}
  if !xrayServiceProcessRunning("xray") {return fail("xray-not-running-after-repair")}
+ // This fixes native init only; the original VPN failure checkpoint is
+ // neither deleted nor silently accepted as restored VPN connectivity.
+ if vpnTransactionPending() {
+  d:=a.vpnTransactionDoctor()
+  if d.Checkpoint!="pending" || !d.FilesRestored || d.Outbound!="matched" ||
+   d.Profile!="matched" || d.Filter!="matched" || d.XrayCore!="running" ||
+   d.LockState!="absent" || !d.MutationBlocked {
+   return fail("original-vpn-checkpoint-postcheck-failed")
+  }
+ }
  disk.State="SUCCESS"
  disk.Reason="xkeen-init-compatible-xray-running"
  disk.Rollback="NOT_NEEDED"
