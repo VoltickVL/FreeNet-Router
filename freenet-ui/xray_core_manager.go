@@ -24,7 +24,9 @@ const (
 	xrayCoreMaxCatalogBytes  = 8 << 20
 	xrayCoreMaxArchiveBytes  = 128 << 20
 	xrayCoreMaxBinaryBytes   = 160 << 20
-	xrayCoreOperationTimeout = 95 * time.Second // read-only catalog, download and validation
+	xrayCoreOperationTimeout = 95 * time.Second // bounded preflight/catalog/download/extract phase
+	xrayCoreCandidateVersionTimeout = 15 * time.Second // separate, bounded executable-version check
+	xrayCorePreSwapTimeout = 30 * time.Second // fresh fence for runtime preflight and durable snapshot
     xrayCoreSemanticTimeout = 205 * time.Second // two progress-bounded tests + snapshot under owned fence
     xrayCoreSingleTestTimeout = 35 * time.Second // unchanged initial budget AFTER admission
     xrayCoreSingleTestMaximumTimeout = 95 * time.Second // only if verified child CPU progress
@@ -332,6 +334,44 @@ func xrayCoreVersionAt(ctx context.Context, path string) (string, error) {
 	return tag, nil
 }
 
+// A slow verified download may consume the entire catalog/download budget.
+// Never run a version probe against its already-canceled context: that made a
+// transport deadline indistinguishable from an actual wrong-version binary.
+func xrayCorePreparationGate(ctx context.Context) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return errors.New("reason=xray-core-preparation-timeout; Xray binary unchanged")
+	}
+	if ctx.Err() != nil {
+		return errors.New("reason=xray-core-preparation-canceled; Xray binary unchanged")
+	}
+	return nil
+}
+
+// Only the exact selected version is admissible. The caller supplies an
+// independent, finite version-phase context after the download gate passes.
+func xrayCoreCandidateVersionCheck(ctx context.Context, candidate, target string) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return errors.New("reason=xray-candidate-version-timeout; Xray binary unchanged")
+	}
+	if ctx.Err() != nil {
+		return errors.New("reason=xray-candidate-version-canceled; Xray binary unchanged")
+	}
+	version, err := xrayCoreVersionAt(ctx, candidate)
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return errors.New("reason=xray-candidate-version-timeout; Xray binary unchanged")
+	}
+	if ctx.Err() != nil {
+		return errors.New("reason=xray-candidate-version-canceled; Xray binary unchanged")
+	}
+	if err != nil {
+		return errors.New("reason=xray-candidate-version-exec; Xray binary unchanged")
+	}
+	if version != target {
+		return errors.New("reason=xray-candidate-version-mismatch; Xray binary unchanged")
+	}
+	return nil
+}
+
 func (a *app) fetchXrayCoreCatalog(ctx context.Context) (xrayCoreCatalogResponse, error) {
 	assetName, ok := xrayCoreAssetName(runtime.GOARCH)
 	if !ok {
@@ -577,9 +617,8 @@ func (a *app) validateXrayCoreBaseline(parent context.Context, binary string) er
 func (a *app) validateXrayCoreCandidate(parent context.Context, candidate, target string) error {
     ctx, cancel := context.WithTimeout(parent, xrayCoreSingleTestMaximumTimeout)
     defer cancel()
-    version, err := xrayCoreVersionAt(ctx, candidate)
-    if err != nil || version != target {
-        return errors.New("downloaded Xray binary does not match selected version")
+    if err := xrayCoreCandidateVersionCheck(ctx, candidate, target); err != nil {
+        return err
     }
     configDir, err := a.xrayCoreLiveConfigDir()
     if err != nil { return err }
@@ -730,21 +769,29 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 			_ = os.Remove(candidatePath)
 		}
 	}()
-	// Reject a wrong binary immediately, without holding the exclusive fence
-	// during catalog/download/ZIP work. Full semantic validation follows it.
-	candidateVersion, err := xrayCoreVersionAt(ctx, candidatePath)
-	if err != nil || candidateVersion != target {
-		result.Error = "downloaded Xray binary does not match selected version"
+	// Preparation is a separate bounded phase. Fail closed before launching
+	// the candidate binary if the catalog/download/extract deadline expired.
+	if err := xrayCorePreparationGate(ctx); err != nil {
+		result.Error = err.Error()
 		return result
 	}
-	if ctx.Err() != nil {
-		result.Error = "Xray update download/preflight deadline expired; no binary changed"
+	// This fresh, finite phase cannot inherit an exhausted download context.
+	// An unreadable candidate, slow executable and actual version mismatch
+	// now have distinct safe reason codes; none may reach the binary swap.
+	versionCtx, cancelVersion := context.WithTimeout(context.Background(), xrayCoreCandidateVersionTimeout)
+	versionErr := xrayCoreCandidateVersionCheck(versionCtx, candidatePath, target)
+	cancelVersion()
+	if versionErr != nil {
+		result.Error = versionErr.Error()
 		return result
 	}
 	// No separate 35-95 second 'run -test' cycles. The selected official
 	// archive already passed SHA-256 and the extracted candidate reports the
 	// exact requested version. FreeNet checks the real running process and
 	// binary inode before replacing the installed core.
+	// Pre-swap admission and backup have their own bounded time window.
+	preSwapCtx, cancelPreSwap := context.WithTimeout(context.Background(), xrayCorePreSwapTimeout)
+	defer cancelPreSwap()
 	if automationMutationBlockedState() {
 		result.Error = "previous recovery is still blocked; reconcile the actual native runtime before update"
 		return result
@@ -753,7 +800,7 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "production Xray process inventory is ambiguous; no Xray binary changed"
 		return result
 	}
-	preflightCtx, cancelPreflight := context.WithTimeout(context.Background(), 8*time.Second)
+	preflightCtx, cancelPreflight := context.WithTimeout(preSwapCtx, 8*time.Second)
 	preflightErr := xrayCoreNativePreflight(preflightCtx, binary, a.routingConfigDir())
 	cancelPreflight()
 	if preflightErr != nil {
@@ -782,10 +829,9 @@ func (a *app) applyXrayCore(parent context.Context, target string) xrayCoreApply
 		result.Error = "cannot prepare Xray candidate permissions"
 		return result
 	}
-	// This last bounded pre-swap guard prevents replacing the binary when
-	// the update preparation deadline has already expired.
-	if ctx.Err() != nil {
-		result.Error = "Xray update preparation expired; no binary changed"
+	// Never swap if the fresh runtime-preflight/snapshot budget expired.
+	if err := xrayCorePreparationGate(preSwapCtx); err != nil {
+		result.Error = err.Error()
 		return result
 	}
 	if err := os.Rename(candidatePath, binary); err != nil {
