@@ -4,7 +4,7 @@
   window.__freenetSettingsDNSUILoaded = true;
 
   const q = (s, r = document) => r.querySelector(s);
-  const state = {data:null, baseline:'', dirty:false, applying:false, saveWrapped:false, flagBusy:false};
+  const state = {data:null, nativePlan:null, baseline:'', dirty:false, applying:false, saveWrapped:false, flagBusy:false};
 
   const escapeHTML = value => String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const provider = (id, options) => (options || []).find(x => x.id === id) || null;
@@ -64,13 +64,91 @@
     renderRepairAction();
   }
 
+  // The native DNS resolver selection can drift independently of Split DNS.
+  // Expose a repair only for a read-only, coherent firmware plan. Unknown
+  // topology, changed providers or a pending filter-engine choice remain STOP.
+  function nativeDNSPlanReady(plan) {
+    return plan?.success === true && plan.supported === true && plan.active === false &&
+      plan.dns_mode === 'firmware' && plan.active_dns_mode === 'firmware' &&
+      plan.native_dns_provider && plan.native_dns_provider === plan.active_native_dns_provider &&
+      plan.dns_routing_mode === 'native-resolver-selection-replace' &&
+      plan.native_filter_engine_confirm_required === false &&
+      plan.port53_owner === 'ndnproxy' && plan.proxy_dns === 'off' &&
+      plan.mutation === 'NONE' && typeof plan.expected_delta === 'string' &&
+      plan.expected_delta.includes('resolver selection') &&
+      typeof plan.expected_no_delta === 'string' &&
+      plan.expected_no_delta.includes('no VPN credential rewrite');
+  }
+
+  async function loadNativeDNSRepairPlan() {
+    state.nativePlan = null;
+    if (state.data?.mode === 'firmware' && state.data?.apply_supported !== false) {
+      try {
+        const plan = await fetchJSON('/api/network-profile/plan', {cache:'no-store'});
+        if (nativeDNSPlanReady(plan)) state.nativePlan = plan;
+      } catch (_) { /* Read-only plan unavailable: no repair action. */ }
+    }
+    renderRepairAction();
+  }
+
+  async function applyNativeDNSRepair() {
+    if (state.applying || state.dirty || !state.nativePlan) return false;
+    let fresh;
+    try {
+      fresh = await fetchJSON('/api/network-profile/plan', {cache:'no-store'});
+      if (!nativeDNSPlanReady(fresh) ||
+          fresh.expected_delta !== state.nativePlan.expected_delta ||
+          fresh.native_dns_provider !== state.nativePlan.native_dns_provider) {
+        throw new Error('DNS topology changed since read-only plan; no changes applied');
+      }
+    } catch (err) {
+      state.nativePlan = null;
+      renderRepairAction();
+      alert('Native DNS STOP до изменения: ' + err.message);
+      return false;
+    }
+    const confirmation = 'Согласовать выбранный Native DNS роутера?\n\n' +
+      fresh.expected_delta + '\n\nБез изменений: ' + fresh.expected_no_delta +
+      '\n\nFreeNet выполнит защищённое применение и откат при отказе.';
+    if (!window.confirm(confirmation)) return false;
+    state.applying = true;
+    renderRepairAction();
+    try {
+      await fetchJSON('/api/network-profile/apply', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({operation:'network',dns_mode:'firmware',confirm:true})
+      });
+      const after = await fetchJSON('/api/network-profile/plan', {cache:'no-store'});
+      if (after.active !== true || after.dns_routing_mode !== 'native' ||
+          after.dns_mode !== 'firmware' || after.mutation !== 'NONE') {
+        throw new Error('DNS post-apply acceptance unconfirmed; STOP without retry');
+      }
+      state.nativePlan = null;
+      await loadControl();
+      alert('Native DNS согласован. Повторный read-only план подтвердил рабочий профиль.');
+      return true;
+    } catch (err) {
+      state.nativePlan = null;
+      renderRepairAction();
+      alert('Native DNS STOP: ' + err.message + '. Не повторяйте применение без проверки rollback.');
+      return false;
+    } finally {
+      state.applying = false;
+      renderRepairAction();
+    }
+  }
+
   function renderRepairAction() {
     const row = q('#fn3DnsRepairRow'), btn = q('#fn3DnsRepair');
     if (!row || !btn) return;
-    const needed = state.data?.repair_required === true;
+    const splitRepair = state.data?.repair_required === true;
+    const nativeRepair = !state.dirty && state.data?.mode === 'firmware' && !!state.nativePlan;
+    const needed = splitRepair || nativeRepair;
     row.hidden = !needed;
     btn.disabled = !needed || state.applying || state.data?.apply_supported === false;
-    btn.textContent = state.applying ? 'Восстанавливаем DIRECT…' : 'Восстановить DIRECT';
+    btn.textContent = state.applying
+      ? (nativeRepair ? 'Согласовываем Native DNS…' : 'Восстанавливаем DIRECT…')
+      : (nativeRepair ? 'Согласовать Native DNS' : 'Восстановить DIRECT');
   }
 
   function syncSaveButton() {
@@ -83,7 +161,8 @@
 
   function markDirty() {
     state.dirty = formKey() !== state.baseline;
-    renderMode(); renderEndpoint(); syncSaveButton();
+    if (state.dirty) state.nativePlan = null;
+    renderMode(); renderEndpoint(); renderRepairAction(); syncSaveButton();
   }
 
   async function fetchJSON(url, init) {
@@ -110,7 +189,10 @@
       if (vpn) { vpn.innerHTML = optionHTML(data.vpn_options, data.vpn_provider || 'google-doh'); vpn.value = data.vpn_provider || 'google-doh'; }
       renderMode(); renderEndpoint(); renderState();
       state.baseline = formKey(); state.dirty = false;
+      await loadNativeDNSRepairPlan();
     } catch (err) {
+      state.nativePlan = null;
+      renderRepairAction();
       const warning = q('#fn3DnsWarning'); if (warning) warning.textContent = `DNS state недоступен: ${err.message}`;
     }
   }
@@ -169,7 +251,10 @@
     document.querySelectorAll('input[name="fnDnsMode"]').forEach(input => input.addEventListener('change', markDirty));
     q('#fnDnsDirect')?.addEventListener('change', markDirty);
     q('#fnDnsVPN')?.addEventListener('change', markDirty);
-    q('#fn3DnsRepair')?.addEventListener('click', async () => { await applyDNS(true); });
+    q('#fn3DnsRepair')?.addEventListener('click', async () => {
+      if (state.nativePlan) await applyNativeDNSRepair();
+      else await applyDNS(true);
+    });
   }
 
   async function enforceCurrentVPNFlag() {
