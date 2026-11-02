@@ -773,6 +773,9 @@ cmp -s "$CASE_DIR/original.state" "$FREENET_UPDATE_STATE_FILE" || fail 'reboot r
 # changes only the private test fixture's mtime, never its content or SHA-256.
 touch -d "@$((BOOT_EPOCH - 90))" "$FREENET_UPDATE_STATE_FILE"
 if run_reconcile_plan; then fail 'legacy owner-preserving plan accepted absent fences'; fi
+# Production XKeen keeps some official Xray binaries owner-private 0700.
+# The recovery verifier must preserve that legitimate mode, never chmod Xray.
+chmod 700 "$R/sbin/xray"
 snapshot_guarded "$CASE_DIR/reboot-plan.before"
 
 # On production Keenetic the BusyBox 1.37 stat supports -L -t but not
@@ -800,6 +803,15 @@ grep -qx 'FENCES=REBOOT_ABSENT' "$CASE_DIR/command.out" || fail 'reboot plan inv
 grep -qx 'MUTATION=NONE' "$CASE_DIR/command.out" || fail 'reboot plan mutated protected data'
 snapshot_guarded "$CASE_DIR/reboot-plan.after"
 cmp -s "$CASE_DIR/reboot-plan.before" "$CASE_DIR/reboot-plan.after" || fail 'reboot plan wrote protected data'
+[ "$(stat -c '%a' "$R/sbin/xray")" = 700 ] || fail 'reboot plan modified owner-private Xray mode'
+fixture_alive "$RESTORED_XRAY_PID" || fail 'mode-700 Xray core was interrupted'
+
+# Other executable permissions, even if runnable by root, are not proven
+# production modes: never weaken mode verification to "any executable".
+chmod 750 "$R/sbin/xray"
+if run_reconcile_reboot_plan; then fail 'unrecognized Xray executable mode 0750 was accepted'; fi
+cmp -s "$CASE_DIR/original.state" "$FREENET_UPDATE_STATE_FILE" || fail 'bad Xray mode changed UNKNOWN receipt'
+chmod 700 "$R/sbin/xray"
 
 # A single reappearing lock, a changed receipt, and an incorrect exact receipt
 # acknowledgment all remain hard STOP without service interruption.
@@ -840,6 +852,7 @@ cmp -s "$FREENET_UPDATE_STATE_FILE" "$REBOOT_ARCHIVE/terminal.state" ||
 cp -p "$CASE_DIR/pre-reboot-receipt" "$FREENET_UPDATE_STATE_FILE"
 mv "$CASE_DIR/reboot-saved-app-lock" "$FREENET_UPDATE_LOCK_DIR"
 mv "$CASE_DIR/reboot-saved-network-lock" "$FREENET_UPDATE_MUTATION_LOCK"
+chmod 755 "$R/sbin/xray"
 assert_unknown_unchanged
 
 # Successful confirmation is the only receipt mutation. It preserves live
