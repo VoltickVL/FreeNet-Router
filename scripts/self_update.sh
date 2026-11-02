@@ -1896,7 +1896,12 @@ reconcile_xray_role() (
 reconcile_xray_runtime_proof() (
     rx_bin="$ROOT/sbin/xray"
     reconcile_root_path_safe "$rx_bin" || return 1
-    rx_image="$(update_file_proof "$rx_bin" 134217728 755)" || return 1
+    # An existing XKeen/Xray installation can deliberately keep its executable
+    # owner-private (0700). FreeNet's core updater preserves the pre-swap mode.
+    # Accept only these two exact root-owned, non-writable-by-others modes;
+    # continue to pin inode, bytes and live process identity independently.
+    rx_image="$(update_file_proof "$rx_bin" 134217728 700)" ||
+        rx_image="$(update_file_proof "$rx_bin" 134217728 755)" || return 1
     rx_path="$(readlink -f "$rx_bin")" || return 1
     [ -n "$rx_path" ] || return 1
     printf '%s\000run\000' "$rx_bin" > "$TMP_DIR/xray-argv.full" || return 1
