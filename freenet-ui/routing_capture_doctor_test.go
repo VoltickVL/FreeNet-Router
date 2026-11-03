@@ -20,7 +20,7 @@ func TestCaptureDoctorNoKernelTPROXYFailClosed(t *testing.T) {
   return "",false
  }
  got:=captureDoctorClassify(context.Background(),read,"modern-generated-hook")
- if got.State!="capture-rule-missing"||got.Netfilter!="tproxy-rule-absent"||got.Mutation!="NONE"{
+ if got.State!="tcp-redirect-missing"||got.Netfilter!="tproxy-rule-absent"||got.Mutation!="NONE"{
   t.Fatalf("expected missing kernel hook despite valid file: %+v",got)
  }
 }
@@ -28,7 +28,9 @@ func TestCaptureDoctorNoKernelTPROXYFailClosed(t *testing.T) {
 func TestCaptureDoctorInstalledStillNotVerified(t *testing.T) {
  read:=func(_ context.Context,command string,args ...string)(string,bool){
   switch command {
-  case "iptables-save":return "-A PREROUTING -p tcp -j TPROXY --on-port 12345 --tproxy-mark 0x1/0x1",true
+  case "iptables-save":
+   if len(args)>1&&args[1]=="nat"{return "-A PREROUTING -p tcp -j xkeen\n-A xkeen -p tcp -j REDIRECT --to-ports 5000\n",true}
+   return "-A PREROUTING -p tcp -j TPROXY --on-port 12345 --tproxy-mark 0x1/0x1",true
   case "ip":
    if len(args)>1&&args[1]=="rule"{return "100: from all fwmark 0x1 lookup 100",true}
    return "local default dev lo table 100 scope host",true
