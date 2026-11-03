@@ -434,24 +434,19 @@ func (a *app) executeBestServerCurrentRefresh(ctx context.Context) (int, bestSer
 		}
 	}
 
-	if err := a.ensureProviderSubscriptionCache(ctx); err != nil {
+	all, _, _, catalog, err := a.discoverBestServerCandidatesWithSource(ctx)
+	if err != nil {
 		return http.StatusServiceUnavailable, bestServerRefreshResponse{
 			Success: false, Outcome: "check_failed", Mutation: "NONE", RollbackState: "NOT_APPLIED",
 			Error: "fresh provider subscription could not be prepared; current VPN was preserved",
 		}
 	}
-	providerBody, err := os.ReadFile(providerSubscriptionCachePath())
-	if err != nil {
+	// The protected catalog is acceptable for diagnostics but must never be
+	// treated as fresh authority for changing live VLESS/Reality credentials.
+	if !bestServerRefreshCatalogAdmitted(catalog) {
 		return http.StatusServiceUnavailable, bestServerRefreshResponse{
 			Success: false, Outcome: "check_failed", Mutation: "NONE", RollbackState: "NOT_APPLIED",
-			Error: "prepared provider subscription could not be read; current VPN was preserved",
-		}
-	}
-	all, _, _, err := parseBestServerCandidates(providerBody)
-	if err != nil {
-		return http.StatusServiceUnavailable, bestServerRefreshResponse{
-			Success: false, Outcome: "check_failed", Mutation: "NONE", RollbackState: "NOT_APPLIED",
-			Error: "prepared provider subscription is invalid; current VPN was preserved",
+			Error: "fresh subscription unavailable; protected catalog is read-only, current VPN preserved",
 		}
 	}
 
@@ -592,13 +587,14 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 	expectedEndpoint := profileEndpoint(target.Profile)
 	activeEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
 	activeLabel := currentExactProfileLabel(a.cfg.FilterPath)
-	postOK := endpointsEqual(activeEndpoint, expectedEndpoint) && a.liveXrayRunning()
+	postOK := endpointsEqual(activeEndpoint, expectedEndpoint) && a.liveXrayRunning() &&
+		bestServerRefreshPostExactIdentity(a.cfg.OutPath, target)
 	expectedLabel := sanitizeProfileName(target.Profile.Name)
 	if expectedLabel != "" {
 		postOK = postOK && activeLabel == expectedLabel
 	}
 	if !postOK {
-		return unknown("post-apply exact endpoint acceptance failed", "UNKNOWN")
+		return unknown("post-apply exact VLESS/Reality identity acceptance failed", "UNKNOWN")
 	}
 
 	// Retain the extra Internet acceptance gate, after the helper's mandatory
@@ -623,6 +619,24 @@ func bestServerCandidateByID(candidates []bestServerInternalCandidate, id string
 		}
 	}
 	return bestServerInternalCandidate{}, false
+}
+
+// A source-bound protected cache may be used to display candidates, but not
+// to revise a live VPN. Only a freshly fetched provider response authorizes
+// the subsequent transactional refresh.
+func bestServerRefreshCatalogAdmitted(source bestServerCatalogSource) bool {
+	return source.Fresh && (source.Source == "direct" || source.Source == "active_vpn")
+}
+
+// Compare the EXACT activated VLESS/Reality revision, not merely the endpoint
+// and label: SNI/shortId can change while the IP and port stay unchanged.
+func bestServerRefreshPostExactIdentity(outPath string, target bestServerInternalCandidate) bool {
+	active, endpoint, ok := readBestServerActiveOutbound(outPath)
+	if !ok || !endpointsEqual(endpoint, profileEndpoint(target.Profile)) {
+		return false
+	}
+	expected, err := buildBestServerProbeOutbound(target.Raw, target.Profile)
+	return err == nil && vlessOutboundParity(active, expected)
 }
 
 func bestServerFreshCandidateForCurrent(candidates []bestServerInternalCandidate, matcher *regexp.Regexp, exactLabel, currentEndpoint string) (bestServerInternalCandidate, bool) {
