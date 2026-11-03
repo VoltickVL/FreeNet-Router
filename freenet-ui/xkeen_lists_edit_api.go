@@ -3,7 +3,6 @@ package main
 // XKeen's external lists have a lifecycle distinct from Xray JSON. Saving
 // a list does not imply that XKeen has reloaded its kernel ipsets/iptables.
 import (
- "context"
  "encoding/json"
  "errors"
  "io"
@@ -19,17 +18,17 @@ import (
 const maxXKeenListEditBytes = 128 << 10
 
 type xkeenListSaveRequest struct {
- File string \`json:"file"\`
- Text string \`json:"text"\`
- ExpectedSHA256 string \`json:"expected_sha256"\`
+ File string `json:"file"`
+ Text string `json:"text"`
+ ExpectedSHA256 string `json:"expected_sha256"`
 }
 type xkeenListSaveResponse struct {
- Success bool \`json:"success"\`
- Mutation string \`json:"mutation"\`
- Activation string \`json:"activation"\`
- Rollback string \`json:"rollback"\`
- SHA256 string \`json:"sha256,omitempty"\`
- Error string \`json:"error,omitempty"\`
+ Success bool `json:"success"`
+ Mutation string `json:"mutation"`
+ Activation string `json:"activation"`
+ Rollback string `json:"rollback"`
+ SHA256 string `json:"sha256,omitempty"`
+ Error string `json:"error,omitempty"`
 }
 
 func configStudioXKeenDir() string {
@@ -170,4 +169,3 @@ func isHexLowerSHA(s string)bool{
  return len(s)==64
 }
 
-var _ = context.Canceled
