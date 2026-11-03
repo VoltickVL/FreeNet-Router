@@ -40,7 +40,7 @@ func captureDoctorHasRule(text string) bool {
  // iptables-save uses -j TPROXY; nft uses "tproxy to".
  lower := strings.ToLower(text)
  return strings.Contains(lower, "-j tproxy") || strings.Contains(lower, " tproxy to ") ||
-  strings.Contains(lower, "\\ntproxy to ") || strings.Contains(lower, " tproxy ip to ")
+  strings.Contains(lower, "\ntproxy to ") || strings.Contains(lower, " tproxy ip to ")
 }
 
 func captureDoctorHasPolicyRule(text string) bool {
@@ -50,7 +50,7 @@ func captureDoctorHasPolicyRule(text string) bool {
 
 func captureDoctorHasLocalRoute(text string) bool {
  lower := strings.ToLower(text)
- for _, line := range strings.Split(lower, "\\n") {
+ for _, line := range strings.Split(lower, "\n") {
   if strings.Contains(line, "local default dev lo") || strings.Contains(line, "local 0.0.0.0/0 dev lo") {
    return true
   }
