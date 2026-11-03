@@ -18,6 +18,8 @@ type captureDoctorResponse struct {
  Mutation string `json:"mutation"`
  State string `json:"state"`
  Netfilter string `json:"netfilter"`
+ TCPRedirect string `json:"tcp_redirect"`
+ TCPPrerouting string `json:"tcp_prerouting"`
  PolicyRule string `json:"policy_rule"`
  LocalRoute string `json:"local_route"`
  Hook string `json:"hook"`
@@ -43,6 +45,40 @@ func captureDoctorHasRule(text string) bool {
   strings.Contains(lower, "\ntproxy to ") || strings.Contains(lower, " tproxy ip to ")
 }
 
+// Classify the active TCP path separately from UDP TPROXY. A generated
+// xkeen chain and UDP TPROXY do not prove a normal TCP client can reach it.
+// The diagnostic intentionally reports only fixed states and never rule text.
+func captureDoctorNATState(raw string) (string, string) {
+ redirect := "tcp-redirect-absent"
+ hook := "tcp-prerouting-hook-absent"
+ invalidOnly := false
+ for _, rawLine := range strings.Split(raw, "\n") {
+  line := strings.ToLower(strings.TrimSpace(rawLine))
+  if strings.HasPrefix(line, "-a xkeen ") && strings.Contains(line, "-p tcp ") &&
+   strings.Contains(line, "-j redirect") {
+   redirect = "tcp-redirect-present"
+  }
+  if !strings.HasPrefix(line, "-a prerouting ") ||
+   !strings.Contains(line, "-j xkeen") {
+   continue
+  }
+  if strings.Contains(line, "-p udp ") {
+   continue
+  }
+  // The Xkeen INVALID+DSCP emergency path is NOT a general TCP intercept.
+  if strings.Contains(line, "--ctstate invalid") ||
+   strings.Contains(line, "--dscp ") {
+   invalidOnly = true
+   continue
+  }
+  hook = "tcp-prerouting-hook-present"
+ }
+ if hook == "tcp-prerouting-hook-absent" && invalidOnly {
+  hook = "tcp-prerouting-invalid-only"
+ }
+ return redirect, hook
+}
+
 func captureDoctorHasPolicyRule(text string) bool {
  lower := strings.ToLower(text)
  return strings.Contains(lower, "fwmark ")
@@ -60,7 +96,7 @@ func captureDoctorHasLocalRoute(text string) bool {
 
 func captureDoctorClassify(ctx context.Context, read func(context.Context,string,...string)(string,bool), hook string) captureDoctorResponse {
  result := captureDoctorResponse{Success:true, Mutation:"NONE", State:"unverified",
-  Netfilter:"unknown", PolicyRule:"unknown", LocalRoute:"unknown", Hook:hook, Reason:"kernel-capture-unverified"}
+  Netfilter:"unknown", TCPRedirect:"unknown", TCPPrerouting:"unknown", PolicyRule:"unknown", LocalRoute:"unknown", Hook:hook, Reason:"kernel-capture-unverified"}
  var filterSeen bool
  if rules, ok := read(ctx,"iptables-save","-t","mangle"); ok {
   filterSeen = true
@@ -74,6 +110,9 @@ func captureDoctorClassify(ctx context.Context, read func(context.Context,string
   }
  }
  if !filterSeen { result.Reason="netfilter-unavailable" }
+ if rules, ok := read(ctx, "iptables-save", "-t", "nat"); ok {
+  result.TCPRedirect, result.TCPPrerouting = captureDoctorNATState(rules)
+ }
  if rules,ok:=read(ctx,"ip","-4","rule","show");ok {
   result.PolicyRule="fwmark-rule-absent"
   if captureDoctorHasPolicyRule(rules) { result.PolicyRule="fwmark-rule-present" }
@@ -85,6 +124,13 @@ func captureDoctorClassify(ctx context.Context, read func(context.Context,string
  // Even an installed ruleset proves neither hits nor correct per-client
  // routing, so never return "healthy" without measured LAN egress.
  switch {
+ case result.TCPRedirect == "tcp-redirect-absent":
+  result.State = "tcp-redirect-missing"
+  result.Reason = "no-kernel-tcp-redirect"
+ case result.TCPRedirect == "tcp-redirect-present" &&
+  result.TCPPrerouting != "tcp-prerouting-hook-present":
+  result.State = "tcp-hook-missing"
+  result.Reason = "no-normal-tcp-prerouting-hook"
  case result.Netfilter=="tproxy-rule-absent":
   result.State="capture-rule-missing";result.Reason="no-kernel-tproxy-rule"
  case result.Netfilter=="tproxy-rule-present" && result.PolicyRule=="fwmark-rule-absent":
