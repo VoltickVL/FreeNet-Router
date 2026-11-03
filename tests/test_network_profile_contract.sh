@@ -57,7 +57,7 @@ cat > "$TROOT/etc/xray/configs/03_inbounds.json" <<'EOF'
 {"inbounds":[{"tag":"redirect","port":5000,"protocol":"dokodemo-door"},{"tag":"tproxy","port":5000,"protocol":"dokodemo-door"}]}
 EOF
 cat > "$TROOT/etc/xray/configs/04_outbounds.json" <<'EOF'
-{"outbounds":[{"tag":"vless-reality","protocol":"freedom","settings":{"marker":"preserve-vpn"}},{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]}
+{"outbounds":[{"tag":"vless-reality","protocol":"vless","settings":{"marker":"preserve-vpn"}},{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]}
 EOF
 cat > "$TROOT/etc/xray/configs/05_routing.json" <<'EOF'
 {"routing":{"domainStrategy":"AsIs","rules":[{"type":"field","domain":["ext:geosite.dat:youtube"],"outboundTag":"vless-reality"},{"type":"field","domain":["ext:geosite.dat:google","domain:example.ru"],"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"vless-reality"}]}}
@@ -143,9 +143,44 @@ grep -q '^NDM_DNS_ASSIGNMENTS=on$' "$STATE" || fail 'native no-op failure change
 grep -q '^PORT53_OWNER=ndnproxy$' "$STATE" || fail 'native no-op failure changed :53 owner'
 state_set DNS_QUERY_OK yes
 
+# Non-IP DNS passthrough must fail closed if the selected outbound is freedom.
+# Reject before snapshots or changes to Keenetic DNS and Xray state.
+cp "$TROOT/etc/xray/configs/04_outbounds.json" "$TMP/nonip-vless.before"
+sed -i 's/"tag":"vless-reality","protocol":"vless"/"tag":"vless-reality","protocol":"freedom"/' "$TROOT/etc/xray/configs/04_outbounds.json"
+sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
+if run_network apply > "$TMP/nonip-unsafe.apply" 2>&1; then fail 'non-IP DNS passthrough routed to freedom'; fi
+grep -Fq 'Split DNS требует рабочий vless-reality' "$TMP/nonip-unsafe.apply" ||
+    fail 'unsafe DNS passthrough was not refused'
+grep -Fq 'ROLLBACK ERROR/STATE: no live apply' "$TMP/nonip-unsafe.apply" ||
+    fail 'unsafe passthrough must stop NOT_APPLIED'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'unsafe passthrough changed dns override'
+grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'unsafe passthrough changed intercept'
+cp "$TMP/nonip-vless.before" "$TROOT/etc/xray/configs/04_outbounds.json"
+
 # Direct native -> Split manages all required Keenetic control-plane state itself:
 # dns-override frees :53, filter engine becomes opkg, and native System-profile DNS
 # interception is disabled so ordinary clients cannot bypass Xray to native Yandex/DoT/DoH.
+# TXT/MX acceptance is mandatory BEFORE committing live Split: an empty
+# NOERROR must rollback the exact native snapshot, not report DNS success.
+for n in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do
+    cp "$TROOT/etc/xray/configs/$n" "$TMP/$n.nonip-before"
+done
+state_set DNS_NONIP_QUERY_OK no
+if run_network apply > "$TMP/nonip-empty.apply" 2>&1; then
+    fail 'Split accepted empty TXT/MX response'
+fi
+grep -Fq 'PRIMARY ERROR: post-apply Split DNS acceptance failed' "$TMP/nonip-empty.apply" ||
+    fail 'empty TXT/MX did not fail Split acceptance'
+grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/nonip-empty.apply" ||
+    fail 'empty TXT/MX did not roll back before network commit'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'empty TXT/MX leaked dns-override change'
+grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'empty TXT/MX leaked intercept change'
+for n in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do
+    cmp -s "$TROOT/etc/xray/configs/$n" "$TMP/$n.nonip-before" ||
+        fail "empty TXT/MX rollback changed $n"
+done
+state_set DNS_NONIP_QUERY_OK yes
+
 sed -i 's/^proxy_dns=.*/proxy_dns="on"/' "$TROOT/etc/init.d/S05xkeen"
 sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
 run_network apply > "$TMP/split.apply" 2>&1 || { cat "$TMP/split.apply" >&2; fail 'native -> split failed'; }
@@ -162,6 +197,21 @@ grep -Fq 'filter assign interface preset Home cloudflare-unfiltered' "$TROOT/etc
 [ "$(sha256sum "$TROOT/etc/freenet/native-dns/02_dns.native" | awk '{print $1}')" = "$H02" ] || fail 'native 02 snapshot changed'
 jq -e '([.inbounds[]? | select(((.port // "")|tostring)=="53")] | length)==1' "$TROOT/etc/xray/configs/03_inbounds.json" >/dev/null || fail 'split :53 missing'
 jq -e '([.outbounds[]? | select(.tag=="dns-out" and .protocol=="dns")] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'dns-out missing'
+# A/AAAA remain hijacked; TXT/MX/SRV/HTTPS use an explicit VLESS dialer.
+# There is no implicit DIRECT path or obsolete proxySettings.
+jq -e '
+  [.outbounds[]? | select(.tag=="dns-out")] as $dns |
+  ($dns | length)==1 and
+  ($dns[0].protocol=="dns") and
+  ($dns[0].settings.rewriteAddress=="8.8.8.8") and
+  ($dns[0].settings.rewritePort==53) and
+  ($dns[0].settings.rules==[{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]) and
+  ($dns[0].streamSettings.sockopt.dialerProxy=="vless-reality") and
+  ($dns[0].proxySettings==null) and
+  ([.outbounds[]? | select(.tag=="vless-reality" and .protocol=="vless")] | length)==1
+' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null ||
+    fail 'Split dns-out missing protected non-A VLESS passthrough'
+
 jq -e '([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'Split DIRECT self-bypass mark missing'
 jq -e '([.routing.rules[]? | select(((.inboundTag // [])|index("dns-vless"))!=null and .outboundTag=="vless-reality")] | length)==1' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'dns-vless route missing'
 # First-match parity: YouTube VPN rule precedes the broader Google DIRECT rule and
@@ -174,6 +224,28 @@ jq -e '
 [ "$(hash_in)" = "$HIN" ] || fail 'split changed non-DNS inbounds'
 [ "$(hash_out)" = "$HOUT" ] || fail 'split changed VPN/non-DNS outbounds'
 [ "$(hash_route)" = "$HROUTE" ] || fail 'split changed non-DNS routing'
+
+# Beta.67 legacy Split silently returned NOERROR/zero TXT and MX records.
+# Even when the firmware interception is already off, the read-only plan must
+# flag this drift so the managed Control Center can run its guarded repair.
+cp "$TROOT/etc/xray/configs/04_outbounds.json" "$TMP/nonip-modern.before"
+jq '(.outbounds[] | select(.tag=="dns-out")) |= del(.settings,.streamSettings)'     "$TMP/nonip-modern.before" > "$TMP/nonip-legacy.out"
+mv "$TMP/nonip-legacy.out" "$TROOT/etc/xray/configs/04_outbounds.json"
+run_network plan > "$TMP/nonip-legacy.plan"
+grep -Fq 'DNS_ROUTING_MODE=split-nonip-incomplete' "$TMP/nonip-legacy.plan" ||
+    fail 'legacy dns-out with empty TXT/MX wrongly classified active'
+run_network apply > "$TMP/nonip-legacy.repair" 2>&1 ||
+    { cat "$TMP/nonip-legacy.repair" >&2; fail 'legacy non-A Split repair failed'; }
+grep -Fq 'RESULT=SUCCESS' "$TMP/nonip-legacy.repair" || fail 'non-A repair result missing'
+run_network plan > "$TMP/nonip-repaired.plan"
+grep -Fq 'DNS_ROUTING_MODE=split' "$TMP/nonip-repaired.plan" ||
+    fail 'modern non-A Split not classified healthy'
+jq -e '
+  [.outbounds[]? | select(.tag=="dns-out" and
+   .streamSettings.sockopt.dialerProxy=="vless-reality" and
+   (.settings.rules == [{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]))] | length==1
+' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null ||
+    fail 'legacy Split repair did not install non-A VLESS passthrough'
 
 # Reproduce v0.2.52 defect: native assignments may remain active in an otherwise
 # valid Split topology. Plan must classify it repair-ready, and apply must detach
@@ -246,6 +318,16 @@ grep -q '^NDM_DNS_OVERRIDE=on$' "$STATE" || fail 'legacy repair changed override
 grep -q '^NDM_FILTER_ENGINE=opkg$' "$STATE" || fail 'legacy repair changed filter engine'
 grep -q '^NDM_DNS_INTERCEPT=off$' "$STATE" || fail 'legacy repair did not suppress System intercept'
 grep -q '^PORT53_OWNER=xray$' "$STATE" || fail 'legacy repair lost Xray :53'
+jq -e '
+  [.outbounds[]? | select(.tag=="dns-out" and .protocol=="dns" and
+   .streamSettings.sockopt.dialerProxy=="vless-reality" and
+   .settings.rewriteAddress=="8.8.8.8" and
+   .settings.rewritePort==53 and
+   (.settings.rules == [{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]))] |
+  length==1
+' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null ||
+    fail 'legacy Split repair lost non-A VLESS passthrough'
+
 [ "$(cat "$TROOT/etc/freenet/native-dns/intercept.native")" = on ] || fail 'legacy repair did not adopt observed native intercept baseline'
 grep -q '^NDM_DNS_PROFILE_MARKER=preserved$' "$STATE" || fail 'legacy repair changed protected DNS profile state'
 jq -e '

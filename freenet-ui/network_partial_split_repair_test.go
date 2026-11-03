@@ -43,7 +43,7 @@ func TestPartialLegacySplitSelfRepairNormalizesDNSLayer(t *testing.T) {
 	writePartialSplitTestFile(t, filepath.Join(configDir, "03_inbounds.json"), `{"inbounds":[{"tag":"redirect","port":5000,"protocol":"dokodemo-door"},{"tag":"dns","port":53,"protocol":"dokodemo-door","settings":{"network":"tcp,udp"}}]}`+"\n", 0o644)
 	// Reproduces the HOME v0.2.47 safe STOP: OPKG/Xray owns :53, but the managed
 	// DNS layer is incomplete (no dns-out and no managed DNS routing rules).
-	writePartialSplitTestFile(t, filepath.Join(configDir, "04_outbounds.json"), `{"outbounds":[{"tag":"vless-reality","protocol":"freedom","settings":{"marker":"preserve-vpn"}},{"tag":"direct","protocol":"freedom"}]}`+"\n", 0o644)
+	writePartialSplitTestFile(t, filepath.Join(configDir, "04_outbounds.json"), `{"outbounds":[{"tag":"vless-reality","protocol":"vless","settings":{"marker":"preserve-vpn"}},{"tag":"direct","protocol":"freedom"}]}`+"\n", 0o644)
 	writePartialSplitTestFile(t, filepath.Join(configDir, "05_routing.json"), `{"routing":{"domainStrategy":"AsIs","rules":[{"type":"field","domain":["ext:geosite.dat:youtube"],"outboundTag":"vless-reality"},{"type":"field","domain":["ext:geosite.dat:google"],"outboundTag":"direct"},{"type":"field","network":"tcp,udp","outboundTag":"vless-reality"}]}}`+"\n", 0o644)
 	writePartialSplitTestFile(t, filepath.Join(root, "etc", "freenet", "native-dns", "intercept.native"), "on\n", 0o644)
 

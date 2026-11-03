@@ -25,7 +25,7 @@ cat > "$TROOT/etc/xray/configs/03_inbounds.json" <<'EOF'
 {"inbounds":[{"tag":"redirect","port":5000,"protocol":"dokodemo-door"},{"tag":"tproxy","port":5000,"protocol":"dokodemo-door"}]}
 EOF
 cat > "$TROOT/etc/xray/configs/04_outbounds.json" <<'EOF'
-{"outbounds":[{"tag":"vless-reality","protocol":"freedom","settings":{"marker":"preserve-vpn"}},{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]}
+{"outbounds":[{"tag":"vless-reality","protocol":"vless","settings":{"marker":"preserve-vpn"}},{"tag":"direct","protocol":"freedom"},{"tag":"block","protocol":"blackhole"}]}
 EOF
 cat > "$TROOT/etc/xray/configs/05_routing.json" <<'EOF'
 {
@@ -86,6 +86,13 @@ grep -q '^NDM_FILTER_ENGINE=opkg$' "$STATE" || fail 'Split did not enable OPKG e
 grep -q '^NDM_DNS_INTERCEPT=off$' "$STATE" || fail 'Split did not suppress native intercept'
 grep -q '^PORT53_OWNER=xray$' "$STATE" || fail 'Split did not move :53 to Xray'
 jq -e '.routing.rules | length > 3' "$TROOT/etc/xray/configs/05_routing.json" >/dev/null || fail 'Split candidate was not strict JSON after JSONC input'
+jq -e '
+  [.outbounds[]? | select(.tag=="dns-out" and .protocol=="dns" and
+   .settings.rewriteAddress=="8.8.8.8" and .settings.rewritePort==53 and
+   (.settings.rules == [{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]) and
+   .streamSettings.sockopt.dialerProxy=="vless-reality")] | length==1
+' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null ||
+    fail 'JSONC Split lost guarded non-A VLESS passthrough'
 jq -e '([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length)==1' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null || fail 'Split JSONC DIRECT self-bypass mark missing'
 
 sed -i 's/^DNS_MODE=.*/DNS_MODE=firmware/' "$TROOT/etc/freenet/freenet.conf"
