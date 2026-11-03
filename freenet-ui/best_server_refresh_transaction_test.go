@@ -281,8 +281,11 @@ func TestCurrentRefreshManagedTransactionSurvivesAdmissionCancellation(t *testin
 		t.Fatal(err)
 	}
 	got := receiveRefreshTransaction(t, done)
-	if got.status != http.StatusOK || !got.response.Success || !got.response.Applied || got.response.RollbackState != "NOT_NEEDED" {
-		t.Fatalf("valid terminal result lost after admission expiry: %+v", got)
+	if got.status != http.StatusOK || !got.response.Success || !got.response.Applied ||
+		got.response.RollbackState != "NOT_NEEDED" ||
+		got.response.PostCheckState != automationHealthHealthy ||
+		got.response.PostCheckCode != "NAMED_HTTPS_VERIFIED" {
+		t.Fatalf("valid terminal HTTPS result lost after admission expiry: %+v", got)
 	}
 	if f.postCalls != 1 || !f.postContextOK || !f.postGateOK || !f.postWriterOK {
 		t.Fatalf("postprobe boundary calls=%d context=%v shared=%v writer=%v", f.postCalls, f.postContextOK, f.postGateOK, f.postWriterOK)
@@ -403,6 +406,10 @@ func TestCurrentRefreshFailureNeverStartsSecondRestore(t *testing.T) {
 			if tc.name == "post_failed" || tc.name == "post_uncertain" {
 				if f.postCalls != 1 || !f.postGateOK || !f.postWriterOK {
 					t.Fatal("post-acceptance check ran under the exclusive gate or without its writer fence")
+				}
+				if got.response.PostCheckState != tc.post ||
+					got.response.PostCheckCode == "" {
+					t.Fatalf("failed postcheck must preserve safe diagnostic reason: %+v", got.response)
 				}
 			}
 			if tc.helper == "wrong-label" {

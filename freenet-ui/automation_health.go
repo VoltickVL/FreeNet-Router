@@ -347,6 +347,22 @@ func automationQualityOptimizationStartReason(probe automationHealthProbe) strin
 // only after a second complete failed observation, verified DIRECT WAN,
 // transaction fences and a separately accepted replacement. Any incomplete
 // sample or cancelled parent remains UNKNOWN (no mutation).
+// Refresh acceptance must not treat QoE uncertainty as an application outage.
+// This function is called only after a successful named HTTPS request through
+// the active VLESS outbound; cancellation or identity drift always stays UNKNOWN.
+func classifyRefreshApplicationAcceptance(ctx context.Context, namedHTTPSOK, identityStable bool) automationHealthProbe {
+	switch {
+	case ctx == nil || ctx.Err() != nil:
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Проверка приложения VPN не завершилась в пределах срока."}
+	case !namedHTTPSOK:
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Независимый HTTPS через VPN не подтверждён."}
+	case !identityStable:
+		return automationHealthProbe{State: automationHealthUncertain, Reason: "Текущий VPN изменился во время HTTPS-проверки."}
+	default:
+		return automationHealthProbe{State: automationHealthHealthy, Reason: "Независимый HTTPS через действующий VLESS подтверждён."}
+	}
+}
+
 func classifyAutomationApplicationFailure(transportOK, namedFailureComplete bool) automationHealthProbe {
 	if !namedFailureComplete {
 		return automationHealthProbe{
@@ -401,7 +417,20 @@ func probeAutomationWAN(ctx context.Context) bool {
 	return false
 }
 
+// Full AUTO health includes quality and media evidence. Quality warnings may
+// trigger later optimization, but are not proof of a dead VPN.
 func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthProbe {
+	return a.probeAutomationCurrentVPNWithMode(ctx, false)
+}
+
+// A current-profile Refresh needs proof of independent application HTTPS
+// through the active VLESS outbound, not a positive media/QoE score.
+// This does not mutate the active Xray or weaken fail-closed DNS/identity checks.
+func (a *app) probeAutomationCurrentVPNApplicationOnly(ctx context.Context) automationHealthProbe {
+	return a.probeAutomationCurrentVPNWithMode(ctx, true)
+}
+
+func (a *app) probeAutomationCurrentVPNWithMode(ctx context.Context, applicationOnly bool) automationHealthProbe {
 	if runtimeGate, blocked := a.xrayRuntimeHealthGate(); blocked {
 		return runtimeGate
 	}
@@ -526,6 +555,22 @@ func (a *app) probeAutomationCurrentVPN(ctx context.Context) automationHealthPro
 	}
 	if currentIdentity == "" {
 		return automationHealthProbe{State: automationHealthUncertain, Reason: "Не удалось подтвердить профиль текущего VPN для проверки качества."}
+	}
+	if applicationOnly {
+		// Independently confirmed HTTPS to a named origin through an isolated
+		// copy of the current VLESS outbound proves application reachability.
+		// Re-read the identity after HTTPS to reject concurrent profile changes.
+		// Do not run service/media probes here: their anti-bot status, latency
+		// and streaming quality are NOT an Internet-availability verdict.
+		finalEndpoint := readBestServerCurrentEndpoint(a.cfg.OutPath)
+		finalFilter, finalErr := os.ReadFile(a.cfg.FilterPath)
+		unchanged := finalErr == nil && finalEndpoint != "" &&
+			bestServerCurrentQualityIdentityHash(finalEndpoint, string(finalFilter)) == currentIdentity
+		result := classifyRefreshApplicationAcceptance(ctx, ok, unchanged)
+		if result.State == automationHealthHealthy {
+			result.CurrentIdentity = currentIdentity
+		}
+		return result
 	}
 	services := probeBestServerServiceReachabilityDetailed(ctx, curlPath, socks)
 	if ctx.Err() != nil {

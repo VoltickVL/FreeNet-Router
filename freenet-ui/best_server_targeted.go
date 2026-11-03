@@ -99,7 +99,9 @@ func (a *app) restoreEndpointRefreshFiles(s endpointRefreshSnapshot) error {
 }
 
 var bestServerRefreshPostProbe = func(a *app, ctx context.Context) automationHealthProbe {
-	return a.probeAutomationCurrentVPN(ctx)
+	// Post-refresh acceptance needs verified named HTTPS over the active VLESS,
+	// not a QoE/media score. The regular AutoVPN watchdog remains unchanged.
+	return a.probeAutomationCurrentVPNApplicationOnly(ctx)
 }
 
 var bestServerTargetedQualityProbe = func(a *app, ctx context.Context, candidate bestServerInternalCandidate) bestServerQualityApplicationResult {
@@ -166,6 +168,8 @@ type bestServerRefreshResponse struct {
 	Message       string                      `json:"message,omitempty"`
 	PrimaryError  string                      `json:"primary_error,omitempty"`
 	RollbackState string                      `json:"rollback_state,omitempty"`
+	PostCheckState string                     `json:"post_check_state,omitempty"`
+	PostCheckCode string                      `json:"post_check_code,omitempty"`
 	Error         string                      `json:"error,omitempty"`
 }
 
@@ -603,12 +607,61 @@ func (a *app) applyBestServerRefreshCandidate(ctx context.Context, target bestSe
 	postProbe := bestServerRefreshPostProbe(a, probeCtx)
 	cancelProbe()
 	if postProbe.State != automationHealthHealthy {
-		return unknown("post-apply VPN Internet probe did not confirm the refreshed endpoint", "UNKNOWN")
+		status, result := unknown("post-apply VPN application HTTPS probe did not confirm the refreshed endpoint", "UNKNOWN")
+		result.PostCheckState = bestServerRefreshSafePostState(postProbe.State)
+		result.PostCheckCode = bestServerRefreshPostCheckCode(postProbe)
+		return status, result
+	}
+	// The production outbound must still match after the independent HTTPS
+	// check. An unexpected concurrent change must never be reported as applied.
+	if !a.liveXrayRunning() || !bestServerRefreshPostExactIdentity(a.cfg.OutPath, target) {
+		return unknown("post-apply VLESS identity changed during HTTPS acceptance", "UNKNOWN")
 	}
 
 	return http.StatusOK, bestServerRefreshResponse{
 		Success: true, Outcome: "applied", Applied: true, Mutation: "APPLIED", RollbackState: "NOT_NEEDED",
+		PostCheckState: automationHealthHealthy, PostCheckCode: "NAMED_HTTPS_VERIFIED",
 		Message: "Свежий endpoint текущего VPN проверен, применён и подтверждён доступом через VPN.",
+	}
+}
+
+// Only fixed diagnostic codes leave the authenticated API. Never expose
+// probe reasons, URLs, config fields or Reality credentials in postchecks.
+func bestServerRefreshSafePostState(state string) string {
+	switch state {
+	case automationHealthHealthy, automationHealthFailed, automationHealthUncertain, automationHealthCritical:
+		return state
+	default:
+		return "unverified"
+	}
+}
+
+func bestServerRefreshPostCheckCode(probe automationHealthProbe) string {
+	reason := probe.Reason
+	switch {
+	case strings.Contains(reason, "занят"):
+		return "PROBE_BUSY"
+	case strings.Contains(reason, "Xray недоступен"):
+		return "XRAY_PROBE_UNAVAILABLE"
+	case strings.Contains(reason, "не прошла локальную проверку"):
+		return "PROBE_CONFIG_INVALID"
+	case strings.Contains(reason, "не запустилась"):
+		return "PROBE_START_FAILED"
+	case strings.Contains(reason, "изменился во время"):
+		return "ACTIVE_IDENTITY_CHANGED"
+	case strings.Contains(reason, "прерван"), strings.Contains(reason, "истёк"), strings.Contains(reason, "не завершилась"):
+		return "PROBE_INCOMPLETE"
+	case strings.Contains(reason, "оба независимых HTTPS"), strings.Contains(reason, "обоих независимых HTTPS"):
+		return "NAMED_HTTPS_FAILED"
+	case strings.Contains(reason, "HTTPS/DNS проверки"), strings.Contains(reason, "HTTPS через VPN не подтверждён"):
+		return "NAMED_HTTPS_UNVERIFIED"
+	default:
+		switch probe.State {
+		case automationHealthFailed, automationHealthCritical:
+			return "VPN_APPLICATION_FAILED"
+		default:
+			return "VPN_APPLICATION_UNVERIFIED"
+		}
 	}
 }
 
