@@ -302,7 +302,21 @@
         'unverified':'состояние kernel-перехвата не установлено'
       })[String(body.state || '')] || 'состояние kernel-перехвата не установлено';
       node.className = 'rv2-notice show ' + (String(body.state || '').endsWith('-missing') ? 'bad' : 'warn');
-      node.textContent = 'Перехват LAN: ' + label + '. Это не проверка фактического HTTPS-выхода клиента.';
+      const lanStates = {
+        'both':'опасное широкое исключение LAN присутствует в файле и активном ipset',
+        'disk-only':'широкое исключение LAN сохранено на диске, но не обнаружено в активном ipset',
+        'runtime-only':'широкое исключение LAN активно в ipset, но отсутствует в сохранённом списке',
+        'disk-risk-runtime-unknown':'широкое LAN-исключение есть в файле, состояние активного ipset неизвестно',
+        'runtime-risk-disk-unknown':'широкое LAN-исключение активно, состояние сохранённого файла неизвестно',
+        'unverified':'проверка исключений LAN не завершена',
+        'no-overlap':'широких исключений подключённых LAN-подсетей не обнаружено'
+      };
+      const lanState = String(body.lan_exclude || 'unverified');
+      if (lanState !== 'no-overlap') node.className = 'rv2-notice show ' +
+        (['both','runtime-only','runtime-risk-disk-unknown'].includes(lanState) ? 'bad' : 'warn');
+      node.textContent = 'Перехват LAN: ' + label + '. XKeen исключения: ' +
+        (lanStates[lanState] || lanStates.unverified) +
+        '. Это не проверка фактического HTTPS-выхода клиента.';
     } catch (_) {
       node.className = 'rv2-notice show warn';
       node.textContent = 'Перехват LAN: диагностика недоступна; активные правила ядра не подтверждены.';

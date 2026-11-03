@@ -5,6 +5,8 @@ package main
 import (
  "context"
  "net/http"
+ "net/netip"
+ "os"
  "os/exec"
  "strings"
  "time"
@@ -24,6 +26,8 @@ type captureDoctorResponse struct {
  LocalRoute string `json:"local_route"`
  Hook string `json:"hook"`
  Reason string `json:"reason"`
+ LANExclude string `json:"lan_exclude"`
+ LANExcludeReason string `json:"lan_exclude_reason"`
 }
 
 // Deliberately never return raw command output, individual rules, addresses,
@@ -143,6 +147,75 @@ func captureDoctorClassify(ctx context.Context, read func(context.Context,string
  return result
 }
 
+
+ // The two sources are independently sampled: a saved file does not prove
+ // an ipset membership, and a running ipset may outlive a config edit.
+ // All returned states are bounded enums; never return IPs, CIDRs or rules.
+func captureDoctorLANRoutePrefixes(raw string) []netip.Prefix {
+ var result []netip.Prefix
+ for _, line := range strings.Split(raw, "\n") {
+  fields := strings.Fields(line)
+  if len(fields)<2 || (!strings.Contains(" "+line+" "," scope link ") && !strings.Contains(" "+line+" "," proto kernel ")) { continue }
+  prefix, err := netip.ParsePrefix(fields[0])
+  if err!=nil || !prefix.Addr().Is4() || !prefix.Addr().IsPrivate() { continue }
+  result=append(result,prefix.Masked())
+ }
+ return result
+}
+
+func captureDoctorExcludePrefixes(raw string, runtime bool) []netip.Prefix {
+ var result []netip.Prefix
+ for _, rawLine := range strings.Split(raw,"\n") {
+  line:=strings.TrimSpace(strings.SplitN(rawLine,"#",2)[0])
+  if line=="" { continue }
+  fields:=strings.Fields(line)
+  value:=line
+  if runtime {
+   if len(fields)<3 || fields[0]!="add" || fields[1]!="user_exclude" { continue }
+   value=fields[2]
+  } else if len(fields)!=1 { continue }
+  if addr,err:=netip.ParseAddr(value);err==nil { if addr.Is4() { result=append(result,netip.PrefixFrom(addr,32)) };continue }
+  prefix,err:=netip.ParsePrefix(value)
+  if err==nil && prefix.Addr().Is4() { result=append(result,prefix.Masked()) }
+ }
+ return result
+}
+
+func captureDoctorExcludesLAN(connected, excluded []netip.Prefix) bool {
+ for _, lan:=range connected {
+  for _, item:=range excluded {
+   if item.Bits()<=lan.Bits() && item.Contains(lan.Addr()) { return true }
+  }
+ }
+ return false
+}
+
+// Missing any source is UNKNOWN, never a clean bill of health.
+func captureDoctorLANExcludeState(routes string, routesOK bool, disk string, diskOK bool, active string, activeOK bool)(string,string) {
+ if !routesOK { return "unverified","connected-lan-unavailable" }
+ connected:=captureDoctorLANRoutePrefixes(routes)
+ if len(connected)==0 { return "unverified","connected-lan-unavailable" }
+ diskRisk, liveRisk:=false,false
+ if diskOK { diskRisk=captureDoctorExcludesLAN(connected,captureDoctorExcludePrefixes(disk,false)) }
+ if activeOK { liveRisk=captureDoctorExcludesLAN(connected,captureDoctorExcludePrefixes(active,true)) }
+ switch {
+ case diskOK && activeOK && diskRisk && liveRisk: return "both","broad-lan-exclusion-active-and-persistent"
+ case diskOK && activeOK && diskRisk: return "disk-only","broad-lan-exclusion-persistent-only"
+ case diskOK && activeOK && liveRisk: return "runtime-only","broad-lan-exclusion-active-only"
+ case diskRisk: return "disk-risk-runtime-unknown","runtime-exclusions-unavailable"
+ case liveRisk: return "runtime-risk-disk-unknown","persistent-exclusions-unavailable"
+ case !diskOK || !activeOK: return "unverified","exclusion-source-unavailable"
+ default: return "no-overlap","no-broad-connected-lan-exclusion-detected"
+ }
+}
+
+func captureDoctorLANExclude(ctx context.Context, read func(context.Context,string,...string)(string,bool), readFile func(string)([]byte,error))(string,string) {
+ routes,routeOK:=read(ctx,"ip","-4","route","show")
+ active,activeOK:=read(ctx,"ipset","save","user_exclude")
+ disk,err:=readFile("/opt/etc/xkeen/ip_exclude.lst")
+ return captureDoctorLANExcludeState(routes,routeOK,string(disk),err==nil,active,activeOK)
+}
+
 func registerCaptureDoctor(mux *http.ServeMux,a *app) {
  mux.HandleFunc("GET /api/routing/capture-doctor",a.requireAuth(a.handleCaptureDoctor))
 }
@@ -151,5 +224,6 @@ func (a *app) handleCaptureDoctor(w http.ResponseWriter,r *http.Request) {
  ctx,cancel:=context.WithTimeout(r.Context(),12*time.Second)
  defer cancel()
  response:=captureDoctorClassify(ctx,captureDoctorRead,xrayDiagnosticHookState("/opt/etc/ndm/netfilter.d/proxy.sh"))
+ response.LANExclude,response.LANExcludeReason=captureDoctorLANExclude(ctx,captureDoctorRead,os.ReadFile)
  writeJSON(w,http.StatusOK,response)
 }
