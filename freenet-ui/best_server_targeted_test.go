@@ -219,8 +219,9 @@ func TestCurrentEndpointRefreshDoesNotUseFullBestServerQualityGate(t *testing.T)
 		t.Fatal("current refresh implementation not found")
 	}
 	body := src[start:end]
-	if !strings.Contains(body, "ensureProviderSubscriptionCache") {
-		t.Fatal("current refresh must refresh the credential-bearing provider cache before candidate selection")
+	if !strings.Contains(body, "discoverBestServerCandidatesWithSource") ||
+		!strings.Contains(body, "bestServerRefreshCatalogAdmitted(catalog)") {
+		t.Fatal("current refresh must obtain a verified fresh catalog and reject protected cache before selection")
 	}
 	if !strings.Contains(body, "bestServerFreshRevisionForCurrent") {
 		t.Fatal("current refresh must detect same-endpoint credential revisions")
