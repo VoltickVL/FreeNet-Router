@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -91,6 +92,106 @@ func TestEmergencyManualCountryTierRanksWithinTier(t *testing.T) {
 	}
 	if len(input) != 4 || input[0].Profile.ID != "fr-fast" {
 		t.Fatal("tiering mutated candidate input")
+	}
+}
+
+// End-to-end read-only candidate scan: a faster foreign node cannot displace
+// an application-ready country peer, but it may recover the VPN if peers fail.
+func TestEmergencyManualCountryScanFallsBackAfterHTTPSFailure(t *testing.T) {
+	resetEmergencyRTTCache(t)
+	dir := t.TempDir()
+	t.Setenv("FREENET_SETTINGS_V3_STATE", filepath.Join(dir, "settings.state"))
+	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "auto.state"))
+	if err := os.WriteFile(automationStatePath(), []byte("LAST_SWITCH_ORIGIN=manual\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	filter := filepath.Join(dir, "provider.filter")
+	if err := os.WriteFile(filter, []byte("DE Berlin, Germany, Extra\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{cfg: config{OutPath: filepath.Join(dir, "outbounds.json"), FilterPath: filter}}
+	candidates := []bestServerInternalCandidate{
+		emergencyTestCandidate("de1", "de"),
+		emergencyTestCandidate("fr1", "fr"),
+		emergencyTestCandidate("de2", "de"),
+	}
+	oldDiscover, oldRTT, oldHTTPS := automationEmergencyDiscoverCandidates, automationEmergencyRTTProbe, automationEmergencyCandidateProbe
+	t.Cleanup(func() {
+		automationEmergencyDiscoverCandidates, automationEmergencyRTTProbe, automationEmergencyCandidateProbe = oldDiscover, oldRTT, oldHTTPS
+	})
+	automationEmergencyDiscoverCandidates = func(*app, context.Context) ([]bestServerInternalCandidate, bool, error) {
+		return candidates, false, nil
+	}
+	automationEmergencyRTTProbe = func(_ *app, _ context.Context, c bestServerInternalCandidate) bestServerProbeResult {
+		rtt := 120
+		if c.Profile.CountryCode == "fr" {
+			rtt = 20
+		}
+		return bestServerProbeResult{OK: true, Samples: []int{rtt}, Median: rtt}
+	}
+	allowDE := true
+	automationEmergencyCandidateProbe = func(_ *app, _ context.Context, c bestServerInternalCandidate) bestServerProbeResult {
+		if c.Profile.CountryCode == "de" && !allowDE {
+			return bestServerProbeResult{}
+		}
+		return bestServerProbeResult{OK: true, Samples: []int{100}, Median: 100}
+	}
+	settings := automationSettings{Mode: automationModeBest, CountryScope: automationCountryRegion}
+	first, err := a.scanAutomationEmergencyReplacement(context.Background(), settings, "de")
+	if err != nil || first.Candidate.Profile.CountryCode != "de" {
+		t.Fatalf("manual country must win before faster foreign HTTPS: %+v, %v", first, err)
+	}
+	allowDE = false
+	second, err := a.scanAutomationEmergencyReplacement(context.Background(), settings, "de")
+	if err != nil || second.Candidate.Profile.ID != "fr1" {
+		t.Fatalf("foreign HTTPS fallback must recover after country peer failure: %+v, %v", second, err)
+	}
+}
+
+func TestEmergencyManualCountryFailureRotatesBoundedCohort(t *testing.T) {
+	resetEmergencyRTTCache(t)
+	dir := t.TempDir()
+	t.Setenv("FREENET_SETTINGS_V3_STATE", filepath.Join(dir, "settings.state"))
+	t.Setenv("FREENET_AUTOMATION_STATE", filepath.Join(dir, "auto.state"))
+	if err := os.WriteFile(automationStatePath(), []byte("LAST_SWITCH_ORIGIN=manual\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	filter := filepath.Join(dir, "filter")
+	if err := os.WriteFile(filter, []byte("DE Berlin, Germany, Extra\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	candidates := make([]bestServerInternalCandidate, 0, 16)
+	for i := 0; i < 12; i++ {
+		candidates = append(candidates, emergencyTestCandidate("de"+string(rune('a'+i)), "de"))
+	}
+	for _, country := range []string{"fr", "nl", "ch", "gb"} {
+		candidates = append(candidates, emergencyTestCandidate(country+"1", country))
+	}
+	oldDiscover, oldRTT, oldHTTPS := automationEmergencyDiscoverCandidates, automationEmergencyRTTProbe, automationEmergencyCandidateProbe
+	t.Cleanup(func() {
+		automationEmergencyDiscoverCandidates, automationEmergencyRTTProbe, automationEmergencyCandidateProbe = oldDiscover, oldRTT, oldHTTPS
+	})
+	automationEmergencyDiscoverCandidates = func(*app, context.Context) ([]bestServerInternalCandidate, bool, error) {
+		return candidates, false, nil
+	}
+	automationEmergencyRTTProbe = func(_ *app, _ context.Context, c bestServerInternalCandidate) bestServerProbeResult {
+		return bestServerProbeResult{OK: true, Samples: []int{100}, Median: 100}
+	}
+	seen := map[string]bool{}
+	automationEmergencyCandidateProbe = func(_ *app, _ context.Context, c bestServerInternalCandidate) bestServerProbeResult {
+		seen[c.Profile.ID] = true
+		return bestServerProbeResult{}
+	}
+	a := &app{cfg: config{OutPath: filepath.Join(dir, "outbounds.json"), FilterPath: filter}}
+	settings := automationSettings{Mode: automationModeBest, CountryScope: automationCountryRegion}
+	for round := 0; round < 2; round++ {
+		scan, err := a.scanAutomationEmergencyReplacement(context.Background(), settings, "de")
+		if err != nil || scan.Candidate.Profile.ID != "" || scan.Checked > automationEmergencyCandidateLimit {
+			t.Fatalf("no HTTPS accepted in round %d: %+v / %v", round, scan, err)
+		}
+	}
+	if len(seen) <= automationEmergencyCandidateLimit {
+		t.Fatalf("manual country recovery repeated same bounded cohort: distinct=%d", len(seen))
 	}
 }
 
