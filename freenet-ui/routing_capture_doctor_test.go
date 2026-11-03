@@ -12,9 +12,9 @@ import (
 func TestCaptureDoctorNoKernelTPROXYFailClosed(t *testing.T) {
  read:=func(_ context.Context,command string,args ...string)(string,bool){
   switch command{
-  case "iptables-save":return "*mangle\\n:PREROUTING ACCEPT [0:0]\\nCOMMIT\\n",true
+  case "iptables-save":return "*mangle\n:PREROUTING ACCEPT [0:0]\nCOMMIT\n",true
   case "ip":
-   if len(args)>1&&args[1]=="rule"{return "0: from all lookup local\\n",true}
+   if len(args)>1&&args[1]=="rule"{return "0: from all lookup local\n",true}
    return "local 127.0.0.0/8 dev lo table local",true
   }
   return "",false
