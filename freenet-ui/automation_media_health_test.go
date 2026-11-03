@@ -272,7 +272,7 @@ func TestAutoMediaIntermittentEvidenceExpiresAndDoesNotCrossProfile(t *testing.T
 	if step(now.Add(48*time.Minute), autoMediaHealth(other, false, false)) {
 		t.Fatal("unknown media from candidate authorized scan")
 	}
-	if step(now.Add(48*time.Minute), autoMediaHealth(other, true, true)) {
+	if step(now.Add(47*time.Minute), autoMediaHealth(other, true, true)) {
 		t.Fatal("replayed slow sample authorized scan")
 	}
 }
