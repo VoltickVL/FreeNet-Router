@@ -20,6 +20,7 @@ func matchingSplitPlanOutput() string {
 		"XRAY_DNS_INBOUND_COUNT=1",
 		"XRAY_RUNNING=yes",
 		"XRAY_GID=11111",
+		"XRAY_IDENTITY=owned",
 		"DNS_ROUTING_MODE=split",
 		"DNS_OUT=yes",
 		"VLESS_PROFILE=yes",
@@ -57,6 +58,7 @@ func TestParseNetworkPlanSplitActiveFailsClosedOnRuntimeMismatch(t *testing.T) {
 		{name: "missing dns inbound", old: "XRAY_DNS_INBOUND_COUNT=1", new: "XRAY_DNS_INBOUND_COUNT=0", want: "xray-dns-inbound=0"},
 		{name: "xray offline", old: "XRAY_RUNNING=yes", new: "XRAY_RUNNING=no", want: "xray-running=no"},
 		{name: "wrong gid", old: "XRAY_GID=11111", new: "XRAY_GID=1000", want: "xray-gid=1000"},
+		{name: "unverified identity", old: "XRAY_IDENTITY=owned", new: "XRAY_IDENTITY=unverified", want: "xray-identity=unverified"},
 		{name: "wrong routing", old: "DNS_ROUTING_MODE=split", new: "DNS_ROUTING_MODE=standard", want: "dns-routing=standard"},
 		{name: "dns out missing", old: "DNS_OUT=yes", new: "DNS_OUT=no", want: "dns-out отсутствует"},
 		{name: "vless missing", old: "VLESS_PROFILE=yes", new: "VLESS_PROFILE=no", want: "vless-reality отсутствует"},
@@ -74,6 +76,28 @@ func TestParseNetworkPlanSplitActiveFailsClosedOnRuntimeMismatch(t *testing.T) {
 			if !strings.Contains(plan.Reason, tt.want) {
 				t.Fatalf("runtime mismatch must be visible in reason; want %q, got %q", tt.want, plan.Reason)
 			}
+		})
+	}
+}
+
+func TestParseNetworkPlanAllowsOnlyVerifiedOfficialXKeenRoot(t *testing.T) {
+	base := matchingSplitPlanOutput()
+	root := strings.Replace(base, "XRAY_GID=11111", "XRAY_GID=0", 1)
+	plan, err := parseNetworkPlan(root)
+	if err != nil { t.Fatal(err) }
+	if !plan.Active || plan.XrayIdentity != "owned" {
+		t.Fatalf("verified official XKeen root must be admitted: %+v", plan)
+	}
+	for _, change := range []struct{ name, old, replacement string }{
+		{"missing identity", "XRAY_IDENTITY=owned", ""},
+		{"unknown identity", "XRAY_IDENTITY=owned", "XRAY_IDENTITY=unverified"},
+		{"unexpected gid", "XRAY_GID=0", "XRAY_GID=1000"},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			out := strings.Replace(root, change.old, change.replacement, 1)
+			p, err := parseNetworkPlan(out)
+			if err != nil { t.Fatal(err) }
+			if p.Active { t.Fatalf("unverified identity must fail closed: %+v", p) }
 		})
 	}
 }
