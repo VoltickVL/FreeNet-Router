@@ -316,7 +316,7 @@
         (['both','runtime-only','runtime-risk-disk-unknown'].includes(lanState) ? 'bad' : 'warn');
       node.textContent = 'Перехват LAN: ' + label + '. XKeen исключения: ' +
         (lanStates[lanState] || lanStates.unverified) +
-        '. Даже отсутствие широких исключений не подтверждает фактический HTTPS-выход клиента.';
+        '. Это не проверка фактического HTTPS-выхода клиента.';
     } catch (_) {
       node.className = 'rv2-notice show warn';
       node.textContent = 'Перехват LAN: диагностика недоступна; активные правила ядра не подтверждены.';
