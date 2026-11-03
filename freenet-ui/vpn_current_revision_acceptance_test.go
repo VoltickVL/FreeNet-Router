@@ -112,3 +112,31 @@ func TestCurrentRefreshPostAcceptsOnlyExactVLESSRevision(t *testing.T) {
 		t.Fatal("invalid expected candidate must not be accepted")
 	}
 }
+
+func TestVLESSWebSocketRevisionIdentity(t *testing.T) {
+	makeCandidate := func(sni, host, path string) bestServerInternalCandidate {
+		return bestServerInternalCandidate{
+			Profile: subscriptionProfile{Address: "203.0.113.8", Port: 443, Name: "Extra WS test"},
+			Raw: "vless://00000000-0000-4000-8000-000000000002@203.0.113.8:443" +
+				"?security=tls&type=ws&fp=chrome&sni=" + sni +
+				"&host=" + host + "&path=" + path + "#Extra",
+		}
+	}
+	old := makeCandidate("old.example", "old-host.example", "%2Fold")
+	revised := makeCandidate("new.example", "new-host.example", "%2Fnew")
+	left, err := buildBestServerProbeOutbound(old.Raw, old.Profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := buildBestServerProbeOutbound(revised.Raw, revised.Profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"tls.serverName", "ws.path", "ws.host"}
+	if got := vlessOutboundChangedFields(left, right); !reflect.DeepEqual(got, want) {
+		t.Fatalf("changed fields=%v want=%v", got, want)
+	}
+	if vlessOutboundParity(left, right) {
+		t.Fatal("TLS/WebSocket SNI, Host and Path revision cannot be silently accepted")
+	}
+}
