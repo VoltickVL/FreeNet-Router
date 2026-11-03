@@ -189,11 +189,104 @@ func TestAutoMediaHysteresisAndIdentity(t *testing.T) {
 		t.Fatal("stalled evidence was not preserved without premature scan")
 	}
 	step(now.Add(50*time.Second),autoMediaHealth(identity,false,true))
-	if state["QUALITY_MEDIA_COUNT"]!="0"{t.Fatal("healthy media did not clear stale evidence")}
-	step(now.Add(60*time.Second),bad)
+	if state["QUALITY_MEDIA_COUNT"]!="2" || state["QUALITY_MEDIA_HAD_GOOD"]!="yes" {
+		t.Fatal("one good synthetic transfer discarded intermittent slow evidence")
+	}
+	tr,due=step(now.Add(60*time.Second),bad)
+	if due || tr.MediaDegraded || state["QUALITY_MEDIA_COUNT"]!="3"{
+		t.Fatal("intermittent media authorized a comparison before its minimum span")
+	}
 	step(now.Add(70*time.Second),autoMediaHealth(other,true,true))
 	if state["QUALITY_MEDIA_COUNT"]!="1" || state["QUALITY_MEDIA_IDENTITY"]!=other{
 		t.Fatal("two different VPN endpoints shared a stall streak")
+	}
+}
+
+
+func TestAutoMediaIntermittentStallsRequireThreeCompletedObservations(t *testing.T) {
+	id := bestServerCurrentQualityIdentityHash("france.example.invalid:443", "paris-extra")
+	now := time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)
+	state := map[string]string{}
+	step := func(after time.Duration, probe automationHealthProbe) (automationQualityTrigger, bool) {
+		updates, trigger, due := automationReachableQualityOptimizationPlan(state, now.Add(after), probe)
+		for k, v := range updates {
+			state[k] = v
+		}
+		return trigger, due
+	}
+	bad := autoMediaHealth(id, true, true)
+	good := autoMediaHealth(id, false, true)
+	unknown := autoMediaHealth(id, false, false)
+	if _, due := step(0, bad); due {
+		t.Fatal("single slow segment observation launched comparison")
+	}
+	step(2*time.Minute, good)
+	if state["QUALITY_MEDIA_HAD_GOOD"] != "yes" {
+		t.Fatal("verified good sample must mark intermittent rather than erase slow evidence")
+	}
+	if _, due := step(8*time.Minute, bad); due || state["QUALITY_MEDIA_COUNT"] != "2" {
+		t.Fatal("two separated slow samples launched comparison without third confirmation")
+	}
+	if _, due := step(9*time.Minute, unknown); due || state["QUALITY_MEDIA_COUNT"] != "2" {
+		t.Fatal("unknown media sample changed intermittent evidence")
+	}
+	step(10*time.Minute, good)
+	trigger, due := step(16*time.Minute, bad)
+	if !due || !trigger.MediaDegraded || trigger.LatencyDegraded || trigger.ServiceBadMask != 0 ||
+		trigger.CurrentIdentity != id || state["QUALITY_MEDIA_COUNT"] != "0" ||
+		state["QUALITY_MEDIA_HAD_GOOD"] != "" {
+		t.Fatalf("persistent intermittent media should permit measured comparison, not apply: trigger=%+v due=%t state=%v", trigger, due, state)
+	}
+	if _, due := step(17*time.Minute, bad); due {
+		t.Fatal("single post-trigger degradation bypassed cooldown")
+	}
+	if state["QUALITY_OPTIMIZATION_LAST"] != now.Add(16*time.Minute).Format(time.RFC3339) {
+		t.Fatal("shared quality optimization cooldown was not reserved")
+	}
+}
+
+func TestAutoMediaIntermittentEvidenceExpiresAndDoesNotCrossProfile(t *testing.T) {
+	id := bestServerCurrentQualityIdentityHash("france.example.invalid:443", "paris-extra")
+	other := bestServerCurrentQualityIdentityHash("uk.example.invalid:443", "london-extra")
+	now := time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)
+	state := map[string]string{}
+	step := func(at time.Time, probe automationHealthProbe) bool {
+		updates, _, due := automationReachableQualityOptimizationPlan(state, at, probe)
+		for k, v := range updates {
+			state[k] = v
+		}
+		return due
+	}
+	if step(now, autoMediaHealth(id, true, true)) {
+		t.Fatal("single slow sample must not scan")
+	}
+	step(now.Add(time.Minute), autoMediaHealth(id, false, true))
+	if step(now.Add(46*time.Minute), autoMediaHealth(id, true, true)) ||
+		state["QUALITY_MEDIA_COUNT"] != "1" || state["QUALITY_MEDIA_HAD_GOOD"] != "" {
+		t.Fatal("expired intermittent evidence authorized scan or retained good marker")
+	}
+	step(now.Add(47*time.Minute), autoMediaHealth(other, true, true))
+	if state["QUALITY_MEDIA_IDENTITY"] != other || state["QUALITY_MEDIA_COUNT"] != "1" {
+		t.Fatal("two different exact profiles shared media evidence")
+	}
+	if step(now.Add(48*time.Minute), autoMediaHealth(other, false, false)) {
+		t.Fatal("unknown media from candidate authorized scan")
+	}
+	if step(now.Add(47*time.Minute), autoMediaHealth(other, true, true)) {
+		t.Fatal("replayed slow sample authorized scan")
+	}
+}
+
+func TestAutoMediaHealthyReasonNeverClaimsInstagramPlayback(t *testing.T) {
+	id := bestServerCurrentQualityIdentityHash("france.example.invalid:443", "paris-extra")
+	good := autoMediaHealth(id, false, true)
+	if !good.MediaComplete || good.MediaDegraded || good.State != automationHealthHealthy ||
+		!strings.Contains(good.Reason, "Instagram не проверялось") {
+		t.Fatalf("synthetic media quality was misrepresented as application playback: %+v", good)
+	}
+	noMedia := autoMediaHealth(id, false, false)
+	if noMedia.MediaComplete || !strings.Contains(noMedia.Reason, "не подтверждено") {
+		t.Fatalf("missing media evidence misrepresented as playback success: %+v", noMedia)
 	}
 }
 
@@ -204,7 +297,7 @@ func TestAutoMediaRejectsReplayCorruptCooldownAndIncompleteServices(t *testing.T
 	for _,tc:=range []struct{name string;mutate func(map[string]string)}{
 		{"invalid count",func(s map[string]string){s["QUALITY_MEDIA_COUNT"]="999"}},
 		{"invalid last",func(s map[string]string){s["QUALITY_MEDIA_LAST"]="broken"}},
-		{"expired",func(s map[string]string){s["QUALITY_MEDIA_SINCE"]=now.Add(-21*time.Minute).Format(time.RFC3339Nano)}},
+		{"expired",func(s map[string]string){s["QUALITY_MEDIA_SINCE"]=now.Add(-46*time.Minute).Format(time.RFC3339Nano)}},
 		{"future last",func(s map[string]string){s["QUALITY_MEDIA_LAST"]=now.Add(time.Minute).Format(time.RFC3339Nano)}},
 		{"corrupt cooldown",func(s map[string]string){s["QUALITY_OPTIMIZATION_LAST"]="bad-time"}},
 	}{

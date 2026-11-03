@@ -597,8 +597,12 @@ func (a *app) probeAutomationCurrentVPNWithMode(ctx context.Context, application
 	// Complete sequential transfers run at most once per media-budget interval.
 	// Final provider admission and explicit diagnostics never carry this limit.
 	if !automationMediaProbeAllowed(ctx) {
-		if !services.Complete && probe.State == automationHealthHealthy {
-			probe.Reason = "VPN отвечает; не все сервисные HTTP-ответы однозначны. Фоновый тест медиапередачи выполняется по отдельному расписанию."
+		if probe.State == automationHealthHealthy {
+			if services.Complete {
+				probe.Reason = "VPN HTTPS и контрольные сервисы доступны; медиапередача в этой проверке не измерялась. Это не подтверждение качества видео Instagram."
+			} else {
+				probe.Reason = "VPN HTTPS доступен; часть сервисных HTTP-ответов неоднозначна, медиапередача в этой проверке не измерялась. Это не подтверждение качества видео Instagram."
+			}
 		}
 		return probe
 	}

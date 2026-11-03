@@ -361,6 +361,9 @@ func classifyAutomationMediaQuality(base automationHealthProbe, media automation
 	}
 	base.MediaDegraded = media.Degraded
 	if !media.Degraded {
+		if base.State == automationHealthHealthy {
+			base.Reason = "VPN HTTPS и контрольные медиасегменты доступны; реальное воспроизведение Instagram не проверялось."
+		}
 		return base
 	}
 	// This is a surrogate media transfer over the exact VPN, not an
@@ -373,11 +376,15 @@ func classifyAutomationMediaQuality(base automationHealthProbe, media automation
 
 
 const (
-	// Two independent watchdog observations, each with two full data segments.
-	// This reacts to continuous buffering without launching a heavy scan for
-	// one slow transfer. At a 30s-1m health cadence, decision is under 2m.
+	// Continuous completed two-source slow probes keep the original fast path.
 	automationMediaMinObservations = 2
 	automationMediaMinimumSpan = 30 * time.Second
+	// Intermittent stalls like slow/good/slow must not be forgotten by one
+	// successful synthetic transfer. The longer window requires EXTRA complete
+	// slow observations before starting a bounded comparison, never an apply.
+	automationMediaIntermittentWindow = 45 * time.Minute
+	automationMediaIntermittentMinObservations = 3
+	automationMediaIntermittentMinSpan = 10 * time.Minute
 )
 
 func clearAutomationMediaEvidence(updates map[string]string) {
@@ -385,46 +392,66 @@ func clearAutomationMediaEvidence(updates map[string]string) {
 	updates["QUALITY_MEDIA_COUNT"] = "0"
 	updates["QUALITY_MEDIA_SINCE"] = ""
 	updates["QUALITY_MEDIA_LAST"] = ""
+	updates["QUALITY_MEDIA_HAD_GOOD"] = ""
 }
 
-// The media trigger is a persisted, identity-bound, two-observation signal.
-// One short transfer, a 403, a failed curl, or an unrelated service mismatch
-// must not select a new VPN. Unknown samples preserve evidence but cannot
-// contribute to its count. A verified good sample clears the old sequence.
+// A full, two-origin media slowdown is a risk signal, not proof that Instagram
+// buffered. Two uninterrupted slow observations retain the existing trigger;
+// interleaved healthy synthetic samples require three slow observations spread
+// over at least ten minutes. UNKNOWN never adds evidence and a new exact
+// profile identity cannot inherit it. A due result only starts a measured
+// comparison; the independent candidate and transactional apply gates remain.
 func automationMediaQualityOptimizationPlan(state map[string]string, now time.Time, probe automationHealthProbe) (map[string]string, bool) {
 	updates := map[string]string{}
-	if probe.MediaComplete && !probe.MediaDegraded {
-		clearAutomationMediaEvidence(updates)
-		return updates, false
-	}
-	if !probe.MediaComplete || !probe.MediaDegraded ||
-		probe.State != automationHealthUncertain || !probe.QualityDegraded ||
-		!validAutomationQualityIdentity(probe.CurrentIdentity) || now.IsZero() {
+	if now.IsZero() {
 		return updates, false
 	}
 	now = now.UTC()
+	identity := strings.TrimSpace(probe.CurrentIdentity)
+	if !validAutomationQualityIdentity(identity) {
+		return updates, false
+	}
 	count, countErr := strconv.Atoi(strings.TrimSpace(state["QUALITY_MEDIA_COUNT"]))
 	since, sinceErr := time.Parse(time.RFC3339Nano, state["QUALITY_MEDIA_SINCE"])
 	last, lastErr := time.Parse(time.RFC3339Nano, state["QUALITY_MEDIA_LAST"])
-	valid := state["QUALITY_MEDIA_IDENTITY"] == probe.CurrentIdentity &&
-		countErr == nil && count > 0 && count <= automationMediaMinObservations &&
+	hadGood := strings.TrimSpace(state["QUALITY_MEDIA_HAD_GOOD"])
+	valid := state["QUALITY_MEDIA_IDENTITY"] == identity &&
+		countErr == nil && count > 0 && count <= automationMediaIntermittentMinObservations &&
 		sinceErr == nil && lastErr == nil && !last.Before(since) &&
-		!now.Before(since) && now.Sub(since) <= automationQualityStrikeWindow
+		!now.Before(since) && now.Sub(since) <= automationMediaIntermittentWindow &&
+		(hadGood == "" || hadGood == "yes")
+	if probe.MediaComplete && !probe.MediaDegraded {
+		// A fast synthetic transfer is not Instagram playback acceptance.
+		// It turns the next automatic comparison into a THREE-strike decision
+		// rather than erasing verified intermittent slow observations.
+		if state["QUALITY_MEDIA_IDENTITY"] != identity || !valid {
+			clearAutomationMediaEvidence(updates)
+		} else if now.After(last) {
+			updates["QUALITY_MEDIA_HAD_GOOD"] = "yes"
+		}
+		return updates, false
+	}
+	if !probe.MediaComplete || !probe.MediaDegraded ||
+		probe.State != automationHealthUncertain || !probe.QualityDegraded {
+		return updates, false
+	}
 	if valid && !now.After(last) {
-		return updates, false // replay, stale probe, and future timestamps
+		return updates, false // replay, stale sample, or future timestamp
 	}
 	if !valid {
 		count = 0
 		since = now
+		hadGood = ""
 	}
 	count++
-	if count > automationMediaMinObservations {
-		count = automationMediaMinObservations
+	if count > automationMediaIntermittentMinObservations {
+		count = automationMediaIntermittentMinObservations
 	}
-	updates["QUALITY_MEDIA_IDENTITY"] = probe.CurrentIdentity
+	updates["QUALITY_MEDIA_IDENTITY"] = identity
 	updates["QUALITY_MEDIA_COUNT"] = strconv.Itoa(count)
 	updates["QUALITY_MEDIA_SINCE"] = since.Format(time.RFC3339Nano)
 	updates["QUALITY_MEDIA_LAST"] = now.Format(time.RFC3339Nano)
+	updates["QUALITY_MEDIA_HAD_GOOD"] = hadGood
 
 	if raw := strings.TrimSpace(state["QUALITY_OPTIMIZATION_LAST"]); raw != "" {
 		previous, err := time.Parse(time.RFC3339, raw)
@@ -432,7 +459,11 @@ func automationMediaQualityOptimizationPlan(state map[string]string, now time.Ti
 			return updates, false
 		}
 	}
-	if count < automationMediaMinObservations || now.Sub(since) < automationMediaMinimumSpan {
+	required, minSpan := automationMediaMinObservations, automationMediaMinimumSpan
+	if hadGood == "yes" {
+		required, minSpan = automationMediaIntermittentMinObservations, automationMediaIntermittentMinSpan
+	}
+	if count < required || now.Sub(since) < minSpan {
 		return updates, false
 	}
 	clearAutomationMediaEvidence(updates)
