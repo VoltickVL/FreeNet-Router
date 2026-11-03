@@ -54,6 +54,7 @@ type networkPlanResponse struct {
 	XrayDNSInboundCount               string                     `json:"xray_dns_inbound_count,omitempty"`
 	XrayRunning                       bool                       `json:"xray_running"`
 	XrayGID                           string                     `json:"xray_gid,omitempty"`
+	XrayIdentity                      string                     `json:"xray_identity,omitempty"`
 	DNSRoutingMode                    string                     `json:"dns_routing_mode,omitempty"`
 	DNSOut                            bool                       `json:"dns_out_present"`
 	VLESSProfile                      bool                       `json:"vless_profile_present"`
@@ -1091,6 +1092,14 @@ func (a *app) runProviderPlan(profileID string) (providerPlanResponse, error) {
 	return plan, nil
 }
 
+// A GID alone does not prove Xray ownership. The network helper verifies the
+// exact installed executable, production confdir, non-probe status, and exactly
+// one running process before reporting owned. Official XKeen 2.1 uses GID 0;
+// FreeNet-managed cores can use GID 11111. Unknown identities fail closed.
+func networkPlanOwnedXrayIdentity(p networkPlanResponse) bool {
+	return p.XrayIdentity == "owned" && (p.XrayGID == "0" || p.XrayGID == "11111")
+}
+
 func networkPlanActiveMismatch(p networkPlanResponse) string {
 	if !p.Supported {
 		return "unsupported"
@@ -1113,7 +1122,7 @@ func networkPlanActiveMismatch(p networkPlanResponse) string {
 		need(p.DNSRoutingMode == "native", "dns-routing="+p.DNSRoutingMode+" (ожидается native)")
 		need(!p.DNSOut, "dns-out присутствует (ожидается отсутствует)")
 		if p.XrayRunning {
-			need(p.XrayGID == "11111", "xray-gid="+p.XrayGID+" (ожидается 11111)")
+			need(networkPlanOwnedXrayIdentity(p), "xray-identity="+p.XrayIdentity+"; xray-gid="+p.XrayGID+" (ожидается подтверждённый 0/11111)")
 		}
 	case "xkeen":
 		need(p.NDMDNSOverride == "on", "dns-override="+p.NDMDNSOverride+" (ожидается on)")
@@ -1123,7 +1132,7 @@ func networkPlanActiveMismatch(p networkPlanResponse) string {
 		need(p.Port53Owner == "xray", "owner:53="+p.Port53Owner+" (ожидается xray)")
 		need(p.XrayDNSInboundCount == "1", "xray-dns-inbound="+p.XrayDNSInboundCount+" (ожидается 1)")
 		need(p.XrayRunning, "xray-running=no (ожидается yes)")
-		need(p.XrayGID == "11111", "xray-gid="+p.XrayGID+" (ожидается 11111)")
+		need(networkPlanOwnedXrayIdentity(p), "xray-identity="+p.XrayIdentity+"; xray-gid="+p.XrayGID+" (ожидается подтверждённый 0/11111)")
 		need(p.DNSRoutingMode == "split", "dns-routing="+p.DNSRoutingMode+" (ожидается split)")
 		need(p.DNSOut, "dns-out отсутствует")
 		need(p.VLESSProfile, "vless-reality отсутствует")
@@ -1146,7 +1155,7 @@ func parseNetworkPlan(output string) (networkPlanResponse, error) {
 			continue
 		}
 		switch key {
-		case "DNS_MODE", "EFFECTIVE_DNS_MODE", "SUPPORTED", "REASON", "PROXY_DNS", "NDM_DNS_OVERRIDE", "NDM_FILTER_ENGINE", "NDM_DNS_INTERCEPT", "NDM_DNS_ASSIGNMENTS", "PORT53_OWNER", "XRAY_DNS_INBOUND_COUNT", "XRAY_RUNNING", "XRAY_GID", "DNS_ROUTING_MODE", "DNS_OUT", "VLESS_PROFILE", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
+		case "DNS_MODE", "EFFECTIVE_DNS_MODE", "SUPPORTED", "REASON", "PROXY_DNS", "NDM_DNS_OVERRIDE", "NDM_FILTER_ENGINE", "NDM_DNS_INTERCEPT", "NDM_DNS_ASSIGNMENTS", "PORT53_OWNER", "XRAY_DNS_INBOUND_COUNT", "XRAY_RUNNING", "XRAY_GID", "XRAY_IDENTITY", "DNS_ROUTING_MODE", "DNS_OUT", "VLESS_PROFILE", "EXPECTED_DELTA", "EXPECTED_NO_DELTA", "MUTATION":
 			values[key] = strings.TrimSpace(value)
 		}
 	}
@@ -1162,7 +1171,7 @@ func parseNetworkPlan(output string) (networkPlanResponse, error) {
 		NDMDNSOverride: values["NDM_DNS_OVERRIDE"], NDMFilterEngine: values["NDM_FILTER_ENGINE"],
 		NDMDNSIntercept: values["NDM_DNS_INTERCEPT"], NDMDNSAssignments: values["NDM_DNS_ASSIGNMENTS"],
 		Port53Owner: values["PORT53_OWNER"], XrayDNSInboundCount: values["XRAY_DNS_INBOUND_COUNT"],
-		XrayRunning: values["XRAY_RUNNING"] == "yes", XrayGID: values["XRAY_GID"],
+		XrayRunning: values["XRAY_RUNNING"] == "yes", XrayGID: values["XRAY_GID"], XrayIdentity: values["XRAY_IDENTITY"],
 		DNSRoutingMode: values["DNS_ROUTING_MODE"], DNSOut: values["DNS_OUT"] == "yes",
 		VLESSProfile: values["VLESS_PROFILE"] == "yes", ExpectedDelta: values["EXPECTED_DELTA"],
 		ExpectedNoDelta: values["EXPECTED_NO_DELTA"], Mutation: values["MUTATION"],
