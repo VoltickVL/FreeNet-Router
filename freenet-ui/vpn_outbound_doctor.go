@@ -15,6 +15,9 @@ type vpnOutboundDoctorResponse struct {
 	Mutation              string   `json:"mutation"`
 	CurrentLabel          string   `json:"current_label,omitempty"`
 	FreshProfiles         int      `json:"fresh_profiles"`
+	CatalogFresh          bool     `json:"catalog_fresh"`
+	CatalogSource         string   `json:"catalog_source,omitempty"`
+	ChangedFields         []string `json:"changed_fields,omitempty"`
 	FreshCurrentFound     bool     `json:"fresh_current_found"`
 	Transport             string   `json:"transport,omitempty"`
 	Security              string   `json:"security,omitempty"`
@@ -146,6 +149,40 @@ func fingerprintVLESSOutbound(outbound map[string]any) (vpnOutboundFingerprint, 
 	return fp, fp.Address != "" && fp.Port > 0 && fp.ID != ""
 }
 
+// vlessOutboundChangedFields returns only a fixed allowlist of field names.
+// Never serialize or log fingerprint values, endpoints, UUID or Reality keys.
+func vlessOutboundChangedFields(active, fresh map[string]any) []string {
+	a, okA := fingerprintVLESSOutbound(active)
+	f, okF := fingerprintVLESSOutbound(fresh)
+	if !okA || !okF {
+		return []string{"vless.outbound_structure"}
+	}
+	checks := []struct {
+		name string
+		different bool
+	}{
+		{"endpoint.address", a.Address != f.Address},
+		{"endpoint.port", a.Port != f.Port},
+		{"vless.id", a.ID != f.ID},
+		{"vless.flow", a.Flow != f.Flow},
+		{"vless.encryption", a.Encryption != f.Encryption},
+		{"transport.network", a.Network != f.Network},
+		{"transport.security", a.Security != f.Security},
+		{"reality.fingerprint", a.Fingerprint != f.Fingerprint},
+		{"reality.serverName", a.ServerName != f.ServerName},
+		{"reality.publicKey", a.PublicKey != f.PublicKey},
+		{"reality.shortId", a.ShortID != f.ShortID},
+		{"reality.spiderX", a.SpiderX != f.SpiderX},
+	}
+	out := make([]string, 0, len(checks))
+	for _, check := range checks {
+		if check.different {
+			out = append(out, check.name)
+		}
+	}
+	return out
+}
+
 func vlessOutboundParity(active, fresh map[string]any) bool {
 	a, okA := fingerprintVLESSOutbound(active)
 	f, okF := fingerprintVLESSOutbound(fresh)
@@ -166,7 +203,7 @@ func (a *app) handleVPNOutboundDoctor(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.CurrentLabel = currentExactProfileLabel(a.cfg.FilterPath)
 
-	candidates, _, _, err := a.discoverBestServerCandidates(ctx)
+	candidates, _, _, source, err := a.discoverBestServerCandidatesWithSource(ctx)
 	if err != nil {
 		resp.Diagnosis = "fresh_subscription_unavailable"
 		resp.Error = "Свежую подписку не удалось получить для read-only диагностики."
@@ -174,6 +211,8 @@ func (a *app) handleVPNOutboundDoctor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	resp.FreshProfiles = len(candidates)
+	resp.CatalogFresh = source.Fresh
+	resp.CatalogSource = source.Source
 	index := bestServerCurrentCandidateIndex(candidates, endpoint, readBestServerCurrentFilter(a.cfg.FilterPath))
 	if index < 0 {
 		resp.Diagnosis = "active_profile_not_in_fresh_subscription"
@@ -190,6 +229,7 @@ func (a *app) handleVPNOutboundDoctor(w http.ResponseWriter, r *http.Request) {
 	resp.BuilderValid = buildErr == nil
 	if buildErr == nil {
 		resp.ActiveMatchesFresh = vlessOutboundParity(active, freshOutbound)
+		resp.ChangedFields = vlessOutboundChangedFields(active, freshOutbound)
 	}
 
 	tcpCtx, cancelTCP := context.WithTimeout(ctx, 3*time.Second)
@@ -206,6 +246,8 @@ func (a *app) handleVPNOutboundDoctor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch {
+	case !resp.CatalogFresh:
+		resp.Diagnosis = "protected_subscription_cache_only"
 	case buildErr != nil:
 		resp.Diagnosis = "fresh_profile_builder_rejected"
 	case resp.TransportModel != "fully-modeled":
