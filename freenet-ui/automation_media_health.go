@@ -361,6 +361,9 @@ func classifyAutomationMediaQuality(base automationHealthProbe, media automation
 	}
 	base.MediaDegraded = media.Degraded
 	if !media.Degraded {
+		if base.State == automationHealthHealthy {
+			base.Reason = "VPN HTTPS и контрольные медиасегменты доступны; реальное воспроизведение Instagram не проверялось."
+		}
 		return base
 	}
 	// This is a surrogate media transfer over the exact VPN, not an
