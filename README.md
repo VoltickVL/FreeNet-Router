@@ -526,7 +526,7 @@ GitHub является source of truth для кода, PR, CI и releases. Jou
 
 # 19. Постоянный регламент FreeNet Router для ChatGPT
 
-**[Открыть полный постоянный промпт FreeNet Router](docs/FREENET-PERMANENT-REGULATIONS-RU.md)** — единые правила разработки, безопасности, GitHub-цикла, Beta/Stable, диагностики и сотрудничества с [XKeen Panel](https://github.com/Dearonski/xkeen-panel) и [Xkeen UI](https://github.com/umarcheh001/Xkeen-UI).
+**[Открыть полный постоянный промпт FreeNet Router](docs/FREENET-PERMANENT-REGULATIONS-RU.md)** — единые правила разработки, безопасности, GitHub-цикла, Beta/Stable, диагностики и сотрудничества с двумя технологическими проектами-донорами.
 
 Этот документ определяет **как работать** и намеренно не содержит текущих версий и задач. Актуальное **что делать** определяет [Roadmap #5](https://github.com/VoltickVL/FreeNet-Router/issues/5), а результаты и статус — [Journal #7](https://github.com/VoltickVL/FreeNet-Router/issues/7). При новом чате сначала прочитать полный регламент, затем эти реестры, открытые PR/Issues и текущее состояние репозитория.
 
@@ -537,6 +537,6 @@ GitHub является source of truth для кода, PR, CI и releases. Jou
 Прочитай полностью постоянный регламент:
 https://github.com/VoltickVL/FreeNet-Router/blob/main/docs/FREENET-PERMANENT-REGULATIONS-RU.md
 После этого прочитай Roadmap #5 и Journal #7, проверь актуальные ветки, Issues, PR, CI и releases. Продолжай текущую задачу с фактического состояния.
-Сотрудничество с XKeen Panel и Xkeen UI и разрешение на использование готовых решений закреплены в регламенте; не запрашивай согласие повторно.
+Сотрудничество с технологическими донорами и разрешение на использование готовых решений закреплены в регламенте; не запрашивай согласие повторно.
 Приоритет — работоспособность и стабильность. Действуй самостоятельно, соблюдая проверки, rollback и правила публикации секретов.
 ~~~
