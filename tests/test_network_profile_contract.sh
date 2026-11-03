@@ -160,6 +160,27 @@ cp "$TMP/nonip-vless.before" "$TROOT/etc/xray/configs/04_outbounds.json"
 # Direct native -> Split manages all required Keenetic control-plane state itself:
 # dns-override frees :53, filter engine becomes opkg, and native System-profile DNS
 # interception is disabled so ordinary clients cannot bypass Xray to native Yandex/DoT/DoH.
+# TXT/MX acceptance is mandatory BEFORE committing live Split: an empty
+# NOERROR must rollback the exact native snapshot, not report DNS success.
+for n in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do
+    cp "$TROOT/etc/xray/configs/$n" "$TMP/$n.nonip-before"
+done
+state_set DNS_NONIP_QUERY_OK no
+if run_network apply > "$TMP/nonip-empty.apply" 2>&1; then
+    fail 'Split accepted empty TXT/MX response'
+fi
+grep -Fq 'PRIMARY ERROR: post-apply Split DNS acceptance failed' "$TMP/nonip-empty.apply" ||
+    fail 'empty TXT/MX did not fail Split acceptance'
+grep -Fq 'ROLLBACK ERROR/STATE: rollback success' "$TMP/nonip-empty.apply" ||
+    fail 'empty TXT/MX did not roll back before network commit'
+grep -q '^NDM_DNS_OVERRIDE=off$' "$STATE" || fail 'empty TXT/MX leaked dns-override change'
+grep -q '^NDM_DNS_INTERCEPT=on$' "$STATE" || fail 'empty TXT/MX leaked intercept change'
+for n in 02_dns.json 03_inbounds.json 04_outbounds.json 05_routing.json; do
+    cmp -s "$TROOT/etc/xray/configs/$n" "$TMP/$n.nonip-before" ||
+        fail "empty TXT/MX rollback changed $n"
+done
+state_set DNS_NONIP_QUERY_OK yes
+
 sed -i 's/^proxy_dns=.*/proxy_dns="on"/' "$TROOT/etc/init.d/S05xkeen"
 sed -i 's/^DNS_MODE=.*/DNS_MODE=xkeen/' "$TROOT/etc/freenet/freenet.conf"
 run_network apply > "$TMP/split.apply" 2>&1 || { cat "$TMP/split.apply" >&2; fail 'native -> split failed'; }
