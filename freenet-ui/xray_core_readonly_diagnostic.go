@@ -83,6 +83,7 @@ func xrayPendingReadOnlyEligible(d vpnTransactionDoctorResponse, inv xrayProcess
 func registerXrayCoreReadOnlyDiagnostic(mux *http.ServeMux, a *app) {
     mux.HandleFunc("GET /api/xray/core/read-only-test", a.requireAuth(a.handleXrayCoreReadOnlyDiagnostic))
     mux.HandleFunc("GET /api/xray/process-inventory", a.requireAuth(a.handleXrayProcessInventory))
+    registerCaptureDoctor(mux, a)
 }
 
 // No stdout/stderr, source config, PID or real filesystem paths leave this

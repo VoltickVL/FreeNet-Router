@@ -120,6 +120,7 @@ const server=http.createServer(async(req,res)=>{
     });
     return json(res,{success:true,mutation:'NONE',compiled:{rules:compiledRules,payload:compiledRules,dns:compiledRules.filter(rule=>rule.dns_leg)}});
   }
+  if(url.pathname==='/api/routing/capture-doctor'&&req.method==='GET')return json(res,{success:true,mutation:'NONE',state:'capture-rule-missing',netfilter:'tproxy-rule-absent',policy_rule:'fwmark-rule-absent',local_route:'local-default-absent',hook:'modern-generated-hook',reason:'no-kernel-tproxy-rule'});
   if(url.pathname==='/api/routing/config')return json(res,{success:true,mutation:'NONE',routing:routingLive,policy:policyLive,routing_present:true,policy_present:true,routing_sha256:'1'.repeat(64),policy_sha256:'2'.repeat(64)});
   if(url.pathname==='/api/routing/validate'&&req.method==='POST'){const c=await bodyJSON(req);return json(res,{success:true,mutation:'NONE',xray_valid:true,routing:c.routing,policy:c.policy});}
   if(url.pathname==='/api/routing/apply'&&req.method==='POST'){const c=await bodyJSON(req);routingLive=c.routing;policyLive=c.policy;return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',core_restart:true,before:{'05_routing.json':'1111','06_policy.json':'2222'},after:{'05_routing.json':'3333','06_policy.json':'2222'},result:'routing policy applied; active Xray Core restarted with firewall-preserving core-only path'});}
@@ -157,6 +158,11 @@ const server=http.createServer(async(req,res)=>{
     await nav.waitFor({state:'visible'});
     await nav.click();
     await page.waitForSelector('#routingV2Workspace',{state:'visible'});
+    // Browser surfaces the new kernel diagnosis independently of Xray's rule list.
+    await page.waitForFunction(() => document.querySelector('#rv2CaptureDoctor')?.textContent.includes('нет активного TPROXY-правила'));
+    assert.match(await page.locator('#rv2CaptureDoctor').textContent(), /Это не проверка фактического HTTPS/);
+    assert.ok(calls.includes('GET /api/routing/capture-doctor'), 'capture doctor must be read-only GET');
+
     await page.waitForFunction(()=>document.querySelector('[data-page-view="routing"]')?.classList.contains('active'));
     assert.match(await page.locator('[data-page-view="routing"] .page-head').textContent(),/Сайты и категории/);
 

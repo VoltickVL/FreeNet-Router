@@ -283,6 +283,32 @@
     groupSelectors(selectors).forEach(group => renderAggregateType(container, group, action));
   }
 
+  // Passive kernel capture status, separate from the Xray routing rule list.
+  // A valid Xray config NEVER establishes successful LAN interception.
+  async function refreshCaptureDoctor() {
+    const node = qs('#rv2CaptureDoctor');
+    if (!node) return;
+    node.className = 'rv2-notice show';
+    node.textContent = 'Перехват LAN: проверяю действующие kernel rules…';
+    try {
+      const response = await fetch('/api/routing/capture-doctor', {cache:'no-store'});
+      const body = await response.json();
+      if (!response.ok || body.success !== true || body.mutation !== 'NONE') throw new Error('read-only-unavailable');
+      const label = ({
+        'capture-rule-missing':'нет активного TPROXY-правила в kernel',
+        'policy-rule-missing':'отсутствует fwmark policy rule',
+        'local-route-missing':'отсутствует локальный маршрут TPROXY',
+        'installed-unverified':'kernel-правила присутствуют, клиентский VPN-маршрут ещё не подтверждён',
+        'unverified':'состояние kernel-перехвата не установлено'
+      })[String(body.state || '')] || 'состояние kernel-перехвата не установлено';
+      node.className = 'rv2-notice show ' + (String(body.state || '').endsWith('-missing') ? 'bad' : 'warn');
+      node.textContent = 'Перехват LAN: ' + label + '. Это не проверка фактического HTTPS-выхода клиента.';
+    } catch (_) {
+      node.className = 'rv2-notice show warn';
+      node.textContent = 'Перехват LAN: диагностика недоступна; активные правила ядра не подтверждены.';
+    }
+  }
+
   function renderLiveRules() {
     const status = qs('#rv2LiveState');
     if (!status) return;
@@ -1296,6 +1322,7 @@
             </div>
             <span id="rv2LiveState" class="rv2-state">Загрузка…</span>
           </div>
+          <div id="rv2CaptureDoctor" class="rv2-notice show" role="status">Перехват LAN: проверка…</div>
 
           <div class="rv4-board-grid">
             <section id="rv2DirectBoard" class="rv4-board direct collapsed">
@@ -1545,6 +1572,7 @@
     mountMarkup(page); bind(); syncKindOptions(); renderRuleList(); renderCompileState(); renderLiveRules();
     ['DIRECT','VPN','BLOCK'].forEach(action => setBoardCollapsed(action, state.collapsed[action]));
     void loadConfig();
+    void refreshCaptureDoctor();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
