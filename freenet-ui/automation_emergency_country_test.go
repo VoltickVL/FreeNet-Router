@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"sync"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,8 +179,11 @@ func TestEmergencyManualCountryFailureRotatesBoundedCohort(t *testing.T) {
 		return bestServerProbeResult{OK: true, Samples: []int{100}, Median: 100}
 	}
 	seen := map[string]bool{}
+	var mu sync.Mutex
 	automationEmergencyCandidateProbe = func(_ *app, _ context.Context, c bestServerInternalCandidate) bestServerProbeResult {
+		mu.Lock()
 		seen[c.Profile.ID] = true
+		mu.Unlock()
 		return bestServerProbeResult{}
 	}
 	a := &app{cfg: config{OutPath: filepath.Join(dir, "outbounds.json"), FilterPath: filter}}
@@ -190,6 +194,8 @@ func TestEmergencyManualCountryFailureRotatesBoundedCohort(t *testing.T) {
 			t.Fatalf("no HTTPS accepted in round %d: %+v / %v", round, scan, err)
 		}
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	if len(seen) <= automationEmergencyCandidateLimit {
 		t.Fatalf("manual country recovery repeated same bounded cohort: distinct=%d", len(seen))
 	}
