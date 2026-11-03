@@ -646,6 +646,19 @@ dns_query_ok() {
     return 1
 }
 
+# Query TXT and MX through the live Xray listener, not firmware DNS. A
+# successful A-only nslookup is insufficient: old Xray dns-out returned empty
+# NOERROR for these types. The Go helper forces bounded loopback TCP DNS and
+# checks for non-empty records; a failure triggers the existing rollback.
+dns_nonip_query_ok() {
+    if [ "$TEST_MODE" = yes ]; then
+        [ "$(test_state_value DNS_NONIP_QUERY_OK yes)" = yes ]
+        return
+    fi
+    [ -x "$ROOT/sbin/freenet-ui" ] || return 1
+    "$ROOT/sbin/freenet-ui" dns-rr-accept >/dev/null 2>&1
+}
+
 non_dns_hashes() {
     jq -cS '[.inbounds[]? | select((((.port // "") | tostring) != "53"))]' "$INBOUND_FILE" | sha256sum | awk '{print $1}'
     jq -cS '[.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end]' "$OUT_FILE" | sha256sum | awk '{print $1}'
@@ -925,6 +938,10 @@ split_success() {
 apply_split() {
     preflight_common || { fail_not_applied 'Split DNS preflight failed before mutation'; return 1; }
     has_vless || { fail_not_applied 'Split DNS требует рабочий vless-reality'; return 1; }
+    # The application-bundled non-A RR checker must exist before any mutation.
+    if [ "$TEST_MODE" != yes ]; then
+        [ -x "$ROOT/sbin/freenet-ui" ] || { fail_not_applied 'Split DNS TXT/MX acceptance helper unavailable'; return 1; }
+    fi
     PRESERVE_BEFORE="$(non_dns_hashes)" || { fail_not_applied 'не удалось снять non-DNS preserve hashes'; return 1; }
 
     # Repair an identified OPKG/Xray Split in place. Legacy/manual revisions may
@@ -962,7 +979,7 @@ apply_split() {
         apply_candidate_dir "$TMP_DIR/split" || { err 'PRIMARY ERROR: не удалось применить Split repair candidate'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
         xkeen_runtime restart "/tmp/freenet-network-split-repair.$$.log" || { err 'PRIMARY ERROR: XKeen/Xray restart failed during Split repair'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
         wait_for_xray yes && wait_port53_owner xray || { err 'PRIMARY ERROR: Xray не подтвердил :53 после Split repair'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-        [ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(ndm_filter_engine_state)" = opkg ] && [ "$(ndm_intercept_state)" = off ] && ndm_assignments_empty && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok || { err 'PRIMARY ERROR: post-repair Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+        [ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(ndm_filter_engine_state)" = opkg ] && [ "$(ndm_intercept_state)" = off ] && ndm_assignments_empty && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok && dns_nonip_query_ok || { err 'PRIMARY ERROR: post-repair Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
         validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed during Split repair'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
         [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic protected DNS/WAN state changed during Split repair'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
         ndm_save || { err 'PRIMARY ERROR: NDM save failed after Split repair acceptance'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
@@ -990,7 +1007,7 @@ apply_split() {
     apply_candidate_dir "$TMP_DIR/split" || { err 'PRIMARY ERROR: не удалось применить Split candidate'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     xkeen_runtime restart "/tmp/freenet-network-split-restart.$$.log" || { err 'PRIMARY ERROR: XKeen/Xray restart failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     wait_for_xray yes && wait_port53_owner xray || { err 'PRIMARY ERROR: Xray не стал владельцем :53'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
-    [ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(ndm_filter_engine_state)" = opkg ] && [ "$(ndm_intercept_state)" = off ] && ndm_assignments_empty && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok || { err 'PRIMARY ERROR: post-apply Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
+    [ "$(proxy_dns_state)" = off ] && [ "$(ndm_override_state)" = on ] && [ "$(ndm_filter_engine_state)" = opkg ] && [ "$(ndm_intercept_state)" = off ] && ndm_assignments_empty && [ "$(xray_dns_inbound_count)" = 1 ] && has_dns_out && [ "$(dns_routing_mode)" = split ] && dns_query_ok && dns_nonip_query_ok || { err 'PRIMARY ERROR: post-apply Split DNS acceptance failed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     validate_preserve_hashes "$PRESERVE_BEFORE" || { err 'PRIMARY ERROR: non-DNS Xray state changed'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     [ "$(ndm_protected_hash)" = "$NDM_PROTECTED_HASH_INITIAL" ] || { err 'PRIMARY ERROR: Keenetic protected DNS/WAN state changed unexpectedly'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
     ndm_save || { err 'PRIMARY ERROR: NDM save failed after acceptance'; rollback_all && err 'ROLLBACK ERROR/STATE: rollback success' || err 'ROLLBACK ERROR/STATE: FAILED/UNKNOWN'; return 1; }
