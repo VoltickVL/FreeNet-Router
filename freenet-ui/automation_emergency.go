@@ -337,13 +337,13 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 	manualCountry := automationEmergencyManualCountry(a.cfg.FilterPath, parseAutomationState(automationStatePath()), currentCountry)
 	cohort := automationEmergencyOrderedCandidates(filtered)
 	cursor := automationEmergencyScanCursor(len(cohort))
+	// Advance through *all* allowed candidates across failed recovery cycles:
+	// a large same-country pool must not trap the watchdog on the same eight.
+	cohort = rotateAutomationEmergencyCandidates(cohort, cursor)
 	if manualCountry != "" {
 		cohort = automationEmergencyManualCountryCohort(cohort, manualCountry, automationEmergencyCandidateLimit)
-	} else {
-		cohort = rotateAutomationEmergencyCandidates(cohort, cursor)
-		if len(cohort) > automationEmergencyCandidateLimit {
-			cohort = cohort[:automationEmergencyCandidateLimit]
-		}
+	} else if len(cohort) > automationEmergencyCandidateLimit {
+		cohort = cohort[:automationEmergencyCandidateLimit]
 	}
 
 	scanCtx, cancelScan := context.WithTimeout(parent, automationEmergencyScanTimeout)
@@ -365,9 +365,7 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 		if advance < 1 {
 			advance = 1
 		}
-		if manualCountry == "" {
-			setAutomationEmergencyScanCursor(cursor+advance, len(filtered))
-		}
+		setAutomationEmergencyScanCursor(cursor+advance, len(filtered))
 		return result, nil
 	}
 
@@ -417,9 +415,7 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 	if advance < 1 {
 		advance = 1
 	}
-	if manualCountry == "" {
-		setAutomationEmergencyScanCursor(cursor+advance, len(filtered))
-	}
+	setAutomationEmergencyScanCursor(cursor+advance, len(filtered))
 	if parent.Err() != nil {
 		return result, parent.Err()
 	}
