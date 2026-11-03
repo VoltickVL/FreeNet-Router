@@ -12,7 +12,7 @@ func TestEmergencyManualCountryRequiresExactProfileAndManualOrigin(t *testing.T)
 	filter := filepath.Join(dir, "provider.filter")
 	// Exact Extra label is required; a broad regex or stale country from
 	// status must never create a manual country pin.
-	if err := os.WriteFile(filter, []byte("Berlin, Germany, Extra\n"), 0600); err != nil {
+	if err := os.WriteFile(filter, []byte("DE Berlin, Germany, Extra\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	manual := map[string]string{"LAST_SWITCH_ORIGIN": "manual"}
@@ -25,10 +25,10 @@ func TestEmergencyManualCountryRequiresExactProfileAndManualOrigin(t *testing.T)
 		country string
 		filter string
 	}{
-		{"automatic choice", map[string]string{"LAST_SWITCH_ORIGIN": "auto"}, "de", "Berlin, Germany, Extra"},
-		{"missing marker", nil, "de", "Berlin, Germany, Extra"},
-		{"country drift", manual, "fr", "Berlin, Germany, Extra"},
-		{"unknown country", manual, "", "Berlin, Germany, Extra"},
+		{"automatic choice", map[string]string{"LAST_SWITCH_ORIGIN": "auto"}, "de", "DE Berlin, Germany, Extra"},
+		{"missing marker", nil, "de", "DE Berlin, Germany, Extra"},
+		{"country drift", manual, "fr", "DE Berlin, Germany, Extra"},
+		{"unknown country", manual, "", "DE Berlin, Germany, Extra"},
 		{"broad filter", manual, "de", ".*Germany.*"},
 		{"non Extra profile", manual, "de", "Berlin, Germany"},
 	} {
