@@ -486,7 +486,12 @@ func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRe
 	}
 
 	post, postErr := a.runNetworkPlan()
-	if postErr != nil || !post.Active {
+	if req.DNSMode == "xkeen" {
+		// A controlled Xray restart may briefly fail only the first
+		// read-only identity check. Recheck before considering rollback.
+		post, postErr = settleSplitDNSPostApplyPlan(post, postErr, a.runNetworkPlan, time.Sleep)
+	}
+	if postErr != nil || !post.Active || (req.DNSMode == "xkeen" && !verifiedSplitDNSPostApplyPlan(post, postErr)) {
 		primary := "post-apply active profile acceptance failed"
 		if postErr != nil {
 			primary = "post-apply plan unavailable: " + postErr.Error()
