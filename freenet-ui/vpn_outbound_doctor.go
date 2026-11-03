@@ -37,6 +37,8 @@ type vpnOutboundFingerprint struct {
 	Network, Security             string
 	Fingerprint, ServerName       string
 	PublicKey, ShortID, SpiderX   string
+	TLSFingerprint, TLSServerName string
+	WSPath, WSHost                string
 	Port                          int
 }
 
@@ -146,6 +148,13 @@ func fingerprintVLESSOutbound(outbound map[string]any) (vpnOutboundFingerprint, 
 	fp.PublicKey = anyString(reality, "publicKey")
 	fp.ShortID = anyString(reality, "shortId")
 	fp.SpiderX = anyString(reality, "spiderX")
+	tls, _ := stream["tlsSettings"].(map[string]any)
+	fp.TLSFingerprint = anyString(tls, "fingerprint")
+	fp.TLSServerName = anyString(tls, "serverName")
+	ws, _ := stream["wsSettings"].(map[string]any)
+	fp.WSPath = anyString(ws, "path")
+	headers, _ := ws["headers"].(map[string]any)
+	fp.WSHost = anyString(headers, "Host")
 	return fp, fp.Address != "" && fp.Port > 0 && fp.ID != ""
 }
 
@@ -173,6 +182,10 @@ func vlessOutboundChangedFields(active, fresh map[string]any) []string {
 		{"reality.publicKey", a.PublicKey != f.PublicKey},
 		{"reality.shortId", a.ShortID != f.ShortID},
 		{"reality.spiderX", a.SpiderX != f.SpiderX},
+		{"tls.fingerprint", a.TLSFingerprint != f.TLSFingerprint},
+		{"tls.serverName", a.TLSServerName != f.TLSServerName},
+		{"ws.path", a.WSPath != f.WSPath},
+		{"ws.host", a.WSHost != f.WSHost},
 	}
 	out := make([]string, 0, len(checks))
 	for _, check := range checks {
