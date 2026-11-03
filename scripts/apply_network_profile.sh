@@ -235,7 +235,7 @@ has_dns_out() {
 }
 
 has_vless() {
-    jq -e '([.outbounds[]? | select(.tag == "vless-reality")] | length) == 1' "$OUT_FILE" >/dev/null 2>&1
+    jq -e '([.outbounds[]? | select(.tag == "vless-reality" and .protocol == "vless")] | length) == 1' "$OUT_FILE" >/dev/null 2>&1
 }
 
 dns_routing_mode() {
@@ -873,9 +873,18 @@ build_split_candidate() {
       ] + [{address:"https://8.8.8.8/dns-query",tag:"dns-vless",finalQuery:true}]' "$ROUTING_FILE")" || return 1
     jq -n --argjson servers "$DNS_SERVERS" '{dns:{tag:"dns-vless",servers:$servers,queryStrategy:"UseIPv4"}}' > "$C/02_dns.json" || return 1
     jq '.inbounds = ([.inbounds[]? | select((((.port // "") | tostring) != "53"))] + [{"tag":"dns","port":53,"protocol":"dokodemo-door","settings":{"network":"tcp,udp"}}])' "$INBOUND_FILE" > "$C/03_inbounds.json" || return 1
-    jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end] + [{"protocol":"dns","tag":"dns-out"}])' "$OUT_FILE" > "$C/04_outbounds.json" || return 1
+    jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end] + [{"protocol":"dns","tag":"dns-out","settings":{"rewriteAddress":"8.8.8.8","rewritePort":53,"rules":[{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]},"streamSettings":{"sockopt":{"dialerProxy":"vless-reality"}}}])' "$OUT_FILE" > "$C/04_outbounds.json" || return 1
     jq -e '([.outbounds[]? | select(.tag=="direct")] | length) == 1 and ([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length) == 1' "$C/04_outbounds.json" >/dev/null 2>&1 || return 1
     jq '.routing.rules = ([{"type":"field","inboundTag":["dns-vless"],"outboundTag":"vless-reality"},{"type":"field","inboundTag":["dns-direct"],"outboundTag":"direct"},{"type":"field","port":53,"outboundTag":"dns-out"}] + [.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))])' "$ROUTING_FILE" > "$C/05_routing.json" || return 1
+    # Preserve TXT/MX/SRV/HTTPS records without plaintext DNS leaks. The
+    # passthrough dialer must point to exactly one concrete VLESS outbound;
+    # validation and snapshot precede all live writes and controlled restart.
+    jq -e '([.outbounds[]? | select(.tag=="vless-reality")] | length)==1 and
+           ([.outbounds[]? | select(.tag=="vless-reality" and .protocol=="vless")] | length)==1 and
+           ([.outbounds[]? | select(.tag=="dns-out" and .protocol=="dns" and
+               .streamSettings.sockopt.dialerProxy=="vless-reality" and
+               .settings.rewriteAddress=="8.8.8.8" and .settings.rewritePort==53 and
+               (.settings.rules == [{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]))] | length)==1' "$C/04_outbounds.json" >/dev/null 2>&1 || return 1
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$C" > "$TMP_DIR/xray-split-candidate.log" 2>&1 || return 1
 }
 
@@ -1182,7 +1191,7 @@ has_dns_out() {
 }
 
 has_vless() {
-    jsonc_normalize "$OUT_FILE" | jq -e '([.outbounds[]? | select(.tag == "vless-reality")] | length) == 1' >/dev/null 2>&1
+    jsonc_normalize "$OUT_FILE" | jq -e '([.outbounds[]? | select(.tag == "vless-reality" and .protocol == "vless")] | length) == 1' >/dev/null 2>&1
 }
 
 dns_routing_mode() {
@@ -1245,9 +1254,18 @@ build_split_candidate() {
       ] + [{address:"https://8.8.8.8/dns-query",tag:"dns-vless",finalQuery:true}]')" || return 1
     jq -n --argjson servers "$DNS_SERVERS" '{dns:{tag:"dns-vless",servers:$servers,queryStrategy:"UseIPv4"}}' > "$C/02_dns.json" || return 1
     jsonc_normalize "$INBOUND_FILE" | jq '.inbounds = ([.inbounds[]? | select((((.port // "") | tostring) != "53"))] + [{"tag":"dns","port":53,"protocol":"dokodemo-door","settings":{"network":"tcp,udp"}}])' > "$C/03_inbounds.json" || return 1
-    jsonc_normalize "$OUT_FILE" | jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end] + [{"protocol":"dns","tag":"dns-out"}])' > "$C/04_outbounds.json" || return 1
+    jsonc_normalize "$OUT_FILE" | jq '.outbounds = ([.outbounds[]? | select((.tag // "") != "dns-out") | if .tag == "direct" then .streamSettings = ((.streamSettings // {}) | .sockopt = ((.sockopt // {}) + {mark:255})) else . end] + [{"protocol":"dns","tag":"dns-out","settings":{"rewriteAddress":"8.8.8.8","rewritePort":53,"rules":[{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]},"streamSettings":{"sockopt":{"dialerProxy":"vless-reality"}}}])' > "$C/04_outbounds.json" || return 1
     jq -e '([.outbounds[]? | select(.tag=="direct")] | length) == 1 and ([.outbounds[]? | select(.tag=="direct" and .protocol=="freedom" and .streamSettings.sockopt.mark==255)] | length) == 1' "$C/04_outbounds.json" >/dev/null 2>&1 || return 1
     jsonc_normalize "$ROUTING_FILE" | jq '.routing.rules = ([{"type":"field","inboundTag":["dns-vless"],"outboundTag":"vless-reality"},{"type":"field","inboundTag":["dns-direct"],"outboundTag":"direct"},{"type":"field","port":53,"outboundTag":"dns-out"}] + [.routing.rules[]? | select((.outboundTag // "") != "dns-out") | select(((.inboundTag // []) | index("dns-vless")) == null) | select(((.inboundTag // []) | index("dns-direct")) == null) | select(((.inboundTag // []) | index("dns-in")) == null) | select((((.port // "") | tostring) != "53"))])' > "$C/05_routing.json" || return 1
+    # Preserve TXT/MX/SRV/HTTPS records without plaintext DNS leaks. The
+    # passthrough dialer must point to exactly one concrete VLESS outbound;
+    # validation and snapshot precede all live writes and controlled restart.
+    jq -e '([.outbounds[]? | select(.tag=="vless-reality")] | length)==1 and
+           ([.outbounds[]? | select(.tag=="vless-reality" and .protocol=="vless")] | length)==1 and
+           ([.outbounds[]? | select(.tag=="dns-out" and .protocol=="dns" and
+               .streamSettings.sockopt.dialerProxy=="vless-reality" and
+               .settings.rewriteAddress=="8.8.8.8" and .settings.rewritePort==53 and
+               (.settings.rules == [{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]))] | length)==1' "$C/04_outbounds.json" >/dev/null 2>&1 || return 1
     XRAY_LOCATION_ASSET="$XRAY_ASSET_DIR" "$XRAY_BIN" run -test -confdir "$C" > "$TMP_DIR/xray-split-candidate.log" 2>&1 || return 1
 }
 
