@@ -20,6 +20,7 @@ func bridgePlanFixture(effective, override, engine, owner, routing string) strin
 		"XRAY_DNS_INBOUND_COUNT=1",
 		"XRAY_RUNNING=yes",
 		"XRAY_GID=11111",
+		"XRAY_IDENTITY=owned",
 		"DNS_ROUTING_MODE=" + routing,
 		"DNS_OUT=yes",
 		"VLESS_PROFILE=yes",
