@@ -204,6 +204,28 @@ jq -e '
 [ "$(hash_out)" = "$HOUT" ] || fail 'split changed VPN/non-DNS outbounds'
 [ "$(hash_route)" = "$HROUTE" ] || fail 'split changed non-DNS routing'
 
+# Beta.67 legacy Split silently returned NOERROR/zero TXT and MX records.
+# Even when the firmware interception is already off, the read-only plan must
+# flag this drift so the managed Control Center can run its guarded repair.
+cp "$TROOT/etc/xray/configs/04_outbounds.json" "$TMP/nonip-modern.before"
+jq '(.outbounds[] | select(.tag=="dns-out")) |= del(.settings,.streamSettings)'     "$TMP/nonip-modern.before" > "$TMP/nonip-legacy.out"
+mv "$TMP/nonip-legacy.out" "$TROOT/etc/xray/configs/04_outbounds.json"
+run_network plan > "$TMP/nonip-legacy.plan"
+grep -Fq 'DNS_ROUTING_MODE=split-nonip-incomplete' "$TMP/nonip-legacy.plan" ||
+    fail 'legacy dns-out with empty TXT/MX wrongly classified active'
+run_network apply > "$TMP/nonip-legacy.repair" 2>&1 ||
+    { cat "$TMP/nonip-legacy.repair" >&2; fail 'legacy non-A Split repair failed'; }
+grep -Fq 'RESULT=SUCCESS' "$TMP/nonip-legacy.repair" || fail 'non-A repair result missing'
+run_network plan > "$TMP/nonip-repaired.plan"
+grep -Fq 'DNS_ROUTING_MODE=split' "$TMP/nonip-repaired.plan" ||
+    fail 'modern non-A Split not classified healthy'
+jq -e '
+  [.outbounds[]? | select(.tag=="dns-out" and
+   .streamSettings.sockopt.dialerProxy=="vless-reality" and
+   (.settings.rules == [{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]))] | length==1
+' "$TROOT/etc/xray/configs/04_outbounds.json" >/dev/null ||
+    fail 'legacy Split repair did not install non-A VLESS passthrough'
+
 # Reproduce v0.2.52 defect: native assignments may remain active in an otherwise
 # valid Split topology. Plan must classify it repair-ready, and apply must detach
 # the exact saved assignments without touching their profile definitions.
