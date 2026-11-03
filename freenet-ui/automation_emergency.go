@@ -149,6 +149,65 @@ func automationEmergencyOrderedCandidates(candidates []bestServerInternalCandida
 	return out
 }
 
+// Manual country preference follows XKeen Panel's same-country replacement
+// policy, but FreeNet retains its independent HTTPS and transaction gates.
+// A status-derived or guessed country is not sufficient to pin a manual choice.
+func automationEmergencyManualCountry(filterPath string, state map[string]string, country string) string {
+	if state["LAST_SWITCH_ORIGIN"] != "manual" {
+		return ""
+	}
+	confirmed := bestServerCountryCodeFromLabel(currentExactProfileLabel(filterPath))
+	if confirmed == "" || !strings.EqualFold(confirmed, strings.TrimSpace(country)) {
+		return ""
+	}
+	return strings.ToLower(confirmed)
+}
+
+// Reserve room for an independent fallback country in the bounded cohort.
+// Policy filtering is performed before this helper; it never broadens scope.
+func automationEmergencyManualCountryCohort(candidates []bestServerInternalCandidate, country string, limit int) []bestServerInternalCandidate {
+	if limit <= 0 || len(candidates) == 0 {
+		return nil
+	}
+	preferred := make([]bestServerInternalCandidate, 0, len(candidates))
+	other := make([]bestServerInternalCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.EqualFold(strings.TrimSpace(candidate.Profile.CountryCode), country) {
+			preferred = append(preferred, candidate)
+		} else {
+			other = append(other, candidate)
+		}
+	}
+	// Preserve an opportunity to recover when all same-country nodes are dead.
+	prefLimit := limit
+	if len(other) > 0 && prefLimit > limit/2 {
+		prefLimit = limit / 2
+	}
+	result := make([]bestServerInternalCandidate, 0, limit)
+	for _, group := range [][]bestServerInternalCandidate{preferred[:min(len(preferred), prefLimit)], other, preferred[min(len(preferred), prefLimit):]} {
+		for _, candidate := range group {
+			if len(result) >= limit {
+				return result
+			}
+			result = append(result, candidate)
+		}
+	}
+	return result
+}
+
+func automationEmergencyCountryFirst(candidates []bestServerInternalCandidate, country string) []bestServerInternalCandidate {
+	preferred := make([]bestServerInternalCandidate, 0, len(candidates))
+	other := make([]bestServerInternalCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.EqualFold(strings.TrimSpace(candidate.Profile.CountryCode), country) {
+			preferred = append(preferred, candidate)
+		} else {
+			other = append(other, candidate)
+		}
+	}
+	return append(preferred, other...)
+}
+
 func automationEmergencyFreshRTTOrder(parent context.Context, a *app, candidates []bestServerInternalCandidate) ([]bestServerInternalCandidate, int, int, int) {
 	if len(candidates) == 0 {
 		return nil, 0, 0, 0
@@ -273,14 +332,17 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 		return result, nil
 	}
 
-	// Cache/country diversity only builds the bounded cohort. Every emergency
-	// cycle then refreshes canonical logical-VPN RTT for that cohort before any
-	// named-HTTPS acceptance. Fresh VPN ping, not country ordering, determines
-	// which candidate receives the application gate first.
+	// Respect manual country preference only for the exact active profile,
+	// after normal policy and country exclusions. Do not starve fallback countries.
+	manualCountry := automationEmergencyManualCountry(a.cfg.FilterPath, parseAutomationState(automationStatePath()), currentCountry)
 	cohort := automationEmergencyOrderedCandidates(filtered)
 	cursor := automationEmergencyScanCursor(len(cohort))
+	// Advance through *all* allowed candidates across failed recovery cycles:
+	// a large same-country pool must not trap the watchdog on the same eight.
 	cohort = rotateAutomationEmergencyCandidates(cohort, cursor)
-	if len(cohort) > automationEmergencyCandidateLimit {
+	if manualCountry != "" {
+		cohort = automationEmergencyManualCountryCohort(cohort, manualCountry, automationEmergencyCandidateLimit)
+	} else if len(cohort) > automationEmergencyCandidateLimit {
 		cohort = cohort[:automationEmergencyCandidateLimit]
 	}
 
@@ -289,6 +351,11 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 
 	rttStarted := time.Now()
 	ordered, rttChecked, rttReachable, bestRTT := automationEmergencyFreshRTTOrder(scanCtx, a, cohort)
+	if manualCountry != "" {
+		// RTT orders candidates within each country tier. Never treat a faster
+		// foreign node as reason to override the operator's country in recovery.
+		ordered = automationEmergencyCountryFirst(ordered, manualCountry)
+	}
 	result.RTTPrefilterDuration = time.Since(rttStarted).Round(time.Millisecond)
 	result.RTTChecked = rttChecked
 	result.RTTReachable = rttReachable
