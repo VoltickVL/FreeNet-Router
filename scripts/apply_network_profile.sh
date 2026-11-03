@@ -679,6 +679,11 @@ runtime_facts() {
     if [ "$DNS_ROUTING" = split ] && [ -n "$DNS_ASSIGNMENTS" ]; then
         DNS_ROUTING=split-assignments
     fi
+    # An old dns-out may answer A/AAAA while returning EMPTY TXT/MX/HTTPS.
+    # It is not an active Split state even if :53 is owned and intercept is off.
+    if [ "$DNS_ROUTING" = split ] && ! dns_nonip_passthrough_ready; then
+        DNS_ROUTING=split-nonip-incomplete
+    fi
     XPID="$(xray_pid)"; XRAY_RUNNING=no; XRAY_GID=unknown; XRAY_IDENTITY=unverified
     if [ -n "$XPID" ]; then
         XRAY_RUNNING=yes
@@ -1192,6 +1197,17 @@ has_dns_out() {
 
 has_vless() {
     jsonc_normalize "$OUT_FILE" | jq -e '([.outbounds[]? | select(.tag == "vless-reality" and .protocol == "vless")] | length) == 1' >/dev/null 2>&1
+}
+
+dns_nonip_passthrough_ready() {
+    jsonc_normalize "$OUT_FILE" | jq -e '
+        ([.outbounds[]? | select(.tag=="vless-reality" and .protocol=="vless")] | length)==1 and
+        ([.outbounds[]? | select(.tag=="vless-reality")] | length)==1 and
+        ([.outbounds[]? | select(.tag=="dns-out" and .protocol=="dns" and
+            .streamSettings.sockopt.dialerProxy=="vless-reality" and
+            .settings.rewriteAddress=="8.8.8.8" and .settings.rewritePort==53 and
+            (.settings.rules == [{"action":"hijack","qType":1},{"action":"hijack","qType":28},{"action":"direct"}]))] | length)==1
+    ' >/dev/null 2>&1
 }
 
 dns_routing_mode() {
