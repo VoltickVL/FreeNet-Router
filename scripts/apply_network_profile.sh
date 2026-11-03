@@ -679,8 +679,14 @@ runtime_facts() {
     if [ "$DNS_ROUTING" = split ] && [ -n "$DNS_ASSIGNMENTS" ]; then
         DNS_ROUTING=split-assignments
     fi
-    XPID="$(xray_pid)"; XRAY_RUNNING=no; XRAY_GID=unknown
-    if [ -n "$XPID" ]; then XRAY_RUNNING=yes; XRAY_GID="$(xray_gid "$XPID")"; fi
+    XPID="$(xray_pid)"; XRAY_RUNNING=no; XRAY_GID=unknown; XRAY_IDENTITY=unverified
+    if [ -n "$XPID" ]; then
+        XRAY_RUNNING=yes
+        XRAY_GID="$(xray_gid "$XPID")"
+        # Only the exact installed binary/config and single non-probe PID can
+        # authorize the official XKeen root (GID 0) launch for read-only plans.
+        if xray_known_owned_launch "$XPID"; then XRAY_IDENTITY=owned; fi
+    fi
     say "PROXY_DNS=$PROXY_DNS"
     say "PORT53_OWNER=$PORT53_OWNER"
     say "NDM_DNS_OVERRIDE=$NDM_OVERRIDE"
@@ -691,6 +697,7 @@ runtime_facts() {
     say "DNS_ROUTING_MODE=$DNS_ROUTING"
     say "XRAY_RUNNING=$XRAY_RUNNING"
     say "XRAY_GID=$XRAY_GID"
+    say "XRAY_IDENTITY=$XRAY_IDENTITY"
     say "DNS_OUT=$DNS_OUT"
     say "VLESS_PROFILE=$VLESS"
 }
