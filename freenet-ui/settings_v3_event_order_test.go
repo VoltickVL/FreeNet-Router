@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestV3MergeEventsOrdersAcrossSourcesBeforeLimit(t *testing.T) {
@@ -142,6 +143,74 @@ func TestSettingsV3HealthJournalCoalescesIdenticalFiveMinuteStates(t *testing.T)
 	}
 }
 
+
+
+func TestSettingsV3HealthyInterleavingKeepsOnlyOneRoutineHeartbeat(t *testing.T) {
+	dir := t.TempDir()
+	statePath := filepath.Join(dir, "settings.state")
+	historyPath := filepath.Join(dir, "settings.history")
+	t.Setenv("FREENET_SETTINGS_V3_STATE", statePath)
+	t.Setenv("FREENET_SETTINGS_V3_HISTORY", historyPath)
+
+	noMedia := automationHealthResult{State: automationHealthHealthy,
+		Reason: "VPN HTTPS и контрольные сервисы доступны; медиапередача в этой проверке не измерялась. Это не подтверждение качества видео Instagram."}
+	mediaGood := automationHealthResult{State: automationHealthHealthy,
+		Reason: "VPN HTTPS и контрольные медиасегменты доступны; реальное воспроизведение Instagram не проверялось."}
+	mediaUnknown := automationHealthResult{State: automationHealthHealthy,
+		Reason: "VPN HTTPS доступен; качество передачи видеосегментов пока не подтверждено. Это не доказательство отсутствия буферизации Instagram."}
+	for _, observation := range []automationHealthResult{noMedia, mediaGood, noMedia, mediaUnknown, mediaGood, noMedia} {
+		recordSettingsV3Health(observation)
+	}
+	if events := readAutomationEvents(historyPath, 20); len(events) != 1 {
+		t.Fatalf("alternating beta.75 healthy statuses wrote %d journal events; want only first heartbeat: %+v", len(events), events)
+	}
+	state := v3ParseState(statePath)
+	if state["HEALTH_RESULT"] != automationHealthHealthy || state["HEALTH_MESSAGE"] != noMedia.Reason ||
+		state["HEALTH_LAST"] == "" || state["HEALTH_ROUTINE_LOG_LAST"] == "" {
+		t.Fatalf("live watchdog state was not updated independently from event throttling: %+v", state)
+	}
+	recordSettingsV3Health(automationHealthResult{State: automationHealthFailed, Reason: "VPN connectivity failed"})
+	recordSettingsV3Health(mediaGood)
+	recordSettingsV3Health(noMedia)
+	events := readAutomationEvents(historyPath, 20)
+	if len(events) != 3 || events[0].Result != "success" || events[1].Result != "failed" ||
+		events[2].Result != "success" {
+		t.Fatalf("real failure/recovery transitions must remain visible without healthy spam: %+v", events)
+	}
+}
+
+func TestSettingsV3HealthyHeartbeatRespectsSixHourWindow(t *testing.T) {
+	now := time.Date(2026, 11, 4, 10, 0, 0, 0, time.UTC)
+	oldMessage := "VPN HTTPS и контрольные сервисы доступны; медиапередача в этой проверке не измерялась. Это не подтверждение качества видео Instagram."
+	newMessage := "VPN HTTPS и контрольные медиасегменты доступны; реальное воспроизведение Instagram не проверялось."
+	next := automationHealthResult{State: automationHealthHealthy, Reason: newMessage}
+	prior := map[string]string{
+		"HEALTH_RESULT": "healthy", "HEALTH_MESSAGE": oldMessage,
+		"HEALTH_ROUTINE_LOG_LAST": now.Add(-5 * time.Hour).Format(time.RFC3339),
+	}
+	if emit, quality := healthQualityJournalDecision(prior, next, now); emit || quality {
+		t.Fatal("healthy interleaving emitted inside six-hour journal heartbeat")
+	}
+	prior["HEALTH_ROUTINE_LOG_LAST"] = now.Add(-6 * time.Hour).Format(time.RFC3339)
+	if emit, quality := healthQualityJournalDecision(prior, next, now); !emit || quality {
+		t.Fatal("six-hour boundary must allow a new routine heartbeat")
+	}
+	prior["HEALTH_ROUTINE_LOG_LAST"] = now.Add(time.Hour).Format(time.RFC3339)
+	if emit, quality := healthQualityJournalDecision(prior, next, now); !emit || quality {
+		t.Fatal("future routine timestamp must be treated as unknown, not silently suppress observation")
+	}
+	failure := automationHealthResult{State: automationHealthFailed, Reason: "VPN inaccessible"}
+	if emit, _ := healthQualityJournalDecision(prior, failure, now); !emit {
+		t.Fatal("healthy-to-failed transition must never be muted by routine log window")
+	}
+	recoveryPrior := map[string]string{
+		"HEALTH_RESULT": "failed", "HEALTH_MESSAGE": "VPN inaccessible",
+		"HEALTH_ROUTINE_LOG_LAST": now.Format(time.RFC3339),
+	}
+	if emit, _ := healthQualityJournalDecision(recoveryPrior, next, now); !emit {
+		t.Fatal("failed-to-healthy recovery must never be muted by routine log window")
+	}
+}
 
 func TestCanonicalJournalIncludesTerminalSelfUpdateTimestamp(t *testing.T) {
 	dir := t.TempDir()
