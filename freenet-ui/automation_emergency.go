@@ -370,17 +370,28 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 		return result, nil
 	}
 
-	// Application acceptance runs in RTT-priority batches. Two candidates may
-	// be probed in parallel for latency, but a higher-RTT candidate cannot beat
-	// a lower-RTT successful candidate from the same batch.
+	// Application admission runs in bounded RTT-priority batches within
+	// each freshness tier. Do not probe quarantined reserves concurrently with
+	// the last fresh candidate: a successful fresh HTTPS probe must end the
+	// search without spending an application slot on a known-bad exit.
 	workers := automationEmergencyProbeWorkers
 	if workers < 1 {
 		workers = 1
 	}
-	for offset := 0; offset < len(ordered) && scanCtx.Err() == nil; offset += workers {
+	freshCount := len(ordered)
+	for i, candidate := range ordered {
+		if automationEmergencyRecentFailures.active(candidate, time.Now().UTC()) {
+			freshCount = i
+			break
+		}
+	}
+	for offset := 0; offset < len(ordered) && scanCtx.Err() == nil; {
 		end := offset + workers
 		if end > len(ordered) {
 			end = len(ordered)
+		}
+		if offset < freshCount && end > freshCount {
+			end = freshCount
 		}
 		batch := ordered[offset:end]
 		probes := make([]bestServerProbeResult, len(batch))
@@ -417,6 +428,7 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 			setAutomationEmergencyScanCursor(0, len(filtered))
 			return result, nil
 		}
+		offset = end
 	}
 
 	advance := len(cohort)
