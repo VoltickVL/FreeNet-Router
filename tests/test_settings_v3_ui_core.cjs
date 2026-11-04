@@ -631,6 +631,34 @@ const server = http.createServer((req, res) => {
     assert.match(journalPage.copy, /AUTO VPN · Решение/, 'Top-3 decision must have an explicit stage');
     assert.match(journalPage.copy, /VPN 175 мс/, 'Top-3 decision metrics must remain visible');
 
+    // Keep a real user-opened details node through a 5-second poll and an
+    // incoming event above it. A replaced innerHTML closes native <details>.
+    const expandedJournalDetails = page.locator('#fn3JournalFull .fn3-journal-event-details').first();
+    await expandedJournalDetails.locator('summary').click();
+    const expandedJournalNode = await expandedJournalDetails.elementHandle();
+    assert.equal(await expandedJournalNode.evaluate(node => node.open && node.isConnected), true,
+      'Journal event details must be open before automatic refresh');
+    const getsBeforeRead = journalGets;
+    await page.waitForTimeout(5300);
+    assert.ok(journalGets > getsBeforeRead, 'live Journal must still poll while the event details are open');
+    assert.equal(await expandedJournalNode.evaluate(node => node.open && node.isConnected), true,
+      'automatic Journal refresh must preserve the existing expanded details node');
+
+    settings.events.unshift({at:'2026-09-12T11:36:00Z',kind:'subscription',result:'success',message:'NEW_EVENT while reading old details.'});
+    await page.locator('#fn3JournalRefresh').click();
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 9);
+    assert.equal(await expandedJournalNode.evaluate(node => node.open && node.isConnected), true,
+      'newer events inserted above must not close or replace an opened disclosure');
+    settings.events.shift();
+    await page.locator('#fn3JournalRefresh').click();
+    await page.waitForFunction(() => document.querySelectorAll('#fn3JournalFull .fn3-journal-event').length === 8);
+    assert.equal(await expandedJournalNode.evaluate(node => node.open && node.isConnected), true,
+      'return to the original page must preserve the same expanded event node');
+    await expandedJournalDetails.locator('summary').click();
+    assert.equal(await expandedJournalNode.evaluate(node => node.open), false,
+      'user must still be able to close the disclosure deliberately');
+
+
     // Full responsive audit of the same real Control Center DOM used by Journal,
     // Settings and Overview. A mobile viewport must never need sideways scrolling
     // to reach CSV, diagnostics, pause, refresh, date filters or pagination.
