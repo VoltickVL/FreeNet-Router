@@ -353,11 +353,10 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 
 	rttStarted := time.Now()
 	ordered, rttChecked, rttReachable, bestRTT := automationEmergencyFreshRTTOrder(scanCtx, a, cohort)
-	if manualCountry != "" {
-		// RTT orders candidates within each country tier. Never treat a faster
-		// foreign node as reason to override the operator's country in recovery.
-		ordered = automationEmergencyCountryFirst(ordered, manualCountry)
-	}
+	// Measured RTT ranks within a tier, never promotes a recently failed
+	// candidate ahead of fresh alternatives. The manual country preference
+	// continues to apply within both fresh and fallback cohorts.
+	ordered = automationEmergencyRecentFailures.applicationOrder(ordered, manualCountry, time.Now().UTC())
 	result.RTTPrefilterDuration = time.Since(rttStarted).Round(time.Millisecond)
 	result.RTTChecked = rttChecked
 	result.RTTReachable = rttReachable
