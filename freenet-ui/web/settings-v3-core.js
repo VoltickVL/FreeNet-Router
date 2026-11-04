@@ -905,6 +905,8 @@
         'Фактический DNS-путь: ' + (data.dns_runtime || 'unknown'),
         'Последняя проверка VPN: ' + (data.vpn_health || 'unknown') + (data.vpn_health_at ? ' · ' + data.vpn_health_at : ''),
         'Клиентский маршрут: ' + (data.client_egress || 'unknown'),
+        'TCP/UDP 443 устройства панели (conntrack): ' + ({'tcp-only':'только TCP', 'udp-only':'только UDP', 'tcp-and-udp':'TCP и UDP', 'no-443-flows':'нет записей в текущем снимке', 'unknown':'неизвестно'}[data.client_443_flows] || 'неизвестно'),
+        'Наблюдение conntrack не подтверждает QUIC, маршрут через VPN и передачу Instagram/Telegram; отсутствующие записи не означают отсутствие трафика.',
         'UDP/QUIC клиента: ' + (data.client_transport || 'unknown'),
         'Реальное воспроизведение: ' + (data.playback || 'unknown'),
         'Следующий необходимый факт: сравнить клиентский egress, CDN/DNS, UDP/QUIC и видео через приложение и через роутер.',
