@@ -31,6 +31,13 @@ type journalDiagnosticAuto struct {
 	QualityDegradedCount int    `json:"quality_degraded_count,omitempty"`
 	QualityDegradedSince string `json:"quality_degraded_since,omitempty"`
 	QualityOptimizationLast string `json:"quality_optimization_last,omitempty"`
+	// These are stored watchdog observations, not a live client playback test.
+	// The exact VPN identity hash is deliberately excluded from export.
+	QualityMediaCount *int `json:"quality_media_count,omitempty"`
+	QualityMediaSince string `json:"quality_media_since,omitempty"`
+	QualityMediaLast string `json:"quality_media_last,omitempty"`
+	QualityMediaHadGood string `json:"quality_media_had_good,omitempty"`
+	HealthMediaLast string `json:"health_media_last,omitempty"`
 }
 
 type journalDiagnosticUpdate struct {
@@ -88,6 +95,32 @@ func journalDiagnosticRedact(input string) string {
 	return strings.TrimSpace(s)
 }
 
+
+func journalDiagnosticMediaCount(raw string) *int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || value < 0 || value > automationMediaIntermittentMinObservations {
+		return nil // unknown, never silently coerce corrupt state to zero
+	}
+	return &value
+}
+
+func journalDiagnosticMediaTime(raw string, now time.Time) string {
+	stamp, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(raw))
+	if err != nil || stamp.IsZero() || stamp.After(now.Add(time.Minute)) {
+		return ""
+	}
+	return stamp.UTC().Format(time.RFC3339Nano)
+}
+
+func journalDiagnosticMediaGoodFlag(raw string) string {
+	// The actual state machine stores "yes" for interleaved healthy probes.
+	// Do not infer a "no" from absence or any other value.
+	if strings.TrimSpace(raw) == "yes" {
+		return "yes"
+	}
+	return ""
+}
+
 func journalDiagnosticSafeEvent(e automationEvent) automationEvent {
 	return automationEvent{
 		At: e.At, Kind: journalDiagnosticRedact(e.Kind),
@@ -141,6 +174,11 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 			QualityDegradedCount: qualityCount,
 			QualityDegradedSince: healthState["QUALITY_DEGRADED_SINCE"],
 			QualityOptimizationLast: healthState["QUALITY_OPTIMIZATION_LAST"],
+			QualityMediaCount: journalDiagnosticMediaCount(healthState["QUALITY_MEDIA_COUNT"]),
+			QualityMediaSince: journalDiagnosticMediaTime(healthState["QUALITY_MEDIA_SINCE"], now),
+			QualityMediaLast: journalDiagnosticMediaTime(healthState["QUALITY_MEDIA_LAST"], now),
+			QualityMediaHadGood: journalDiagnosticMediaGoodFlag(healthState["QUALITY_MEDIA_HAD_GOOD"]),
+			HealthMediaLast: journalDiagnosticMediaTime(healthState["HEALTH_MEDIA_LAST"], now),
 		},
 		Update: journalDiagnosticUpdate{
 			State: journalDiagnosticRedact(updateState["STATE"]),
@@ -160,6 +198,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 			"Historical observations only: no new VPN probe or router connectivity acceptance was performed.",
 			"Original on-disk journals are unchanged; these entries bypass display deduplication.",
 			"Only an allowlist of state fields is included; credentials and endpoint addresses are redacted.",
+			"Quality media counters are historical, bound internally to a hidden VPN identity and not proof of current client video playback, QUIC, or VPN egress. Missing fields mean UNKNOWN.",
 			"VPN transaction doctor compares checkpoint file contents in memory and exports only match states, never hashes or config contents.",
 			"Source counts indicate selected tail events, not all historical events.",
 			"Full technical archive: /api/journal/technical-archive contains 30 UTC days of date-based gzip JSONL with explicit truncation markers.",
