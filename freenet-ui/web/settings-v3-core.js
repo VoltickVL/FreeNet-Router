@@ -228,6 +228,15 @@
             <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small></div></div></div>
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
+          <section id="fn3QoECard" class="fn3-card fn3-qoe" aria-label="Диагностика воспроизведения">
+            <div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>Видео и связь — диагностика</h2><div class="fn3-sub">Снимок состояния FreeNet без изменения VPN, DNS или маршрутов.</div></div></div>
+            <div class="fn3-endpoint-schedule">
+              <label class="fn3-endpoint-copy" for="fn3QoEService"><strong>Какой сервис тормозит?</strong><small>Снимок не воспроизводит Reels и не перехватывает трафик устройства.</small></label>
+              <select id="fn3QoEService" aria-label="Проверяемый сервис"><option value="instagram">Instagram Reels</option><option value="telegram">Telegram</option></select>
+            </div>
+            <button id="fn3QoECapture" class="btn secondary" type="button">Снять диагностическое состояние</button>
+            <div id="fn3QoEResult" class="fn3-sub" role="status" aria-live="polite" style="white-space:pre-line;margin-top:12px">Маршрут клиента и качество видео пока не измерены.</div>
+          </section>
         </div>
         <section class="fn3-card fn3-extra fn3-section-collapsed"><div class="fn3-extra-title" role="button" tabindex="0" aria-expanded="false" aria-label="Системное обслуживание: скрыть или раскрыть"><span class="fn3-icon fn3-maintenance-icon">${svg('settings')}</span><div class="fn3-extra-summary"><h2>Системное обслуживание</h2><div class="fn3-sub">Обновления, служебные данные и резервные копии.</div></div><span class="fn3-section-chevron">${svg('chevron')}</span></div><div class="fn3-extra-grid">${extraCard('subscription','subscription','Обновление подписки','Автоматическое обновление данных подписки — списка доступных VPN.','Проверять','Проверить сейчас')}${extraCard('geodata','globe','GeoData / GeoIP','Данные геолокации, используемые для маршрутизации и фильтров.','Обновлять','Обновить сейчас')}${extraCard('freenet','box','Обновление FreeNet','Автоматическая проверка новых версий FreeNet. Установка — только после подтверждения.','Проверять','Проверить сейчас')}${backupCard()}</div><div class="fn3-extra-save-row"><button id="fn3MaintenanceSave" class="btn fn3-extra-save" type="button" disabled>${svg('save')}<span>Сохранено</span></button></div></section>
       </div>
@@ -874,8 +883,43 @@
     void loadCountryCatalog(true);
   }
 
+  // A user-triggered, passive snapshot. Never infer client playback, QUIC,
+  // DNS runtime or actual VPN egress from installed netfilter or Xray health.
+  async function captureQoEIncident() {
+    const button = q('#fn3QoECapture'), output = q('#fn3QoEResult');
+    if (!button || !output || button.disabled) return;
+    const selected = q('#fn3QoEService')?.value;
+    const service = selected === 'telegram' ? 'telegram' : 'instagram';
+    button.disabled = true;
+    output.textContent = 'Считываем доступные факты без изменения настроек…';
+    try {
+      const data = await fetchJSON('/api/qoe/incident?service=' + service, {method:'GET', cache:'no-store', credentials:'same-origin'});
+      output.textContent = [
+        'Сервис: ' + (service === 'instagram' ? 'Instagram Reels' : 'Telegram'),
+        'Время снимка: ' + (data.observed_at || 'неизвестно'),
+        'Kernel capture: ' + (data.capture_state || 'unknown'),
+        'TCP redirect: ' + (data.tcp_redirect || 'unknown'),
+        'TPROXY rules: ' + (data.kernel_tproxy || 'unknown'),
+        'Исключения LAN: ' + (data.lan_exclude || 'unknown'),
+        'DNS режим в конфигурации: ' + (data.dns_configured || 'unknown'),
+        'Фактический DNS-путь: ' + (data.dns_runtime || 'unknown'),
+        'Последняя проверка VPN: ' + (data.vpn_health || 'unknown') + (data.vpn_health_at ? ' · ' + data.vpn_health_at : ''),
+        'Клиентский маршрут: ' + (data.client_egress || 'unknown'),
+        'UDP/QUIC клиента: ' + (data.client_transport || 'unknown'),
+        'Реальное воспроизведение: ' + (data.playback || 'unknown'),
+        'Следующий необходимый факт: сравнить клиентский egress, CDN/DNS, UDP/QUIC и видео через приложение и через роутер.',
+        'MUTATION: ' + (data.mutation === 'NONE' ? 'NONE' : 'UNKNOWN')
+      ].join('\n');
+    } catch (_) {
+      output.textContent = 'Снимок недоступен: проверьте авторизованную сессию Control Center. Настройки не менялись.';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   function bind() {
     q('#fn3Save').onclick = save; q('#fn3MaintenanceSave').onclick = save; q('#fn3Check').onclick = checkAuto;
+    q('#fn3QoECapture').onclick = captureQoEIncident;
     document.addEventListener('freenet:controls-busy', event => {
       state.controlsBusy = !!event.detail;
       queueMicrotask(renderSave);
