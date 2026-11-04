@@ -251,6 +251,7 @@ func main() {
 	mux.HandleFunc("POST /api/network-profile/apply", a.requireAuth(a.handleNetworkProfileApply))
 	registerVPNOutboundDoctor(mux, a)
 	registerVPNTransactionDoctor(mux, a)
+	registerQoEIncident(mux, a)
 	registerXrayCoreReadOnlyDiagnostic(mux, a)
 	mux.HandleFunc("POST /api/xray/core/recover", a.requireAuth(a.handleXrayCoreRecovery))
 	mux.HandleFunc("POST /api/xray/probes/reconcile", a.requireAuth(a.handleXrayProbeReconcile))
