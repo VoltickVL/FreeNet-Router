@@ -38,8 +38,9 @@ type bestServerInternalCandidate struct {
 
 type bestServerProbeResult struct {
 	OK            bool
-	TransportOnly bool
-	Samples       []int
+	TransportOnly               bool
+	ConfirmedApplicationFailure bool
+	Samples                     []int
 	Median        int
 	Jitter        int
 }
