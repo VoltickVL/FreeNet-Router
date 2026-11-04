@@ -618,7 +618,13 @@ func journalEventIsRoutineAutoNoise(event automationEvent) bool {
 		return strings.Contains(message, "работают стабильно") ||
 			strings.Contains(message, "подтверждён как рабочий") ||
 			strings.Contains(message, "не требует смены") ||
-			strings.Contains(message, "не требует поиска замены")
+			strings.Contains(message, "не требует поиска замены") ||
+			// beta.75 distinguishes synthetic media from real Instagram playback.
+			// These successful observations remain available in live health state;
+			// neither is a switch, an incident, or proof of application QoE.
+			strings.HasPrefix(message, "vpn https и контрольные сервисы доступны; медиапередача в этой проверке не измерялась") ||
+			strings.HasPrefix(message, "vpn https и контрольные медиасегменты доступны; реальное воспроизведение instagram не проверялось") ||
+			strings.HasPrefix(message, "vpn https доступен; качество передачи видеосегментов пока не подтверждено")
 	default:
 		return false
 	}
@@ -1867,6 +1873,23 @@ func healthQualityJournalDecision(previous map[string]string, result automationH
 	if previous["HEALTH_RESULT"] == result.State && previous["HEALTH_MESSAGE"] == result.Reason {
 		return false, false
 	}
+	// Distinct beta.75 healthy messages are not distinct incidents. Keep a
+	// six-hour heartbeat on disk as well as in the compact UI, rather than
+	// writing every alternating 30-second synthetic probe result. The live
+	// HEALTH_LAST/RESULT/MESSAGE still advance on every completed check.
+	previousRoutine := journalEventIsRoutineAutoNoise(automationEvent{
+		Kind: "auto_vpn", Result: previous["HEALTH_RESULT"], Message: previous["HEALTH_MESSAGE"],
+	})
+	currentRoutine := journalEventIsRoutineAutoNoise(automationEvent{
+		Kind: "auto_vpn", Result: result.State, Message: result.Reason,
+	})
+	if previousRoutine && currentRoutine {
+		if last, err := time.Parse(time.RFC3339, previous["HEALTH_ROUTINE_LOG_LAST"]); err == nil &&
+			!now.Before(last) && now.Sub(last) < journalRoutineHeartbeatWindow {
+			return false, false
+		}
+		return true, false
+	}
 	oldQuality := journalEventIsPendingQualityObservation(automationEvent{
 		Kind: "auto_vpn", Result: previous["HEALTH_RESULT"], Message: previous["HEALTH_MESSAGE"],
 	})
@@ -1903,6 +1926,11 @@ func recordSettingsV3Health(result automationHealthResult) {
 	next := map[string]string{"HEALTH_LAST": stamp, "HEALTH_RESULT": result.State, "HEALTH_MESSAGE": result.Reason}
 	if qualityLog {
 		next["HEALTH_QUALITY_LOG_LAST"] = stamp
+	}
+	if emit && journalEventIsRoutineAutoNoise(automationEvent{
+		Kind: "auto_vpn", Result: result.State, Message: result.Reason,
+	}) {
+		next["HEALTH_ROUTINE_LOG_LAST"] = stamp
 	}
 	_ = v3WriteState(next)
 	if !emit {
