@@ -529,15 +529,38 @@
     return first.length > 145 ? first.slice(0, 142).trimEnd() + '…' : first;
   }
 
+  // Reuse DOM nodes for the same canonical event across live journal polls.
+  // Native <details> stays open, keeps keyboard focus and does not jump while
+  // new events are inserted above it. An event's identity includes its entire
+  // timestamp, kind, outcome and message, not its changing row position.
+  const journalRenderedRows = new Map();
+
+  function journalEventKey(event) {
+    return JSON.stringify([event?.at || '', event?.kind || '', event?.result || '', event?.message || '']);
+  }
+
   function renderJournal(events, target = '#fn3JournalFull') {
     const body = q(target); if (!body) return;
     const source = Array.isArray(events) ? events : [];
     const filtered = source.slice(0, target === '#fn3JournalFull' ? state.journalPageSize : 4);
     if (!filtered.length) {
+      journalRenderedRows.delete(target);
       body.innerHTML = '<div class="fn3-journal-empty">По текущему поиску и фильтрам событий нет.</div>';
       return;
     }
-    body.innerHTML = filtered.map(e => {
+    const previousRows = journalRenderedRows.get(target) || new Map();
+    const nextRows = new Map();
+    const occurrences = new Map();
+    const rowNodes = filtered.map(e => {
+      const fingerprint = journalEventKey(e);
+      const occurrence = occurrences.get(fingerprint) || 0;
+      occurrences.set(fingerprint, occurrence + 1);
+      const key = JSON.stringify([fingerprint, occurrence]);
+      const existing = previousRows.get(key);
+      if (existing) {
+        nextRows.set(key, existing);
+        return existing;
+      }
       const [result, msg, tone] = humanResult(e.result, e.message);
       const readableResult = journalResultLabel(e, result);
       const [kind, kindClass] = journalKind(e);
@@ -549,7 +572,8 @@
           `<details class="fn3-journal-event-details"><summary>Подробности события</summary><div class="fn3-journal-raw-message">${escapeHTML(msg)}</div></details>` : ''}</div>`;
       const toneClass = tone === 'ok' ? 'ok' : tone === 'bad' ? 'bad' : 'neutral';
       const resultClass = tone === 'ok' ? '' : tone === 'bad' ? 'bad' : 'neutral';
-      return `<article class="fn3-journal-event ${toneClass}">
+      const template = document.createElement('template');
+      template.innerHTML = `<article class="fn3-journal-event ${toneClass}">
         <div class="fn3-journal-event-rail"><span class="fn3-journal-event-dot"></span></div>
         <div class="fn3-journal-event-main">
           <div class="fn3-journal-event-top">
@@ -559,7 +583,17 @@
           ${messageMarkup}
         </div>
       </article>`;
-    }).join('');
+      const node = template.content.firstElementChild;
+      nextRows.set(key, node);
+      return node;
+    });
+    // Reorder only when needed; replacing innerHTML every five seconds used
+    // to close user-opened disclosures and reset focus while reading.
+    rowNodes.forEach((node, index) => {
+      if (body.children[index] !== node) body.insertBefore(node, body.children[index] || null);
+    });
+    while (body.children.length > rowNodes.length) body.lastElementChild.remove();
+    journalRenderedRows.set(target, nextRows);
   }
 
   function escapeHTML(value) { return String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
