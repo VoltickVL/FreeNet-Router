@@ -228,8 +228,8 @@
             <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small></div></div></div>
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
-          <section id="fn3QoECard" class="fn3-card fn3-qoe" aria-label="Диагностика воспроизведения">
-            <div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>Видео и связь — диагностика</h2><div class="fn3-sub">Снимок состояния FreeNet без изменения VPN, DNS или маршрутов.</div></div></div>
+          <section id="fn3QoECard" class="fn3-card fn3-qoe fn3-section-collapsed" aria-label="Диагностика воспроизведения">
+            <div class="fn3-card-head" role="button" tabindex="0" aria-expanded="false" aria-label="Видео и связь: скрыть или раскрыть"><div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>Видео и связь — диагностика</h2><div class="fn3-sub">Снимок состояния FreeNet без изменения VPN, DNS или маршрутов.</div></div></div></div>
             <div class="fn3-endpoint-schedule">
               <label class="fn3-endpoint-copy" for="fn3QoEService"><strong>Какой сервис тормозит?</strong><small>Снимок не воспроизводит Reels и не перехватывает трафик устройства.</small></label>
               <select id="fn3QoEService" aria-label="Проверяемый сервис"><option value="instagram">Instagram Reels</option><option value="telegram">Telegram</option></select>
