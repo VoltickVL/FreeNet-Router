@@ -37,12 +37,12 @@ type bestServerInternalCandidate struct {
 }
 
 type bestServerProbeResult struct {
-	OK            bool
+	OK                          bool
 	TransportOnly               bool
 	ConfirmedApplicationFailure bool
 	Samples                     []int
-	Median        int
-	Jitter        int
+	Median                      int
+	Jitter                      int
 }
 
 func safeBestServerError(err error) string {
