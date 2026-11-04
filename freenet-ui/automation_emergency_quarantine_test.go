@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
-	"sync"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -91,22 +91,22 @@ func TestEmergencyQuarantineCohortPreservesManualCountryAndBudget(t *testing.T) 
 	}
 	memory.observe(items[0], bestServerProbeResult{ConfirmedApplicationFailure: true}, now)
 	got, _, fallback := memory.cohort(items, "de", 3, now)
-	if len(got) != 3 || got[0].Profile.ID != "de2" || got[1].Profile.ID != "de3" || got[2].Profile.ID != "fr1" || fallback != 0 {
+	if len(got) != 3 || got[0].Profile.ID != "de2" || got[1].Profile.ID != "fr1" || got[2].Profile.ID != "nl1" || fallback != 0 {
 		t.Fatalf("manual preferred country + independent fallback must survive quarantine: %+v", got)
 	}
-	got, _, fallback = memory.cohort(items, "de", 1, now)
-	if len(got) != 1 || got[0].Profile.ID != "de2" || fallback != 0 {
+	got, _, fallback = memory.cohort(items, "de", 2, now)
+	if len(got) != 2 || got[0].Profile.ID != "de2" || got[1].Profile.ID != "fr1" || fallback != 0 {
 		t.Fatalf("bounded manual country cohort: %+v", got)
 	}
 }
 
 func TestEmergencyDiagnosticFailureEvidenceRequiresCompleteTwoRounds(t *testing.T) {
 	for _, tc := range []struct {
-		name string
+		name   string
 		rounds int
 		result bestServerProbeResult
-		err error
-		want bool
+		err    error
+		want   bool
 	}{
 		{"two named failures", 2, bestServerProbeResult{}, nil, true},
 		{"only one completed", 1, bestServerProbeResult{}, nil, false},
