@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
+	"sync"
 	"strings"
 	"testing"
 	"time"
@@ -131,5 +133,85 @@ func TestEmergencySelectionSummaryDoesNotClaimZeroPing(t *testing.T) {
 	summary = automationEmergencySelectionSummary(scan)
 	if !strings.Contains(summary, "VPN 78 мс") {
 		t.Fatalf("measured RTT must remain visible: %q", summary)
+	}
+}
+
+func TestEmergencyQuarantineIntegrationDoesNotSpendHTTPSOnRecentFailures(t *testing.T) {
+	resetEmergencyRTTCache(t)
+	dir := t.TempDir()
+	t.Setenv("FREENET_SETTINGS_V3_STATE", filepath.Join(dir, "settings.state"))
+
+	oldDiscover := automationEmergencyDiscoverCandidates
+	oldProbe := automationEmergencyCandidateProbe
+	oldRTT := automationEmergencyRTTProbe
+	automationEmergencyRecentFailures.Lock()
+	oldEntries := automationEmergencyRecentFailures.until
+	automationEmergencyRecentFailures.until = nil
+	automationEmergencyRecentFailures.Unlock()
+	t.Cleanup(func() {
+		automationEmergencyDiscoverCandidates = oldDiscover
+		automationEmergencyCandidateProbe = oldProbe
+		automationEmergencyRTTProbe = oldRTT
+		automationEmergencyRecentFailures.Lock()
+		automationEmergencyRecentFailures.until = oldEntries
+		automationEmergencyRecentFailures.Unlock()
+	})
+
+	bad1 := emergencyTestCandidate("bad1", "de")
+	bad2 := emergencyTestCandidate("bad2", "fr")
+	good := emergencyTestCandidate("good", "nl")
+	round := 0
+	automationEmergencyDiscoverCandidates = func(*app, context.Context) ([]bestServerInternalCandidate, bool, error) {
+		round++
+		if round == 1 || round == 3 {
+			return []bestServerInternalCandidate{bad1, bad2}, false, nil
+		}
+		return []bestServerInternalCandidate{bad1, bad2, good}, false, nil
+	}
+	automationEmergencyRTTProbe = func(_ *app, _ context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+		ms := 15
+		if candidate.Profile.ID == "good" {
+			ms = 300
+		}
+		return bestServerProbeResult{OK: true, Median: ms, Samples: []int{ms}}
+	}
+	var probes []string
+	var mu sync.Mutex
+	automationEmergencyCandidateProbe = func(_ *app, _ context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
+		mu.Lock()
+		probes = append(probes, candidate.Profile.ID)
+		mu.Unlock()
+		if candidate.Profile.ID == "good" {
+			return bestServerProbeResult{OK: true, Median: 350, Samples: []int{350}}
+		}
+		return bestServerProbeResult{ConfirmedApplicationFailure: true}
+	}
+	a := &app{cfg: config{
+		OutPath: filepath.Join(dir, "04_outbounds.json"),
+		FilterPath: filepath.Join(dir, "provider.filter"),
+	}}
+	settings := automationSettings{Mode: automationModeBest, Policy: automationPolicyDegraded, CountryScope: automationCountryRegion}
+
+	first, err := a.scanAutomationEmergencyReplacement(context.Background(), settings, "se")
+	if err != nil || first.Checked != 2 || first.Candidate.Profile.ID != "" {
+		t.Fatalf("first failure cohort: %+v %v", first, err)
+	}
+	mu.Lock()
+	probes = nil
+	mu.Unlock()
+	second, err := a.scanAutomationEmergencyReplacement(context.Background(), settings, "se")
+	if err != nil || second.Candidate.Profile.ID != "good" || second.Checked != 1 || second.Quarantined != 2 {
+		t.Fatalf("fresh candidate must win without retrying failed application exits: %+v %v", second, err)
+	}
+	mu.Lock()
+	gotProbes := append([]string(nil), probes...)
+	probes = nil
+	mu.Unlock()
+	if len(gotProbes) != 1 || gotProbes[0] != "good" {
+		t.Fatalf("unexpected repeated failed exit in fresh search: %v", gotProbes)
+	}
+	third, err := a.scanAutomationEmergencyReplacement(context.Background(), settings, "se")
+	if err != nil || third.Checked != 2 || third.Candidate.Profile.ID != "" || third.Quarantined != 2 {
+		t.Fatalf("quarantine alone must not prevent recovery attempt when all alternatives were bad: %+v %v", third, err)
 	}
 }
