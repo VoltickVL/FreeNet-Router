@@ -29,6 +29,7 @@ type qoeIncidentSnapshot struct {
 	VPNHealthAt     string `json:"vpn_health_at,omitempty"`
 	ClientEgress    string `json:"client_egress"`
 	ClientTransport string `json:"client_transport"`
+	Client443Flows string `json:"client_443_flows"`
 	Playback        string `json:"playback"`
 	NextEvidence    string `json:"next_evidence"`
 }
@@ -78,6 +79,7 @@ func buildQoEIncidentSnapshot(service, dns string, capture captureDoctorResponse
 		ClientEgress: "unknown",
 		ClientTransport: "unknown",
 		Playback: "unknown",
+		Client443Flows: "unknown",
 		NextEvidence: "client-egress-dns-cdn-udp-quic-playback",
 	}
 }
@@ -98,8 +100,10 @@ func (a *app) handleQoEIncident(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	capture := captureDoctorClassify(ctx, captureDoctorRead, xrayDiagnosticHookState("/opt/etc/ndm/netfilter.d/proxy.sh"))
 	capture.LANExclude, capture.LANExcludeReason = captureDoctorLANExclude(ctx, captureDoctorRead, os.ReadFile)
-	writeJSON(w, http.StatusOK, buildQoEIncidentSnapshot(
+	snapshot := buildQoEIncidentSnapshot(
 		service, readDNSModeConfig(a.cfg.ConfigPath), capture,
 		v3ParseState(settingsV3StatePath()), time.Now().UTC(),
-	))
+	)
+	snapshot.Client443Flows = qoeReadClient443(r, qoeReadProcConntrack)
+	writeJSON(w, http.StatusOK, snapshot)
 }
