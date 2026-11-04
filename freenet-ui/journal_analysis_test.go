@@ -90,6 +90,45 @@ func TestJournalCompactsRoutineAutoNoiseButKeepsHeartbeat(t *testing.T) {
 	}
 }
 
+
+func TestJournalBeta75HealthyMessagesAreRoutineButIncidentsAreNot(t *testing.T) {
+	messages := []string{
+		"VPN HTTPS и контрольные сервисы доступны; медиапередача в этой проверке не измерялась. Это не подтверждение качества видео Instagram.",
+		"VPN HTTPS и контрольные медиасегменты доступны; реальное воспроизведение Instagram не проверялось.",
+		"VPN HTTPS доступен; качество передачи видеосегментов пока не подтверждено. Это не доказательство отсутствия буферизации Instagram.",
+	}
+	for _, message := range messages {
+		if !journalEventIsRoutineAutoNoise(automationEvent{Kind: "auto_vpn", Result: "success", Message: message}) {
+			t.Fatalf("beta.75 healthy result was not classified as routine: %q", message)
+		}
+		for _, event := range []automationEvent{
+			{Kind: "auto_vpn", Result: "uncertain", Message: message},
+			{Kind: "auto_vpn", Result: "incident:recovered", Message: message},
+			{Kind: "VPN", Result: "success", Message: message},
+			{Kind: "auto_vpn", Result: "success", Message: "PRIMARY ERROR: failure; " + message},
+		} {
+			if journalEventIsRoutineAutoNoise(event) {
+				t.Fatalf("non-routine incident/manual/failed result was suppressed: %+v", event)
+			}
+		}
+	}
+	events := []automationEvent{
+		{At: "2026-11-04T12:05:00Z", Kind: "auto_vpn", Result: "success", Message: messages[0]},
+		{At: "2026-11-04T12:04:00Z", Kind: "auto_vpn", Result: "success", Message: messages[1]},
+		{At: "2026-11-04T12:03:00Z", Kind: "auto_vpn", Result: "success", Message: messages[0]},
+		{At: "2026-11-04T12:02:00Z", Kind: "auto_vpn", Result: "success", Message: messages[1]},
+		{At: "2026-11-04T12:01:00Z", Kind: "AUTO VPN", Result: "incident:recovered", Message: "VPN-интернет восстановлен"},
+	}
+	got := compactRoutineJournalEvents(events)
+	if len(got) != 3 {
+		t.Fatalf("beta.75 healthy chatter must reduce to two heartbeats and the complete recovery: %+v", got)
+	}
+	if got[0].Message != messages[0] || got[1].Message != messages[1] ||
+		got[2].Result != "incident:recovered" {
+		t.Fatalf("compaction reordered or suppressed a real recovery: %+v", got)
+	}
+}
+
 func TestJournalCompactsPendingQualityAcrossChangingMetrics(t *testing.T) {
 	events := []automationEvent{
 		{At:"2026-10-08T12:00:00Z", Kind:"auto_vpn", Result:"uncertain", Message:"VPN отвечает, но качество соединения ухудшено: отклик 204 мс, сервисы 4/4. AUTO VPN накапливает подтверждение деградации."},
