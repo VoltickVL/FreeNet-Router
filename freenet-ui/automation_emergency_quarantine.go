@@ -127,3 +127,23 @@ func (memory *automationEmergencyFailureMemory) cohort(candidates []bestServerIn
 	}
 	return selected, len(cooling), fallback
 }
+
+// Fresh candidates always receive application admission before quarantined
+// reserves, regardless of their lower measured RTT. Country preference is
+// preserved *within* each tier and cannot resurrect a known-bad endpoint first.
+func (memory *automationEmergencyFailureMemory) applicationOrder(candidates []bestServerInternalCandidate, manualCountry string, now time.Time) []bestServerInternalCandidate {
+	fresh := make([]bestServerInternalCandidate, 0, len(candidates))
+	cooling := make([]bestServerInternalCandidate, 0)
+	for _, candidate := range candidates {
+		if memory.active(candidate, now) {
+			cooling = append(cooling, candidate)
+		} else {
+			fresh = append(fresh, candidate)
+		}
+	}
+	if manualCountry != "" {
+		fresh = automationEmergencyCountryFirst(fresh, manualCountry)
+		cooling = automationEmergencyCountryFirst(cooling, manualCountry)
+	}
+	return append(fresh, cooling...)
+}
