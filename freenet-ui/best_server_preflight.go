@@ -154,12 +154,20 @@ func selectBestServerRTTShortlistIndexes(candidates []bestServerInternalCandidat
 	return selected
 }
 
-// probeBestServerApplicationPreflight is retained only for VPN Outbound Doctor.
-// Diagnostics keeps two named-origin application samples. Canonical Best Server
-// ranking intentionally does not duplicate those deep acceptance checks.
+// A failed HTTP result is not evidence when the probe was interrupted or
+// the isolated Xray/SOCKS worker could not be started. This classification is
+// used only inside the callback of a successfully started isolated probe.
+func bestServerConfirmedDiagnosticFailure(completed int, result bestServerProbeResult, ctxErr error) bool {
+	return completed == bestServerDiagnosticHTTPRuns && !result.OK && ctxErr == nil
+}
+
+// probeBestServerApplicationPreflight is retained for VPN Outbound Doctor and
+// emergency application readiness. Two complete named HTTPS rounds are needed
+// before an emergency miss may enter the short, reversible candidate memory.
 func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate bestServerInternalCandidate) bestServerProbeResult {
 	return a.withBestServerCandidateSOCKS(ctx, candidate, func(ctx context.Context, curlPath, socks string) bestServerProbeResult {
 		samples := make([]int, 0, bestServerDiagnosticHTTPRuns)
+		completed := 0
 		for run := 0; run < bestServerDiagnosticHTTPRuns; run++ {
 			if ctx.Err() != nil {
 				break
@@ -167,11 +175,15 @@ func (a *app) probeBestServerApplicationPreflight(ctx context.Context, candidate
 			if ms, _, ok := probeBestServerHTTPAny(ctx, curlPath, socks); ok {
 				samples = append(samples, ms)
 			}
+			if ctx.Err() == nil {
+				completed++
+			}
 		}
 		result := summarizeBestServerSamples(samples, 1)
 		if !result.OK && probeBestServerTransportIP(ctx, curlPath, socks) {
 			result.TransportOnly = true
 		}
+		result.ConfirmedApplicationFailure = bestServerConfirmedDiagnosticFailure(completed, result, ctx.Err())
 		return result
 	})
 }

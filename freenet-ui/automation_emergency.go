@@ -28,6 +28,8 @@ type automationEmergencyScanResult struct {
 	AfterCurrent         int
 	Foreign              int
 	Total                int
+	Quarantined          int
+	QuarantineFallback   int
 	RTTChecked           int
 	RTTReachable         int
 	BestRTTMS            int
@@ -340,22 +342,21 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 	// Advance through *all* allowed candidates across failed recovery cycles:
 	// a large same-country pool must not trap the watchdog on the same eight.
 	cohort = rotateAutomationEmergencyCandidates(cohort, cursor)
-	if manualCountry != "" {
-		cohort = automationEmergencyManualCountryCohort(cohort, manualCountry, automationEmergencyCandidateLimit)
-	} else if len(cohort) > automationEmergencyCandidateLimit {
-		cohort = cohort[:automationEmergencyCandidateLimit]
-	}
+	// Quarantine is never a hard block: fill spare cohort slots with recently
+	// failed nodes, or use them all if no fresh alternatives exist.
+	cohort, result.Quarantined, result.QuarantineFallback = automationEmergencyRecentFailures.cohort(
+		cohort, manualCountry, automationEmergencyCandidateLimit, time.Now().UTC(),
+	)
 
 	scanCtx, cancelScan := context.WithTimeout(parent, automationEmergencyScanTimeout)
 	defer cancelScan()
 
 	rttStarted := time.Now()
 	ordered, rttChecked, rttReachable, bestRTT := automationEmergencyFreshRTTOrder(scanCtx, a, cohort)
-	if manualCountry != "" {
-		// RTT orders candidates within each country tier. Never treat a faster
-		// foreign node as reason to override the operator's country in recovery.
-		ordered = automationEmergencyCountryFirst(ordered, manualCountry)
-	}
+	// Measured RTT ranks within a tier, never promotes a recently failed
+	// candidate ahead of fresh alternatives. The manual country preference
+	// continues to apply within both fresh and fallback cohorts.
+	ordered = automationEmergencyRecentFailures.applicationOrder(ordered, manualCountry, time.Now().UTC())
 	result.RTTPrefilterDuration = time.Since(rttStarted).Round(time.Millisecond)
 	result.RTTChecked = rttChecked
 	result.RTTReachable = rttReachable
@@ -369,20 +370,32 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 		return result, nil
 	}
 
-	// Application acceptance runs in RTT-priority batches. Two candidates may
-	// be probed in parallel for latency, but a higher-RTT candidate cannot beat
-	// a lower-RTT successful candidate from the same batch.
+	// Application admission runs in bounded RTT-priority batches within
+	// each freshness tier. Do not probe quarantined reserves concurrently with
+	// the last fresh candidate: a successful fresh HTTPS probe must end the
+	// search without spending an application slot on a known-bad exit.
 	workers := automationEmergencyProbeWorkers
 	if workers < 1 {
 		workers = 1
 	}
-	for offset := 0; offset < len(ordered) && scanCtx.Err() == nil; offset += workers {
+	freshCount := len(ordered)
+	for i, candidate := range ordered {
+		if automationEmergencyRecentFailures.active(candidate, time.Now().UTC()) {
+			freshCount = i
+			break
+		}
+	}
+	for offset := 0; offset < len(ordered) && scanCtx.Err() == nil; {
 		end := offset + workers
 		if end > len(ordered) {
 			end = len(ordered)
 		}
+		if offset < freshCount && end > freshCount {
+			end = freshCount
+		}
 		batch := ordered[offset:end]
 		probes := make([]bestServerProbeResult, len(batch))
+		completed := make([]bool, len(batch))
 		var wg sync.WaitGroup
 		for index := range batch {
 			wg.Add(1)
@@ -393,6 +406,7 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 				}
 				probeCtx, cancel := context.WithTimeout(scanCtx, automationEmergencyCandidateTimeout)
 				probes[i] = automationEmergencyCandidateProbe(a, probeCtx, batch[i])
+				completed[i] = probeCtx.Err() == nil && scanCtx.Err() == nil
 				cancel()
 			}(index)
 		}
@@ -400,6 +414,11 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 
 		for index, probe := range probes {
 			result.Checked++
+			if completed[index] {
+				// Only a completed, two-round negative application result is held.
+				// Never hold UNKNOWN, canceled or RTT-only failures.
+				automationEmergencyRecentFailures.observe(batch[index], probe, time.Now().UTC())
+			}
 			if !probe.OK {
 				continue
 			}
@@ -409,6 +428,7 @@ func (a *app) scanAutomationEmergencyReplacement(parent context.Context, setting
 			setAutomationEmergencyScanCursor(0, len(filtered))
 			return result, nil
 		}
+		offset = end
 	}
 
 	advance := len(cohort)
@@ -447,9 +467,13 @@ func automationEmergencySelectionSummary(scan automationEmergencyScanResult) str
 	if name == "" {
 		name = "VPN"
 	}
+	vpnPing := "VPN не измерен"
+	if scan.Candidate.VPNRTTMS > 0 {
+		vpnPing = fmt.Sprintf("VPN %d мс", scan.Candidate.VPNRTTMS)
+	}
 	return fmt.Sprintf(
-		"AUTO VPN emergency fast-path: fresh VPN-ping → application-ready replacement — %s [VPN %d мс; сайты %d мс]; pool=%d; rtt_checked=%d; rtt_reachable=%d; app_checked=%d; app_reachable=%d; full quality scan отложен до восстановления интернета.",
-		name, scan.Candidate.VPNRTTMS, scan.ApplicationMS, scan.Total, scan.RTTChecked, scan.RTTReachable, scan.Checked, scan.Reachable,
+		"AUTO VPN emergency fast-path: fresh VPN-ping → application-ready replacement — %s [%s; сайты %d мс]; pool=%d; quarantined=%d; quarantine_fallback=%d; rtt_checked=%d; rtt_reachable=%d; app_checked=%d; app_reachable=%d; full quality scan отложен до восстановления интернета.",
+		name, vpnPing, scan.ApplicationMS, scan.Total, scan.Quarantined, scan.QuarantineFallback, scan.RTTChecked, scan.RTTReachable, scan.Checked, scan.Reachable,
 	)
 }
 
