@@ -154,6 +154,16 @@ func (a *app) handleVisionQUICTry(w http.ResponseWriter,r *http.Request) {
 		_ = os.RemoveAll(a.cfg.LockPath)
 		reply.Status="lock-owner-failed";writeJSON(w,http.StatusConflict,reply);return
 	}
+	// Close the race between the original read-only plan/preflight and the
+	// acquired shared writer lock. A changed config must never be overwritten.
+	lockedInfo,lockedErr:=os.Lstat(a.cfg.OutPath)
+	lockedBytes,readErr:=os.ReadFile(a.cfg.OutPath)
+	if lockedErr!=nil || readErr!=nil || !lockedInfo.Mode().IsRegular() ||
+		visionQUICDigest(lockedBytes)!=visionQUICDigest(before) {
+		visionQUICReleaseOwnedLock(a.cfg.LockPath)
+		reply.Status="source-changed-before-apply"
+		writeJSON(w,http.StatusConflict,reply);return
+	}
 	defer func() {
 		// Never release the shared writer lock when rollback is UNKNOWN.
 		// The on-disk checkpoint must remain a hard STOP for all writers.
@@ -174,7 +184,7 @@ func (a *app) handleVisionQUICTry(w http.ResponseWriter,r *http.Request) {
 	defer cancelRun()
 	restore:=func() error {return a.visionQUICRollback(a.visionQUICRestart)}
 	status:=http.StatusOK
-	if err:=atomicWrite(a.cfg.OutPath,candidate,0600);err!=nil {
+	if err:=atomicWrite(a.cfg.OutPath,candidate,lockedInfo.Mode().Perm());err!=nil {
 		reply.Status="candidate-write-failed"
 		status=http.StatusBadGateway
 		// This invocation has not requested a core restart. If the original
