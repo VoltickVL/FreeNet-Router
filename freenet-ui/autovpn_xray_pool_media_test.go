@@ -81,3 +81,21 @@ func TestFreeNetPoolMediaIntermittentNeedsExtraObservations(t *testing.T) {
     next:=freeNetAutoPoolPlanMedia(state,now.Add(11*time.Minute),identity,slow)
     if !next.Due {t.Fatalf("three independent slow observations in full window should permit comparison: %+v",next)}
 }
+
+func TestFreeNetAutoPoolOriginalFallbackRequiresIndependentProof(t *testing.T) {
+    base:=automationHealthProbe{State:automationHealthHealthy,CurrentIdentity:sha256Hex([]byte("original"))}
+    if !freeNetAutoPoolOriginalApproved(base,false) {t.Fatal("independently verified HTTPS original should be available for hard outage")}
+    if freeNetAutoPoolOriginalApproved(base,true) {t.Fatal("HTTPS-only proof cannot authorize media-quality fallback")}
+    base.MediaComplete=true
+    base.ServiceComplete=true
+    if !freeNetAutoPoolOriginalApproved(base,true) {t.Fatal("complete healthy media evidence should permit original fallback")}
+    for _,modified:=range []automationHealthProbe{
+        {State:automationHealthUncertain,CurrentIdentity:base.CurrentIdentity,MediaComplete:true,ServiceComplete:true},
+        {State:automationHealthHealthy,CurrentIdentity:"",MediaComplete:true,ServiceComplete:true},
+        {State:automationHealthHealthy,CurrentIdentity:base.CurrentIdentity,MediaComplete:true,MediaDegraded:true,ServiceComplete:true},
+        {State:automationHealthHealthy,CurrentIdentity:base.CurrentIdentity,MediaComplete:true,QualityDegraded:true,ServiceComplete:true},
+        {State:automationHealthHealthy,CurrentIdentity:base.CurrentIdentity,MediaComplete:true,ServiceComplete:false},
+    } {
+        if freeNetAutoPoolOriginalApproved(modified,true){t.Fatalf("unsafe original preflight admitted: %+v",modified)}
+    }
+}
