@@ -389,6 +389,10 @@ func (a *app) validateConfigStudioLive(parent context.Context) error {
 }
 
 func (a *app) handleConfigStudioApply(w http.ResponseWriter, r *http.Request) {
+	if !freeNetAutoPoolPathAbsent(freeNetAutoPoolActive()) || !freeNetAutoPoolPathAbsent(freeNetAutoPoolPending()) {
+		writeJSON(w,http.StatusConflict,configStudioMutationResponse{Success:false,Mutation:"NONE",Rollback:"NOT_APPLIED",Error:"AutoVPN live pool is active; safely disable it before changing Xray configuration"})
+		return
+	}
 	if a.mutationBlockedBySelfUpdate(w) {
 		return
 	}
