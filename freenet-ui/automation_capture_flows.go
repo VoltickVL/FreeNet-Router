@@ -34,10 +34,22 @@ func automationCaptureFlowCount(raw, table string) (tcpPackets, udpPackets, tcpR
 	}
 	for _, rawLine := range strings.Split(raw, "\n") {
 		fields := strings.Fields(strings.ToLower(rawLine))
+		if len(fields) == 0 { continue }
+		// Real Entware iptables-save -c emits:
+		// [packets:bytes] -A PREROUTING ... -j xkeen
+		// Some backends may emit -A ... -j xkeen -c packets bytes.
+		// Support either exact form, never derive an activity signal from
+		// a truncated or ambiguous counter record.
+		prefixCounters := ""
+		if strings.HasPrefix(fields[0],"[") {
+			prefixCounters = fields[0]
+			fields = fields[1:]
+		}
 		if len(fields) < 2 || fields[0] != "-a" || fields[1] != "prerouting" {
 			continue
 		}
 		proto, target, packetValue, byteValue := "", "", "", ""
+		suffixCounters := false
 		for i := 2; i < len(fields); i++ {
 			switch fields[i] {
 			case "-p":
@@ -45,6 +57,7 @@ func automationCaptureFlowCount(raw, table string) (tcpPackets, udpPackets, tcpR
 			case "-j":
 				if i+1 < len(fields) { target = fields[i+1] }
 			case "-c":
+				suffixCounters = true
 				if i+2 < len(fields) { packetValue,byteValue = fields[i+1],fields[i+2] }
 			}
 		}
@@ -55,6 +68,14 @@ func automationCaptureFlowCount(raw, table string) (tcpPackets, udpPackets, tcpR
 		// Emergency INVALID-only and DSCP-only hooks are not evidence
 		// of normal client traffic reaching the default interceptor.
 		if captureDoctorSpecialOnlyTCPRule(fields) { continue }
+		if prefixCounters != "" {
+			if suffixCounters || !strings.HasSuffix(prefixCounters,"]") {
+				return 0, 0, 0, 0, false
+			}
+			values := strings.Split(prefixCounters[1:len(prefixCounters)-1],":")
+			if len(values)!=2 { return 0, 0, 0, 0, false }
+			packetValue,byteValue = values[0],values[1]
+		}
 		if packetValue == "" || byteValue == "" { return 0, 0, 0, 0, false }
 		n, err := strconv.ParseUint(packetValue, 10, 64)
 		if err != nil || n > automationCaptureFlowMaxPackets { return 0, 0, 0, 0, false }
