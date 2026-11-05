@@ -227,20 +227,30 @@
             </div>
             <div class="fn3-safety">${svg('shield')}<span id="fn3SafetyText">Рабочий VPN не меняется без причины. Все переключения выполняются только при подтверждённом сбое, с проверкой и автоматическим возвратом при необходимости.</span></div>
             <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small><small id="fn3ClientCaptureStatus">Перехват устройств: ожидание автоматического снимка</small><small id="fn3ClientHookPackets">Пакеты LAN в XKeen: ожидание двух снимков (без проверки видео)</small></div></div></div>
-            <div class="fn3-endpoint-schedule" role="group" aria-label="Устойчивый AUTO VPN без перезапуска">
-              <div class="fn3-endpoint-copy"><strong>Стабильный пул VPN — без разрыва при переключении</strong><small>FreeNet сохранит текущий сервер и подготовит до двух проверенных резервов. Один контролируемый перезапуск Xray нужен только при первом включении или полном выключении. Дальнейшие переключения — через API без рестартов.</small></div>
-              <div class="fn3-auto-actions">
-                <button id="fn3PoolPrepare" class="btn secondary" type="button">Подобрать резервные VPN</button>
-                <button id="fn3PoolActivate" class="btn primary" type="button" disabled>Включить пул</button>
-                <button id="fn3PoolRefresh" class="btn secondary" type="button">Проверить состояние</button>
+
+            <section class="fn3-pool" role="group" aria-label="Стабильный пул VPN">
+              <div class="fn3-pool-copy">
+                <h3>Стабильный пул VPN</h3>
+                <p>Текущий сервер и до двух проверенных резервов. При первом включении — один контролируемый перезапуск Xray. Дальнейшая смена узла проходит без перезапуска.</p>
               </div>
-              <div class="fn3-auto-actions">
-                <select id="fn3PoolNode" aria-label="Выход VPN в активном пуле" disabled><option value="">Сначала включите пул</option></select>
-                <button id="fn3PoolSwitch" class="btn secondary" type="button" disabled>Переключить без рестарта</button>
-                <button id="fn3PoolDisable" class="btn secondary" type="button" disabled>Вернуть исходный VPN</button>
+              <div class="fn3-pool-step">
+                <span class="fn3-pool-step-label">Подготовка и включение</span>
+                <div class="fn3-pool-actions">
+                  <button id="fn3PoolPrepare" class="btn secondary" type="button">1. Подобрать резервы</button>
+                  <button id="fn3PoolActivate" class="btn primary" type="button" disabled>2. Включить пул</button>
+                  <button id="fn3PoolRefresh" class="btn secondary" type="button">Проверить состояние</button>
+                </div>
               </div>
-              <div id="fn3PoolStatus" role="status" aria-live="polite" class="fn3-sub">Проверяем наличие устойчивого пула. Рабочий VPN не изменён.</div>
-            </div>
+              <div class="fn3-pool-step">
+                <label class="fn3-pool-step-label" for="fn3PoolNode">Выбор сервера действующего пула</label>
+                <div class="fn3-pool-runtime">
+                  <select id="fn3PoolNode" aria-label="Выход VPN в активном пуле" disabled><option value="">Сначала включите пул</option></select>
+                  <button id="fn3PoolSwitch" class="btn secondary" type="button" disabled>Переключить без рестарта</button>
+                  <button id="fn3PoolDisable" class="btn secondary" type="button" disabled>Вернуть исходный VPN</button>
+                </div>
+              </div>
+              <div id="fn3PoolStatus" class="fn3-pool-status" role="status" aria-live="polite" data-tone="neutral">Пул пока не включён. Подбор резервов не меняет сеть.</div>
+            </section>
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
           <section id="fn3QoECard" class="fn3-card fn3-qoe fn3-section-collapsed" aria-label="Диагностика воспроизведения">
