@@ -1097,6 +1097,14 @@ func (a *app) runAutomationBestCycleWithIntent(parent context.Context, settings 
 	if !manual && !settings.Enabled {
 		return automationBestCycleResult{Result: "disabled", Reason: "AUTO VPN выключен."}, nil
 	}
+	// A prepared live pool can only be changed by its guarded balancer
+	// controller. Never run legacy apply-core/provider switch while it exists.
+	if !freeNetAutoPoolPathAbsent(freeNetAutoPoolActive()) ||
+		!freeNetAutoPoolPathAbsent(freeNetAutoPoolPending()) {
+		reason:="Пул Xray запущен: обычная смена через restart запрещена; автоматическое аварийное переключение выполняет отдельный live watchdog."
+		if qualityIntent {reason="Пул Xray запущен: старый статический media-scan не доказывает текущий выбранный выход; повторное переключение без измерения запрещено."}
+		return automationBestCycleResult{Result:"uncertain",Reason:reason,RollbackState:"NOT_APPLIED"},nil
+	}
 	releaseHealth, err := acquireAutomationHealthLock()
 	if err != nil {
 		return automationBestCycleResult{Result: "busy", Reason: "Проверка пропущена: другая AUTO VPN health/recovery операция уже выполняется."}, nil
