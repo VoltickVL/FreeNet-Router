@@ -1,7 +1,6 @@
 package main
 
 import (
-    "bytes"
     "context"
     "errors"
     "os"
@@ -35,6 +34,7 @@ func validateFreeNetAutoPoolCandidateWith(
     defer os.RemoveAll(tempDir)
     if os.Chmod(tempDir,0700)!=nil{return errors.New("private pool staging unavailable")}
     seenOutbound:=false;seenRouting:=false
+    originalHashes:=map[string]string{}
     for _,entry:=range entries {
         name:=entry.Name()
         if !strings.HasSuffix(name,".json") && !strings.HasSuffix(name,".jsonc"){continue}
@@ -56,6 +56,7 @@ func validateFreeNetAutoPoolCandidateWith(
             !again.ModTime().Equal(info.ModTime()) {
             return errors.New("Xray source changed during candidate staging")
         }
+        originalHashes[name]=sha256Hex(original)
         if name=="04_outbounds.json" {original=candidate.Outbounds;seenOutbound=true}
         if name=="05_routing.json" {original=candidate.Routing;seenRouting=true}
         if len(original)==0 || os.WriteFile(filepath.Join(tempDir,name),original,0600)!=nil {
@@ -70,13 +71,12 @@ func validateFreeNetAutoPoolCandidateWith(
     if err:=validate(testCtx,tempDir);err!=nil || testCtx.Err()!=nil {
         return errors.New("full Xray candidate validation failed")
     }
-    // Verify the originally read live fragments remain exactly identical.
-    // A read-only plan is not a mutation, but an unstable source is not READY.
-    for _,name:=range []string{"04_outbounds.json","05_routing.json"} {
+    // A file changed during the preflight invalidates the whole plan.
+    // Compare EVERY live fragment, not just the two modified fragments.
+    for name,expectedSHA:=range originalHashes {
         live,err:=os.ReadFile(filepath.Join(liveDir,name))
-        stage,stageErr:=os.ReadFile(filepath.Join(tempDir,name))
-        if err!=nil||stageErr!=nil||bytes.Equal(live,stage){
-            return errors.New("AutoVPN candidate source verification failed")
+        if err!=nil || sha256Hex(live)!=expectedSHA {
+            return errors.New("Xray source changed while validating candidate")
         }
     }
     return nil
