@@ -29,7 +29,7 @@ func freeNetAutoPoolAlternative(t *testing.T) map[string]any {
 
 func TestFreeNetAutoPoolCompilesOnlyVPNRules(t *testing.T) {
  alt:=freeNetAutoPoolAlternative(t)
- p,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt},"127.0.0.1:10085")
+ p,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt},"127.0.0.1:10085","127.0.0.1:10086")
  if err!=nil{t.Fatal(err)}
  if p.MigratedRules!=1 || len(p.Tags)!=2 ||
    p.Tags[0]!="vless-reality" || p.Tags[1]!="freenet-auto-node-1"{
@@ -55,7 +55,7 @@ func TestFreeNetAutoPoolCompilesOnlyVPNRules(t *testing.T) {
   } `json:"routing"`
  }
  if err:=json.Unmarshal(p.Routing,&routing);err!=nil{t.Fatal(err)}
- if len(routing.Routing.Rules)!=2 || len(routing.Routing.Balancers)!=1 {
+ if len(routing.Routing.Rules)!=3 || len(routing.Routing.Balancers)!=1 {
   t.Fatal("routing scope changed")
  }
  var routingRoot map[string]json.RawMessage
@@ -71,14 +71,18 @@ func TestFreeNetAutoPoolCompilesOnlyVPNRules(t *testing.T) {
  if len(obs.SubjectSelector)!=2 || obs.ProbeInterval!="60s" {
   t.Fatal("leastPing needs its matching, bounded observatory")
  }
- if _,exists:=routingRoot["inbounds"];exists {
-  t.Fatal("simplified loopback API must not create a public inbound")
+ var probes []struct {Tag string `json:"tag"`; Listen string `json:"listen"`; Port int `json:"port"`; Protocol string `json:"protocol"`}
+ if err:=json.Unmarshal(routingRoot["inbounds"],&probes);err!=nil{t.Fatal(err)}
+ if len(probes)!=1||probes[0].Tag!=freeNetAutoProbeTag||
+  probes[0].Listen!="127.0.0.1"||probes[0].Port!=10086||probes[0].Protocol!="socks"{
+  t.Fatal("live HTTPS probe must be a loopback-only SOCKS inbound")
  }
- if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[0]["outboundTag"]),[]byte(`"direct"`)){
+ if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[0]["balancerTag"]),[]byte(`"freenet-auto-vpn"`)) {t.Fatal("live probe must use the VPN balancer")}
+ if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[2]["outboundTag"]),[]byte(`"direct"`)){
   t.Fatal("DIRECT rule unexpectedly rewritten")
  }
- if _,ok:=routing.Routing.Rules[1]["outboundTag"];ok {t.Fatal("old VPN outboundTag retained")}
- if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[1]["balancerTag"]),[]byte(`"freenet-auto-vpn"`)){
+ if _,ok:=routing.Routing.Rules[2]["outboundTag"];ok {t.Fatal("old VPN outboundTag retained")}
+ if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[2]["balancerTag"]),[]byte(`"freenet-auto-vpn"`)){
   t.Fatal("VPN routing did not switch to balancer")
  }
  bal:=routing.Routing.Balancers[0]
@@ -108,7 +112,7 @@ func TestFreeNetAutoPoolFailClosedForUnknownOrConflictingLayouts(t *testing.T) {
  }
  for _,tc:=range tests{
   t.Run(tc.name,func(t *testing.T){
-   candidate,err:=buildFreeNetAutoPoolCandidate([]byte(tc.out),[]byte(tc.rout),tc.alts,"127.0.0.1:10085")
+   candidate,err:=buildFreeNetAutoPoolCandidate([]byte(tc.out),[]byte(tc.rout),tc.alts,"127.0.0.1:10085","127.0.0.1:10086")
    if err==nil{t.Fatalf("unsafe pool admitted: tags=%v",candidate.Tags)}
    if len(candidate.Outbounds)!=0||len(candidate.Routing)!=0{
     t.Fatal("rejected candidate returned executable output")
@@ -122,7 +126,7 @@ func TestFreeNetAutoPoolRejectsUnsupportedAlternative(t *testing.T) {
    alt:=freeNetAutoPoolAlternative(t)
    stream:=alt["streamSettings"].(map[string]any)
    stream["network"]=value
-   p,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt},"127.0.0.1:10085")
+   p,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt},"127.0.0.1:10085","127.0.0.1:10086")
    if err==nil || len(p.Tags)!=0{t.Fatal("unsupported alternate VLESS transport admitted")}
   })
  }
@@ -135,7 +139,7 @@ func TestFreeNetAutoPoolRejectsPublicOrPrivilegedRPC(t *testing.T) {
   "127.0.0.1:80","127.0.0.1:0","127.0.0.1:65536","",
  } {
   t.Run(addr,func(t *testing.T){
-   c,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt},addr)
+   c,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt},addr,"127.0.0.1:10086")
    if err==nil||len(c.Outbounds)>0||len(c.Routing)>0{t.Fatal("unsafe API listener accepted")}
   })
  }
@@ -148,8 +152,19 @@ func TestFreeNetAutoPoolRejectsPriorAPIAndObservatory(t *testing.T) {
    if err:=json.Unmarshal([]byte(freeNetAutoPoolRouting),&obj);err!=nil{t.Fatal(err)}
    obj[key]=map[string]any{"existing":"external"}
    bad,_:=json.Marshal(obj)
-   c,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),bad,[]map[string]any{alt},"127.0.0.1:10085")
+   c,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),bad,[]map[string]any{alt},"127.0.0.1:10085","127.0.0.1:10086")
    if err==nil||len(c.Outbounds)>0{t.Fatal("existing API/observer overwritten")}
+  })
+ }
+}
+ 
+func TestFreeNetAutoPoolRejectsUnsafeProbeAddresses(t *testing.T){
+ alt:=freeNetAutoPoolAlternative(t)
+ for _,address:=range []string{"0.0.0.0:10086","192.168.1.2:10086","127.0.0.1:10085","127.0.0.1:80","[::1]:10086","localhost:10086"}{
+  t.Run(address,func(t *testing.T){
+   p,e:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),
+    []map[string]any{alt},"127.0.0.1:10085",address)
+   if e==nil||len(p.Outbounds)>0{t.Fatal("unsafe probe listener accepted")}
   })
  }
 }
