@@ -153,7 +153,7 @@ func (a *app) handleFreeNetAutoPoolPlan(w http.ResponseWriter,r *http.Request){
         if err!=nil {
             resp.Status="measured-selection-stale";writeJSON(w,http.StatusConflict,resp);return
         }
-        if endpointsEqual(entry.Profile.Address,current){
+        if endpointsEqual(profileEndpoint(entry.Profile),current){
             resp.Status="alternative-matches-current";writeJSON(w,http.StatusConflict,resp);return
         }
         // Source snapshot eligibility is necessary but not sufficient:
