@@ -142,3 +142,41 @@ func TestVisionQUICFullConfigPreflightUsesPrivateConfdir(t *testing.T){
 		t.Fatalf("failed preflight exposed private data: %v",err)
 	}
 }
+
+func TestVisionQUICFullConfigPreflightRejectsSymlinks(t *testing.T){
+	base:=t.TempDir()
+	live:=filepath.Join(base,"live")
+	if err:=os.Mkdir(live,0700);err!=nil{t.Fatal(err)}
+	before:=[]byte(visionQUICFixture)
+	candidate,_,err:=visionQUICCandidate(before,visionQUICAllowed)
+	if err!=nil{t.Fatal(err)}
+	if err:=os.WriteFile(filepath.Join(live,"04_outbounds.json"),before,0600);err!=nil{t.Fatal(err)}
+	outside:=filepath.Join(base,"outside-config")
+	if err:=os.WriteFile(outside,[]byte(`{"routing":{"rules":[]}}`),0600);err!=nil{t.Fatal(err)}
+	if err:=os.Symlink(outside,filepath.Join(live,"05_routing.json"));err!=nil{t.Skipf("symlinks unavailable: %v",err)}
+	binary:=filepath.Join(base,"noop")
+	if err:=os.WriteFile(binary,[]byte("#!/bin/sh\nexit 0\n"),0700);err!=nil{t.Fatal(err)}
+	if err:=visionQUICPreflight(context.Background(),binary,base,live,"04_outbounds.json",candidate);err==nil{
+		t.Fatal("unsafe symlink was silently ignored")
+	}
+}
+
+func TestVisionQUICControlCenterWiringIsAuthenticatedAndExplicit(t *testing.T){
+	mainCode,err:=os.ReadFile("main.go");if err!=nil{t.Fatal(err)}
+	for _,text:=range []string{
+		`a.recoverVisionQUICOnStartup()`,
+		`a.requireAuth(a.handleVisionQUICPlan)`,
+		`a.requireAuth(a.handleVisionQUICTry)`,
+	}{
+		if !strings.Contains(string(mainCode),text){t.Fatalf("missing guarded handler or crash recovery: %s",text)}
+	}
+	ui,err:=os.ReadFile("web/settings-v3-core.js")
+	if err!=nil{t.Fatal(err)}
+	for _,text:=range []string{
+		"fn3VisionPlan","fn3VisionTry",
+		"temporary-canary-with-auto-rollback",
+		"Исходный VPN восстановлен",
+	}{
+		if !strings.Contains(string(ui),text){t.Fatalf("missing safe Control Center action: %s",text)}
+	}
+}
