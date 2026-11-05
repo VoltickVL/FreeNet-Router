@@ -8,6 +8,7 @@ import (
     "net/http"
     "os"
     "path/filepath"
+    "sort"
     "time"
 )
 
@@ -17,6 +18,7 @@ type freeNetAutoStatusResponse struct{
     Mutation string `json:"mutation"`
     Status string `json:"status"`
     NodeCount int `json:"node_count,omitempty"`
+    Nodes []map[string]string `json:"nodes,omitempty"`
     CurrentTag string `json:"current_tag,omitempty"`
     APIReachable bool `json:"api_reachable"`
     CoreIdentityVerified bool `json:"core_identity_verified"`
@@ -58,6 +60,11 @@ func (a *app) handleFreeNetAutoPoolStatus(w http.ResponseWriter,r *http.Request)
     receipt,err:=a.freeNetAutoPoolLiveReceipt()
     if err!=nil{resp.Success=false;resp.Status="state-unknown-stop";writeJSON(w,http.StatusServiceUnavailable,resp);return}
     resp.Active=true;resp.NodeCount=1+len(receipt.ProfileTags)
+    resp.Nodes=[]map[string]string{{"id":"original","tag":"vless-reality"}}
+    var ids []string
+    for id:=range receipt.ProfileTags{ids=append(ids,id)}
+    sort.Strings(ids)
+    for _,id:=range ids{resp.Nodes=append(resp.Nodes,map[string]string{"id":id,"tag":receipt.ProfileTags[id]})}
     resp.CoreIdentityVerified=a.freeNetAutoXrayIdentity()!=""
     if !resp.CoreIdentityVerified {
         resp.Status="runtime-owner-unverified";writeJSON(w,http.StatusConflict,resp);return
@@ -85,7 +92,7 @@ func (a *app) handleFreeNetAutoPoolSwitch(w http.ResponseWriter,r *http.Request)
     resp:=freeNetAutoRPCResponse{Mutation:"NONE",Rollback:"NOT_APPLIED",Status:"blocked"}
     var req freeNetAutoSwitchRequest
     if !decodeFreeNetAutoJSON(w,r,&req){return}
-    if !validProfileID(req.ProfileID){
+    if req.ProfileID!="original" && !validProfileID(req.ProfileID){
         resp.Status="invalid-profile";writeJSON(w,http.StatusBadRequest,resp);return
     }
     if a.mutationBlockedBySelfUpdate(w){return}
@@ -103,6 +110,7 @@ func (a *app) handleFreeNetAutoPoolSwitch(w http.ResponseWriter,r *http.Request)
     receipt,err:=a.freeNetAutoPoolLiveReceipt()
     if err!=nil{resp.Status="pool-not-ready";writeJSON(w,http.StatusConflict,resp);return}
     target,ok:=receipt.ProfileTags[req.ProfileID]
+    if req.ProfileID=="original"{target="vless-reality";ok=true}
     if !ok||!freeNetAutoTagAllowed(target){
         resp.Status="profile-outside-active-pool";writeJSON(w,http.StatusConflict,resp);return
     }
@@ -110,6 +118,7 @@ func (a *app) handleFreeNetAutoPoolSwitch(w http.ResponseWriter,r *http.Request)
     // a fresh source. A silent subscription revision cannot switch secrets.
     probeCtx,cancel:=context.WithTimeout(r.Context(),48*time.Second)
     defer cancel()
+    if req.ProfileID!="original" {
     internal,_,_,source,e:=a.discoverBestServerCandidatesWithSource(probeCtx)
     if e!=nil||!source.Fresh{
         resp.Status="fresh-subscription-unavailable";writeJSON(w,http.StatusConflict,resp);return
@@ -130,6 +139,7 @@ func (a *app) handleFreeNetAutoPoolSwitch(w http.ResponseWriter,r *http.Request)
     }
     if !a.probeBestServerApplicationPreflight(probeCtx,*matched).OK{
         resp.Status="fresh-https-candidate-rejected";writeJSON(w,http.StatusConflict,resp);return
+    }
     }
     if os.Mkdir(a.cfg.LockPath,0700)!=nil{
         resp.Status="shared-writer-busy";writeJSON(w,http.StatusConflict,resp);return
