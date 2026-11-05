@@ -155,8 +155,22 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
     }
     retainLock:=false
     defer func(){if !retainLock{freeNetAutoReleaseLock(a.cfg.LockPath)}}()
-    if _,err:=a.freeNetAutoPoolLiveReceipt();err!=nil{
+    lockedReceipt,lockedErr:=a.freeNetAutoPoolLiveReceipt()
+    if lockedErr!=nil || lockedReceipt.AfterOutSHA!=receipt.AfterOutSHA ||
+        lockedReceipt.AfterRoutingSHA!=receipt.AfterRoutingSHA {
         return automationHealthResult{State:"uncertain",Reason:"Pool changed under lock; no switch."},nil
+    }
+    // Revalidate the real selected target immediately before invoking
+    // RoutingService: no stale media or outage observation can overwrite a
+    // concurrent external/manual override.
+    lockedOverride,lockedSelected,lockedErr:=freeNetAutoReadBalancer(ctx,runner,receipt.APIAddress)
+    if lockedErr!=nil {
+        return automationHealthResult{State:"uncertain",Reason:"Live Xray target unverified under writer lock."},nil
+    }
+    lockedTag:=lockedOverride
+    if lockedTag==""{lockedTag=lockedSelected}
+    if lockedTag!=liveTag {
+        return automationHealthResult{State:"uncertain",Reason:"Live Xray target changed during preflight; current connection retained."},nil
     }
     before:=a.freeNetAutoXrayIdentity()
     result,switchErr:=freeNetAutoSwitchWith(ctx,receipt.APIAddress,target,allowed,runner,
