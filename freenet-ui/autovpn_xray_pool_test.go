@@ -78,7 +78,7 @@ func TestFreeNetAutoPoolCompilesOnlyVPNRules(t *testing.T) {
   t.Fatal("live HTTPS probe must be a loopback-only SOCKS inbound")
  }
  if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[0]["balancerTag"]),[]byte(`"freenet-auto-vpn"`)) {t.Fatal("live probe must use the VPN balancer")}
- if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[2]["outboundTag"]),[]byte(`"direct"`)){
+ if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[1]["outboundTag"]),[]byte(`"direct"`)){
   t.Fatal("DIRECT rule unexpectedly rewritten")
  }
  if _,ok:=routing.Routing.Rules[2]["outboundTag"];ok {t.Fatal("old VPN outboundTag retained")}
