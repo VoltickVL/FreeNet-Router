@@ -168,7 +168,8 @@ func captureDoctorClassify(ctx context.Context, read func(context.Context,string
   result.State="policy-rule-missing";result.Reason="kernel-fwmark-rule-missing"
  case result.Netfilter=="tproxy-rule-present" && result.PolicyRule=="fwmark-rule-present" && result.LocalRoute=="local-default-absent":
   result.State="local-route-missing";result.Reason="kernel-local-route-missing"
- case result.Netfilter=="tproxy-rule-present" && result.PolicyRule=="fwmark-rule-present" && result.LocalRoute=="local-default-present":
+ case result.TCPRedirect=="tcp-redirect-present" && result.TCPPrerouting=="tcp-prerouting-hook-present" &&
+  result.Netfilter=="tproxy-rule-present" && result.PolicyRule=="fwmark-rule-present" && result.LocalRoute=="local-default-present":
   result.State="installed-unverified";result.Reason="lan-packet-hits-not-measured"
  }
  return result
