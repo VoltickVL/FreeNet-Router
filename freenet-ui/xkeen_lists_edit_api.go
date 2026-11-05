@@ -158,7 +158,8 @@ func xkeenListSnapshotDurable(backup configStudioBackup,name string) error {
  closeErr:=f.Close()
  if syncErr!=nil || closeErr!=nil {return errors.New("snapshot durability unverified")}
  if visionQUICSyncDir(backup.Snapshot)!=nil ||
-    visionQUICSyncDir(filepath.Dir(backup.Snapshot))!=nil {
+    visionQUICSyncDir(filepath.Dir(backup.Snapshot))!=nil ||
+    visionQUICSyncDir(filepath.Dir(filepath.Dir(backup.Snapshot)))!=nil {
    return errors.New("snapshot directory durability unverified")
  }
  return nil
