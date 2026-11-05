@@ -16,6 +16,7 @@ type automationCapturePathStatus struct {
 	TCP        string `json:"tcp"`
 	UDP        string `json:"udp"`
 	ObservedAt string `json:"observed_at,omitempty"`
+	HookActivity automationCaptureFlowStatus `json:"hook_activity"`
 }
 
 func automationCaptureState(raw string) string {
@@ -81,7 +82,8 @@ func automationCapturePathDue(last string, now time.Time) bool {
 }
 
 func automationCapturePathFromState(state map[string]string, now time.Time) automationCapturePathStatus {
-	result := automationCapturePathStatus{State: "unverified", TCP: "unknown", UDP: "unknown"}
+	result := automationCapturePathStatus{State: "unverified", TCP: "unknown", UDP: "unknown",
+		HookActivity: automationCaptureFlowFromState(state, now)}
 	at, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(state["CLIENT_CAPTURE_LAST"]))
 	if err != nil || now.IsZero() || at.After(now.Add(time.Minute)) ||
 		now.Sub(at) > 2*automationCapturePathInterval {
@@ -91,6 +93,7 @@ func automationCapturePathFromState(state map[string]string, now time.Time) auto
 	result.State = automationCaptureState(state["CLIENT_CAPTURE_STATE"])
 	result.TCP = automationCaptureTCP(state["CLIENT_CAPTURE_TCP"])
 	result.UDP = automationCaptureUDP(state["CLIENT_CAPTURE_UDP"])
+	result.HookActivity = automationCaptureFlowFromState(state, now)
 	return result
 }
 
@@ -100,6 +103,12 @@ func automationCapturePathFromState(state map[string]string, now time.Time) auto
 // endpoint and NEVER fed into AUTO server-switch/restart logic.
 func (a *app) observeAutomationCapturePath(parent context.Context, now time.Time,
 	inspect func(context.Context) captureDoctorResponse) {
+	a.observeAutomationCapturePathWithCounters(parent, now, inspect, nil)
+}
+
+func (a *app) observeAutomationCapturePathWithCounters(parent context.Context, now time.Time,
+	inspect func(context.Context) captureDoctorResponse,
+	readCounters func(context.Context,string,...string)(string,bool)) {
 	if a == nil || parent == nil || inspect == nil || now.IsZero() || parent.Err() != nil {
 		return
 	}
@@ -117,6 +126,9 @@ func (a *app) observeAutomationCapturePath(parent context.Context, now time.Time
 			"CLIENT_CAPTURE_TCP": "unknown",
 			"CLIENT_CAPTURE_UDP": "unknown",
 			"CLIENT_CAPTURE_LAST": "",
+			"CLIENT_FLOW_TCP_RESULT":"unknown",
+			"CLIENT_FLOW_UDP_RESULT":"unknown",
+			"CLIENT_FLOW_OBSERVED_AT":"",
 		}
 	})
 	if err != nil || !claimed {
@@ -125,29 +137,37 @@ func (a *app) observeAutomationCapturePath(parent context.Context, now time.Time
 	ctx, cancel := context.WithTimeout(parent, automationCapturePathTimeout)
 	defer cancel()
 	observed := inspect(ctx)
+	var counters automationCaptureFlowSnapshot
+	if readCounters != nil && ctx.Err() == nil {
+		counters = readAutomationCaptureFlows(ctx,readCounters)
+	}
 	state := automationCaptureObservedState(observed)
 	tcp := automationCaptureTCP(observed.TCPPrerouting)
 	udp := automationCaptureUDP(observed.Netfilter)
 	if ctx.Err() != nil {
 		state, tcp, udp = "unverified", "unknown", "unknown"
 	}
-	finished := time.Now().UTC().Format(time.RFC3339Nano)
+	finished := time.Now().UTC()
 	_ = v3UpdateState(func(current map[string]string) map[string]string {
 		// An older worker cannot replace a newer reserved observation.
 		if current["CLIENT_CAPTURE_REQUEST_AT"] != token {
 			return nil
 		}
-		return map[string]string{
-			"CLIENT_CAPTURE_LAST": finished,
+		updates := map[string]string{
+			"CLIENT_CAPTURE_LAST": finished.Format(time.RFC3339Nano),
 			"CLIENT_CAPTURE_STATE": state,
 			"CLIENT_CAPTURE_TCP": tcp,
 			"CLIENT_CAPTURE_UDP": udp,
 		}
+		for key,value := range automationCaptureFlowSave(current,counters,finished) {
+			updates[key] = value
+		}
+		return updates
 	})
 }
 
 func (a *app) observeScheduledAutomationCapturePath(parent context.Context) {
-	a.observeAutomationCapturePath(parent, time.Now().UTC(), func(ctx context.Context) captureDoctorResponse {
+	a.observeAutomationCapturePathWithCounters(parent, time.Now().UTC(), func(ctx context.Context) captureDoctorResponse {
 		return captureDoctorClassify(ctx, captureDoctorRead, "scheduled-kernel-inventory")
-	})
+	},captureDoctorRead)
 }

@@ -225,7 +225,7 @@
               </div>
             </div>
             <div class="fn3-safety">${svg('shield')}<span id="fn3SafetyText">Рабочий VPN не меняется без причины. Все переключения выполняются только при подтверждённом сбое, с проверкой и автоматическим возвратом при необходимости.</span></div>
-            <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small><small id="fn3ClientCaptureStatus">Перехват устройств: ожидание автоматического снимка</small></div></div></div>
+            <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small><small id="fn3ClientCaptureStatus">Перехват устройств: ожидание автоматического снимка</small><small id="fn3ClientHookPackets">Пакеты LAN в XKeen: ожидание двух снимков (без проверки видео)</small></div></div></div>
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
           <section id="fn3QoECard" class="fn3-card fn3-qoe fn3-section-collapsed" aria-label="Диагностика воспроизведения">
@@ -407,6 +407,17 @@
     const captureElement = q('#fn3ClientCaptureStatus');
     if (captureElement) captureElement.textContent =
       captureLabels[capture.state] || captureLabels.unverified;
+    const flow = capture.hook_activity || {};
+    const flowLabels = {
+      observed: 'есть прирост', 'no-increase': 'без прироста (не означает сбой)',
+      baseline: 'первый снимок', unknown: 'неизвестно'
+    };
+    const flowElement = q('#fn3ClientHookPackets');
+    if (flowElement) flowElement.textContent =
+      'Пакеты в правилах XKeen (IPv4): TCP — ' +
+      (flowLabels[flow.tcp] || flowLabels.unknown) + ', UDP — ' +
+      (flowLabels[flow.udp] || flowLabels.unknown) +
+      '. Не измеряет скорость или воспроизведение Reels.';
     q('#fn3AutoEnabled').checked = !!auto.enabled;
     q('#fn3AutoLabel').textContent = auto.enabled ? 'Включено' : 'Выключено';
     const mode = auto.mode === 'endpoint' ? 'endpoint' : 'best';
