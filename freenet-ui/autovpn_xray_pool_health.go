@@ -125,6 +125,21 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
         target=tag
         break
     }
+    // With only one standby, the original VLESS can be the sole recovery
+    // candidate. It must pass its OWN isolated HTTPS (and, for a media
+    // episode, two-origin body transfer) before an automatic override.
+    // Never assume that "original" means "healthy".
+    if target=="" && liveTag!="vless-reality" {
+        var original automationHealthProbe
+        if mediaRecovery {
+            original=a.probeAutomationCurrentVPN(ctx)
+        }else{
+            original=a.probeAutomationCurrentVPNApplicationOnly(ctx)
+        }
+        if freeNetAutoPoolOriginalApproved(original,mediaRecovery) {
+            target="vless-reality"
+        }
+    }
     if target=="" {
         _,_=recordAutomationEmergencyFailure(a,time.Now().UTC())
         return automationHealthResult{State:automationHealthCritical,Reason:"VPN degraded: no approved and HTTPS-verified standby available."},nil
