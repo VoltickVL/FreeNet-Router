@@ -56,6 +56,36 @@ func freeNetAutoPoolPlanMedia(state map[string]string, now time.Time, identity s
     return plan
 }
 
+// The selected target must pass acceptance after the actual live override,
+// not merely in an isolated candidate Xray. This callback executes inside
+// freeNetAutoSwitchWith, whose existing STOP/rollback owns any failure.
+func freeNetAutoPoolPostApplyAccept(
+    ctx context.Context, mediaRecovery bool,
+    https func(context.Context)error,
+    media func(context.Context)automationMediaEvidence,
+) error {
+    if ctx==nil || ctx.Err()!=nil || https==nil || media==nil {
+        return errAutoPoolStateUnknown
+    }
+    if err:=https(ctx);err!=nil{return err}
+    if !mediaRecovery{return nil}
+    evidence:=media(ctx)
+    if ctx.Err()!=nil || !evidence.Complete ||
+        evidence.Samples!=automationMediaSegmentCount || evidence.Degraded {
+        return errAutoPoolStateUnknown
+    }
+    return nil
+}
+
+func freeNetAutoPoolProbeMedia(ctx context.Context,probeAddress string) automationMediaEvidence {
+    if !freeNetAutoAPIAddressAllowed(probeAddress) || ctx==nil || ctx.Err()!=nil {
+        return automationMediaEvidence{}
+    }
+    curlPath,err:=exec.LookPath("curl")
+    if err!=nil{return automationMediaEvidence{}}
+    return probeAutomationMediaSegments(ctx,curlPath,probeAddress)
+}
+
 // Separate read-only observation: two origins, no DIRECT retry or Xray
 // restart. Persisting the strike/cooldown state is fail-closed.
 func (a *app) freeNetAutoPoolMediaHealth(
@@ -79,11 +109,9 @@ func (a *app) freeNetAutoPoolMediaHealth(
     if !allowed || !freeNetAutoTagAllowed(tag) {
         return automationHealthResult{State:"uncertain",Reason:"Медиапроверка остановлена: выбранный target вне подтверждённого пула."},false,""
     }
-    curlPath,err:=exec.LookPath("curl")
-    if err!=nil{return automationHealthResult{State:"uncertain",Reason:"Медиапроверка недоступна: curl не найден."},false,""}
     before:=a.freeNetAutoXrayIdentity()
     if before==""{return automationHealthResult{State:"uncertain",Reason:"Xray runtime identity unknown."},false,""}
-    media:=probeAutomationMediaSegments(sampledCtx,curlPath,receipt.ProbeAddress)
+    media:=freeNetAutoPoolProbeMedia(sampledCtx,receipt.ProbeAddress)
     afterOverride,afterSelected,readErr:=freeNetAutoReadBalancer(sampledCtx,runner,receipt.APIAddress)
     afterTag:=afterOverride
     if afterTag==""{afterTag=afterSelected}
