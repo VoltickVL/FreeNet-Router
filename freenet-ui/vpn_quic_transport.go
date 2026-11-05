@@ -165,16 +165,49 @@ func visionQUICPreflightWith(ctx context.Context, candidate []byte, run func(con
 	return nil
 }
 
-func visionQUICPreflight(ctx context.Context, binary, assetDir string, candidate []byte) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+// Run a whole-config Xray semantic test against a private copy of the
+// installed config directory. Never validate only the outbound fragment or
+// mutate production configuration during preflight.
+func visionQUICPreflight(ctx context.Context, binary, assetDir, liveDir, outboundName string, candidate []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, 18*time.Second)
 	defer cancel()
-	if strings.TrimSpace(binary) == "" { return errors.New("Xray runtime path unavailable") }
-	return visionQUICPreflightWith(ctx, candidate, func(ctx context.Context, path string) error {
-		cmd := exec.CommandContext(ctx, binary, "run", "-test", "-config", path)
-		cmd.Env = isolatedXrayProbeEnv(append(os.Environ(), "XRAY_LOCATION_ASSET="+assetDir))
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-		cmd.WaitDelay = 2 * time.Second
-		return cmd.Run()
-	})
+	if strings.TrimSpace(binary)=="" || strings.TrimSpace(liveDir)=="" || outboundName!="04_outbounds.json" ||
+		len(candidate)==0 || len(candidate)>visionQUICMaxConfigBytes {
+		return errors.New("candidate Xray preflight unavailable")
+	}
+	entries, err := os.ReadDir(liveDir)
+	if err!=nil || len(entries)>64 {return errors.New("live config directory unavailable")}
+	dir, err:=os.MkdirTemp("", "freenet-vision-confdir-")
+	if err!=nil {return errors.New("private config directory unavailable")}
+	defer os.RemoveAll(dir)
+	_ = os.Chmod(dir,0700)
+	found:=false
+	for _,entry:=range entries{
+		name:=entry.Name()
+		if entry.IsDir() || entry.Type()&os.ModeSymlink!=0 ||
+			(!strings.HasSuffix(name,".json") && !strings.HasSuffix(name,".jsonc")){
+			continue
+		}
+		if name=="04_outbounds.json"{found=true}
+		raw:=candidate
+		if name!="04_outbounds.json"{
+			info,e:=entry.Info()
+			if e!=nil || !info.Mode().IsRegular() || info.Size()<=0 || info.Size()>1024*1024 {
+				return errors.New("live config fragment invalid")
+			}
+			raw,e=os.ReadFile(filepath.Join(liveDir,name))
+			if e!=nil {return errors.New("live config fragment unavailable")}
+		}
+		if os.WriteFile(filepath.Join(dir,name),raw,0600)!=nil{
+			return errors.New("private configuration staging failed")
+		}
+	}
+	if !found || ctx.Err()!=nil {return errors.New("candidate Xray preflight incomplete")}
+	cmd:=exec.CommandContext(ctx,binary,"run","-test","-confdir",dir)
+	cmd.Env=isolatedXrayProbeEnv(append(os.Environ(),"XRAY_LOCATION_ASSET="+assetDir))
+	cmd.Stdout=io.Discard
+	cmd.Stderr=io.Discard
+	cmd.WaitDelay=2*time.Second
+	if cmd.Run()!=nil || ctx.Err()!=nil {return errors.New("candidate Xray preflight failed")}
+	return nil
 }
