@@ -168,6 +168,7 @@ func (a *app) handleVisionQUICTry(w http.ResponseWriter,r *http.Request) {
 		reply.Status="checkpoint-unknown";reply.Rollback="FAILED/UNKNOWN"
 		writeJSON(w,http.StatusConflict,reply);return
 	}
+	v3AppendEvent("VPN","start","Запущено временное испытание QUIC на текущем сервере; исходный профиль сохранён для обязательного отката.")
 	// Do not lose the rollback path when a client closes its browser.
 	runCtx,cancelRun:=context.WithTimeout(context.Background(),100*time.Second)
 	defer cancelRun()
@@ -203,10 +204,16 @@ func (a *app) handleVisionQUICTry(w http.ResponseWriter,r *http.Request) {
 		setAutomationMutationBlocked(true)
 		reply.Success=false;reply.Rollback="FAILED/UNKNOWN";reply.Status="rollback-unconfirmed"
 		reply.Note="Откат не подтверждён. Дальнейшие VPN-изменения остановлены."
+		v3AppendEvent("VPN","failed","QUIC-испытание: откат не подтверждён; новые изменения VPN заблокированы.")
 		writeJSON(w,http.StatusServiceUnavailable,reply);return
 	}
 	reply.Rollback="RESTORED";reply.Success=status==http.StatusOK
-	reply.Note="Исходный VPN восстановлен. Качество Reels на клиенте экспериментом не подтверждено."
+	reply.Note="Исходная конфигурация и процесс Xray восстановлены; реальное качество Reels не проверялось."
+	if reply.Success{
+		v3AppendEvent("VPN","success","Завершено временное QUIC-испытание; исходная конфигурация и процесс Xray восстановлены.")
+	}else{
+		v3AppendEvent("VPN","failed","QUIC-испытание не принято; конфигурация и процесс Xray восстановлены.")
+	}
 	writeJSON(w,status,reply)
 }
 
