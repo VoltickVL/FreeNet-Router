@@ -75,6 +75,7 @@ func registerConfigStudioAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("GET /api/config-studio", a.requireAuth(a.handleConfigStudioGet))
 	mux.HandleFunc("POST /api/config-studio/validate", a.requireAuth(a.handleConfigStudioValidate))
 	mux.HandleFunc("POST /api/config-studio/apply", a.requireAuth(a.handleConfigStudioApply))
+	registerXKeenListEditAPI(mux,a)
 }
 
 func configStudioEditableRoot(name string) (string, bool) {
@@ -146,24 +147,17 @@ func readConfigStudioJSONFile(dir, name, access string) configStudioTab {
 }
 
 func readConfigStudioListFile(name string) configStudioTab {
-	tab := configStudioTab{Name: strings.TrimSuffix(name, filepath.Ext(name)), Kind: "list", Access: "read-only", Mutation: "NONE"}
-	path := filepath.Join(defaultXKeenConfigDir, name)
-	info, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return tab
-	}
-	if err != nil || !info.Mode().IsRegular() || info.Size() > maxConfigStudioFileBytes {
-		return tab
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return tab
-	}
-	tab.Present = true
-	tab.Size = info.Size()
-	tab.SHA256 = sha256Hex(data)
-	tab.Text = string(data)
-	return tab
+ tab:=configStudioTab{Name: strings.TrimSuffix(name, filepath.Ext(name)),Kind:"list",Access:"read-only",Mutation:"NONE"}
+ raw,present,err:=readXKeenListSafely(configStudioXKeenDir(),name)
+ if err!=nil{return tab}
+ tab.Access="editable"
+ tab.Present=present
+ if present{
+  tab.Size=int64(len(raw))
+  tab.SHA256=sha256Hex(raw)
+  tab.Text=string(raw)
+ }
+ return tab
 }
 
 func (a *app) configStudioXrayStatus(parent context.Context) configStudioXrayStatus {
