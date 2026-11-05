@@ -62,7 +62,7 @@ func TestFreeNetAutoPoolCompilesOnlyVPNRules(t *testing.T) {
   t.Fatal("DIRECT rule unexpectedly rewritten")
  }
  if _,ok:=routing.Routing.Rules[1]["outboundTag"];ok {t.Fatal("old VPN outboundTag retained")}
- if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[1]["balancerTag"]),[]byte(`"freenet-auto-vpn"`")){
+ if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[1]["balancerTag"]),[]byte(`"freenet-auto-vpn"`)){
   t.Fatal("VPN routing did not switch to balancer")
  }
  bal:=routing.Routing.Balancers[0]
