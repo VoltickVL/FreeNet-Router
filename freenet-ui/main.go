@@ -227,6 +227,9 @@ func main() {
 
 	a := &app{cfg: cfg, sem: make(chan struct{}, 1)}
 	startTechnicalJournalRecorder() // diagnostics only; capture early startup incidents
+	// Restore a crashed, time-bounded transport canary BEFORE AutoVPN or HTTP
+	// can attempt another operation. Uncertain rollback is a persistent STOP.
+	a.recoverVisionQUICOnStartup()
 	reconcileSettingsV3SchedulerOnStartup(a)
 	a.initializeXrayRuntimeIntent()
 	a.startXrayRuntimeWatchdog()
@@ -240,6 +243,8 @@ func main() {
 	mux.HandleFunc("POST /api/auth/logout", a.requireAuth(a.handleAuthLogout))
 	mux.HandleFunc("POST /api/auth/logout-all", a.requireAuth(a.handleAuthLogoutAll))
 	mux.HandleFunc("GET /api/status", a.requireAuth(a.handleStatus))
+	mux.HandleFunc("GET /api/vpn/vision-quic/plan", a.requireAuth(a.handleVisionQUICPlan))
+	mux.HandleFunc("POST /api/vpn/vision-quic/try", a.requireAuth(a.handleVisionQUICTry))
 	mux.HandleFunc("GET /api/operation/state", a.requireAuth(a.handleOperationState))
 	mux.HandleFunc("GET /api/network-profile", a.requireAuth(a.handleNetworkProfileGet))
 	mux.HandleFunc("POST /api/network-profile", a.requireAuth(a.handleNetworkProfilePost))
