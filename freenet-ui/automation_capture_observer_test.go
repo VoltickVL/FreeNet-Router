@@ -138,3 +138,39 @@ func TestAutoCapturePathDoesNotTrustInspectionPayload(t *testing.T){
 		t.Fatalf("unknown capture state accepted: %s",got)
 	}
 }
+
+func TestAutoCaptureModeAwareFailClosed(t *testing.T) {
+	for _,tc:=range []struct{
+		name string
+		value captureDoctorResponse
+		want string
+	}{
+		{"tproxy-tcp-without-nat-redirect-possible",
+			captureDoctorResponse{State:"tcp-redirect-missing",Netfilter:"tproxy-rule-present"},
+			"unverified"},
+		{"tproxy-tcp-with-unknown-netfilter",
+			captureDoctorResponse{State:"tcp-redirect-missing",Netfilter:"unknown"},
+			"unverified"},
+		{"tcp-only-redirect-is-possible",
+			captureDoctorResponse{State:"capture-rule-missing",TCPRedirect:"tcp-redirect-present",
+				TCPPrerouting:"tcp-prerouting-hook-present",Netfilter:"tproxy-rule-absent"},
+			"unverified"},
+		{"hybrid-missing-normal-tcp-hook",
+			captureDoctorResponse{State:"tcp-hook-missing",TCPRedirect:"tcp-redirect-present",
+				TCPPrerouting:"tcp-prerouting-hook-absent",Netfilter:"tproxy-rule-present"},
+			"tcp-hook-missing"},
+		{"unknown-rule-is-unknown",
+			captureDoctorResponse{State:"secret=http://sensitive.invalid"},
+			"unverified"},
+		{"hybrid-rules-not-playback",
+			captureDoctorResponse{State:"installed-unverified",TCPRedirect:"tcp-redirect-present",
+				TCPPrerouting:"tcp-prerouting-hook-present",Netfilter:"tproxy-rule-present"},
+			"installed-unverified"},
+	} {
+		t.Run(tc.name,func(t *testing.T){
+			if got:=automationCaptureObservedState(tc.value);got!=tc.want{
+				t.Fatalf("observed=%q want=%q",got,tc.want)
+			}
+		})
+	}
+}
