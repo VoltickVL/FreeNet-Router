@@ -1382,3 +1382,78 @@ body #controlCenter .main>.topbar.overview-approved{padding-right:max(var(--fn-c
 .freenet-client-transfer>button{display:block;margin-top:10px;width:100%;min-height:38px;justify-content:center}
 .freenet-client-transfer>.hint{margin:8px 0;line-height:1.45}
 .freenet-client-transfer-result{white-space:normal;overflow-wrap:anywhere;line-height:1.5;margin-top:5px}
+
+
+/* FreeNet beta.85: guarded live pool workspace, isolated from the generic
+   horizontal Settings schedule and legacy .fn3-auto-actions sizing rules.
+   Every action remains reachable at narrow widths without text overlap. */
+[data-page-view="settings"] .fn3-pool{
+  display:grid;
+  grid-template-columns:minmax(0,1fr);
+  gap:14px;
+  min-width:0;
+  width:100%;
+  margin-top:12px;
+  padding:16px;
+  border:1px solid #2b5f91;
+  border-radius:12px;
+  background:linear-gradient(180deg,rgba(9,37,64,.85),rgba(7,28,48,.9));
+}
+[data-page-view="settings"] .fn3-pool-copy,
+[data-page-view="settings"] .fn3-pool-step{min-width:0;max-width:100%}
+[data-page-view="settings"] .fn3-pool-copy h3{
+  margin:0;color:#eaf4ff;font-size:16px;font-weight:800;line-height:1.25
+}
+[data-page-view="settings"] .fn3-pool-copy p{
+  margin:6px 0 0;color:#a9c3de;font-size:12px;line-height:1.55;overflow-wrap:break-word
+}
+[data-page-view="settings"] .fn3-pool-step{display:grid;gap:8px}
+[data-page-view="settings"] .fn3-pool-step-label{
+  display:block;margin:0;color:#bed5ec;font-size:12px;font-weight:800
+}
+[data-page-view="settings"] .fn3-pool-actions,
+[data-page-view="settings"] .fn3-pool-runtime{
+  display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;align-items:stretch;min-width:0;width:100%;margin:0!important;padding:0!important
+}
+[data-page-view="settings"] .fn3-pool-runtime{
+  grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,1fr)
+}
+[data-page-view="settings"] .fn3-pool .btn{
+  box-sizing:border-box;width:100%;min-width:0;min-height:44px;
+  padding:9px 12px!important;justify-content:center!important;text-align:center!important;
+  font-size:12px!important;font-weight:750;line-height:1.3;
+  white-space:normal;word-break:normal;overflow-wrap:break-word;
+}
+[data-page-view="settings"] .fn3-pool select{
+  box-sizing:border-box;width:100%;max-width:100%;min-width:0;min-height:44px;
+  border:1px solid #315777;border-radius:10px;background:#071a2c;
+  color:#edf5ff;padding:8px 10px;font-size:12px
+}
+[data-page-view="settings"] .fn3-pool-status{
+  box-sizing:border-box;min-width:0;padding:12px 13px;
+  border:1px solid #315c80;border-radius:10px;
+  background:#0a2035;color:#bdd4ea;font-size:12px;
+  line-height:1.5;overflow-wrap:anywhere;white-space:normal
+}
+[data-page-view="settings"] .fn3-pool-status[data-tone="busy"]{border-color:#4073b1;color:#d3e7ff}
+[data-page-view="settings"] .fn3-pool-status[data-tone="ok"]{border-color:#2b826a;color:#9ef2c8}
+[data-page-view="settings"] .fn3-pool-status[data-tone="warning"]{border-color:#9e7445;color:#f7d4a7}
+/* Maintenance header must share the horizontal icon baseline of DNS,
+   Subscription, AUTO VPN and Video sections. */
+[data-page-view="settings"] .fn3-extra > .fn3-extra-title{
+  padding-left:6px!important;padding-right:6px!important
+}
+@media (max-width:950px){
+  [data-page-view="settings"] .fn3-pool-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
+  [data-page-view="settings"] #fn3PoolRefresh{grid-column:1/-1}
+  [data-page-view="settings"] .fn3-pool-runtime{grid-template-columns:repeat(2,minmax(0,1fr))}
+  [data-page-view="settings"] #fn3PoolNode{grid-column:1/-1}
+}
+@media (max-width:600px){
+  [data-page-view="settings"] .fn3-pool{padding:12px;gap:12px}
+  [data-page-view="settings"] .fn3-pool-actions,
+  [data-page-view="settings"] .fn3-pool-runtime{grid-template-columns:minmax(0,1fr)}
+  [data-page-view="settings"] #fn3PoolRefresh,
+  [data-page-view="settings"] #fn3PoolNode{grid-column:auto}
+}
