@@ -19,6 +19,7 @@
     const paths = {
       settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21H10v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/>',
       vpn: '<circle cx="12" cy="12" r="9"/><path d="M7 12h10M9 8l-2 4 2 4M15 8l2 4-2 4"/>',
+      video: '<rect x="3" y="6" width="14" height="12" rx="2"/><path d="m17 10 4-3v10l-4-3M7 12h6"/>',
       info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
       check: '<path d="m5 12 4 4L19 6"/>',
       play: '<path d="m8 5 11 7-11 7Z"/>',
@@ -243,7 +244,7 @@
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
           <section id="fn3QoECard" class="fn3-card fn3-qoe fn3-section-collapsed" aria-label="Диагностика воспроизведения">
-            <div class="fn3-card-head" role="button" tabindex="0" aria-expanded="false" aria-label="Видео и связь: скрыть или раскрыть"><div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>Видео и связь — диагностика</h2><div class="fn3-sub">Снимок состояния FreeNet без изменения VPN, DNS или маршрутов.</div></div></div></div>
+            <div class="fn3-card-head" role="button" tabindex="0" aria-expanded="false" aria-label="Видео и связь: скрыть или раскрыть"><div class="fn3-title"><span class="fn3-icon">${svg('video')}</span><div><h2>Видео и связь — диагностика</h2><div class="fn3-sub">Снимок состояния FreeNet без изменения VPN, DNS или маршрутов.</div></div></div></div>
             <div class="fn3-endpoint-schedule">
               <label class="fn3-endpoint-copy" for="fn3QoEService"><strong>Какой сервис тормозит?</strong><small>Снимок не воспроизводит Reels и не перехватывает трафик устройства.</small></label>
               <select id="fn3QoEService" aria-label="Проверяемый сервис"><option value="instagram">Instagram Reels</option><option value="telegram">Telegram</option></select>
