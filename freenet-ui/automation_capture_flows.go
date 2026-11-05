@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -26,7 +25,7 @@ type automationCaptureFlowSnapshot struct {
 	udpValid   bool
 }
 
-const automationCaptureFlowMaxPackets = uint64(math.MaxInt64)
+const automationCaptureFlowMaxPackets uint64 = (1 << 63) - 1
 
 func automationCaptureFlowCount(raw, table string) (tcpPackets, udpPackets, tcpRules, udpRules uint64, ok bool) {
 	if len(raw) == 0 || len(raw) > captureDoctorMaxOutput ||
@@ -38,7 +37,7 @@ func automationCaptureFlowCount(raw, table string) (tcpPackets, udpPackets, tcpR
 		if len(fields) < 2 || fields[0] != "-a" || fields[1] != "prerouting" {
 			continue
 		}
-		proto, target, packetValue := "", "", ""
+		proto, target, packetValue, byteValue := "", "", "", ""
 		for i := 2; i < len(fields); i++ {
 			switch fields[i] {
 			case "-p":
@@ -46,7 +45,7 @@ func automationCaptureFlowCount(raw, table string) (tcpPackets, udpPackets, tcpR
 			case "-j":
 				if i+1 < len(fields) { target = fields[i+1] }
 			case "-c":
-				if i+2 < len(fields) { packetValue = fields[i+1] }
+				if i+2 < len(fields) { packetValue,byteValue = fields[i+1],fields[i+2] }
 			}
 		}
 		if target != "xkeen" || (proto != "tcp" && proto != "udp") ||
@@ -56,9 +55,10 @@ func automationCaptureFlowCount(raw, table string) (tcpPackets, udpPackets, tcpR
 		// Emergency INVALID-only and DSCP-only hooks are not evidence
 		// of normal client traffic reaching the default interceptor.
 		if captureDoctorSpecialOnlyTCPRule(fields) { continue }
-		if packetValue == "" { return 0, 0, 0, 0, false }
+		if packetValue == "" || byteValue == "" { return 0, 0, 0, 0, false }
 		n, err := strconv.ParseUint(packetValue, 10, 64)
 		if err != nil || n > automationCaptureFlowMaxPackets { return 0, 0, 0, 0, false }
+		if _,err := strconv.ParseUint(byteValue,10,64);err!=nil { return 0, 0, 0, 0, false }
 		if proto == "tcp" {
 			if tcpPackets > automationCaptureFlowMaxPackets-n { return 0, 0, 0, 0, false }
 			tcpPackets += n
