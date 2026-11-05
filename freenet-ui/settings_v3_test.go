@@ -510,12 +510,15 @@ func TestSettingsV3ShowsScheduledLANCaptureSeparatelyFromVPNHealth(t *testing.T)
 	t.Setenv("FREENET_SETTINGS_V3_STATE",watch)
 	now:=time.Now().UTC().Format(time.RFC3339Nano)
 	content:="CLIENT_CAPTURE_LAST="+now+"\nCLIENT_CAPTURE_STATE=tcp-hook-missing\n"+
-		"CLIENT_CAPTURE_TCP=tcp-prerouting-hook-absent\nCLIENT_CAPTURE_UDP=tproxy-rule-present\n"
+		"CLIENT_CAPTURE_TCP=tcp-prerouting-hook-absent\nCLIENT_CAPTURE_UDP=tproxy-rule-present\n"+
+		"CLIENT_FLOW_OBSERVED_AT="+now+"\nCLIENT_FLOW_TCP_RESULT=observed\nCLIENT_FLOW_UDP_RESULT=no-increase\n"
 	if err:=os.WriteFile(watch,[]byte(content),0600);err!=nil{t.Fatal(err)}
 	a:=&app{cfg:config{ConfigPath:cfg}}
 	snap:=a.settingsV3Snapshot()
 	if snap.AutoVPN.ClientCapture.State!="tcp-hook-missing" ||
-		snap.AutoVPN.ClientCapture.UDP!="tproxy-rule-present"{
+		snap.AutoVPN.ClientCapture.UDP!="tproxy-rule-present" ||
+		snap.AutoVPN.ClientCapture.HookActivity.TCP!="observed" ||
+		snap.AutoVPN.ClientCapture.HookActivity.UDP!="no-increase"{
 		t.Fatalf("missing client-path risk separate from health: %+v",snap.AutoVPN.ClientCapture)
 	}
 	data,err:=json.Marshal(snap.AutoVPN)
@@ -526,7 +529,8 @@ func TestSettingsV3ShowsScheduledLANCaptureSeparatelyFromVPNHealth(t *testing.T)
 	ui,err:=os.ReadFile("web/settings-v3-core.js")
 	if err!=nil{t.Fatal(err)}
 	for _,want:=range []string{"fn3ClientCaptureStatus","auto.client_capture","tcp-hook-missing",
-		"воспроизведение видео не проверено"} {
+		"воспроизведение видео не проверено","fn3ClientHookPackets",
+		"capture.hook_activity","Не измеряет скорость или воспроизведение Reels."} {
 		if !strings.Contains(string(ui),want){t.Fatalf("status not visible in UI: %s",want)}
 	}
 }
