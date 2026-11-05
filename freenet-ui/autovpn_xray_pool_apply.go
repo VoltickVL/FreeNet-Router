@@ -6,7 +6,6 @@ import (
     "net/http"
     "os"
     "path/filepath"
-    "strings"
     "time"
 )
 
@@ -112,7 +111,9 @@ func (a *app) handleFreeNetAutoPoolActivate(w http.ResponseWriter,r *http.Reques
         _ =os.Remove(a.cfg.LockPath)
         resp.Status="writer-ownership-unavailable";writeJSON(w,http.StatusConflict,resp);return
     }
+    retainWriterLock:=false
     defer func(){
+        if retainWriterLock{return}
         // A pending checkpoint is a persistent STOP, not a reason to
         // release the shared cross-process network writer lock.
         if freeNetAutoPoolPathAbsent(freeNetAutoPoolPending()){
@@ -151,9 +152,12 @@ func (a *app) handleFreeNetAutoPoolActivate(w http.ResponseWriter,r *http.Reques
     defer cancelRun()
     runtimeChanged:=false
     rollback:=func(){
-        rbErr:=a.freeNetAutoPoolRestorePending(runCtx,receipt,originalOut,originalRouting,runtimeChanged)
+        restoreCtx,cancelRestore:=context.WithTimeout(context.Background(),70*time.Second)
+        defer cancelRestore()
+        rbErr:=a.freeNetAutoPoolRestorePending(restoreCtx,receipt,originalOut,originalRouting,runtimeChanged)
         if rbErr!=nil{
             setAutomationMutationBlocked(true)
+            retainWriterLock=true
             resp.Mutation="STOP";resp.Rollback="FAILED/UNKNOWN";resp.Status="rollback-unconfirmed"
         }else{
             resp.Mutation="ROLLED_BACK";resp.Rollback="SUCCESS"
@@ -203,6 +207,7 @@ func (a *app) handleFreeNetAutoPoolActivate(w http.ResponseWriter,r *http.Reques
         // Active receipt may have been published even if directory sync failed.
         // Do not erase it or blindly change runtime after ambiguous promotion.
         setAutomationMutationBlocked(true)
+        retainWriterLock=true
         resp.Mutation="STOP";resp.Rollback="FAILED/UNKNOWN";resp.Status="pool-promotion-unverified"
         writeJSON(w,http.StatusServiceUnavailable,resp);return
     }
