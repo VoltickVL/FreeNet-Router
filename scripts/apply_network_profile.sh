@@ -1153,6 +1153,12 @@ apply_native() {
 }
 
 apply_profile() {
+    AUTO_POOL_STATE="${FREENET_AUTOVPN_POOL_STATE_DIR:-/opt/var/lib/freenet/autovpn-pool}"
+    if [ -e "$AUTO_POOL_STATE/active" ] || [ -L "$AUTO_POOL_STATE/active" ] ||
+       [ -e "$AUTO_POOL_STATE/pending" ] || [ -L "$AUTO_POOL_STATE/pending" ]; then
+        fail_not_applied 'AutoVPN live pool owns Xray; safe deactivation is required before changing DNS/network'
+        return 1
+    fi
     resolve_profile
     [ "$SUPPORTED" = yes ] || { plan; fail_not_applied "$REASON"; return 1; }
     case "$EFFECTIVE_DNS" in
