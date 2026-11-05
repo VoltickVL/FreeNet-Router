@@ -42,6 +42,15 @@ func visionQUICSyncFile(path string, data []byte) error {
 	return closeErr
 }
 
+func visionQUICSyncDir(path string) error {
+	dir,err:=os.Open(path)
+	if err!=nil{return errors.New("directory unavailable")}
+	err=dir.Sync()
+	_ = dir.Close()
+	if err!=nil{return errors.New("directory sync failed")}
+	return nil
+}
+
 func visionQUICSaveCheckpoint(before,candidate []byte,beforeFlow,target string) error {
 	if len(before)==0||len(candidate)==0 || len(before)>visionQUICMaxConfigBytes||
 		len(candidate)>visionQUICMaxConfigBytes || !visionQUICMode(beforeFlow)||
@@ -65,9 +74,8 @@ func visionQUICSaveCheckpoint(before,candidate []byte,beforeFlow,target string) 
 		// Keep even an incomplete checkpoint: unknown state is a hard STOP.
 		return errors.New("checkpoint persist failed")
 	}
-	if dir,err:=os.Open(path);err==nil{
-		e:=dir.Sync();_ = dir.Close()
-		if e!=nil{return errors.New("checkpoint sync failed")}
+	if visionQUICSyncDir(path)!=nil || visionQUICSyncDir(filepath.Dir(path))!=nil {
+		return errors.New("checkpoint sync failed")
 	}
 	return nil
 }
