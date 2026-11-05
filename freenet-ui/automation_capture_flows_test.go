@@ -14,17 +14,17 @@ import (
 
 func testCaptureHookNAT(packets uint64) string {
 	return fmt.Sprintf("*nat\n"+
-		"-A PREROUTING -p tcp -m conntrack ! --ctstate INVALID -m dscp --dscp 0x3f -j xkeen -c 900 90000\n"+
-		"-A PREROUTING -p tcp -m conntrack ! --ctstate INVALID -m multiport --dports 80,443 -j xkeen -c %d 4000\n"+
-		"-A PREROUTING -p tcp -j other-chain -c 777 77700\nCOMMIT\n",packets)
+		"[900:90000] -A PREROUTING -p tcp -m conntrack ! --ctstate INVALID -m dscp --dscp 0x3f -j xkeen\n"+
+		"[%d:4000] -A PREROUTING -p tcp -m conntrack ! --ctstate INVALID -m multiport --dports 80,443 -j xkeen\n"+
+		"[777:77700] -A PREROUTING -p tcp -j other-chain\nCOMMIT\n",packets)
 }
 
 func testCaptureHookMangle(tcp,udp uint64) string {
 	return fmt.Sprintf("*mangle\n"+
-		"-A PREROUTING -p udp -m dscp --dscp 0x3f -j xkeen -c 888 88800\n"+
-		"-A PREROUTING -p udp -m multiport --dports 80,443 -j xkeen -c %d 4000\n"+
-		"-A PREROUTING -p tcp -j xkeen -c %d 4000\n"+
-		"-A xkeen -p udp -j TPROXY --on-port 1234 -c 999 99900\nCOMMIT\n",udp,tcp)
+		"[888:88800] -A PREROUTING -p udp -m dscp --dscp 0x3f -j xkeen\n"+
+		"[%d:4000] -A PREROUTING -p udp -m multiport --dports 80,443 -j xkeen\n"+
+		"[%d:4000] -A PREROUTING -p tcp -j xkeen\n"+
+		"[999:99900] -A xkeen -p udp -j TPROXY --on-port 1234\nCOMMIT\n",udp,tcp)
 }
 
 func testCaptureHookReader(nat,mangle string,callCount *atomic.Int32) func(context.Context,string,...string)(string,bool) {
@@ -52,6 +52,12 @@ func TestCaptureFlowParsesOnlyGeneralLANHooks(t *testing.T) {
 		!ok || tcp!=0 || udp!=0 {
 		t.Fatalf("special-only counters were counted tcp=%d udp=%d ok=%t",tcp,udp,ok)
 	}
+	// Other supported iptables-save implementations place -c after the rule.
+	suffix:="*nat\n-A PREROUTING -p tcp -j xkeen -c 4 200\nCOMMIT\n"
+	tcp,udp,natRules,udpRules,ok:=automationCaptureFlowCount(suffix,"nat")
+	if !ok || tcp!=4 || udp!=0 || natRules!=1 || udpRules!=0 {
+		t.Fatalf("legacy -c suffix counters not supported: tcp=%d rules=%d ok=%t",tcp,natRules,ok)
+	}
 }
 
 func TestCaptureFlowCounterInputFailClosed(t *testing.T) {
@@ -64,6 +70,11 @@ func TestCaptureFlowCounterInputFailClosed(t *testing.T) {
 		{"negative","*nat\n-A PREROUTING -p tcp -j xkeen -c -1 20\nCOMMIT\n"},
 		{"overflow","*nat\n-A PREROUTING -p tcp -j xkeen -c 18446744073709551615 20\nCOMMIT\n"},
 		{"multiple-overflow",fmt.Sprintf("*nat\n-A PREROUTING -p tcp -j xkeen -c %d 1\n-A PREROUTING -p tcp -j xkeen -c 1 1\nCOMMIT\n",automationCaptureFlowMaxPackets)},
+		{"malformed-prefix","*nat\n[bad:20] -A PREROUTING -p tcp -j xkeen\nCOMMIT\n"},
+		{"missing-colon","*nat\n[12] -A PREROUTING -p tcp -j xkeen\nCOMMIT\n"},
+		{"bad-prefix-bytes","*nat\n[12:no] -A PREROUTING -p tcp -j xkeen\nCOMMIT\n"},
+		{"overflow-prefix","*nat\n[18446744073709551615:20] -A PREROUTING -p tcp -j xkeen\nCOMMIT\n"},
+		{"ambiguous-two-formats","*nat\n[9:20] -A PREROUTING -p tcp -j xkeen -c 9 20\nCOMMIT\n"},
 		{"truncated",strings.Repeat("X",captureDoctorMaxOutput+1)},
 	} {
 		t.Run(tc.name,func(t *testing.T){
