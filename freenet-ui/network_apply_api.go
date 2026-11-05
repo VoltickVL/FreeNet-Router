@@ -608,6 +608,9 @@ func (a *app) executeProviderProfileApplyWithStart(req networkApplyRequest, onMa
 
 func (a *app) executeProviderProfileApplyWithAdmission(req networkApplyRequest, onManualStart func(providerPlanResponse), admission *providerApplyAdmission) (int, networkApplyResponse) {
 	profileID := strings.TrimSpace(req.ProfileID)
+	if !freeNetAutoPoolPathAbsent(freeNetAutoPoolActive()) || !freeNetAutoPoolPathAbsent(freeNetAutoPoolPending()) {
+		return http.StatusConflict, networkApplyResponse{Success:false,Applied:false,Operation:"provider",ProfileID:profileID,RollbackState:"NOT_APPLIED",Error:"AutoVPN live balancer pool is active or recovering; use the pool switch or restore the original VPN first"}
+	}
 	selectionToken := strings.TrimSpace(req.SelectionToken)
 	select {
 	case a.sem <- struct{}{}:
