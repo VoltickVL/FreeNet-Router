@@ -63,3 +63,55 @@ func TestCaptureDoctorAuthRequired(t *testing.T){
  mux.ServeHTTP(w,httptest.NewRequest(http.MethodGet,"/api/routing/capture-doctor",nil))
  if w.Code==http.StatusOK||w.Code==http.StatusNotFound {t.Fatalf("capture doctor must require auth, got %d",w.Code)}
 }
+
+func TestCaptureDoctorNegatedInvalidIsNormalTCPHook(t *testing.T) {
+	// Real XKeen/iptables-save syntax on an installed Keenetic:
+	// "! --ctstate INVALID" explicitly allows non-INVALID connections.
+	nat := "-A PREROUTING -p tcp -m connmark --mark 0x100 -m conntrack ! --ctstate INVALID -m dscp --dscp 0x3f -j xkeen\n" +
+		"-A PREROUTING -p tcp -m connmark --mark 0x100 -m conntrack ! --ctstate INVALID -m multiport --dports 80,443 -j xkeen\n" +
+		"-A xkeen -p tcp -j REDIRECT --to-ports 65432\n"
+	redirect, hook := captureDoctorNATState(nat)
+	if redirect != "tcp-redirect-present" || hook != "tcp-prerouting-hook-present" {
+		t.Fatalf("normal TCP hook was misclassified: redirect=%s hook=%s", redirect, hook)
+	}
+	read := func(_ context.Context, binary string, args ...string) (string, bool) {
+		switch binary {
+		case "iptables-save":
+			if len(args)>1 && args[1]=="nat" {return nat,true}
+			return "-A PREROUTING -p udp -j TPROXY --on-port 65432",true
+		case "ip":
+			if len(args)>1 && args[1]=="rule" {return "100: from all fwmark 0x1 lookup 100",true}
+			return "local default dev lo table 100",true
+		}
+		return "",false
+	}
+	result := captureDoctorClassify(context.Background(),read,"")
+	if result.State != "installed-unverified" || result.TCPPrerouting != "tcp-prerouting-hook-present" || result.Mutation!="NONE" {
+		t.Fatalf("normal hook must be present but not claim playback: %+v",result)
+	}
+}
+
+func TestCaptureDoctorSpecialOnlyHooksRemainUnverified(t *testing.T) {
+	for _,tc := range []struct{name,nat,want string}{
+		{"positive-invalid",
+			"-A PREROUTING -p tcp -m conntrack --ctstate INVALID -j xkeen\n",
+			"tcp-prerouting-invalid-only"},
+		{"negated-invalid-but-dscp-only",
+			"-A PREROUTING -p tcp -m conntrack ! --ctstate INVALID -m dscp --dscp 0x3f -j xkeen\n",
+			"tcp-prerouting-invalid-only"},
+		{"positive-established-only",
+			"-A PREROUTING -p tcp -m conntrack --ctstate ESTABLISHED -j xkeen\n",
+			"tcp-prerouting-invalid-only"},
+		{"missing",
+			"-A PREROUTING -p udp -j xkeen\n",
+			"tcp-prerouting-hook-absent"},
+		{"explicit-new",
+			"-A PREROUTING -p tcp -m conntrack --ctstate NEW -j xkeen\n",
+			"tcp-prerouting-hook-present"},
+	} {
+		t.Run(tc.name,func(t *testing.T) {
+			_, got:=captureDoctorNATState(tc.nat)
+			if got!=tc.want {t.Fatalf("%s: got %q want %q",tc.name,got,tc.want)}
+		})
+	}
+}
