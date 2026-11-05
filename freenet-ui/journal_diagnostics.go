@@ -38,6 +38,7 @@ type journalDiagnosticAuto struct {
 	QualityMediaLast string `json:"quality_media_last,omitempty"`
 	QualityMediaHadGood string `json:"quality_media_had_good,omitempty"`
 	HealthMediaLast string `json:"health_media_last,omitempty"`
+	ClientCapture automationCapturePathStatus `json:"client_capture"`
 }
 
 type journalDiagnosticUpdate struct {
@@ -179,6 +180,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 			QualityMediaLast: journalDiagnosticMediaTime(healthState["QUALITY_MEDIA_LAST"], now),
 			QualityMediaHadGood: journalDiagnosticMediaGoodFlag(healthState["QUALITY_MEDIA_HAD_GOOD"]),
 			HealthMediaLast: journalDiagnosticMediaTime(healthState["HEALTH_MEDIA_LAST"], now),
+			ClientCapture: automationCapturePathFromState(healthState, now),
 		},
 		Update: journalDiagnosticUpdate{
 			State: journalDiagnosticRedact(updateState["STATE"]),
@@ -199,6 +201,7 @@ func (a *app) journalDiagnostics(now time.Time) journalDiagnosticReport {
 			"Original on-disk journals are unchanged; these entries bypass display deduplication.",
 			"Only an allowlist of state fields is included; credentials and endpoint addresses are redacted.",
 			"Quality media counters are historical, bound internally to a hidden VPN identity and not proof of current client video playback, QUIC, or VPN egress. Missing fields mean UNKNOWN.",
+			"Client LAN capture status is a scheduled read-only kernel rule inventory; installed rules do not prove traffic hits, VPN egress, QUIC or Instagram playback. Missing/stale data means UNKNOWN.",
 			"VPN transaction doctor compares checkpoint file contents in memory and exports only match states, never hashes or config contents.",
 			"Source counts indicate selected tail events, not all historical events.",
 			"Full technical archive: /api/journal/technical-archive contains 30 UTC days of date-based gzip JSONL with explicit truncation markers.",
