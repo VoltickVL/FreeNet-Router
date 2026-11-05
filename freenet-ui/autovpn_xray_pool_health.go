@@ -160,7 +160,15 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
     }
     before:=a.freeNetAutoXrayIdentity()
     result,switchErr:=freeNetAutoSwitchWith(ctx,receipt.APIAddress,target,allowed,runner,
-        func(c context.Context)error{return freeNetAutoProbeXrayEgress(c,receipt.ProbeAddress)},
+        func(c context.Context)error{
+            return freeNetAutoPoolPostApplyAccept(c,mediaRecovery,
+                func(checkCtx context.Context)error{
+                    return freeNetAutoProbeXrayEgress(checkCtx,receipt.ProbeAddress)
+                },
+                func(checkCtx context.Context)automationMediaEvidence{
+                    return freeNetAutoPoolProbeMedia(checkCtx,receipt.ProbeAddress)
+                })
+        },
         a.freeNetAutoXrayIdentity)
     if result.Mutation=="STOP" {
         retainLock=true
