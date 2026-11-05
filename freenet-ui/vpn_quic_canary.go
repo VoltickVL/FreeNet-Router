@@ -78,6 +78,9 @@ func (a *app) visionQUICRollbackWith(restart func(context.Context)error, running
 		if err:=atomicWrite(a.cfg.OutPath,before,info.Mode().Perm());err!=nil{
 			return errors.New("rollback file restore failed")
 		}
+		if visionQUICSyncDir(filepath.Dir(a.cfg.OutPath))!=nil{
+			return errors.New("rollback file durable-sync failed")
+		}
 	default:
 		return errors.New("live outbound changed outside canary")
 	}
@@ -203,6 +206,8 @@ func (a *app) handleVisionQUICTry(w http.ResponseWriter,r *http.Request) {
 				writeJSON(w,status,reply);return
 			}
 		}
+	}else if visionQUICSyncDir(filepath.Dir(a.cfg.OutPath))!=nil {
+		reply.Status="candidate-durable-sync-failed";status=http.StatusBadGateway
 	}else{
 		reply.Mutation="APPLIED_TEMPORARILY";reply.Applied=true
 		if a.visionQUICRestart(runCtx)!=nil {
