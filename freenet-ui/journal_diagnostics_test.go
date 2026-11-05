@@ -31,7 +31,7 @@ func TestJournalDiagnosticsIsReadOnlyAndRetainsStages(t *testing.T) {
   auto: "2026-10-10T00:01:00Z\tAUTO VPN\tincident:start\tincident=abc; first\n2026-10-10T00:01:01Z\tAUTO VPN\tincident:start\tincident=abc; first\n2026-10-10T00:01:02Z\tAUTO VPN\tconfirm:failed\tserver.example.com\n",
   settings:"2026-10-10T00:02:00Z\tfreenet_update\tsuccess\tupdated\n",
   autoState:"LAST_RESULT=failed\nMUTATION_BLOCKED=yes\n",
-  settingsState:"HEALTH_LAST=2026-10-10T00:02:00Z\nQUALITY_DEGRADED_COUNT=2\nHEALTH_MEDIA_LAST=2026-10-10T00:01:30Z\nQUALITY_MEDIA_COUNT=2\nQUALITY_MEDIA_SINCE=2026-10-10T00:00:00Z\nQUALITY_MEDIA_LAST=2026-10-10T00:01:00Z\nQUALITY_MEDIA_HAD_GOOD=yes\nQUALITY_MEDIA_IDENTITY=private-dont-export-identity\nCLIENT_CAPTURE_LAST=2026-10-10T00:57:00Z\nCLIENT_CAPTURE_STATE=installed-unverified\nCLIENT_CAPTURE_TCP=tcp-prerouting-hook-present\nCLIENT_CAPTURE_UDP=tproxy-rule-present\n",
+  settingsState:"HEALTH_LAST=2026-10-10T00:02:00Z\nQUALITY_DEGRADED_COUNT=2\nHEALTH_MEDIA_LAST=2026-10-10T00:01:30Z\nQUALITY_MEDIA_COUNT=2\nQUALITY_MEDIA_SINCE=2026-10-10T00:00:00Z\nQUALITY_MEDIA_LAST=2026-10-10T00:01:00Z\nQUALITY_MEDIA_HAD_GOOD=yes\nQUALITY_MEDIA_IDENTITY=private-dont-export-identity\nCLIENT_CAPTURE_LAST=2026-10-10T00:57:00Z\nCLIENT_CAPTURE_STATE=installed-unverified\nCLIENT_CAPTURE_TCP=tcp-prerouting-hook-present\nCLIENT_CAPTURE_UDP=tproxy-rule-present\nCLIENT_FLOW_OBSERVED_AT=2026-10-10T00:57:00Z\nCLIENT_FLOW_TCP_RESULT=observed\nCLIENT_FLOW_UDP_RESULT=no-increase\nCLIENT_FLOW_TCP_PACKETS=987654321\n",
   cfg:"AUTO_VPN_V1=yes\nAUTO_VPN_MODE=best\nAUTO_VPN_POLICY=degraded\nAUTO_VPN_HEALTH_INTERVAL=5m\n",
   update:"STATE=SUCCESS\nFROM_VERSION=v0.7.0\nTARGET_VERSION=v0.7.1\n",
  } {
@@ -55,7 +55,9 @@ func TestJournalDiagnosticsIsReadOnlyAndRetainsStages(t *testing.T) {
  }
  if report.AutoVPN.ClientCapture.State!="installed-unverified" ||
   report.AutoVPN.ClientCapture.TCP!="tcp-prerouting-hook-present" ||
-  report.AutoVPN.ClientCapture.UDP!="tproxy-rule-present" {
+  report.AutoVPN.ClientCapture.UDP!="tproxy-rule-present" ||
+  report.AutoVPN.ClientCapture.HookActivity.TCP!="observed" ||
+  report.AutoVPN.ClientCapture.HookActivity.UDP!="no-increase" {
    t.Fatalf("read-only journal lost automatic LAN inventory: %+v",report.AutoVPN.ClientCapture)
  }
  if strings.Contains(report.Events[1].Message,"server.example.com"){t.Fatal("endpoint hostname leaked")}
@@ -74,7 +76,10 @@ func TestJournalDiagnosticsIsReadOnlyAndRetainsStages(t *testing.T) {
  if !strings.Contains(rec.Body.String(),"\"client_capture\"") {
   t.Fatalf("client capture omitted: %s",rec.Body.String())
  }
- if strings.Contains(rec.Body.String(),"private-dont-export-identity") {
+ if strings.Contains(rec.Body.String(),"987654321") {
+  t.Fatal("internal netfilter packet count leaked into technical export")
+ }
+if strings.Contains(rec.Body.String(),"private-dont-export-identity") {
   t.Fatal("internal exact VPN identity leaked into diagnostics")
  }
 }
