@@ -149,7 +149,13 @@ func (a *app) handleVisionQUICTry(w http.ResponseWriter,r *http.Request) {
 		_ = os.RemoveAll(a.cfg.LockPath)
 		reply.Status="lock-owner-failed";writeJSON(w,http.StatusConflict,reply);return
 	}
-	defer visionQUICReleaseOwnedLock(a.cfg.LockPath)
+	defer func() {
+		// Never release the shared writer lock when rollback is UNKNOWN.
+		// The on-disk checkpoint must remain a hard STOP for all writers.
+		if _,err:=os.Lstat(visionQUICPendingPath());os.IsNotExist(err){
+			visionQUICReleaseOwnedLock(a.cfg.LockPath)
+		}
+	}()
 	if err:=visionQUICSaveCheckpoint(before,candidate,current,req.Target);err!=nil {
 		// Leave incomplete receipt alone; all future mutations STOP until
 		// state is reconciled. No active configuration has changed.
@@ -165,6 +171,16 @@ func (a *app) handleVisionQUICTry(w http.ResponseWriter,r *http.Request) {
 	if err:=atomicWrite(a.cfg.OutPath,candidate,0600);err!=nil {
 		reply.Status="candidate-write-failed"
 		status=http.StatusBadGateway
+		// This invocation has not requested a core restart. If the original
+		// bytes survived unchanged, only discard the checkpoint; never cause
+		// a needless network interruption merely to clean up a failed write.
+		if live,e:=os.ReadFile(a.cfg.OutPath);e==nil &&
+			visionQUICDigest(live)==visionQUICDigest(before) {
+			if visionQUICClearCheckpoint()==nil {
+				reply.Rollback="NOT_APPLIED"
+				writeJSON(w,status,reply);return
+			}
+		}
 	}else{
 		reply.Mutation="APPLIED_TEMPORARILY";reply.Applied=true
 		if a.visionQUICRestart(runCtx)!=nil {
