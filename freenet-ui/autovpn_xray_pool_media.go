@@ -6,6 +6,18 @@ import (
     "time"
 )
 
+// A backup is never approved solely by its tag or its former position in
+// the pool. Original VLESS gets the same independent evidence as any other
+// candidate before a live automatic override.
+func freeNetAutoPoolOriginalApproved(probe automationHealthProbe, mediaRecovery bool) bool {
+    if probe.State!=automationHealthHealthy || probe.CurrentIdentity=="" {
+        return false
+    }
+    if !mediaRecovery {return true}
+    return probe.MediaComplete && !probe.MediaDegraded &&
+        !probe.QualityDegraded && probe.ServiceComplete
+}
+
 // Media measurements are router-side throughput surrogates sent through the
 // currently selected live balancer. They do not prove Instagram playback.
 type freeNetAutoPoolMediaPlan struct {
