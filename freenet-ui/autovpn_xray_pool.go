@@ -8,6 +8,8 @@ import (
  "encoding/json"
  "errors"
  "fmt"
+ "net"
+ "strconv"
  "strings"
 )
 
@@ -15,6 +17,8 @@ const (
  freeNetAutoPoolLimit = 3
  freeNetAutoBalancerTag = "freenet-auto-vpn"
  freeNetAutoOutboundPrefix = "freenet-auto-node-"
+ freeNetAutoAPITag = "freenet-auto-control-api"
+ freeNetAutoProbeURL = "https://connectivitycheck.gstatic.com/generate_204"
 )
 
 type freeNetAutoPoolCandidate struct {
@@ -22,6 +26,7 @@ type freeNetAutoPoolCandidate struct {
  Routing []byte
  Tags []string
  MigratedRules int
+ APIAddress string
 }
 
 // An explicit whitelist is essential: never admit arbitrary "outbound"
@@ -70,8 +75,13 @@ func freeNetAutoPoolParseOutbound(data json.RawMessage) (map[string]json.RawMess
  return item,tag,nil
 }
 
-func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []map[string]any) (freeNetAutoPoolCandidate,error) {
+func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []map[string]any, apiAddress string) (freeNetAutoPoolCandidate,error) {
  var out freeNetAutoPoolCandidate
+ host,portText,addressErr:=net.SplitHostPort(apiAddress)
+ port,portErr:=strconv.Atoi(portText)
+ if addressErr!=nil || portErr!=nil || host!="127.0.0.1" || port<1024 || port>65535 {
+  return out,errors.New("AutoVPN control API must use IPv4 loopback and an unprivileged port")
+ }
  if len(reserve)<1 || len(reserve)>=freeNetAutoPoolLimit {
   return out,errors.New("pool requires one or two verified alternatives")
  }
@@ -93,7 +103,7 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
   item,tag,e:=freeNetAutoPoolParseOutbound(raw); if e!=nil{return out,e}
   if existing[tag] {return out,errors.New("duplicate original outbound tag")}
   existing[tag]=true
-  if tag==freeNetAutoBalancerTag || strings.HasPrefix(tag,freeNetAutoOutboundPrefix){
+  if tag==freeNetAutoBalancerTag || tag==freeNetAutoAPITag || strings.HasPrefix(tag,freeNetAutoOutboundPrefix){
    return out,errors.New("existing reserved balancer namespace")
   }
   if strings.HasPrefix(tag,"vless-reality") && tag!="vless-reality"{
@@ -107,6 +117,16 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
  if currentCount!=1 {return out,errors.New("exactly one live VLESS Reality required")}
  routDoc,routRoot,err:=freeNetAutoPoolReadObject(liveRouting,"routing")
  if err!=nil {return out,err}
+ // These objects cannot be overwritten without understanding the existing
+ // controller and its owner. Full-confdir validation is still mandatory.
+ for _,key:=range []string{"api","observatory","burstObservatory"} {
+  if _,exists:=routDoc[key];exists {
+   return out,errors.New("existing API/observatory requires reconciliation")
+  }
+  if _,exists:=outDoc[key];exists {
+   return out,errors.New("outbound fragment already owns API/observatory")
+  }
+ }
  var rules []map[string]json.RawMessage
  if json.Unmarshal(routRoot["rules"],&rules)!=nil || len(rules)==0 {
   return out,errors.New("routing rules unavailable")
@@ -155,6 +175,8 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
  balancer:=map[string]any{
   "tag":freeNetAutoBalancerTag,
   "selector":[]string{"vless-reality",freeNetAutoOutboundPrefix},
+  // Never fall through to default (possibly DIRECT) when all probes fail.
+  "fallbackTag":"vless-reality",
   "strategy":map[string]any{"type":"leastPing"},
  }
  encodedRules,err:=json.Marshal(rules);if err!=nil{return out,err}
@@ -164,6 +186,21 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
  routRoot["balancers"]=encodedBalancers
  outDoc["outbounds"]=encodedOutbounds
  routDoc["routing"],err=json.Marshal(routRoot);if err!=nil{return out,err}
+ // leastPing needs a matching observatory. A very small 204 probe is used
+ // only for reachability; real media QoE requires separate confirmation.
+ // The Xray API uses simplified listen mode (Xray >= 1.8.12), so no public
+ // inbound or route rule is created.
+ routDoc["observatory"],err=json.Marshal(map[string]any{
+  "subjectSelector":[]string{"vless-reality",freeNetAutoOutboundPrefix},
+  "probeUrl":freeNetAutoProbeURL,
+  "probeInterval":"60s",
+  "enableConcurrency":false,
+ });if err!=nil{return out,err}
+ routDoc["api"],err=json.Marshal(map[string]any{
+  "tag":freeNetAutoAPITag,
+  "listen":apiAddress,
+  "services":[]string{"RoutingService"},
+ });if err!=nil{return out,err}
  outDocBytes,err:=json.MarshalIndent(outDoc,"","  ");if err!=nil{return out,err}
  routDocBytes,err:=json.MarshalIndent(routDoc,"","  ");if err!=nil{return out,err}
  if bytes.Equal(outDocBytes,liveOutbounds) || bytes.Equal(routDocBytes,liveRouting){
@@ -171,6 +208,6 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
  }
  return freeNetAutoPoolCandidate{
   Outbounds:append(outDocBytes,'\n'),Routing:append(routDocBytes,'\n'),
-  Tags:newTags,MigratedRules:migrated,
+  Tags:newTags,MigratedRules:migrated,APIAddress:apiAddress,
  },nil
 }
