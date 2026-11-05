@@ -29,7 +29,7 @@ func freeNetAutoPoolAlternative(t *testing.T) map[string]any {
 
 func TestFreeNetAutoPoolCompilesOnlyVPNRules(t *testing.T) {
  alt:=freeNetAutoPoolAlternative(t)
- p,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt})
+ p,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt},"127.0.0.1:10085")
  if err!=nil{t.Fatal(err)}
  if p.MigratedRules!=1 || len(p.Tags)!=2 ||
    p.Tags[0]!="vless-reality" || p.Tags[1]!="freenet-auto-node-1"{
@@ -57,6 +57,22 @@ func TestFreeNetAutoPoolCompilesOnlyVPNRules(t *testing.T) {
  if err:=json.Unmarshal(p.Routing,&routing);err!=nil{t.Fatal(err)}
  if len(routing.Routing.Rules)!=2 || len(routing.Routing.Balancers)!=1 {
   t.Fatal("routing scope changed")
+ }
+ var routingRoot map[string]json.RawMessage
+ if err:=json.Unmarshal(p.Routing,&routingRoot);err!=nil{t.Fatal(err)}
+ var api struct {Tag string `json:"tag"`; Listen string `json:"listen"`; Services []string `json:"services"`}
+ if err:=json.Unmarshal(routingRoot["api"],&api);err!=nil{t.Fatal(err)}
+ if api.Tag!=freeNetAutoAPITag || api.Listen!="127.0.0.1:10085" ||
+   len(api.Services)!=1 || api.Services[0]!="RoutingService" {
+  t.Fatal("API is not limited to the local routing service")
+ }
+ var obs struct {SubjectSelector []string `json:"subjectSelector"`; ProbeInterval string `json:"probeInterval"`}
+ if err:=json.Unmarshal(routingRoot["observatory"],&obs);err!=nil{t.Fatal(err)}
+ if len(obs.SubjectSelector)!=2 || obs.ProbeInterval!="60s" {
+  t.Fatal("leastPing needs its matching, bounded observatory")
+ }
+ if _,exists:=routingRoot["inbounds"];exists {
+  t.Fatal("simplified loopback API must not create a public inbound")
  }
  if !bytes.Equal(bytes.TrimSpace(routing.Routing.Rules[0]["outboundTag"]),[]byte(`"direct"`)){
   t.Fatal("DIRECT rule unexpectedly rewritten")
@@ -92,7 +108,7 @@ func TestFreeNetAutoPoolFailClosedForUnknownOrConflictingLayouts(t *testing.T) {
  }
  for _,tc:=range tests{
   t.Run(tc.name,func(t *testing.T){
-   candidate,err:=buildFreeNetAutoPoolCandidate([]byte(tc.out),[]byte(tc.rout),tc.alts)
+   candidate,err:=buildFreeNetAutoPoolCandidate([]byte(tc.out),[]byte(tc.rout),tc.alts,"127.0.0.1:10085")
    if err==nil{t.Fatalf("unsafe pool admitted: tags=%v",candidate.Tags)}
    if len(candidate.Outbounds)!=0||len(candidate.Routing)!=0{
     t.Fatal("rejected candidate returned executable output")
@@ -106,8 +122,34 @@ func TestFreeNetAutoPoolRejectsUnsupportedAlternative(t *testing.T) {
    alt:=freeNetAutoPoolAlternative(t)
    stream:=alt["streamSettings"].(map[string]any)
    stream["network"]=value
-   p,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt})
+   p,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt},"127.0.0.1:10085")
    if err==nil || len(p.Tags)!=0{t.Fatal("unsupported alternate VLESS transport admitted")}
+  })
+ }
+}
+
+func TestFreeNetAutoPoolRejectsPublicOrPrivilegedRPC(t *testing.T) {
+ alt:=freeNetAutoPoolAlternative(t)
+ for _,addr:=range []string{
+  "0.0.0.0:10085","192.168.1.1:10085","[::1]:10085","localhost:10085",
+  "127.0.0.1:80","127.0.0.1:0","127.0.0.1:65536","",
+ } {
+  t.Run(addr,func(t *testing.T){
+   c,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),[]map[string]any{alt},addr)
+   if err==nil||len(c.Outbounds)>0||len(c.Routing)>0{t.Fatal("unsafe API listener accepted")}
+  })
+ }
+}
+func TestFreeNetAutoPoolRejectsPriorAPIAndObservatory(t *testing.T) {
+ alt:=freeNetAutoPoolAlternative(t)
+ for _,key:=range []string{"api","observatory","burstObservatory"} {
+  t.Run(key,func(t *testing.T){
+   var obj map[string]any
+   if err:=json.Unmarshal([]byte(freeNetAutoPoolRouting),&obj);err!=nil{t.Fatal(err)}
+   obj[key]=map[string]any{"existing":"external"}
+   bad,_:=json.Marshal(obj)
+   c,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),bad,[]map[string]any{alt},"127.0.0.1:10085")
+   if err==nil||len(c.Outbounds)>0{t.Fatal("existing API/observer overwritten")}
   })
  }
 }
