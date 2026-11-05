@@ -19,6 +19,7 @@
     const paths = {
       settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21H10v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H3v-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3h4a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.1v4H21a1.7 1.7 0 0 0-1.6 1Z"/>',
       vpn: '<circle cx="12" cy="12" r="9"/><path d="M7 12h10M9 8l-2 4 2 4M15 8l2 4-2 4"/>',
+      video: '<rect x="3" y="6" width="14" height="12" rx="2"/><path d="m17 10 4-3v10l-4-3M7 12h6"/>',
       info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
       check: '<path d="m5 12 4 4L19 6"/>',
       play: '<path d="m8 5 11 7-11 7Z"/>',
@@ -226,24 +227,34 @@
             </div>
             <div class="fn3-safety">${svg('shield')}<span id="fn3SafetyText">Рабочий VPN не меняется без причины. Все переключения выполняются только при подтверждённом сбое, с проверкой и автоматическим возвратом при необходимости.</span></div>
             <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small><small id="fn3ClientCaptureStatus">Перехват устройств: ожидание автоматического снимка</small><small id="fn3ClientHookPackets">Пакеты LAN в XKeen: ожидание двух снимков (без проверки видео)</small></div></div></div>
-            <div class="fn3-endpoint-schedule" role="group" aria-label="Устойчивый AUTO VPN без перезапуска">
-              <div class="fn3-endpoint-copy"><strong>Стабильный пул VPN — без разрыва при переключении</strong><small>FreeNet сохранит текущий сервер и подготовит до двух проверенных резервов. Один контролируемый перезапуск Xray нужен только при первом включении или полном выключении. Дальнейшие переключения — через API без рестартов.</small></div>
-              <div class="fn3-auto-actions">
-                <button id="fn3PoolPrepare" class="btn secondary" type="button">Подобрать резервные VPN</button>
-                <button id="fn3PoolActivate" class="btn primary" type="button" disabled>Включить пул</button>
-                <button id="fn3PoolRefresh" class="btn secondary" type="button">Проверить состояние</button>
+
+            <section class="fn3-pool" role="group" aria-label="Стабильный пул VPN">
+              <div class="fn3-pool-copy">
+                <h3>Стабильный пул VPN</h3>
+                <p>Текущий сервер и до двух проверенных резервов. При первом включении — один контролируемый перезапуск Xray. Дальнейшая смена узла проходит без перезапуска.</p>
               </div>
-              <div class="fn3-auto-actions">
-                <select id="fn3PoolNode" aria-label="Выход VPN в активном пуле" disabled><option value="">Сначала включите пул</option></select>
-                <button id="fn3PoolSwitch" class="btn secondary" type="button" disabled>Переключить без рестарта</button>
-                <button id="fn3PoolDisable" class="btn secondary" type="button" disabled>Вернуть исходный VPN</button>
+              <div class="fn3-pool-step">
+                <span class="fn3-pool-step-label">Подготовка и включение</span>
+                <div class="fn3-pool-actions">
+                  <button id="fn3PoolPrepare" class="btn secondary" type="button">1. Подобрать резервы</button>
+                  <button id="fn3PoolActivate" class="btn primary" type="button" disabled>2. Включить пул</button>
+                  <button id="fn3PoolRefresh" class="btn secondary" type="button">Проверить состояние</button>
+                </div>
               </div>
-              <div id="fn3PoolStatus" role="status" aria-live="polite" class="fn3-sub">Проверяем наличие устойчивого пула. Рабочий VPN не изменён.</div>
-            </div>
+              <div class="fn3-pool-step">
+                <label class="fn3-pool-step-label" for="fn3PoolNode">Выбор сервера действующего пула</label>
+                <div class="fn3-pool-runtime">
+                  <select id="fn3PoolNode" aria-label="Выход VPN в активном пуле" disabled><option value="">Сначала включите пул</option></select>
+                  <button id="fn3PoolSwitch" class="btn secondary" type="button" disabled>Переключить без рестарта</button>
+                  <button id="fn3PoolDisable" class="btn secondary" type="button" disabled>Вернуть исходный VPN</button>
+                </div>
+              </div>
+              <div id="fn3PoolStatus" class="fn3-pool-status" role="status" aria-live="polite" data-tone="neutral">Пул пока не включён. Подбор резервов не меняет сеть.</div>
+            </section>
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
           <section id="fn3QoECard" class="fn3-card fn3-qoe fn3-section-collapsed" aria-label="Диагностика воспроизведения">
-            <div class="fn3-card-head" role="button" tabindex="0" aria-expanded="false" aria-label="Видео и связь: скрыть или раскрыть"><div class="fn3-title"><span class="fn3-icon">${svg('vpn')}</span><div><h2>Видео и связь — диагностика</h2><div class="fn3-sub">Снимок состояния FreeNet без изменения VPN, DNS или маршрутов.</div></div></div></div>
+            <div class="fn3-card-head" role="button" tabindex="0" aria-expanded="false" aria-label="Видео и связь: скрыть или раскрыть"><div class="fn3-title"><span class="fn3-icon">${svg('video')}</span><div><h2>Видео и связь — диагностика</h2><div class="fn3-sub">Снимок состояния FreeNet без изменения VPN, DNS или маршрутов.</div></div></div></div>
             <div class="fn3-endpoint-schedule">
               <label class="fn3-endpoint-copy" for="fn3QoEService"><strong>Какой сервис тормозит?</strong><small>Снимок не воспроизводит Reels и не перехватывает трафик устройства.</small></label>
               <select id="fn3QoEService" aria-label="Проверяемый сервис"><option value="instagram">Instagram Reels</option><option value="telegram">Telegram</option></select>
@@ -970,9 +981,36 @@
   let autoPoolPlan = null;
   let autoPoolNodes = [];
   let autoPoolBusy = false;
-  function setAutoPoolStatus(message) {
+
+  // Only fixed, non-secret diagnostic labels are surfaced. Do not display raw
+  // backend error text, addresses, credentials or selected profile payloads.
+  const poolPlanErrors = Object.freeze({
+    'scan-no-token':'Замер завершился без подтверждённого снимка серверов. Текущий VPN сохранён.',
+    'scan-no-eligible':'Не найдено ни одного полностью измеренного резервного сервера. Текущий VPN сохранён.',
+    'scan-partial':'Подбор завершился неполными измерениями; подтверждённых резервов нет. Текущий VPN сохранён.',
+    'invalid-selected-profiles':'Выбранные резервные серверы не прошли проверку идентификаторов.',
+    'active-state-unverified':'Текущая конфигурация Xray не подтверждена; изменения запрещены.',
+    'measured-selection-stale':'Снимок подбора устарел или изменился. Нужен новый безопасный подбор.',
+    'alternative-matches-current':'Кандидат совпадает с текущим VPN, отдельного резерва нет.',
+    'alternative-https-rejected':'Резервный VPN не прошёл независимую HTTPS-проверку.',
+    'alternative-transport-unsupported':'Способ подключения одного из резервов несовместим с пулом.',
+    'loopback-port-unavailable':'Локальные управляющие порты Xray недоступны.',
+    'config-unsupported':'Действующая конфигурация Xray несовместима с подготовкой пула.',
+    'full-xray-preflight-failed':'Полная предварительная проверка Xray-конфигурации не пройдена.',
+    'plan-token-unavailable':'FreeNet не смог создать одноразовый план активации.'
+  });
+  function poolPlanErrorText(error, stage) {
+    const code = String(error?.message || '').replace(/^pool:/, '');
+    if (Object.prototype.hasOwnProperty.call(poolPlanErrors, code)) return poolPlanErrors[code];
+    const phase = stage === 'plan' ? 'Проверка конфигурации' : 'Измерение резервов';
+    return phase + ' не завершилась: точная безопасная причина недоступна. Пул не активирован; проверьте состояние FreeNet перед повтором.';
+  }
+  function setAutoPoolStatus(message, tone = 'neutral') {
     const output=q('#fn3PoolStatus');
-    if(output)output.textContent=message;
+    if(output) {
+      output.textContent=message;
+      output.dataset.tone=['neutral','busy','ok','warning'].includes(tone)?tone:'neutral';
+    }
   }
   function autoPoolControls(active,busy=false) {
     autoPoolBusy=busy;
@@ -1021,23 +1059,29 @@
       q('#fn3PoolPrepare').disabled=true;
     }
   }
+
   async function prepareAutoPool() {
     if(autoPoolBusy)return;
     autoPoolPlan=null;
     autoPoolControls(false,true);
-    setAutoPoolStatus('Измеряем серверы и подбираем до двух проверенных резервов. Текущий VPN не меняется…');
+    let stage='scan';
+    setAutoPoolStatus('Шаг 1/2: измеряем VPN-серверы и выбираем до двух подтверждённых резервов. Текущий VPN не меняется…','busy');
     try {
       const best=await fetchJSON('/api/vpn/best',{method:'GET',cache:'no-store',credentials:'same-origin'});
       const candidates=(best.candidates||[]).filter(x=>x.eligible&&x.available&&x.tested&&!x.current&&/^[0-9a-f]{16}$/.test(x.id||''));
-      if(!best.selection_token||candidates.length===0)throw new Error('no eligible snapshot');
+      if(!best.selection_token)throw new Error('pool:scan-no-token');
+      if(candidates.length===0)throw new Error(best.partial?'pool:scan-partial':'pool:scan-no-eligible');
       const selected=[...new Set(candidates.map(x=>x.id))].slice(0,2);
-      const plan=await fetchJSON('/api/automation/pool/plan',{method:'POST',credentials:'same-origin',
+      stage='plan';
+      setAutoPoolStatus('Шаг 2/2: проверяем резервные узлы и полный Xray-конфиг. Текущий VPN не меняется…','busy');
+      const response=await fetch('/api/automation/pool/plan',{method:'POST',credentials:'same-origin',
         headers:{'Content-Type':'application/json'},body:JSON.stringify({selection_token:best.selection_token,profile_ids:selected})});
-      if(!plan.ready||!plan.plan_token)throw new Error('candidate not validated');
+      const plan=await response.json().catch(()=>null);
+      if(!response.ok||!plan?.ready||!plan?.plan_token)throw new Error('pool:'+String(plan?.status||'plan-unknown'));
       autoPoolPlan={...plan,received_at:Date.now()};
-      setAutoPoolStatus('Проверено '+(selected.length+1)+' VPN-узла. Ничего не изменено. Включение выполнит один контролируемый перезапуск Xray с резервной копией и автоматическим откатом при отказе.');
-    }catch(_){
-      setAutoPoolStatus('Безопасный план не получен: отсутствуют полностью проверенные резервные узлы, Xray занят или конфигурация несовместима. Исходный VPN сохранён.');
+      setAutoPoolStatus('Готово: проверено '+(selected.length+1)+' VPN-узла. Сеть не изменена. «Включить пул» выполнит один контролируемый перезапуск Xray с резервной копией и автоматическим откатом при отказе.','ok');
+    }catch(error){
+      setAutoPoolStatus(poolPlanErrorText(error,stage),'warning');
     }finally{autoPoolControls(false)}
   }
   async function activateAutoPool() {
