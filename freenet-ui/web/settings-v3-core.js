@@ -236,6 +236,14 @@
             </div>
             <button id="fn3QoECapture" class="btn secondary" type="button">Снять диагностическое состояние</button>
             <div id="fn3QoEResult" class="fn3-sub" role="status" aria-live="polite" style="white-space:pre-line;margin-top:12px">Маршрут клиента и качество видео пока не измерены.</div>
+            <div class="fn3-endpoint-schedule" style="margin-top:14px">
+              <div><strong>Безопасное испытание QUIC</strong><small>Проверяет вариант XTLS Vision с UDP/443 на текущем сервере. Если план пройдёт проверку Xray, FreeNet временно применит его на 35 секунд и автоматически восстановит исходный VPN.</small></div>
+            </div>
+            <div class="fn3-auto-actions">
+              <button id="fn3VisionPlan" class="btn secondary" type="button">Проверить совместимость QUIC</button>
+              <button id="fn3VisionTry" class="btn secondary" type="button" disabled>Испытать с автоматическим откатом</button>
+            </div>
+            <div id="fn3VisionStatus" class="fn3-sub" role="status" aria-live="polite" style="margin-top:9px">Текущий VPN не менялся. Испытание не доказывает качество Reels.</div>
           </section>
         </div>
         <section class="fn3-card fn3-extra fn3-section-collapsed"><div class="fn3-extra-title" role="button" tabindex="0" aria-expanded="false" aria-label="Системное обслуживание: скрыть или раскрыть"><span class="fn3-icon fn3-maintenance-icon">${svg('settings')}</span><div class="fn3-extra-summary"><h2>Системное обслуживание</h2><div class="fn3-sub">Обновления, служебные данные и резервные копии.</div></div><span class="fn3-section-chevron">${svg('chevron')}</span></div><div class="fn3-extra-grid">${extraCard('subscription','subscription','Обновление подписки','Автоматическое обновление данных подписки — списка доступных VPN.','Проверять','Проверить сейчас')}${extraCard('geodata','globe','GeoData / GeoIP','Данные геолокации, используемые для маршрутизации и фильтров.','Обновлять','Обновить сейчас')}${extraCard('freenet','box','Обновление FreeNet','Автоматическая проверка новых версий FreeNet. Установка — только после подтверждения.','Проверять','Проверить сейчас')}${backupCard()}</div><div class="fn3-extra-save-row"><button id="fn3MaintenanceSave" class="btn fn3-extra-save" type="button" disabled>${svg('save')}<span>Сохранено</span></button></div></section>
@@ -945,9 +953,69 @@
     }
   }
 
+  let visionCanaryPlan = null;
+
+  async function prepareVisionCanary() {
+    const planButton=q('#fn3VisionPlan'), tryButton=q('#fn3VisionTry');
+    const output=q('#fn3VisionStatus');
+    if(!planButton||!tryButton||!output)return;
+    visionCanaryPlan=null;
+    tryButton.disabled=true;
+    planButton.disabled=true;
+    output.textContent='Проверяем точный профиль и совместимость Xray без изменения сети…';
+    try {
+      const data=await fetchJSON('/api/vpn/vision-quic/plan?target=xtls-rprx-vision-udp443',
+        {method:'GET',cache:'no-store',credentials:'same-origin'});
+      if(!data.ready||!data.token||!data.issued_at)throw new Error('not-ready');
+      visionCanaryPlan=data;
+      tryButton.disabled=false;
+      output.textContent='Проверка кандидата успешна. Текущий VPN: '+(data.current||'неизвестно')+
+        '. Испытание временно перезапустит Xray и всегда вернёт исходный режим; во время пробы возможен краткий разрыв.';
+    }catch(_){
+      output.textContent='Безопасный план QUIC сейчас недоступен. Настройки роутера не менялись.';
+    }finally{planButton.disabled=false}
+  }
+
+  async function runVisionCanary() {
+    const tryButton=q('#fn3VisionTry'),planButton=q('#fn3VisionPlan'),output=q('#fn3VisionStatus');
+    if(!tryButton||!output||tryButton.disabled||!visionCanaryPlan)return;
+    const plan=visionCanaryPlan;
+    if(Date.now()/1000-plan.issued_at>110){
+      output.textContent='План устарел. Сначала повторите проверку совместимости.';
+      visionCanaryPlan=null;tryButton.disabled=true;return;
+    }
+    if(!window.confirm('Испытать UDP/443 на текущем VPN? Xray временно перезапустится; возможен краткий разрыв соединений. FreeNet автоматически восстановит исходный профиль и остановит изменения при неизвестном откате.'))return;
+    tryButton.disabled=true;
+    if(planButton)planButton.disabled=true;
+    output.textContent='Испытание QUIC выполняется, исходная конфигурация будет восстановлена автоматически…';
+    try {
+      const response=await fetch('/api/vpn/vision-quic/try',{
+        method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',
+        body:JSON.stringify({target:plan.target,token:plan.token,issued_at:plan.issued_at,
+          acknowledge:'temporary-canary-with-auto-rollback'})
+      });
+      const result=await response.json();
+      if(result.rollback==='FAILED/UNKNOWN'){
+        output.textContent='STOP: откат не подтверждён. FreeNet заблокировал дальнейшие изменения VPN. Нужна штатная процедура восстановления.';
+      }else if(result.rollback==='RESTORED'){
+        output.textContent='Исходный VPN восстановлен. '+(result.success?'Временный QUIC режим проверен.':'Испытание завершилось ошибкой.')+
+          ' Плавность Reels на телефоне этим тестом не подтверждена.';
+      }else{
+        output.textContent='QUIC не применён: состояние не позволило начать безопасное испытание.';
+      }
+    }catch(_){
+      output.textContent='Связь с панелью прервалась. Не повторяйте испытание до проверки состояния FreeNet и отката.';
+    }finally{
+      visionCanaryPlan=null;
+      if(planButton)planButton.disabled=false;
+    }
+  }
+
   function bind() {
     q('#fn3Save').onclick = save; q('#fn3MaintenanceSave').onclick = save; q('#fn3Check').onclick = checkAuto;
     q('#fn3QoECapture').onclick = captureQoEIncident;
+    q('#fn3VisionPlan').onclick = prepareVisionCanary;
+    q('#fn3VisionTry').onclick = runVisionCanary;
     document.addEventListener('freenet:controls-busy', event => {
       state.controlsBusy = !!event.detail;
       queueMicrotask(renderSave);
