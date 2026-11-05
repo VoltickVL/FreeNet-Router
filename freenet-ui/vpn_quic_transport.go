@@ -192,9 +192,13 @@ func visionQUICPreflight(ctx context.Context, binary, assetDir, liveDir, outboun
 	found:=false
 	for _,entry:=range entries{
 		name:=entry.Name()
-		if entry.IsDir() || entry.Type()&os.ModeSymlink!=0 ||
-			(!strings.HasSuffix(name,".json") && !strings.HasSuffix(name,".jsonc")){
+		if !strings.HasSuffix(name,".json") && !strings.HasSuffix(name,".jsonc"){
 			continue
+		}
+		// A symlink/directory disguised as a config fragment could make the
+		// isolated test pass against a *different* effective live config.
+		if entry.IsDir() || entry.Type()&os.ModeSymlink!=0 {
+			return errors.New("live config fragment is not a regular file")
 		}
 		if name=="04_outbounds.json"{found=true}
 		raw:=candidate
