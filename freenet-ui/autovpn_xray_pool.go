@@ -19,6 +19,7 @@ const (
  freeNetAutoOutboundPrefix = "freenet-auto-node-"
  freeNetAutoAPITag = "freenet-auto-control-api"
  freeNetAutoProbeURL = "https://connectivitycheck.gstatic.com/generate_204"
+ freeNetAutoProbeTag = "freenet-auto-probe"
 )
 
 type freeNetAutoPoolCandidate struct {
@@ -27,6 +28,7 @@ type freeNetAutoPoolCandidate struct {
  Tags []string
  MigratedRules int
  APIAddress string
+ ProbeAddress string
 }
 
 // An explicit whitelist is essential: never admit arbitrary "outbound"
@@ -75,12 +77,18 @@ func freeNetAutoPoolParseOutbound(data json.RawMessage) (map[string]json.RawMess
  return item,tag,nil
 }
 
-func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []map[string]any, apiAddress string) (freeNetAutoPoolCandidate,error) {
+func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []map[string]any, apiAddress, probeAddress string) (freeNetAutoPoolCandidate,error) {
  var out freeNetAutoPoolCandidate
  host,portText,addressErr:=net.SplitHostPort(apiAddress)
  port,portErr:=strconv.Atoi(portText)
  if addressErr!=nil || portErr!=nil || host!="127.0.0.1" || port<1024 || port>65535 {
   return out,errors.New("AutoVPN control API must use IPv4 loopback and an unprivileged port")
+ }
+ probeHost,probePortText,probeAddrErr:=net.SplitHostPort(probeAddress)
+ probePort,probePortErr:=strconv.Atoi(probePortText)
+ if probeAddrErr!=nil || probePortErr!=nil || probeHost!="127.0.0.1" ||
+   probePort<1024 || probePort>65535 || probePort==port {
+  return out,errors.New("AutoVPN probe must use a distinct local unprivileged TCP port")
  }
  if len(reserve)<1 || len(reserve)>=freeNetAutoPoolLimit {
   return out,errors.New("pool requires one or two verified alternatives")
@@ -103,7 +111,7 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
   item,tag,e:=freeNetAutoPoolParseOutbound(raw); if e!=nil{return out,e}
   if existing[tag] {return out,errors.New("duplicate original outbound tag")}
   existing[tag]=true
-  if tag==freeNetAutoBalancerTag || tag==freeNetAutoAPITag || strings.HasPrefix(tag,freeNetAutoOutboundPrefix){
+  if tag==freeNetAutoBalancerTag || tag==freeNetAutoAPITag || tag==freeNetAutoProbeTag || strings.HasPrefix(tag,freeNetAutoOutboundPrefix){
    return out,errors.New("existing reserved balancer namespace")
   }
   if strings.HasPrefix(tag,"vless-reality") && tag!="vless-reality"{
@@ -119,7 +127,7 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
  if err!=nil {return out,err}
  // These objects cannot be overwritten without understanding the existing
  // controller and its owner. Full-confdir validation is still mandatory.
- for _,key:=range []string{"api","observatory","burstObservatory"} {
+ for _,key:=range []string{"api","observatory","burstObservatory","inbounds"} {
   if _,exists:=routDoc[key];exists {
    return out,errors.New("existing API/observatory requires reconciliation")
   }
@@ -155,6 +163,15 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
   }
  }
  if migrated==0{return out,errors.New("no exact current VPN routing target")}
+ // This independent loopback-only SOCKS probe proves that the switched
+ // outbound can perform HTTPS using the real running Xray core; it cannot
+ // accidentally fall through an ISP/DIRECT rule.
+ probeRule:=map[string]json.RawMessage{
+  "type":json.RawMessage(`"field"`),
+  "inboundTag":json.RawMessage(`["freenet-auto-probe"]`),
+  "balancerTag":json.RawMessage(`"freenet-auto-vpn"`),
+ }
+ rules=append([]map[string]json.RawMessage{probeRule},rules...)
  newOutbound:=append([]json.RawMessage(nil),rawOutbound...)
  newTags:=[]string{"vless-reality"}
  for index,alternative:=range reserve {
@@ -201,6 +218,13 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
   "listen":apiAddress,
   "services":[]string{"RoutingService"},
  });if err!=nil{return out,err}
+ routDoc["inbounds"],err=json.Marshal([]any{map[string]any{
+  "tag":freeNetAutoProbeTag,
+  "listen":"127.0.0.1",
+  "port":probePort,
+  "protocol":"socks",
+  "settings":map[string]any{"auth":"noauth","udp":false},
+ }});if err!=nil{return out,err}
  outDocBytes,err:=json.MarshalIndent(outDoc,"","  ");if err!=nil{return out,err}
  routDocBytes,err:=json.MarshalIndent(routDoc,"","  ");if err!=nil{return out,err}
  if bytes.Equal(outDocBytes,liveOutbounds) || bytes.Equal(routDocBytes,liveRouting){
@@ -208,6 +232,6 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
  }
  return freeNetAutoPoolCandidate{
   Outbounds:append(outDocBytes,'\n'),Routing:append(routDocBytes,'\n'),
-  Tags:newTags,MigratedRules:migrated,APIAddress:apiAddress,
+  Tags:newTags,MigratedRules:migrated,APIAddress:apiAddress,ProbeAddress:probeAddress,
  },nil
 }
