@@ -751,6 +751,9 @@ func (a *app) runScheduledAutomationHealthWatch(parent context.Context) (bool, a
 		return false, automationHealthResult{}, nil
 	}
 	result, err := a.runAutomationHealthWatch(parent)
+	// Observe the LAN interception plane separately from isolated VLESS health.
+	// The bounded five-minute read-only check neither selects nor applies VPNs.
+	a.observeScheduledAutomationCapturePath(parent)
 	return true, result, err
 }
 
