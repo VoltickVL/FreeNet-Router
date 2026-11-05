@@ -10,6 +10,8 @@ const web = path.join(root, 'freenet-ui', 'web');
 const calls = [];
 let standardGeoHadExplicitFile = false;
 const geoSuggestModes = [];
+let proxyListText = '80\n443\n596:599\n';
+let proxyListSHA = '3'.repeat(64);
 let holdStudioNext=false, releaseStudioResponse=null;
 let live = {
   '01_log': {log:{loglevel:'warning'}},
@@ -51,9 +53,9 @@ function studioBody() {
     {name:'04_outbounds',kind:'json',access:'editable',present:true,size:654,sha256:'d'.repeat(64),roots:['outbounds'],content:live['04_outbounds'],mutation:'NONE'},
     {name:'05_routing',kind:'json',access:'routing-managed',present:true,size:55,sha256:'e'.repeat(64),roots:['routing'],content:live['05_routing'],mutation:'NONE'},
     {name:'06_policy',kind:'json',access:'routing-managed',present:true,size:20,sha256:'f'.repeat(64),roots:['policy'],content:live['06_policy'],mutation:'NONE'},
-    {name:'ip_exclude',kind:'list',access:'read-only',present:true,size:18,sha256:'1'.repeat(64),text:'192.0.2.0/24\n',mutation:'NONE'},
-    {name:'port_exclude',kind:'list',access:'read-only',present:true,size:8,sha256:'2'.repeat(64),text:'53\n123\n',mutation:'NONE'},
-    {name:'port_proxying',kind:'list',access:'read-only',present:true,size:16,sha256:'3'.repeat(64),text:'80\n443\n596:599\n',mutation:'NONE'}
+    {name:'ip_exclude',kind:'list',access:'editable',present:true,size:18,sha256:'1'.repeat(64),text:'192.0.2.0/24\n',mutation:'NONE'},
+    {name:'port_exclude',kind:'list',access:'editable',present:true,size:8,sha256:'2'.repeat(64),text:'53\n123\n',mutation:'NONE'},
+    {name:'port_proxying',kind:'list',access:'editable',present:true,size:proxyListText.length,sha256:proxyListSHA,text:proxyListText,mutation:'NONE'}
   ]};
 }
 
@@ -144,6 +146,16 @@ const server = http.createServer(async (req, res) => {
     assert.ok(['01_log','02_dns','03_inbounds','04_outbounds'].includes(name), 'unexpected single-file apply target');
     live[name] = c.content;
     return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',core_restart:true,snapshot:'/safe/snapshot',sha256:'8'.repeat(64),result:'config written, post-validated and activated by firewall-preserving Xray core restart'});
+  }
+  if (url.pathname === '/api/config-studio/list/save' && req.method === 'POST') {
+    const c = await bodyJSON(req);
+    assert.equal(c.file, 'port_proxying.lst', 'editor must use explicit allowlisted list filename');
+    assert.equal(c.expected_sha256, proxyListSHA, 'editor must bind the exact live revision');
+    assert.equal(typeof c.text, 'string', 'list save must preserve raw text');
+    proxyListText = c.text;
+    proxyListSHA = '4'.repeat(64);
+    return json(res,{success:true,mutation:'SAVED',activation:'XKEEN_RELOAD_REQUIRED',
+      rollback:'NOT_NEEDED',sha256:proxyListSHA});
   }
   if (url.pathname === '/api/routing/validate' && req.method === 'POST') {
     const c = await bodyJSON(req);
@@ -414,12 +426,26 @@ const server = http.createServer(async (req, res) => {
     assert.doesNotMatch(await page.locator('#csInput').inputValue(),new RegExp('late-draft[.]test'));
     assert.equal(await page.locator('#csApply').isDisabled(),true,'reset to live must be clean');
 
-    // List artifacts remain read-only and visibly separated from 01-06.
+    // XKeen lists are native editable tabs, with optimistic revision CAS.
+    // Save changes only disk: never restart core or claim kernel activation.
     await page.locator('.cs-tab[data-tab="port_proxying"]').click();
-    assert.equal(await page.locator('#csInput').count(),0,'list artifacts remain read-only in #533');
-    assert.match(await page.locator('#csBody').textContent(),/596:599/);
+    assert.equal(await page.locator('#csInput').count(),1,'XKeen list must have editable textarea');
+    assert.match(await page.locator('#csInput').inputValue(),/596:599/);
     assert.equal(await page.locator('#csValidate').count(),0);
     assert.equal(await page.locator('#csApply').isDisabled(),true);
+    assert.equal(await page.locator('#csApply').textContent(),'Сохранить список');
+    const beforeListSaves = calls.filter(x => x === 'POST /api/config-studio/list/save').length;
+    const proposedList = '# keep comment\n80\n443\n8443\n';
+    await page.locator('#csInput').fill(proposedList);
+    assert.equal(await page.locator('#csApply').isDisabled(),false,'dirty XKeen list must be saveable');
+    await page.locator('#csApply').click();
+    await page.waitForFunction(() => (document.querySelector('#csNotice')?.textContent || '').includes('Активные правила ядра НЕ изменены'), null, {timeout:10000});
+    assert.equal(await page.locator('#csInput').inputValue(),proposedList);
+    assert.equal(await page.locator('#csApply').isDisabled(),true);
+    assert.equal(calls.filter(x => x === 'POST /api/config-studio/list/save').length,beforeListSaves+1,
+      'one guarded list-save request expected');
+    assert.equal(calls.filter(x => x === 'POST /api/config-studio/apply').length,afterOut,
+      'list saving must not call live Xray config apply');
 
     assert.equal(errors.length,0,errors.join('\n'));
     console.log('CONFIG_STUDIO_MAIN_TABS',JSON.stringify(mainLabels));
