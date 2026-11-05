@@ -50,7 +50,15 @@ func rejectDuplicateJSONKeys(data []byte) error {
 			return errors.New("invalid JSON")
 		}
 		end, err := d.Token()
-		if err != nil || end != delim { return errors.New("invalid JSON") }
+		if err != nil {return errors.New("invalid JSON")}
+		switch delim {
+		case '{':
+			if end != json.Delim('}') {return errors.New("invalid JSON")}
+		case '[':
+			if end != json.Delim(']') {return errors.New("invalid JSON")}
+		default:
+			return errors.New("invalid JSON")
+		}
 		return nil
 	}
 	if len(data) == 0 || len(data) > visionQUICMaxConfigBytes {
