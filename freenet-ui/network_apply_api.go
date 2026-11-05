@@ -372,6 +372,9 @@ func (a *app) handleNetworkProfileApply(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *app) executeNetworkApply(requestCtx context.Context, req networkApplyRequest) (int, networkApplyResponse) {
+	if !freeNetAutoPoolPathAbsent(freeNetAutoPoolActive()) || !freeNetAutoPoolPathAbsent(freeNetAutoPoolPending()) {
+		return http.StatusConflict, networkApplyResponse{Success:false,Applied:false,Operation:"network",RollbackState:"NOT_APPLIED",Error:"AutoVPN pool must be safely deactivated before changing network/DNS configuration"}
+	}
 	acquireTimer := time.NewTimer(12 * time.Second)
 	defer acquireTimer.Stop()
 	select {
