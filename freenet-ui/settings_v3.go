@@ -53,6 +53,7 @@ type settingsV3AutoVPN struct {
 	Countries        []string `json:"countries"`
 	LastHealth       string   `json:"last_health,omitempty"`
 	NextHealth       string   `json:"next_health,omitempty"`
+	ClientCapture    automationCapturePathStatus `json:"client_capture"`
 }
 
 type settingsV3BackupInfo struct {
@@ -790,6 +791,7 @@ func (a *app) settingsV3Snapshot() settingsV3Response {
 		AutoVPN: settingsV3AutoVPN{
 			Enabled: auto.Settings.Enabled, Mode: mode, HealthInterval: healthInterval, EndpointInterval: endpointInterval,
 			CountryScope: scope, Countries: auto.Settings.Countries, LastHealth: lastHealth, NextHealth: nextHealth,
+			ClientCapture: automationCapturePathFromState(v3ParseState(settingsV3StatePath()), time.Now().UTC()),
 		},
 		Automation: auto,
 		Subscription: subscription,

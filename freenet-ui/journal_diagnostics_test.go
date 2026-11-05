@@ -31,7 +31,7 @@ func TestJournalDiagnosticsIsReadOnlyAndRetainsStages(t *testing.T) {
   auto: "2026-10-10T00:01:00Z\tAUTO VPN\tincident:start\tincident=abc; first\n2026-10-10T00:01:01Z\tAUTO VPN\tincident:start\tincident=abc; first\n2026-10-10T00:01:02Z\tAUTO VPN\tconfirm:failed\tserver.example.com\n",
   settings:"2026-10-10T00:02:00Z\tfreenet_update\tsuccess\tupdated\n",
   autoState:"LAST_RESULT=failed\nMUTATION_BLOCKED=yes\n",
-  settingsState:"HEALTH_LAST=2026-10-10T00:02:00Z\nQUALITY_DEGRADED_COUNT=2\nHEALTH_MEDIA_LAST=2026-10-10T00:01:30Z\nQUALITY_MEDIA_COUNT=2\nQUALITY_MEDIA_SINCE=2026-10-10T00:00:00Z\nQUALITY_MEDIA_LAST=2026-10-10T00:01:00Z\nQUALITY_MEDIA_HAD_GOOD=yes\nQUALITY_MEDIA_IDENTITY=private-dont-export-identity\n",
+  settingsState:"HEALTH_LAST=2026-10-10T00:02:00Z\nQUALITY_DEGRADED_COUNT=2\nHEALTH_MEDIA_LAST=2026-10-10T00:01:30Z\nQUALITY_MEDIA_COUNT=2\nQUALITY_MEDIA_SINCE=2026-10-10T00:00:00Z\nQUALITY_MEDIA_LAST=2026-10-10T00:01:00Z\nQUALITY_MEDIA_HAD_GOOD=yes\nQUALITY_MEDIA_IDENTITY=private-dont-export-identity\nCLIENT_CAPTURE_LAST=2026-10-10T00:57:00Z\nCLIENT_CAPTURE_STATE=installed-unverified\nCLIENT_CAPTURE_TCP=tcp-prerouting-hook-present\nCLIENT_CAPTURE_UDP=tproxy-rule-present\n",
   cfg:"AUTO_VPN_V1=yes\nAUTO_VPN_MODE=best\nAUTO_VPN_POLICY=degraded\nAUTO_VPN_HEALTH_INTERVAL=5m\n",
   update:"STATE=SUCCESS\nFROM_VERSION=v0.7.0\nTARGET_VERSION=v0.7.1\n",
  } {
@@ -53,6 +53,11 @@ func TestJournalDiagnosticsIsReadOnlyAndRetainsStages(t *testing.T) {
   report.AutoVPN.QualityMediaHadGood!="yes" {
    t.Fatalf("media evidence missing from read-only snapshot: %+v",report.AutoVPN)
  }
+ if report.AutoVPN.ClientCapture.State!="installed-unverified" ||
+  report.AutoVPN.ClientCapture.TCP!="tcp-prerouting-hook-present" ||
+  report.AutoVPN.ClientCapture.UDP!="tproxy-rule-present" {
+   t.Fatalf("read-only journal lost automatic LAN inventory: %+v",report.AutoVPN.ClientCapture)
+ }
  if strings.Contains(report.Events[1].Message,"server.example.com"){t.Fatal("endpoint hostname leaked")}
  after,_:=os.ReadFile(auto)
  if string(before)!=string(after){t.Fatal("diagnostic modified source log")}
@@ -65,6 +70,9 @@ func TestJournalDiagnosticsIsReadOnlyAndRetainsStages(t *testing.T) {
  if decoded.AutoVPN.QualityMediaCount==nil || *decoded.AutoVPN.QualityMediaCount!=2 ||
   !strings.Contains(rec.Body.String(), "\"quality_media_count\": 2") {
    t.Fatalf("JSON lost media evidence: %s", rec.Body.String())
+ }
+ if !strings.Contains(rec.Body.String(),"\"client_capture\"") {
+  t.Fatalf("client capture omitted: %s",rec.Body.String())
  }
  if strings.Contains(rec.Body.String(),"private-dont-export-identity") {
   t.Fatal("internal exact VPN identity leaked into diagnostics")

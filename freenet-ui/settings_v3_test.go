@@ -501,3 +501,32 @@ func TestSettingsV3CoreRendersTwoAutoVPNModes(t *testing.T) {
 		}
 	}
 }
+
+func TestSettingsV3ShowsScheduledLANCaptureSeparatelyFromVPNHealth(t *testing.T) {
+	dir:=t.TempDir()
+	cfg:=filepath.Join(dir,"freenet.conf")
+	watch:=filepath.Join(dir,"watch.state")
+	if err:=os.WriteFile(cfg,[]byte("AUTO_VPN_V1=yes\nAUTO_VPN_MODE=best\n"),0600);err!=nil{t.Fatal(err)}
+	t.Setenv("FREENET_SETTINGS_V3_STATE",watch)
+	now:=time.Now().UTC().Format(time.RFC3339Nano)
+	content:="CLIENT_CAPTURE_LAST="+now+"\nCLIENT_CAPTURE_STATE=tcp-hook-missing\n"+
+		"CLIENT_CAPTURE_TCP=tcp-prerouting-hook-absent\nCLIENT_CAPTURE_UDP=tproxy-rule-present\n"
+	if err:=os.WriteFile(watch,[]byte(content),0600);err!=nil{t.Fatal(err)}
+	a:=&app{cfg:config{ConfigPath:cfg}}
+	snap:=a.settingsV3Snapshot()
+	if snap.AutoVPN.ClientCapture.State!="tcp-hook-missing" ||
+		snap.AutoVPN.ClientCapture.UDP!="tproxy-rule-present"{
+		t.Fatalf("missing client-path risk separate from health: %+v",snap.AutoVPN.ClientCapture)
+	}
+	data,err:=json.Marshal(snap.AutoVPN)
+	if err!=nil{t.Fatal(err)}
+	if !strings.Contains(string(data),"\"client_capture\"")||strings.Contains(string(data),"vless://"){
+		t.Fatalf("client path status missing or leaked: %s",data)
+	}
+	ui,err:=os.ReadFile("web/settings-v3-core.js")
+	if err!=nil{t.Fatal(err)}
+	for _,want:=range []string{"fn3ClientCaptureStatus","auto.client_capture","tcp-hook-missing",
+		"воспроизведение видео не проверено"} {
+		if !strings.Contains(string(ui),want){t.Fatalf("status not visible in UI: %s",want)}
+	}
+}

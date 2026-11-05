@@ -225,7 +225,7 @@
               </div>
             </div>
             <div class="fn3-safety">${svg('shield')}<span id="fn3SafetyText">Рабочий VPN не меняется без причины. Все переключения выполняются только при подтверждённом сбое, с проверкой и автоматическим возвратом при необходимости.</span></div>
-            <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small></div></div></div>
+            <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small><small id="fn3ClientCaptureStatus">Перехват устройств: ожидание автоматического снимка</small></div></div></div>
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
           <section id="fn3QoECard" class="fn3-card fn3-qoe fn3-section-collapsed" aria-label="Диагностика воспроизведения">
@@ -392,6 +392,21 @@
   function applyData(data) {
     state.data = data;
     const auto = data.auto_vpn || {};
+    // Independent five-minute kernel inventory, not a test of user video QoE.
+    // Never render an installed hook as proof of playback or VPN egress.
+    const capture = auto.client_capture || {};
+    const captureLabels = {
+      'installed-unverified': 'Перехват: правила TCP/UDP найдены; воспроизведение видео не проверено',
+      'tcp-redirect-missing': 'Внимание: правило перехвата TCP отсутствует (не ошибка VPN-сервера)',
+      'tcp-hook-missing': 'Внимание: штатный TCP-перехват LAN отсутствует (не ошибка VPN-сервера)',
+      'capture-rule-missing': 'Внимание: UDP TPROXY не найден (не ошибка VPN-сервера)',
+      'policy-rule-missing': 'Внимание: policy routing для TPROXY не найден',
+      'local-route-missing': 'Внимание: локальный маршрут TPROXY не найден',
+      'unverified': 'Перехват: состояние ещё неизвестно; автоматический контроль продолжается'
+    };
+    const captureElement = q('#fn3ClientCaptureStatus');
+    if (captureElement) captureElement.textContent =
+      captureLabels[capture.state] || captureLabels.unverified;
     q('#fn3AutoEnabled').checked = !!auto.enabled;
     q('#fn3AutoLabel').textContent = auto.enabled ? 'Включено' : 'Выключено';
     const mode = auto.mode === 'endpoint' ? 'endpoint' : 'best';

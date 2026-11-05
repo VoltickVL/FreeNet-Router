@@ -49,6 +49,33 @@ func captureDoctorHasRule(text string) bool {
   strings.Contains(lower, "\ntproxy to ") || strings.Contains(lower, " tproxy ip to ")
 }
 
+// The normal XKeen TCP hook is commonly guarded by "!" "--ctstate" "INVALID":
+// it accepts *non-INVALID* connections. Do not confuse the negation with the
+// emergency INVALID-only/DSCP-only hooks. Unknown restricted state matches
+// remain conservative; this is never a live packet/stream quality assertion.
+func captureDoctorSpecialOnlyTCPRule(fields []string) bool {
+	for i, field := range fields {
+		switch field {
+		case "--dscp", "--dscp-class":
+			return true
+		case "--ctstate":
+			if i+1 >= len(fields) {
+				return true
+			}
+			value := fields[i+1]
+			negated := i > 0 && fields[i-1] == "!"
+			if negated && value == "invalid" {
+				continue // normal TCP: ! INVALID
+			}
+			if !negated && (value == "new" || value == "new,established" || value == "established,new") {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
 // Classify the active TCP path separately from UDP TPROXY. A generated
 // xkeen chain and UDP TPROXY do not prove a normal TCP client can reach it.
 // The diagnostic intentionally reports only fixed states and never rule text.
@@ -69,9 +96,9 @@ func captureDoctorNATState(raw string) (string, string) {
   if strings.Contains(line, "-p udp ") {
    continue
   }
-  // The Xkeen INVALID+DSCP emergency path is NOT a general TCP intercept.
-  if strings.Contains(line, "--ctstate invalid") ||
-   strings.Contains(line, "--dscp ") {
+  // A negated INVALID state is the normal XKeen hook, not an
+  // INVALID-only emergency path. DSCP-constrained hooks are still special.
+  if captureDoctorSpecialOnlyTCPRule(strings.Fields(line)) {
    invalidOnly = true
    continue
   }
@@ -141,7 +168,8 @@ func captureDoctorClassify(ctx context.Context, read func(context.Context,string
   result.State="policy-rule-missing";result.Reason="kernel-fwmark-rule-missing"
  case result.Netfilter=="tproxy-rule-present" && result.PolicyRule=="fwmark-rule-present" && result.LocalRoute=="local-default-absent":
   result.State="local-route-missing";result.Reason="kernel-local-route-missing"
- case result.Netfilter=="tproxy-rule-present" && result.PolicyRule=="fwmark-rule-present" && result.LocalRoute=="local-default-present":
+ case result.TCPRedirect=="tcp-redirect-present" && result.TCPPrerouting=="tcp-prerouting-hook-present" &&
+  result.Netfilter=="tproxy-rule-present" && result.PolicyRule=="fwmark-rule-present" && result.LocalRoute=="local-default-present":
   result.State="installed-unverified";result.Reason="lan-packet-hits-not-measured"
  }
  return result
