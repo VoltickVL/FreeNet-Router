@@ -25,7 +25,7 @@ func testFreeNetPoolFolder(t *testing.T) string {
 func testFreeNetPoolCandidate(t *testing.T) freeNetAutoPoolCandidate {
     t.Helper()
     p,err:=buildFreeNetAutoPoolCandidate([]byte(freeNetAutoPoolCurrent),[]byte(freeNetAutoPoolRouting),
-        []map[string]any{freeNetAutoPoolAlternative(t)},"127.0.0.1:10085")
+        []map[string]any{freeNetAutoPoolAlternative(t)},"127.0.0.1:10085","127.0.0.1:10086")
     if err!=nil{t.Fatal(err)}
     return p
 }
