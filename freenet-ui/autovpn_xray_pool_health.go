@@ -30,14 +30,24 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
     ctx,cancel:=context.WithTimeout(parent,freeNetAutoPoolFailoverBudget)
     defer cancel()
     firstErr:=freeNetAutoProbeXrayEgress(ctx,receipt.ProbeAddress)
+    mediaRecovery:=false
     if firstErr==nil {
-        return automationHealthResult{State:automationHealthHealthy,Reason:"Действующий Xray balancer подтвердил HTTPS через локальный VPN SOCKS."},nil
-    }
-    // Two independent confirmations and healthy WAN before any failover.
-    secondErr:=freeNetAutoProbeXrayEgress(ctx,receipt.ProbeAddress)
-    decision:=freeNetAutoPoolHealthDecision(firstErr!=nil,secondErr!=nil,probeAutomationWAN(ctx))
-    if decision!="critical"{
-        return automationHealthResult{State:decision,Reason:"Неоднозначная деградация VPN/WAN: исходный маршрут сохранён."},nil
+        // Probe the real selected balancer target, not the static original
+        // outbound. A completed, repeatedly degraded two-origin transfer
+        // may authorize a measured comparison, never an immediate switch.
+        observation,due:=a.freeNetAutoPoolMediaHealth(ctx,receipt)
+        if !due{return observation,nil}
+        if !probeAutomationWAN(ctx){
+            return automationHealthResult{State:"uncertain",Reason:"Media slowdown detected but WAN health is unknown; current VPN retained."},nil
+        }
+        mediaRecovery=true
+    }else{
+        // Two independent confirmations and healthy WAN before outage recovery.
+        secondErr:=freeNetAutoProbeXrayEgress(ctx,receipt.ProbeAddress)
+        decision:=freeNetAutoPoolHealthDecision(firstErr!=nil,secondErr!=nil,probeAutomationWAN(ctx))
+        if decision!="critical"{
+            return automationHealthResult{State:decision,Reason:"Неоднозначная деградация VPN/WAN: исходный маршрут сохранён."},nil
+        }
     }
     if settings.Mode!=automationModeBest || !settings.AutoApply {
         return automationHealthResult{State:automationHealthCritical,Reason:"VPN дважды не прошёл HTTPS; автоматическая смена узла выключена."},nil
@@ -84,22 +94,31 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
     }
     currentCountry:=a.status().CountryCode
     target:=""
-    if liveTag!="vless-reality"{target="vless-reality"} // original VPN is first safe fallback
-    if target=="" {
-        for _,candidate:=range internal {
-            tag,found:=receipt.ProfileTags[candidate.Profile.ID]
-            if !found || tag==liveTag || !automationCountryAllowed(settings,currentCountry,candidate.Profile.CountryCode){
+    // Never choose "vless-reality" solely because it is the original:
+    // it is not a proven fallback. The original remains selectable manually
+    // with guarded live acceptance and rollback.
+    for _,candidate:=range internal {
+        tag,found:=receipt.ProfileTags[candidate.Profile.ID]
+        if !found || tag==liveTag || !automationCountryAllowed(settings,currentCountry,candidate.Profile.CountryCode){
+            continue
+        }
+        expected,e:=buildBestServerProbeOutbound(candidate.Raw,candidate.Profile)
+        if e!=nil{continue}
+        expected["tag"]=tag
+        bytes,readErr:=os.ReadFile(a.cfg.OutPath)
+        if readErr!=nil||!freeNetAutoOutboundMatches(bytes,tag,expected){continue}
+        if !a.probeBestServerApplicationPreflight(ctx,candidate).OK{continue}
+        if mediaRecovery {
+            // Healthy 204 alone is not a better media path. Demand
+            // corroborated full-body transfer on both independent sources.
+            quality:=a.probeAutomationQualityCandidate(ctx,candidate)
+            if quality.State!=automationHealthHealthy || !quality.MediaComplete ||
+                quality.MediaDegraded || quality.QualityDegraded || !quality.ServiceComplete {
                 continue
             }
-            expected,e:=buildBestServerProbeOutbound(candidate.Raw,candidate.Profile)
-            if e!=nil{continue}
-            expected["tag"]=tag
-            bytes,readErr:=os.ReadFile(a.cfg.OutPath)
-            if readErr!=nil||!freeNetAutoOutboundMatches(bytes,tag,expected){continue}
-            if !a.probeBestServerApplicationPreflight(ctx,candidate).OK{continue}
-            target=tag
-            break
         }
+        target=tag
+        break
     }
     if target=="" {
         _,_=recordAutomationEmergencyFailure(a,time.Now().UTC())
@@ -133,6 +152,14 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
         return automationHealthResult{State:automationHealthCritical,Reason:"Replacement rejected; original Xray override restored."},switchErr
     }
     _=clearAutomationEmergencyCooldown()
+    // Even a non-media switch starts the media-only quiet window. Never
+    // chase an apparent second slow CDN sample immediately after recovery.
+    _=v3WriteState(map[string]string{"POOL_MEDIA_LAST_SWITCH":time.Now().UTC().Format(time.RFC3339)})
+    if mediaRecovery {
+        writeAutomationStateV2("switched","AutoVPN выбрал подтверждённый качественный резерв без перезапуска.", "yes",true)
+        appendAutomationHistoryV2("success","Xray media QoE pool switch: two-origin transfer admission and HTTPS acceptance.")
+        return automationHealthResult{State:automationHealthHealthy,Reason:"AUTO VPN переключил измеренно качественный резерв после повторных медленных media-сегментов; реальный playback клиента не проверялся.",Mutated:true},nil
+    }
     writeAutomationStateV2("switched","AutoVPN переключил подтверждённый Xray pool target без перезапуска.", "yes",true)
     appendAutomationHistoryV2("success","Xray live failover verified via local HTTPS without core restart.")
     return automationHealthResult{State:automationHealthHealthy,Reason:"AUTO VPN восстановил HTTPS через резервный сервер без перезапуска Xray.",Mutated:true},nil
