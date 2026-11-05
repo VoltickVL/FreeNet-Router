@@ -1,6 +1,8 @@
 package main
 
 import (
+    "context"
+    "errors"
     "testing"
     "time"
 )
@@ -97,5 +99,43 @@ func TestFreeNetAutoPoolOriginalFallbackRequiresIndependentProof(t *testing.T) {
         {State:automationHealthHealthy,CurrentIdentity:base.CurrentIdentity,MediaComplete:true,ServiceComplete:false},
     } {
         if freeNetAutoPoolOriginalApproved(modified,true){t.Fatalf("unsafe original preflight admitted: %+v",modified)}
+    }
+}
+
+func TestFreeNetAutoPoolPostApplyRequiresLiveBodyAcceptance(t *testing.T){
+    ctx:=context.Background()
+    okHTTPS:=func(context.Context)error{return nil}
+    failHTTPS:=func(context.Context)error{return errors.New("unreachable")}
+    mediaCalls:=0
+    sample:=func(context.Context)automationMediaEvidence{
+        mediaCalls++
+        return automationMediaEvidence{Complete:true,Samples:automationMediaSegmentCount}
+    }
+    if err:=freeNetAutoPoolPostApplyAccept(ctx,false,okHTTPS,sample);err!=nil{
+        t.Fatalf("hard outage requires HTTPS only: %v",err)
+    }
+    if mediaCalls!=0{t.Fatal("outage recovery must not run heavy media postcheck")}
+    if err:=freeNetAutoPoolPostApplyAccept(ctx,true,okHTTPS,sample);err!=nil{
+        t.Fatalf("verified live transfer should pass: %v",err)
+    }
+    if mediaCalls!=1{t.Fatal("media recovery missing active transfer")}
+    if err:=freeNetAutoPoolPostApplyAccept(ctx,true,failHTTPS,sample);err==nil{
+        t.Fatal("failed live HTTPS accepted")
+    }
+    if mediaCalls!=1{t.Fatal("media probe should not run after HTTPS failure")}
+    for _,evidence:=range []automationMediaEvidence{
+        {},{Complete:true,Samples:1},
+        {Complete:true,Samples:automationMediaSegmentCount,Degraded:true},
+    } {
+        candidate:=evidence
+        if err:=freeNetAutoPoolPostApplyAccept(ctx,true,okHTTPS,
+            func(context.Context)automationMediaEvidence{return candidate});err==nil{
+            t.Fatalf("unknown or degraded post-switch live body accepted: %+v",candidate)
+        }
+    }
+    cancelled,cancel:=context.WithCancel(ctx)
+    cancel()
+    if err:=freeNetAutoPoolPostApplyAccept(cancelled,true,okHTTPS,sample);err==nil{
+        t.Fatal("cancelled postcheck admitted")
     }
 }
