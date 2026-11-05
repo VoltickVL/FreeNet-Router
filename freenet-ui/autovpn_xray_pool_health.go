@@ -31,11 +31,13 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
     defer cancel()
     firstErr:=freeNetAutoProbeXrayEgress(ctx,receipt.ProbeAddress)
     mediaRecovery:=false
+    observedMediaTag:=""
     if firstErr==nil {
         // Probe the real selected balancer target, not the static original
         // outbound. A completed, repeatedly degraded two-origin transfer
         // may authorize a measured comparison, never an immediate switch.
-        observation,due:=a.freeNetAutoPoolMediaHealth(ctx,receipt)
+        observation,due,mediaTag:=a.freeNetAutoPoolMediaHealth(ctx,receipt)
+        observedMediaTag=mediaTag
         if !due{return observation,nil}
         if !probeAutomationWAN(ctx){
             return automationHealthResult{State:"uncertain",Reason:"Media slowdown detected but WAN health is unknown; current VPN retained."},nil
@@ -81,6 +83,9 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
     if err!=nil{return automationHealthResult{State:"uncertain",Reason:"Xray runtime balancer unavailable."},err}
     liveTag:=currentOverride
     if liveTag==""{liveTag=selected}
+    if mediaRecovery && liveTag!=observedMediaTag {
+        return automationHealthResult{State:"uncertain",Reason:"Профиль пула изменился после media QoE измерения; переключение отменено."},nil
+    }
     allowed:=map[string]bool{"vless-reality":true}
     for _,tag:=range receipt.ProfileTags{allowed[tag]=true}
     if !allowed[liveTag] || !freeNetAutoTagAllowed(liveTag) {
