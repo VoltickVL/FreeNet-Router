@@ -52,12 +52,18 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
         }
     }
     if settings.Mode!=automationModeBest || !settings.AutoApply {
+        if mediaRecovery {
+            return automationHealthResult{State:"uncertain",Reason:"HTTPS доступен, но media QoE медленный; Auto Apply отключён, текущий VPN сохранён."},nil
+        }
         return automationHealthResult{State:automationHealthCritical,Reason:"VPN дважды не прошёл HTTPS; автоматическая смена узла выключена."},nil
     }
     if automationMutationBlockedState() || a.updateLockHeld() {
         return automationHealthResult{State:"uncertain",Reason:"Pool recovery blocked by update/unknown prior rollback."},nil
     }
     if _,active,err:=automationEmergencyCooldownDue(a,time.Now().UTC());err!=nil || active {
+        if mediaRecovery {
+            return automationHealthResult{State:"uncertain",Reason:"HTTPS доступен; media QoE медленный, но защищённая пауза запрещает новую смену."},err
+        }
         return automationHealthResult{State:automationHealthCritical,Reason:"VPN не отвечает; действует защищённая пауза повторного failover."},err
     }
     releaseHealth,err:=acquireAutomationHealthLock()
@@ -95,6 +101,9 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
     // alternatives. Never expand to a subscription-wide restart-driven scan.
     internal,_,_,source,err:=a.discoverBestServerCandidatesWithSource(ctx)
     if err!=nil || !source.Fresh {
+        if mediaRecovery {
+            return automationHealthResult{State:"uncertain",Reason:"HTTPS работает, но media QoE медленный; свежий каталог резервов недоступен, текущий сервер сохранён."},nil
+        }
         return automationHealthResult{State:automationHealthCritical,Reason:"VPN failed; fresh source for safe replacement unavailable."},nil
     }
     currentCountry:=a.status().CountryCode
@@ -142,6 +151,9 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
     }
     if target=="" {
         _,_=recordAutomationEmergencyFailure(a,time.Now().UTC())
+        if mediaRecovery {
+            return automationHealthResult{State:"uncertain",Reason:"HTTPS доступен, media QoE медленный; более качественный и полностью подтверждённый резерв не найден. Текущий VPN сохранён."},nil
+        }
         return automationHealthResult{State:automationHealthCritical,Reason:"VPN degraded: no approved and HTTPS-verified standby available."},nil
     }
     // Shared provider/update writer. The existing helper knows this lock.
@@ -191,6 +203,9 @@ func (a *app) freeNetAutoPoolHealthWatch(parent context.Context,settings automat
     }
     if switchErr!=nil || a.freeNetAutoXrayIdentity()!=before {
         _,_=recordAutomationEmergencyFailure(a,time.Now().UTC())
+        if mediaRecovery {
+            return automationHealthResult{State:"uncertain",Reason:"Media QoE резерв не прошёл проверку после переключения; прежний Xray override восстановлен."},switchErr
+        }
         return automationHealthResult{State:automationHealthCritical,Reason:"Replacement rejected; original Xray override restored."},switchErr
     }
     _=clearAutomationEmergencyCooldown()
