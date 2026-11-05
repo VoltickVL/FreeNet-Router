@@ -171,6 +171,16 @@ func (a *app) handleFreeNetAutoPoolSwitch(w http.ResponseWriter,r *http.Request)
         writeJSON(w,http.StatusServiceUnavailable,resp);return
     }
     if err!=nil{writeJSON(w,http.StatusBadGateway,resp);return}
+    // Manual live selection counts as a real switch for media hysteresis.
+    // A new synthetic slowdown must not immediately undo the operator's
+    // choice. Persist the quiet window before returning success.
+    if result.Mutation=="SWITCHED" {
+        if e:=v3WriteState(map[string]string{"POOL_MEDIA_LAST_SWITCH":time.Now().UTC().Format(time.RFC3339)});e!=nil{
+            // The runtime switch succeeded, so never pretend it did not
+            // happen. Keep the accurate result, flag QoE policy persistence.
+            resp.Status="router-xray-egress-verified-media-cooldown-unpersisted"
+        }
+    }
     resp.Success=true;resp.CurrentTag=result.Target
     writeJSON(w,http.StatusOK,resp)
 }
