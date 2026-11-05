@@ -1059,23 +1059,29 @@
       q('#fn3PoolPrepare').disabled=true;
     }
   }
+
   async function prepareAutoPool() {
     if(autoPoolBusy)return;
     autoPoolPlan=null;
     autoPoolControls(false,true);
-    setAutoPoolStatus('Измеряем серверы и подбираем до двух проверенных резервов. Текущий VPN не меняется…');
+    let stage='scan';
+    setAutoPoolStatus('Шаг 1/2: измеряем VPN-серверы и выбираем до двух подтверждённых резервов. Текущий VPN не меняется…','busy');
     try {
       const best=await fetchJSON('/api/vpn/best',{method:'GET',cache:'no-store',credentials:'same-origin'});
       const candidates=(best.candidates||[]).filter(x=>x.eligible&&x.available&&x.tested&&!x.current&&/^[0-9a-f]{16}$/.test(x.id||''));
-      if(!best.selection_token||candidates.length===0)throw new Error('no eligible snapshot');
+      if(!best.selection_token)throw new Error('pool:scan-no-token');
+      if(candidates.length===0)throw new Error(best.partial?'pool:scan-partial':'pool:scan-no-eligible');
       const selected=[...new Set(candidates.map(x=>x.id))].slice(0,2);
-      const plan=await fetchJSON('/api/automation/pool/plan',{method:'POST',credentials:'same-origin',
+      stage='plan';
+      setAutoPoolStatus('Шаг 2/2: проверяем резервные узлы и полный Xray-конфиг. Текущий VPN не меняется…','busy');
+      const response=await fetch('/api/automation/pool/plan',{method:'POST',credentials:'same-origin',
         headers:{'Content-Type':'application/json'},body:JSON.stringify({selection_token:best.selection_token,profile_ids:selected})});
-      if(!plan.ready||!plan.plan_token)throw new Error('candidate not validated');
+      const plan=await response.json().catch(()=>null);
+      if(!response.ok||!plan?.ready||!plan?.plan_token)throw new Error('pool:'+String(plan?.status||'plan-unknown'));
       autoPoolPlan={...plan,received_at:Date.now()};
-      setAutoPoolStatus('Проверено '+(selected.length+1)+' VPN-узла. Ничего не изменено. Включение выполнит один контролируемый перезапуск Xray с резервной копией и автоматическим откатом при отказе.');
-    }catch(_){
-      setAutoPoolStatus('Безопасный план не получен: отсутствуют полностью проверенные резервные узлы, Xray занят или конфигурация несовместима. Исходный VPN сохранён.');
+      setAutoPoolStatus('Готово: проверено '+(selected.length+1)+' VPN-узла. Сеть не изменена. «Включить пул» выполнит один контролируемый перезапуск Xray с резервной копией и автоматическим откатом при отказе.','ok');
+    }catch(error){
+      setAutoPoolStatus(poolPlanErrorText(error,stage),'warning');
     }finally{autoPoolControls(false)}
   }
   async function activateAutoPool() {
