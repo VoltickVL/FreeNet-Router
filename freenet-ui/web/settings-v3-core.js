@@ -981,9 +981,36 @@
   let autoPoolPlan = null;
   let autoPoolNodes = [];
   let autoPoolBusy = false;
-  function setAutoPoolStatus(message) {
+
+  // Only fixed, non-secret diagnostic labels are surfaced. Do not display raw
+  // backend error text, addresses, credentials or selected profile payloads.
+  const poolPlanErrors = Object.freeze({
+    'scan-no-token':'Замер завершился без подтверждённого снимка серверов. Текущий VPN сохранён.',
+    'scan-no-eligible':'Не найдено ни одного полностью измеренного резервного сервера. Текущий VPN сохранён.',
+    'scan-partial':'Подбор завершился неполными измерениями; подтверждённых резервов нет. Текущий VPN сохранён.',
+    'invalid-selected-profiles':'Выбранные резервные серверы не прошли проверку идентификаторов.',
+    'active-state-unverified':'Текущая конфигурация Xray не подтверждена; изменения запрещены.',
+    'measured-selection-stale':'Снимок подбора устарел или изменился. Нужен новый безопасный подбор.',
+    'alternative-matches-current':'Кандидат совпадает с текущим VPN, отдельного резерва нет.',
+    'alternative-https-rejected':'Резервный VPN не прошёл независимую HTTPS-проверку.',
+    'alternative-transport-unsupported':'Способ подключения одного из резервов несовместим с пулом.',
+    'loopback-port-unavailable':'Локальные управляющие порты Xray недоступны.',
+    'config-unsupported':'Действующая конфигурация Xray несовместима с подготовкой пула.',
+    'full-xray-preflight-failed':'Полная предварительная проверка Xray-конфигурации не пройдена.',
+    'plan-token-unavailable':'FreeNet не смог создать одноразовый план активации.'
+  });
+  function poolPlanErrorText(error, stage) {
+    const code = String(error?.message || '').replace(/^pool:/, '');
+    if (Object.prototype.hasOwnProperty.call(poolPlanErrors, code)) return poolPlanErrors[code];
+    const phase = stage === 'plan' ? 'Проверка конфигурации' : 'Измерение резервов';
+    return phase + ' не завершилась: точная безопасная причина недоступна. Пул не активирован; проверьте состояние FreeNet перед повтором.';
+  }
+  function setAutoPoolStatus(message, tone = 'neutral') {
     const output=q('#fn3PoolStatus');
-    if(output)output.textContent=message;
+    if(output) {
+      output.textContent=message;
+      output.dataset.tone=['neutral','busy','ok','warning'].includes(tone)?tone:'neutral';
+    }
   }
   function autoPoolControls(active,busy=false) {
     autoPoolBusy=busy;
