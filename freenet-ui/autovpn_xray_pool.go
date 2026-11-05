@@ -75,16 +75,14 @@ func buildFreeNetAutoPoolCandidate(liveOutbounds,liveRouting []byte, reserve []m
  if len(reserve)<1 || len(reserve)>=freeNetAutoPoolLimit {
   return out,errors.New("pool requires one or two verified alternatives")
  }
- outDoc,outRoot,err:=freeNetAutoPoolReadObject(liveOutbounds,"outbounds")
- // outbounds is an array, not a section object.
- if err!=nil {
-  if rejectDuplicateJSONKeys(liveOutbounds)!=nil {return out,errors.New("invalid outbounds JSON")}
-  if json.Unmarshal(liveOutbounds,&outDoc)!=nil || outDoc==nil {
-   return out,errors.New("invalid outbound document")
-  }
-  outRoot=nil
+ if len(liveOutbounds)==0 || len(liveOutbounds)>maxConfigStudioFileBytes ||
+    rejectDuplicateJSONKeys(liveOutbounds)!=nil {
+  return out,errors.New("invalid or oversized outbound document")
  }
- _=outRoot
+ var outDoc map[string]json.RawMessage
+ if json.Unmarshal(liveOutbounds,&outDoc)!=nil || outDoc==nil{
+  return out,errors.New("invalid outbound document")
+ }
  var rawOutbound []json.RawMessage
  if json.Unmarshal(outDoc["outbounds"],&rawOutbound)!=nil || len(rawOutbound)==0 {
   return out,errors.New("outbound list absent")
