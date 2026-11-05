@@ -108,26 +108,30 @@ func freeNetAutoSwitchWith(
         result.Status="already-active";result.Rollback="NOT_NEEDED";result.Target=target
         return result,nil
     }
-    apply:=func(dest string)error {
+    apply:=func(callCtx context.Context,dest string)error {
         var e error
         if dest=="" {
-            _,e=runner(ctx,"bo","-s",apiAddress,"-b",freeNetAutoBalancerTag,"-r")
+            _,e=runner(callCtx,"bo","-s",apiAddress,"-b",freeNetAutoBalancerTag,"-r")
         }else{
-            _,e=runner(ctx,"bo","-s",apiAddress,"-b",freeNetAutoBalancerTag,dest)
+            _,e=runner(callCtx,"bo","-s",apiAddress,"-b",freeNetAutoBalancerTag,dest)
         }
         return e
     }
     rollback:=func()error {
+        // Browser disconnect and timed-out postcheck may cancel the original
+        // request; rollback must still get its own bounded recovery window.
+        restoreCtx,cancel:=context.WithTimeout(context.Background(),12*time.Second)
+        defer cancel()
         if processIdentity()!=beforeIdentity{return errors.New("Xray runtime changed during rollback")}
-        if apply(original)!=nil{return errors.New("override restoration command failed")}
-        restored,_,readErr:=freeNetAutoReadBalancer(ctx,runner,apiAddress)
+        if apply(restoreCtx,original)!=nil{return errors.New("override restoration command failed")}
+        restored,_,readErr:=freeNetAutoReadBalancer(restoreCtx,runner,apiAddress)
         if readErr!=nil||restored!=original||processIdentity()!=beforeIdentity{
             return errors.New("override restoration unconfirmed")
         }
         return nil
     }
     // Once a bo call starts, all failures must attempt a verified rollback.
-    applyErr:=apply(target)
+    applyErr:=apply(ctx,target)
     current,_,readErr:=freeNetAutoReadBalancer(ctx,runner,apiAddress)
     if applyErr==nil && readErr==nil && current==target &&
         processIdentity()==beforeIdentity && checkPath(ctx)==nil &&
