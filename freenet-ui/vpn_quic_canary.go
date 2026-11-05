@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -115,8 +117,12 @@ func (a *app) handleVisionQUICTry(w http.ResponseWriter,r *http.Request) {
 	}
 	body:=http.MaxBytesReader(w,r.Body,2048)
 	defer body.Close()
+	raw,readErr:=io.ReadAll(body)
+	if readErr!=nil || rejectDuplicateJSONKeys(raw)!=nil {
+		reply.Status="invalid-request";writeJSON(w,http.StatusBadRequest,reply);return
+	}
 	var req visionQUICTryRequest
-	dec:=json.NewDecoder(body)
+	dec:=json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if dec.Decode(&req)!=nil || req.Acknowledge!="temporary-canary-with-auto-rollback" ||
 		!visionQUICMode(req.Target) {
