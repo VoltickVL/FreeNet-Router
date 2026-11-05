@@ -56,6 +56,11 @@ func (a *app) visionQUICRestart(ctx context.Context) error {
 // Reverts an applied candidate on normal completion and after a FreeNet crash.
 // Never clobber somebody else's changed config: different hashes are UNKNOWN.
 func (a *app) visionQUICRollback(restart func(context.Context)error) error {
+	return a.visionQUICRollbackWith(restart, a.liveXrayRunning)
+}
+
+func (a *app) visionQUICRollbackWith(restart func(context.Context)error, running func()bool) error {
+	if a==nil || restart==nil || running==nil{return errors.New("rollback runtime unavailable")}
 	before,receipt,err:=visionQUICReadCheckpoint()
 	if err!=nil {return errors.New("rollback checkpoint invalid")}
 	info,err:=os.Lstat(a.cfg.OutPath)
@@ -76,7 +81,7 @@ func (a *app) visionQUICRollback(restart func(context.Context)error) error {
 	}
 	ctx,cancel:=context.WithTimeout(context.Background(),30*time.Second)
 	defer cancel()
-	if restart(ctx)!=nil || !a.liveXrayRunning() {
+	if restart(ctx)!=nil || !running() {
 		return errors.New("rollback runtime acceptance failed")
 	}
 	check,err:=os.ReadFile(a.cfg.OutPath)
