@@ -28,6 +28,22 @@ func automationCaptureState(raw string) string {
 	}
 }
 
+// XKeen supports TProxy (TCP+UDP), Hybrid (TCP REDIRECT+UDP TProxy)
+// and Redirect (TCP only). A Hybrid-oriented inventory cannot diagnose a
+// *configured* mode from its absence alone. Treat the two ambiguous shapes
+// as UNKNOWN rather than fabricating a missing-path alert.
+func automationCaptureObservedState(observed captureDoctorResponse) string {
+	if observed.State == "tcp-redirect-missing" && observed.Netfilter != "tproxy-rule-absent" {
+		return "unverified" // pure TProxy is possible; no NAT TCP is expected
+	}
+	if observed.State == "capture-rule-missing" &&
+		observed.TCPRedirect == "tcp-redirect-present" &&
+		observed.TCPPrerouting == "tcp-prerouting-hook-present" {
+		return "unverified" // TCP-only Redirect may be intentional
+	}
+	return automationCaptureState(observed.State)
+}
+
 func automationCaptureTCP(raw string) string {
 	switch strings.TrimSpace(raw) {
 	case "tcp-prerouting-hook-present", "tcp-prerouting-hook-absent",
@@ -109,7 +125,7 @@ func (a *app) observeAutomationCapturePath(parent context.Context, now time.Time
 	ctx, cancel := context.WithTimeout(parent, automationCapturePathTimeout)
 	defer cancel()
 	observed := inspect(ctx)
-	state := automationCaptureState(observed.State)
+	state := automationCaptureObservedState(observed)
 	tcp := automationCaptureTCP(observed.TCPPrerouting)
 	udp := automationCaptureUDP(observed.Netfilter)
 	if ctx.Err() != nil {
