@@ -958,6 +958,14 @@ func (a *app) runAutomationHealthWatch(parent context.Context) (automationHealth
 	if !settings.Enabled {
 		return recordAndReturnHealth(automationHealthResult{State: "disabled", Reason: "AUTO VPN выключен."}, nil)
 	}
+	// Pool owns the actual runtime selected target. The legacy watchdog
+	// probes the original static 04_outbounds.json and would misclassify a
+	// different live Xray balancer target. Never use it for active pools.
+	if !freeNetAutoPoolPathAbsent(freeNetAutoPoolActive()) ||
+		!freeNetAutoPoolPathAbsent(freeNetAutoPoolPending()) {
+		result,err:=a.freeNetAutoPoolHealthWatch(parent,settings)
+		return recordAndReturnHealth(result,err)
+	}
 	_ = v3WriteState(map[string]string{"HEALTH_SCHEDULE_LAST": time.Now().UTC().Format(time.RFC3339)})
 	// Keep lightweight health observations even during a long Best scan:
 	// loss of basic VPN connectivity must not be hidden for minutes. But never

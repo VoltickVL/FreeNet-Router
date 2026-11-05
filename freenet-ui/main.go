@@ -230,6 +230,7 @@ func main() {
 	// Restore a crashed, time-bounded transport canary BEFORE AutoVPN or HTTP
 	// can attempt another operation. Uncertain rollback is a persistent STOP.
 	a.recoverVisionQUICOnStartup()
+	a.freeNetAutoPoolFailClosedStartup()
 	reconcileSettingsV3SchedulerOnStartup(a)
 	a.initializeXrayRuntimeIntent()
 	a.startXrayRuntimeWatchdog()
@@ -245,6 +246,7 @@ func main() {
 	mux.HandleFunc("GET /api/status", a.requireAuth(a.handleStatus))
 	mux.HandleFunc("GET /api/vpn/vision-quic/plan", a.requireAuth(a.handleVisionQUICPlan))
 	mux.HandleFunc("POST /api/vpn/vision-quic/try", a.requireAuth(a.handleVisionQUICTry))
+	registerFreeNetAutoPoolAPI(mux,a)
 	mux.HandleFunc("GET /api/operation/state", a.requireAuth(a.handleOperationState))
 	mux.HandleFunc("GET /api/network-profile", a.requireAuth(a.handleNetworkProfileGet))
 	mux.HandleFunc("POST /api/network-profile", a.requireAuth(a.handleNetworkProfilePost))

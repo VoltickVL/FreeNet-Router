@@ -8,6 +8,7 @@ OUT_FILE="$CONFIG_DIR/04_outbounds.json"
 BACKUP_FILE="$CONFIG_DIR/04_outbounds.json.bak"
 LOCK_DIR="${FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock}"
 CHECKPOINT_DIR="${FREENET_VPN_TRANSACTION_DIR:-/opt/var/lib/freenet/vpn-transaction.pending}"
+AUTO_POOL_STATE="${FREENET_AUTOVPN_POOL_STATE_DIR:-/opt/var/lib/freenet/autovpn-pool}"
 AUTOMATION_STATE="${FREENET_AUTOMATION_STATE:-/opt/var/run/freenet-automation.state}"
 LOG_PREFIX="[blanc-xkeen]"
 BOOTSTRAP_DNS_PRIMARY="77.88.8.8"
@@ -40,7 +41,10 @@ trap cleanup 0
 trap 'exit 130' 1 2 15
 
 mutation_forbidden() {
-    [ -e "$CHECKPOINT_DIR" ] || [ -L "$CHECKPOINT_DIR" ] || grep -qs '^MUTATION_BLOCKED=yes$' "$AUTOMATION_STATE" 2>/dev/null
+    [ -e "$CHECKPOINT_DIR" ] || [ -L "$CHECKPOINT_DIR" ] ||
+    [ -e "$AUTO_POOL_STATE/active" ] || [ -L "$AUTO_POOL_STATE/active" ] ||
+    [ -e "$AUTO_POOL_STATE/pending" ] || [ -L "$AUTO_POOL_STATE/pending" ] ||
+    grep -qs '^MUTATION_BLOCKED=yes$' "$AUTOMATION_STATE" 2>/dev/null
 }
 
 acquire_lock() {

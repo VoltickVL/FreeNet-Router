@@ -17,6 +17,7 @@ XKEEN_BIN="${FREENET_XKEEN_BIN:-/opt/sbin/xkeen}"
 CORE_RESTART_HELPER="${FREENET_XRAY_CORE_RESTART_HELPER:-}"
 LOCK_DIR="${FREENET_LOCK_DIR:-/tmp/blanc_xkeen_update.lock}"
 CHECKPOINT_DIR="${FREENET_VPN_TRANSACTION_DIR:-/opt/var/lib/freenet/vpn-transaction.pending}"
+AUTO_POOL_STATE="${FREENET_AUTOVPN_POOL_STATE_DIR:-/opt/var/lib/freenet/autovpn-pool}"
 AUTOMATION_STATE="${FREENET_AUTOMATION_STATE:-/opt/var/run/freenet-automation.state}"
 CURL_BIN="${FREENET_CURL_BIN:-curl}"
 PROVIDER_ROUTE_PROBE_BIN="${FREENET_PROVIDER_ROUTE_PROBE_BIN:-}"
@@ -180,7 +181,10 @@ transaction_pending() {
 }
 
 mutation_forbidden() {
-    transaction_pending || grep -qs '^MUTATION_BLOCKED=yes$' "$AUTOMATION_STATE" 2>/dev/null
+    transaction_pending ||
+    [ -e "$AUTO_POOL_STATE/active" ] || [ -L "$AUTO_POOL_STATE/active" ] ||
+    [ -e "$AUTO_POOL_STATE/pending" ] || [ -L "$AUTO_POOL_STATE/pending" ] ||
+    grep -qs '^MUTATION_BLOCKED=yes$' "$AUTOMATION_STATE" 2>/dev/null
 }
 
 # Only user-confirmed manual recovery can enter this mode. The original PENDING

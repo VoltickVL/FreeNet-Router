@@ -226,6 +226,20 @@
             </div>
             <div class="fn3-safety">${svg('shield')}<span id="fn3SafetyText">Рабочий VPN не меняется без причины. Все переключения выполняются только при подтверждённом сбое, с проверкой и автоматическим возвратом при необходимости.</span></div>
             <div class="fn3-auto-actions"><button id="fn3Check" class="btn primary" type="button">${svg('play')}<span>Проверить сейчас</span></button><div class="fn3-control"><span class="fn3-control-dot"></span><div><strong id="fn3ControlTitle">Автопроверка</strong><small id="fn3ControlNext">Следующая проверка: —</small><small id="fn3ClientCaptureStatus">Перехват устройств: ожидание автоматического снимка</small><small id="fn3ClientHookPackets">Пакеты LAN в XKeen: ожидание двух снимков (без проверки видео)</small></div></div></div>
+            <div class="fn3-endpoint-schedule" role="group" aria-label="Устойчивый AUTO VPN без перезапуска">
+              <div class="fn3-endpoint-copy"><strong>Стабильный пул VPN — без разрыва при переключении</strong><small>FreeNet сохранит текущий сервер и подготовит до двух проверенных резервов. Один контролируемый перезапуск Xray нужен только при первом включении или полном выключении. Дальнейшие переключения — через API без рестартов.</small></div>
+              <div class="fn3-auto-actions">
+                <button id="fn3PoolPrepare" class="btn secondary" type="button">Подобрать резервные VPN</button>
+                <button id="fn3PoolActivate" class="btn primary" type="button" disabled>Включить пул</button>
+                <button id="fn3PoolRefresh" class="btn secondary" type="button">Проверить состояние</button>
+              </div>
+              <div class="fn3-auto-actions">
+                <select id="fn3PoolNode" aria-label="Выход VPN в активном пуле" disabled><option value="">Сначала включите пул</option></select>
+                <button id="fn3PoolSwitch" class="btn secondary" type="button" disabled>Переключить без рестарта</button>
+                <button id="fn3PoolDisable" class="btn secondary" type="button" disabled>Вернуть исходный VPN</button>
+              </div>
+              <div id="fn3PoolStatus" role="status" aria-live="polite" class="fn3-sub">Проверяем наличие устойчивого пула. Рабочий VPN не изменён.</div>
+            </div>
             <div class="fn3-journal-linkrow"><button id="fn3AllEvents" class="fn3-link" type="button">История проверок и переключений → Журнал</button></div>
           </section>
           <section id="fn3QoECard" class="fn3-card fn3-qoe fn3-section-collapsed" aria-label="Диагностика воспроизведения">
@@ -953,6 +967,138 @@
     }
   }
 
+  let autoPoolPlan = null;
+  let autoPoolNodes = [];
+  let autoPoolBusy = false;
+  function setAutoPoolStatus(message) {
+    const output=q('#fn3PoolStatus');
+    if(output)output.textContent=message;
+  }
+  function autoPoolControls(active,busy=false) {
+    autoPoolBusy=busy;
+    const prepare=q('#fn3PoolPrepare'),activate=q('#fn3PoolActivate'),node=q('#fn3PoolNode');
+    const sw=q('#fn3PoolSwitch'),disable=q('#fn3PoolDisable'),refresh=q('#fn3PoolRefresh');
+    if(prepare)prepare.disabled=busy||active;
+    if(activate)activate.disabled=busy||active||!autoPoolPlan;
+    if(node)node.disabled=busy||!active;
+    if(sw)sw.disabled=busy||!active||!node?.value;
+    if(disable)disable.disabled=busy||!active;
+    if(refresh)refresh.disabled=busy;
+  }
+  async function loadAutoPoolStatus() {
+    if(autoPoolBusy)return;
+    try {
+      const data=await fetchJSON('/api/automation/pool/status',{cache:'no-store',credentials:'same-origin'});
+      autoPoolNodes=Array.isArray(data.nodes)?data.nodes:[];
+      const node=q('#fn3PoolNode');
+      if(node) {
+        const selected=node.value;
+        node.replaceChildren();
+        if(!data.active){
+          node.add(new Option('Сначала включите пул',''));
+        }else{
+          autoPoolNodes.forEach(item=>{
+            if(!item.id||!item.tag)return;
+            const label=item.id==='original'?'Исходный VPN':item.tag==='freenet-auto-node-1'?'Резервный сервер 1':'Резервный сервер 2';
+            node.add(new Option(label,item.id));
+          });
+          const current=autoPoolNodes.find(item=>item.tag===data.current_tag);
+          if(current)node.value=current.id;
+          else if(selected&&autoPoolNodes.some(item=>item.id===selected))node.value=selected;
+        }
+      }
+      if(data.active){
+        setAutoPoolStatus((data.status==='live-balancer-ready'?'Пул работает. ':'Состояние ядра требует проверки. ')+
+          'Узлов: '+(data.node_count||'неизвестно')+'. Активен: '+(data.current_tag||'неизвестен')+
+          '. При переключении Xray не перезапускается.');
+      }else{
+        setAutoPoolStatus('Пул пока не включён. Исходный VPN работает по прежним правилам. Подбор резервов не меняет сеть.');
+      }
+      autoPoolControls(!!data.active);
+    }catch(_){
+      autoPoolControls(false);
+      setAutoPoolStatus('Статус пула неизвестен. Изменения заблокированы; не повторяйте применение до восстановления связи с FreeNet.');
+      q('#fn3PoolPrepare').disabled=true;
+    }
+  }
+  async function prepareAutoPool() {
+    if(autoPoolBusy)return;
+    autoPoolPlan=null;
+    autoPoolControls(false,true);
+    setAutoPoolStatus('Измеряем серверы и подбираем до двух проверенных резервов. Текущий VPN не меняется…');
+    try {
+      const best=await fetchJSON('/api/vpn/best',{method:'GET',cache:'no-store',credentials:'same-origin'});
+      const candidates=(best.candidates||[]).filter(x=>x.eligible&&x.available&&x.tested&&!x.current&&/^[0-9a-f]{16}$/.test(x.id||''));
+      if(!best.selection_token||candidates.length===0)throw new Error('no eligible snapshot');
+      const selected=[...new Set(candidates.map(x=>x.id))].slice(0,2);
+      const plan=await fetchJSON('/api/automation/pool/plan',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({selection_token:best.selection_token,profile_ids:selected})});
+      if(!plan.ready||!plan.plan_token)throw new Error('candidate not validated');
+      autoPoolPlan={...plan,received_at:Date.now()};
+      setAutoPoolStatus('Проверено '+(selected.length+1)+' VPN-узла. Ничего не изменено. Включение выполнит один контролируемый перезапуск Xray с резервной копией и автоматическим откатом при отказе.');
+    }catch(_){
+      setAutoPoolStatus('Безопасный план не получен: отсутствуют полностью проверенные резервные узлы, Xray занят или конфигурация несовместима. Исходный VPN сохранён.');
+    }finally{autoPoolControls(false)}
+  }
+  async function activateAutoPool() {
+    const plan=autoPoolPlan;
+    if(autoPoolBusy||!plan)return;
+    if(Date.now()-plan.received_at>110000){
+      autoPoolPlan=null;autoPoolControls(false);
+      setAutoPoolStatus('План истёк. Необходимо заново подобрать резервные узлы.');return;
+    }
+    if(!window.confirm('Включить устойчивый VPN-пул? Только при первом включении будет один контролируемый перезапуск Xray с восстановлением исходного состояния при отказе. Работающие соединения могут кратковременно прерваться.'))return;
+    autoPoolControls(false,true);
+    setAutoPoolStatus('Создаём контрольную копию и безопасно активируем Xray-пул. Не повторяйте операцию при обрыве связи…');
+    try {
+      const response=await fetch('/api/automation/pool/activate',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({plan_token:plan.plan_token,
+          acknowledge:'prepare-no-restart-autovpn-with-controlled-core-restart'})});
+      const data=await response.json();
+      if(!response.ok||!data.success)throw new Error(data.status||'activation not confirmed');
+      setAutoPoolStatus('Пул активирован. Исходный VPN подтверждён через HTTPS; дальнейшие переключения будут проходить без перезапуска Xray.');
+    }catch(_){
+      setAutoPoolStatus('Состояние включения не подтверждено. FreeNet должен проверить checkpoint и откат; не повторяйте операцию вслепую.');
+      return;
+    }finally{autoPoolPlan=null;autoPoolControls(false)}
+    void loadAutoPoolStatus();
+  }
+  async function switchAutoPool() {
+    const node=q('#fn3PoolNode'),id=node?.value;
+    if(autoPoolBusy||!autoPoolNodes.some(x=>x.id===id))return;
+    if(!window.confirm('Переключить текущий VPN внутри подготовленного пула без перезапуска Xray? FreeNet проверит новый HTTPS-выход и вернёт предыдущий при отказе.'))return;
+    autoPoolControls(true,true);
+    setAutoPoolStatus('Проверяем сервер, переключаем Xray API и подтверждаем HTTPS. При ошибке — обратимый возврат…');
+    try {
+      const response=await fetch('/api/automation/pool/switch',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({profile_id:id})});
+      const data=await response.json();
+      if(!response.ok||!data.success)throw new Error(data.status||'not verified');
+      setAutoPoolStatus('Переключено и подтверждено через живой Xray без перезапуска.');
+    }catch(_){
+      setAutoPoolStatus('Переключение не подтверждено. Не повторяйте до получения точного состояния и rollback.');
+      return;
+    }finally{autoPoolControls(true)}
+    void loadAutoPoolStatus();
+  }
+  async function disableAutoPool() {
+    if(autoPoolBusy)return;
+    if(!window.confirm('Отключить пул и восстановить исходную конфигурацию VPN? Для этого потребуется один контролируемый перезапуск Xray; при ошибке FreeNet попытается вернуть предыдущий пул.'))return;
+    autoPoolControls(true,true);
+    setAutoPoolStatus('Восстанавливаем исходный VPN и проверяем откат. Не повторяйте операцию при потере связи…');
+    try {
+      const response=await fetch('/api/automation/pool/disable',{method:'POST',credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify({acknowledge:'restore-original-vpn-config-with-controlled-core-restart'})});
+      const data=await response.json();
+      if(!response.ok||!data.success)throw new Error(data.status||'restore not confirmed');
+      setAutoPoolStatus('Исходная конфигурация восстановлена и проверена. Пул отключён.');
+    }catch(_){
+      setAutoPoolStatus('Восстановление не подтверждено: STOP до выяснения реального состояния; не повторяйте операцию.');
+      return;
+    }finally{autoPoolControls(true)}
+    void loadAutoPoolStatus();
+  }
+
   let visionCanaryPlan = null;
 
   async function prepareVisionCanary() {
@@ -1016,6 +1162,12 @@
     q('#fn3QoECapture').onclick = captureQoEIncident;
     q('#fn3VisionPlan').onclick = prepareVisionCanary;
     q('#fn3VisionTry').onclick = runVisionCanary;
+    q('#fn3PoolPrepare').onclick = prepareAutoPool;
+    q('#fn3PoolActivate').onclick = activateAutoPool;
+    q('#fn3PoolRefresh').onclick = loadAutoPoolStatus;
+    q('#fn3PoolSwitch').onclick = switchAutoPool;
+    q('#fn3PoolDisable').onclick = disableAutoPool;
+    q('#fn3PoolNode').onchange = () => autoPoolControls(true);
     document.addEventListener('freenet:controls-busy', event => {
       state.controlsBusy = !!event.detail;
       queueMicrotask(renderSave);
@@ -1109,7 +1261,7 @@
       window.setPage = foldedSetPage;
     }
     document.dispatchEvent(new CustomEvent('freenet:settings-v3-mounted'));
-    bind(); load(); void resumeGeoDataOperation();
+    bind(); load(); void resumeGeoDataOperation(); void loadAutoPoolStatus();
     return true;
   }
 

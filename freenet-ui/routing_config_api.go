@@ -457,6 +457,10 @@ func (a *app) restartXrayCorePreservingFirewall(parent context.Context) error {
 }
 
 func (a *app) handleRoutingConfigApply(w http.ResponseWriter, r *http.Request) {
+	if !freeNetAutoPoolPathAbsent(freeNetAutoPoolActive()) || !freeNetAutoPoolPathAbsent(freeNetAutoPoolPending()) {
+		writeJSON(w,http.StatusConflict,routingApplyResponse{Success:false,Mutation:"NONE",Rollback:"NOT_APPLIED",Error:"AutoVPN live pool owns routing; deactivate it before editing ISP/routing policies"})
+		return
+	}
 	if a.mutationBlockedBySelfUpdate(w) {
 		return
 	}
