@@ -181,3 +181,11 @@ func freeNetAutoOutboundMatches(live []byte,tag string,expected map[string]any)b
     }
     return found==1
 }
+
+func registerFreeNetAutoPoolAPI(mux *http.ServeMux,a *app){
+    mux.HandleFunc("GET /api/automation/pool/status",a.requireAuth(a.handleFreeNetAutoPoolStatus))
+    mux.HandleFunc("POST /api/automation/pool/plan",a.requireAuth(a.handleFreeNetAutoPoolPlan))
+    mux.HandleFunc("POST /api/automation/pool/activate",a.requireAuth(a.handleFreeNetAutoPoolActivate))
+    mux.HandleFunc("POST /api/automation/pool/switch",a.requireAuth(a.handleFreeNetAutoPoolSwitch))
+    mux.HandleFunc("POST /api/automation/pool/disable",a.requireAuth(a.handleFreeNetAutoPoolDisable))
+}
