@@ -187,6 +187,47 @@ grep -Fq 'MUTATION=NONE' "$TMP/downgrade-plan.out" || fail 'downgrade plan mutat
 # Restore normal newer fixture for update-path regressions.
 make_release "$D" v0.2.28
 
+# Content-addressed offline reuse: a SHA-matched installed FreeNet asset
+# must be copied into private staging even when its release download is absent.
+# This proves that the updater does not fetch unchanged bytes unnecessarily.
+make_root "$R"
+make_release "$D"
+cp "$D/vpn" "$R/bin/vpn"
+rm "$D/vpn"
+run_apply "$R" "$D" "" > "$TMP/reuse-local.out" 2>&1 || {
+    cat "$TMP/reuse-local.out" >&2
+    fail 'SHA-matched installed asset was not reused without download'
+}
+grep -Fq 'STATE=SUCCESS' "$R/var/run/update.state" || fail 'verified local reuse did not finish successfully'
+[ "$(sha256sum "$R/bin/vpn" | awk '{print $1}')" = "$(awk '$2=="vpn" {print $1}' "$D/SHA256SUMS")" ] || fail 'reused asset content differs from exact release'
+
+# Mismatch must fall back to the original verified download. With the
+# release fixture missing, fallback FAILS before any persistent replacement.
+make_root "$R"
+make_release "$D"
+rm "$D/vpn"
+if run_apply "$R" "$D" "" > "$TMP/reuse-mismatch.out" 2>&1; then
+    fail 'mismatched live asset was accepted without a release download'
+fi
+[ "$(cat "$R/bin/vpn")" = OLD_VPN ] || fail 'mismatch fallback modified live vpn before staging'
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'mismatch fallback modified live UI'
+grep -Fq 'STATE=FAILED' "$R/var/run/update.state" || fail 'mismatch fallback needs pre-mutation FAIL receipt'
+grep -Fq 'ROLLBACK_STATE=NOT_NEEDED' "$R/var/run/update.state" || fail 'mismatch fallback falsely claims a rollback'
+
+# A symlink is NOT a valid local cache, even when its target has the exact
+# release hash. No symlink may be followed as a shortcut to staging.
+make_root "$R"
+make_release "$D"
+cp "$D/vpn" "$R/installed-vpn-link-target"
+rm "$R/bin/vpn" "$D/vpn"
+ln -s "$R/installed-vpn-link-target" "$R/bin/vpn"
+if run_apply "$R" "$D" "" > "$TMP/reuse-symlink.out" 2>&1; then
+    fail 'symlinked live asset bypassed verified release download'
+fi
+[ -L "$R/bin/vpn" ] || fail 'rejected symlink was unexpectedly mutated'
+grep -Fq 'STATE=FAILED' "$R/var/run/update.state" || fail 'symlink fallback missing pre-mutation FAIL'
+[ "$(cat "$R/sbin/freenet-ui")" = OLD_UI ] || fail 'symlink fallback changed live UI'
+
 # Checksum mismatch stops before live mutation.
 make_root "$R"
 make_release "$D"
