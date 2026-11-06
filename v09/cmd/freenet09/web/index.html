@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#10182c">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FreeNet">
+<meta name="application-name" content="FreeNet Control">
+<meta name="description" content="FreeNet 0.9 — управление штатными XKeen и Xray">
+<title>FreeNet 0.9 · Control Center</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Основная навигация">
+    <div class="brand"><img class="brand-icon" src="/static/icon.svg" alt="" width="46" height="46">
+      <div><strong>FreeNet <span class="brand-tag">0.9</span></strong><small>CONTROL CENTER</small></div></div>
+    <div class="nav-overline">УПРАВЛЕНИЕ</div>
+    <nav class="nav-links">
+      <a class="nav-link is-active" href="#overview" data-view="overview"><span class="nav-glyph">▦</span>Обзор</a>
+      <a class="nav-link" href="#vpn" data-view="vpn"><span class="nav-glyph">◉</span>VPN и серверы</a>
+      <a class="nav-link" href="#routing" data-view="routing"><span class="nav-glyph">⑂</span>Маршрутизация</a>
+      <a class="nav-link" href="#dns" data-view="dns"><span class="nav-glyph">◎</span>DNS</a>
+      <a class="nav-link" href="#xkeen" data-view="xkeen"><span class="nav-glyph">▣</span>XKeen</a>
+      <a class="nav-link" href="#xray" data-view="xray"><span class="nav-glyph">⬡</span>Xray</a>
+      <a class="nav-link" href="#updates" data-view="updates"><span class="nav-glyph">↻</span>Обновления</a>
+      <a class="nav-link" href="#recovery" data-view="recovery"><span class="nav-glyph">◇</span>Восстановление</a>
+      <a class="nav-link" href="#diagnostics" data-view="diagnostics"><span class="nav-glyph">⌁</span>Диагностика</a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="status-pin"><i></i>Native first</div>
+      <small>Оригинальные XKeen + Xray<br>Без второго AutoVPN</small>
+      <span class="build-line">{{.Version}} · PREVIEW</span>
+    </div>
+  </aside>
+
+  <div class="content">
+    <header class="topbar">
+      <div class="crumb"><span class="router-mark">◫</span><div><strong>FreeNet Router</strong><small>Entware · Keenetic / Netcraze</small></div></div>
+      <div class="top-actions"><span class="top-status"><span class="pulse-dot"></span>Предпросмотр 0.9</span>
+        <a class="top-help" href="#diagnostics" data-view="diagnostics" aria-label="Диагностика">?</a></div>
+    </header>
+    <main id="main-content">
+
+      <section id="overview" class="view" aria-labelledby="overview-title">
+        <div class="page-heading"><div><span class="eyebrow">УПРАВЛЕНИЕ РОУТЕРОМ</span><h1 id="overview-title">Обзор</h1><p>Реальные данные штатных компонентов. Без выдуманных показателей.</p></div>
+          <button id="refresh" class="btn outline" type="button">↻ &nbsp; Обновить состояние</button></div>
+        <div class="notice notice-accent"><span class="notice-icon">i</span><div><strong>Безопасный предварительный режим</strong>
+          <p>Конфигурация и наличие служб ≠ работоспособность VPN. Фактический HTTPS-маршрут, DNS и выбранный outbound ещё не проверены. Управляющие операции будут доступны только после авторизованной настройки и приёмки.</p></div></div>
+        <div class="component-grid">
+          <article class="component-card"><div class="component-top"><span class="mini-logo infinity">∞</span><span class="state-chip purple">PREVIEW</span></div><h3>FreeNet</h3>
+            <div class="component-version">{{.Version}}</div><p>Новая веб-панель · без наследия 0.8</p></article>
+          <article class="component-card"><div class="component-top"><span class="mini-logo xkeen">X</span><span class="state-chip neutral" data-field="xkeenInit">{{.System.XKeenInit}}</span></div><h3>XKeen</h3>
+            <div class="component-version">Native</div><p>Штатная интеграция роутера. Версия ещё не подтверждена.</p></article>
+          <article class="component-card"><div class="component-top"><span class="mini-logo xray">✳</span><span class="state-chip neutral" data-field="xrayProcess">{{.System.XrayProcess}}</span></div><h3>Xray-core</h3>
+            <div class="component-version">Native</div><p>Признак процесса ≠ подтверждение VPN-трафика</p></article>
+        </div>
+
+        <div class="overview-columns">
+          <article class="panel vpn-summary">
+            <div class="panel-heading"><div class="panel-title"><span class="title-icon shield">✦</span><h2>VPN</h2></div><span class="state-chip caution">NOT_VERIFIED</span></div>
+            <div class="panel-subhead">Источники: штатные Xray JSONC и XKeen</div>
+            <div class="info-block"><span>Статус конфигурации</span><strong data-field="topologyState">{{.Topology.State}}</strong></div>
+            <div class="stats-row"><div><span>Outbound</span><strong data-field="serverCount">{{len .Topology.Servers}}</strong></div>
+              <div><span>Балансировщики</span><strong data-field="balancerCount">{{len .Topology.Balancers}}</strong></div>
+              <div><span>Выбранный сервер</span><strong>Не проверен</strong></div></div>
+            <div class="panel-bottom"><span class="dot amber"></span>Показывается конфигурация, не фактический маршрут
+              <a href="#vpn" data-view="vpn">Подробнее <span aria-hidden="true">→</span></a></div>
+          </article>
+          <article class="panel telemetry-panel">
+            <div class="panel-heading"><div class="panel-title"><span class="title-icon purple">⌁</span><h2>Трафик</h2></div><span class="state-chip neutral">НЕ ПОДКЛЮЧЕН</span></div>
+            <div class="chart-blank" role="img" aria-label="Данные трафика пока недоступны: Xray StatsService не подключён">
+              <span class="chart-axis">100%</span><span class="chart-axis">50%</span><span class="chart-axis">0%</span>
+              <div class="chart-copy"><span>⌁</span><strong>Нет подтверждённых измерений</strong><p>Без фиктивного графика. Источник — Xray StatsService после проверки API.</p></div>
+            </div>
+          </article>
+        </div>
+
+        <div class="quick-grid">
+          <a class="quick-card" href="#routing" data-view="routing"><span class="quick-icon blue">⑂</span><div><strong>Маршрутизация</strong><small>Native Xray rules</small></div><b data-field="routingCount">{{.System.Routing.Count}}</b><span class="quick-arrow">↗</span></a>
+          <a class="quick-card" href="#dns" data-view="dns"><span class="quick-icon aqua">◎</span><div><strong>DNS</strong><small>Native Xray DNS</small></div><span class="small-code" data-field="dnsState">{{.System.DNS.State}}</span><span class="quick-arrow">↗</span></a>
+          <a class="quick-card" href="#xkeen" data-view="xkeen"><span class="quick-icon green">◈</span><div><strong>GeoData</strong><small>Установленные .dat</small></div><b data-field="geoCount">{{.System.GeoData.Files}}</b><span class="quick-arrow">↗</span></a>
+          <a class="quick-card" href="#updates" data-view="updates"><span class="quick-icon violet">↻</span><div><strong>Обновления</strong><small>XKeen · Xray · FreeNet</small></div><span class="small-code">По запросу</span><span class="quick-arrow">↗</span></a>
+        </div>
+
+        <article class="migration panel">
+          <div class="migration-symbol">⇄</div><div><h2>Переход FreeNet 0.8 → 0.9</h2>
+          <p>Чистая замена с сохранением оригинальных XKeen, Xray, GeoData, подписок и XKeen UI. 0.8 — только временная страховка для отката.</p>
+          <div class="migration-steps"><span>① Копия</span><span>② Проверка 0.9</span><span>③ Переключение</span><span>④ Возврат при сбое</span></div></div>
+          <a href="#recovery" data-view="recovery" class="btn solid">Как будет работать ↗</a>
+        </article>
+      </section>
+
+      <section id="vpn" class="view" aria-labelledby="vpn-title" hidden>
+        <div class="page-heading"><div><span class="eyebrow">ШТАТНЫЙ XRAY</span><h1 id="vpn-title">VPN и серверы</h1><p>Настроенные outbound и баланcировщики. Активный маршрут не определён.</p></div><span class="state-chip caution">{{.Topology.State}}</span></div>
+        <div class="notice"><span class="notice-icon">i</span><div><strong>Без собственного AutoVPN</strong><p>Режимы выбора и переключения принадлежат Xray Observatory и XKeen `-sb`. Не запускаем параллельные алгоритмы и не объявляем active server по одному файлу конфигурации.</p></div></div>
+        <div class="list-layout">
+          <article class="panel"><div class="panel-heading"><h2>Настроенные outbound</h2><span class="text-counter" data-field="serverCount">{{len .Topology.Servers}}</span></div>
+            <div class="native-list" id="outbounds-list">{{if eq .Topology.State "STOP"}}<div class="empty-state">Конфигурация не подтверждена. STOP — без догадок.</div>{{else}}{{range .Topology.Servers}}
+              <div class="list-line"><div><strong>{{.Tag}}</strong><small>{{.Protocol}}{{if .InBalancer}} · в пуле{{end}}</small></div><span class="state-chip neutral">CONFIG</span></div>{{else}}<div class="empty-state">В native-конфигурации нет outbound.</div>{{end}}{{end}}</div>
+          </article>
+          <article class="panel"><div class="panel-heading"><h2>Штатные балансировщики</h2><span class="text-counter" data-field="balancerCount">{{len .Topology.Balancers}}</span></div>
+            <div class="native-list" id="balancers-list">{{if eq .Topology.State "STOP"}}<div class="empty-state">Невозможно прочитать native balancer.</div>{{else}}{{range .Topology.Balancers}}
+              <div class="list-line"><div><strong>{{.Tag}}</strong><small>{{.Strategy}} · selector: {{.Selectors}}</small></div><span class="state-chip neutral">{{.Servers}} узлов</span></div>{{else}}<div class="empty-state">Балансировщики не настроены.</div>{{end}}{{end}}</div>
+          </article>
+        </div>
+      </section>
+
+      <section id="routing" class="view" aria-labelledby="routing-title" hidden>
+        <div class="page-heading"><div><span class="eyebrow">XRAY ROUTING + XKEEN</span><h1 id="routing-title">Маршрутизация</h1><p>Провайдер определяет политику. Xray и XKeen исполняют правила.</p></div></div>
+        <div class="panel"><div class="panel-heading"><h2>Нативные правила Xray</h2><span class="state-chip neutral" data-field="routingState">{{.System.Routing.State}}</span></div>
+          <div class="metric-large" data-field="routingCount">{{.System.Routing.Count}}</div><p class="muted">Правил в штатном `05_routing.json`. Стратегия: <strong data-field="routingMode">{{.System.Routing.Mode}}</strong></p>
+          <div class="notice compact"><span class="notice-icon">i</span><p>Выбор ISP и применение пресетов будут доступны после транзакционного редактора native rules. Владлинк/АльянсТелеком — YouTube DIRECT; Ростелеком — YouTube VPN; Подряд — отдельная неподтверждённая политика.</p></div></div>
+      </section>
+
+      <section id="dns" class="view" aria-labelledby="dns-title" hidden>
+        <div class="page-heading"><div><span class="eyebrow">XRAY DNS</span><h1 id="dns-title">DNS</h1><p>Настройки из штатного Xray DNS, без второго DNS-сервиса FreeNet.</p></div></div>
+        <div class="detail-grid">
+          <div class="panel detail-card"><span>Конфигурация</span><h2 data-field="dnsState">{{.System.DNS.State}}</h2></div>
+          <div class="panel detail-card"><span>Серверов DNS</span><h2 data-field="dnsCount">{{.System.DNS.Count}}</h2></div>
+          <div class="panel detail-card"><span>Query strategy</span><h2 data-field="dnsMode">{{.System.DNS.Mode}}</h2></div>
+        </div>
+        <div class="notice"><span class="notice-icon">i</span><div><strong>Выполнение DNS не подтверждено</strong><p>Наличие DNS-конфига не доказывает, что клиент использует нужный резолвер или что TXT/SRV работают. Для применения и проверки будет использован штатный Xray/XKeen.</p></div></div>
+      </section>
+
+      <section id="xkeen" class="view" aria-labelledby="xkeen-title" hidden>
+        <div class="page-heading"><div><span class="eyebrow">ОРИГИНАЛЬНЫЙ XKEEN</span><h1 id="xkeen-title">XKeen</h1><p>Один владелец сетевой интеграции, IPSET и GeoData.</p></div></div>
+        <div class="detail-grid"><div class="panel detail-card"><span>Служба</span><h2 data-field="xkeenInit">{{.System.XKeenInit}}</h2><small>Наличие init — не статус работы</small></div>
+          <div class="panel detail-card"><span>Настройки</span><h2 data-field="xkeenConfig">{{.System.XKeenConfig}}</h2><small>Штатный xkeen.json</small></div>
+          <div class="panel detail-card"><span>GeoData</span><h2><span data-field="geoCount">{{.System.GeoData.Files}}</span> файлов</h2><small>Не оценка актуальности</small></div></div>
+        <article class="panel"><div class="panel-heading"><h2>Штатные задания cron</h2></div><div class="list-line"><div><strong>Обновление GeoData / GeoIPSET</strong><small>XKeen `-ug`</small></div><span class="state-chip neutral" data-field="geoCron">{{.System.XKeenGeoCron}}</span></div>
+          <div class="list-line"><div><strong>Балансировка по скорости</strong><small>XKeen `-sbt`</small></div><span class="state-chip neutral" data-field="speedCron">{{.System.XKeenBalancerCron}}</span></div></article>
+      </section>
+
+      <section id="xray" class="view" aria-labelledby="xray-title" hidden>
+        <div class="page-heading"><div><span class="eyebrow">ОРИГИНАЛЬНЫЙ XRAY-CORE</span><h1 id="xray-title">Xray</h1><p>Рабочее VPN-ядро. FreeNet не заменяет Xray алгоритмами собственной разработки.</p></div></div>
+        <div class="detail-grid"><div class="panel detail-card"><span>Бинарник</span><h2 data-field="binaryXray">{{.Xray}}</h2></div>
+          <div class="panel detail-card"><span>Процесс</span><h2 data-field="xrayProcess">{{.System.XrayProcess}}</h2></div>
+          <div class="panel detail-card"><span>VPN / HTTPS egress</span><h2>NOT_VERIFIED</h2></div></div>
+        <div class="notice"><span class="notice-icon">i</span><div><strong>Нужна штатная проверка runtime</strong><p>Процесс Xray может быть запущен, но это не доказывает доступность VPN и правильность маршрутов. Позднее проверим RoutingService, StatsService и egress клиентов.</p></div></div>
+      </section>
+
+      <section id="updates" class="view" aria-labelledby="updates-title" hidden>
+        <div class="page-heading"><div><span class="eyebrow">NATIVE UPDATES</span><h1 id="updates-title">Обновления</h1><p>Используем официальные механизмы и проверяем exact версию, а не создаём второй загрузчик.</p></div></div>
+        <div class="panel">{{range .UpdateTargets}}<div class="list-line"><div><strong>{{.}}</strong><small>Проверка версии и безопасного rollback — обязательный шаг</small></div><span class="state-chip neutral">НЕ ПРОВЕРЕНО</span></div>{{end}}</div>
+        <div class="notice"><span class="notice-icon">i</span><p>Штатный XKeen обновляет XKeen/Xray/GeoData; FreeNet обновляется через собственный проверяемый A/B. Запуск обновлений будет активен только после browser-auth и проверки rollback.</p></div>
+      </section>
+
+      <section id="recovery" class="view" aria-labelledby="recovery-title" hidden>
+        <div class="page-heading"><div><span class="eyebrow">FREENET 0.8 → 0.9</span><h1 id="recovery-title">Восстановление</h1><p>Не удаляем работающую 0.8 до доказанного автоматического возврата.</p></div></div>
+        <div class="panel"><div class="panel-heading"><h2>План чистой замены</h2><span class="state-chip caution">ЕЩЁ НЕ ГОТОВ</span></div>
+          <div class="recovery-list"><div><b>1</b><span>Сохранить точную копию FreeNet 0.8, init и managed cron</span></div>
+          <div><b>2</b><span>Подготовить 0.9 и проверить native XKeen/Xray, не обновляя их</span></div>
+          <div><b>3</b><span>Активировать одну панель с независимым recovery-guard</span></div>
+          <div><b>4</b><span>Проверить auth, DNS, VPN egress, reboot и возврат 0.8</span></div>
+          <div><b>5</b><span>Удалить только legacy FreeNet после приёмки; XKeen UI, списки, GeoData и credentials сохранить</span></div></div></div>
+      </section>
+
+      <section id="diagnostics" class="view" aria-labelledby="diagnostics-title" hidden>
+        <div class="page-heading"><div><span class="eyebrow">ФАКТЫ, А НЕ ДОГАДКИ</span><h1 id="diagnostics-title">Диагностика</h1><p>Простая, безопасная проверка конфигурации. Без ручного терминала.</p></div></div>
+        <div class="detail-grid"><div class="panel detail-card"><span>Xray config</span><h2 data-field="topologyState">{{.Topology.State}}</h2></div>
+          <div class="panel detail-card"><span>Runtime</span><h2>NOT_VERIFIED</h2></div>
+          <div class="panel detail-card"><span>Старая FreeNet 0.8</span><h2 data-field="legacyFreeNet">{{.LegacyFreeNet}}</h2></div></div>
+        <article class="panel"><div class="panel-heading"><h2>Локальные источники данных</h2></div>
+          <div class="list-line"><strong>Xray outbound / balancer</strong><span class="small-code">04_outbounds.json / 05_routing.json</span></div>
+          <div class="list-line"><strong>DNS / routing</strong><span class="small-code">03_dns.json / 05_routing.json</span></div>
+          <div class="list-line"><strong>GeoData / XKeen cron</strong><span class="small-code">Штатные Entware файлы</span></div>
+          <div class="list-line"><strong>Клиентский HTTPS и DNS</strong><span class="state-chip caution">НЕ ПРОВЕРЕН</span></div></article>
+        <details class="help-card"><summary>Как добавить FreeNet на экран iPhone?</summary><p>После включения защищённого браузерного доступа к готовой 0.9: откройте FreeNet в Safari, нажмите «Поделиться» → «На экран Домой» → «Добавить». Запуск будет в standalone-режиме без обычной панели Safari. Пока этот preview доступен только на loopback роутера и не предназначен для iPhone.</p></details>
+      </section>
+
+      <div id="feedback" class="live-feedback" role="status" aria-live="polite" hidden></div>
+      <footer class="app-footer">FreeNet {{.Version}} · Штатные XKeen + Xray · Предпросмотр без сетевых изменений</footer>
+    </main>
+  </div>
+</div>
+<nav class="mobile-nav" aria-label="Мобильная навигация"><a href="#overview" data-view="overview" class="is-active"><span>▦</span>Обзор</a>
+  <a href="#vpn" data-view="vpn"><span>◉</span>VPN</a><a href="#routing" data-view="routing"><span>⑂</span>Маршруты</a>
+  <a href="#xkeen" data-view="xkeen"><span>▣</span>XKeen</a><a href="#diagnostics" data-view="diagnostics"><span>⋯</span>Ещё</a></nav>
+</body></html>
