@@ -8,10 +8,7 @@ import (
     "encoding/json"
     "io"
     "mime"
-    "net"
     "net/http"
-    "net/url"
-    "strings"
     "time"
 )
 
@@ -20,26 +17,8 @@ type subscriptionPreviewRequest struct {
 }
 
 func subscriptionSameOrigin(r *http.Request) bool {
-    if r.Method!=http.MethodPost || r.TLS!=nil {
-        // This endpoint belongs to the existing HTTP loopback-only preview;
-        // remote HTTPS requires separate authenticated listener and CSRF.
-        return false
-    }
-    host,_,err:=net.SplitHostPort(r.Host)
-    if err!=nil {return false}
-    ip:=net.ParseIP(host)
-    if ip==nil || !ip.IsLoopback(){return false}
-    origin:=r.Header.Get("Origin")
-    parsed,err:=url.Parse(origin)
-    if err!=nil || parsed.Scheme!="http" || parsed.Host!=r.Host ||
-        parsed.User!=nil || parsed.RawQuery!="" || parsed.Fragment!="" ||
-        parsed.Path!="" {
-        return false
-    }
-    if site:=r.Header.Get("Sec-Fetch-Site");site!="" && site!="same-origin" {
-        return false
-    }
-    return r.Header.Get("X-FreeNet-Action")=="preview-subscription"
+    return r.Method==http.MethodPost && requestSameOrigin(r) &&
+        r.Header.Get("X-FreeNet-Action")=="preview-subscription"
 }
 
 func handleSubscriptionPreview(w http.ResponseWriter,r *http.Request, gate chan struct{}) {
@@ -89,8 +68,3 @@ func handleSubscriptionPreview(w http.ResponseWriter,r *http.Request, gate chan 
     writeResult(http.StatusOK,result)
 }
 
-// Keep supported methods explicit: nobody may POST directly to the native
-// apply/config endpoints in preview mode.
-func subscriptionHTTPMethod(r *http.Request) bool {
-    return strings.EqualFold(r.Method,http.MethodPost)
-}
