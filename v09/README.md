@@ -1,5 +1,8 @@
 # FreeNet 0.9 — чистая независимая основа
 
+> **Жёсткая граница проекта:** [AGENTS.md](../AGENTS.md) — инструкции исполнителю; [PRODUCT_CONTRACT.md](PRODUCT_CONTRACT.md) — единственный продуктовый контракт и 10 блокирующих пунктов для выпуска. Не добавлять собственный AutoVPN, DNS proxy, GeoData-cron или второй баланcировщик. Финальная 0.9 должна управлять **оригинальными XKeen/Xray через браузер**, а не остаться read-only демонстрацией. До release A/B preview не должен затрагивать 0.8.
+
+
 **Статус:** разработка; **не** выпуск 0.9 и **не** разрешение на миграцию рабочих роутеров.
 
 ## Источник истины и архитектура
@@ -14,12 +17,21 @@
 
 ## Entware: соседние версии без влияния друг на друга
 
+**Важно: staging — это временная страховка для чистой замены, а не конечная схема с двумя FreeNet.** До перехода работает 0.8 и старый веб-интерфейс FreeNet. Отдельный защищённый Browser Setup 0.9 (ещё не реализован) подготовит и проверит новую версию, не затрагивая old controller. После проверенного перехода новая панель FreeNet 0.9 принимает штатный адрес прежней панели (baseline port 1001), а 0.8 остаётся выключенной только для rollback. После canary/приёмки её бинарник/init/cron/legacy app-файлы удаляются из активной системы, временный offline archive остаётся для восстановления. **Штатные XKeen/Xray, их списки, GeoData, subscriptions и существующий XKeen UI сохраняются без переустановки.** Автоматический recovery без работающего UI — обязательный gate, пока его нет, никакого переключения. Полная модель: [PRODUCT_CONTRACT.md](PRODUCT_CONTRACT.md#4-миграция-08--09-временная-страховка-и-полная-замена).
+
+
 | Область | FreeNet 0.8 | FreeNet 0.9 |
 | --- | --- | --- |
 | Приложение | `/opt/sbin/freenet-ui` | `/opt/freenet-v09/releases/v0.9.0-dev/bin/freenet09` |
 | Init | `/opt/etc/init.d/S99freenet-ui` | **Не создаётся при stage** |
 | Состояние/автоматика | `/opt/etc/freenet/`, `/opt/lib/freenet/` и managed cron | **Ничего из этого не меняется** |
 | Сетевой runtime | исходные `/opt/sbin/xkeen`, `/opt/sbin/xray`, `/opt/etc/xray/configs` | **Только читает наличие**, не устанавливает и не копирует |
+
+### Автоматическая подготовка официального релиза (в разработке)
+
+`installer/prepare.sh plan|apply|status` сам определяет архитектуру Entware, получает **точный официальный `v0.9.0`** и `SHA256SUMS`, затем передаёт пакет изолированному `stage.sh`. `latest`, копирование ядра и обновление 0.8 отсутствуют. До завершения release gates версия остаётся `v0.9.0-dev`; публичное получение/установка такого кандидата сознательно заблокированы. `plan` не пишет в постоянный `/opt`; `apply` пока только выкладывает пакет, **не активирует** FreeNet 0.9.
+
+Комплект управляемых действий (Browser Setup, XKeen/Xray/GeoData updates и восстановление) — обязательная часть финального продукта согласно `PRODUCT_CONTRACT.md`, а не заменяется ручными командами.
 
 ### Staging contract
 
@@ -48,6 +60,8 @@
 
 - `cd v09 && go test -race ./...`
 - `sh v09/tests/test_stage.sh`
+- `sh v09/tests/test_prepare.sh`
+- `sh v09/tests/test_architecture.sh --selftest`
 - `.github/workflows/v09-isolated.yml`: CI и отдельные Linux/ARM64/MIPS сборки **без публикации релиза**.
 
 Контекст: [Roadmap #5](https://github.com/VoltickVL/FreeNet-Router/issues/5), [Journal #7](https://github.com/VoltickVL/FreeNet-Router/issues/7), execution [#1370](https://github.com/VoltickVL/FreeNet-Router/issues/1370).

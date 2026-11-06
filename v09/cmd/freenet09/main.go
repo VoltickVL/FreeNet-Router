@@ -16,7 +16,8 @@ import (
     "time"
 )
 
-const buildVersion = "v0.9.0-dev"
+// buildVersion is stamped from v09/VERSION by the standalone release build.
+var buildVersion = "v0.9.0-dev"
 
 type nativeOverview struct {
     Version        string `json:"version"`
