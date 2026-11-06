@@ -183,5 +183,14 @@
 </div>
 <nav class="mobile-nav" aria-label="Мобильная навигация"><a href="#overview" data-view="overview" class="is-active"><span>▦</span>Обзор</a>
   <a href="#vpn" data-view="vpn"><span>◉</span>VPN</a><a href="#routing" data-view="routing"><span>⑂</span>Маршруты</a>
-  <a href="#xkeen" data-view="xkeen"><span>▣</span>XKeen</a><a href="#diagnostics" data-view="diagnostics"><span>⋯</span>Ещё</a></nav>
+  <a href="#xkeen" data-view="xkeen"><span>▣</span>XKeen</a><button type="button" id="more-toggle" aria-expanded="false" aria-controls="mobile-sheet"><span>⋯</span>Ещё</button></nav>
+<div class="mobile-sheet" id="mobile-sheet" hidden>
+  <div class="mobile-sheet-title"><strong>Разделы FreeNet</strong><button type="button" id="more-close" aria-label="Закрыть меню">✕</button></div>
+  <nav aria-label="Дополнительные разделы">
+    <a data-view="dns" href="#dns">◎ DNS</a><a data-view="xray" href="#xray">⬡ Xray</a>
+    <a data-view="updates" href="#updates">↻ Обновления</a>
+    <a data-view="recovery" href="#recovery">◇ Восстановление</a>
+    <a data-view="diagnostics" href="#diagnostics">⌁ Диагностика</a>
+  </nav>
+</div>
 </body></html>
