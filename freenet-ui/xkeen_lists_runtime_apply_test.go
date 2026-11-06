@@ -79,6 +79,7 @@ func withFakeXKeenIPSet(t *testing.T) (*app,string,*fakeXKeenIPSetRuntime) {
  a,dir:=xkeenListTestHarness(t)
  hook:=t.TempDir()
  if err:=os.Chmod(hook,0700);err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(filepath.Join(hook,"ready"),[]byte{},0600);err!=nil{t.Fatal(err)}
  fake:=newFakeXKeenIPSets()
  prevRun,prevAdmit,prevHook:=xkeenIPSetRun,xkeenIPSetAdmission,xkeenIPSetHookRoot
  xkeenIPSetRun=fake.run
@@ -186,5 +187,39 @@ func TestXKeenIPSetExistingPartnerUIHostAddressParity(t *testing.T){
  if got:=strings.Join(v6,",");got!="2001:db8::11/128"{t.Fatal(got)}
  for _,bad:=range []string{"192.168.0.0/16\n","1.1.1.1;reboot\n","fc00::/7\n"}{
   if _,_,err:=xkeenIPSetDesired(bad);err==nil{t.Fatalf("unsafe exclusion allowed: %q",bad)}
+ }
+}
+
+func TestXKeenIPSetNativeUpstreamLockParity(t *testing.T){
+ a,dir,fake:=withFakeXKeenIPSet(t)
+ _=os.WriteFile(filepath.Join(dir,"ip_exclude.lst"),[]byte("8.8.8.8/32\n"),0600)
+ plan,_:=xkeenIPSetPlan(context.Background(),a)
+ if !plan.Ready{t.Fatalf("plan blocked in idle fixture: %+v",plan)}
+ hook:=xkeenIPSetHookRoot()
+ for _,name:=range []string{"proxy.mutex.d","netfilter.lock.d","starting.lock.d"}{
+  lock:=filepath.Join(hook,name)
+  if err:=os.Mkdir(lock,0700);err!=nil{t.Fatal(err)}
+  code,result:=fakeXKeenIPSetApply(t,a,plan)
+  if code!=http.StatusConflict||result.Mutation!="NONE"{
+   t.Fatalf("external XKeen %s lock bypassed: code=%d result=%+v",name,code,result)
+  }
+  if err:=os.Remove(lock);err!=nil{t.Fatal(err)}
+ }
+ for _,command:=range fake.commands{
+  if strings.HasPrefix(command,"swap ")||strings.HasPrefix(command,"restore"){
+   t.Fatalf("busy XKeen caused kernel mutation: %s",command)
+  }
+ }
+ unlock,err:=xkeenIPSetHookLock()
+ if err!=nil{t.Fatal(err)}
+ for _,name:=range []string{"proxy.mutex.d","netfilter.lock.d"}{
+  raw,err:=os.ReadFile(filepath.Join(hook,name,"pid"))
+  if err!=nil||strings.TrimSpace(string(raw))!=fmt.Sprint(os.Getpid()){
+   t.Fatalf("XKeen service/NF mutex not owned: %s",name)
+  }
+ }
+ if !unlock(){t.Fatal("native mutex release was not confirmed")}
+ for _,name:=range []string{"proxy.mutex.d","netfilter.lock.d"}{
+  if _,err:=os.Lstat(filepath.Join(hook,name));!os.IsNotExist(err){t.Fatalf("lock leaked: %s: %v",name,err)}
  }
 }
