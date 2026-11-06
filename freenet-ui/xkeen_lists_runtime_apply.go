@@ -426,35 +426,46 @@ func (a *app) handleXKeenIPSetApply(w http.ResponseWriter,r *http.Request){
  if plan.State=="SYNCED"{
   writeJSON(w,http.StatusOK,xkeenIPSetApplyResponse{Success:true,State:"SYNCED",Mutation:"NONE",Rollback:"NOT_NEEDED",DiskSHA256:plan.DiskSHA256,ClientEgress:"NOT_VERIFIED"});return
  }
- unlock,e:=xkeenIPSetHookLock()
- if e!=nil{fail(http.StatusConflict,"STOP","NONE","NOT_NEEDED","xkeen-service-or-netfilter-busy");return}
- released:=false
- defer func(){if !released && !unlock(){setAutomationMutationBlocked(true)}}()
- // After acquiring native XKeen service + NF locks, the candidate must
- // still match the previously validated ready runtime.
- if !xkeenIPSetAdmission(a){
-  fail(http.StatusConflict,"STOP","NONE","NOT_NEEDED","xkeen-admission-changed");return
- }
- if !xkeenIPSetUnchanged(ctx,sets){fail(http.StatusConflict,"STOP","NONE","NOT_NEEDED","kernel-changed-before-apply");return}
+ // Snapshot, durable receipt and inactive candidate preparation happen
+ // BEFORE native XKeen locks. USB fsync / staging must not starve the
+ // netfilter.d hook, whose upstream lock waiting budget is bounded.
  snapshot,e:=xkeenIPSetSnapshot(sets)
  if e!=nil{fail(http.StatusServiceUnavailable,"STOP","NONE","NOT_NEEDED","snapshot-unavailable");return}
  disk:=xkeenIPSetDiskState{State:"RUNNING",Rollback:"PENDING",Snapshot:snapshot,DiskSHA256:plan.DiskSHA256,RuntimeSHA256:plan.RuntimeSHA256}
  if xkeenIPSetWriteState(disk)!=nil{fail(http.StatusServiceUnavailable,"STOP","NONE","NOT_NEEDED","journal-not-durable");return}
+ abortBeforeSwap:=func(status int,reason string){
+  cleanupCtx,cleanupCancel:=context.WithTimeout(context.Background(),8*time.Second)
+  defer cleanupCancel()
+  if !xkeenIPSetCleanup(cleanupCtx,sets){halt("candidate-cleanup-unverified");return}
+  disk.State="FAILED";disk.Rollback="NOT_NEEDED"
+  if xkeenIPSetWriteState(disk)!=nil{halt("preapply-journal-unknown");return}
+  fail(status,"FAILED","NONE","NOT_NEEDED",reason)
+ }
  prepared:=[]xkeenIPSet{}
  for i:=range sets{
   if !sets[i].changed{continue}
   if e=xkeenIPSetPrepare(ctx,&sets[i]);e!=nil{
-   _=xkeenIPSetCleanup(ctx,sets)
-   disk.State="FAILED";disk.Rollback="NOT_NEEDED"
-   if xkeenIPSetWriteState(disk)!=nil{halt("candidate-failed-journal-unknown");return}
-   fail(http.StatusUnprocessableEntity,"FAILED","NONE","NOT_NEEDED","candidate-validation-failed");return
+   abortBeforeSwap(http.StatusUnprocessableEntity,"candidate-validation-failed");return
   }
   prepared=append(prepared,sets[i])
  }
+ unlock,e:=xkeenIPSetHookLock()
+ if e!=nil{abortBeforeSwap(http.StatusConflict,"xkeen-service-or-netfilter-busy");return}
+ released:=false
+ defer func(){if !released && !unlock(){setAutomationMutationBlocked(true)}}()
+ // The Xray service and network hook may have changed live sets during
+ // offline candidate staging. Reject exact drift after both upstream locks.
+ if !xkeenIPSetAdmission(a){
+  abortBeforeSwap(http.StatusConflict,"xkeen-admission-changed");return
+ }
  if !xkeenIPSetUnchanged(ctx,sets){
-  _=xkeenIPSetCleanup(ctx,prepared);disk.State="FAILED";disk.Rollback="NOT_NEEDED"
-  if xkeenIPSetWriteState(disk)!=nil{halt("preapply-journal-unknown");return}
-  fail(http.StatusConflict,"FAILED","NONE","NOT_NEEDED","runtime-changed-before-swap");return
+  abortBeforeSwap(http.StatusConflict,"runtime-changed-before-swap");return
+ }
+ for _,candidate:=range prepared{
+  current,_,readErr:=xkeenIPSetReadTemp(ctx,candidate.tmp,candidate.family)
+  if readErr!=nil||!xkeenIPSetSame(current,candidate.desired){
+   abortBeforeSwap(http.StatusConflict,"candidate-changed-before-swap");return
+  }
  }
  swapped:=[]xkeenIPSet{}
  mutationErr:=false
