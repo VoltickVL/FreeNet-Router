@@ -26,11 +26,16 @@ func nativeApplyFixture(t *testing.T,xrayShell,xkeenShell string)(string,string)
     writeFixture(t,proc,"123/comm","xray\n")
     fakeNativeBinary(t,root,"xray",xrayShell)
     fakeNativeBinary(t,root,"xkeen",xkeenShell)
+    // Official XKeen init is the read-only status source; unlike the
+    // CLI -status, it does not run XKeen's Entware package self-heal.
+    writeFixture(t,root,"etc/init.d/S05xkeen",
+        "#!/bin/sh\nif [ \"$1\" != \"status\" ]; then exit 77; fi\nexit 0\n")
+    if err:=os.Chmod(filepath.Join(root,"etc/init.d/S05xkeen"),0700);err!=nil{t.Fatal(err)}
     return root,proc
 }
 
 const mockXraySuccess = "if [ \"$1\" != \"run\" ] || [ \"$2\" != \"-test\" ] || [ \"$3\" != \"-confdir\" ] || [ ! -f \"$4/04_zz_freenet09_subscription_tail.json\" ]; then\nexit 21\nfi\nexit 0\n"
-const mockXKeenSuccess = "if [ \"$1\" != \"-restart\" ] && [ \"$1\" != \"-status\" ]; then exit 19; fi\nif [ \"$XKEEN_FOREGROUND\" != \"1\" ]; then exit 27; fi\nexit 0\n"
+const mockXKeenSuccess = "if [ \"$1\" != \"-restart\" ]; then exit 19; fi\nif [ \"$XKEEN_FOREGROUND\" != \"1\" ]; then exit 27; fi\nexit 0\n"
 const nativeURLCanary = "https://subscription.example.org/s?token=SECRET-URL-CANARY"
 
 func fakeSubscriptionFetch(_ context.Context,url string)([]byte,error){
@@ -205,5 +210,18 @@ func TestLegacyNonTailSubscriptionFragmentStopsBeforeMutation(t *testing.T) {
     }
     if _,err:=os.Stat(filepath.Join(root,"etc/xray/configs",subscriptionFragmentName));!errors.Is(err,os.ErrNotExist) {
         t.Fatal("managed tail fragment must not be written over conflicting old config")
+    }
+}
+
+func TestNativeXKeenStatusDoesNotInvokePackageSelfHeal(t *testing.T) {
+    root,proc:=nativeApplyFixture(t,mockXraySuccess,
+        "if [ \"$1\" = \"-status\" ]; then touch \"$0.UNSAFE_PACKAGE_UPDATE\"; exit 18; fi\n"+
+        "if [ \"$1\" != \"-restart\" ] || [ \"$XKEEN_FOREGROUND\" != \"1\" ]; then exit 19; fi\nexit 0\n")
+    result:=subscriptionOperationWithFetch(context.Background(),root,proc,nativeURLCanary,false,fakeSubscriptionFetch)
+    if result.State!="CONFIG_APPLIED_NOT_EGRESS_VERIFIED" {
+        t.Fatalf("official init-based status should accept native service: %+v",result)
+    }
+    if _,err:=os.Stat(filepath.Join(root,"sbin/xkeen.UNSAFE_PACKAGE_UPDATE"));!errors.Is(err,os.ErrNotExist) {
+        t.Fatal("status unexpectedly invoked XKeen CLI package self-heal path")
     }
 }
