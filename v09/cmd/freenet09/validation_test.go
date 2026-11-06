@@ -139,3 +139,21 @@ exit 0
         t.Fatalf("first native check not completed: %+v",got)
     }
 }
+
+func TestNativeXrayValidationBrowserActionIsWired(t *testing.T){
+    server:=handlersWithProc(t.TempDir(),t.TempDir())
+    page:=httptest.NewRecorder()
+    server.ServeHTTP(page,httptest.NewRequest(http.MethodGet,"/",nil))
+    if page.Code!=http.StatusOK || strings.Count(page.Body.String(),`data-action="validate-xray"`)<2 ||
+        !strings.Contains(page.Body.String(),`data-field="xrayValidation"`){
+        t.Fatal("real native validator not connected to Xray and Diagnostics pages")
+    }
+    js:=httptest.NewRecorder()
+    server.ServeHTTP(js,httptest.NewRequest(http.MethodGet,"/static/app.js",nil))
+    if js.Code!=http.StatusOK ||
+        !strings.Contains(js.Body.String(),"/api/native/xray/validate") ||
+        !strings.Contains(js.Body.String(),"validateNativeXrayFromBrowser") ||
+        !strings.Contains(js.Body.String(),"NOT_VERIFIED") {
+        t.Fatal("native validation browser callback or honest status missing")
+    }
+}
