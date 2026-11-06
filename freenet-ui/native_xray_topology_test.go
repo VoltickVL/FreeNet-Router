@@ -21,7 +21,7 @@ func nativeTopologyFixture(t *testing.T)(*app,string){
  {"tag":"sub-FI","protocol":"vmess"}, /* inline upstream JSONC block */
  {"tag":"sub-dns","protocol":"dns"},
  {"tag":"sub-12345678-1234-1234-1234-1234567890ab","protocol":"vless"},
- {"tag":"vless://user:password`example.org?token=supersecret","protocol":"trojan"},
+ {"tag":"vless://user:password@example.org?token=supersecret","protocol":"trojan"},
  {"tag":"another-sub","protocol":"vless"}]}`
  routing:=`{"routing":{"rules":[],"balancers":[
  {"tag":"balancer","selector":["sub-"],"strategy":{"type":"leastPing"}},
@@ -59,7 +59,7 @@ func TestNativeXrayTopologyMatchesOfficialXKeenSelectorsAndRedactsSecrets(t *tes
  }
  raw,err:=json.Marshal(got)
  if err!=nil{t.Fatal(err)}
- for _,secret:=range []string{"CREDENTIAL-NEVER-SEND","SECRET-HOST","12345678-1234","vless://","password`example","supersecret","address","users"}{
+ for _,secret:=range []string{"CREDENTIAL-NEVER-SEND","SECRET-HOST","12345678-1234","vless://","password@example","supersecret","address","users"}{
   if bytes.Contains(raw,[]byte(secret)){t.Fatalf("secret field leaked: %q",secret)}
  }
  if len(got.OutboundsSHA256)!=64||len(got.RoutingSHA256)!=64{
