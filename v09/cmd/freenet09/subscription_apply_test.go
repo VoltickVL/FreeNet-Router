@@ -225,3 +225,23 @@ func TestNativeXKeenStatusDoesNotInvokePackageSelfHeal(t *testing.T) {
         t.Fatal("status unexpectedly invoked XKeen CLI package self-heal path")
     }
 }
+
+func TestNativeApplyChecksFragmentAfterXKeenRestart(t *testing.T) {
+    // Simulate a native service hook rewriting our file after the initial
+    // Xray -test. FreeNet must not report success based on exit code alone.
+    script:="if [ \"$1\" != \"-restart\" ]; then exit 31; fi\n"+
+        "dir=\"$(dirname \"$0\")/../etc/xray/configs\"\n"+
+        "printf '%s\\n' '{\"outbounds\":[]}' > \"$dir/04_zz_freenet09_subscription_tail.json\"\n"+
+        "exit 0\n"
+    root,proc:=nativeApplyFixture(t,mockXraySuccess,script)
+    result:=subscriptionOperationWithFetch(context.Background(),root,proc,nativeURLCanary,false,fakeSubscriptionFetch)
+    if result.State=="CONFIG_APPLIED_NOT_EGRESS_VERIFIED" || result.Applied {
+        t.Fatalf("rewritten native fragment incorrectly accepted: %+v",result)
+    }
+    if result.State!="ROLLBACK_FAILED" {
+        t.Fatalf("unconfirmed rollback must STOP as UNKNOWN: %+v",result)
+    }
+    if _,err:=os.Stat(filepath.Join(root,"etc/freenet09",subscriptionStateName));!errors.Is(err,os.ErrNotExist){
+        t.Fatal("unsafe native state was persisted despite fragment tampering")
+    }
+}
