@@ -16,6 +16,7 @@ import (
     "net/url"
     "os"
     "path/filepath"
+    "strconv"
     "strings"
     "sync"
     "time"
@@ -191,6 +192,8 @@ func (a *adminAuth) logout(w http.ResponseWriter){
 func secureListenAddress(addr string) bool {
     host,port,err:=net.SplitHostPort(addr)
     if err!=nil || port=="" {return false}
+    numeric,err:=strconv.Atoi(port)
+    if err!=nil || numeric<1 || numeric>65535 {return false}
     ip:=net.ParseIP(host)
     return ip!=nil && !ip.IsUnspecified() && !ip.IsMulticast()
 }
