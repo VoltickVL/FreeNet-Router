@@ -17,6 +17,12 @@ import (
 
 const freeNetAutoPlanLifetime=120*time.Second
 
+// Management decision beta.87: XKeen 2.1 / Xray 26.10.31 own outbound
+// balancing. No new independent FreeNet Xray pool may be provisioned.
+// Existing active pools remain available to guarded status/switch/disable;
+// do not delete or rewrite their Xray configuration during migration.
+const freeNetAutoLegacyProvisionEnabled=false
+
 type freeNetAutoPlanRequest struct {
     SelectionToken string `json:"selection_token"`
     ProfileIDs []string `json:"profile_ids"`
