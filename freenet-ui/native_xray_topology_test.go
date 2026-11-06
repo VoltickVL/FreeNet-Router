@@ -130,3 +130,24 @@ func TestNativeXrayTopologyNoBalancerIsNotRuntimeSuccess(t *testing.T){
   t.Fatalf("no-balancer config not distinguished from live: %+v",got)
  }
 }
+
+func TestNativeXrayDisplayNameRedactsHostAndAddressTags(t *testing.T) {
+ unsafeTags:=[]string{
+  "203.0.113.42",
+  "DE 198.51.100.7:443",
+  "edge.example.net",
+  "US server.example.org:443",
+  "[2001:db8::1]:443",
+  "2001:db8:abcd:1:2:3:4:5",
+ }
+ for _,tag:=range unsafeTags{
+  if got:=nativeXrayDisplayName(tag,"Сервер скрыт");got!="Сервер скрыт"{
+   t.Errorf("endpoint-bearing Xray tag exposed: %q",got)
+  }
+ }
+ for _,tag:=range []string{"sub-DE Frankfurt","🇩🇪 Germany 1","another-sub"}{
+  if got:=nativeXrayDisplayName(tag,"Сервер скрыт");got!=tag{
+   t.Errorf("safe friendly Xray name unexpectedly redacted: %q",tag)
+  }
+ }
+}
