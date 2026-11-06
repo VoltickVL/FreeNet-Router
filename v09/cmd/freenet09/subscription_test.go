@@ -109,13 +109,14 @@ func TestSubscriptionPublicURLAndSSRFGuard(t *testing.T) {
         "https://user:pass@provider.example/secret",
         "https://provider.local/secret",
         "https://provider.internal/secret",
+        "https://localhost/secret",
         "https://provider.example:2222/sub",
         "https://provider.example/sub#token",
         "file:///opt/etc/xray/configs/04_outbounds.json",
         "https://provider.example/sub\nX-Injected: true",
     }
-    for _,value:=range bad {
-        if _,err:=validateSubscriptionURL(value);err==nil{t.Fatalf("SSRF/unsafe URL accepted")}
+    for index,value:=range bad {
+        if _,err:=validateSubscriptionURL(value);err==nil{t.Fatalf("SSRF/unsafe URL accepted at test case %d",index)}
     }
     for _,test:=range []struct{ip string;safe bool}{
         {"1.1.1.1",true},{"8.8.8.8",true},
