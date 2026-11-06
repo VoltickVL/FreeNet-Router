@@ -12,6 +12,7 @@ let standardGeoHadExplicitFile = false;
 const geoSuggestModes = [];
 let proxyListText = '80\n443\n596:599\n';
 let proxyListSHA = '3'.repeat(64);
+let ipRuntimeSynced = false;
 let holdStudioNext=false, releaseStudioResponse=null;
 let live = {
   '01_log': {log:{loglevel:'warning'}},
@@ -146,6 +147,22 @@ const server = http.createServer(async (req, res) => {
     assert.ok(['01_log','02_dns','03_inbounds','04_outbounds'].includes(name), 'unexpected single-file apply target');
     live[name] = c.content;
     return json(res,{success:true,mutation:'APPLIED',xray_valid:true,applied:true,rollback:'NOT_NEEDED',core_restart:true,snapshot:'/safe/snapshot',sha256:'8'.repeat(64),result:'config written, post-validated and activated by firewall-preserving Xray core restart'});
+  }
+  if (url.pathname === '/api/config-studio/list/ipset-plan' && req.method === 'GET') {
+    return json(res,{success:true,ready:true,mutation:'NONE',state:ipRuntimeSynced?'SYNCED':'READY',
+      reason:ipRuntimeSynced?'kernel-matches-saved-list':'ready-for-explicit-apply',
+      disk_sha256:'1'.repeat(64),runtime_sha256:ipRuntimeSynced?'8'.repeat(64):'7'.repeat(64),
+      before:1,after:1,add:ipRuntimeSynced?0:1,remove:ipRuntimeSynced?0:1,
+      ipv6:'active',client_egress:'NOT_VERIFIED'});
+  }
+  if (url.pathname === '/api/config-studio/list/ipset-apply' && req.method === 'POST') {
+    const c = await bodyJSON(req);
+    assert.equal(c.expected_disk_sha256,'1'.repeat(64),'IP apply must use exact saved-list CAS');
+    assert.equal(c.expected_runtime_sha256,'7'.repeat(64),'IP apply must use live kernel revision CAS');
+    assert.equal(c.confirm,'apply-ip-exclude-kernel','kernel mutation requires explicit confirmation');
+    ipRuntimeSynced=true;
+    return json(res,{success:true,state:'SUCCESS',mutation:'KERNEL_APPLIED',rollback:'NOT_NEEDED',
+      disk_sha256:c.expected_disk_sha256,client_egress:'NOT_VERIFIED'});
   }
   if (url.pathname === '/api/config-studio/list/save' && req.method === 'POST') {
     const c = await bodyJSON(req);
@@ -425,6 +442,29 @@ const server = http.createServer(async (req, res) => {
       null, {timeout:10000});
     assert.doesNotMatch(await page.locator('#csInput').inputValue(),new RegExp('late-draft[.]test'));
     assert.equal(await page.locator('#csApply').isDisabled(),true,'reset to live must be clean');
+
+    // XKeen IP exclusions: read-only kernel plan, explicitly confirmed activation,
+    // no POST before click, no Xray restart and responsive mobile control.
+    await page.locator('.cs-tab[data-tab="ip_exclude"]').click();
+    await page.waitForFunction(() => !document.querySelector('#csIPSetApply')?.disabled);
+    assert.match(await page.locator('#csIPSetInfo').innerText(),/Ожидает применения/);
+    assert.equal(calls.filter(x => x === 'POST /api/config-studio/list/ipset-apply').length,0);
+    await page.setViewportSize({width:390,height:844});
+    await page.waitForTimeout(60);
+    const ipControlWidth = await page.locator('#csIPSetApply').evaluate(node => {
+      const control=node.getBoundingClientRect();
+      return {width:control.width,left:control.left,right:control.right};
+    });
+    assert.ok(ipControlWidth.width>0 && ipControlWidth.left>=0 &&
+      ipControlWidth.right<=390,'mobile IP activation control must fit the viewport');
+    await page.setViewportSize({width:1600,height:1000});
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#csIPSetApply').click();
+    await page.waitForFunction(() => (document.querySelector('#csNotice')?.textContent || '').includes('IP-исключения применены'),
+      null,{timeout:10000});
+    assert.equal(calls.filter(x => x === 'POST /api/config-studio/list/ipset-apply').length,1);
+    await page.waitForFunction(() => (document.querySelector('#csIPSetInfo')?.textContent || '').includes('совпадают'));
+    assert.equal(await page.locator('#csIPSetApply').isDisabled(),true,'synced ipset must not be applied again');
 
     // XKeen lists are native editable tabs, with optimistic revision CAS.
     // Save changes only disk: never restart core or claim kernel activation.
