@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="FreeNet">
+<defs><radialGradient id="bg" cx=".7" cy=".1" r="1.1"><stop stop-color="#334575"/><stop offset=".7" stop-color="#111b33"/><stop offset="1" stop-color="#090f20"/></radialGradient>
+<linearGradient id="stroke" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#bb90ff"/><stop offset=".48" stop-color="#8769f0"/><stop offset="1" stop-color="#45c7ff"/></linearGradient>
+<filter id="glow"><feGaussianBlur stdDeviation="15"/></filter></defs>
+<rect width="512" height="512" rx="112" fill="url(#bg)"/>
+<g opacity=".17" fill="none" stroke="#8694ff" stroke-width="53" filter="url(#glow)"><path d="M249 256C183 168 101 159 83 230C62 309 142 365 218 292L291 218C359 146 449 185 433 267C418 351 344 357 270 277"/></g>
+<path d="M249 256C183 168 101 159 83 230C62 309 142 365 218 292L291 218C359 146 449 185 433 267C418 351 344 357 270 277" stroke="url(#stroke)" stroke-width="56" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>
