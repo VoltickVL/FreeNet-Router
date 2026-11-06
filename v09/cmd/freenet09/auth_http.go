@@ -107,6 +107,11 @@ func secureControlCenter(root,procRoot string,auth *adminAuth) http.Handler {
             _=json.NewEncoder(w).Encode(nativeSubscriptionStatus(root))
             return
         }
+        if r.URL.Path=="/api/subscription/targets" && r.Method==http.MethodGet {
+            w.Header().Set("Content-Type","application/json; charset=utf-8")
+            _=json.NewEncoder(w).Encode(nativeRouteOptionsReport(root))
+            return
+        }
         // Read-only native APIs and subscription preview remain protected.
         base.ServeHTTP(w,r)
     })

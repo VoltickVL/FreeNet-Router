@@ -30,11 +30,15 @@ const maxNativeConfigAggregate = 16 << 20
 type nativeSubscriptionState struct {
     URL string `json:"url"`
     SHA256 string `json:"sha256"`
+    Balancer string `json:"balancer"`
+    Selector string `json:"selector"`
 }
 type nativeApplyResult struct {
     State string `json:"state"`
     Runtime string `json:"runtime"`
     Count int `json:"count,omitempty"`
+    Balancer string `json:"balancer,omitempty"`
+    Selector string `json:"selector,omitempty"`
     Applied bool `json:"applied"`
 }
 
@@ -127,7 +131,8 @@ func readNativeSubscriptionState(root string, files map[string][]byte)(nativeSub
     }
     raw,err:=os.ReadFile(filepath.Join(root,rel))
     if err!=nil || json.Unmarshal(raw,&state)!=nil ||
-        state.URL=="" || state.SHA256!=hashConfig(files[subscriptionFragmentName]) {
+        state.URL=="" || state.Balancer=="" || state.Selector=="" ||
+        state.SHA256!=hashConfig(files[subscriptionFragmentName]) {
         return nativeSubscriptionState{},errors.New("managed subscription content differs from receipt")
     }
     if _,err:=validateSubscriptionURL(state.URL);err!=nil {
@@ -224,12 +229,24 @@ func nativeSubscriptionStatus(root string)nativeApplyResult{
     stopped:=applyStopped()
     files,err:=readNativeConfdir(root)
     if err!=nil{return stopped}
-    if _,err=readNativeSubscriptionState(root,files);err!=nil {return stopped}
+    state,err:=readNativeSubscriptionState(root,files)
+    if err!=nil{return stopped}
     if _,ok:=files[subscriptionFragmentName];!ok{return nativeApplyResult{
         State:"NOT_CONFIGURED",Runtime:"NOT_VERIFIED",Applied:false,
     }}
-    var doc struct{Outbounds []json.RawMessage `json:"outbounds"`}
-    if json.Unmarshal(files[subscriptionFragmentName],&doc)!=nil{return stopped}
+    target,err:=chooseNativeRouteTarget(files,nativeRouteTarget{
+        Balancer:state.Balancer,Selector:state.Selector,
+    })
+    if err!=nil{return stopped}
+    var doc struct{Outbounds []struct{Tag string `json:"tag"`} `json:"outbounds"`}
+    if json.Unmarshal(files[subscriptionFragmentName],&doc)!=nil ||
+        len(doc.Outbounds)==0 || len(doc.Outbounds)>maxSubscriptionNodes{return stopped}
+    for _,out:=range doc.Outbounds {
+        if !strings.HasPrefix(out.Tag,target.Selector+"freenet-"){
+            return stopped
+        }
+    }
     return nativeApplyResult{State:"CONFIG_APPLIED_NOT_EGRESS_VERIFIED",
-        Runtime:"NOT_VERIFIED",Count:len(doc.Outbounds),Applied:true}
+        Runtime:"NOT_VERIFIED",Count:len(doc.Outbounds),Balancer:target.Balancer,
+        Selector:target.Selector,Applied:true}
 }

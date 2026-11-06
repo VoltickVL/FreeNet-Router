@@ -10,6 +10,8 @@ import (
 type subscriptionApplyInput struct {
     URL string `json:"url"`
     Refresh bool `json:"refresh"`
+    Balancer string `json:"balancer"`
+    Selector string `json:"selector"`
 }
 
 // This handler is deliberately NOT wired to the anonymous preview server.
@@ -53,7 +55,8 @@ func subscriptionApplyHTTP(w http.ResponseWriter,r *http.Request,root,procRoot s
             return
         }
     }
-    result:=subscriptionOperation(r.Context(),root,procRoot,request.URL,request.Refresh)
+    result:=subscriptionOperationForBalancer(r.Context(),root,procRoot,
+        request.URL,request.Refresh,request.Balancer,request.Selector)
     if result.State!="CONFIG_APPLIED_NOT_EGRESS_VERIFIED" {
         send(http.StatusConflict,result)
         return

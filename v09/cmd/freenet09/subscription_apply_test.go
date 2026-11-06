@@ -22,7 +22,7 @@ func nativeApplyFixture(t *testing.T,xrayShell,xkeenShell string)(string,string)
     writeFixture(t,root,"etc/xray/configs/04_outbounds.json",
         "{\"outbounds\":[{\"tag\":\"original-proxy\",\"protocol\":\"vless\",\"settings\":{\"secret\":\"ORIGINAL-DO-NOT-CHANGE\"}}]}")
     writeFixture(t,root,"etc/xray/configs/05_routing.json",
-        "{\"routing\":{\"rules\":[{\"outboundTag\":\"original-proxy\"}]}}")
+        "{\"routing\":{\"rules\":[{\"domain\":[\"domain:direct.example\"],\"outboundTag\":\"original-proxy\"},{\"balancerTag\":\"native-balancer\"}],\"balancers\":[{\"tag\":\"native-balancer\",\"selector\":[\"sub-\"],\"strategy\":{\"type\":\"leastPing\"}}]}}")
     writeFixture(t,proc,"123/comm","xray\n")
     fakeNativeBinary(t,root,"xray",xrayShell)
     fakeNativeBinary(t,root,"xkeen",xkeenShell)
@@ -59,7 +59,7 @@ func TestNativeSubscriptionApplyPreservesOriginalXKeenAndXray(t *testing.T){
     if err!=nil || !bytes.Equal(original,current){t.Fatal("original Xray config was modified")}
     managed,err:=os.ReadFile(filepath.Join(root,"etc/xray/configs",subscriptionFragmentName))
     if err!=nil || !bytes.Contains(managed,[]byte("PUBLIC-KEY-TEST")) ||
-        !bytes.Contains(managed,[]byte("freenet-sub-")){
+        !bytes.Contains(managed,[]byte("sub-freenet-")){
         t.Fatal("native outbound fragment not applied")
     }
     var doc map[string][]json.RawMessage
@@ -79,6 +79,9 @@ func TestNativeSubscriptionApplyPreservesOriginalXKeenAndXray(t *testing.T){
     }
     refresh:=subscriptionOperationWithFetch(context.Background(),root,proc,"",true,fakeSubscriptionFetch)
     if !refresh.Applied || refresh.Count!=2 {t.Fatalf("native refresh failed: %+v",refresh)}
+    if refresh.Balancer!="native-balancer" || refresh.Selector!="sub-" {
+        t.Fatalf("refresh lost binding to original Xray selector: %+v",refresh)
+    }
 }
 
 func TestNativeApplyStopsIfLegacyFreeNetOrUnownedFragmentPresent(t *testing.T){

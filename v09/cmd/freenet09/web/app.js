@@ -15,7 +15,7 @@
     if (result?.authenticated && location.protocol === "https:") {
       const actions = document.getElementById("subscription-apply-actions");
       if (actions) actions.hidden = false;
-      loadAppliedSubscriptionStatus();
+      loadNativeRouteTargets().then(loadAppliedSubscriptionStatus);
     }
   }).catch(() => {});
   logoutButton?.addEventListener("click", async () => {
@@ -203,8 +203,57 @@
   const subscriptionApplyButton = document.getElementById("subscription-apply");
   const subscriptionRefreshButton = document.getElementById("subscription-refresh");
   const subscriptionAppliedStatus = document.getElementById("subscription-applied-status");
+  const subscriptionTarget = document.getElementById("subscription-target");
+  let routeTargets = [];
   let pendingPreviewURL = "";
   let lockedAfterRollbackFailure = false;
+
+  async function loadNativeRouteTargets() {
+    if (!subscriptionTarget) return;
+    subscriptionTarget.disabled = true;
+    subscriptionTarget.replaceChildren(new Option("Проверка штатной маршрутизации...", ""));
+    routeTargets = [];
+    try {
+      const response = await fetch("/api/subscription/targets", {
+        method:"GET",cache:"no-store",credentials:"same-origin"
+      });
+      const report = await response.json();
+      if (!response.ok || report?.state !== "CONFIG_ONLY" || !Array.isArray(report.targets)) {
+        throw new Error("native-routing-unavailable");
+      }
+      const safe = report.targets.filter(t =>
+        typeof t.balancer === "string" && typeof t.selector === "string" &&
+        t.balancer.length > 0 && t.selector.length > 0);
+      if (!safe.length) throw new Error("empty-native-balancers");
+      routeTargets = safe;
+      const options = document.createDocumentFragment();
+      const prompt = new Option(safe.length === 1
+        ? "Выбран единственный штатный balancer"
+        : "Выберите штатный balancer", "");
+      options.append(prompt);
+      for (const [i, item] of safe.entries()) {
+        options.append(new Option(item.balancer + " · selector " + item.selector, String(i)));
+      }
+      subscriptionTarget.replaceChildren(options);
+      subscriptionTarget.disabled = false;
+      if (safe.length === 1) subscriptionTarget.value = "0";
+      if (pendingPreviewURL && !lockedAfterRollbackFailure &&
+          subscriptionTarget.value !== "" && subscriptionApplyButton) {
+        subscriptionApplyButton.disabled = false;
+      }
+    } catch (_) {
+      subscriptionTarget.replaceChildren(new Option(
+        "STOP: нет подходящего штатного Xray balancer / routing", ""));
+      subscriptionTarget.disabled = true;
+      if (subscriptionApplyButton) subscriptionApplyButton.disabled = true;
+    }
+  }
+  subscriptionTarget?.addEventListener("change", () => {
+    if (subscriptionApplyButton) {
+      subscriptionApplyButton.disabled = !pendingPreviewURL ||
+        subscriptionTarget.value === "" || lockedAfterRollbackFailure;
+    }
+  });
 
   function nativeApplyMessage(result) {
     const state = result?.state || "STOP";
@@ -224,7 +273,11 @@
       const result = await response.json();
       if (subscriptionAppliedStatus) {
         subscriptionAppliedStatus.textContent = result.state === "CONFIG_APPLIED_NOT_EGRESS_VERIFIED"
-          ? "КОНФИГ ПРИМЕНЁН · EGRESS НЕ ПРОВЕРЕН" : String(result.state || "STOP");
+          ? "BALANCER " + String(result.balancer || "?") + " · EGRESS НЕ ПРОВЕРЕН"
+          : String(result.state || "STOP");
+        const savedIndex = routeTargets.findIndex(t =>
+          t.balancer === result.balancer && t.selector === result.selector);
+        if (savedIndex >= 0 && subscriptionTarget) subscriptionTarget.value = String(savedIndex);
       }
     } catch (_) {
       if (subscriptionAppliedStatus) subscriptionAppliedStatus.textContent = "UNKNOWN";
@@ -234,6 +287,11 @@
   async function submitNativeSubscription(refreshMode) {
     if (lockedAfterRollbackFailure) return;
     if (!refreshMode && !pendingPreviewURL) return;
+    const chosen = routeTargets[Number(subscriptionTarget?.value)];
+    if (!refreshMode && (subscriptionTarget?.value === "" || !chosen)) {
+      status("STOP: сначала выберите существующий штатный Xray balancer.");
+      return;
+    }
     if (!window.confirm(refreshMode
       ? "Обновить сохранённую подписку и перезапустить штатный XKeen/Xray?"
       : "Применить просмотренную подписку через штатный Xray и XKeen?")) return;
@@ -248,7 +306,9 @@
           "Content-Type":"application/json",
           "X-FreeNet-Action":"apply-subscription"
         },
-        body: JSON.stringify(refreshMode ? {refresh:true} : {url:pendingPreviewURL})
+        body: JSON.stringify(refreshMode ? {refresh:true} : {
+          url:pendingPreviewURL,balancer:chosen.balancer,selector:chosen.selector
+        })
       });
       const result = await response.json();
       const message = nativeApplyMessage(result);
@@ -327,6 +387,7 @@
       showSubscriptionStatus("ПРОЧИТАНО");
       pendingPreviewURL = url;
       if (subscriptionApplyButton && !lockedAfterRollbackFailure &&
+          subscriptionTarget?.value !== "" &&
           !document.getElementById("subscription-apply-actions")?.hidden) {
         subscriptionApplyButton.disabled = false;
       }
