@@ -248,6 +248,7 @@ func main() {
 	mux.HandleFunc("POST /api/vpn/vision-quic/try", a.requireAuth(a.handleVisionQUICTry))
 	registerFreeNetAutoPoolAPI(mux,a)
 	registerXKeenNativeSBAPI(mux,a)
+	registerNativeXrayTopologyAPI(mux,a)
 	mux.HandleFunc("GET /api/operation/state", a.requireAuth(a.handleOperationState))
 	mux.HandleFunc("GET /api/network-profile", a.requireAuth(a.handleNetworkProfileGet))
 	mux.HandleFunc("POST /api/network-profile", a.requireAuth(a.handleNetworkProfilePost))
