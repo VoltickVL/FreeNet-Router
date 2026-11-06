@@ -3,6 +3,7 @@
 package main
 
 import (
+    "crypto/tls"
     "embed"
     "encoding/json"
     "io/fs"
@@ -217,6 +218,10 @@ func main() {
     root := flag.String("root", "/opt", "Entware root for read-only inventory")
     versionFlag := flag.Bool("version", false, "print exact candidate version")
     selftestFlag := flag.Bool("selftest", false, "safe offline candidate check")
+    initAdminFlag := flag.Bool("init-admin",false,"initialize one-time administrator pairing credential")
+    httpsListen := flag.String("https-listen","","explicit HTTPS router IP:port, requires cert/key/admin hash")
+    tlsCert := flag.String("tls-cert","","trusted HTTPS certificate chain file")
+    tlsKey := flag.String("tls-key","","HTTPS private key file")
     flag.Parse()
 
     if *versionFlag {
@@ -230,6 +235,43 @@ func main() {
         }
         fmt.Println("SELFTEST=SUCCESS")
         return
+    }
+    if *initAdminFlag {
+        if *httpsListen!="" {fmt.Fprintln(os.Stderr,"STOP: setup credential without starting server");os.Exit(2)}
+        token,err:=initializeAdminCredential(*root)
+        if err!=nil{fmt.Fprintln(os.Stderr,"STOP: administrator credential cannot be initialized");os.Exit(2)}
+        // This is a one-time code intended for the operator's LOCAL bootstrap
+        // terminal; it must never be copied to GitHub/logs/diagnostics.
+        fmt.Println("FREENET09_ADMIN_CODE="+token)
+        return
+    }
+    if *httpsListen!="" {
+        if !secureListenAddress(*httpsListen) || *tlsCert=="" || *tlsKey=="" {
+            fmt.Fprintln(os.Stderr,"STOP: explicit HTTPS address and certificate required")
+            os.Exit(2)
+        }
+        if _,err:=tls.LoadX509KeyPair(*tlsCert,*tlsKey);err!=nil {
+            fmt.Fprintln(os.Stderr,"STOP: HTTPS certificate invalid")
+            os.Exit(2)
+        }
+        auth,err:=loadAdminAuth(*root)
+        if err!=nil{fmt.Fprintln(os.Stderr,"STOP: administrator enrollment missing or unsafe");os.Exit(2)}
+        srv:=&http.Server{
+            Addr:*httpsListen,Handler:secureControlCenter(*root,"/proc",auth),
+            ReadHeaderTimeout:5*time.Second,ReadTimeout:10*time.Second,
+            WriteTimeout:25*time.Second,IdleTimeout:30*time.Second,
+            MaxHeaderBytes:8192,TLSConfig:&tls.Config{MinVersion:tls.VersionTLS12},
+        }
+        fmt.Printf("FreeNet %s | authenticated HTTPS Control Center | listener ready\n",buildVersion)
+        if err:=srv.ListenAndServeTLS(*tlsCert,*tlsKey);!errors.Is(err,http.ErrServerClosed) {
+            fmt.Fprintln(os.Stderr,"STOP: HTTPS listener failed")
+            os.Exit(1)
+        }
+        return
+    }
+    if *tlsCert!="" || *tlsKey!="" {
+        fmt.Fprintln(os.Stderr,"STOP: certificate flags require -https-listen")
+        os.Exit(2)
     }
     if !loopbackListen(*listen) {
         fmt.Fprintln(os.Stderr, "STOP: unauthenticated preview must bind to loopback only")
