@@ -38,6 +38,7 @@ type nativeApplyResult struct {
     Runtime string `json:"runtime"`
     Count int `json:"count,omitempty"`
     Balancer string `json:"balancer,omitempty"`
+    Selector string `json:"selector,omitempty"`
     Applied bool `json:"applied"`
 }
 
@@ -246,5 +247,6 @@ func nativeSubscriptionStatus(root string)nativeApplyResult{
         }
     }
     return nativeApplyResult{State:"CONFIG_APPLIED_NOT_EGRESS_VERIFIED",
-        Runtime:"NOT_VERIFIED",Count:len(doc.Outbounds),Balancer:target.Balancer,Applied:true}
+        Runtime:"NOT_VERIFIED",Count:len(doc.Outbounds),Balancer:target.Balancer,
+        Selector:target.Selector,Applied:true}
 }
