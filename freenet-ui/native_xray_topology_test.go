@@ -14,10 +14,11 @@ import (
 func nativeTopologyFixture(t *testing.T)(*app,string){
  t.Helper()
  dir:=t.TempDir()
- out:=`{"outbounds":[
+ out:=`{// XKeen JSONC comments are valid in native configuration.
+ "outbounds":[
  {"tag":"direct","protocol":"freedom"},
  {"tag":"sub-DE Frankfurt","protocol":"vless","settings":{"vnext":[{"address":"SECRET-HOST","users":[{"id":"CREDENTIAL-NEVER-SEND"}]}]}},
- {"tag":"sub-FI","protocol":"vmess"},
+ {"tag":"sub-FI","protocol":"vmess"}, /* inline upstream JSONC block */
  {"tag":"sub-dns","protocol":"dns"},
  {"tag":"sub-12345678-1234-1234-1234-1234567890ab","protocol":"vless"},
  {"tag":"vless://user:password`example.org?token=supersecret","protocol":"trojan"},
