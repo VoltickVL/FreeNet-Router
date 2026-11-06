@@ -65,7 +65,8 @@ func subscriptionOperationWithRoute(ctx context.Context,root,procRoot,submittedU
     // An unchanged upstream subscription must not restart a working router.
     if oldState.URL==subscriptionURL && oldState.SHA256==hashConfig(candidate) {
         return nativeApplyResult{State:"CONFIG_APPLIED_NOT_EGRESS_VERIFIED",
-            Runtime:"NOT_VERIFIED",Count:len(nodes),Balancer:target.Balancer,Applied:true}
+            Runtime:"NOT_VERIFIED",Count:len(nodes),Balancer:target.Balancer,
+            Selector:target.Selector,Applied:true}
     }
     valid,err:=stageNativeSubscription(root,source,candidate)
     if err!=nil || !valid {
@@ -160,7 +161,8 @@ func subscriptionOperationWithRoute(ctx context.Context,root,procRoot,submittedU
         return rollback()
     }
     return nativeApplyResult{State:"CONFIG_APPLIED_NOT_EGRESS_VERIFIED",
-        Runtime:"NOT_VERIFIED",Count:len(nodes),Balancer:target.Balancer,Applied:true}
+        Runtime:"NOT_VERIFIED",Count:len(nodes),Balancer:target.Balancer,
+            Selector:target.Selector,Applied:true}
 }
 
 func xrayProcessSeenSoon(procRoot string)bool {
