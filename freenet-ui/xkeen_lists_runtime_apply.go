@@ -203,8 +203,8 @@ func xkeenIPSetDesired(text string)([]string,[]string,error){
  }
  var v4,v6 []string
  for _,line:=range strings.Split(strings.ReplaceAll(text,"\r\n","\n"),"\n"){
-  value:=strings.TrimSpace(line)
-  if value==""||strings.HasPrefix(value,"#"){continue}
+  value:=strings.TrimSpace(strings.SplitN(line,"#",2)[0])
+  if value==""{continue}
   var p netip.Prefix
   if ip,e:=netip.ParseAddr(value);e==nil{
    bits:=128;if ip.Is4(){bits=32}
