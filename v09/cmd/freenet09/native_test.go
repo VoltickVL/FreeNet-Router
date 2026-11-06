@@ -152,3 +152,18 @@ func TestNoBalancerIsConfigOnlyNotLiveEvidence(t *testing.T) {
         t.Fatalf("no-balancer config incorrectly reported as runtime success: %+v %v",got,err)
     }
 }
+
+func TestNativeXrayMetadataEnumDoesNotLeak(t *testing.T) {
+    if got:=nativeProtocolName("token=private-credential");got!="other" {
+        t.Fatalf("unknown protocol leaked raw field: %q",got)
+    }
+    if got:=nativeStrategyName("password=my-secret");got!="other" {
+        t.Fatalf("unknown strategy leaked raw field: %q",got)
+    }
+    if got:=nativeProtocolName("VLESS");got!="vless" {
+        t.Fatalf("native VLESS protocol not recognized: %q",got)
+    }
+    if got:=nativeStrategyName("leastPing");got!="leastPing" {
+        t.Fatalf("native balancer strategy not recognized: %q",got)
+    }
+}
