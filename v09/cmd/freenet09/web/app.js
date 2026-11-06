@@ -6,6 +6,15 @@
   const selectors = document.querySelectorAll("a[data-view]");
   const feedback = document.getElementById("feedback");
   const refresh = document.getElementById("refresh");
+  const mobileSheet = document.getElementById("mobile-sheet");
+  const moreButton = document.getElementById("more-toggle");
+  const closeMore = document.getElementById("more-close");
+  const toggleMore = (open) => {
+    if (mobileSheet) mobileSheet.hidden = !open;
+    if (moreButton) moreButton.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+  moreButton?.addEventListener("click", () => toggleMore(Boolean(mobileSheet?.hidden)));
+  closeMore?.addEventListener("click", () => toggleMore(false));
 
   function activate(view, fromNavigation) {
     if (!views.has(view)) view = "overview";
@@ -18,8 +27,9 @@
       if (current) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");
     });
+    toggleMore(false);
     if (fromNavigation) history.replaceState(null, "", "#" + view);
-    window.scrollTo({ top: 0, behavior: "instant" });
+    window.scrollTo({ top: 0, behavior: "auto" });
   }
 
   selectors.forEach(link => {
