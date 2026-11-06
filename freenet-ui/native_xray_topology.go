@@ -58,7 +58,7 @@ func nativeXrayDisplayName(tag, fallback string) string {
  lower := strings.ToLower(name)
  if name=="" || len(name)>100 || nativeXrayUUIDLike.MatchString(name) ||
   strings.ContainsAny(name,"\r\n\t\x00<>") ||
-  strings.Contains(lower,"://") || strings.Contains(lower,"`") ||
+  strings.Contains(lower,"://") || strings.Contains(lower,"@") ||
   strings.Contains(lower,"?") || strings.Contains(lower,"token") ||
   strings.Contains(lower,"password") || strings.Contains(lower,"secret") ||
   strings.Contains(lower,"shortid") || strings.Contains(lower,"privatekey") {
