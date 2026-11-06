@@ -336,7 +336,7 @@ func xkeenIPSetRollback(ctx context.Context,swapped []xkeenIPSet,before []xkeenI
 // - the netfilter.d event hook obtains netfilter.lock.d.
 // Acquiring both in the exact upstream order is needed. Holding only the NF
 // lock is insufficient: emergency stop may forcibly recover that lock.
-func xkeenIPSetHookLock()(func(),error){
+func xkeenIPSetHookLock()(func()bool,error){
  dir:=xkeenIPSetHookRoot()
  info,e:=os.Lstat(dir)
  if e!=nil||!info.IsDir()||info.Mode().Perm()!=0700||info.Mode()&os.ModeSymlink!=0{return nil,errors.New("XKeen hook root unverified")}
@@ -372,11 +372,12 @@ func xkeenIPSetHookLock()(func(),error){
   if !release("proxy.mutex.d"){return nil,errors.New("XKeen proxy mutex release unverified")}
   return nil,e
  }
- return func(){
+ return func()bool{
   // Never delete a foreign/replaced lock. An incomplete release means that
   // the next apply must be stopped until runtime ownership is reconciled.
-  if !release("netfilter.lock.d"){setAutomationMutationBlocked(true)}
-  if !release("proxy.mutex.d"){setAutomationMutationBlocked(true)}
+  netfilterOK:=release("netfilter.lock.d")
+  proxyOK:=release("proxy.mutex.d")
+  return netfilterOK && proxyOK
  },nil
 }
 func (a *app) handleXKeenIPSetPlan(w http.ResponseWriter,r *http.Request){
@@ -426,8 +427,14 @@ func (a *app) handleXKeenIPSetApply(w http.ResponseWriter,r *http.Request){
   writeJSON(w,http.StatusOK,xkeenIPSetApplyResponse{Success:true,State:"SYNCED",Mutation:"NONE",Rollback:"NOT_NEEDED",DiskSHA256:plan.DiskSHA256,ClientEgress:"NOT_VERIFIED"});return
  }
  unlock,e:=xkeenIPSetHookLock()
- if e!=nil{fail(http.StatusConflict,"STOP","NONE","NOT_NEEDED","xkeen-netfilter-busy");return}
- defer unlock()
+ if e!=nil{fail(http.StatusConflict,"STOP","NONE","NOT_NEEDED","xkeen-service-or-netfilter-busy");return}
+ released:=false
+ defer func(){if !released && !unlock(){setAutomationMutationBlocked(true)}}()
+ // After acquiring native XKeen service + NF locks, the candidate must
+ // still match the previously validated ready runtime.
+ if !xkeenIPSetAdmission(a){
+  fail(http.StatusConflict,"STOP","NONE","NOT_NEEDED","xkeen-admission-changed");return
+ }
  if !xkeenIPSetUnchanged(ctx,sets){fail(http.StatusConflict,"STOP","NONE","NOT_NEEDED","kernel-changed-before-apply");return}
  snapshot,e:=xkeenIPSetSnapshot(sets)
  if e!=nil{fail(http.StatusServiceUnavailable,"STOP","NONE","NOT_NEEDED","snapshot-unavailable");return}
@@ -486,6 +493,9 @@ func (a *app) handleXKeenIPSetApply(w http.ResponseWriter,r *http.Request){
   // The durable RUNNING receipt remains a persistent STOP on restart.
   halt("temporary-ipsets-unresolved");return
  }
+ // Do not send SUCCESS if the locks cannot be returned to upstream.
+ released=true
+ if !unlock(){halt("native-XKeen-lock-release-unverified");return}
  if xkeenIPSetWriteState(xkeenIPSetDiskState{State:"SUCCESS",Rollback:"NOT_NEEDED",Snapshot:snapshot,DiskSHA256:plan.DiskSHA256,RuntimeSHA256:plan.RuntimeSHA256})!=nil{
   halt("kernel-applied-but-terminal-receipt-unavailable");return
  }
