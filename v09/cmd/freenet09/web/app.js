@@ -16,6 +16,9 @@
       const actions = document.getElementById("subscription-apply-actions");
       if (actions) actions.hidden = false;
       loadNativeRouteTargets().then(loadAppliedSubscriptionStatus);
+      const nativeButtons = document.getElementById("xkeen-service-actions");
+      if (nativeButtons) nativeButtons.hidden = false;
+      refreshXKeenService();
     }
   }).catch(() => {});
   logoutButton?.addEventListener("click", async () => {
@@ -66,6 +69,47 @@
   });
   activate(location.hash.slice(1), false);
   window.addEventListener("hashchange", () => activate(location.hash.slice(1), false));
+
+  const nativeXKeenState = document.getElementById("xkeen-service-state");
+  const nativeXKeenButtons = document.querySelectorAll("[data-xkeen-action]");
+  async function refreshXKeenService() {
+    if (!nativeXKeenState) return;
+    try {
+      const response = await fetch("/api/native/xkeen/service", {
+        method:"GET",credentials:"same-origin",cache:"no-store"
+      });
+      const report = await response.json();
+      nativeXKeenState.textContent = response.ok
+        ? String(report.state || "UNKNOWN") : "UNKNOWN";
+    } catch (_) {
+      nativeXKeenState.textContent = "UNKNOWN";
+    }
+  }
+  async function nativeXKeenAction(action) {
+    if (!["start","stop","restart"].includes(action)) return;
+    const label = {start:"запустить",stop:"остановить",restart:"перезапустить"}[action];
+    if (!window.confirm("Штатно " + label + " XKeen? При остановке может прерваться VPN. Продолжить?")) return;
+    nativeXKeenButtons.forEach(b => {b.disabled=true;});
+    if (nativeXKeenState) nativeXKeenState.textContent="ВЫПОЛНЯЕТСЯ";
+    try {
+      const response=await fetch("/api/native/xkeen/service",{
+        method:"POST",cache:"no-store",credentials:"same-origin",redirect:"error",
+        headers:{"Content-Type":"application/json","X-FreeNet-Action":"xkeen-service"},
+        body:JSON.stringify({action})
+      });
+      const report=await response.json();
+      const state=String(report?.state || "UNKNOWN");
+      if (nativeXKeenState) nativeXKeenState.textContent=state;
+      status("XKeen: "+state+". Клиентский VPN/HTTPS: NOT_VERIFIED.");
+    } catch (_) {
+      if (nativeXKeenState) nativeXKeenState.textContent="UNKNOWN";
+      status("STOP: состояние службы неизвестно. Не повторяйте изменение без проверки.");
+    } finally {
+      nativeXKeenButtons.forEach(b => {b.disabled=false;});
+    }
+  }
+  nativeXKeenButtons.forEach(button => button.addEventListener("click",() =>
+    nativeXKeenAction(button.dataset.xkeenAction)));
 
   function setField(name, text) {
     document.querySelectorAll('[data-field="' + name + '"]').forEach(el => {

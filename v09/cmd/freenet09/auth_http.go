@@ -50,7 +50,8 @@ func nowAuth() time.Time { return time.Now() }
 
 func secureControlCenter(root,procRoot string,auth *adminAuth) http.Handler {
     base:=handlersWithProc(root,procRoot)
-    subscriptionGate:=make(chan struct{},1)
+    // One native writer at a time: subscription apply and service controls.
+    nativeMutationGate:=make(chan struct{},1)
     return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
         w.Header().Set("Cache-Control","no-store")
         w.Header().Set("X-Content-Type-Options","nosniff")
@@ -99,7 +100,7 @@ func secureControlCenter(root,procRoot string,auth *adminAuth) http.Handler {
         // The ONLY mutation route lives in this authenticated TLS wrapper;
         // the anonymous loopback preview must not expose it.
         if r.URL.Path=="/api/subscription/apply" {
-            subscriptionApplyHTTP(w,r,root,procRoot,subscriptionGate)
+            subscriptionApplyHTTP(w,r,root,procRoot,nativeMutationGate)
             return
         }
         if r.URL.Path=="/api/subscription/status" && r.Method==http.MethodGet {
@@ -110,6 +111,10 @@ func secureControlCenter(root,procRoot string,auth *adminAuth) http.Handler {
         if r.URL.Path=="/api/subscription/targets" && r.Method==http.MethodGet {
             w.Header().Set("Content-Type","application/json; charset=utf-8")
             _=json.NewEncoder(w).Encode(nativeRouteOptionsReport(root))
+            return
+        }
+        if r.URL.Path=="/api/native/xkeen/service" {
+            nativeXKeenServiceHTTP(w,r,root,procRoot,nativeMutationGate)
             return
         }
         // Read-only native APIs and subscription preview remain protected.
