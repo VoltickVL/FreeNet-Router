@@ -125,3 +125,16 @@ func TestNativeVersionsNeverClaimVPNRuntimeVerified(t *testing.T){
         t.Fatalf("nonexecutable native binary must fail closed: %+v",nonexec)
     }
 }
+
+func TestActualXKeenStableMetaFormat(t *testing.T) {
+    // Observed read-only on HOME: XKeen 2.1 Stable includes ANSI colors
+    // and also names its Xray version. The two must not be conflated.
+    output:="  \x1b[93mXKeen 2.1 Stable\x1b[0m (время сборки: \x1b[96m2026-10-06 10:58:45 MSK\x1b[0m)\n"+
+        "  Ядро проксирования Xray версии \x1b[93m26.10.31\x1b[0m\n"
+    if v:=parseNativeVersion("xkeen",output);v!="2.1" {
+        t.Fatalf("official ANSI-colored XKeen 2.1 Stable output not recognized: %q",v)
+    }
+    if v:=parseNativeVersion("xray","Xray 26.10.31 (Xray, Penetrates Everything.) a4a3dff (go1.27.3 linux/arm64)");v!="26.10.31" {
+        t.Fatalf("official Xray 26.10.31 output not recognized: %q",v)
+    }
+}
