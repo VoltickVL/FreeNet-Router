@@ -27,7 +27,10 @@
     geoSuggestIndex: -1,
     geoSuggestToken: null,
     xray: {online: false, version: ''},
-    editorHeight: 0
+    editorHeight: 0,
+    ipsetPlan: null,
+    ipsetBusy: false,
+    ipsetRequestID: 0
   };
   let editorResizeObserver = null;
   try {
@@ -223,11 +226,32 @@
     const editable = jsonEditable || listEditable;
     const hasError = state.errors.has(state.active);
     const dirty = isDirty(state.active);
-    const blocked = state.externalBusy || state.applying;
+    const blocked = state.externalBusy || state.applying || state.ipsetBusy;
     const input = qs('#csInput');
     if (input) input.readOnly = blocked;
     document.querySelectorAll('.cs-shell .cs-tab').forEach(button => { button.disabled = blocked; });
     const format = qs('#csFormat'), reset = qs('#csReset'), apply = qs('#csApply');
+    const activateIP = qs('#csIPSetApply');
+    const ipsetInfo = qs('#csIPSetInfo');
+    const isIPList = listEditable && tab.name === 'ip_exclude';
+    if (activateIP) {
+      activateIP.hidden = !isIPList;
+      activateIP.disabled = !isIPList || dirty || blocked || state.stale ||
+        !state.ipsetPlan?.ready || state.ipsetPlan?.state !== 'READY' ||
+        state.ipsetPlan.disk_sha256 !== tab.sha256;
+    }
+    if (ipsetInfo) {
+      ipsetInfo.hidden = !isIPList;
+      if (isIPList) {
+        const p = state.ipsetPlan;
+        ipsetInfo.textContent = dirty ? 'Сначала сохраните список. Активные правила ядра пока не меняются.' :
+          !p ? 'Проверяю фактический ipset без изменений сети…' :
+          p.ready ? (p.state === 'SYNCED' ?
+            'Файл и активный ipset совпадают. Перезапуск Xray не требуется.' :
+            `Ожидает применения: добавить ${p.add}, удалить ${p.remove} IP-префиксов (IPv6: ${p.ipv6}). HTTPS-маршрут клиента этим не проверяется.`) :
+          `Безопасное применение заблокировано: ${p.reason || 'состояние не подтверждено'}. Никаких изменений сети.`;
+      }
+    }
     if (format) format.disabled = !jsonEditable || listTab || blocked;
     if (reset) reset.disabled = !editable || !dirty || blocked;
     if (apply) {
@@ -471,6 +495,7 @@
     input.addEventListener('input', () => {
       state.draft.set(state.active, input.value);
       state.draftRevision++;
+      state.ipsetPlan = null;
       state.valid.delete(state.active);
       highlight.textContent = input.value;
       renderLineNumbers(input.value, 0);
@@ -543,13 +568,67 @@
     renderStatusAndActions();
   }
 
+  async function refreshIPSetPlan() {
+    const tab = activeTab();
+    if (tab?.name !== 'ip_exclude' || isDirty('ip_exclude') || state.stale) return;
+    const requestID = ++state.ipsetRequestID;
+    state.ipsetPlan = null;
+    renderStatusAndActions();
+    try {
+      const plan = await api('/api/config-studio/list/ipset-plan');
+      if (requestID !== state.ipsetRequestID || state.active !== 'ip_exclude' ||
+          isDirty('ip_exclude') || state.stale) return;
+      state.ipsetPlan = plan.disk_sha256 && plan.disk_sha256 !== tab.sha256 ?
+        {ready:false, reason:'revision-changed'} : plan;
+    } catch (error) {
+      if (requestID !== state.ipsetRequestID) return;
+      state.ipsetPlan = {ready:false, reason:'kernel-preflight-unavailable'};
+    }
+    renderStatusAndActions();
+  }
+
+  async function applyIPSet() {
+    const tab = activeTab(), plan = state.ipsetPlan;
+    if (tab?.name !== 'ip_exclude' || isDirty('ip_exclude') || state.stale ||
+        state.externalBusy || state.applying || state.ipsetBusy ||
+        !plan?.ready || plan.state !== 'READY' || plan.disk_sha256 !== tab.sha256) return;
+    if (!window.confirm('Применить сохранённый список IP-исключений к действующему ipset XKeen? ' +
+      'Подтверждение верно только для указанной версии списка и runtime. Xray не перезапускается.')) return;
+    state.ipsetBusy = true;
+    renderStatusAndActions();
+    try {
+      const result = await api('/api/config-studio/list/ipset-apply', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({expected_disk_sha256:plan.disk_sha256,
+          expected_runtime_sha256:plan.runtime_sha256,confirm:'apply-ip-exclude-kernel'})
+      });
+      if (!result.success || result.state !== 'SUCCESS' ||
+          result.mutation !== 'KERNEL_APPLIED' || result.rollback !== 'NOT_NEEDED')
+        throw new Error('IP-исключения не подтверждены в ядре');
+      state.ipsetPlan = null;
+      await reloadWorkspace('IP-исключения применены: активные IPv4/IPv6 ipset проверены, Xray не перезапущен. ' +
+        'Фактический клиентский HTTPS egress требует отдельной проверки.', true, true);
+    } catch (error) {
+      state.stale = true;
+      state.ipsetPlan = null;
+      setNotice('Применение к ядру не подтверждено: ' + (error.message || 'UNKNOWN') +
+        '. Повтор запрещён до чтения точного состояния и rollback.', 'bad');
+    } finally {
+      state.ipsetBusy = false;
+      renderStatusAndActions();
+    }
+  }
+
   function render() {
     renderTabs();
     renderBody();
+    if (state.active === 'ip_exclude') void refreshIPSetPlan();
   }
 
   function loadWorkspaceData(body) {
     state.tabs = Array.isArray(body.tabs) ? body.tabs : [];
+    state.ipsetPlan = null;
+    state.ipsetRequestID++;
     state.xray = body.xray || {online:false, version:''};
     state.live.clear();
     state.draft.clear();
@@ -728,10 +807,11 @@
   }
 
   function mountMarkup(panel) {
-    panel.innerHTML = `<div class="rv2-card"><div class="cs-shell"><div class="cs-head"><div class="cs-title"><h2>Config Studio</h2><span id="csState" class="cs-state">Загрузка</span></div></div><p class="rv2-copy">Полный Xray workspace после авторизации FreeNet: syntax highlight, dirty-state, diagnostics, validation и controlled apply.</p><div class="cs-tab-groups"><div id="csTabsMain" class="cs-tabs cs-tabs-main" aria-label="Xray config files"></div><div id="csTabsLists" class="cs-tabs cs-tabs-lists" aria-label="XKeen list files"></div></div><div id="csBody"></div><div class="cs-toolbar cs-editor-footer"><div class="cs-actions"><button id="csFormat" class="cs-btn cs-btn-tertiary" type="button">Форматировать</button><button id="csReset" class="cs-btn cs-btn-reset" type="button">Отменить</button></div><button id="csApply" class="cs-btn primary" type="button">Применить</button></div><div id="csMeta" class="cs-meta"></div><div class="cs-safe-note">01–06 доступны владельцу после авторизации FreeNet. Credential-bearing значения остаются только в authenticated browser session и не должны попадать в Journal, GitHub или CI logs. Apply: validation → snapshot → atomic write → post-check → rollback/STOP. Списки XKeen: сохранение на диске без перезапуска; правила ядра не меняются до отдельного безопасного применения.</div><div id="csNotice" class="cs-notice"></div></div></div>`;
+    panel.innerHTML = `<div class="rv2-card"><div class="cs-shell"><div class="cs-head"><div class="cs-title"><h2>Config Studio</h2><span id="csState" class="cs-state">Загрузка</span></div></div><p class="rv2-copy">Полный Xray workspace после авторизации FreeNet: syntax highlight, dirty-state, diagnostics, validation и controlled apply.</p><div class="cs-tab-groups"><div id="csTabsMain" class="cs-tabs cs-tabs-main" aria-label="Xray config files"></div><div id="csTabsLists" class="cs-tabs cs-tabs-lists" aria-label="XKeen list files"></div></div><div id="csBody"></div><div class="cs-toolbar cs-editor-footer"><div class="cs-actions"><button id="csFormat" class="cs-btn cs-btn-tertiary" type="button">Форматировать</button><button id="csReset" class="cs-btn cs-btn-reset" type="button">Отменить</button></div><button id="csIPSetApply" class="cs-btn primary" type="button" hidden>Активировать IP-исключения</button><button id="csApply" class="cs-btn primary" type="button">Применить</button></div><div id="csMeta" class="cs-meta"></div><div class="cs-safe-note">01–06 доступны владельцу после авторизации FreeNet. Credential-bearing значения остаются только в authenticated browser session и не должны попадать в Journal, GitHub или CI logs. Apply: validation → snapshot → atomic write → post-check → rollback/STOP. Списки XKeen: сохранение на диске без перезапуска; правила ядра не меняются до отдельного безопасного применения.</div><div id="csIPSetInfo" class="cs-meta" role="status" hidden></div><div id="csNotice" class="cs-notice"></div></div></div>`;
     qs('#csFormat')?.addEventListener('click', formatActive);
     qs('#csReset')?.addEventListener('click', resetActive);
     qs('#csApply')?.addEventListener('click', applyActive);
+    qs('#csIPSetApply')?.addEventListener('click', applyIPSet);
   }
 
   async function handleExternalConfigApplied(event) {
