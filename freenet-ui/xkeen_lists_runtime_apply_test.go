@@ -158,3 +158,21 @@ func TestXKeenIPSetRejectsUnsafeDiskAndUnknownRuntime(t *testing.T){
  p,_=xkeenIPSetPlan(context.Background(),a)
  if p.Ready||p.Reason!="ipv6-ipset-unverified"{t.Fatalf("missing IPv6 runtime not blocked %+v",p)}
 }
+
+// Upstream XKeen 2.1 populates hash:net sets. ipset versions differ in
+// serialization of the hash metadata; active semantic flags remain STOP.
+func TestXKeenIPSetOfficialCompatibleHashSave(t *testing.T){
+ const saved="create user_exclude hash:net family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0xabcd1234\nadd user_exclude 198.51.100.8\n"
+ members,opts,err:=xkeenIPSetParse(saved,"user_exclude","inet")
+ if err!=nil || len(members)!=1 || members[0]!="198.51.100.8/32" ||
+  strings.Join(opts," ")!="hashsize 1024 maxelem 65536 bucketsize 12 initval 0xabcd1234"{
+  t.Fatalf("upstream hash:net serialization rejected: members=%v opts=%v error=%v",members,opts,err)
+ }
+ for _,extra:=range []string{" timeout 20"," counters"," comment"," netmask 24"," bucketsize 0"," initval ../../bad"}{
+  prefix:=strings.Replace(saved," initval 0xabcd1234","",1)
+  prefix=strings.Replace(prefix,"\nadd ",extra+"\nadd ",1)
+  if _,_,err:=xkeenIPSetParse(prefix,"user_exclude","inet");err==nil{
+   t.Fatalf("unsafe hash:net option accepted: %q",extra)
+  }
+ }
+}
