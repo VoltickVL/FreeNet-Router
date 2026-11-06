@@ -22,10 +22,16 @@ APP="$ROOT/freenet-v09"
 RELEASES="$APP/releases"
 SLOT="$RELEASES/$VERSION"
 TMP=""
+CANDIDATE_TMP=""
 LOCK_HELD=0
 LOCK="$APP/.stage-lock"
 
 cleanup() {
+    if [ -n "$CANDIDATE_TMP" ]; then
+        case "$CANDIDATE_TMP" in
+            /tmp/freenet-v09-candidate.*) [ ! -L "$CANDIDATE_TMP" ] && rm -rf "$CANDIDATE_TMP" 2>/dev/null || : ;;
+        esac
+    fi
     if [ -n "$TMP" ]; then
         case "$TMP" in
             "$RELEASES"/.stage.*) [ ! -L "$TMP" ] && rm -rf "$TMP" 2>/dev/null || : ;;
@@ -131,8 +137,13 @@ fi
 
 get_arch
 verify_bundle
-# Candidate execution (-version/-selftest) never touches Xray/FreeNet/cron.
-verify_candidate "$FILE"
+# Assets downloaded from a release can be non-executable (curl output mode).
+# Make an isolated copy in /tmp before safe offline version/selftest. No /opt
+# writes occur in plan; the original archive is never executed directly.
+CANDIDATE_TMP="$(mktemp -d /tmp/freenet-v09-candidate.XXXXXX)" || stop 'cannot allocate candidate check'
+cp "$FILE" "$CANDIDATE_TMP/freenet09" || stop 'cannot prepare candidate check'
+chmod 700 "$CANDIDATE_TMP/freenet09" || stop 'cannot set candidate check mode'
+verify_candidate "$CANDIDATE_TMP/freenet09"
 if [ "$MODE" = plan ]; then
     check_slot
     say "VERSION=$VERSION"
@@ -156,7 +167,7 @@ if [ -e "$SLOT" ]; then
 fi
 TMP="$(mktemp -d "$RELEASES/.stage.XXXXXX")" || stop 'cannot create isolated temporary slot'
 mkdir "$TMP/bin" || stop 'cannot create stage bin'
-cp "$FILE" "$TMP/bin/freenet09" || stop 'cannot copy candidate'
+cp "$CANDIDATE_TMP/freenet09" "$TMP/bin/freenet09" || stop 'cannot copy candidate'
 chmod 700 "$TMP/bin/freenet09" || stop 'cannot chmod candidate'
 verify_candidate "$TMP/bin/freenet09"
 printf '%s  %s\n' "$EXPECTED" 'bin/freenet09' > "$TMP/SHA256SUMS"
