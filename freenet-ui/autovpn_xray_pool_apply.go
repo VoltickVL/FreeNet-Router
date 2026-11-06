@@ -73,6 +73,10 @@ func (a *app) handleFreeNetAutoPoolActivate(w http.ResponseWriter,r *http.Reques
     resp:=freeNetAutoApplyResponse{Mutation:"NONE",Rollback:"NOT_APPLIED",Status:"blocked"}
     var request freeNetAutoActivateRequest
     if !decodeFreeNetAutoJSON(w,r,&request){return}
+    if !freeNetAutoLegacyProvisionEnabled{
+        resp.Status="native-xkeen-sb-preferred-no-new-pool"
+        writeJSON(w,http.StatusConflict,resp);return
+    }
     if request.Acknowledge!="prepare-no-restart-autovpn-with-controlled-core-restart"||
        !validBestServerSelectionToken(request.PlanToken){
         resp.Status="confirmation-missing";writeJSON(w,http.StatusBadRequest,resp);return
