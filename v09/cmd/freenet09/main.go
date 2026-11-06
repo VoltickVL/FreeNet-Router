@@ -259,7 +259,7 @@ func main() {
         srv:=&http.Server{
             Addr:*httpsListen,Handler:secureControlCenter(*root,"/proc",auth),
             ReadHeaderTimeout:5*time.Second,ReadTimeout:10*time.Second,
-            WriteTimeout:25*time.Second,IdleTimeout:30*time.Second,
+            WriteTimeout:200*time.Second,IdleTimeout:30*time.Second,
             MaxHeaderBytes:8192,TLSConfig:&tls.Config{MinVersion:tls.VersionTLS12},
         }
         fmt.Printf("FreeNet %s | authenticated HTTPS Control Center | listener ready\n",buildVersion)
