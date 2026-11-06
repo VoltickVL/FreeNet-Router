@@ -5,6 +5,7 @@ on:
     paths:
       - 'v09/**'
       - '.github/workflows/v09-isolated.yml'
+      - 'AGENTS.md'
   workflow_dispatch:
 
 permissions:
@@ -16,16 +17,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
           go-version-file: v09/go.mod
           cache-dependency-path: v09/go.mod
+      - name: Keep 0.9 upstream-first and separate from legacy 0.8
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          TARGET_BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: |
+          sh v09/tests/test_architecture.sh --selftest
+          sh v09/tests/test_architecture.sh "$BASE_SHA" "$TARGET_BRANCH"
       - name: Validate isolated installer POSIX shell
         run: |
           sh -n v09/installer/stage.sh
           sh -n v09/installer/prepare.sh
           sh -n v09/tests/test_stage.sh
           sh -n v09/tests/test_prepare.sh
+          sh -n v09/tests/test_architecture.sh
       - name: Stage A/B failure contracts (no live router)
         run: |
           sh v09/tests/test_stage.sh
