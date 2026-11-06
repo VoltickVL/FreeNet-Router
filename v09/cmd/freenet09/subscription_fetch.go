@@ -54,7 +54,8 @@ func publicSubscriptionIP(ip netip.Addr) bool {
 }
 
 func validateSubscriptionURL(raw string) (*url.URL,error){
-    if len(raw)==0 || len(raw)>4096 || strings.TrimSpace(raw)!=raw {
+    if len(raw)==0 || len(raw)>4096 || strings.TrimSpace(raw)!=raw ||
+        strings.ContainsAny(raw,"#\r\n") {
         return nil,errSubscriptionInvalid
     }
     u,err:=url.ParseRequestURI(raw)
@@ -64,6 +65,7 @@ func validateSubscriptionURL(raw string) (*url.URL,error){
     }
     host:=u.Hostname()
     if len(host)>253 || strings.ContainsAny(host," \r\n\t%") ||
+        strings.EqualFold(host,"localhost") ||
         strings.HasSuffix(strings.ToLower(host),".local") ||
         strings.HasSuffix(strings.ToLower(host),".localhost") ||
         strings.HasSuffix(strings.ToLower(host),".internal") {
@@ -75,7 +77,6 @@ func validateSubscriptionURL(raw string) (*url.URL,error){
     if port!="" && port!="443" && port!="8443" {
         return nil,errSubscriptionInvalid
     }
-    if u.Host==" " {return nil,errSubscriptionInvalid}
     return u,nil
 }
 
