@@ -135,6 +135,29 @@ type balancerConfig struct {
     Strategy struct {Type string `json:"type"`} `json:"strategy"`
 }
 
+// Protocol and strategy are enum-like Xray fields. Do not echo arbitrary
+// strings from config into an API that must never publish credentials.
+func nativeProtocolName(raw string) string {
+    switch strings.ToLower(raw) {
+    case "vless","vmess","trojan","shadowsocks","socks","http","wireguard","hysteria",
+         "freedom","blackhole","dns","loopback":
+        return strings.ToLower(raw)
+    default:
+        return "other"
+    }
+}
+
+func nativeStrategyName(raw string) string {
+    switch raw {
+    case "leastPing","leastLoad","random","roundRobin":
+        return raw
+    case "":
+        return "not-specified"
+    default:
+        return "other"
+    }
+}
+
 func nativeXrayTopology(root string) (nativeTopology,error) {
     failed:=stoppedTopology()
     outRaw,err:=nativeConfig(root,"04_outbounds.json")
@@ -167,7 +190,7 @@ func nativeXrayTopology(root string) (nativeTopology,error) {
         tags[o.Tag]=true
         result.Servers=append(result.Servers,nativeServer{
             Tag:displayXrayTag(o.Tag,"Сервер "+strconv.Itoa(i+1)),
-            Protocol:strings.ToLower(o.Protocol),
+            Protocol:nativeProtocolName(o.Protocol),
         })
     }
     balancerTags:=make(map[string]bool,len(routingDoc.Routing.Balancers))
@@ -194,8 +217,7 @@ func nativeXrayTopology(root string) (nativeTopology,error) {
                 }
             }
         }
-        strategy:=b.Strategy.Type
-        if strategy=="" {strategy="not-specified"}
+        strategy:=nativeStrategyName(b.Strategy.Type)
         result.Balancers=append(result.Balancers,nativeBalancer{
             Tag:displayXrayTag(b.Tag,"Балансировщик "+strconv.Itoa(i+1)),
             Strategy:strategy, Selectors:len(b.Selector), Servers:count,
