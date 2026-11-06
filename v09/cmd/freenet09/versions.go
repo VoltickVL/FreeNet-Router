@@ -29,9 +29,12 @@ type nativeVersionReport struct {
 
 // This is NOT an arbitrary command runner. It accepts one of two hard-coded
 // native commands and only a precise version string is ever published.
-var xkeenVersionLine = regexp.MustCompile(`(?im)(?:^|[^a-z0-9])xkeen[^0-9\r\n]{0,44}v?([0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?)(?:[^0-9.]|$)`)
-var xrayVersionLine = regexp.MustCompile(`(?im)(?:^|[^a-z0-9])xray[^0-9\r\n]{0,44}v?([0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?)(?:[^0-9.]|$)`)
-var pureVersionLine = regexp.MustCompile(`(?m)^\s*v?([0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?)\s*$`)
+// Match only a real official product/version line, not an arbitrary value
+// later in noisy output. XKeen 2.1 Stable uses ANSI colors in its -v output.
+var nativeANSI = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+var xkeenVersionLine = regexp.MustCompile(`(?im)^[ \t]*xkeen(?:[ \t]+(?:version|v))?[ \t:]*v?([0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?)(?:[ \t]|$)`)
+var xrayVersionLine = regexp.MustCompile(`(?im)^[ \t]*xray(?:[ \t]+version)?[ \t:]*v?([0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?)(?:[ \t]|$)`)
+var pureVersionLine = regexp.MustCompile(`^\\s*v?([0-9]{1,4}\\.[0-9]{1,4}(?:\\.[0-9]{1,4})?)\\s*$`)
 
 func parseNativeVersion(kind,stringOutput string) string {
     var re *regexp.Regexp
@@ -40,10 +43,12 @@ func parseNativeVersion(kind,stringOutput string) string {
     case "xray": re=xrayVersionLine
     default: return ""
     }
-    value:=re.FindStringSubmatch(stringOutput)
+    // Never render raw ANSI, extra upstream diagnostics or credentials.
+    clean:=nativeANSI.ReplaceAllString(stringOutput,"")
+    value:=re.FindStringSubmatch(clean)
     if len(value)>1{return value[1]}
     // Some official -v scripts output exactly "2.1" with no product name.
-    if simple:=pureVersionLine.FindStringSubmatch(strings.TrimSpace(stringOutput));len(simple)>1 {
+    if simple:=pureVersionLine.FindStringSubmatch(strings.TrimSpace(clean));len(simple)>1 {
         return simple[1]
     }
     return ""
