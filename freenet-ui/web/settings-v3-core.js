@@ -230,16 +230,17 @@
 
             <section class="fn3-pool" role="group" aria-label="Стабильный пул VPN">
               <div class="fn3-pool-copy">
-                <h3>Стабильный пул VPN</h3>
-                <p>Текущий сервер и до двух проверенных резервов. При первом включении — один контролируемый перезапуск Xray. Дальнейшая смена узла проходит без перезапуска.</p>
+                <h3>Балансировка VPN · штатный XKeen 2.1</h3>
+                <p>Основной механизм выбора сервера — XKeen -sb и Xray RoutingService. Новый отдельный пул FreeNet больше не создаётся. Если прежний пул уже активен, сохранены проверка, переключение и контролируемый возврат исходной конфигурации.</p>
               </div>
               <div class="fn3-pool-step">
-                <span class="fn3-pool-step-label">Подготовка и включение</span>
+                <span class="fn3-pool-step-label">Статус XKeen и ранее активированного FreeNet Pool</span>
                 <div class="fn3-pool-actions">
-                  <button id="fn3PoolPrepare" class="btn secondary" type="button">1. Подобрать резервы</button>
-                  <button id="fn3PoolActivate" class="btn primary" type="button" disabled>2. Включить пул</button>
+                  <button id="fn3PoolPrepare" class="btn secondary" type="button" disabled>Новый FreeNet Pool отключён</button>
+                  <button id="fn3PoolActivate" class="btn primary" type="button" disabled>Активация отключена</button>
                   <button id="fn3PoolRefresh" class="btn secondary" type="button">Проверить состояние</button>
                 </div>
+                <div id="fn3NativeSBStatus" class="fn3-pool-status" role="status" aria-live="polite" data-tone="neutral">XKeen -sb: проверка не запускалась. FreeNet не меняет ядро и настройки.</div>
               </div>
               <div class="fn3-pool-step">
                 <label class="fn3-pool-step-label" for="fn3PoolNode">Выбор сервера действующего пула</label>
@@ -981,6 +982,7 @@
   let autoPoolPlan = null;
   let autoPoolNodes = [];
   let autoPoolBusy = false;
+  const nativeXKeenBalancingPrimary = true;
 
   // Only fixed, non-secret diagnostic labels are surfaced. Do not display raw
   // backend error text, addresses, credentials or selected profile payloads.
@@ -997,7 +999,8 @@
     'loopback-port-unavailable':'Локальные управляющие порты Xray недоступны.',
     'config-unsupported':'Действующая конфигурация Xray несовместима с подготовкой пула.',
     'full-xray-preflight-failed':'Полная предварительная проверка Xray-конфигурации не пройдена.',
-    'plan-token-unavailable':'FreeNet не смог создать одноразовый план активации.'
+    'plan-token-unavailable':'FreeNet не смог создать одноразовый план активации.',
+    'native-xkeen-sb-preferred-no-new-pool':'Новый независимый FreeNet Pool отключён: управление балансировкой передано штатному XKeen. Рабочий VPN не менялся.'
   });
   function poolPlanErrorText(error, stage) {
     const code = String(error?.message || '').replace(/^pool:/, '');
@@ -1016,15 +1019,34 @@
     autoPoolBusy=busy;
     const prepare=q('#fn3PoolPrepare'),activate=q('#fn3PoolActivate'),node=q('#fn3PoolNode');
     const sw=q('#fn3PoolSwitch'),disable=q('#fn3PoolDisable'),refresh=q('#fn3PoolRefresh');
-    if(prepare)prepare.disabled=busy||active;
-    if(activate)activate.disabled=busy||active||!autoPoolPlan;
+    if(prepare)prepare.disabled=true;
+    if(activate)activate.disabled=true;
     if(node)node.disabled=busy||!active;
     if(sw)sw.disabled=busy||!active||!node?.value;
     if(disable)disable.disabled=busy||!active;
     if(refresh)refresh.disabled=busy;
   }
+  async function loadNativeXKeenSBStatus(){
+    const view=q('#fn3NativeSBStatus');
+    if(!view)return;
+    view.textContent='Читаем конфигурацию штатного XKeen 2.1 без запуска команд, обновлений или сетевых операций…';
+    try{
+      const data=await fetchJSON('/api/xkeen/speed-balancer',{method:'GET',cache:'no-store',credentials:'same-origin'});
+      if(data.success!==true||data.owner!=='xkeen'||data.mutation!=='NONE'||
+        data.installed_version!=='2.1'||data.runtime!=='NOT_VERIFIED')throw new Error('unverified');
+      if(data.state==='configured-enabled'){
+        view.textContent='Штатный XKeen -sb включён в конфигурации. Интервал: '+data.interval_minutes+
+          ' мин, гистерезис: '+data.hysteresis_percent+'%. Активный Xray balancer и маршрут клиента ещё не подтверждены.';
+      }else if(data.state==='disabled'||data.state==='not-configured'){
+        view.textContent='Штатный XKeen -sb пока не включён в конфигурации. Для включения потребуется отдельный безопасный план. Никаких изменений не сделано.';
+      }else{throw new Error('unexpected')}
+    }catch(_){
+      view.textContent='Состояние штатного XKeen -sb неизвестно: STOP для настройки. Текущий VPN не менялся.';
+    }
+  }
   async function loadAutoPoolStatus() {
     if(autoPoolBusy)return;
+    void loadNativeXKeenSBStatus();
     try {
       const data=await fetchJSON('/api/automation/pool/status',{cache:'no-store',credentials:'same-origin'});
       autoPoolNodes=Array.isArray(data.nodes)?data.nodes:[];
@@ -1050,7 +1072,7 @@
           'Узлов: '+(data.node_count||'неизвестно')+'. Активен: '+(data.current_tag||'неизвестен')+
           '. При переключении Xray не перезапускается.');
       }else{
-        setAutoPoolStatus('Пул пока не включён. Исходный VPN работает по прежним правилам. Подбор резервов не меняет сеть.');
+        setAutoPoolStatus('Новый отдельный FreeNet Pool не создаётся. Исходный VPN остаётся под управлением действующего XKeen/Xray.');
       }
       autoPoolControls(!!data.active);
     }catch(_){
@@ -1061,6 +1083,10 @@
   }
 
   async function prepareAutoPool() {
+    if(nativeXKeenBalancingPrimary){
+      setAutoPoolStatus('Новый FreeNet Pool отключён. Используем штатный XKeen -sb; рабочий VPN не менялся.');
+      return;
+    }
     if(autoPoolBusy)return;
     autoPoolPlan=null;
     autoPoolControls(false,true);
@@ -1085,6 +1111,10 @@
     }finally{autoPoolControls(false)}
   }
   async function activateAutoPool() {
+    if(nativeXKeenBalancingPrimary){
+      setAutoPoolStatus('Создание второго balancer отключено. Текущий VPN не менялся.');
+      return;
+    }
     const plan=autoPoolPlan;
     if(autoPoolBusy||!plan)return;
     if(Date.now()-plan.received_at>110000){
