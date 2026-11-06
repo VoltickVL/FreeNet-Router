@@ -3,13 +3,13 @@ package main
 // Native Xray configuration is the sole source for this CONFIG_ONLY view.
 // XKeen/Xray own all network operations; this code does not invoke either CLI.
 import (
-    "bytes"
     "encoding/json"
     "errors"
     "io"
     "os"
     "path/filepath"
     "regexp"
+    "strconv"
     "strings"
 )
 
@@ -166,7 +166,7 @@ func nativeXrayTopology(root string) (nativeTopology,error) {
         }
         tags[o.Tag]=true
         result.Servers=append(result.Servers,nativeServer{
-            Tag:displayXrayTag(o.Tag,"Сервер "+itoaNative(i+1)),
+            Tag:displayXrayTag(o.Tag,"Сервер "+strconv.Itoa(i+1)),
             Protocol:strings.ToLower(o.Protocol),
         })
     }
@@ -197,7 +197,7 @@ func nativeXrayTopology(root string) (nativeTopology,error) {
         strategy:=b.Strategy.Type
         if strategy=="" {strategy="not-specified"}
         result.Balancers=append(result.Balancers,nativeBalancer{
-            Tag:displayXrayTag(b.Tag,"Балансировщик "+itoaNative(i+1)),
+            Tag:displayXrayTag(b.Tag,"Балансировщик "+strconv.Itoa(i+1)),
             Strategy:strategy, Selectors:len(b.Selector), Servers:count,
         })
     }
@@ -207,19 +207,3 @@ func nativeXrayTopology(root string) (nativeTopology,error) {
     return result,nil
 }
 
-// strconv is only used to make explicit, stable display fallbacks.
-func itoaNative(i int) string {
-    const digits="0123456789"
-    if i==0 {return "0"}
-    var buf [20]byte
-    n:=len(buf)
-    for i>0 {n--;buf[n]=digits[i%10];i/=10}
-    return string(buf[n:])
-}
-
-// Guard against accidental embedding of raw settings in template/API fields.
-func (t nativeTopology) validSummary() bool {
-    return t.Runtime=="NOT_VERIFIED" &&
-        (t.State=="CONFIG_ONLY"||t.State=="NO_BALANCER"||t.State=="STOP") &&
-        !bytes.Contains([]byte(t.Reason),[]byte("password"))
-}
