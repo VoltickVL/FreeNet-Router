@@ -146,6 +146,12 @@
         <div class="detail-grid"><div class="panel detail-card"><span>Бинарник</span><h2 data-field="binaryXray">{{.Xray}}</h2></div>
           <div class="panel detail-card"><span>Процесс</span><h2 data-field="xrayProcess">{{.System.XrayProcess}}</h2></div>
           <div class="panel detail-card"><span>VPN / HTTPS egress</span><h2>NOT_VERIFIED</h2></div></div>
+        <article class="panel native-validation">
+          <div class="panel-heading"><h2>Штатная проверка конфигурации</h2>
+            <span class="state-chip neutral" data-field="xrayValidation">НЕ ЗАПУСКАЛАСЬ</span></div>
+          <p class="muted">Выполняется оригинальная Xray `run -test` по установленным файлам. Сервер, VPN, DNS и маршруты не перезапускаются. Успешная проверка подтверждает только загрузку конфигурации.</p>
+          <button type="button" class="btn outline" data-action="validate-xray">Проверить конфигурацию Xray</button>
+        </article>
         <div class="notice"><span class="notice-icon">i</span><div><strong>Нужна штатная проверка runtime</strong><p>Процесс Xray может быть запущен, но это не доказывает доступность VPN и правильность маршрутов. Позднее проверим RoutingService, StatsService и egress клиентов.</p></div></div>
       </section>
 
@@ -171,6 +177,12 @@
         <div class="detail-grid"><div class="panel detail-card"><span>Xray config</span><h2 data-field="topologyState">{{.Topology.State}}</h2></div>
           <div class="panel detail-card"><span>Runtime</span><h2>NOT_VERIFIED</h2></div>
           <div class="panel detail-card"><span>Старая FreeNet 0.8</span><h2 data-field="legacyFreeNet">{{.LegacyFreeNet}}</h2></div></div>
+        <article class="panel native-validation">
+          <div class="panel-heading"><h2>Проверка оригинальным ядром Xray</h2>
+            <span class="state-chip neutral" data-field="xrayValidation">НЕ ЗАПУСКАЛАСЬ</span></div>
+          <p class="muted">Штатная `xray run -test -confdir` без запуска прокси. Ошибки конфигурации не публикуют секреты. Клиентский HTTPS-маршрут этим не проверяется.</p>
+          <button type="button" class="btn outline" data-action="validate-xray">Проверить Xray</button>
+        </article>
         <article class="panel"><div class="panel-heading"><h2>Локальные источники данных</h2></div>
           <div class="list-line"><strong>Xray outbound / balancer</strong><span class="small-code">04_outbounds.json / 05_routing.json</span></div>
           <div class="list-line"><strong>DNS / routing</strong><span class="small-code">03_dns.json / 05_routing.json</span></div>
