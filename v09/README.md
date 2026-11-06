@@ -8,7 +8,7 @@
 
 - [Оригинальный XKeen](https://github.com/jameszeroX/XKeen) управляет сервисом, netfilter/ipset, интеграцией с Keenetic/Netcraze и штатными Xray операциями.
 - [Xray-core](https://github.com/XTLS/Xray-core) — единственный VPN/proxy/routing engine.
-- FreeNet 0.9 — тонкий браузерный Control Center; сейчас реализованы только локальный read-only preview и проверяемый side-by-side staging.
+- FreeNet 0.9 — тонкий браузерный Control Center; уже реализованы локальный read-only preview, **native inventory серверов и balancer из штатных Xray JSONC**, а также проверяемый side-by-side staging.
 
 **Никаких новых сетевых политик, демонов, автоматик, подписок или собственных балансировщиков в этом PR.**
 
@@ -30,7 +30,7 @@
 - `status` сообщает только о наличии слота, **не** о работоспособности VPN.
 - На этом этапе не устанавливаются init, cron, listener, default route, Xray/XKeen, updater или управляющие hooks. Никакая версия не активируется/выключается.
 
-Сборка `freenet09 -selftest` не меняет окружение; `-version` выдаёт `v0.9.0-dev`. Сервер предпросмотра по умолчанию слушает **только** `127.0.0.1:1009`; запуск на LAN/wildcard запрещён до отдельной реализации аутентификации. `GET /api/overview` показывает `PRESENT/MISSING/UNKNOWN` по наличию штатных файлов, но **не** действующий runtime или HTTPS egress. Содержимое Xray config никогда не читается и не возвращается.
+Сборка `freenet09 -selftest` не меняет окружение; `-version` выдаёт `v0.9.0-dev`. Сервер предпросмотра по умолчанию слушает **только** `127.0.0.1:1009`; запуск на LAN/wildcard запрещён до отдельной реализации аутентификации. `GET /api/overview` показывает `PRESENT/MISSING/UNKNOWN` по наличию штатных файлов, но **не** действующий runtime или HTTPS egress. Содержимое Xray config читается **только для построения краткой native топологии**, но полный JSON, адреса из `settings`, VLESS/Reality credentials и подписки ни в UI, ни в API не возвращаются. Теги с IP/доменами сохраняются как штатные имена Xray; credential-bearing tags получают нейтральное имя. `GET /api/native/xray/topology` выдаёт `CONFIG_ONLY`, `NO_BALANCER` или `STOP`, всегда с `runtime=NOT_VERIFIED`. Отказ чтения/неполные JSONC/symlink/противоречивая структура = STOP без частичного списка. Selector совпадает с **префиксом** outbound tag в соответствии с XKeen. API не включает применение правил или проверку клиентского HTTPS egress.
 
 ## Принятие A/B переключения — следующая отдельная стадия
 
