@@ -168,6 +168,79 @@
   nativeValidateButtons.forEach(button =>
     button.addEventListener("click", validateNativeXrayFromBrowser));
 
+  const subscriptionButton = document.getElementById("subscription-preview");
+  const subscriptionURL = document.getElementById("subscription-url");
+  const subscriptionStatus = document.getElementById("subscription-state");
+  const subscriptionResult = document.getElementById("subscription-preview-result");
+  const subscriptionCount = document.getElementById("subscription-node-count");
+  const subscriptionList = document.getElementById("subscription-nodes-list");
+
+  function showSubscriptionStatus(label) {
+    if (subscriptionStatus) subscriptionStatus.textContent = label;
+  }
+  async function previewSubscription() {
+    const url = subscriptionURL?.value.trim() || "";
+    if (!url.startsWith("https://")) {
+      showSubscriptionStatus("STOP");
+      status("Нужна действительная HTTPS-ссылка подписки.");
+      return;
+    }
+    if (subscriptionButton) subscriptionButton.disabled = true;
+    if (subscriptionResult) subscriptionResult.hidden = true;
+    if (subscriptionList) subscriptionList.replaceChildren();
+    showSubscriptionStatus("ПРОВЕРЯЕТСЯ");
+    try {
+      const response = await fetch("/api/subscription/preview", {
+        method: "POST", cache: "no-store", credentials: "same-origin",
+        redirect: "error",
+        headers: {
+          "Content-Type": "application/json",
+          "X-FreeNet-Action": "preview-subscription"
+        },
+        body: JSON.stringify({ url })
+      });
+      const result = await response.json();
+      if (!response.ok || result?.state !== "PREVIEW_ONLY" ||
+          !Array.isArray(result.servers) || result.applied !== false) {
+        throw new Error("subscription-preview-not-accepted");
+      }
+      const fragment = document.createDocumentFragment();
+      for (const item of result.servers) {
+        const line = document.createElement("div");
+        line.className = "list-line";
+        const text = document.createElement("div");
+        const label = document.createElement("strong");
+        label.textContent = String(item.name || "Сервер");
+        const protocol = document.createElement("small");
+        protocol.textContent = String(item.protocol || "native Xray");
+        text.append(label, protocol);
+        const chip = document.createElement("span");
+        chip.className = "state-chip neutral";
+        chip.textContent = "CONFIG ONLY";
+        line.append(text, chip);
+        fragment.append(line);
+      }
+      subscriptionList?.replaceChildren(fragment);
+      if (subscriptionCount) subscriptionCount.textContent = String(result.count);
+      if (subscriptionResult) subscriptionResult.hidden = false;
+      showSubscriptionStatus("ПРОЧИТАНО");
+      status("Серверы разобраны. Это только предпросмотр: Xray не изменён.");
+    } catch (_) {
+      showSubscriptionStatus("STOP");
+      status("Подписка недоступна или содержит неподдерживаемый формат. Xray не изменён.");
+    } finally {
+      if (subscriptionURL) subscriptionURL.value = "";
+      if (subscriptionButton) subscriptionButton.disabled = false;
+    }
+  }
+  subscriptionButton?.addEventListener("click", previewSubscription);
+  subscriptionURL?.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      previewSubscription();
+    }
+  });
+
   refresh?.addEventListener("click", () => refreshEvidence(false));
   refreshEvidence(true);
 
