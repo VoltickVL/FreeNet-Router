@@ -9,6 +9,7 @@ import (
  "os"
  "path/filepath"
  "regexp"
+ "strconv"
  "strings"
 )
 
@@ -91,10 +92,13 @@ func nativeXrayReadConfigFile(dir,name string)([]byte,string,error){
   !current.ModTime().Equal(info.ModTime()){
   return nil,"",errors.New("native Xray file changed during read")
  }
- if !json.Valid(data)||rejectDuplicateJSONKeys(data)!=nil{
-  return nil,"",errors.New("native Xray JSON invalid or duplicate keys")
+ // Official XKeen 2.2 uses strip_json_comments before jq. Reuse the
+ // already tested XKeen lexer instead of inventing a second JSONC parser.
+ clean,stripErr:=xkeenNativeStripJSONCommentsLimited(data,int(nativeXrayInventoryMaxFile))
+ if stripErr!=nil||!json.Valid(clean)||rejectDuplicateJSONKeys(clean)!=nil{
+  return nil,"",errors.New("native Xray JSONC invalid or duplicate keys")
  }
- return data,sha256Hex(data),nil
+ return clean,sha256Hex(data),nil
 }
 
 type nativeXrayOutbound struct {
@@ -203,18 +207,7 @@ func nativeXrayInventory(dir string)(nativeXrayTopologyResponse,error){
  return result,nil
 }
 
-func itoaNative(n int)string{
- // Small integer identifiers are never influenced by untrusted tag text.
- return stringIntNative(n)
-}
-
-func stringIntNative(n int)string{
- if n==0{return "0"}
- var b [12]byte
- k:=len(b)
- for n>0{k--;b[k]=byte('0'+n%10);n/=10}
- return string(b[k:])
-}
+func itoaNative(n int)string{return strconv.Itoa(n)}
 
 func (a *app) handleNativeXrayTopology(w http.ResponseWriter,r *http.Request){
  fail:=nativeXrayTopologyResponse{Success:false,State:"STOP",Reason:"native-xray-config-unavailable-or-contradictory",
