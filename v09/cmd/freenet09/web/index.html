@@ -174,13 +174,18 @@
             <input id="subscription-url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://provider.example/..." maxlength="4096" aria-describedby="subscription-warning">
             <button type="button" class="btn solid" id="subscription-preview">Проверить подписку</button>
           </div>
-          <p id="subscription-warning" class="muted">Ссылка и ключи не сохраняются, не показываются в результате и не записываются в журнал. Пока работа только через loopback; подключение с iPhone требует авторизации и защищённого Browser Setup.</p>
+          <p id="subscription-warning" class="muted">Предпросмотр не сохраняет ссылку. После входа по HTTPS можно сохранить и применить подписку: Xray сам проверит конфигурацию, а XKeen штатно перезапустит службу. При ошибке попытка изменения отменяется. VPN/HTTPS-трафик после применения требует отдельной проверки.</p>
+          <div id="subscription-apply-actions" class="subscription-apply-actions" hidden>
+            <button type="button" class="btn solid" id="subscription-apply" disabled>Применить просмотренную подписку</button>
+            <button type="button" class="btn outline" id="subscription-refresh">Обновить сохранённую</button>
+            <span class="state-chip neutral" id="subscription-applied-status">НЕ НАСТРОЕНО</span>
+          </div>
           <div id="subscription-preview-result" aria-live="polite" hidden>
             <div class="panel-heading"><h2>Найденные серверы: <span id="subscription-node-count">0</span></h2>
               <span class="state-chip neutral">НЕ ПРИМЕНЕНО</span></div>
             <div id="subscription-nodes-list" class="native-list"></div>
           </div>
-          <div class="notice compact"><span class="notice-icon">i</span><p>Это реальный разбор и предпросмотр подписки, но пока **не установка**. Сохранение, штатная Xray `-test` и применение через XKeen появятся только с защищённым управлением. При неизвестном формате — STOP без частичного импорта.</p></div>
+          <div class="notice compact"><span class="notice-icon">i</span><p>Применение доступно только в защищённой HTTPS-панели и при отсутствии прежнего контроллера FreeNet 0.8. FreeNet изменяет только собственный фрагмент Xray; пользовательские файлы XKeen/Xray не переписывает. Статус «применено» не означает подтверждённый клиентский VPN-маршрут.</p></div>
         </article>
       </section>
 
