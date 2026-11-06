@@ -1029,16 +1029,23 @@
   async function loadNativeXKeenSBStatus(){
     const view=q('#fn3NativeSBStatus');
     if(!view)return;
-    view.textContent='Читаем конфигурацию штатного XKeen 2.1 без запуска команд, обновлений или сетевых операций…';
+    view.textContent='Читаем конфигурацию штатного XKeen без запуска команд, обновлений или сетевых операций…';
     try{
       const data=await fetchJSON('/api/xkeen/speed-balancer',{method:'GET',cache:'no-store',credentials:'same-origin'});
+      const accepted=(data.installed_version==='2.1'&&data.installed_channel==='stable')||
+        (['2.1.1','2.2'].includes(data.installed_version)&&data.installed_channel==='beta');
       if(data.success!==true||data.owner!=='xkeen'||data.mutation!=='NONE'||
-        data.installed_version!=='2.1'||data.runtime!=='NOT_VERIFIED')throw new Error('unverified');
+        !accepted||data.runtime!=='NOT_VERIFIED')throw new Error('unverified');
+      const edition='XKeen '+data.installed_version+' '+(data.installed_channel==='beta'?'Beta':'Stable');
+      const manual=Array.isArray(data.native_commands)&&data.native_commands.includes('next');
+      const capabilities=manual?' Доступен штатный ручной выбор сервера (без вызова из FreeNet).':'';
       if(data.state==='configured-enabled'){
-        view.textContent='Штатный XKeen -sb включён в конфигурации. Интервал: '+data.interval_minutes+
-          ' мин, гистерезис: '+data.hysteresis_percent+'%. Активный Xray balancer и маршрут клиента ещё не подтверждены.';
+        view.textContent=edition+': -sb включён в конфигурации. Интервал: '+data.interval_minutes+
+          ' мин, гистерезис: '+data.hysteresis_percent+'%.'+capabilities+
+          ' Активный Xray balancer и маршрут клиента ещё не подтверждены.';
       }else if(data.state==='disabled'||data.state==='not-configured'){
-        view.textContent='Штатный XKeen -sb пока не включён в конфигурации. Для включения потребуется отдельный безопасный план. Никаких изменений не сделано.';
+        view.textContent=edition+': -sb пока не включён в конфигурации.'+capabilities+
+          ' Для включения потребуется отдельный безопасный план. Никаких изменений не сделано.';
       }else{throw new Error('unexpected')}
     }catch(_){
       view.textContent='Состояние штатного XKeen -sb неизвестно: STOP для настройки. Текущий VPN не менялся.';
