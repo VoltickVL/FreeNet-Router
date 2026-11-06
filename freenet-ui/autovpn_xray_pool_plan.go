@@ -17,6 +17,12 @@ import (
 
 const freeNetAutoPlanLifetime=120*time.Second
 
+// Management decision beta.87: XKeen 2.1 / Xray 26.10.31 own outbound
+// balancing. No new independent FreeNet Xray pool may be provisioned.
+// Existing active pools remain available to guarded status/switch/disable;
+// do not delete or rewrite their Xray configuration during migration.
+const freeNetAutoLegacyProvisionEnabled=false
+
 type freeNetAutoPlanRequest struct {
     SelectionToken string `json:"selection_token"`
     ProfileIDs []string `json:"profile_ids"`
@@ -125,6 +131,10 @@ func (a *app) handleFreeNetAutoPoolPlan(w http.ResponseWriter,r *http.Request){
     resp:=freeNetAutoPlanResponse{Mutation:"NONE",Status:"blocked"}
     var req freeNetAutoPlanRequest
     if !decodeFreeNetAutoJSON(w,r,&req){return}
+    if !freeNetAutoLegacyProvisionEnabled{
+        resp.Status="native-xkeen-sb-preferred-no-new-pool"
+        writeJSON(w,http.StatusConflict,resp);return
+    }
     if !a.visionQUICReady() || !freeNetAutoPoolPathAbsent(freeNetAutoPoolPending())||
         !freeNetAutoPoolPathAbsent(freeNetAutoPoolActive()){
         writeJSON(w,http.StatusConflict,resp);return

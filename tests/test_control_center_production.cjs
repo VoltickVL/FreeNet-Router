@@ -582,35 +582,52 @@ async function capture(label){
     await page.locator(T).click();await page.locator(P).waitFor({state:'visible'});await delay(100);await geometry(`${viewport.width}x${viewport.height}`);if(viewport.width<=760)assert.equal(await page.locator(RESIZE).isHidden(),true,`${viewport.width}px mobile picker must stay auto-sized and non-resizable`);if(viewport.width===390)await capture('mobile-list');await page.keyboard.press('Escape');assert.equal(await page.locator(P).isHidden(),true);
   }
 
-  // Live Pool UI regression: exercise the actual production Settings DOM at
-  // desktop/mobile widths, including a real backend-style preflight rejection.
-  // This is read-only fixture traffic; never POST activation or Xray mutation.
-  let poolScanScenario='none';
-  let poolPlanScenario='reject';
+  // Native XKeen owns balancing. A read-only Settings refresh must NEVER
+  // run xkeen -sb (it may self-heal Entware) or POST any legacy FreeNet pool.
   let poolActivationPosts=0;
+  let poolPlanPosts=0;
+  let poolScanPosts=0;
+  let nativeStatusGets=0;
+  let nativeSBEdition='stable';
   const poolStatusRoute=route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
     success:true,active:false,mutation:'NONE',status:'not-configured',api_reachable:false,core_identity_verified:false
   })});
-  const poolScanRoute=route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
-    success:true,selection_token:'abcdef0123456789abcdef0123456789',
-    candidates:poolScanScenario==='eligible'?[{id:'0123456789abcdef',eligible:true,available:true,tested:true,current:false}]:[]
-  })});
-  const poolPlanRoute=route=>route.fulfill({status:poolPlanScenario==='reject'?409:200,contentType:'application/json',body:JSON.stringify(
-    poolPlanScenario==='reject'
-      ?{success:false,ready:false,status:'full-xray-preflight-failed',error:'secret-must-not-be-displayed'}
-      :{success:true,ready:true,status:'ready',plan_token:'abcdef0123456789abcdef0123456789'}
-  )});
-  const poolActivateRoute=route=>{poolActivationPosts++;return route.fulfill({status:503,contentType:'application/json',body:'{}'});};
+  const poolScanRoute=route=>{poolScanPosts++;return route.fulfill({status:503,contentType:'application/json',body:'{}'});};
+  const poolPlanRoute=route=>{poolPlanPosts++;return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({
+    success:false,ready:false,mutation:'NONE',status:'native-xkeen-sb-preferred-no-new-pool'
+  })});};
+  const poolActivateRoute=route=>{poolActivationPosts++;return route.fulfill({status:409,contentType:'application/json',body:'{}'});};
+  const nativeStatusRoute=route=>{nativeStatusGets++;return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
+    success:true,owner:'xkeen',state:'configured-enabled',mutation:'NONE',
+    installed_version:nativeSBEdition==='beta'?'2.2':'2.1',
+    installed_channel:nativeSBEdition==='beta'?'beta':'stable',
+    enabled:true,interval_minutes:15,hysteresis_percent:25,runtime:'NOT_VERIFIED',
+    native_commands:nativeSBEdition==='beta'?['on','off','status','list','auto','next','prev','N']:['on','off','status']
+  })});};
   await page.route('**/api/automation/pool/status',poolStatusRoute);
   await page.route('**/api/vpn/best',poolScanRoute);
   await page.route('**/api/automation/pool/plan',poolPlanRoute);
   await page.route('**/api/automation/pool/activate',poolActivateRoute);
+  await page.route('**/api/xkeen/speed-balancer',nativeStatusRoute);
   await page.setViewportSize({width:1440,height:1000});
   await page.evaluate(()=>setPage('settings'));
   await until(()=>!!document.querySelector('#fn3PoolStatus'),'Pool UI mounted');
   await page.locator('#fn3AutoCard .fn3-title').click();
   await page.locator('#fn3PoolRefresh').click();
-  await until(()=>document.querySelector('#fn3PoolStatus')?.textContent.includes('Пул пока не включён'),'read-only pool status');
+  await until(()=>document.querySelector('#fn3NativeSBStatus')?.textContent.includes('XKeen 2.1 Stable: -sb включён'),'native read-only status');
+  await until(()=>document.querySelector('#fn3PoolStatus')?.textContent.includes('не создаётся'),'legacy pool frozen');
+  assert.equal(await page.locator('#fn3PoolPrepare').isDisabled(),true,'legacy new pool prepare must be disabled');
+  assert.equal(await page.locator('#fn3PoolActivate').isDisabled(),true,'legacy Xray pool activation must be disabled');
+  assert.ok(nativeStatusGets>0,'native XKeen status was not read');
+  nativeSBEdition='beta';
+  await page.locator('#fn3PoolRefresh').click();
+  await until(()=>document.querySelector('#fn3NativeSBStatus')?.textContent.includes('XKeen 2.2 Beta: -sb включён'),
+    '2.2 Beta detected without installing/updating XKeen');
+  assert.match(await page.locator('#fn3NativeSBStatus').innerText(),/Доступен штатный ручной выбор сервера/,
+    'beta native manual selection should be discoverable without triggering CLI');
+  nativeSBEdition='stable';
+  assert.doesNotMatch(await page.locator('#fn3NativeSBStatus').innerText(),/private|credential|uuid/i,
+    'native status must not display raw XKeen config or secrets');
   const poolActionIds=['fn3PoolPrepare','fn3PoolActivate','fn3PoolRefresh','fn3PoolNode','fn3PoolSwitch','fn3PoolDisable'];
   for(const width of [320,390,600,760,950,1024,1440]){
     await page.setViewportSize({width,height:1000});
@@ -641,23 +658,16 @@ async function capture(label){
   assert.ok(iconGeometry.distinct,'AUTO VPN and Video diagnostics must use different pictograms');
   assert.ok(Math.abs(iconGeometry.auto-iconGeometry.maintenance)<=5,'Maintenance icon must align with Settings headers: '+JSON.stringify(iconGeometry));
   assert.ok(Math.abs(iconGeometry.auto-iconGeometry.video)<=2,'AUTO VPN and Video icon alignment');
-  await page.locator('#fn3PoolPrepare').click();
-  await until(()=>document.querySelector('#fn3PoolStatus')?.textContent.includes('Не найдено ни одного полностью'),'no verified standby');
-  assert.equal(await page.locator('#fn3PoolActivate').isDisabled(),true,'no standby must not enable pool');
-  poolScanScenario='eligible';
-  await page.locator('#fn3PoolPrepare').click();
-  await until(()=>document.querySelector('#fn3PoolStatus')?.textContent.includes('Полная предварительная проверка'),'specific preflight error');
-  assert.equal(await page.locator('#fn3PoolActivate').isDisabled(),true,'preflight failure must disable activation');
-  assert.doesNotMatch(await page.locator('#fn3PoolStatus').textContent(),/secret-must-not-be-displayed|abcdef|0123456789/,'no raw secret/token in UI status');
-  poolPlanScenario='ok';
-  await page.locator('#fn3PoolPrepare').click();
-  await until(()=>document.querySelector('#fn3PoolStatus')?.textContent.includes('Готово: проверено'),'ready plan displayed');
-  assert.equal(await page.locator('#fn3PoolActivate').isEnabled(),true,'only verified plan enables manual activation');
-  assert.equal(poolActivationPosts,0,'UI diagnostics and plan must not activate Xray');
+  assert.equal(poolPlanPosts,0,'native-first Settings must never post legacy pool plan');
+  assert.equal(poolActivationPosts,0,'native-first Settings must never activate legacy Xray pool');
+  assert.equal(poolScanPosts,0,'native-first Settings must not perform a heavy pool scan');
+  assert.equal(await page.locator('#fn3PoolPrepare').isDisabled(),true);
+  assert.equal(await page.locator('#fn3PoolActivate').isDisabled(),true);
   await page.unroute('**/api/automation/pool/status',poolStatusRoute);
   await page.unroute('**/api/vpn/best',poolScanRoute);
   await page.unroute('**/api/automation/pool/plan',poolPlanRoute);
   await page.unroute('**/api/automation/pool/activate',poolActivateRoute);
+  await page.unroute('**/api/xkeen/speed-balancer',nativeStatusRoute);
   await page.locator(T).click();await geometry('settings-route');await page.keyboard.press('Escape');await page.evaluate(()=>setPage('overview'));
 
   for(let i=0;i<10;i++){await page.locator(T).click();await page.keyboard.press('Escape')}
