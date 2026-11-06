@@ -74,16 +74,26 @@ func validateXKeenListText(name, text string) (string,error) {
  for _,line:=range strings.Split(text,"\n") {
   val:=strings.TrimSpace(line)
   if val=="" || strings.HasPrefix(val,"#") {continue}
-  // Prevent executable shell content and ambiguous inline fragments. XKeen's
-  // documented list grammar accepts only address/CIDR or port/range.
-  if strings.ContainsAny(val," \t#;|&$<>\\") { return "",errors.New("invalid XKeen list entry") }
+  // XKeen 2.1 and the companion XKeen UIs accept host IPs, CIDRs and
+  // inline hash comments. Preserve file text, but validate the exact token
+  // the native XKeen sed/grep loader will use. Never execute the list.
   if name=="ip_exclude.lst" {
-   if _,err:=netip.ParseAddr(val);err==nil {
-    return "",errors.New("single IP requires a /32 or /128 mask")
+   val=strings.TrimSpace(strings.SplitN(val,"#",2)[0])
+   if val=="" {continue}
+  }
+  if strings.ContainsAny(val," \\t#;|&$<>\\\\") { return "",errors.New("invalid XKeen list entry") }
+  if name=="ip_exclude.lst" {
+   var prefix netip.Prefix
+   if addr,err:=netip.ParseAddr(val);err==nil {
+    bits:=128
+    if addr.Is4(){bits=32}
+    prefix=netip.PrefixFrom(addr,bits)
+   } else {
+    parsed,err:=netip.ParsePrefix(val)
+    if err!=nil{return "",errors.New("invalid IP or CIDR in XKeen list")}
+    prefix=parsed
    }
-   p,err:=netip.ParsePrefix(val)
-   if err!=nil {return "",errors.New("invalid IP or CIDR in XKeen list")}
-   if xkeenDangerouslyBroadLAN(p) {
+   if xkeenDangerouslyBroadLAN(prefix) {
     return "",errors.New("broad LAN CIDR exclusion would bypass VPN for clients; comment out that line")
    }
   } else {
