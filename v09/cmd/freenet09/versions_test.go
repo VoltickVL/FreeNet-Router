@@ -26,13 +26,13 @@ func TestNativeVersionAPIUsesOfficialFixedCommandsAndHidesRawOutput(t *testing.T
   echo "UNSAFE_XKEEN_COMMAND" >&2
   exit 19
 fi
-printf 'XKeen 2.1\\nsubscription=https://SECRET-SUBSCRIPTION\\n'
+printf 'XKeen 2.1\nsubscription=https://SECRET-SUBSCRIPTION\n'
 `)
     fakeNativeBinary(t,root,"xray",`if [ "$1" != "version" ] || [ "$#" -ne 1 ]; then
   echo "UNSAFE_XRAY_COMMAND" >&2
   exit 19
 fi
-printf 'Xray 26.10.31 (Xray, Penetrates Everything.)\\nReality SECRET-PRIVATE-KEY\\n'
+printf 'Xray 26.10.31 (Xray, Penetrates Everything.)\nReality SECRET-PRIVATE-KEY\n'
 `)
     api:=handlersWithProc(root,t.TempDir())
     rec:=httptest.NewRecorder()
@@ -65,7 +65,7 @@ func TestNativeVersionMissingSymlinkAndInvalidOutputAreUnknown(t *testing.T){
     if empty.XKeen.State!="MISSING" || empty.Xray.State!="MISSING" {
         t.Fatalf("missing stack must be MISSING: %+v",empty)
     }
-    fakeNativeBinary(t,root,"xray",`printf 'Xray secret.example token=NO-PUBLIC-CONFIG\\n'
+    fakeNativeBinary(t,root,"xray",`printf 'Xray secret.example token=NO-PUBLIC-CONFIG\n'
 `)
     if got:=oneNativeVersion(context.Background(),root,"xray");got.State!="UNKNOWN"||got.Version!=""{
         t.Fatalf("invalid version exposed: %+v",got)
@@ -92,7 +92,7 @@ func TestNativeVersionMissingSymlinkAndInvalidOutputAreUnknown(t *testing.T){
 func TestNativeVersionTimeoutFailsClosed(t *testing.T){
     root:=t.TempDir()
     fakeNativeBinary(t,root,"xkeen",`sleep 3
-printf 'XKeen 2.1\\n'
+printf 'XKeen 2.1\n'
 `)
     ctx,cancel:=context.WithTimeout(context.Background(),25*time.Millisecond)
     defer cancel()
@@ -108,16 +108,16 @@ printf 'XKeen 2.1\\n'
 
 func TestNativeVersionsNeverClaimVPNRuntimeVerified(t *testing.T){
     root:=t.TempDir()
-    fakeNativeBinary(t,root,"xkeen",`printf '2.1\\n'
+    fakeNativeBinary(t,root,"xkeen",`printf '2.1\n'
 `)
-    fakeNativeBinary(t,root,"xray",`printf 'Xray 26.10.31\\n'
+    fakeNativeBinary(t,root,"xray",`printf 'Xray 26.10.31\n'
 `)
     got:=detectNativeVersions(context.Background(),root)
     if got.Runtime!="NOT_VERIFIED" || got.XKeen.Version!="2.1" ||
         got.Xray.Version!="26.10.31" {
         t.Fatalf("versions must not be confused with egress: %+v",got)
     }
-    fakeNativeBinary(t,root,"xray",`printf 'Xray 26.10.31\\n'
+    fakeNativeBinary(t,root,"xray",`printf 'Xray 26.10.31\n'
 `)
     if err:=os.Chmod(filepath.Join(root,"sbin/xray"),0600);err!=nil{t.Fatal(err)}
     nonexec:=oneNativeVersion(context.Background(),root,"xray")
