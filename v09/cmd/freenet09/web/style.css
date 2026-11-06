@@ -158,6 +158,16 @@ main{max-width:1570px;margin:auto;padding:29px clamp(20px,3vw,48px) 40px}
   border:1px solid var(--border-hi);background:rgba(48,61,99,.18);
   border-radius:13px;padding:14px;margin:18px 0}
 .subscription-apply-actions .state-chip{white-space:normal;overflow-wrap:anywhere}
+.native-selector-picker{width:100%;display:flex;flex-direction:column;gap:7px;
+  margin-bottom:4px;padding:12px;background:rgba(8,16,31,.30);
+  border:1px solid var(--border);border-radius:12px}
+.native-selector-picker label{font-weight:690;font-size:12px;color:#dce8ff}
+.native-selector-picker select{max-width:100%;width:100%;height:42px;min-width:0;
+  background:#0e192e;color:var(--text);border:1px solid var(--border-hi);
+  border-radius:10px;padding:0 12px;outline-offset:3px;font:inherit}
+.native-selector-picker select:disabled{opacity:.68}
+.native-selector-picker small{font-size:11px;line-height:1.55;color:var(--muted)}
+
 @media(max-width:760px){.subscription-apply-actions{flex-direction:column;align-items:stretch}
   .subscription-apply-actions .btn{width:100%}}
 .subscription-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin:18px 0 10px}
