@@ -89,7 +89,10 @@ func subscriptionOperationWithFetch(ctx context.Context,root,procRoot,submittedU
             return nativeApplyResult{State:"ROLLBACK_FAILED",Runtime:"UNKNOWN",Applied:false}
         }
         // Restart official XKeen, not a FreeNet-defined second VPN.
-        if !synchronousXKeen(context.Background(),root,"-restart") {
+        if !synchronousXKeen(context.Background(),root,"-restart") ||
+            !synchronousXKeen(context.Background(),root,"-status") ||
+            !xrayProcessSeenSoon(procRoot) {
+            // A successful exit from restart alone is not rollback proof.
             return nativeApplyResult{State:"ROLLBACK_FAILED",Runtime:"UNKNOWN",Applied:false}
         }
         return nativeApplyResult{State:"ROLLED_BACK",Runtime:"NOT_VERIFIED",Applied:false}
