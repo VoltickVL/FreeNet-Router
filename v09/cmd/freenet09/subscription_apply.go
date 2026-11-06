@@ -42,6 +42,11 @@ func subscriptionOperationWithFetch(ctx context.Context,root,procRoot,submittedU
     if err!=nil{return result}
     candidate,err:=nativeSubscriptionCandidate(nodes)
     if err!=nil{return result}
+    // An unchanged upstream subscription must not restart a working router.
+    if oldState.URL==subscriptionURL && oldState.SHA256==hashConfig(candidate) {
+        return nativeApplyResult{State:"CONFIG_APPLIED_NOT_EGRESS_VERIFIED",
+            Runtime:"NOT_VERIFIED",Count:len(nodes),Applied:true}
+    }
     valid,err:=stageNativeSubscription(root,source,candidate)
     if err!=nil || !valid {
         return nativeApplyResult{State:"REJECTED",Runtime:"NOT_VERIFIED",Applied:false}
