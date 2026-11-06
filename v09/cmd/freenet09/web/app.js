@@ -101,6 +101,7 @@
 
   async function refreshEvidence(silent = false) {
     if (refresh) refresh.disabled = true;
+    if (!silent) setField("xrayValidation", "НЕ ЗАПУСКАЛАСЬ");
     try {
       const [overview, topology, system, versions] = await Promise.all([
         readJSON("/api/overview"),
@@ -146,6 +147,26 @@
       if (refresh) refresh.disabled = false;
     }
   }
+
+  const nativeValidateButtons = document.querySelectorAll('[data-action="validate-xray"]');
+  async function validateNativeXrayFromBrowser() {
+    nativeValidateButtons.forEach(button => { button.disabled = true; });
+    setField("xrayValidation", "ПРОВЕРЯЕТСЯ");
+    try {
+      const result = await readJSON("/api/native/xray/validate");
+      const allowed = new Set(["VALIDATED_CONFIG_ONLY", "REJECTED", "UNKNOWN", "TIMEOUT", "MISSING", "BUSY"]);
+      const state = allowed.has(result?.state) ? result.state : "UNKNOWN";
+      setField("xrayValidation", state);
+      status("Штатная проверка Xray: " + state + ". VPN/HTTPS по-прежнему NOT_VERIFIED.");
+    } catch (_) {
+      setField("xrayValidation", "UNKNOWN");
+      status("Не удалось проверить конфигурацию Xray. Изменения не выполнялись.");
+    } finally {
+      nativeValidateButtons.forEach(button => { button.disabled = false; });
+    }
+  }
+  nativeValidateButtons.forEach(button =>
+    button.addEventListener("click", validateNativeXrayFromBrowser));
 
   refresh?.addEventListener("click", () => refreshEvidence(false));
   refreshEvidence(true);
