@@ -69,6 +69,7 @@ main{max-width:1570px;margin:auto;padding:29px clamp(20px,3vw,48px) 40px}
 .btn.solid{background:linear-gradient(112deg,#9870ee,#7553df);border:1px solid #b19af5;
   color:#fff;box-shadow:0 8px 20px rgba(99,65,207,.21)}
 .btn.solid:hover{filter:brightness(1.1)}
+.refresh-icon{font-size:19px;line-height:1;vertical-align:middle;margin-right:8px}
 .notice{display:flex;align-items:flex-start;gap:13px;padding:15px 18px;border:1px solid rgba(134,151,198,.18);
   border-radius:13px;background:rgba(43,56,87,.35);margin:0 0 22px;color:var(--muted)}
 .notice-accent{background:linear-gradient(112deg,rgba(87,64,161,.19),rgba(51,67,113,.21));
@@ -214,8 +215,9 @@ main{max-width:1570px;margin:auto;padding:29px clamp(20px,3vw,48px) 40px}
   .page-heading{align-items:flex-start;margin-bottom:20px}
   .page-heading h1{font-size:30px}
   .page-heading p{font-size:12px}
-  .page-heading .btn{font-size:0;min-width:42px;width:42px;height:42px;padding:0;white-space:nowrap}
-  .page-heading .btn::first-letter{font-size:18px}
+  .page-heading .btn{min-width:42px;width:42px;height:42px;padding:0;white-space:nowrap}
+  .page-heading .refresh-icon{font-size:23px;margin:0}
+  .page-heading .refresh-label{display:none}
   .notice{padding:13px;gap:10px}
   .component-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-bottom:13px}
   .component-card{border-radius:13px;min-height:133px;padding:12px 9px}
