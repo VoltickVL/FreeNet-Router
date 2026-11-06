@@ -154,6 +154,12 @@ main{max-width:1570px;margin:auto;padding:29px clamp(20px,3vw,48px) 40px}
 .subscription-promo h2{font-size:18px;margin-bottom:6px}
 .subscription-promo p{font-size:12px;line-height:1.55;color:#cbd5eb;margin:0}
 .subscription-promo .btn{margin-left:auto}
+.subscription-apply-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  border:1px solid var(--border-hi);background:rgba(48,61,99,.18);
+  border-radius:13px;padding:14px;margin:18px 0}
+.subscription-apply-actions .state-chip{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:760px){.subscription-apply-actions{flex-direction:column;align-items:stretch}
+  .subscription-apply-actions .btn{width:100%}}
 .subscription-input-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:end;margin:18px 0 10px}
 .subscription-label{grid-column:1/-1;font-size:12px;font-weight:700;color:var(--muted)}
 .subscription-input-row input{min-width:0;width:100%;height:44px;background:#0b1528;border:1px solid var(--border-hi);
