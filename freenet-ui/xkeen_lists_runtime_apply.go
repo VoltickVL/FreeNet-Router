@@ -159,9 +159,28 @@ func xkeenIPSetParse(raw,name,family string)([]string,[]string,error){
    if found || len(f)<5 || f[1]!=name || f[2]!="hash:net" || f[3]!="family" || f[4]!=family || (len(f)-5)%2!=0{return nil,nil,errors.New("unexpected ipset kind")}
    seen:=map[string]bool{}
    for i:=5;i<len(f);i+=2{
-    if (f[i]!="hashsize"&&f[i]!="maxelem")||seen[f[i]]{return nil,nil,errors.New("unsupported ipset options")}
-    n,e:=strconv.Atoi(f[i+1]);if e!=nil||n<1||n>1<<20{return nil,nil,errors.New("invalid ipset option")}
-    seen[f[i]]=true
+    key,value:=f[i],f[i+1]
+    if seen[key]{return nil,nil,errors.New("duplicate ipset option")}
+    seen[key]=true
+    switch key {
+    // The official XKeen 2.1 uses plain hash:net sets. ipset versions
+    // may serialize implementation-only bucketsize/initval; these remain
+    // part of the exact staged set definition, never silently dropped.
+    case "hashsize","maxelem","bucketsize":
+     n,e:=strconv.Atoi(value)
+     limit:=1<<20
+     if key=="bucketsize"{limit=64}
+     if e!=nil||n<1||n>limit{return nil,nil,errors.New("invalid ipset capacity option")}
+    case "initval":
+     if len(value)<3||len(value)>10||!strings.HasPrefix(value,"0x"){
+      return nil,nil,errors.New("invalid ipset initial hash")}
+     for _,c:=range value[2:]{if !strings.ContainsRune("0123456789abcdefABCDEF",c){
+      return nil,nil,errors.New("invalid ipset initial hash")}}
+    default:
+     // timeout/nomatch/counters/comment/netmask/bitmask/forceadd may alter
+     // membership semantics. Never replace a set whose effects are unknown.
+     return nil,nil,errors.New("unsupported ipset options")
+    }
    }
    found=true;opts=append([]string(nil),f[5:]...)
   case "add":
