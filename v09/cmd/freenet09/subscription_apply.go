@@ -106,6 +106,13 @@ func subscriptionOperationWithFetch(ctx context.Context,root,procRoot,submittedU
         !xrayProcessSeenSoon(procRoot) {
         return rollback()
     }
+    // A successful native service status does not prove XKeen preserved the
+    // exact fragment submitted to Xray. Verify the on-disk candidate before
+    // recording a successful import; never silently trust a rewritten file.
+    live,readErr:=readNativeConfdir(root)
+    if readErr!=nil || !bytes.Equal(live[subscriptionFragmentName],candidate) {
+        return rollback()
+    }
     newState:=nativeSubscriptionState{URL:subscriptionURL,SHA256:hashConfig(candidate)}
     stateData,err:=json.Marshal(newState)
     if err!=nil {return rollback()}
