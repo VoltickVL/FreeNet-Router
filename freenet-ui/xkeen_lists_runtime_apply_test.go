@@ -178,7 +178,7 @@ func TestXKeenIPSetOfficialCompatibleHashSave(t *testing.T){
 }
 
 func TestXKeenIPSetExistingPartnerUIHostAddressParity(t *testing.T){
- v4,v6,err:=xkeenIPSetDesired("# owned by XKeen UI\n77.88.8.8\n2001:db8::11\n198.51.100.0/24\n")
+ v4,v6,err:=xkeenIPSetDesired("# owned by XKeen UI\n77.88.8.8 # host\n2001:db8::11\n198.51.100.0/24\n")
  if err!=nil{t.Fatal(err)}
  if got:=strings.Join(v4,",");got!="198.51.100.0/24,77.88.8.8/32"{
   t.Fatalf("native XKeen host/CIDR grammar not preserved: %s",got)
