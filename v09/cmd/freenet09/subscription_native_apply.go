@@ -19,7 +19,10 @@ import (
     "time"
 )
 
-const subscriptionFragmentName = "04_zz_freenet09_subscription.json"
+// Official Xray confdir merge PREPENDS new outbound arrays unless the file
+// name contains "tail". Never hijack the existing default outbound or change
+// DIRECT/VPN routing simply because the user imported a subscription.
+const subscriptionFragmentName = "04_zz_freenet09_subscription_tail.json"
 const subscriptionStateName = "subscription-state.json"
 const maxNativeConfigs = 100
 const maxNativeConfigAggregate = 16 << 20
