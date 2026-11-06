@@ -4,12 +4,17 @@
 set -eu
 umask 077
 
-VERSION=v0.9.0-dev
 MODE="${1:-}"
 BUNDLE="${2:-}"
 
 say() { printf '%s\n' "$*"; }
 stop() { say "STOP: $*" >&2; exit 1; }
+
+SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" 2>/dev/null && pwd)" || stop "installer path not found"
+VERSION_FILE="$SCRIPT_DIR/../VERSION"
+[ -f "$VERSION_FILE" ] && [ ! -L "$VERSION_FILE" ] || stop "exact v09 VERSION missing"
+VERSION="$(tr -d '\r\n' < "$VERSION_FILE")"
+case "$VERSION" in v0.9.0-dev|v0.9.0) ;; *) stop "unsupported 0.9 release version" ;; esac
 
 case "$MODE" in plan|apply|status) ;; *) stop 'usage: stage.sh plan|apply|status [bundle-dir]' ;; esac
 if [ "${FREENET_V09_TEST_MODE:-no}" = yes ]; then
