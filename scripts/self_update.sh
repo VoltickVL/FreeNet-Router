@@ -613,12 +613,42 @@ download_verified_asset() {
     return 1
 }
 
+# Reuse only an existing, ordinary FreeNet-owned file whose digest is
+# identical to the independently fetched exact-release manifest. Copying into
+# private staging (never hardlinking) keeps later live changes out of the
+# candidate. A second digest check closes the read/copy race; ANY uncertainty
+# falls back to the original bounded HTTPS download and SHA verification.
+reuse_verified_installed_asset() {
+    NAME="$1"
+    OUT="$2"
+    DEST="$(asset_dest "$NAME")" || return 1
+    [ -f "$DEST" ] && [ ! -L "$DEST" ] && [ -r "$DEST" ] || return 1
+    SIZE="$(wc -c < "$DEST" 2>/dev/null | tr -d '[:space:]')" || return 1
+    case "$SIZE" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$SIZE" -gt 0 ] && [ "$SIZE" -le 67108864 ] || return 1
+    EXPECTED="$(manifest_expected "$NAME")"
+    [ -n "$EXPECTED" ] || return 1
+    ACTUAL="$(sha256sum "$DEST" 2>/dev/null | awk '{print $1}')" || return 1
+    [ "$ACTUAL" = "$EXPECTED" ] || return 1
+    rm -f "$OUT" 2>/dev/null || return 1
+    if ! cp "$DEST" "$OUT" 2>/dev/null || ! verify_asset "$NAME" "$OUT"; then
+        rm -f "$OUT" 2>/dev/null || true
+        return 1
+    fi
+    if [ "$MODE" = apply ] && [ "$LOCK_HELD" = 1 ]; then
+        write_state CHECKING "$TARGET_TAG" "SHA-256 подтверждён: $NAME уже установлен; используем проверенную копию" '' NOT_NEEDED '' || true
+    fi
+    return 0
+}
+
 download_assets() {
     TAG="$1"
     fetch_manifest "$TAG" || return 1
     BASE="https://github.com/$REPO/releases/download/$TAG"
     for NAME in $(asset_list); do
-        download_verified_asset "$NAME" "$BASE/$NAME" "$TMP_DIR/$NAME" || return 1
+        if ! reuse_verified_installed_asset "$NAME" "$TMP_DIR/$NAME"; then
+            download_verified_asset "$NAME" "$BASE/$NAME" "$TMP_DIR/$NAME" || return 1
+        fi
         MODE_NOW="$(asset_mode "$NAME")"
         if ! chmod "$MODE_NOW" "$TMP_DIR/$NAME" 2>/dev/null; then
             LAST_DOWNLOAD_ERROR="cannot set staged mode for $NAME"
