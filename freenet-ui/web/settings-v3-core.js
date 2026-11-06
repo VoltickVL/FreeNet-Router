@@ -241,6 +241,7 @@
                   <button id="fn3PoolRefresh" class="btn secondary" type="button">Проверить состояние</button>
                 </div>
                 <div id="fn3NativeSBStatus" class="fn3-pool-status" role="status" aria-live="polite" data-tone="neutral">XKeen -sb: проверка не запускалась. FreeNet не меняет ядро и настройки.</div>
+                <div id="fn3NativeXrayTopology" class="fn3-pool-status" role="status" aria-live="polite" data-tone="neutral">Серверы и балансировщики Xray: только чтение конфигурации, без проверки клиентского маршрута.</div>
               </div>
               <div class="fn3-pool-step">
                 <label class="fn3-pool-step-label" for="fn3PoolNode">Выбор сервера действующего пула</label>
@@ -1051,9 +1052,33 @@
       view.textContent='Состояние штатного XKeen -sb неизвестно: STOP для настройки. Текущий VPN не менялся.';
     }
   }
+  async function loadNativeXrayTopology(){
+    const view=q('#fn3NativeXrayTopology');
+    if(!view)return;
+    view.textContent='Читаем список штатных Xray outbound и balancer без запуска ядра или сетевых проверок…';
+    try{
+      const data=await fetchJSON('/api/native/xray/topology',{method:'GET',cache:'no-store',credentials:'same-origin'});
+      if(data.success!==true||data.mutation!=='NONE'||data.runtime!=='NOT_VERIFIED'||
+        !['CONFIG_ONLY','NO_BALANCER'].includes(data.state)||
+        !Array.isArray(data.servers)||!Array.isArray(data.balancers))throw new Error('unknown');
+      const nodes=data.servers.filter(item=>item&&
+        !['freedom','blackhole','dns','loopback'].includes(item.protocol));
+      const labels=nodes.slice(0,12).map(item=>
+        String(item.name||'Сервер')+(item.eligible?' (в пуле)':'')).join(', ');
+      const extra=nodes.length>12?' и ещё '+(nodes.length-12):'';
+      const compatible=data.balancers.filter(item=>item.native_sb_compatible).length;
+      view.textContent='Xray: '+nodes.length+' VPN outbound; балансировщиков: '+
+        data.balancer_count+', из них '+compatible+' имеют leastPing и 2+ узла. '+
+        (labels?'Серверы: '+labels+extra+'. ':'')+
+        'Это сохранённая конфигурация, а не проверенный маршрут клиента.';
+    }catch(_){
+      view.textContent='Xray topology: STOP — файлы отсутствуют, противоречат друг другу или небезопасны. Действующие VPN и маршруты не изменены.';
+    }
+  }
   async function loadAutoPoolStatus() {
     if(autoPoolBusy)return;
     void loadNativeXKeenSBStatus();
+    void loadNativeXrayTopology();
     try {
       const data=await fetchJSON('/api/automation/pool/status',{cache:'no-store',credentials:'same-origin'});
       autoPoolNodes=Array.isArray(data.nodes)?data.nodes:[];
