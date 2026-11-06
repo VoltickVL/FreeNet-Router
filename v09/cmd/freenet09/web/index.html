@@ -58,9 +58,9 @@
           <article class="component-card"><div class="component-top"><span class="mini-logo infinity">∞</span><span class="state-chip purple">PREVIEW</span></div><h3>FreeNet</h3>
             <div class="component-version">{{.Version}}</div><p>Новая веб-панель · без наследия 0.8</p></article>
           <article class="component-card"><div class="component-top"><span class="mini-logo xkeen">X</span><span class="state-chip neutral" data-field="xkeenInit">{{.System.XKeenInit}}</span></div><h3>XKeen</h3>
-            <div class="component-version">Native</div><p>Штатная интеграция роутера. Версия ещё не подтверждена.</p></article>
+            <div class="component-version" data-field="xkeenVersion">Не проверено</div><p>Версия из официальной команды XKeen -v</p></article>
           <article class="component-card"><div class="component-top"><span class="mini-logo xray">✳</span><span class="state-chip neutral" data-field="xrayProcess">{{.System.XrayProcess}}</span></div><h3>Xray-core</h3>
-            <div class="component-version">Native</div><p>Признак процесса ≠ подтверждение VPN-трафика</p></article>
+            <div class="component-version" data-field="xrayVersion">Не проверено</div><p>Версия ядра, не проверка VPN-трафика</p></article>
         </div>
 
         <div class="overview-columns">
@@ -132,6 +132,7 @@
 
       <section id="xkeen" class="view" aria-labelledby="xkeen-title" hidden>
         <div class="page-heading"><div><span class="eyebrow">ОРИГИНАЛЬНЫЙ XKEEN</span><h1 id="xkeen-title">XKeen</h1><p>Один владелец сетевой интеграции, IPSET и GeoData.</p></div></div>
+        <div class="version-line">Версия официального XKeen: <strong data-field="xkeenVersion">Не проверено</strong></div>
         <div class="detail-grid"><div class="panel detail-card"><span>Служба</span><h2 data-field="xkeenInit">{{.System.XKeenInit}}</h2><small>Наличие init — не статус работы</small></div>
           <div class="panel detail-card"><span>Настройки</span><h2 data-field="xkeenConfig">{{.System.XKeenConfig}}</h2><small>Штатный xkeen.json</small></div>
           <div class="panel detail-card"><span>GeoData</span><h2><span data-field="geoCount">{{.System.GeoData.Files}}</span> файлов</h2><small>Не оценка актуальности</small></div></div>
@@ -141,6 +142,7 @@
 
       <section id="xray" class="view" aria-labelledby="xray-title" hidden>
         <div class="page-heading"><div><span class="eyebrow">ОРИГИНАЛЬНЫЙ XRAY-CORE</span><h1 id="xray-title">Xray</h1><p>Рабочее VPN-ядро. FreeNet не заменяет Xray алгоритмами собственной разработки.</p></div></div>
+        <div class="version-line">Версия Xray-core: <strong data-field="xrayVersion">Не проверено</strong></div>
         <div class="detail-grid"><div class="panel detail-card"><span>Бинарник</span><h2 data-field="binaryXray">{{.Xray}}</h2></div>
           <div class="panel detail-card"><span>Процесс</span><h2 data-field="xrayProcess">{{.System.XrayProcess}}</h2></div>
           <div class="panel detail-card"><span>VPN / HTTPS egress</span><h2>NOT_VERIFIED</h2></div></div>
@@ -149,6 +151,7 @@
 
       <section id="updates" class="view" aria-labelledby="updates-title" hidden>
         <div class="page-heading"><div><span class="eyebrow">NATIVE UPDATES</span><h1 id="updates-title">Обновления</h1><p>Используем официальные механизмы и проверяем exact версию, а не создаём второй загрузчик.</p></div></div>
+        <div class="version-line">Установлены: XKeen <strong data-field="xkeenVersion">Не проверено</strong> · Xray <strong data-field="xrayVersion">Не проверено</strong>. Доступность обновлений не проверялась.</div>
         <div class="panel">{{range .UpdateTargets}}<div class="list-line"><div><strong>{{.}}</strong><small>Проверка версии и безопасного rollback — обязательный шаг</small></div><span class="state-chip neutral">НЕ ПРОВЕРЕНО</span></div>{{end}}</div>
         <div class="notice"><span class="notice-icon">i</span><p>Штатный XKeen обновляет XKeen/Xray/GeoData; FreeNet обновляется через собственный проверяемый A/B. Запуск обновлений будет активен только после browser-auth и проверки rollback.</p></div>
       </section>
