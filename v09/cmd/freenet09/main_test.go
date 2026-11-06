@@ -54,7 +54,7 @@ func TestNativeOverviewNeverReadsConfigOrDisclosesSecrets(t *testing.T) {
     }
     page := httptest.NewRecorder()
     h.ServeHTTP(page,httptest.NewRequest(http.MethodGet,"/",nil))
-    if page.Code != http.StatusOK || !strings.Contains(page.Body.String(),"Control Center 0.9") {
+    if page.Code != http.StatusOK || !strings.Contains(page.Body.String(),"FreeNet 0.9 · Control Center") {
         t.Fatal("preview page not rendered")
     }
     if strings.Contains(page.Body.String(), "CREDENTIAL-NEVER-EXPOSE") {
