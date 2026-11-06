@@ -136,6 +136,17 @@
         <div class="detail-grid"><div class="panel detail-card"><span>Служба</span><h2 data-field="xkeenInit">{{.System.XKeenInit}}</h2><small>Наличие init — не статус работы</small></div>
           <div class="panel detail-card"><span>Настройки</span><h2 data-field="xkeenConfig">{{.System.XKeenConfig}}</h2><small>Штатный xkeen.json</small></div>
           <div class="panel detail-card"><span>GeoData</span><h2><span data-field="geoCount">{{.System.GeoData.Files}}</span> файлов</h2><small>Не оценка актуальности</small></div></div>
+        <article class="panel">
+          <div class="panel-heading"><h2>Штатная служба XKeen</h2>
+            <span class="state-chip neutral" id="xkeen-service-state">НЕ ПРОВЕРЕНО</span></div>
+          <p class="muted">Статус и управление выполняются оригинальным `S05xkeen`, без второго VPN-движка. Наличие процесса не подтверждает клиентский VPN/HTTPS.</p>
+          <div class="subscription-apply-actions" id="xkeen-service-actions" hidden>
+            <button type="button" class="btn outline" data-xkeen-action="start">Запустить</button>
+            <button type="button" class="btn outline" data-xkeen-action="restart">Перезапустить</button>
+            <button type="button" class="btn outline" data-xkeen-action="stop">Остановить</button>
+          </div>
+          <div class="notice compact"><span class="notice-icon">i</span><p>Остановка XKeen может прервать VPN. Каждое действие требует подтверждения и доступно только через авторизованный HTTPS. Одновременное применение подписки блокируется.</p></div>
+        </article>
         <article class="panel"><div class="panel-heading"><h2>Штатные задания cron</h2></div><div class="list-line"><div><strong>Обновление GeoData / GeoIPSET</strong><small>XKeen `-ug`</small></div><span class="state-chip neutral" data-field="geoCron">{{.System.XKeenGeoCron}}</span></div>
           <div class="list-line"><div><strong>Балансировка по скорости</strong><small>XKeen `-sbt`</small></div><span class="state-chip neutral" data-field="speedCron">{{.System.XKeenBalancerCron}}</span></div></article>
       </section>
