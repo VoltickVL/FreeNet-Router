@@ -44,6 +44,7 @@ jobs:
       - name: Validate PWA JavaScript, manifest and static icons
         run: |
           node --check v09/cmd/freenet09/web/app.js
+          node --check v09/cmd/freenet09/web/login.js
           node --check v09/cmd/freenet09/web/sw.js
           node -e 'const fs=require("fs"),path=require("path");const dir="v09/cmd/freenet09/web";const m=JSON.parse(fs.readFileSync(path.join(dir,"manifest.webmanifest"),"utf8"));if(m.display!=="standalone")process.exit(1);for(const i of m.icons){if(!fs.existsSync(path.join(dir,path.basename(i.src))))throw Error("Missing PWA icon "+i.src)}'
       - name: Go race tests and vet (new code only)

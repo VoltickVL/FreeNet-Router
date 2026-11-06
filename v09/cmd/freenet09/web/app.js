@@ -6,6 +6,27 @@
   const selectors = document.querySelectorAll("a[data-view]");
   const feedback = document.getElementById("feedback");
   const refresh = document.getElementById("refresh");
+  const logoutButton = document.getElementById("admin-logout");
+  fetch("/api/auth/status", {cache:"no-store",credentials:"same-origin"}).then(r => {
+    if (!r.ok) return null;
+    return r.json();
+  }).then(result => {
+    if (result?.authenticated && logoutButton) logoutButton.hidden = false;
+  }).catch(() => {});
+  logoutButton?.addEventListener("click", async () => {
+    logoutButton.disabled = true;
+    try {
+      const result = await fetch("/api/auth/logout", {
+        method:"POST", credentials:"same-origin", cache:"no-store",
+        headers:{"X-FreeNet-Action":"logout"}
+      });
+      if (!result.ok) throw new Error("logout-unavailable");
+      window.location.replace("/");
+    } catch (_) {
+      logoutButton.disabled = false;
+    }
+  });
+
   const mobileSheet = document.getElementById("mobile-sheet");
   const moreButton = document.getElementById("more-toggle");
   const closeMore = document.getElementById("more-close");

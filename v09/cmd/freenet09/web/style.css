@@ -163,6 +163,20 @@ main{max-width:1570px;margin:auto;padding:29px clamp(20px,3vw,48px) 40px}
 #subscription-preview-result{border-top:1px solid var(--border);margin-top:22px;padding-top:22px}
 @media(max-width:760px){.subscription-input-row{grid-template-columns:1fr}
   .subscription-input-row button{width:100%;min-height:44px}}
+.login-page{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:25px 16px}
+.login-card{width:100%;max-width:450px;display:flex;flex-direction:column;gap:14px;padding:38px 32px}
+.login-card h1{font-size:29px;letter-spacing:-.04em;margin:0}
+.login-card>.muted{line-height:1.6;margin:0}
+.login-card .subscription-label{margin-top:10px}
+.login-card input{height:48px;min-width:0;border-radius:12px;padding:10px 14px;background:#0b1528;
+  border:1px solid var(--border-hi);color:var(--text);font:inherit}
+.login-card input:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.login-card .btn{min-height:45px}
+.login-icon{border-radius:17px}
+.login-card #login-error{min-height:20px;font-size:12px;color:var(--amber)}
+.login-card .login-note{font-size:11px;color:var(--muted-2)}
+.logout-button{padding:7px 12px;min-height:31px}
+@media(max-width:760px){.login-card{padding:28px 20px}.logout-button{font-size:11px;padding:6px 9px}}
 .app-footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--muted-2)}
 .list-layout{display:grid;grid-template-columns:1.12fr 1fr;gap:20px}
 .native-list{max-height:68vh;overflow-y:auto}

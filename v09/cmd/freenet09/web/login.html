@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#10182c">
+<meta name="color-scheme" content="dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FreeNet">
+<title>Вход · FreeNet 0.9</title>
+<link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icon-180.png">
+<link rel="stylesheet" href="/static/style.css">
+<script defer src="/static/login.js"></script>
+</head>
+<body>
+<main class="login-page">
+  <section class="login-card panel" aria-labelledby="login-title">
+    <img src="/static/icon.svg" alt="" class="login-icon" width="70" height="70">
+    <span class="eyebrow">FREENET CONTROL CENTER · 0.9</span>
+    <h1 id="login-title">Вход в панель</h1>
+    <p class="muted">Оригинальные XKeen + Xray. Для управления нужен администраторский код, полученный при первоначальной настройке.</p>
+    <label class="subscription-label" for="admin-pair-code">Код администратора</label>
+    <input id="admin-pair-code" type="password" placeholder="Код первоначальной настройки"
+      autocomplete="current-password" autocapitalize="off" spellcheck="false"
+      minlength="43" maxlength="128" required>
+    <button type="button" class="btn solid" id="admin-login">Войти</button>
+    <p id="login-error" class="muted" role="status" aria-live="polite"></p>
+    <p class="muted login-note">Соединение защищено HTTPS. Код не публикуется и не попадает в диагностические журналы. Панель не создаёт отдельный VPN-движок.</p>
+  </section>
+</main>
+</body></html>
