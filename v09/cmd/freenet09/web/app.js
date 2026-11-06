@@ -12,6 +12,11 @@
     return r.json();
   }).then(result => {
     if (result?.authenticated && logoutButton) logoutButton.hidden = false;
+    if (result?.authenticated && location.protocol === "https:") {
+      const actions = document.getElementById("subscription-apply-actions");
+      if (actions) actions.hidden = false;
+      loadAppliedSubscriptionStatus();
+    }
   }).catch(() => {});
   logoutButton?.addEventListener("click", async () => {
     logoutButton.disabled = true;
@@ -195,11 +200,86 @@
   const subscriptionResult = document.getElementById("subscription-preview-result");
   const subscriptionCount = document.getElementById("subscription-node-count");
   const subscriptionList = document.getElementById("subscription-nodes-list");
+  const subscriptionApplyButton = document.getElementById("subscription-apply");
+  const subscriptionRefreshButton = document.getElementById("subscription-refresh");
+  const subscriptionAppliedStatus = document.getElementById("subscription-applied-status");
+  let pendingPreviewURL = "";
+  let lockedAfterRollbackFailure = false;
+
+  function nativeApplyMessage(result) {
+    const state = result?.state || "STOP";
+    if (state === "CONFIG_APPLIED_NOT_EGRESS_VERIFIED") return "Конфигурация применена. Клиентский VPN-маршрут ещё НЕ ПРОВЕРЕН.";
+    if (state === "ROLLED_BACK") return "Применение не прошло, предыдущий управляемый фрагмент восстановлен.";
+    if (state === "ROLLBACK_FAILED") return "STOP: состояние Xray НЕИЗВЕСТНО. Новые изменения заблокированы.";
+    if (state === "NOT_CONFIGURED") return "Подписка ещё не настроена.";
+    return "Не удалось применить: STOP. Рабочие настройки не изменять.";
+  }
+
+  async function loadAppliedSubscriptionStatus() {
+    try {
+      const response = await fetch("/api/subscription/status", {
+        method:"GET", cache:"no-store", credentials:"same-origin"
+      });
+      if (!response.ok) return;
+      const result = await response.json();
+      if (subscriptionAppliedStatus) {
+        subscriptionAppliedStatus.textContent = result.state === "CONFIG_APPLIED_NOT_EGRESS_VERIFIED"
+          ? "КОНФИГ ПРИМЕНЁН · EGRESS НЕ ПРОВЕРЕН" : String(result.state || "STOP");
+      }
+    } catch (_) {
+      if (subscriptionAppliedStatus) subscriptionAppliedStatus.textContent = "UNKNOWN";
+    }
+  }
+
+  async function submitNativeSubscription(refreshMode) {
+    if (lockedAfterRollbackFailure) return;
+    if (!refreshMode && !pendingPreviewURL) return;
+    if (!window.confirm(refreshMode
+      ? "Обновить сохранённую подписку и перезапустить штатный XKeen/Xray?"
+      : "Применить просмотренную подписку через штатный Xray и XKeen?")) return;
+    subscriptionApplyButton.disabled = true;
+    subscriptionRefreshButton.disabled = true;
+    showSubscriptionStatus("ПРИМЕНЯЕТСЯ");
+    try {
+      const response = await fetch("/api/subscription/apply", {
+        method:"POST", cache:"no-store", credentials:"same-origin",
+        redirect:"error",
+        headers:{
+          "Content-Type":"application/json",
+          "X-FreeNet-Action":"apply-subscription"
+        },
+        body: JSON.stringify(refreshMode ? {refresh:true} : {url:pendingPreviewURL})
+      });
+      const result = await response.json();
+      const message = nativeApplyMessage(result);
+      status(message);
+      showSubscriptionStatus(result.state || "STOP");
+      if (result.state === "ROLLBACK_FAILED") lockedAfterRollbackFailure = true;
+      if (response.ok && result.state === "CONFIG_APPLIED_NOT_EGRESS_VERIFIED") {
+        await loadAppliedSubscriptionStatus();
+        refreshEvidence(true);
+      }
+    } catch (_) {
+      showSubscriptionStatus("UNKNOWN");
+      status("Результат применения не подтверждён. Не повторять изменение до проверки состояния.");
+      lockedAfterRollbackFailure = true;
+    } finally {
+      pendingPreviewURL = "";
+      if (subscriptionURL) subscriptionURL.value = "";
+      subscriptionApplyButton.disabled = true;
+      subscriptionRefreshButton.disabled = lockedAfterRollbackFailure;
+    }
+  }
+  subscriptionApplyButton?.addEventListener("click",() => submitNativeSubscription(false));
+  subscriptionRefreshButton?.addEventListener("click",() => submitNativeSubscription(true));
+
 
   function showSubscriptionStatus(label) {
     if (subscriptionStatus) subscriptionStatus.textContent = label;
   }
   async function previewSubscription() {
+    pendingPreviewURL = "";
+    if (subscriptionApplyButton) subscriptionApplyButton.disabled = true;
     const url = subscriptionURL?.value.trim() || "";
     if (!url.startsWith("https://")) {
       showSubscriptionStatus("STOP");
@@ -245,7 +325,12 @@
       if (subscriptionCount) subscriptionCount.textContent = String(result.count);
       if (subscriptionResult) subscriptionResult.hidden = false;
       showSubscriptionStatus("ПРОЧИТАНО");
-      status("Серверы разобраны. Это только предпросмотр: Xray не изменён.");
+      pendingPreviewURL = url;
+      if (subscriptionApplyButton && !lockedAfterRollbackFailure &&
+          !document.getElementById("subscription-apply-actions")?.hidden) {
+        subscriptionApplyButton.disabled = false;
+      }
+      status("Серверы разобраны. Предпросмотр выполнен, Xray ещё не изменён.");
     } catch (_) {
       showSubscriptionStatus("STOP");
       status("Подписка недоступна или содержит неподдерживаемый формат. Xray не изменён.");
