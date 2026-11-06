@@ -50,7 +50,11 @@ func xkeenNativeSBCapabilities(version,channel string)([]string,bool){
 // Mirrors the lexer semantics of XKeen 2.1 strip_json_comments in
 // 01_info/01_info_common.sh. The source is never returned or logged.
 func xkeenNativeStripJSONComments(data []byte)([]byte,error){
- if len(data)>xkeenNativeSBConfigLimit{return nil,errors.New("config oversized")}
+ return xkeenNativeStripJSONCommentsLimited(data,xkeenNativeSBConfigLimit)
+}
+
+func xkeenNativeStripJSONCommentsLimited(data []byte,limit int)([]byte,error){
+ if len(data)>limit{return nil,errors.New("config oversized")}
  out:=make([]byte,0,len(data))
  str,esc,block,line:=false,false,false,false
  for i:=0;i<len(data);i++{
