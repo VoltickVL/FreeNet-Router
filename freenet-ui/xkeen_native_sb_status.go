@@ -24,6 +24,7 @@ type xkeenNativeSBStatus struct {
  Reason string `json:"reason,omitempty"`
  Mutation string `json:"mutation"`
  InstalledVersion string `json:"installed_version,omitempty"`
+ InstalledChannel string `json:"installed_channel,omitempty"`
  Enabled bool `json:"enabled"`
  IntervalMinutes int `json:"interval_minutes,omitempty"`
  HysteresisPercent int `json:"hysteresis_percent,omitempty"`
@@ -32,6 +33,19 @@ type xkeenNativeSBStatus struct {
 }
 
 var xkeenNativeSBMetadata = readXKeenInstalledMetadata
+
+// Derived from exact official XKeen release tags, not newer default-branch
+// commands. Unknown versions remain STOP until upstream behavior is reviewed.
+func xkeenNativeSBCapabilities(version,channel string)([]string,bool){
+ switch {
+ case version=="2.1"&&channel=="stable":
+  return []string{"on","off","status"},true
+ case (version=="2.1.1"||version=="2.2")&&channel=="beta":
+  return []string{"on","off","status","list","auto","next","prev","N"},true
+ default:
+  return nil,false
+ }
+}
 
 // Mirrors the lexer semantics of XKeen 2.1 strip_json_comments in
 // 01_info/01_info_common.sh. The source is never returned or logged.
@@ -141,8 +155,9 @@ func (a *app) handleXKeenNativeSBStatus(w http.ResponseWriter,r *http.Request){
   writeJSON(w,http.StatusServiceUnavailable,response);return
  }
  version,channel,err:=xkeenNativeSBMetadata(a.cfg.XKeenPath)
- if err!=nil||version!="2.1"||channel!="stable"{
-  response.Reason="installed-XKeen-stable-2.1-unverified"
+ commands,supported:=xkeenNativeSBCapabilities(version,channel)
+ if err!=nil||!supported{
+  response.Reason="installed-XKeen-release-capabilities-unverified"
   writeJSON(w,http.StatusConflict,response);return
  }
  config,err:=xkeenNativeSBReadConfig(configStudioXKeenDir())
@@ -151,6 +166,8 @@ func (a *app) handleXKeenNativeSBStatus(w http.ResponseWriter,r *http.Request){
   writeJSON(w,http.StatusConflict,response);return
  }
  config.InstalledVersion=version
+ config.InstalledChannel=channel
+ config.NativeCommands=commands
  // True here is configuration state only. We never report API, Xray
  // process, actual selected node or client egress as verified.
  writeJSON(w,http.StatusOK,config)
