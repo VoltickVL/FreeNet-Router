@@ -91,14 +91,25 @@
     return response.json();
   }
 
-  async function refreshEvidence() {
+  function nativeVersionLabel(item) {
+    if (item?.state === "VERSION_DETECTED" &&
+        /^[0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?$/.test(item.version || "")) {
+      return item.version;
+    }
+    return item?.state || "UNKNOWN";
+  }
+
+  async function refreshEvidence(silent = false) {
     if (refresh) refresh.disabled = true;
     try {
-      const [overview, topology, system] = await Promise.all([
+      const [overview, topology, system, versions] = await Promise.all([
         readJSON("/api/overview"),
         readJSON("/api/native/xray/topology"),
-        readJSON("/api/native/system")
+        readJSON("/api/native/system"),
+        readJSON("/api/native/versions")
       ]);
+      setField("xkeenVersion", nativeVersionLabel(versions.xkeen));
+      setField("xrayVersion", nativeVersionLabel(versions.xray));
       setField("binaryXray", overview.xray || "UNKNOWN");
       setField("legacyFreeNet", overview.legacy_freenet || "UNKNOWN");
       setField("topologyState", topology.state || "STOP");
@@ -126,15 +137,18 @@
         renderList("outbounds-list", topology.servers, "outbound");
         renderList("balancers-list", topology.balancers, "balancer");
       }
-      status("Данные обновлены. Статус клиентского VPN по-прежнему NOT_VERIFIED.");
+      if (!silent) status("Данные обновлены. Версии получены из официальных CLI; VPN по-прежнему NOT_VERIFIED.");
     } catch (_) {
-      status("Не удалось обновить native-данные. Сохранённые значения могут быть устаревшими; VPN не подтверждён.");
+      setField("xkeenVersion", "UNKNOWN");
+      setField("xrayVersion", "UNKNOWN");
+      if (!silent) status("Не удалось обновить native-данные. VPN не подтверждён.");
     } finally {
       if (refresh) refresh.disabled = false;
     }
   }
 
-  refresh?.addEventListener("click", refreshEvidence);
+  refresh?.addEventListener("click", () => refreshEvidence(false));
+  refreshEvidence(true);
 
   // iOS standalone install works via Safari > Share > Add to Home Screen.
   // PWA shell assets may be cached, but NO API data, configs or credentials.

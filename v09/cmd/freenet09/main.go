@@ -140,6 +140,10 @@ func handlersWithProc(root,procRoot string) http.Handler {
         w.Header().Set("Content-Type","application/json; charset=utf-8")
         _ = json.NewEncoder(w).Encode(nativeSystemStatus(root,procRoot))
     })
+    mux.HandleFunc("GET /api/native/versions",func(w http.ResponseWriter,r *http.Request) {
+        w.Header().Set("Content-Type","application/json; charset=utf-8")
+        _ = json.NewEncoder(w).Encode(detectNativeVersions(r.Context(),root))
+    })
     mux.HandleFunc("GET /manifest.webmanifest",func(w http.ResponseWriter,r *http.Request) {
         writeWebAsset(w,"manifest.webmanifest","application/manifest+json; charset=utf-8")
     })
