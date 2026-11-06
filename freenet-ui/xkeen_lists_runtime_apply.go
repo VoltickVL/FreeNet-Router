@@ -10,7 +10,6 @@ import (
  "encoding/hex"
  "encoding/json"
  "errors"
- "fmt"
  "io"
  "net/http"
  "net/netip"
@@ -200,7 +199,16 @@ func xkeenIPSetRead(ctx context.Context,name,family string,desired []string,allo
  s:=xkeenIPSet{name:name,family:family,desired:desired}
  raw,e:=xkeenIPSetRun(ctx,"","save",name)
  if e!=nil {
-  if allowMissing && len(desired)==0 {return s,nil}
+  if allowMissing && len(desired)==0 {
+   // A failed save is safe to treat as absent only when an independent
+   // read-only inventory proves the named set does not exist.
+   names,listErr:=xkeenIPSetRun(ctx,"","list","-name")
+   if listErr==nil {
+    found:=false
+    for _,line:=range strings.Split(names,"\n"){if strings.TrimSpace(line)==name{found=true}}
+    if !found{return s,nil}
+   }
+  }
   return s,errors.New("required kernel set unavailable")
  }
  active,opts,e:=xkeenIPSetParse(raw,name,family)
