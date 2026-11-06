@@ -81,7 +81,7 @@ func validateXKeenListText(name, text string) (string,error) {
    val=strings.TrimSpace(strings.SplitN(val,"#",2)[0])
    if val=="" {continue}
   }
-  if strings.ContainsAny(val," \\t#;|&$<>\\\\") { return "",errors.New("invalid XKeen list entry") }
+  if strings.ContainsAny(val," \t#;|&$<>\\") { return "",errors.New("invalid XKeen list entry") }
   if name=="ip_exclude.lst" {
    var prefix netip.Prefix
    if addr,err:=netip.ParseAddr(val);err==nil {
