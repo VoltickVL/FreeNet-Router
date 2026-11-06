@@ -176,3 +176,15 @@ func TestXKeenIPSetOfficialCompatibleHashSave(t *testing.T){
   }
  }
 }
+
+func TestXKeenIPSetExistingPartnerUIHostAddressParity(t *testing.T){
+ v4,v6,err:=xkeenIPSetDesired("# owned by XKeen UI\n77.88.8.8\n2001:db8::11\n198.51.100.0/24\n")
+ if err!=nil{t.Fatal(err)}
+ if got:=strings.Join(v4,",");got!="198.51.100.0/24,77.88.8.8/32"{
+  t.Fatalf("native XKeen host/CIDR grammar not preserved: %s",got)
+ }
+ if got:=strings.Join(v6,",");got!="2001:db8::11/128"{t.Fatal(got)}
+ for _,bad:=range []string{"192.168.0.0/16\n","1.1.1.1;reboot\n","fc00::/7\n"}{
+  if _,_,err:=xkeenIPSetDesired(bad);err==nil{t.Fatalf("unsafe exclusion allowed: %q",bad)}
+ }
+}
