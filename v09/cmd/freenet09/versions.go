@@ -34,7 +34,7 @@ type nativeVersionReport struct {
 var nativeANSI = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 var xkeenVersionLine = regexp.MustCompile(`(?im)^[ \t]*xkeen(?:[ \t]+(?:version|v))?[ \t:]*v?([0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?)(?:[ \t]|$)`)
 var xrayVersionLine = regexp.MustCompile(`(?im)^[ \t]*xray(?:[ \t]+version)?[ \t:]*v?([0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?)(?:[ \t]|$)`)
-var pureVersionLine = regexp.MustCompile(`^\\s*v?([0-9]{1,4}\\.[0-9]{1,4}(?:\\.[0-9]{1,4})?)\\s*$`)
+var pureVersionLine = regexp.MustCompile(`^\s*v?([0-9]{1,4}\.[0-9]{1,4}(?:\.[0-9]{1,4})?)\s*$`)
 
 func parseNativeVersion(kind,stringOutput string) string {
     var re *regexp.Regexp
