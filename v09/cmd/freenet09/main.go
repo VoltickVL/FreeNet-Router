@@ -120,6 +120,7 @@ func handlersWithProc(root,procRoot string) http.Handler {
     mux := http.NewServeMux()
     // One official offline validator at a time, never a second Xray server.
     validateGate := make(chan struct{},1)
+    subscriptionGate := make(chan struct{},1)
     mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "text/plain; charset=utf-8")
         _, _ = w.Write([]byte("ok\n"))
@@ -157,6 +158,9 @@ func handlersWithProc(root,procRoot string) http.Handler {
             return
         }
         _ = json.NewEncoder(w).Encode(validateNativeXray(r.Context(),root))
+    })
+    mux.HandleFunc("POST /api/subscription/preview",func(w http.ResponseWriter,r *http.Request) {
+        handleSubscriptionPreview(w,r,subscriptionGate)
     })
     mux.HandleFunc("GET /manifest.webmanifest",func(w http.ResponseWriter,r *http.Request) {
         writeWebAsset(w,"manifest.webmanifest","application/manifest+json; charset=utf-8")

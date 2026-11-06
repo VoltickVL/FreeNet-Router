@@ -122,7 +122,7 @@ func TestV09ShellFocusesOnSubscriptionNotBackups(t *testing.T) {
     if html.Code!=http.StatusOK {t.Fatalf("dashboard http %d",html.Code)}
     page:=html.Body.String()
     for _,required:=range []string{`id="subscription"`,`data-view="subscription"`,
-        "Подключить свою подписку","ЕЩЁ НЕ ГОТОВО"} {
+        "Проверить HTTPS-подписку","ПРЕДПРОСМОТР"} {
         if !strings.Contains(page,required){t.Fatalf("product goal missing from UI: %q",required)}
     }
     for _,obsolete:=range []string{`id="recovery"`,`data-view="recovery"`,

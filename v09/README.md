@@ -25,7 +25,9 @@
 - Изолированный `v09/installer/stage.sh` (plan/apply/status) проверяет exact version, SHA256SUMS, архитектуру, native paths, `-selftest`; `prepare.sh` предназначен для загрузки **только точного официального `v0.9.0`**. Пока release не опубликован, production auto-stage не включается.
 - Preview слушает **только loopback** `127.0.0.1:1009`, не доступен как авторизованная iPhone-панель и не управляет сетевыми службами. Для LAN/iPhone обязательны auth/HTTPS.
 
-**Ещё НЕ реализовано:** ввод своей подписки и применение её конфигурации, защищённый Browser Setup, native management и обновления, реальная клиентская egress-диагностика, безболезненное выключение FreeNet 0.8 после полной приёмки. Не изображать эти функции работающими.
+**Подписка: выполнен первый безопасный браузерный шаг (НЕ применение).** На локальной странице «Подписка» доступен HTTPS-ввод и реальный `POST /api/subscription/preview`: загрузка по TLS, блокировка private/loopback/CGNAT/redirect/нестандартных портов, закрепление проверенных публичных DNS IP, жёсткий лимит размера и времени. Base64 и обычные share-links VLESS (Reality/TLS) и Trojan (TLS) превращаются в **обычные Xray outbounds**. Неизвестные параметры или неподдерживаемый формат = STOP всего импорта, без частичного списка. В браузер возвращаются только метаданные серверов, без subscription URL, UUID, Reality, credentials или JSON-кандидата. Ссылка не хранится и native конфигурация не меняется. Парсер следует проверенному подходу [XKeen Control Panel](https://github.com/shisui1511/xkeen-control-panel) (BSD-3-Clause) и [XKeen-UI](https://github.com/zxc-rv/XKeen-UI) (MIT); не копирует их VPN-алгоритмы или сетевые механизмы.
+
+**Ещё НЕ реализовано:** защищённый Browser Setup, приватное хранение ссылки, полное преобразование прочих форматов (например VMess/Clash), native Xray candidate validation **с применением**, XKeen controlled apply/refresh, native lifecycle/update, реальная клиентская egress-диагностика и чистое выключение FreeNet 0.8 после приёмки. Не выдавать preview за полноценное добавление подписки или готовый release.
 
 ## Переход с FreeNet 0.8 без комбайна
 

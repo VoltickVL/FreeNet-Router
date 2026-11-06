@@ -163,11 +163,23 @@
 
       <section id="subscription" class="view" aria-labelledby="subscription-title" hidden>
         <div class="page-heading"><div><span class="eyebrow">NATIVE XRAY / XKEEN</span><h1 id="subscription-title">Подписка</h1>
-          <p>Добавление собственной VPN-подписки и управление её серверами из FreeNet.</p></div></div>
+          <p>Получить список серверов из собственной подписки, без нового VPN-движка.</p></div></div>
         <article class="panel">
-          <div class="panel-heading"><h2>Подключить свою подписку</h2><span class="state-chip caution">ЕЩЁ НЕ ГОТОВО</span></div>
-          <p class="muted">В готовом FreeNet 0.9 здесь можно будет безопасно добавить ссылку подписки, обновить серверы и применить их в штатной конфигурации Xray/XKeen. Это обязательная функция релиза.</p>
-          <div class="notice compact"><span class="notice-icon">i</span><p>Пока безопасный ввод и сохранение подписки не реализованы, ссылка не запрашивается. Не передавайте URL или credentials в диагностические журналы.</p></div>
+          <div class="panel-heading"><h2>Проверить HTTPS-подписку</h2>
+            <span class="state-chip caution" id="subscription-state">ПРЕДПРОСМОТР</span></div>
+          <p class="muted">Введите личную ссылку HTTPS: FreeNet прочитает подписку и покажет серверы, подготовленные как штатные Xray outbounds. Ничего не меняется на роутере.</p>
+          <div class="subscription-input-row">
+            <label for="subscription-url" class="subscription-label">Ссылка подписки</label>
+            <input id="subscription-url" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://provider.example/..." maxlength="4096" aria-describedby="subscription-warning">
+            <button type="button" class="btn solid" id="subscription-preview">Проверить подписку</button>
+          </div>
+          <p id="subscription-warning" class="muted">Ссылка и ключи не сохраняются, не показываются в результате и не записываются в журнал. Пока работа только через loopback; подключение с iPhone требует авторизации и защищённого Browser Setup.</p>
+          <div id="subscription-preview-result" aria-live="polite" hidden>
+            <div class="panel-heading"><h2>Найденные серверы: <span id="subscription-node-count">0</span></h2>
+              <span class="state-chip neutral">НЕ ПРИМЕНЕНО</span></div>
+            <div id="subscription-nodes-list" class="native-list"></div>
+          </div>
+          <div class="notice compact"><span class="notice-icon">i</span><p>Это реальный разбор и предпросмотр подписки, но пока **не установка**. Сохранение, штатная Xray `-test` и применение через XKeen появятся только с защищённым управлением. При неизвестном формате — STOP без частичного импорта.</p></div>
         </article>
       </section>
 
