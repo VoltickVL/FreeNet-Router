@@ -5,7 +5,6 @@ package main
 // Partner references: XKeen Control Panel (BSD-3-Clause) subscription_parser.go
 // and XKeen-UI (MIT) frontend/src/lib/generator.js. No source copied.
 import (
-    "context"
     "crypto/sha256"
     "encoding/base64"
     "encoding/hex"
