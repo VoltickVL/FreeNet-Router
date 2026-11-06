@@ -331,15 +331,53 @@ func xkeenIPSetRollback(ctx context.Context,swapped []xkeenIPSet,before []xkeenI
  }
  return ok&&xkeenIPSetUnchanged(ctx,before)
 }
+// XKeen 2.1 has two different actors:
+// - xkeen -start/-stop/-restart obtains proxy.mutex.d before firewall work;
+// - the netfilter.d event hook obtains netfilter.lock.d.
+// Acquiring both in the exact upstream order is needed. Holding only the NF
+// lock is insufficient: emergency stop may forcibly recover that lock.
 func xkeenIPSetHookLock()(func(),error){
  dir:=xkeenIPSetHookRoot()
  info,e:=os.Lstat(dir)
  if e!=nil||!info.IsDir()||info.Mode().Perm()!=0700||info.Mode()&os.ModeSymlink!=0{return nil,errors.New("XKeen hook root unverified")}
- lock:=filepath.Join(dir,"netfilter.lock.d")
- if e=os.Mkdir(lock,0700);e!=nil{return nil,errors.New("XKeen netfilter busy")}
- pid:=filepath.Join(lock,"pid")
- if e=os.WriteFile(pid,[]byte(strconv.Itoa(os.Getpid())),0600);e!=nil{_ =os.Remove(lock);return nil,errors.New("XKeen hook lock unavailable")}
- return func(){_ =os.Remove(pid);_ =os.Remove(lock)},nil
+ ready,e:=os.Lstat(filepath.Join(dir,"ready"))
+ if e!=nil||!ready.Mode().IsRegular()||ready.Mode()&os.ModeSymlink!=0{return nil,errors.New("XKeen runtime not ready")}
+ for _,name:=range []string{"starting.lock.d","coldstart.lock.d"}{
+  if _,err:=os.Lstat(filepath.Join(dir,name));!errors.Is(err,os.ErrNotExist){
+   return nil,errors.New("XKeen service lifecycle busy or unknown")
+  }
+ }
+ owner:=strconv.Itoa(os.Getpid())
+ acquire:=func(name string)error{
+  lock:=filepath.Join(dir,name)
+  if err:=os.Mkdir(lock,0700);err!=nil{return errors.New("XKeen external operation holds lock")}
+  pid:=filepath.Join(lock,"pid")
+  if err:=os.WriteFile(pid,[]byte(owner+"\n"),0600);err!=nil{
+   _=os.Remove(pid);_=os.Remove(lock);return errors.New("XKeen lock ownership unavailable")
+  }
+  return nil
+ }
+ release:=func(name string)bool{
+  lock:=filepath.Join(dir,name)
+  pid:=filepath.Join(lock,"pid")
+  data,err:=os.ReadFile(pid)
+  if err!=nil||strings.TrimSpace(string(data))!=owner{return false}
+  if err=os.Remove(pid);err!=nil{return false}
+  return os.Remove(lock)==nil
+ }
+ // Official xkeen uses the proxy mutex before calling clean_firewall, then
+ // clean_firewall obtains the NF lock. Never acquire them in reverse order.
+ if e=acquire("proxy.mutex.d");e!=nil{return nil,e}
+ if e=acquire("netfilter.lock.d");e!=nil{
+  if !release("proxy.mutex.d"){return nil,errors.New("XKeen proxy mutex release unverified")}
+  return nil,e
+ }
+ return func(){
+  // Never delete a foreign/replaced lock. An incomplete release means that
+  // the next apply must be stopped until runtime ownership is reconciled.
+  if !release("netfilter.lock.d"){setAutomationMutationBlocked(true)}
+  if !release("proxy.mutex.d"){setAutomationMutationBlocked(true)}
+ },nil
 }
 func (a *app) handleXKeenIPSetPlan(w http.ResponseWriter,r *http.Request){
  ctx,cancel:=context.WithTimeout(r.Context(),8*time.Second);defer cancel()
