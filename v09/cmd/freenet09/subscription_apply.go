@@ -14,11 +14,24 @@ import (
 )
 
 func subscriptionOperation(ctx context.Context,root,procRoot,submittedURL string,refresh bool)nativeApplyResult{
-    return subscriptionOperationWithFetch(ctx,root,procRoot,submittedURL,refresh,fetchNativeSubscription)
+    return subscriptionOperationWithRoute(ctx,root,procRoot,submittedURL,refresh,nativeRouteTarget{},fetchNativeSubscription)
 }
 
+func subscriptionOperationForBalancer(ctx context.Context,root,procRoot,submittedURL string,refresh bool,
+    balancer,selector string)nativeApplyResult{
+    return subscriptionOperationWithRoute(ctx,root,procRoot,submittedURL,refresh,
+        nativeRouteTarget{Balancer:balancer,Selector:selector},fetchNativeSubscription)
+}
+
+// Legacy test fixture helper: a unique native balancer may be selected
+// automatically. Ambiguous routing always STOPs instead of guessing.
 func subscriptionOperationWithFetch(ctx context.Context,root,procRoot,submittedURL string,refresh bool,
     fetch func(context.Context,string)([]byte,error))nativeApplyResult{
+    return subscriptionOperationWithRoute(ctx,root,procRoot,submittedURL,refresh,nativeRouteTarget{},fetch)
+}
+
+func subscriptionOperationWithRoute(ctx context.Context,root,procRoot,submittedURL string,refresh bool,
+    requested nativeRouteTarget,fetch func(context.Context,string)([]byte,error))nativeApplyResult{
     result:=applyStopped()
     if observedPath(root,"etc/init.d/S99freenet-ui",false)!="MISSING" {
         // 0.8 is still present; there may be another native writer/cron.
@@ -33,19 +46,26 @@ func subscriptionOperationWithFetch(ctx context.Context,root,procRoot,submittedU
     subscriptionURL:=submittedURL
     if refresh {
         if oldState.URL=="" || submittedURL!="" {return result}
+        stored:=nativeRouteTarget{Balancer:oldState.Balancer,Selector:oldState.Selector}
+        if requested!=(nativeRouteTarget{}) && requested!=stored {return result}
+        requested=stored
         subscriptionURL=oldState.URL
     }
+    target,err:=chooseNativeRouteTarget(source,requested)
+    if err!=nil {return result}
     if _,err=validateSubscriptionURL(subscriptionURL);err!=nil{return result}
     body,err:=fetch(ctx,subscriptionURL)
     if err!=nil {return result}
     nodes,err:=nativeSubscriptionNodes(body)
+    if err!=nil{return result}
+    nodes,err=bindSubscriptionNodesToNativeSelector(nodes,target)
     if err!=nil{return result}
     candidate,err:=nativeSubscriptionCandidate(nodes)
     if err!=nil{return result}
     // An unchanged upstream subscription must not restart a working router.
     if oldState.URL==subscriptionURL && oldState.SHA256==hashConfig(candidate) {
         return nativeApplyResult{State:"CONFIG_APPLIED_NOT_EGRESS_VERIFIED",
-            Runtime:"NOT_VERIFIED",Count:len(nodes),Applied:true}
+            Runtime:"NOT_VERIFIED",Count:len(nodes),Balancer:target.Balancer,Applied:true}
     }
     valid,err:=stageNativeSubscription(root,source,candidate)
     if err!=nil || !valid {
@@ -131,7 +151,8 @@ func subscriptionOperationWithFetch(ctx context.Context,root,procRoot,submittedU
     if readErr!=nil || !bytes.Equal(live[subscriptionFragmentName],candidate) {
         return rollback()
     }
-    newState:=nativeSubscriptionState{URL:subscriptionURL,SHA256:hashConfig(candidate)}
+    newState:=nativeSubscriptionState{URL:subscriptionURL,SHA256:hashConfig(candidate),
+        Balancer:target.Balancer,Selector:target.Selector}
     stateData,err:=json.Marshal(newState)
     if err!=nil {return rollback()}
     if bytes.Contains(stateData,[]byte("\n")) {return rollback()}
@@ -139,7 +160,7 @@ func subscriptionOperationWithFetch(ctx context.Context,root,procRoot,submittedU
         return rollback()
     }
     return nativeApplyResult{State:"CONFIG_APPLIED_NOT_EGRESS_VERIFIED",
-        Runtime:"NOT_VERIFIED",Count:len(nodes),Applied:true}
+        Runtime:"NOT_VERIFIED",Count:len(nodes),Balancer:target.Balancer,Applied:true}
 }
 
 func xrayProcessSeenSoon(procRoot string)bool {
