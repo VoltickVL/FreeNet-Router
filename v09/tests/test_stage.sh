@@ -91,7 +91,8 @@ must_fail apply "$BUNDLE"
 sed 's/v0\.8\.0-legacy/v0.9.0-dev/g' "$BUNDLE/$ASSET" > "$TEST_DIR/good"
 mv "$TEST_DIR/good" "$BUNDLE/$ASSET"
 make_manifest
-cat "$BUNDLE/SHA256SUMS" >> "$BUNDLE/SHA256SUMS"
+cp "$BUNDLE/SHA256SUMS" "$TEST_DIR/manifest.copy"
+cat "$TEST_DIR/manifest.copy" >> "$BUNDLE/SHA256SUMS"
 must_fail plan "$BUNDLE"
 make_manifest
 
