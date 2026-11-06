@@ -588,6 +588,7 @@ async function capture(label){
   let poolPlanPosts=0;
   let poolScanPosts=0;
   let nativeStatusGets=0;
+  let nativeTopologyGets=0;
   let nativeSBEdition='stable';
   const poolStatusRoute=route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({
     success:true,active:false,mutation:'NONE',status:'not-configured',api_reachable:false,core_identity_verified:false
@@ -604,6 +605,18 @@ async function capture(label){
     enabled:true,interval_minutes:15,hysteresis_percent:25,runtime:'NOT_VERIFIED',
     native_commands:nativeSBEdition==='beta'?['on','off','status','list','auto','next','prev','N']:['on','off','status']
   })});};
+  const nativeTopologyRoute=route=>{nativeTopologyGets++;return route.fulfill({status:200,
+    contentType:'application/json',body:JSON.stringify({
+      success:true,state:'CONFIG_ONLY',mutation:'NONE',runtime:'NOT_VERIFIED',
+      server_count:4,balancer_count:1,
+      servers:[
+        {order:1,name:'direct',protocol:'freedom',eligible:false},
+        {order:2,name:'DE Frankfurt',protocol:'vless',eligible:true},
+        {order:3,name:'FI',protocol:'vless',eligible:true},
+        {order:4,name:'Сервер 4',protocol:'trojan',eligible:false}
+      ],balancers:[{name:'balancer',strategy:'leastPing',selectors:1,eligible_servers:2,native_sb_compatible:true}]
+    })});};
+  await page.route('**/api/native/xray/topology',nativeTopologyRoute);
   await page.route('**/api/automation/pool/status',poolStatusRoute);
   await page.route('**/api/vpn/best',poolScanRoute);
   await page.route('**/api/automation/pool/plan',poolPlanRoute);
@@ -615,6 +628,12 @@ async function capture(label){
   await page.locator('#fn3AutoCard .fn3-title').click();
   await page.locator('#fn3PoolRefresh').click();
   await until(()=>document.querySelector('#fn3NativeSBStatus')?.textContent.includes('XKeen 2.1 Stable: -sb включён'),'native read-only status');
+  await until(()=>document.querySelector('#fn3NativeXrayTopology')?.textContent.includes('DE Frankfurt'),
+    'native Xray servers must render without CLI/probe');
+  assert.match(await page.locator('#fn3NativeXrayTopology').innerText(),/leastPing и 2\+ узла/);
+  assert.doesNotMatch(await page.locator('#fn3NativeXrayTopology').innerText(),/uuid|vless:\/\/|secret|address/i,
+    'native Xray topology must not reveal credential-bearing config');
+  assert.ok(nativeTopologyGets>0,'native read-only inventory endpoint not called');
   await until(()=>document.querySelector('#fn3PoolStatus')?.textContent.includes('не создаётся'),'legacy pool frozen');
   assert.equal(await page.locator('#fn3PoolPrepare').isDisabled(),true,'legacy new pool prepare must be disabled');
   assert.equal(await page.locator('#fn3PoolActivate').isDisabled(),true,'legacy Xray pool activation must be disabled');
@@ -668,6 +687,7 @@ async function capture(label){
   await page.unroute('**/api/automation/pool/plan',poolPlanRoute);
   await page.unroute('**/api/automation/pool/activate',poolActivateRoute);
   await page.unroute('**/api/xkeen/speed-balancer',nativeStatusRoute);
+  await page.unroute('**/api/native/xray/topology',nativeTopologyRoute);
   await page.locator(T).click();await geometry('settings-route');await page.keyboard.press('Escape');await page.evaluate(()=>setPage('overview'));
 
   for(let i=0;i<10;i++){await page.locator(T).click();await page.keyboard.press('Escape')}
