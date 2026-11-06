@@ -1,0 +1,80 @@
+name: FreeNet 0.9 isolated staging CI
+
+on:
+  pull_request:
+    paths:
+      - 'v09/**'
+      - '.github/workflows/v09-isolated.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Offline native and A/B tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: v09/go.mod
+          cache-dependency-path: v09/go.mod
+      - name: Validate isolated installer POSIX shell
+        run: |
+          sh -n v09/installer/stage.sh
+          sh -n v09/tests/test_stage.sh
+      - name: Stage A/B failure contracts (no live router)
+        run: sh v09/tests/test_stage.sh
+      - name: Go race tests and vet (new code only)
+        working-directory: v09
+        run: |
+          go test -race ./...
+          go vet ./...
+
+  package:
+    name: Build isolated ${{ matrix.asset }}
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: arm64
+            asset: arm64-v8a
+          - goarch: mipsle
+            asset: mips32le
+          - goarch: mips
+            asset: mips32
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: v09/go.mod
+          cache-dependency-path: v09/go.mod
+      - name: Cross-compile independent candidate
+        working-directory: v09
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+          GOMIPS: softfloat
+          ASSET: ${{ matrix.asset }}
+        run: |
+          mkdir -p ../dist/v09
+          go build -trimpath -ldflags="-s -w" -o "../dist/v09/freenet-v09-$ASSET" ./cmd/freenet09
+          test -s "../dist/v09/freenet-v09-$ASSET"
+          chmod 755 "../dist/v09/freenet-v09-$ASSET"
+      - name: Produce candidate SHA-256 receipt
+        run: |
+          cd dist/v09
+          sha256sum "freenet-v09-${{ matrix.asset }}" > SHA256SUMS
+      - name: Store test-only stage bundle (not a release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: freenet09-stage-${{ matrix.asset }}
+          path: |
+            dist/v09/freenet-v09-${{ matrix.asset }}
+            dist/v09/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
