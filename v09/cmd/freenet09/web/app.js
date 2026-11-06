@@ -2,7 +2,7 @@
 (() => {
   "use strict";
 
-  const views = new Set(["overview", "vpn", "routing", "dns", "xkeen", "xray", "updates", "recovery", "diagnostics"]);
+  const views = new Set(["overview", "vpn", "routing", "dns", "xkeen", "xray", "updates", "subscription", "diagnostics"]);
   const selectors = document.querySelectorAll("a[data-view]");
   const feedback = document.getElementById("feedback");
   const refresh = document.getElementById("refresh");

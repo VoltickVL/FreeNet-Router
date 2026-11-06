@@ -31,7 +31,7 @@
       <a class="nav-link" href="#xkeen" data-view="xkeen"><span class="nav-glyph">▣</span>XKeen</a>
       <a class="nav-link" href="#xray" data-view="xray"><span class="nav-glyph">⬡</span>Xray</a>
       <a class="nav-link" href="#updates" data-view="updates"><span class="nav-glyph">↻</span>Обновления</a>
-      <a class="nav-link" href="#recovery" data-view="recovery"><span class="nav-glyph">◇</span>Восстановление</a>
+      <a class="nav-link" href="#subscription" data-view="subscription"><span class="nav-glyph">◈</span>Подписка</a>
       <a class="nav-link" href="#diagnostics" data-view="diagnostics"><span class="nav-glyph">⌁</span>Диагностика</a>
     </nav>
     <div class="sidebar-footer">
@@ -90,11 +90,10 @@
           <a class="quick-card" href="#updates" data-view="updates"><span class="quick-icon violet">↻</span><div><strong>Обновления</strong><small>XKeen · Xray · FreeNet</small></div><span class="small-code">По запросу</span><span class="quick-arrow">↗</span></a>
         </div>
 
-        <article class="migration panel">
-          <div class="migration-symbol">⇄</div><div><h2>Переход FreeNet 0.8 → 0.9</h2>
-          <p>Чистая замена с сохранением оригинальных XKeen, Xray, GeoData, подписок и XKeen UI. 0.8 — только временная страховка для отката.</p>
-          <div class="migration-steps"><span>① Копия</span><span>② Проверка 0.9</span><span>③ Переключение</span><span>④ Возврат при сбое</span></div></div>
-          <a href="#recovery" data-view="recovery" class="btn solid">Как будет работать ↗</a>
+        <article class="panel subscription-promo">
+          <div class="subscription-symbol">◈</div>
+          <div><h2>Своя VPN-подписка</h2><p>Главная функция FreeNet 0.9 — добавить личную подписку, получить серверы и управлять ими через оригинальные XKeen/Xray. Никакого отдельного AutoVPN.</p></div>
+          <a href="#subscription" data-view="subscription" class="btn solid">Подписка ↗</a>
         </article>
       </section>
 
@@ -158,18 +157,18 @@
       <section id="updates" class="view" aria-labelledby="updates-title" hidden>
         <div class="page-heading"><div><span class="eyebrow">NATIVE UPDATES</span><h1 id="updates-title">Обновления</h1><p>Используем официальные механизмы и проверяем exact версию, а не создаём второй загрузчик.</p></div></div>
         <div class="version-line">Установлены: XKeen <strong data-field="xkeenVersion">Не проверено</strong> · Xray <strong data-field="xrayVersion">Не проверено</strong>. Доступность обновлений не проверялась.</div>
-        <div class="panel">{{range .UpdateTargets}}<div class="list-line"><div><strong>{{.}}</strong><small>Проверка версии и безопасного rollback — обязательный шаг</small></div><span class="state-chip neutral">НЕ ПРОВЕРЕНО</span></div>{{end}}</div>
-        <div class="notice"><span class="notice-icon">i</span><p>Штатный XKeen обновляет XKeen/Xray/GeoData; FreeNet обновляется через собственный проверяемый A/B. Запуск обновлений будет активен только после browser-auth и проверки rollback.</p></div>
+        <div class="panel">{{range .UpdateTargets}}<div class="list-line"><div><strong>{{.}}</strong><small>Официальный updater и проверка результата</small></div><span class="state-chip neutral">НЕ ПРОВЕРЕНО</span></div>{{end}}</div>
+        <div class="notice"><span class="notice-icon">i</span><p>Штатный XKeen обновляет XKeen/Xray/GeoData; FreeNet обновляется через собственный проверяемый A/B. Запуск обновлений будет активен только после авторизации и проверки поддерживаемой штатной команды.</p></div>
       </section>
 
-      <section id="recovery" class="view" aria-labelledby="recovery-title" hidden>
-        <div class="page-heading"><div><span class="eyebrow">FREENET 0.8 → 0.9</span><h1 id="recovery-title">Восстановление</h1><p>Не удаляем работающую 0.8 до доказанного автоматического возврата.</p></div></div>
-        <div class="panel"><div class="panel-heading"><h2>План чистой замены</h2><span class="state-chip caution">ЕЩЁ НЕ ГОТОВ</span></div>
-          <div class="recovery-list"><div><b>1</b><span>Сохранить точную копию FreeNet 0.8, init и managed cron</span></div>
-          <div><b>2</b><span>Подготовить 0.9 и проверить native XKeen/Xray, не обновляя их</span></div>
-          <div><b>3</b><span>Активировать одну панель с независимым recovery-guard</span></div>
-          <div><b>4</b><span>Проверить auth, DNS, VPN egress, reboot и возврат 0.8</span></div>
-          <div><b>5</b><span>Удалить только legacy FreeNet после приёмки; XKeen UI, списки, GeoData и credentials сохранить</span></div></div></div>
+      <section id="subscription" class="view" aria-labelledby="subscription-title" hidden>
+        <div class="page-heading"><div><span class="eyebrow">NATIVE XRAY / XKEEN</span><h1 id="subscription-title">Подписка</h1>
+          <p>Добавление собственной VPN-подписки и управление её серверами из FreeNet.</p></div></div>
+        <article class="panel">
+          <div class="panel-heading"><h2>Подключить свою подписку</h2><span class="state-chip caution">ЕЩЁ НЕ ГОТОВО</span></div>
+          <p class="muted">В готовом FreeNet 0.9 здесь можно будет безопасно добавить ссылку подписки, обновить серверы и применить их в штатной конфигурации Xray/XKeen. Это обязательная функция релиза.</p>
+          <div class="notice compact"><span class="notice-icon">i</span><p>Пока безопасный ввод и сохранение подписки не реализованы, ссылка не запрашивается. Не передавайте URL или credentials в диагностические журналы.</p></div>
+        </article>
       </section>
 
       <section id="diagnostics" class="view" aria-labelledby="diagnostics-title" hidden>
@@ -204,7 +203,7 @@
   <nav aria-label="Дополнительные разделы">
     <a data-view="dns" href="#dns">◎ DNS</a><a data-view="xray" href="#xray">⬡ Xray</a>
     <a data-view="updates" href="#updates">↻ Обновления</a>
-    <a data-view="recovery" href="#recovery">◇ Восстановление</a>
+    <a data-view="subscription" href="#subscription">◈ Подписка</a>
     <a data-view="diagnostics" href="#diagnostics">⌁ Диагностика</a>
   </nav>
 </div>

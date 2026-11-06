@@ -148,19 +148,12 @@ main{max-width:1570px;margin:auto;padding:29px clamp(20px,3vw,48px) 40px}
 .quick-card b{align-self:flex-end;color:#d9e7ff;font-size:13px;font-weight:750}
 .quick-arrow{position:absolute;right:12px;top:10px;font-size:16px;color:var(--muted-2)}
 .small-code{font-size:10px;color:#b9c5df;overflow-wrap:anywhere}
-.migration{display:flex;align-items:center;gap:21px;background:linear-gradient(112deg,rgba(77,74,145,.45),rgba(33,39,71,.93));
-  border:1px solid rgba(162,126,252,.75);padding:22px 24px}
-.migration-symbol{width:60px;height:60px;display:grid;place-items:center;background:rgba(144,108,233,.28);
-  border-radius:15px;flex:none;font-size:38px;color:#f0eaff}
-.migration>div:nth-child(2){flex:1;min-width:0}
-.migration h2{font-size:19px;margin-bottom:6px}
-.migration p{font-size:12px;color:#cbd5eb;line-height:1.5;margin:0 0 12px}
-.migration-steps{display:flex;gap:9px 18px;flex-wrap:wrap;color:#bddccf;font-size:11px}
-.migration .btn{margin-left:auto}
-.version-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px;
-  margin:-5px 0 20px;padding:12px 16px;background:rgba(72,88,139,.14);
-  border:1px solid var(--border);border-radius:12px;font-size:12px;color:var(--muted)}
-.version-line strong{color:#e0d9ff;font-weight:760;overflow-wrap:anywhere}
+.subscription-promo{display:flex;align-items:center;gap:20px;background:linear-gradient(112deg,rgba(77,74,145,.35),rgba(33,39,71,.93));border-color:rgba(162,126,252,.5)}
+.subscription-symbol{width:56px;height:56px;flex:none;display:grid;place-items:center;font-size:34px;border-radius:15px;background:rgba(144,108,233,.25);color:#e8dbff}
+.subscription-promo>div:nth-child(2){flex:1;min-width:0}
+.subscription-promo h2{font-size:18px;margin-bottom:6px}
+.subscription-promo p{font-size:12px;line-height:1.55;color:#cbd5eb;margin:0}
+.subscription-promo .btn{margin-left:auto}
 .app-footer{margin-top:40px;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--muted-2)}
 .list-layout{display:grid;grid-template-columns:1.12fr 1fr;gap:20px}
 .native-list{max-height:68vh;overflow-y:auto}
@@ -178,11 +171,6 @@ main{max-width:1570px;margin:auto;padding:29px clamp(20px,3vw,48px) 40px}
 .detail-card h2{font-size:clamp(17px,2vw,24px);overflow-wrap:anywhere;margin:17px 0 5px}
 .detail-card small,.muted{color:var(--muted);font-size:12px}
 .metric-large{font-size:46px;font-weight:760;line-height:1.2;margin-top:12px}
-.recovery-list{display:grid;gap:0}
-.recovery-list>div{display:flex;align-items:flex-start;gap:14px;padding:15px 0;border-bottom:1px solid var(--border);font-size:13px}
-.recovery-list>div:last-child{border:0}
-.recovery-list b{display:grid;place-items:center;width:28px;height:28px;flex:none;border-radius:50%;
-  background:rgba(139,109,237,.19);color:#c9b3ff;font-size:13px}
 .help-card{margin-top:20px;background:rgba(33,47,74,.75);border:1px solid var(--border);border-radius:12px;padding:16px 20px}
 .help-card summary{cursor:pointer;font-size:14px;font-weight:730}
 .help-card p{color:var(--muted);font-size:13px;line-height:1.65}
@@ -195,7 +183,7 @@ main{max-width:1570px;margin:auto;padding:29px clamp(20px,3vw,48px) 40px}
 .mobile-sheet{display:none}
 @media (max-width:1300px){
   .quick-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .migration{flex-wrap:wrap}.migration .btn{margin-left:81px}
+  .subscription-promo{flex-wrap:wrap}.subscription-promo .btn{margin-left:76px}
 }
 @media (max-width:1040px){
   .sidebar{width:218px}.content{margin-left:218px}
@@ -241,11 +229,11 @@ main{max-width:1570px;margin:auto;padding:29px clamp(20px,3vw,48px) 40px}
   .quick-icon{font-size:20px;width:23px}
   .quick-card b{font-size:11px}
   .quick-arrow{right:8px;top:6px;font-size:13px}
-  .migration{gap:13px;align-items:flex-start}
-  .migration-symbol{width:42px;height:42px;font-size:28px}
-  .migration h2{font-size:15px}
-  .migration p{font-size:11px}
-  .migration .btn{margin:0;width:100%;min-height:43px}
+  .subscription-promo{gap:13px;align-items:flex-start}
+  .subscription-symbol{width:42px;height:42px;font-size:28px}
+  .subscription-promo h2{font-size:15px}
+  .subscription-promo p{font-size:11px}
+  .subscription-promo .btn{margin:0;width:100%;min-height:43px}
   .detail-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
   .detail-card{min-height:120px}
   .mobile-nav{position:fixed;bottom:0;left:0;right:0;z-index:30;

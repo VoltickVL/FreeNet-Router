@@ -114,3 +114,25 @@ func TestPWAAssetsDoNotExposeGoSourceOrEntwareSecrets(t *testing.T) {
         if rec.Code==http.StatusOK {t.Fatalf("unexpected public source/config path %s",path)}
     }
 }
+
+func TestV09ShellFocusesOnSubscriptionNotBackups(t *testing.T) {
+    app:=handlersWithProc(t.TempDir(),t.TempDir())
+    html:=httptest.NewRecorder()
+    app.ServeHTTP(html,httptest.NewRequest(http.MethodGet,"/",nil))
+    if html.Code!=http.StatusOK {t.Fatalf("dashboard http %d",html.Code)}
+    page:=html.Body.String()
+    for _,required:=range []string{`id="subscription"`,`data-view="subscription"`,
+        "Подключить свою подписку","ЕЩЁ НЕ ГОТОВО"} {
+        if !strings.Contains(page,required){t.Fatalf("product goal missing from UI: %q",required)}
+    }
+    for _,obsolete:=range []string{`id="recovery"`,`data-view="recovery"`,
+        "Резервные копии","Восстановление","recovery-guard"} {
+        if strings.Contains(page,obsolete){t.Fatalf("unwanted backup/recovery feature in shell: %q",obsolete)}
+    }
+    js:=httptest.NewRecorder()
+    app.ServeHTTP(js,httptest.NewRequest(http.MethodGet,"/static/app.js",nil))
+    if js.Code!=http.StatusOK || !strings.Contains(js.Body.String(),`"subscription"`) ||
+        strings.Contains(js.Body.String(),`"recovery"`) {
+        t.Fatal("mobile/desktop router still exposes backup center or hides subscription")
+    }
+}
