@@ -53,16 +53,10 @@ type nativeXrayTopologyResponse struct {
 // Display-only fallback is preferable to guessing whether a token is safe.
 var nativeXrayUUIDLike = regexp.MustCompile(`(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 
-// Never expose addresses embedded in free-form Xray tags. A tag may contain
-// a literal IP or hostname even when it has no URI, token, or password marker.
-// This deliberately prefers a generic label to leaking a router endpoint.
-var nativeXrayEndpointLike = regexp.MustCompile(`(?i)(?:[a-z0-9-]+\.)+[a-z]{2,63}|(?:[0-9]{1,3}\.){3}[0-9]{1,3}|[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){2,}`)
-
 func nativeXrayDisplayName(tag, fallback string) string {
  name := strings.TrimSpace(tag)
  lower := strings.ToLower(name)
  if name=="" || len(name)>100 || nativeXrayUUIDLike.MatchString(name) ||
-  nativeXrayEndpointLike.MatchString(name) || strings.Contains(name,"::") ||
   strings.ContainsAny(name,"\r\n\t\x00<>") ||
   strings.Contains(lower,"://") || strings.Contains(lower,"@") ||
   strings.Contains(lower,"?") || strings.Contains(lower,"token") ||
