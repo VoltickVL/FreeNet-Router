@@ -13,7 +13,7 @@ import (
     "time"
 )
 
-func subscriptionOperation(root,procRoot,submittedURL string,refresh bool)nativeApplyResult{
+func subscriptionOperation(ctx context.Context,root,procRoot,submittedURL string,refresh bool)nativeApplyResult{
     result:=applyStopped()
     if observedPath(root,"etc/init.d/S99freenet-ui",false)!="MISSING" {
         // 0.8 is still present; there may be another native writer/cron.
@@ -31,7 +31,7 @@ func subscriptionOperation(root,procRoot,submittedURL string,refresh bool)native
         subscriptionURL=oldState.URL
     }
     if _,err=validateSubscriptionURL(subscriptionURL);err!=nil{return result}
-    body,err:=fetchNativeSubscription(context.Background(),subscriptionURL)
+    body,err:=fetchNativeSubscription(ctx,subscriptionURL)
     if err!=nil {return result}
     nodes,err:=nativeSubscriptionNodes(body)
     if err!=nil{return result}
@@ -47,6 +47,7 @@ func subscriptionOperation(root,procRoot,submittedURL string,refresh bool)native
         return result
     }
     if _,err:=readNativeSubscriptionState(root,current);err!=nil{return result}
+    if ctx.Err()!=nil {return result}
 
     managedPath:=filepath.Join(root,"etc/xray/configs",subscriptionFragmentName)
     statePath:=filepath.Join(private,subscriptionStateName)
