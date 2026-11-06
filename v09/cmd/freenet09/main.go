@@ -3,7 +3,9 @@
 package main
 
 import (
+    "embed"
     "encoding/json"
+    "io/fs"
     "errors"
     "flag"
     "fmt"
@@ -93,54 +95,36 @@ func loopbackListen(addr string) bool {
 
 type dashboardData struct {
     nativeOverview
+    System nativeSystem
     Topology nativeTopology
+    UpdateTargets []string
 }
 
-var dashboard = template.Must(template.New("dashboard").Parse(`<!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FreeNet 0.9 · Native Control Center</title>
-<style>
-:root{color-scheme:dark}body{margin:0;font:16px system-ui,-apple-system,sans-serif;background:#0e1523;color:#eff5ff}
-main{max-width:760px;margin:8vh auto;padding:22px}.eyebrow{color:#8db8e4;letter-spacing:.15em;font-size:12px}
-h1{font-size:36px;line-height:1.12;margin:10px 0}.sub{color:#a2b0c6;line-height:1.7}
-.panel{margin-top:26px;border:1px solid #293850;border-radius:18px;background:#172238;padding:22px}
-.row{display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid #28354a;padding:13px 0}
-.row:last-child{border:0}.row span{overflow-wrap:anywhere}h2{font-size:17px;margin:25px 0 4px}.muted{color:#9babc3}.badge{font-size:12px;border:1px solid #385a79;border-radius:100px;padding:5px 9px}
-footer{font-size:13px;color:#93a4bc;margin-top:24px}
-</style></head>
-<body><main><div class="eyebrow">FREENET ROUTER / NATIVE FIRST</div>
-<h1>Control Center 0.9</h1>
-<p class="sub">Чистая версия поверх штатных XKeen и Xray. Этот предварительный режим только читает наличие компонентов: не меняет VPN, DNS, маршруты или службу FreeNet 0.8.</p>
-<section class="panel"><div class="row"><strong>Состояние</strong><span class="badge">READ ONLY</span></div>
-<div class="row"><span class="muted">XKeen</span><strong>{{.XKeen}}</strong></div>
-<div class="row"><span class="muted">Xray</span><strong>{{.Xray}}</strong></div>
-<div class="row"><span class="muted">Конфигурации Xray</span><strong>{{.XrayConfig}}</strong></div>
-<div class="row"><span class="muted">FreeNet 0.8</span><strong>{{.LegacyFreeNet}}</strong></div>
-<div class="row"><span class="muted">Служба 0.8</span><strong>{{.LegacyService}}</strong></div></section>
-<section class="panel">
-<div class="row"><strong>Штатная конфигурация Xray</strong><span class="badge">{{.Topology.State}}</span></div>
-{{if eq .Topology.State "STOP"}}
-<p class="sub">Конфигурации Xray не подтверждены. Ничего не меняем; проверьте наличие и корректность штатных файлов.</p>
-{{else}}
-<p class="sub">Здесь показана сохранённая конфигурация Xray, не выбранный прямо сейчас сервер и не фактический HTTPS-маршрут.</p>
-<h2>Серверы ({{len .Topology.Servers}})</h2>
-{{range .Topology.Servers}}<div class="row"><span>{{.Tag}}</span><span class="muted">{{.Protocol}}{{if .InBalancer}} · в балансировщике{{end}}</span></div>{{else}}<p class="muted">В списке нет outbound-серверов</p>{{end}}
-<h2>Балансировщики ({{len .Topology.Balancers}})</h2>
-{{range .Topology.Balancers}}<div class="row"><span>{{.Tag}}</span><span class="muted">{{.Strategy}} · {{.Servers}} серверов</span></div>{{else}}<p class="muted">Нет штатного балансировщика</p>{{end}}
-{{end}}
-</section>
-<footer>Версия {{.Version}} · Runtime: NOT_VERIFIED · Управляющие операции отключены</footer>
-</main></body></html>`))
+//go:embed web/*
+var webAssets embed.FS
+var dashboard = template.Must(template.ParseFS(webAssets, "web/index.html"))
+var staticFS, staticFSError = fs.Sub(webAssets, "web")
+
+func writeWebAsset(w http.ResponseWriter, filename, contentType string) {
+    data, err := webAssets.ReadFile("web/"+filename)
+    if err != nil { http.Error(w,"asset unavailable",http.StatusInternalServerError);return }
+    w.Header().Set("Content-Type",contentType)
+    _,_ = w.Write(data)
+}
 
 func handlers(root string) http.Handler {
+    return handlersWithProc(root,"/proc")
+}
+
+func handlersWithProc(root,procRoot string) http.Handler {
     mux := http.NewServeMux()
     mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-        _, _ = w.Write([]byte("ok\n"))
+        _, _ = w.Write([]byte("ok\\n"))
     })
     mux.HandleFunc("GET /versionz", func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-        _, _ = w.Write([]byte(buildVersion + "\n"))
+        _, _ = w.Write([]byte(buildVersion + "\\n"))
     })
     mux.HandleFunc("GET /api/overview", func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -149,27 +133,49 @@ func handlers(root string) http.Handler {
     mux.HandleFunc("GET /api/native/xray/topology", func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "application/json; charset=utf-8")
         result, err := nativeXrayTopology(root)
-        if err != nil {
-            w.WriteHeader(http.StatusConflict)
-        }
+        if err != nil { w.WriteHeader(http.StatusConflict) }
         _ = json.NewEncoder(w).Encode(result)
     })
-    mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-        if r.URL.Path != "/" {
-            http.NotFound(w, r)
-            return
-        }
-        w.Header().Set("Content-Type", "text/html; charset=utf-8")
-        topology, err := nativeXrayTopology(root)
-        if err != nil { topology = stoppedTopology() }
-        _ = dashboard.Execute(w, dashboardData{nativeOverview: nativeStatus(root), Topology: topology})
+    mux.HandleFunc("GET /api/native/system", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type","application/json; charset=utf-8")
+        _ = json.NewEncoder(w).Encode(nativeSystemStatus(root,procRoot))
     })
-    return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-        w.Header().Set("Cache-Control", "no-store")
-        w.Header().Set("X-Content-Type-Options", "nosniff")
-        w.Header().Set("X-Frame-Options", "DENY")
-        w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'")
-        mux.ServeHTTP(w, r)
+    mux.HandleFunc("GET /manifest.webmanifest",func(w http.ResponseWriter,r *http.Request) {
+        writeWebAsset(w,"manifest.webmanifest","application/manifest+json; charset=utf-8")
+    })
+    mux.HandleFunc("GET /sw.js",func(w http.ResponseWriter,r *http.Request) {
+        w.Header().Set("Service-Worker-Allowed","/")
+        writeWebAsset(w,"sw.js","text/javascript; charset=utf-8")
+    })
+    if staticFSError==nil {
+        mux.Handle("GET /static/",http.StripPrefix("/static/",http.FileServer(http.FS(staticFS))))
+    }
+    mux.HandleFunc("GET /",func(w http.ResponseWriter,r *http.Request) {
+        if r.URL.Path!="/" { http.NotFound(w,r);return }
+        w.Header().Set("Content-Type","text/html; charset=utf-8")
+        topology, err := nativeXrayTopology(root)
+        if err!=nil {topology=stoppedTopology()}
+        state:=dashboardData{
+            nativeOverview:nativeStatus(root),
+            System:nativeSystemStatus(root,procRoot),
+            Topology:topology,
+            UpdateTargets:[]string{"FreeNet","XKeen","Xray-core","GeoData / GeoIPSET"},
+        }
+        if err:=dashboard.Execute(w,state);err!=nil { return }
+    })
+    return http.HandlerFunc(func(w http.ResponseWriter,r *http.Request) {
+        if r.URL.Path=="/" || strings.HasPrefix(r.URL.Path,"/api/") ||
+            r.URL.Path=="/healthz" || r.URL.Path=="/versionz" {
+            w.Header().Set("Cache-Control","no-store")
+        } else {
+            // The public PWA shell may be cached; no credentials/API responses.
+            w.Header().Set("Cache-Control","private, max-age=300")
+        }
+        w.Header().Set("X-Content-Type-Options","nosniff")
+        w.Header().Set("X-Frame-Options","DENY")
+        w.Header().Set("Referrer-Policy","no-referrer")
+        w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'")
+        mux.ServeHTTP(w,r)
     })
 }
 
