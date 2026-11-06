@@ -17,12 +17,15 @@ func nativeXKeenServiceHTTP(w http.ResponseWriter,r *http.Request,root,procRoot 
         _=json.NewEncoder(w).Encode(v)
     }
     stop:=xkeenServiceReport{State:"STOP",Runtime:"NOT_VERIFIED"}
-    if r.TLS==nil || !requestSameOrigin(r) {write(http.StatusForbidden,stop);return}
+    if r.TLS==nil {write(http.StatusForbidden,stop);return}
+    // GET is authenticated by secureControlCenter; normal browser GET
+    // requests do not have an Origin header. Only POST requires CSRF guard.
     if r.Method==http.MethodGet {
         write(http.StatusOK,nativeXKeenServiceStatus(r.Context(),root,procRoot))
         return
     }
-    if r.Method!=http.MethodPost || r.Header.Get("X-FreeNet-Action")!="xkeen-service" {
+    if r.Method!=http.MethodPost || !requestSameOrigin(r) ||
+        r.Header.Get("X-FreeNet-Action")!="xkeen-service" {
         write(http.StatusForbidden,stop)
         return
     }
