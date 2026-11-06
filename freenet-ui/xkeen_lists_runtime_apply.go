@@ -194,13 +194,31 @@ func xkeenIPSetParse(raw,name,family string)([]string,[]string,error){
  return xkeenIPSetUnique(entries),opts,nil
 }
 func xkeenIPSetDesired(text string)([]string,[]string,error){
- if _,e:=validateXKeenListText("ip_exclude.lst",text);e!=nil{return nil,nil,e}
+ // Native XKeen and the partner XKeen UIs allow both host IP addresses and
+ // CIDRs in existing ip_exclude.lst. FreeNet's guarded editor may require an
+ // explicit mask when saving; activation must still understand valid files
+ // already saved by the working XKeen UI without rewriting user content.
+ if len(text)>maxXKeenListEditBytes||strings.ContainsRune(text,0){
+  return nil,nil,errors.New("invalid exclusion list")
+ }
  var v4,v6 []string
- for _,line:=range strings.Split(text,"\n"){
-  p:=strings.TrimSpace(line)
-  if p==""||strings.HasPrefix(p,"#"){continue}
-  prefix,e:=netip.ParsePrefix(p);if e!=nil{return nil,nil,e}
-  if prefix.Addr().Is4(){v4=append(v4,prefix.Masked().String())}else{v6=append(v6,prefix.Masked().String())}
+ for _,line:=range strings.Split(strings.ReplaceAll(text,"\r\n","\n"),"\n"){
+  value:=strings.TrimSpace(line)
+  if value==""||strings.HasPrefix(value,"#"){continue}
+  var p netip.Prefix
+  if ip,e:=netip.ParseAddr(value);e==nil{
+   bits:=128;if ip.Is4(){bits=32}
+   p=netip.PrefixFrom(ip,bits)
+  }else{
+   parsed,e:=netip.ParsePrefix(value)
+   if e!=nil{return nil,nil,errors.New("invalid existing IP/CIDR exclusion")}
+   p=parsed
+  }
+  if !p.IsValid()||xkeenDangerouslyBroadLAN(p){
+   return nil,nil,errors.New("unsafe broad LAN exclusion")
+  }
+  p=p.Masked()
+  if p.Addr().Is4(){v4=append(v4,p.String())}else{v6=append(v6,p.String())}
  }
  v4=xkeenIPSetUnique(v4);v6=xkeenIPSetUnique(v6)
  if len(v4)+len(v6)>1024{return nil,nil,errors.New("list exceeds activation limit")}
