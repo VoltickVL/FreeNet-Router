@@ -176,6 +176,13 @@
           </div>
           <p id="subscription-warning" class="muted">Предпросмотр не сохраняет ссылку. После входа по HTTPS можно сохранить и применить подписку: Xray сам проверит конфигурацию, а XKeen штатно перезапустит службу. При ошибке попытка изменения отменяется. VPN/HTTPS-трафик после применения требует отдельной проверки.</p>
           <div id="subscription-apply-actions" class="subscription-apply-actions" hidden>
+            <div class="native-selector-picker">
+              <label for="subscription-target">Штатный Xray balancer / selector</label>
+              <select id="subscription-target" disabled aria-describedby="subscription-target-help">
+                <option value="">Проверка native routing...</option>
+              </select>
+              <small id="subscription-target-help">Выбирается существующий balancer, на который уже ссылается routing. FreeNet не изменяет ISP/DNS/DIRECT/VPN.</small>
+            </div>
             <button type="button" class="btn solid" id="subscription-apply" disabled>Применить просмотренную подписку</button>
             <button type="button" class="btn outline" id="subscription-refresh">Обновить сохранённую</button>
             <span class="state-chip neutral" id="subscription-applied-status">НЕ НАСТРОЕНО</span>
