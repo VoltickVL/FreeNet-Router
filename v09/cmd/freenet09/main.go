@@ -174,6 +174,7 @@ func handlers(root string) http.Handler {
 }
 
 func selfTest() error {
+    if staticFSError!=nil {return errors.New("embedded web assets unavailable")}
     if !loopbackListen("127.0.0.1:1009") || loopbackListen("0.0.0.0:1009") {
         return errors.New("preview bind safety failed")
     }
