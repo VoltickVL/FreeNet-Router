@@ -84,11 +84,36 @@ func TestXKeenNativeSBHTTPIsReadOnlyAndVersionLocked(t *testing.T){
   result.State!="disabled"||result.Mutation!="NONE"||result.Runtime!="NOT_VERIFIED"{
   t.Fatalf("native status incorrectly claims live verified: %+v",result)
  }
- xkeenNativeSBMetadata=func(_ string)(string,string,error){return "2.1.1","beta",nil}
- w=httptest.NewRecorder();a.handleXKeenNativeSBStatus(w,request)
- if w.Code!=http.StatusConflict || strings.Contains(w.Body.String(),"/opt/"){
-  t.Fatalf("unsupported upstream version must STOP without leaking file paths: %d %s",w.Code,w.Body.String())
+ for _,tc:=range []struct{
+  version,channel string
+  expected int
+  manual bool
+ }{
+  {"2.1.1","beta",http.StatusOK,true},
+  {"2.2","beta",http.StatusOK,true},
+  {"2.2","stable",http.StatusConflict,false},
+  {"2.3","beta",http.StatusConflict,false},
+  {"2.1.1","unknown",http.StatusConflict,false},
+ }{
+  xkeenNativeSBMetadata=func(_ string)(string,string,error){return tc.version,tc.channel,nil}
+  w=httptest.NewRecorder();a.handleXKeenNativeSBStatus(w,request)
+  if w.Code!=tc.expected{t.Fatalf("%s/%s: HTTP %d want %d",tc.version,tc.channel,w.Code,tc.expected)}
+  if strings.Contains(w.Body.String(),"/opt/")||strings.Contains(w.Body.String(),"FAKE_SENSITIVE_TEST_TOKEN"){
+   t.Fatalf("metadata leaked in read-only response: %s",w.Body.String())
+  }
+  if tc.expected==http.StatusOK{
+   var got xkeenNativeSBStatus
+   if json.Unmarshal(w.Body.Bytes(),&got)!=nil||got.InstalledVersion!=tc.version||
+      got.InstalledChannel!=tc.channel||got.Mutation!="NONE"||got.Runtime!="NOT_VERIFIED"{
+    t.Fatalf("XKeen version-scoped status invalid: %+v",got)
+   }
+   commands:=strings.Join(got.NativeCommands,",")
+   if tc.manual&&!strings.Contains(commands,"next,prev,N"){
+    t.Fatalf("native manual balancer commands hidden on beta: %s",commands)
+   }
+  }
  }
+
 }
 
 func TestFreeNetLegacyPoolNewProvisioningBlockedButExistingNotDeleted(t *testing.T){
@@ -120,5 +145,23 @@ func TestFreeNetLegacyPoolNewProvisioningBlockedButExistingNotDeleted(t *testing
     t.Fatalf("legacy provisioning was not stopped before mutation: %+v",state)
    }
   })
+ }
+}
+
+func TestXKeenNativeBalancerExactTagCapabilities(t *testing.T){
+ for _,tc:=range []struct{version,channel string;known,manual bool}{
+  {"2.1","stable",true,false},
+  {"2.1.1","beta",true,true},
+  {"2.2","beta",true,true},
+  {"2.2","stable",false,false},
+  {"2.1.1","stable",false,false},
+  {"2.0","stable",false,false},
+  {"2.3","beta",false,false},
+  {"","unknown",false,false},
+ }{
+  commands,ok:=xkeenNativeSBCapabilities(tc.version,tc.channel)
+  if ok!=tc.known{t.Fatalf("capability gate %s/%s: %v",tc.version,tc.channel,ok)}
+  manual:=strings.Contains(strings.Join(commands,","),"next,prev,N")
+  if manual!=tc.manual{t.Fatalf("manual commands must match release %s/%s",tc.version,tc.channel)}
  }
 }
