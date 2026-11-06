@@ -131,6 +131,10 @@ func (a *app) handleFreeNetAutoPoolPlan(w http.ResponseWriter,r *http.Request){
     resp:=freeNetAutoPlanResponse{Mutation:"NONE",Status:"blocked"}
     var req freeNetAutoPlanRequest
     if !decodeFreeNetAutoJSON(w,r,&req){return}
+    if !freeNetAutoLegacyProvisionEnabled{
+        resp.Status="native-xkeen-sb-preferred-no-new-pool"
+        writeJSON(w,http.StatusConflict,resp);return
+    }
     if !a.visionQUICReady() || !freeNetAutoPoolPathAbsent(freeNetAutoPoolPending())||
         !freeNetAutoPoolPathAbsent(freeNetAutoPoolActive()){
         writeJSON(w,http.StatusConflict,resp);return
