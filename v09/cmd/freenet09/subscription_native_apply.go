@@ -71,6 +71,11 @@ func readNativeConfdir(root string)(map[string][]byte,error){
     total:=0
     for _,entry:=range entries {
         name:=entry.Name()
+        // Pre-tail experimental fragments may have prepended their outbound
+        // and altered Xray default selection. Never silently mix/migrate them.
+        if name=="04_zz_freenet09_subscription.json" {
+            return nil,errors.New("non-tail subscription fragment requires inspection")
+        }
         ext:=strings.ToLower(filepath.Ext(name))
         if ext!=".json" && ext!=".jsonc" && ext!=".yaml" && ext!=".yml" && ext!=".toml" {continue}
         // Native XKeen forbids backup names with these words in config root.
