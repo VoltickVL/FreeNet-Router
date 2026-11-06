@@ -84,7 +84,7 @@ var xkeenIPSetHookRoot = func() string {return "/tmp/.xkeen"}
 var xkeenIPSetAdmission = func(a *app) bool {
  if a==nil || a.cfg.XKeenPath=="" {return false}
  v,ch,e:=readXKeenInstalledMetadata(a.cfg.XKeenPath)
- if e!=nil || !strings.HasPrefix(v,"2.1") || ch!="stable" {return false}
+ if e!=nil || v!="2.1" || ch!="stable" {return false}
  reason,need:=xkeenInitRepairNeed(xkeenInitDir())
  if need || reason!="compatible" {return false}
  if !xkeenUpdateProductionReady(a) {return false}
@@ -254,10 +254,11 @@ func xkeenIPSetRead(ctx context.Context,name,family string,desired []string,allo
  return s,nil
 }
 func xkeenIPSetBusy(a *app)bool{
- if a==nil||a.cfg.LockPath==""||a.updateLockHeld()||automationMutationBlockedState()||
+ if a==nil||a.cfg.LockPath==""||a.updateLockHeld()||a.selfUpdateStateAdmission()!=nil||automationMutationBlockedState()||
     vpnTransactionPending()||xkeenUpdateLocalActive()||xkeenInitRepairMutationBlocked(){return true}
  state:=xrayCoreOperationSnapshot().State
- return state=="RUNNING"||state=="STOP"
+ upstream:=publicXKeenUpdateState(a.cfg.XKeenPath).State
+ return state=="RUNNING"||state=="STOP"||upstream=="RUNNING"||upstream=="STOP"
 }
 func xkeenIPSetPlan(ctx context.Context,a *app)(xkeenIPSetPlanResponse,[]xkeenIPSet){
  p:=xkeenIPSetPlanResponse{Success:true,State:"STOP",Reason:"runtime-unverified",Mutation:"NONE",IPv6:"unverified",ClientEgress:"NOT_VERIFIED"}
@@ -433,7 +434,7 @@ func (a *app) handleXKeenIPSetApply(w http.ResponseWriter,r *http.Request){
    if err!=nil||cur.present!=s.present||!xkeenIPSetSame(cur.active,s.desired){mutationErr=true;break}
   }
  }
- if mutationErr || xkeenIPSetWriteState(xkeenIPSetDiskState{State:"SUCCESS",Rollback:"NOT_NEEDED",Snapshot:snapshot,DiskSHA256:plan.DiskSHA256,RuntimeSHA256:plan.RuntimeSHA256})!=nil{
+ if mutationErr{
   // Use a fresh bounded rollback context, even when the apply timeout has fired.
   rbctx,rbcancel:=context.WithTimeout(context.Background(),12*time.Second);defer rbcancel()
   if !xkeenIPSetRollback(rbctx,swapped,sets){halt("rollback-failed-or-unverified");return}
@@ -443,9 +444,12 @@ func (a *app) handleXKeenIPSetApply(w http.ResponseWriter,r *http.Request){
   fail(http.StatusBadGateway,"ROLLED_BACK","ROLLED_BACK","SUCCESS","kernel-apply-failed-previous-membership-restored");return
  }
  if !xkeenIPSetCleanup(ctx,prepared){
-  // Applied sets are verified, but retaining unknown temporary kernel objects
-  // is not a clean transaction; block further mutation for reconciliation.
+  // Do not write SUCCESS until temporary sets are verified removed.
+  // The durable RUNNING receipt remains a persistent STOP on restart.
   halt("temporary-ipsets-unresolved");return
+ }
+ if xkeenIPSetWriteState(xkeenIPSetDiskState{State:"SUCCESS",Rollback:"NOT_NEEDED",Snapshot:snapshot,DiskSHA256:plan.DiskSHA256,RuntimeSHA256:plan.RuntimeSHA256})!=nil{
+  halt("kernel-applied-but-terminal-receipt-unavailable");return
  }
  writeJSON(w,http.StatusOK,xkeenIPSetApplyResponse{Success:true,State:"SUCCESS",Mutation:"KERNEL_APPLIED",Rollback:"NOT_NEEDED",DiskSHA256:plan.DiskSHA256,ClientEgress:"NOT_VERIFIED"})
 }
