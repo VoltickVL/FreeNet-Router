@@ -76,6 +76,7 @@ func registerConfigStudioAPI(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("POST /api/config-studio/validate", a.requireAuth(a.handleConfigStudioValidate))
 	mux.HandleFunc("POST /api/config-studio/apply", a.requireAuth(a.handleConfigStudioApply))
 	registerXKeenListEditAPI(mux,a)
+	registerXKeenIPSetActivation(mux,a)
 }
 
 func configStudioEditableRoot(name string) (string, bool) {
