@@ -78,6 +78,8 @@ func oneNativeVersion(ctx context.Context,root,kind string) nativeVersionEvidenc
     cmd:=exec.CommandContext(callCtx,path,arg)
     cmd.Stdout=stdout
     cmd.Stderr=io.Discard
+    // A detached child must not hold Go's copied stdout pipe indefinitely.
+    cmd.WaitDelay=250*time.Millisecond
     if err:=cmd.Run();err!=nil {
         if errors.Is(callCtx.Err(),context.DeadlineExceeded){
             return nativeVersionEvidence{State:"TIMEOUT"}
