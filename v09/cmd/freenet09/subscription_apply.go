@@ -95,6 +95,24 @@ func subscriptionOperationWithFetch(ctx context.Context,root,procRoot,submittedU
             // A successful exit from restart alone is not rollback proof.
             return nativeApplyResult{State:"ROLLBACK_FAILED",Runtime:"UNKNOWN",Applied:false}
         }
+        // A native restart may rewrite the fragment again. Confirm the
+        // exact original file/state (or their absence) *after* that restart.
+        restoredFiles,restoredErr:=readNativeConfdir(root)
+        if restoredErr!=nil {
+            return nativeApplyResult{State:"ROLLBACK_FAILED",Runtime:"UNKNOWN",Applied:false}
+        }
+        restoredFragment,exists:=restoredFiles[subscriptionFragmentName]
+        if exists!=hadFragment || (hadFragment && !bytes.Equal(restoredFragment,previousFragment)){
+            return nativeApplyResult{State:"ROLLBACK_FAILED",Runtime:"UNKNOWN",Applied:false}
+        }
+        restoredState,stateErr:=os.ReadFile(statePath)
+        if hadState {
+            if stateErr!=nil || !bytes.Equal(restoredState,oldStateData) {
+                return nativeApplyResult{State:"ROLLBACK_FAILED",Runtime:"UNKNOWN",Applied:false}
+            }
+        } else if !errors.Is(stateErr,os.ErrNotExist) {
+            return nativeApplyResult{State:"ROLLBACK_FAILED",Runtime:"UNKNOWN",Applied:false}
+        }
         return nativeApplyResult{State:"ROLLED_BACK",Runtime:"NOT_VERIFIED",Applied:false}
     }
     if !synchronousXKeen(context.Background(),root,"-restart") {
@@ -104,6 +122,13 @@ func subscriptionOperationWithFetch(ctx context.Context,root,procRoot,submittedU
     // use the official service status and Xray process as minimum evidence.
     if !synchronousXKeen(context.Background(),root,"-status") ||
         !xrayProcessSeenSoon(procRoot) {
+        return rollback()
+    }
+    // A successful native service status does not prove XKeen preserved the
+    // exact fragment submitted to Xray. Verify the on-disk candidate before
+    // recording a successful import; never silently trust a rewritten file.
+    live,readErr:=readNativeConfdir(root)
+    if readErr!=nil || !bytes.Equal(live[subscriptionFragmentName],candidate) {
         return rollback()
     }
     newState:=nativeSubscriptionState{URL:subscriptionURL,SHA256:hashConfig(candidate)}

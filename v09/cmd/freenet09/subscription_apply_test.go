@@ -26,11 +26,16 @@ func nativeApplyFixture(t *testing.T,xrayShell,xkeenShell string)(string,string)
     writeFixture(t,proc,"123/comm","xray\n")
     fakeNativeBinary(t,root,"xray",xrayShell)
     fakeNativeBinary(t,root,"xkeen",xkeenShell)
+    // Official XKeen init is the read-only status source; unlike the
+    // CLI -status, it does not run XKeen's Entware package self-heal.
+    writeFixture(t,root,"etc/init.d/S05xkeen",
+        "#!/bin/sh\nif [ \"$1\" != \"status\" ]; then exit 77; fi\nexit 0\n")
+    if err:=os.Chmod(filepath.Join(root,"etc/init.d/S05xkeen"),0700);err!=nil{t.Fatal(err)}
     return root,proc
 }
 
-const mockXraySuccess = "if [ \"$1\" != \"run\" ] || [ \"$2\" != \"-test\" ] || [ \"$3\" != \"-confdir\" ] || [ ! -f \"$4/04_zz_freenet09_subscription.json\" ]; then\nexit 21\nfi\nexit 0\n"
-const mockXKeenSuccess = "if [ \"$1\" != \"-restart\" ] && [ \"$1\" != \"-status\" ]; then exit 19; fi\nif [ \"$XKEEN_FOREGROUND\" != \"1\" ]; then exit 27; fi\nexit 0\n"
+const mockXraySuccess = "if [ \"$1\" != \"run\" ] || [ \"$2\" != \"-test\" ] || [ \"$3\" != \"-confdir\" ] || [ ! -f \"$4/04_zz_freenet09_subscription_tail.json\" ]; then\nexit 21\nfi\nexit 0\n"
+const mockXKeenSuccess = "if [ \"$1\" != \"-restart\" ]; then exit 19; fi\nif [ \"$XKEEN_FOREGROUND\" != \"1\" ]; then exit 27; fi\nexit 0\n"
 const nativeURLCanary = "https://subscription.example.org/s?token=SECRET-URL-CANARY"
 
 func fakeSubscriptionFetch(_ context.Context,url string)([]byte,error){
@@ -166,5 +171,77 @@ func TestNativeApplyAPIOnlyUnderAuthenticatedTLS(t *testing.T){
     <-gate
     if busy.Code!=http.StatusConflict || !strings.Contains(busy.Body.String(),"BUSY"){
         t.Fatal("concurrent native apply not serialized")
+    }
+}
+
+func TestSubscriptionFragmentUsesOfficialXrayTailMerge(t *testing.T) {
+    // Xray's official multiple-config merge prepends new outbounds unless
+    // the filename contains "tail". Existing default DIRECT/VPN must retain
+    // its precedence after importing extra subscription nodes.
+    if !strings.Contains(strings.ToLower(subscriptionFragmentName),"tail") {
+        t.Fatalf("native Xray fragment %q would prepend outbound and change default routing",subscriptionFragmentName)
+    }
+    if strings.Contains(subscriptionFragmentName,"copy") ||
+        strings.Contains(subscriptionFragmentName,"old") ||
+        strings.Contains(subscriptionFragmentName,"bak") {
+        t.Fatal("fragment name collides with XKeen config stoplist")
+    }
+    root,proc:=nativeApplyFixture(t,mockXraySuccess,mockXKeenSuccess)
+    got:=subscriptionOperationWithFetch(context.Background(),root,proc,nativeURLCanary,false,fakeSubscriptionFetch)
+    if got.State!="CONFIG_APPLIED_NOT_EGRESS_VERIFIED" || !got.Applied {
+        t.Fatalf("native subscription import with safe tail failed: %+v",got)
+    }
+    path:=filepath.Join(root,"etc/xray/configs",subscriptionFragmentName)
+    if _,err:=os.Stat(path);err!=nil{t.Fatal("tail fragment not written")}
+    // The pre-existing default outbound stays untouched and physically
+    // precedes the managed tail file under Xray's documented sort order.
+    if !(filepath.Base(path)>"04_outbounds.json") {
+        t.Fatal("managed Xray fragment unexpectedly ordered before native default")
+    }
+}
+
+func TestLegacyNonTailSubscriptionFragmentStopsBeforeMutation(t *testing.T) {
+    root,proc:=nativeApplyFixture(t,mockXraySuccess,mockXKeenSuccess)
+    writeFixture(t,root,"etc/xray/configs/04_zz_freenet09_subscription.json",
+        `{"outbounds":[{"tag":"freenet-sub-old","protocol":"freedom"}]}`)
+    result:=subscriptionOperationWithFetch(context.Background(),root,proc,nativeURLCanary,false,fakeSubscriptionFetch)
+    if result.Applied || result.State!="STOP" {
+        t.Fatalf("unowned old fragment must STOP safely: %+v",result)
+    }
+    if _,err:=os.Stat(filepath.Join(root,"etc/xray/configs",subscriptionFragmentName));!errors.Is(err,os.ErrNotExist) {
+        t.Fatal("managed tail fragment must not be written over conflicting old config")
+    }
+}
+
+func TestNativeXKeenStatusDoesNotInvokePackageSelfHeal(t *testing.T) {
+    root,proc:=nativeApplyFixture(t,mockXraySuccess,
+        "if [ \"$1\" = \"-status\" ]; then touch \"$0.UNSAFE_PACKAGE_UPDATE\"; exit 18; fi\n"+
+        "if [ \"$1\" != \"-restart\" ] || [ \"$XKEEN_FOREGROUND\" != \"1\" ]; then exit 19; fi\nexit 0\n")
+    result:=subscriptionOperationWithFetch(context.Background(),root,proc,nativeURLCanary,false,fakeSubscriptionFetch)
+    if result.State!="CONFIG_APPLIED_NOT_EGRESS_VERIFIED" {
+        t.Fatalf("official init-based status should accept native service: %+v",result)
+    }
+    if _,err:=os.Stat(filepath.Join(root,"sbin/xkeen.UNSAFE_PACKAGE_UPDATE"));!errors.Is(err,os.ErrNotExist) {
+        t.Fatal("status unexpectedly invoked XKeen CLI package self-heal path")
+    }
+}
+
+func TestNativeApplyChecksFragmentAfterXKeenRestart(t *testing.T) {
+    // Simulate a native service hook rewriting our file after the initial
+    // Xray -test. FreeNet must not report success based on exit code alone.
+    script:="if [ \"$1\" != \"-restart\" ]; then exit 31; fi\n"+
+        "dir=\"$(dirname \"$0\")/../etc/xray/configs\"\n"+
+        "printf '%s\\n' '{\"outbounds\":[]}' > \"$dir/04_zz_freenet09_subscription_tail.json\"\n"+
+        "exit 0\n"
+    root,proc:=nativeApplyFixture(t,mockXraySuccess,script)
+    result:=subscriptionOperationWithFetch(context.Background(),root,proc,nativeURLCanary,false,fakeSubscriptionFetch)
+    if result.State=="CONFIG_APPLIED_NOT_EGRESS_VERIFIED" || result.Applied {
+        t.Fatalf("rewritten native fragment incorrectly accepted: %+v",result)
+    }
+    if result.State!="ROLLBACK_FAILED" {
+        t.Fatalf("unconfirmed rollback must STOP as UNKNOWN: %+v",result)
+    }
+    if _,err:=os.Stat(filepath.Join(root,"etc/freenet09",subscriptionStateName));!errors.Is(err,os.ErrNotExist){
+        t.Fatal("unsafe native state was persisted despite fragment tampering")
     }
 }

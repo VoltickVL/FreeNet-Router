@@ -19,7 +19,10 @@ import (
     "time"
 )
 
-const subscriptionFragmentName = "04_zz_freenet09_subscription.json"
+// Official Xray confdir merge PREPENDS new outbound arrays unless the file
+// name contains "tail". Never hijack the existing default outbound or change
+// DIRECT/VPN routing simply because the user imported a subscription.
+const subscriptionFragmentName = "04_zz_freenet09_subscription_tail.json"
 const subscriptionStateName = "subscription-state.json"
 const maxNativeConfigs = 100
 const maxNativeConfigAggregate = 16 << 20
@@ -68,6 +71,11 @@ func readNativeConfdir(root string)(map[string][]byte,error){
     total:=0
     for _,entry:=range entries {
         name:=entry.Name()
+        // Pre-tail experimental fragments may have prepended their outbound
+        // and altered Xray default selection. Never silently mix/migrate them.
+        if name=="04_zz_freenet09_subscription.json" {
+            return nil,errors.New("non-tail subscription fragment requires inspection")
+        }
         ext:=strings.ToLower(filepath.Ext(name))
         if ext!=".json" && ext!=".jsonc" && ext!=".yaml" && ext!=".yml" && ext!=".toml" {continue}
         // Native XKeen forbids backup names with these words in config root.
@@ -188,14 +196,25 @@ func stageNativeSubscription(root string,source map[string][]byte,candidate []by
 
 func synchronousXKeen(ctx context.Context,root,operation string) bool {
     if operation!="-restart" && operation!="-status" {return false}
-    if observedPath(root,"sbin/xkeen",false)!="PRESENT" {return false}
-    binary:=filepath.Join(root,"sbin/xkeen")
-    info,err:=os.Lstat(binary)
+    // Official XKeen 2.1 "-status" enters package self-heal before reaching
+    // S05xkeen. Call its ORIGINAL init "status" directly to avoid hidden
+    // opkg/package changes during a mere post-apply read-only check.
+    path,args:=filepath.Join(root,"sbin/xkeen"),[]string{"-restart"}
+    if operation=="-status" {
+        path=filepath.Join(root,"etc/init.d/S05xkeen")
+        args=[]string{"status"}
+        if observedPath(root,"etc/init.d/S05xkeen",false)!="PRESENT" {return false}
+    } else if observedPath(root,"sbin/xkeen",false)!="PRESENT" {
+        return false
+    }
+    info,err:=os.Lstat(path)
     if err!=nil || !info.Mode().IsRegular() || info.Mode()&0111==0 {return false}
     c,cancel:=context.WithTimeout(ctx,40*time.Second)
     defer cancel()
-    cmd:=exec.CommandContext(c,binary,operation)
-    cmd.Env=append(os.Environ(),"XKEEN_FOREGROUND=1")
+    cmd:=exec.CommandContext(c,path,args...)
+    if operation=="-restart" {
+        cmd.Env=append(os.Environ(),"XKEEN_FOREGROUND=1")
+    }
     cmd.Stdout=io.Discard;cmd.Stderr=io.Discard;cmd.Stdin=nil
     cmd.WaitDelay=500*time.Millisecond
     return cmd.Run()==nil && c.Err()==nil
