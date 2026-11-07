@@ -113,6 +113,10 @@ func TestOfficialXKeenDNSSourceAndLegacyEvidence(t *testing.T) {
         got.Mode!="not-configured" {
         t.Fatalf("neutral Xray DNS incorrectly reported: %+v",got)
     }
+    writeFixture(t,root,"etc/xray/configs/02_dns.json","null")
+    if got:=dnsSummary(root);got.State!="UNKNOWN" {
+        t.Fatalf("JSON null must not masquerade as original XKeen DNS default: %+v",got)
+    }
     // The previous FreeNet 0.8 embedded Split DNS tags in normal Xray
     // fragments; never equate their presence with clean 0.9 native DNS.
     writeFixture(t,root,"etc/xray/configs/02_dns.json",`{
