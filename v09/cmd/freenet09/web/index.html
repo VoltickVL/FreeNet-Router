@@ -55,6 +55,13 @@
           <button id="refresh" class="btn outline" type="button" aria-label="Обновить состояние"><span class="refresh-icon" aria-hidden="true">↻</span><span class="refresh-label">Обновить состояние</span></button></div>
         <div class="notice notice-accent"><span class="notice-icon">i</span><div><strong>Безопасный предварительный режим</strong>
           <p>Конфигурация и наличие служб ≠ работоспособность VPN. Фактический HTTPS-маршрут, DNS и выбранный outbound ещё не проверены. Управляющие операции будут доступны только после авторизованной настройки и приёмки.</p></div></div>
+        <article class="panel">
+          <div class="panel-heading"><h2>Готовность к испытанию FreeNet 0.9 на HOME</h2>
+            <span class="state-chip caution" id="canary-readiness-state">НЕ ПРОВЕРЕНО</span></div>
+          <p class="muted">Проверка только читает установленный XKeen/Xray и наличие FreeNet 0.8. Это не разрешение на смену конфигурации, не проверка VPN/DNS/HTTPS и не запуск установщика.</p>
+          <div class="list-line"><div><strong>Ограничение / следующий шаг</strong></div><span class="small-code" id="canary-readiness-reason">UNKNOWN</span></div>
+          <div class="notice compact"><span class="notice-icon">i</span><p>STAGING_ONLY = можно готовить отдельную версию 0.9, но нельзя переключать контроллер или обновлять XKeen автоматически. STOP = частичное либо неизвестное состояние. CORE_PRECHECK_ONLY не означает готовность к релизу.</p></div>
+        </article>
         <div class="component-grid">
           <article class="component-card"><div class="component-top"><span class="mini-logo infinity">∞</span><span class="state-chip purple">PREVIEW</span></div><h3>FreeNet</h3>
             <div class="component-version">{{.Version}}</div><p>Новая веб-панель · без наследия 0.8</p></article>
