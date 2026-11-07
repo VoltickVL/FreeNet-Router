@@ -121,6 +121,7 @@ func handlersWithProc(root,procRoot string) http.Handler {
     mux := http.NewServeMux()
     // One official offline validator at a time, never a second Xray server.
     validateGate := make(chan struct{},1)
+    dnsCandidateGate := make(chan struct{},1)
     subscriptionGate := make(chan struct{},1)
     mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
         w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -155,6 +156,20 @@ func handlersWithProc(root,procRoot string) http.Handler {
     mux.HandleFunc("GET /api/native/versions",func(w http.ResponseWriter,r *http.Request) {
         w.Header().Set("Content-Type","application/json; charset=utf-8")
         _ = json.NewEncoder(w).Encode(detectNativeVersions(r.Context(),root))
+    })
+    mux.HandleFunc("GET /api/native/dns-candidate",func(w http.ResponseWriter,r *http.Request) {
+        w.Header().Set("Content-Type","application/json; charset=utf-8")
+        select {
+        case dnsCandidateGate <- struct{}{}:
+            defer func(){<-dnsCandidateGate}()
+        default:
+            w.WriteHeader(http.StatusConflict)
+            _=json.NewEncoder(w).Encode(nativeDNSCandidateReport{
+                State:"BUSY",Runtime:"NOT_VERIFIED",DNS53Owner:"UNKNOWN",Applied:false,
+            })
+            return
+        }
+        _=json.NewEncoder(w).Encode(nativeDNSCandidatePlan(r.Context(),root))
     })
     mux.HandleFunc("GET /api/native/xray/validate",func(w http.ResponseWriter,r *http.Request) {
         w.Header().Set("Content-Type","application/json; charset=utf-8")

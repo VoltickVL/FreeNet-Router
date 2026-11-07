@@ -497,6 +497,29 @@
     }
   });
 
+  const dnsCandidateButton = document.getElementById("dns-candidate-check");
+  dnsCandidateButton?.addEventListener("click", async () => {
+    dnsCandidateButton.disabled = true;
+    const state = document.getElementById("dns-candidate-state");
+    const owner = document.getElementById("dns-candidate-owner");
+    const count = document.getElementById("dns-candidate-count");
+    if (state) state.textContent = "ПРОВЕРКА";
+    try {
+      const plan = await readJSON("/api/native/dns-candidate");
+      if (state) state.textContent = String(plan.state || "STOP");
+      if (owner) owner.textContent = String(plan.dns53_owner || "UNKNOWN");
+      if (count) count.textContent = String(plan.removed_rules ?? 0);
+      status(plan.state === "CANDIDATE_VALIDATED_DNS53_TRANSITION_REQUIRED"
+        ? "Xray-кандидат проверен, но Xray владеет DNS :53. Применение запрещено до безопасной передачи DNS."
+        : "Проверка DNS-кандидата завершена. Сеть не менялась. Клиентский DNS/VPN не подтверждён.");
+    } catch (_) {
+      if (state) state.textContent = "STOP";
+      status("Кандидат проверить не удалось. DNS и маршруты не изменены.");
+    } finally {
+      dnsCandidateButton.disabled = false;
+    }
+  });
+
   refresh?.addEventListener("click", () => refreshEvidence(false));
   refreshEvidence(true);
 
