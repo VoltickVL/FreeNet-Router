@@ -29,7 +29,7 @@ func readinessFixture(t *testing.T,xkeenVersion string,legacy bool)(string,strin
 func TestHomeFirstReadinessLegacy21IsStagingOnly(t *testing.T){
  root,proc:=readinessFixture(t,"2.1",true)
  got:=canaryReadiness(context.Background(),root,proc)
- if got.State!="STAGING_ONLY" || got.Reason!="XKEEN_21_LEGACY_08_CUTOVER_BLOCKED" ||
+ if got.State!="STAGING_ONLY" || got.Reason!="LEGACY_08_CUTOVER_BLOCKED" ||
   got.Legacy!="PRESENT" || got.XKeen!="2.1" || got.Xray!="26.10.31" ||got.Runtime!="NOT_VERIFIED" {
   t.Fatalf("HOME 2.1+0.8 must not allow cutover: %+v",got)
  }
@@ -48,8 +48,8 @@ func TestHomeFirstReadinessLegacy21IsStagingOnly(t *testing.T){
  }
 }
 
-func TestCanaryReadiness22IsNotEgressVerification(t *testing.T){
- root,proc:=readinessFixture(t,"2.2",false)
+func TestCanaryReadiness21IsNotEgressVerification(t *testing.T){
+ root,proc:=readinessFixture(t,"2.1",false)
  got:=canaryReadiness(context.Background(),root,proc)
  if got.State!="CORE_PRECHECK_ONLY" || got.Runtime!="NOT_VERIFIED" ||got.Reason!="BROWSER_SETUP_CUTOVER_AND_EGRESS_NOT_VERIFIED" {
   t.Fatalf("core-only must not be called ready: %+v",got)
@@ -60,8 +60,16 @@ func TestCanaryReadiness22IsNotEgressVerification(t *testing.T){
  if got.State!="STAGING_ONLY"||got.Reason!="LEGACY_08_CUTOVER_BLOCKED"{t.Fatalf("legacy conflict accepted: %+v",got)}
 }
 
+func TestCanaryReadiness22NotReleaseTarget(t *testing.T){
+ root,proc:=readinessFixture(t,"2.2",false)
+ got:=canaryReadiness(context.Background(),root,proc)
+ if got.State!="STOP" || got.Reason!="XKEEN_21_RELEASE_TARGET_REQUIRED" || got.Runtime!="NOT_VERIFIED" {
+  t.Fatalf("2.2 Beta must not replace the HOME 2.1 release baseline: %+v",got)
+ }
+}
+
 func TestCanaryReadinessPartialAndSymlinkFailClosed(t *testing.T){
- root,proc:=readinessFixture(t,"2.2",true)
+ root,proc:=readinessFixture(t,"2.1",true)
  if err:=os.Remove(filepath.Join(root,"etc/init.d/S99freenet-ui"));err!=nil{t.Fatal(err)}
  got:=canaryReadiness(context.Background(),root,proc)
  if got.State!="STOP"||got.Reason!="PARTIAL_LEGACY_FREENET"{t.Fatalf("partial legacy accepted: %+v",got)}
