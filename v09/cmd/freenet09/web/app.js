@@ -19,6 +19,8 @@
       const nativeButtons = document.getElementById("xkeen-service-actions");
       if (nativeButtons) nativeButtons.hidden = false;
       refreshXKeenService();
+      const balancerButtons = document.getElementById("xkeen-balancer-actions");
+      if (balancerButtons) balancerButtons.hidden = false;
     }
   }).catch(() => {});
   logoutButton?.addEventListener("click", async () => {
@@ -110,6 +112,36 @@
   }
   nativeXKeenButtons.forEach(button => button.addEventListener("click",() =>
     nativeXKeenAction(button.dataset.xkeenAction)));
+
+  const nativeBalancerState = document.getElementById("xkeen-balancer-state");
+  const nativeBalancerButtons = document.querySelectorAll("[data-xkeen-balancer]");
+  async function nativeBalancerAction(action) {
+    if (!["next","prev","auto"].includes(action)) return;
+    const label = {next:"следующую ноду",prev:"предыдущую ноду",auto:"автоматический выбор"}[action];
+    if (!window.confirm("Вызвать оригинальный XKeen 2.2 для переключения: " + label + "? Соединение VPN может измениться. Продолжить?")) return;
+    nativeBalancerButtons.forEach(b => {b.disabled=true;});
+    if (nativeBalancerState) nativeBalancerState.textContent="ВЫПОЛНЯЕТСЯ";
+    try {
+      const response=await fetch("/api/native/xkeen/balancer", {
+        method:"POST",credentials:"same-origin",cache:"no-store",redirect:"error",
+        headers:{"Content-Type":"application/json","X-FreeNet-Action":"xkeen-balancer"},
+        body:JSON.stringify({action})
+      });
+      const report=await response.json();
+      const state=response.ok ? String(report?.state || "UNKNOWN") : "STOP";
+      if (nativeBalancerState) nativeBalancerState.textContent=state;
+      status(response.ok
+        ? "Команда XKeen принята; фактический выбор ноды и клиентский VPN/HTTPS: NOT_VERIFIED."
+        : "STOP: штатная операция не подтверждена. Повтор без диагностики запрещён.");
+    } catch (_) {
+      if (nativeBalancerState) nativeBalancerState.textContent="UNKNOWN";
+      status("STOP: состояние переключения неизвестно. Не повторяйте операцию без проверки.");
+    } finally {
+      nativeBalancerButtons.forEach(b => {b.disabled=false;});
+    }
+  }
+  nativeBalancerButtons.forEach(button => button.addEventListener("click", () =>
+    nativeBalancerAction(button.dataset.xkeenBalancer)));
 
   function setField(name, text) {
     document.querySelectorAll('[data-field="' + name + '"]').forEach(el => {
