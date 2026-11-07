@@ -13,6 +13,13 @@ import (
  "testing"
 )
 
+func fakeEntwareNetworkBinary(t *testing.T,root,name,script string) {
+ t.Helper()
+ rel:=filepath.Join("bin",name)
+ writeFixture(t,root,rel,"#!/bin/sh\n"+script)
+ if err:=os.Chmod(filepath.Join(root,rel),0700);err!=nil{t.Fatal(err)}
+}
+
 func legacyDNSFixture(t *testing.T)(string,map[string][]byte){
  t.Helper()
  root:=t.TempDir()
@@ -124,7 +131,7 @@ func TestNativeDNS53OwnerParsing(t *testing.T) {
 
 func TestDNS53OwnerAcceptsOnlyVerifiedEntwareBusyBoxLink(t *testing.T){
  root:=t.TempDir()
- fakeNativeBinary(t,root,"busybox",`if [ "$1" != "netstat" ] || [ "$2" != "-lnptu" ]; then exit 71; fi
+ fakeEntwareNetworkBinary(t,root,"busybox",`if [ "$1" != "netstat" ] || [ "$2" != "-lnptu" ]; then exit 71; fi
 echo 'udp 0 0 0.0.0.0:53 0.0.0.0:* 1261/xray'
 `)
  original:=filepath.Join(root,"bin/busybox")
@@ -145,7 +152,7 @@ func TestNativeDNSCandidateValidatesButNeverApplies(t *testing.T){
 test -d "$4" || exit 14
 exit 0
 `)
- fakeNativeBinary(t,root,"netstat",`echo 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 1261/xray'`)
+ fakeEntwareNetworkBinary(t,root,"netstat",`echo 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 1261/xray'`)
  out:=nativeDNSCandidatePlan(context.Background(),root)
  if out.State!="CANDIDATE_VALIDATED_DNS53_TRANSITION_REQUIRED" ||
     out.DNS53Owner!="XRAY_DNS53"||out.Runtime!="NOT_VERIFIED"||out.Applied {
@@ -177,7 +184,7 @@ func TestNativeDNSCandidateRejectsInvalidXrayWithoutWrites(t *testing.T) {
  fakeNativeBinary(t,root,"xray",`case "$4" in *freenet09-dns-candidate-*) exit 47 ;; esac
 exit 0
 `)
- fakeNativeBinary(t,root,"netstat",`echo 'udp 0 0 0.0.0.0:53 0.0.0.0:* 1261/xray'`)
+ fakeEntwareNetworkBinary(t,root,"netstat",`echo 'udp 0 0 0.0.0.0:53 0.0.0.0:* 1261/xray'`)
  got:=nativeDNSCandidatePlan(context.Background(),root)
  if got.State!="CANDIDATE_REJECTED"||got.Applied{t.Fatalf("invalid candidate accepted: %+v",got)}
  after,err:=readNativeConfdir(root)
