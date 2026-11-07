@@ -147,6 +147,17 @@
           </div>
           <div class="notice compact"><span class="notice-icon">i</span><p>Остановка XKeen может прервать VPN. Каждое действие требует подтверждения и доступно только через авторизованный HTTPS. Одновременное применение подписки блокируется.</p></div>
         </article>
+        <article class="panel">
+          <div class="panel-heading"><h2>Балансировщик XKeen 2.2 Beta</h2>
+            <span class="state-chip neutral" id="xkeen-balancer-state">НЕ ПРОВЕРЕНО</span></div>
+          <p class="muted">Штатный XKeen -sb переключает ноды существующего балансировщика. FreeNet не создаёт свой balancer и не меняет routing/DNS.</p>
+          <div class="subscription-apply-actions" id="xkeen-balancer-actions" hidden>
+            <button type="button" class="btn outline" data-xkeen-balancer="prev">Предыдущая нода</button>
+            <button type="button" class="btn outline" data-xkeen-balancer="next">Следующая нода</button>
+            <button type="button" class="btn outline" data-xkeen-balancer="auto">Вернуть автовыбор</button>
+          </div>
+          <div class="notice compact"><span class="notice-icon">i</span><p>Только оригинальный XKeen 2.2, авторизованный HTTPS и подтверждение действия. Результат команды не доказывает переключение на конкретную ноду или клиентский VPN/HTTPS. При неизвестном состоянии — STOP.</p></div>
+        </article>
         <article class="panel"><div class="panel-heading"><h2>Штатные задания cron</h2></div><div class="list-line"><div><strong>Обновление GeoData / GeoIPSET</strong><small>XKeen `-ug`</small></div><span class="state-chip neutral" data-field="geoCron">{{.System.XKeenGeoCron}}</span></div>
           <div class="list-line"><div><strong>Балансировка по скорости</strong><small>XKeen `-sbt`</small></div><span class="state-chip neutral" data-field="speedCron">{{.System.XKeenBalancerCron}}</span></div></article>
       </section>
