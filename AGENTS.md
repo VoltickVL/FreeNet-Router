@@ -8,6 +8,8 @@
 
 **Решение Management 07.11.2026 — закреплённый ориентир:** FreeNet 0.9 разрабатывается против **XKeen 2.2 Beta**, не против 2.1 Stable. Перед любой интеграцией нужно проверить точный upstream 2.2 Beta tag/commit и соответствующие CLI/init/config/updater. Предположения и успешные тесты для 2.1 не доказывают совместимость; неподтверждённое действие = STOP. **Новое решение Management 07.11.2026:** первый canary — **HOME** сегодня, затем PORTABLE, затем WORK; HOME не менять автоматически, только после read-only preflight и контролируемого safe cutover. Это заменяет прежний приоритет PORTABLE-first. Это не разрешение обновлять установленный XKeen автоматически.
 
+**Важное уточнение Management 07.11.2026 (DNS/чистая установка):** целевой FreeNet 0.9 не должен наследовать собственный DNS proxy/Split DNS, AutoVPN, cron или DNS/PBR orchestration старой 0.8. Сохраняются **семантика пользовательских DIRECT/VPN/ISP правил** и приватная подписка, но не старые технические DNS-зависимости. Legacy 0.8 встроила DNS-specific `dns-direct`/`dns-vless`/`dns-out` в стандартные Xray `02_dns.json`, `04_outbounds.json`, `05_routing.json`. Поэтому перед чистой установкой 0.9 конфигурация требует provenance/dependency audit; не копировать/очищать её автоматически. 0.9 управляет только штатными native XKeen/Xray функциями. HOME сейчас работает на 0.8+XKeen 2.1+Xray 26.10.31, сам 0.9 не установлен, штатное обновление XKeen до 2.2 Beta ещё не применено.
+
 ### Непересматриваемые границы
 
 1. **Xray — единственное VPN/proxy/DNS/routing ядро. XKeen — единственная штатная интеграция с Keenetic/Netcraze**, сетевыми хуками, IPSET и управлением core. FreeNet — UI, orchestration и минимальные адаптеры к поддерживаемому upstream API/CLI/config.
