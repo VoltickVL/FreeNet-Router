@@ -240,8 +240,21 @@ func buildLegacySplitFreeXrayCandidate(src map[string][]byte)(map[string][]byte,
 
 func readNativeDNS53Owner(ctx context.Context,root string)string {
     path:=filepath.Join(root,"bin/netstat")
-    if observedPath(root,"bin/netstat",false)!="PRESENT" {
-        // Only the real Entware root may use the BusyBox OS netstat.
+    args:=[]string{"-lnptu"}
+    switch observedPath(root,"bin/netstat",false) {
+    case "PRESENT":
+        // A direct netstat executable inside verified Entware.
+    case "UNKNOWN":
+        // HOME has original Entware /opt/bin/netstat -> /opt/bin/busybox.
+        // Never follow an arbitrary symlink into untrusted/external code.
+        link,err:=os.Readlink(path)
+        busybox:=filepath.Join(root,"bin/busybox")
+        if err!=nil || (link!=busybox && link!="busybox") ||
+            observedPath(root,"bin/busybox",false)!="PRESENT" {return "UNKNOWN"}
+        path=busybox
+        args=[]string{"netstat","-lnptu"}
+    default:
+        // Some routers have the BusyBox applet in /bin instead.
         if filepath.Clean(root)!="/opt" {return "UNKNOWN"}
         path="/bin/netstat"
     }
@@ -249,7 +262,7 @@ func readNativeDNS53Owner(ctx context.Context,root string)string {
     if err!=nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111==0{return "UNKNOWN"}
     limited,cancel:=context.WithTimeout(ctx,3*time.Second)
     defer cancel()
-    cmd:=exec.CommandContext(limited,path,"-lnptu")
+    cmd:=exec.CommandContext(limited,path,args...)
     cmd.Stdin=nil
     cmd.Stderr=io.Discard
     raw,err:=cmd.Output()
