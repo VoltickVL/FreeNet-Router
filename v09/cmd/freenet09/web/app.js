@@ -7,20 +7,28 @@
   const feedback = document.getElementById("feedback");
   const refresh = document.getElementById("refresh");
   const logoutButton = document.getElementById("admin-logout");
+  let secureControlCenterAuthenticated = false;
+  let detectedXKeenVersion = "";
+  function updateNativeBalancerButtons() {
+    const actions = document.getElementById("xkeen-balancer-actions");
+    if (actions) actions.hidden = !(secureControlCenterAuthenticated && detectedXKeenVersion === "2.2");
+    const state = document.getElementById("xkeen-balancer-state");
+    if (state && detectedXKeenVersion === "2.1") state.textContent = "НЕТ В XKEEN 2.1";
+  }
   fetch("/api/auth/status", {cache:"no-store",credentials:"same-origin"}).then(r => {
     if (!r.ok) return null;
     return r.json();
   }).then(result => {
+    secureControlCenterAuthenticated = Boolean(result?.authenticated && location.protocol === "https:");
+    updateNativeBalancerButtons();
     if (result?.authenticated && logoutButton) logoutButton.hidden = false;
-    if (result?.authenticated && location.protocol === "https:") {
+    if (secureControlCenterAuthenticated) {
       const actions = document.getElementById("subscription-apply-actions");
       if (actions) actions.hidden = false;
       loadNativeRouteTargets().then(loadAppliedSubscriptionStatus);
       const nativeButtons = document.getElementById("xkeen-service-actions");
       if (nativeButtons) nativeButtons.hidden = false;
       refreshXKeenService();
-      const balancerButtons = document.getElementById("xkeen-balancer-actions");
-      if (balancerButtons) balancerButtons.hidden = false;
     }
   }).catch(() => {});
   logoutButton?.addEventListener("click", async () => {
@@ -216,6 +224,8 @@
       const canaryReason=document.getElementById("canary-readiness-reason");
       if (canaryState) canaryState.textContent=String(canaryReadiness.state || "STOP");
       if (canaryReason) canaryReason.textContent=String(canaryReadiness.reason || "NATIVE_STATE_UNKNOWN");
+      detectedXKeenVersion = versions.xkeen?.state === "VERSION_DETECTED" ? String(versions.xkeen.version || "") : "";
+      updateNativeBalancerButtons();
       setField("xkeenVersion", nativeVersionLabel(versions.xkeen));
       setField("xrayVersion", nativeVersionLabel(versions.xray));
       setField("binaryXray", overview.xray || "UNKNOWN");
