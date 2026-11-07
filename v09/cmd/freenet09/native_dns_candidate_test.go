@@ -128,7 +128,7 @@ func TestNativeDNSCandidateValidatesButNeverApplies(t *testing.T){
 test -d "$4" || exit 14
 exit 0
 `)
- fakeNativeBinary(t,root,"netstat",`printf '%s\\n' 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 1261/xray'`)
+ fakeNativeBinary(t,root,"netstat",`echo 'tcp 0 0 0.0.0.0:53 0.0.0.0:* LISTEN 1261/xray'`)
  out:=nativeDNSCandidatePlan(context.Background(),root)
  if out.State!="CANDIDATE_VALIDATED_DNS53_TRANSITION_REQUIRED" ||
     out.DNS53Owner!="XRAY_DNS53"||out.Runtime!="NOT_VERIFIED"||out.Applied {
@@ -160,7 +160,7 @@ func TestNativeDNSCandidateRejectsInvalidXrayWithoutWrites(t *testing.T) {
  fakeNativeBinary(t,root,"xray",`case "$4" in *freenet09-dns-candidate-*) exit 47 ;; esac
 exit 0
 `)
- fakeNativeBinary(t,root,"netstat",`printf '%s\\n' 'udp 0 0 0.0.0.0:53 0.0.0.0:* 1261/xray'`)
+ fakeNativeBinary(t,root,"netstat",`echo 'udp 0 0 0.0.0.0:53 0.0.0.0:* 1261/xray'`)
  got:=nativeDNSCandidatePlan(context.Background(),root)
  if got.State!="CANDIDATE_REJECTED"||got.Applied{t.Fatalf("invalid candidate accepted: %+v",got)}
  after,err:=readNativeConfdir(root)
