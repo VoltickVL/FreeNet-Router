@@ -77,8 +77,7 @@ func dnsSummary(root string) nativeConfigSummary {
     for _,rawServer:=range doc.DNS.Servers {
         // Inspect tag *only*; never return resolver URL, credential or rule.
         var entry struct { Tag string `json:"tag"` }
-        if len(rawServer)>0 && rawServer[0]=='{' &&
-            json.Unmarshal(rawServer,&entry)==nil &&
+        if json.Unmarshal(rawServer,&entry)==nil &&
             (entry.Tag=="dns-direct" || entry.Tag=="dns-vless") {
             state="LEGACY_SPLIT_REVIEW_REQUIRED"
         }
