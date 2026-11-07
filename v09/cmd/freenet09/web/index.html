@@ -62,6 +62,16 @@
           <div class="list-line"><div><strong>Ограничение / следующий шаг</strong></div><span class="small-code" id="canary-readiness-reason">UNKNOWN</span></div>
           <div class="notice compact"><span class="notice-icon">i</span><p>STAGING_ONLY = можно готовить отдельную версию 0.9, но нельзя переключать контроллер или обновлять XKeen автоматически. STOP = частичное либо неизвестное состояние. CORE_PRECHECK_ONLY не означает готовность к релизу.</p></div>
         </article>
+        <article class="panel">
+          <div class="panel-heading"><h2>Существующие правила и подписка</h2>
+            <span class="state-chip neutral" id="native-preservation-state">НЕ ПРОВЕРЕНО</span></div>
+          <p class="muted">FreeNet 0.9 устанавливается с нуля. Настройки принадлежат роутеру и остаются на месте — никакой миграции из FreeNet 0.8. Здесь показано только наличие источников, не их содержимое.</p>
+          <div class="info-block"><span>DNS Xray</span><strong data-native-preservation="dns">UNKNOWN</strong></div>
+          <div class="info-block"><span>Маршрутизация Xray</span><strong data-native-preservation="routing">UNKNOWN</strong></div>
+          <div class="info-block"><span>Исходящие VPN-серверы</span><strong data-native-preservation="outbounds">UNKNOWN</strong></div>
+          <div class="info-block"><span>Личная подписка (URL скрыт)</span><strong data-native-preservation="subscription">UNKNOWN</strong></div>
+          <p class="muted">PRESENT — файл существует. Это не подтверждение VPN/DNS/HTTPS и не разрешение менять работающие правила.</p>
+        </article>
         <div class="component-grid">
           <article class="component-card"><div class="component-top"><span class="mini-logo infinity">∞</span><span class="state-chip purple">PREVIEW</span></div><h3>FreeNet</h3>
             <div class="component-version">{{.Version}}</div><p>Новая веб-панель · без наследия 0.8</p></article>
