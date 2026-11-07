@@ -12,15 +12,16 @@ import (
 
 func TestPreservedNativeSourcesHomeReadOnlyAndNoSecretLeak(t *testing.T) {
  root:=t.TempDir()
- writeFixture(t,root,"etc/xray/configs/02_dns.json",`{"servers":["private-dns.local"]}`)
- writeFixture(t,root,"etc/xray/configs/04_outbounds.json",`{"outbounds":[{"tag":"MY-PRIVATE-ROUTE"}]}`)
- writeFixture(t,root,"etc/xray/configs/05_routing.json",`{"rules":[{"domain":["secret.example"]}]}`)
+ writeFixture(t,root,"etc/xray/configs/02_dns.json",`{"dns":{"servers":[{"tag":"dns-direct","address":"private-dns.local"},{"tag":"dns-vless","address":"https://secret.example/dns-query"}]}}`)
+ writeFixture(t,root,"etc/xray/configs/04_outbounds.json",`{"outbounds":[{"tag":"dns-out","protocol":"dns"},{"tag":"MY-PRIVATE-ROUTE"}]}`)
+ writeFixture(t,root,"etc/xray/configs/05_routing.json",`{"routing":{"rules":[{"inboundTag":["dns-vless"],"outboundTag":"vless-reality"},{"domain":["secret.example"]}]}}`)
  writeFixture(t,root,"etc/xray/blanc_subscription.url","https://secret-user:secret-password@secret.example/vpn?token=SECRET-SUBSCRIPTION")
  writeFixture(t,root,"sbin/freenet-ui","legacy")
  writeFixture(t,root,"etc/init.d/S99freenet-ui","legacy")
  // Native XKeen may not have an xkeen.json; this is optional on HOME.
  report:=preservedNativeSources(root)
- if report.State!="NATIVE_INPUTS_DETECTED" ||
+ if report.State!="NATIVE_CONFIG_REVIEW_REQUIRED" ||
+  report.ConfigPolicy!="REVIEW_LEGACY_SPLIT_DNS_DEPENDENCIES_BEFORE_APPLY" ||
   report.DNS!="PRESENT"||report.Routing!="PRESENT"||
   report.Outbounds!="PRESENT"||report.Subscription!="PRESENT"||
   report.XKeenConfig!="MISSING"||report.Runtime!="NOT_VERIFIED" {
