@@ -67,7 +67,7 @@ func dnsSummary(root string) nativeConfigSummary {
         // Original XKeen ships a JSONC 02_dns.json with an empty object:
         // Xray DNS is not configured here. This is not missing or broken.
         var empty map[string]json.RawMessage
-        if json.Unmarshal(raw,&empty)==nil && len(empty)==0 {
+        if json.Unmarshal(raw,&empty)==nil && empty!=nil && len(empty)==0 {
             return nativeConfigSummary{State:"NATIVE_DEFAULT",Count:0,Mode:"not-configured"}
         }
         return fail
