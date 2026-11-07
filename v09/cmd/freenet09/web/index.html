@@ -144,6 +144,15 @@
           <div class="panel detail-card"><span>Серверов DNS</span><h2 data-field="dnsCount">{{.System.DNS.Count}}</h2></div>
           <div class="panel detail-card"><span>Query strategy</span><h2 data-field="dnsMode">{{.System.DNS.Mode}}</h2></div>
         </div>
+        <article class="panel">
+          <div class="panel-heading"><h2>Проверка DNS-кандидата без Split DNS 0.8</h2>
+            <span class="state-chip caution" id="dns-candidate-state">НЕ ЗАПУСКАЛАСЬ</span></div>
+          <p class="muted">FreeNet формирует временный Xray-кандидат, исключая только подтверждённые технические DNS-зависимости старой 0.8, и проверяет его штатным Xray. Исходные правила, подписка, службы и порт 53 не меняются.</p>
+          <div class="list-line"><strong>Владелец DNS :53</strong><span class="small-code" id="dns-candidate-owner">UNKNOWN</span></div>
+          <div class="list-line"><strong>Исключённые DNS-only правила (кандидат)</strong><span class="small-code" id="dns-candidate-count">0</span></div>
+          <button type="button" class="btn outline" id="dns-candidate-check">Проверить кандидата без применения</button>
+          <p class="muted">При XRAY_DNS53 изменение рабочего DNS запрещено до безопасной передачи порта 53. Даже VALIDATED CONFIG не подтверждает клиентский DNS или VPN.</p>
+        </article>
         <div class="notice"><span class="notice-icon">i</span><div><strong>Выполнение DNS не подтверждено</strong><p>Наличие DNS-конфига не доказывает, что клиент использует нужный резолвер или что TXT/SRV работают. Для применения и проверки будет использован штатный Xray/XKeen.</p></div></div>
       </section>
 
