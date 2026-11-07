@@ -1,5 +1,22 @@
-# FreeNet Router
+# FreeNet Router — архив закрытого продукта
 
+> **СТАТУС: РАЗРАБОТКА И УСТАНОВКА FREENET ПРЕКРАЩЕНЫ (08.11.2026).**
+> Не устанавливать FreeNet 0.8/0.9, не продолжать разработку версии 0.9, собственного Split DNS, AutoVPN, cron, Browser Setup и фоновых сервисов. Старый код, релизные планы и текст ниже оставлены только для истории.
+>
+> **Новая поддерживаемая архитектура:** официальный [XKeen](https://github.com/jameszeroX/XKeen) + [Xray](https://github.com/XTLS/Xray-core) + [Xkeen UI](https://github.com/umarcheh001/Xkeen-UI) (без FreeNet). HOME и WORK уже мигрировали.
+>
+> **Начинать новые работы только отсюда:**
+> - **[Проверенный runbook миграции HOME/WORK → PORTABLE/MOM (512 МБ)](docs/XKEEN_UI_MIGRATION_RUNBOOK.md)** — шаги, маршрутизация, Hybrid, DNS-over-VLESS, GeoDAT, QA/rollback.
+> - **[Активная задача XKeen UI Config #1409](https://github.com/VoltickVL/FreeNet-Router/issues/1409)** — завтра PORTABLE Keenetic Giga 512 МБ, затем Ultra 512 МБ у мамы; здесь вести новые факты.
+> - [История миграции #7](https://github.com/VoltickVL/FreeNet-Router/issues/7) — закрытый исторический журнал, не текущая стратегия.
+>
+> До завершения миграции остальных роутеров GitHub-репозиторий оставляем **доступным для редактирования документации и issue**, но прежний FreeNet считается снятым с эксплуатации. После завершения миграций можно архивировать и сам репозиторий.
+
+---
+
+## Ниже — историческое README FreeNet (НЕ инструкция по установке)
+
+### FreeNet Router — прежнее описание
 **FreeNet Router** — локальный Control Center для Keenetic/Netcraze с Entware, XKeen и Xray. Он управляет VPN, DNS, маршрутизацией, автоматическим восстановлением VPN, подпиской и обновлениями через браузер. SSH нужен только для первичного bootstrap или аварийной диагностики.
 
 Целевой путь для нового устройства:
