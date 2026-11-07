@@ -205,13 +205,21 @@
     if (refresh) refresh.disabled = true;
     if (!silent) setField("xrayValidation", "НЕ ЗАПУСКАЛАСЬ");
     try {
-      const [overview, topology, system, versions, canaryReadiness] = await Promise.all([
+      const [overview, topology, system, versions, canaryReadiness, nativePreservation] = await Promise.all([
         readJSON("/api/overview"),
         readJSON("/api/native/xray/topology"),
         readJSON("/api/native/system"),
         readJSON("/api/native/versions"),
-        readJSON("/api/native/canary-readiness")
+        readJSON("/api/native/canary-readiness"),
+        readJSON("/api/native/preserved-sources")
       ]);
+      const preservedState = document.getElementById("native-preservation-state");
+      if (preservedState) preservedState.textContent = String(nativePreservation.state || "STOP");
+      document.querySelectorAll("[data-native-preservation]").forEach(el => {
+        const key = el.dataset.nativePreservation;
+        el.textContent = ["dns", "routing", "outbounds", "subscription"].includes(key)
+          ? String(nativePreservation[key] || "UNKNOWN") : "UNKNOWN";
+      });
       const canaryState=document.getElementById("canary-readiness-state");
       const canaryReason=document.getElementById("canary-readiness-reason");
       if (canaryState) canaryState.textContent=String(canaryReadiness.state || "STOP");
