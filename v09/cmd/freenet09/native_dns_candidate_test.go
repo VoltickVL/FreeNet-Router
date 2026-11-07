@@ -122,6 +122,23 @@ func TestNativeDNS53OwnerParsing(t *testing.T) {
  }
 }
 
+func TestDNS53OwnerAcceptsOnlyVerifiedEntwareBusyBoxLink(t *testing.T){
+ root:=t.TempDir()
+ fakeNativeBinary(t,root,"busybox",`if [ "$1" != "netstat" ] || [ "$2" != "-lnptu" ]; then exit 71; fi
+echo 'udp 0 0 0.0.0.0:53 0.0.0.0:* 1261/xray'
+`)
+ original:=filepath.Join(root,"bin/busybox")
+ if err:=os.Symlink(original,filepath.Join(root,"bin/netstat"));err!=nil{t.Skip(err)}
+ if got:=readNativeDNS53Owner(context.Background(),root);got!="XRAY_DNS53"{
+  t.Fatalf("official BusyBox netstat symlink not recognised: %s",got)
+ }
+ if err:=os.Remove(filepath.Join(root,"bin/netstat"));err!=nil{t.Fatal(err)}
+ if err:=os.Symlink("/tmp/unsafe-unrelated-binary",filepath.Join(root,"bin/netstat"));err!=nil{t.Skip(err)}
+ if got:=readNativeDNS53Owner(context.Background(),root);got!="UNKNOWN"{
+  t.Fatalf("unsafe external netstat symlink accepted: %s",got)
+ }
+}
+
 func TestNativeDNSCandidateValidatesButNeverApplies(t *testing.T){
  root,before:=legacyDNSFixture(t)
  fakeNativeBinary(t,root,"xray",`if [ "$1" != "run" ] || [ "$2" != "-test" ] || [ "$3" != "-confdir" ]; then exit 13; fi
