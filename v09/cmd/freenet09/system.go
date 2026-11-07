@@ -48,11 +48,13 @@ func safeConfigMode(input, fallback string, allowed ...string) string {
 
 func dnsSummary(root string) nativeConfigSummary {
     fail:=nativeConfigSummary{State:"UNKNOWN",Mode:"NOT_VERIFIED"}
-    if observedPath(root,"etc/xray/configs/03_dns.json",false)=="MISSING" {
+    // XKeen 2.2 Beta upstream uses 02_dns.json, not 03_dns.json
+    // (03_inbounds.json). Never derive this path from legacy FreeNet.
+    if observedPath(root,"etc/xray/configs/02_dns.json",false)=="MISSING" {
         fail.State="MISSING"
         return fail
     }
-    raw,err:=nativeConfig(root,"03_dns.json")
+    raw,err:=nativeConfig(root,"02_dns.json")
     if err!=nil{return fail}
     var doc struct {
         DNS *struct {
@@ -60,10 +62,28 @@ func dnsSummary(root string) nativeConfigSummary {
             QueryStrategy string `json:"queryStrategy"`
         } `json:"dns"`
     }
-    if json.Unmarshal(raw,&doc)!=nil || doc.DNS==nil{return fail}
+    if json.Unmarshal(raw,&doc)!=nil {return fail}
+    if doc.DNS==nil {
+        // Original XKeen ships a JSONC 02_dns.json with an empty object:
+        // Xray DNS is not configured here. This is not missing or broken.
+        var empty map[string]json.RawMessage
+        if json.Unmarshal(raw,&empty)==nil && empty!=nil && len(empty)==0 {
+            return nativeConfigSummary{State:"NATIVE_DEFAULT",Count:0,Mode:"not-configured"}
+        }
+        return fail
+    }
     if len(doc.DNS.Servers)>256 {return fail}
+    state:="CONFIG_ONLY"
+    for _,rawServer:=range doc.DNS.Servers {
+        // Inspect tag *only*; never return resolver URL, credential or rule.
+        var entry struct { Tag string `json:"tag"` }
+        if json.Unmarshal(rawServer,&entry)==nil &&
+            (entry.Tag=="dns-direct" || entry.Tag=="dns-vless") {
+            state="LEGACY_SPLIT_REVIEW_REQUIRED"
+        }
+    }
     return nativeConfigSummary{
-        State:"CONFIG_ONLY",Count:len(doc.DNS.Servers),
+        State:state,Count:len(doc.DNS.Servers),
         Mode:safeConfigMode(doc.DNS.QueryStrategy,"not-specified","UseIP","UseIPv4","UseIPv6"),
     }
 }
