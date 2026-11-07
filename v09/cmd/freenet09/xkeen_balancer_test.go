@@ -91,3 +91,20 @@ func TestXKeen22BalancerBrowserWiring(t *testing.T){
   for _,part:=range parts {if !strings.Contains(w.Body.String(),part){t.Fatalf("%s lacks %s",path,part)}}
  }
 }
+
+func TestXKeen21ReleaseUIHidesUnsupportedBetaControls(t *testing.T){
+ raw,err:=webAssets.ReadFile("web/app.js")
+ if err!=nil {t.Fatal(err)}
+ script:=string(raw)
+ for _,part:=range []string{
+  `detectedXKeenVersion === "2.2"`,
+  `secureControlCenterAuthenticated && detectedXKeenVersion === "2.2"`,
+  `actions.hidden = !(secureControlCenterAuthenticated && detectedXKeenVersion === "2.2")`,
+  `detectedXKeenVersion === "2.1"`,
+ } {
+  if !strings.Contains(script,part){t.Fatalf("missing 2.1/2.2 guarded UI condition: %s",part)}
+ }
+ if strings.Contains(script,`balancerButtons.hidden = false`) {
+  t.Fatal("beta-only balancer actions unconditionally enabled for XKeen 2.1")
+ }
+}
