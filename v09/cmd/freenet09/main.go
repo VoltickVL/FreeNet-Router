@@ -144,6 +144,10 @@ func handlersWithProc(root,procRoot string) http.Handler {
         w.Header().Set("Content-Type","application/json; charset=utf-8")
         _ = json.NewEncoder(w).Encode(nativeSystemStatus(root,procRoot))
     })
+    mux.HandleFunc("GET /api/native/preserved-sources",func(w http.ResponseWriter,r *http.Request) {
+        w.Header().Set("Content-Type","application/json; charset=utf-8")
+        _=json.NewEncoder(w).Encode(preservedNativeSources(root))
+    })
     mux.HandleFunc("GET /api/native/canary-readiness",func(w http.ResponseWriter,r *http.Request) {
         w.Header().Set("Content-Type","application/json; charset=utf-8")
         _=json.NewEncoder(w).Encode(canaryReadiness(r.Context(),root,procRoot))
