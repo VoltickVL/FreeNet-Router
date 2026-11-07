@@ -18,7 +18,7 @@ func TestNativeSystemUsesOnlyOfficialEvidence(t *testing.T) {
     writeFixture(t,root,"sbin/xkeen","NATIVE-XKEEN")
     writeFixture(t,root,"etc/init.d/S05xkeen","# native init")
     writeFixture(t,root,"etc/xkeen/xkeen.json",`{"credential":"SECRET-XKEEN-DO-NOT-SHOW"}`)
-    writeFixture(t,root,"etc/xray/configs/03_dns.json",`{
+    writeFixture(t,root,"etc/xray/configs/02_dns.json",`{
         // Native Xray DNS
         "dns":{"servers":["https://DNS-SECRET-DO-NOT-SHOW/dns-query",{"address":"1.1.1.1"}],"queryStrategy":"UseIPv4"}
     }`)
@@ -68,9 +68,9 @@ func TestNativeSystemUnknownAndFailClosed(t *testing.T) {
         state.GeoData.State!="MISSING" || state.XKeenGeoCron!="NOT_CONFIGURED" {
         t.Fatalf("missing native stack must not appear healthy: %+v",state)
     }
-    writeFixture(t,root,"etc/xray/configs/03_dns.json",`{"dns":{"servers":[],"queryStrategy":"password=secret"}}`)
+    writeFixture(t,root,"etc/xray/configs/02_dns.json",`{"dns":{"servers":[],"queryStrategy":"password=secret"}}`)
     if got:=dnsSummary(root);got.Mode!="not-specified" {t.Fatalf("unknown DNS strategy leaked: %+v",got)}
-    writeFixture(t,root,"etc/xray/configs/03_dns.json",`{"dns":"bad-structure"}`)
+    writeFixture(t,root,"etc/xray/configs/02_dns.json",`{"dns":"bad-structure"}`)
     if got:=dnsSummary(root);got.State!="UNKNOWN" {t.Fatalf("bad native DNS should be unknown: %+v",got)}
     writeFixture(t,root,"var/spool/cron/crontabs/root","# /opt/sbin/xkeen -ug\n* * * * * /opt/bin/something-else\n")
     if a,b:=nativeCron(root);a!="NOT_CONFIGURED"||b!="NOT_CONFIGURED" {t.Fatalf("comments counted as active cron: %s %s",a,b)}
@@ -98,4 +98,43 @@ func TestNativeSystemHTTPRejectsMutations(t *testing.T) {
             t.Fatalf("%s unexpectedly accepted on native read-only API",method)
         }
     }
+}
+
+func TestOfficialXKeenDNSSourceAndLegacyEvidence(t *testing.T) {
+    root:=t.TempDir()
+    // A legacy or stray 03_dns.json is not native 02_dns.json.
+    writeFixture(t,root,"etc/xray/configs/03_dns.json",`{"dns":{"servers":["WRONG-LEGACY-DNS"]}}`)
+    if got:=dnsSummary(root);got.State!="MISSING" || got.Count!=0 {
+        t.Fatalf("stray 03_dns.json must not count as official DNS: %+v",got)
+    }
+    // XKeen 2.2 Beta's documented default DNS fragment is effectively {}.
+    writeFixture(t,root,"etc/xray/configs/02_dns.json","{\n // original native XKeen DNS: empty\n}\n")
+    if got:=dnsSummary(root);got.State!="NATIVE_DEFAULT" || got.Count!=0 ||
+        got.Mode!="not-configured" {
+        t.Fatalf("neutral Xray DNS incorrectly reported: %+v",got)
+    }
+    // The previous FreeNet 0.8 embedded Split DNS tags in normal Xray
+    // fragments; never equate their presence with clean 0.9 native DNS.
+    writeFixture(t,root,"etc/xray/configs/02_dns.json",`{
+        "dns":{"servers":[
+          {"tag":"dns-direct","address":"SECRET-direct.example"},
+          {"tag":"dns-vless","address":"https://SECRET-vpn.example/dns-query"}
+        ],"queryStrategy":"UseIPv4"}
+    }`)
+    got:=dnsSummary(root)
+    if got.State!="LEGACY_SPLIT_REVIEW_REQUIRED" || got.Count!=2 ||
+        got.Mode!="UseIPv4" {
+        t.Fatalf("legacy DNS not flagged for dependency review: %+v",got)
+    }
+    w:=httptest.NewRecorder()
+    handlersWithProc(root,t.TempDir()).ServeHTTP(w,httptest.NewRequest("GET","/api/native/system",nil))
+    for _,secret:=range []string{"SECRET-direct.example","SECRET-vpn.example","WRONG-LEGACY-DNS"} {
+        if strings.Contains(w.Body.String(),secret) {t.Fatalf("DNS API leaked %q",secret)}
+    }
+    if !strings.Contains(w.Body.String(),"LEGACY_SPLIT_REVIEW_REQUIRED") {
+        t.Fatal("native API did not expose legacy review status")
+    }
+    if err:=os.Remove(filepath.Join(root,"etc/xray/configs/02_dns.json"));err!=nil {t.Fatal(err)}
+    if err:=os.Symlink("/tmp/unsafe-external-dns",filepath.Join(root,"etc/xray/configs/02_dns.json"));err!=nil {t.Skip(err)}
+    if got:=dnsSummary(root);got.State!="UNKNOWN" {t.Fatalf("symlink DNS accepted: %+v",got)}
 }
