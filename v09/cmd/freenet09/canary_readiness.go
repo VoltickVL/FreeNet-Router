@@ -42,14 +42,10 @@ func canaryReadiness(ctx context.Context, root, procRoot string) nativeCanaryRea
  }
  out.XKeen=vers.XKeen.Version
  out.Xray=vers.Xray.Version
- // Never infer that 2.1 Stable works with 2.2-only operations.
- if out.XKeen!="2.2" {
-  if out.Legacy=="PRESENT" && out.XKeen=="2.1" {
-   out.State="STAGING_ONLY"
-   out.Reason="XKEEN_21_LEGACY_08_CUTOVER_BLOCKED"
-  }else{
-   out.Reason="XKEEN_22_REQUIRED"
-  }
+ // Release baseline is the installed XKeen 2.1 Stable. Do not upgrade
+ // the upstream core to 2.2 Beta or accept 2.2-only operations by guessing.
+ if out.XKeen!="2.1" {
+  out.Reason="XKEEN_21_RELEASE_TARGET_REQUIRED"
   return out
  }
  if out.Legacy=="PRESENT" {
