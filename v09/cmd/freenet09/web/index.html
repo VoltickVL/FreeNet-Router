@@ -63,14 +63,14 @@
           <div class="notice compact"><span class="notice-icon">i</span><p>STAGING_ONLY = можно готовить отдельную версию 0.9, но нельзя переключать контроллер или обновлять XKeen автоматически. STOP = частичное либо неизвестное состояние. CORE_PRECHECK_ONLY не означает готовность к релизу.</p></div>
         </article>
         <article class="panel">
-          <div class="panel-heading"><h2>Существующие правила и подписка</h2>
+          <div class="panel-heading"><h2>Существующие настройки: проверка перед установкой</h2>
             <span class="state-chip neutral" id="native-preservation-state">НЕ ПРОВЕРЕНО</span></div>
-          <p class="muted">FreeNet 0.9 устанавливается с нуля. Настройки принадлежат роутеру и остаются на месте — никакой миграции из FreeNet 0.8. Здесь показано только наличие источников, не их содержимое.</p>
-          <div class="info-block"><span>DNS Xray</span><strong data-native-preservation="dns">UNKNOWN</strong></div>
+          <p class="muted">FreeNet 0.9 устанавливается с нуля, без переноса Split DNS и другой логики FreeNet 0.8. Наличие файла Xray ещё не означает, что его текущие DNS- и routing-правила можно использовать без проверки: старая версия могла встроить свою схему в штатный JSON.</p>
+          <div class="info-block"><span>Файл DNS Xray (проверить на legacy Split DNS)</span><strong data-native-preservation="dns">UNKNOWN</strong></div>
           <div class="info-block"><span>Маршрутизация Xray</span><strong data-native-preservation="routing">UNKNOWN</strong></div>
           <div class="info-block"><span>Исходящие VPN-серверы</span><strong data-native-preservation="outbounds">UNKNOWN</strong></div>
           <div class="info-block"><span>Личная подписка (URL скрыт)</span><strong data-native-preservation="subscription">UNKNOWN</strong></div>
-          <p class="muted">PRESENT — файл существует. Это не подтверждение VPN/DNS/HTTPS и не разрешение менять работающие правила.</p>
+          <p class="muted">PRESENT означает лишь наличие файла. До применения необходимо отделить пользовательские маршруты и подписку от технических DNS-зависимостей 0.8; не менять действующую конфигурацию автоматически.</p>
         </article>
         <div class="component-grid">
           <article class="component-card"><div class="component-top"><span class="mini-logo infinity">∞</span><span class="state-chip purple">PREVIEW</span></div><h3>FreeNet</h3>
