@@ -296,6 +296,9 @@ func validateDisposableDNSCandidate(ctx context.Context,root string,files map[st
 }
 
 func nativeDNSCandidatePlan(ctx context.Context,root string)nativeDNSCandidateReport{
+    limited,cancel:=context.WithTimeout(ctx,18*time.Second)
+    defer cancel()
+    ctx=limited
     fail:=stoppedDNSCandidate()
     files,err:=readNativeConfdir(root)
     if err!=nil{return fail}
