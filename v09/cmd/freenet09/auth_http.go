@@ -117,6 +117,10 @@ func secureControlCenter(root,procRoot string,auth *adminAuth) http.Handler {
             nativeXKeenServiceHTTP(w,r,root,procRoot,nativeMutationGate)
             return
         }
+        if r.URL.Path=="/api/native/xkeen/balancer" {
+            nativeBalancerHTTP(w,r,root,procRoot,nativeMutationGate)
+            return
+        }
         // Read-only native APIs and subscription preview remain protected.
         base.ServeHTTP(w,r)
     })
